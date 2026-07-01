@@ -702,7 +702,16 @@ thinking_control_format = "chat_template_kwargs"
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-let test_openai_compat_runpod_proxy_label_stays_raw_fail_closed () =
+(* This model_id/base_url pair resolves to the real "runpod_mtp/qwen36-35b-a3b-mtp"
+   row in the repo's own models.toml (a genuine provider-qualified catalog
+   declaration, not a bare/global fallback), so capabilities_for_config_model
+   is expected to find it - the raw-OpenAI-compat fail-closed policy only
+   withholds capabilities when there is no such explicit declaration.
+   Regression for the bug fixed alongside test_openai_compat_runpod_proxy_
+   label_uses_declared_catalog_dialect: this used to assert None here, which
+   only held because the provider-qualified catalog hit was incorrectly
+   discarded by the same guard meant for the bare fallback. *)
+let test_openai_compat_runpod_proxy_label_uses_real_catalog_declaration () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -714,10 +723,16 @@ let test_openai_compat_runpod_proxy_label_stays_raw_fail_closed () =
     "RunPod proxy capability namespace"
     "runpod_mtp"
     (Provider_config.capability_provider_label cfg);
-  Alcotest.(check bool)
-    "raw RunPod proxy does not inherit endpoint-declared capabilities"
-    true
-    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+  match Provider_config.capabilities_for_config_model cfg with
+  | None ->
+    Alcotest.fail
+      "runpod_mtp/qwen36-35b-a3b-mtp is a real models.toml row; it must not be \
+       treated as an undeclared endpoint"
+  | Some caps ->
+    Alcotest.(check bool)
+      "real catalog row's declared thinking dialect is honored"
+      true
+      (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
 ;;
 
 let test_openai_compat_runpod_proxy_label_uses_declared_catalog_dialect () =
@@ -2167,9 +2182,9 @@ let () =
             `Quick
             test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration
         ; Alcotest.test_case
-            "runpod proxy label stays raw fail-closed"
+            "runpod proxy label uses real catalog declaration"
             `Quick
-            test_openai_compat_runpod_proxy_label_stays_raw_fail_closed
+            test_openai_compat_runpod_proxy_label_uses_real_catalog_declaration
         ; Alcotest.test_case
             "runpod proxy label uses declared catalog dialect"
             `Quick
