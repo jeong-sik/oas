@@ -348,10 +348,9 @@ let test_aggregating_inner_delegation () =
 ;;
 
 let () =
-  (* Aggregating now uses Eio.Mutex, so the whole suite runs under an Eio
-     scheduler. Each test case executes as an Eio fiber. *)
-  Eio_main.run
-  @@ fun _env ->
+  (* This suite intentionally stays outside [Eio_main.run]. Aggregating is part
+     of the public exporter/test surface and must remain safe from ordinary
+     synchronous callers. *)
   run
     "Metrics.Aggregating"
     [ "create", [ test_case "empty snapshot" `Quick test_aggregating_create_empty ]

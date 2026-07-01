@@ -502,11 +502,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
            (* Reject illegal hook decisions with a typed error instead of crashing.
               Stash the failure so the existing idle-hook error path returns it. *)
            idle_hook_failed
-             := Some
-                  ( "illegal_decision"
-                  , Printf.sprintf
-                      "illegal hook decision %s in on_idle"
-                      (Agent_lifecycle.hook_decision_to_string idle_decision) ));
+           := Some
+                ( "illegal_decision"
+                , Printf.sprintf
+                    "illegal hook decision %s in on_idle"
+                    (Agent_lifecycle.hook_decision_to_string idle_decision) ));
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        match !idle_hook_failed with
@@ -843,7 +843,7 @@ let compact_messages
       _log
       "pre_compact hook failed; skipping compaction"
       [ Log.S ("stage", stage); Log.S ("detail", detail) ];
-    Error (hook_failed_sdk_error ~hook_name:"pre_compact" ~stage ~detail)
+    Ok false
   | Hooks.Override _
   | Hooks.ApprovalRequired
   | Hooks.AdjustParams _
@@ -1044,7 +1044,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
           ~limit_tokens:context_window
       in
       if ratio >= watermark
-      then (
+      then
         let* compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
         if compacted
         then (
@@ -1053,7 +1053,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
             stage_parse ?raw_trace_run ?clock agent |> tag_error "parse"
           in
           Ok prep')
-        else Ok prep)
+        else Ok prep
       else Ok prep
     in
     (* Stage 3: Route — with compact-and-retry on context overflow *)

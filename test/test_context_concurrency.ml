@@ -26,7 +26,10 @@ let () =
   Alcotest.run
     "Context_concurrency"
     [ ( "fiber safety"
-      , [ Alcotest.test_case "concurrent set under Eio" `Quick test_concurrent_context_access ]
-      )
+      , [ Alcotest.test_case
+            "concurrent set under Eio"
+            `Quick
+            test_concurrent_context_access
+        ] )
     ]
 ;;

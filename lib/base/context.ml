@@ -32,8 +32,7 @@ type concurrency_backend =
   | Eio_mutex
 
 let create () : t = { mu = Eio_mu (Eio.Mutex.create ()); tbl = Hashtbl.create 16 }
-
-let create_sync () : t = { mu = Stdlib_mu (Mutex.create ()); tbl = Hashtbl.create 16 };;
+let create_sync () : t = { mu = Stdlib_mu (Mutex.create ()); tbl = Hashtbl.create 16 }
 
 let is_eio_backed ctx =
   match ctx.mu with

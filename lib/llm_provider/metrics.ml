@@ -244,11 +244,12 @@ let empty_state () : aggregate_state =
   }
 ;;
 
-(** Fiber-safe aggregating metrics backend.
+(** Thread-safe aggregating metrics backend.
     Accumulates per-provider counters in a hash table guarded by an
-    {!Eio.Mutex}. All updates happen inside Eio fibers (provider hot path), so
-    the Eio mutex avoids blocking OS threads. Call {!Aggregating.snapshot} to
-    read all counters as an immutable list.
+    {!Stdlib.Mutex}. The guarded sections are pure counter updates, so this
+    remains safe on Eio callback paths without requiring exporters/tests to run
+    inside an Eio scheduler. Call {!Aggregating.snapshot} to read all counters
+    as an immutable list.
 
     @since 0.188.0 *)
 type hooks = t
@@ -257,16 +258,18 @@ module Aggregating = struct
   type t =
     { hooks : hooks
     ; states : (aggregate_key, aggregate_state) Hashtbl.t
-    ; mutex : Eio.Mutex.t
+    ; mutex : Mutex.t
     }
 
   let key ~provider ~model_id = provider ^ "/" ^ model_id
 
   let create ?(inner = noop) () : t =
-    { hooks = inner; states = Hashtbl.create 16; mutex = Eio.Mutex.create () }
+    { hooks = inner; states = Hashtbl.create 16; mutex = Mutex.create () }
   ;;
 
-  let with_lock agg f = Eio.Mutex.use_rw ~protect:true agg.mutex f
+  let with_lock agg f =
+    Mutex.lock agg.mutex;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock agg.mutex)
   ;;
 
   let with_state agg key f =

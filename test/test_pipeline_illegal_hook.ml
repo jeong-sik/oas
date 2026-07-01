@@ -34,7 +34,9 @@ let test_before_turn_skip_returns_error () =
     let net = Eio.Stdenv.net env in
     let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Skip) } in
     let options = { Agent_types.default_options with hooks } in
-    let config = { Types.default_config with name = "illegal-hook-test"; max_turns = 1 } in
+    let config =
+      { Types.default_config with name = "illegal-hook-test"; max_turns = 1 }
+    in
     let agent = Agent.create ~net ~config ~options () in
     let result = Agent.run ~sw agent "hello" in
     Alcotest.(check bool)
@@ -47,7 +49,10 @@ let () =
   Alcotest.run
     "Pipeline_illegal_hook"
     [ ( "before_turn"
-      , [ Alcotest.test_case "Skip returns typed error" `Quick test_before_turn_skip_returns_error
+      , [ Alcotest.test_case
+            "Skip returns typed error"
+            `Quick
+            test_before_turn_skip_returns_error
         ] )
     ]
 ;;
