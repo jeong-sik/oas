@@ -40,7 +40,15 @@ let create_sync () =
   }
 ;;
 
-let with_lock t f =
+let with_read_lock t f =
+  match t.mu with
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Eio_mu mu -> Eio.Mutex.use_ro mu f
+;;
+
+let with_write_lock t f =
   match t.mu with
   | Stdlib_mu mu ->
     Mutex.lock mu;
@@ -50,40 +58,54 @@ let with_lock t f =
 
 (* ── Query ──────────────────────────────────────────────────── *)
 
-let seen_count t = with_lock t (fun () -> Hashtbl.length t.seen_ids)
-let is_frozen t id = with_lock t (fun () -> Hashtbl.mem t.seen_ids id)
-let lookup_replacement t id = with_lock t (fun () -> Hashtbl.find_opt t.replacements id)
+let seen_count t = with_read_lock t (fun () -> Hashtbl.length t.seen_ids)
+let is_frozen t id = with_read_lock t (fun () -> Hashtbl.mem t.seen_ids id)
+
+let lookup_replacement t id =
+  with_read_lock t (fun () -> Hashtbl.find_opt t.replacements id)
+;;
 
 (* ── Record decisions ───────────────────────────────────────── *)
 
 let record_replacement t (r : replacement) =
-  with_lock t (fun () ->
-    if Hashtbl.mem t.seen_ids r.tool_use_id
-    then
-      invalid_arg
-        (Printf.sprintf
-           "Content_replacement_state.record_replacement: tool_use_id %S already frozen"
-           r.tool_use_id)
-    else (
-      Hashtbl.replace t.seen_ids r.tool_use_id ();
-      Hashtbl.replace t.replacements r.tool_use_id r))
+  match
+    with_write_lock t (fun () ->
+      if Hashtbl.mem t.seen_ids r.tool_use_id
+      then Error r.tool_use_id
+      else (
+        Hashtbl.replace t.seen_ids r.tool_use_id ();
+        Hashtbl.replace t.replacements r.tool_use_id r;
+        Ok ()))
+  with
+  | Ok () -> ()
+  | Error tool_use_id ->
+    invalid_arg
+      (Printf.sprintf
+         "Content_replacement_state.record_replacement: tool_use_id %S already frozen"
+         tool_use_id)
 ;;
 
 let record_kept t id =
-  with_lock t (fun () ->
-    if Hashtbl.mem t.seen_ids id
-    then
-      invalid_arg
-        (Printf.sprintf
-           "Content_replacement_state.record_kept: tool_use_id %S already frozen"
-           id)
-    else Hashtbl.replace t.seen_ids id ())
+  match
+    with_write_lock t (fun () ->
+      if Hashtbl.mem t.seen_ids id
+      then Error id
+      else (
+        Hashtbl.replace t.seen_ids id ();
+        Ok ()))
+  with
+  | Ok () -> ()
+  | Error tool_use_id ->
+    invalid_arg
+      (Printf.sprintf
+         "Content_replacement_state.record_kept: tool_use_id %S already frozen"
+         tool_use_id)
 ;;
 
 (* ── Apply to messages ──────────────────────────────────────── *)
 
 let apply_frozen t blocks =
-  with_lock t (fun () ->
+  with_read_lock t (fun () ->
     let fresh = ref [] in
     let modified =
       List.map
@@ -118,7 +140,7 @@ let apply_frozen t blocks =
 (* ── Serialization ──────────────────────────────────────────── *)
 
 let to_json t =
-  with_lock t (fun () ->
+  with_read_lock t (fun () ->
     let seen_list = Hashtbl.fold (fun id () acc -> `String id :: acc) t.seen_ids [] in
     let replacements_list =
       Hashtbl.fold
@@ -142,24 +164,22 @@ let to_json t =
 let of_json ?(eio = false) json =
   try
     let open Yojson.Safe.Util in
-    let seen_list = json |> member "seen_ids" |> to_list in
-    let replacements_list = json |> member "replacements" |> to_list in
+    let seen_list = json |> member "seen_ids" |> to_list |> List.map to_string in
+    let replacements_list =
+      json
+      |> member "replacements"
+      |> to_list
+      |> List.map (fun j ->
+        let tool_use_id = j |> member "tool_use_id" |> to_string in
+        let preview = j |> member "preview" |> to_string in
+        let original_chars = j |> member "original_chars" |> to_int in
+        { tool_use_id; preview; original_chars })
+    in
     let t = if eio then create () else create_sync () in
-    with_lock t (fun () ->
+    with_write_lock t (fun () ->
+      List.iter (fun id -> Hashtbl.replace t.seen_ids id ()) seen_list;
       List.iter
-        (fun j ->
-           let id = to_string j in
-           Hashtbl.replace t.seen_ids id ())
-        seen_list;
-      List.iter
-        (fun j ->
-           let tool_use_id = j |> member "tool_use_id" |> to_string in
-           let preview = j |> member "preview" |> to_string in
-           let original_chars = j |> member "original_chars" |> to_int in
-           Hashtbl.replace
-             t.replacements
-             tool_use_id
-             { tool_use_id; preview; original_chars })
+        (fun r -> Hashtbl.replace t.replacements r.tool_use_id r)
         replacements_list);
     Ok t
   with
@@ -317,4 +337,34 @@ let%test "to_json / of_json round-trip" =
         | Some r -> r.preview = "p1" && r.original_chars = 100
         | None -> false)
     && lookup_replacement t2 "t2" = None
+;;
+
+let%test "record_replacement duplicate keeps Eio mutex usable" =
+  Eio_main.run
+  @@ fun _env ->
+  let t = create () in
+  record_kept t "t1";
+  let raised =
+    try
+      record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 10 };
+      false
+    with
+    | Invalid_argument _ -> true
+  in
+  raised && seen_count t = 1
+;;
+
+let%test "record_kept duplicate keeps Eio mutex usable" =
+  Eio_main.run
+  @@ fun _env ->
+  let t = create () in
+  record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 10 };
+  let raised =
+    try
+      record_kept t "t1";
+      false
+    with
+    | Invalid_argument _ -> true
+  in
+  raised && lookup_replacement t "t1" <> None
 ;;
