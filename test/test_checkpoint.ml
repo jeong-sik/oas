@@ -23,6 +23,9 @@ let make_checkpoint
       ?(tools = [])
       ?(tool_choice = None)
       ?(context = Context.create ~eio:false ())
+      ?(enable_thinking = None)
+      ?(preserve_thinking = None)
+      ?(thinking_budget = None)
       ?(mcp_sessions = [])
       ()
   : Checkpoint.t
@@ -43,10 +46,10 @@ let make_checkpoint
   ; top_p = None
   ; top_k = None
   ; min_p = None
-  ; enable_thinking = None
-  ; preserve_thinking = None
+  ; enable_thinking
+  ; preserve_thinking
   ; response_format = Types.Off
-  ; thinking_budget = None
+  ; thinking_budget
   ; cache_system_prompt = false
   ; context
   ; mcp_sessions
@@ -604,16 +607,70 @@ let () =
               (Context.get ctx2 "key" = Some (`String "val")))
         ; test_case "override config takes precedence" `Quick (fun () ->
             let cp =
-              make_checkpoint ~agent_name:"orig-agent" ~model:"claude-sonnet-4-6" ()
+              make_checkpoint
+                ~agent_name:"orig-agent"
+                ~model:"claude-sonnet-4-6"
+                ~enable_thinking:(Some true)
+                ~preserve_thinking:(Some true)
+                ~thinking_budget:(Some 2048)
+                ()
             in
             let override =
-              { Types.default_config with name = "should-be-ignored"; max_turns = 99 }
+              { Types.default_config with
+                name = "should-be-ignored"
+              ; max_turns = 99
+              ; enable_thinking = Some false
+              ; preserve_thinking = Some false
+              ; thinking_budget = Some 512
+              }
             in
             let { Agent_checkpoint.state; _ } =
               Agent_checkpoint.build_resume ~checkpoint:cp ~config:override ()
             in
             check string "agent_name from checkpoint" "orig-agent" state.config.name;
-            check int "max_turns from override" 99 state.config.max_turns)
+            check int "max_turns from override" 99 state.config.max_turns;
+            check
+              (option bool)
+              "enable_thinking from override"
+              (Some false)
+              state.config.enable_thinking;
+            check
+              (option bool)
+              "preserve_thinking from override"
+              (Some false)
+              state.config.preserve_thinking;
+            check
+              (option int)
+              "thinking_budget from override"
+              (Some 512)
+              state.config.thinking_budget)
+        ; test_case "unset override keeps checkpoint thinking policy" `Quick (fun () ->
+            let cp =
+              make_checkpoint
+                ~enable_thinking:(Some true)
+                ~preserve_thinking:(Some true)
+                ~thinking_budget:(Some 2048)
+                ()
+            in
+            let override = { Types.default_config with max_turns = 99 } in
+            let { Agent_checkpoint.state; _ } =
+              Agent_checkpoint.build_resume ~checkpoint:cp ~config:override ()
+            in
+            check
+              (option bool)
+              "enable_thinking from checkpoint"
+              (Some true)
+              state.config.enable_thinking;
+            check
+              (option bool)
+              "preserve_thinking from checkpoint"
+              (Some true)
+              state.config.preserve_thinking;
+            check
+              (option int)
+              "thinking_budget from checkpoint"
+              (Some 2048)
+              state.config.thinking_budget)
         ; test_case "override context replaces checkpoint context" `Quick (fun () ->
             let cp_ctx = Context.create ~eio:false () in
             Context.set cp_ctx "old" (`String "old-val");

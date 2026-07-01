@@ -18,6 +18,14 @@ let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?co
     | Some c -> c
     | None -> default_config
   in
+  let call_time_or_checkpoint project checkpoint_value =
+    match config with
+    | Some c ->
+      (match project c with
+       | Some _ as explicit -> explicit
+       | None -> checkpoint_value)
+    | None -> checkpoint_value
+  in
   let restored_config =
     { base_config with
       name = checkpoint.agent_name
@@ -27,10 +35,15 @@ let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?co
     ; top_p = checkpoint.top_p
     ; top_k = checkpoint.top_k
     ; min_p = checkpoint.min_p
-    ; enable_thinking = checkpoint.enable_thinking
-    ; preserve_thinking = checkpoint.preserve_thinking
+    ; enable_thinking =
+        call_time_or_checkpoint (fun c -> c.enable_thinking) checkpoint.enable_thinking
+    ; preserve_thinking =
+        call_time_or_checkpoint
+          (fun c -> c.preserve_thinking)
+          checkpoint.preserve_thinking
     ; response_format = checkpoint.response_format
-    ; thinking_budget = checkpoint.thinking_budget
+    ; thinking_budget =
+        call_time_or_checkpoint (fun c -> c.thinking_budget) checkpoint.thinking_budget
     ; tool_choice = checkpoint.tool_choice
     ; disable_parallel_tool_use = checkpoint.disable_parallel_tool_use
     ; cache_system_prompt = checkpoint.cache_system_prompt

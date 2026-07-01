@@ -14,6 +14,9 @@ let make_checkpoint
       ?(tools = [])
       ?(tool_choice = None)
       ?(context = Context.create ~eio:false ())
+      ?(enable_thinking = None)
+      ?(preserve_thinking = None)
+      ?(thinking_budget = None)
       ()
   : Checkpoint.t
   =
@@ -33,10 +36,10 @@ let make_checkpoint
   ; top_p = None
   ; top_k = None
   ; min_p = None
-  ; enable_thinking = None
-  ; preserve_thinking = None
+  ; enable_thinking
+  ; preserve_thinking
   ; response_format = Types.Off
-  ; thinking_budget = None
+  ; thinking_budget
   ; cache_system_prompt = false
   ; context
   ; mcp_sessions = []
@@ -384,8 +387,23 @@ let test_resume_restores_tool_result_relocation_state () =
 let test_resume_with_config_override () =
   with_net
   @@ fun net ->
-  let cp = make_checkpoint ~agent_name:"cp-name" () in
-  let cfg = { Types.default_config with max_turns = 50; max_tokens = Some 8192 } in
+  let cp =
+    make_checkpoint
+      ~agent_name:"cp-name"
+      ~enable_thinking:(Some true)
+      ~preserve_thinking:(Some true)
+      ~thinking_budget:(Some 2048)
+      ()
+  in
+  let cfg =
+    { Types.default_config with
+      max_turns = 50
+    ; max_tokens = Some 8192
+    ; enable_thinking = Some false
+    ; preserve_thinking = Some false
+    ; thinking_budget = Some 512
+    }
+  in
   let agent = Agent.resume ~net ~checkpoint:cp ~config:cfg () in
   (* checkpoint fields override config *)
   Alcotest.(check string) "name from checkpoint" "cp-name" (Agent.state agent).config.name;
@@ -394,7 +412,19 @@ let test_resume_with_config_override () =
   Alcotest.(check (option int))
     "max_tokens from config"
     (Some 8192)
-    (Agent.state agent).config.max_tokens
+    (Agent.state agent).config.max_tokens;
+  Alcotest.(check (option bool))
+    "enable_thinking from config"
+    (Some false)
+    (Agent.state agent).config.enable_thinking;
+  Alcotest.(check (option bool))
+    "preserve_thinking from config"
+    (Some false)
+    (Agent.state agent).config.preserve_thinking;
+  Alcotest.(check (option int))
+    "thinking_budget from config"
+    (Some 512)
+    (Agent.state agent).config.thinking_budget
 ;;
 
 let test_resume_empty_checkpoint () =
