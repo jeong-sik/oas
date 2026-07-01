@@ -1884,6 +1884,28 @@ let test_wire_kind_roundtrip_via_yojson () =
   | None -> Alcotest.fail "roundtrip produced None"
 ;;
 
+let test_capability_provider_label_ollama_cloud_exact_host () =
+  let label base_url =
+    Provider_config.capability_provider_label
+      (Provider_config.make ~kind:Ollama ~model_id:"m" ~base_url ())
+  in
+  (* Apex ollama.com resolves to the cloud vendor label regardless of scheme. *)
+  check_string "https apex is cloud" "ollama_cloud" (label "https://ollama.com/v1");
+  check_string "http apex is cloud" "ollama_cloud" (label "http://ollama.com");
+  (* RFC-OAS-034 B4: a raw URL-prefix match ([starts_with "https://ollama.com"])
+     wrongly accepted these lookalike hosts because the prefix ends inside a
+     longer hostname. Exact [Uri.host] equality must reject them so a hostile or
+     accidental lookalike cannot inherit the ollama-cloud identity. *)
+  Alcotest.(check bool)
+    "subdomain lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.company.com/v1"));
+  Alcotest.(check bool)
+    "suffix lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.com.evil.example/v1"))
+;;
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -2265,6 +2287,12 @@ let () =
             "record JSON roundtrip preserves variant"
             `Quick
             test_wire_kind_roundtrip_via_yojson
+        ] )
+    ; ( "capability_provider_label"
+      , [ Alcotest.test_case
+            "ollama cloud matched by exact host, lookalikes rejected"
+            `Quick
+            test_capability_provider_label_ollama_cloud_exact_host
         ] )
     ]
 ;;
