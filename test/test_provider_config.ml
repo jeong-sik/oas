@@ -746,10 +746,9 @@ thinking_control_format = "chat_template_kwargs"
    serving runtime x model (the WHAT), never of the endpoint host (the WHERE).
    The same OpenAI-compatible kind + same provider-qualified model_id must
    resolve to the SAME capabilities whether the endpoint is rented on RunPod, on
-   an arbitrary domain, or served on localhost. This pins that no host branch
-   (e.g. base_url_targets_runpod_proxy -> "runpod_mtp") can ever re-key
-   capability provenance to the host: moving the endpoint must not silently
-   change or drop capabilities. *)
+   an arbitrary domain, or served on localhost. This pins that host-derived
+   classification can never re-key capability provenance: moving the endpoint
+   must not silently change or drop capabilities. *)
 let test_capabilities_are_invariant_across_host () =
   with_model_catalog_toml
     {|
