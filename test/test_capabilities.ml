@@ -59,6 +59,11 @@ let with_temp_model_catalog contents f =
     (fun () -> f path)
 ;;
 
+let isolate_ambient_runtime_sources () =
+  Capability_manifest.set_global [];
+  Model_catalog_test_support.install_repo_model_catalog ~suite:"Capabilities"
+;;
+
 (* ── Default capabilities ────────────────────────────── *)
 
 let test_default_no_limits () =
@@ -1436,9 +1441,7 @@ thinking_control_format = "chat_template_kwargs"
          Model_catalog.set_global catalog;
          Capability_manifest.set_global manifest;
          Fun.protect
-           ~finally:(fun () ->
-             Capability_manifest.clear_global ();
-             Model_catalog.clear_global ())
+           ~finally:(fun () -> isolate_ambient_runtime_sources ())
            (fun () ->
               match Capabilities.for_model_id "s9-precedence-model-v1" with
               | Some c ->
@@ -1963,6 +1966,116 @@ accepted_reasoning_efforts = ["low", "turbo"]
          Alcotest.fail "unknown model catalog accepted_reasoning_effort should reject")
 ;;
 
+let test_manifest_and_catalog_common_override_parity () =
+  let manifest_caps =
+    let json =
+      Yojson.Safe.from_string
+        {|{
+          "schema_version": 1,
+          "models": [{
+            "id_prefix": "parity-model",
+            "max_context_tokens": 123456,
+            "max_output_tokens": 7890,
+            "supports_tools": true,
+            "supports_tool_choice": true,
+            "supports_required_tool_choice": true,
+            "supports_named_tool_choice": true,
+            "supports_parallel_tool_calls": true,
+            "assistant_tool_content_format": "empty_string",
+            "supports_reasoning": true,
+            "supports_extended_thinking": true,
+            "supports_reasoning_budget": true,
+            "accepted_reasoning_efforts": ["low", "medium"],
+            "supports_response_format_json": true,
+            "supports_structured_output": true,
+            "supports_multimodal_inputs": true,
+            "supports_image_input": true,
+            "supports_audio_input": true,
+            "supports_video_input": true,
+            "supports_native_streaming": true,
+            "supports_system_prompt": false,
+            "supports_caching": true,
+            "supports_prompt_caching": true,
+            "supports_top_k": true,
+            "supports_min_p": true,
+            "supports_seed": true,
+            "supports_computer_use": true,
+            "supports_code_execution": true,
+            "thinking_control_format": "chat_template_kwargs",
+            "preserve_thinking_control_format": "chat_template_kwargs_preserve_thinking",
+            "reasoning_output_format": "split_reasoning_fields",
+            "reasoning_streaming_format": "delta:reasoning_content",
+            "reasoning_replay": "preserve_always"
+          }]
+        }|}
+    in
+    match Capability_manifest.of_json json with
+    | Ok [ entry ] -> Capabilities.apply_manifest_entry entry
+    | Ok _ -> Alcotest.fail "expected one capability manifest entry"
+    | Error msg -> Alcotest.failf "manifest parse failed: %s" msg
+  in
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "parity-model"
+max_context_tokens = 123456
+max_output_tokens = 7890
+supports_tools = true
+supports_tool_choice = true
+supports_required_tool_choice = true
+supports_named_tool_choice = true
+supports_parallel_tool_calls = true
+assistant_tool_content_format = "empty_string"
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+accepted_reasoning_efforts = ["low", "medium"]
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_video_input = true
+supports_native_streaming = true
+supports_system_prompt = false
+supports_caching = true
+supports_prompt_caching = true
+supports_top_k = true
+supports_min_p = true
+supports_seed = true
+supports_computer_use = true
+supports_code_execution = true
+thinking_control_format = "chat_template_kwargs"
+preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
+reasoning_output_format = "split_reasoning_fields"
+reasoning_streaming_format = "delta:reasoning_content"
+reasoning_replay = "preserve_always"
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg -> Alcotest.failf "model catalog parse failed: %s" msg
+       | Ok catalog ->
+         let previous_catalog = Model_catalog.global () in
+         let restore () =
+           match previous_catalog with
+           | Some catalog -> Model_catalog.set_global catalog
+           | None -> Model_catalog.clear_global ()
+         in
+         Fun.protect ~finally:restore (fun () ->
+           Model_catalog.set_global catalog;
+           let catalog_caps =
+             match Capabilities.for_model_id_catalog "parity-model-v1" with
+             | Some caps -> caps
+             | None -> Alcotest.fail "expected parity model catalog lookup"
+           in
+           check
+             bool
+             "manifest/catalog common declarative overrides produce identical \
+              capabilities"
+             true
+             (manifest_caps = catalog_caps)))
+;;
+
 (* ── DashScope preset ────────────────────────────────── *)
 
 let test_dashscope_capabilities () =
@@ -2105,6 +2218,7 @@ let test_prefix_ordering_invariant () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
+  isolate_ambient_runtime_sources ();
   run
     "Capabilities"
     [ ( "defaults"
@@ -2343,6 +2457,10 @@ let () =
             "model catalog rejects unknown accepted reasoning effort"
             `Quick
             test_model_catalog_rejects_unknown_accepted_reasoning_effort
+        ; test_case
+            "manifest catalog common override parity"
+            `Quick
+            test_manifest_and_catalog_common_override_parity
         ] )
     ; ( "prefix_ordering"
       , [ test_case

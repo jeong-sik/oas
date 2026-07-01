@@ -66,11 +66,10 @@ let uses_native_glm_capabilities ~base_url ~model_id =
    any endpoint (including an undeclared [Local] one) serving a model id that merely
    matches a GLM catalog prefix would inherit real GLM reasoning/tool capabilities. *)
 let openai_compat_capabilities_for ~base_url ~model_id =
-  if
-    Llm_provider.Zai_catalog.is_glm_model_id model_id
-    && not (uses_native_glm_capabilities ~base_url ~model_id)
+  let is_native_glm = uses_native_glm_capabilities ~base_url ~model_id in
+  if Llm_provider.Zai_catalog.is_glm_model_id model_id && not is_native_glm
   then default_openai_compat_capabilities ()
-  else if uses_native_glm_capabilities ~base_url ~model_id
+  else if is_native_glm
   then (
     match Llm_provider.Capabilities.for_model_id model_id with
     | Some caps -> caps
