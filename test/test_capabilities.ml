@@ -1441,8 +1441,7 @@ thinking_control_format = "chat_template_kwargs"
          Model_catalog.set_global catalog;
          Capability_manifest.set_global manifest;
          Fun.protect
-           ~finally:(fun () ->
-             isolate_ambient_runtime_sources ())
+           ~finally:(fun () -> isolate_ambient_runtime_sources ())
            (fun () ->
               match Capabilities.for_model_id "s9-precedence-model-v1" with
               | Some c ->
