@@ -220,14 +220,18 @@ let capabilities_for_config_model (config : t) =
     let provider_label = capability_provider_label config in
     if raw_openai_compat_without_builtin_source config provider_label
     then (
+      (* A provider-qualified catalog hit (e.g. "runpod_mtp/<model>") IS the
+         explicit endpoint declaration this fail-closed policy exists to
+         require - re-applying capability_requires_endpoint_declaration here
+         would reject the exact case it's supposed to admit. The declaration
+         requirement only belongs on the bare/global fallback below, where
+         the catalog entry carries no provider qualification at all. *)
       match
         Capabilities.for_provider_model_id
           ~allow_bare_fallback:false
           ~provider_label
           ~model_id:config.model_id
       with
-      | Some caps when Provider_endpoint.capability_requires_endpoint_declaration caps ->
-        None
       | Some _ as caps -> caps
       | None ->
         (match Capabilities.for_model_id config.model_id with

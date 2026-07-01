@@ -720,6 +720,38 @@ let test_openai_compat_runpod_proxy_label_stays_raw_fail_closed () =
     (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
+let test_openai_compat_runpod_proxy_label_uses_declared_catalog_dialect () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+base = "openai_chat"
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"qwen36-35b-a3b-mtp"
+           ~base_url:"https://abc123.proxy.runpod.net/v1"
+           ()
+       in
+       match Provider_config.capabilities_for_config_model cfg with
+       | None ->
+         Alcotest.fail
+           "provider-qualified runpod_mtp catalog entry IS the endpoint \
+            declaration; it must not be rejected"
+       | Some caps ->
+         Alcotest.(check bool)
+           "provider-qualified catalog hit uses its declared thinking dialect"
+           true
+           (caps.thinking_control_format = Capabilities.Chat_template_kwargs))
+;;
+
 let test_openai_compat_runpod_proxy_label_is_catalog_only () =
   let cfg =
     Provider_config.make
@@ -2138,6 +2170,10 @@ let () =
             "runpod proxy label stays raw fail-closed"
             `Quick
             test_openai_compat_runpod_proxy_label_stays_raw_fail_closed
+        ; Alcotest.test_case
+            "runpod proxy label uses declared catalog dialect"
+            `Quick
+            test_openai_compat_runpod_proxy_label_uses_declared_catalog_dialect
         ; Alcotest.test_case
             "runpod proxy label is catalog-only"
             `Quick
