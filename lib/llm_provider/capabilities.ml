@@ -840,7 +840,7 @@ type declarative_capability_overrides =
   }
 
 let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
-  { base_label = entry.base_label
+  { base_label = Option.map Capability_manifest.base_label_to_string entry.base_label
   ; max_context_tokens = entry.max_context_tokens
   ; max_output_tokens = entry.max_output_tokens
   ; supports_tools = entry.supports_tools

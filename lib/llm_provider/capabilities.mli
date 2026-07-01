@@ -301,9 +301,9 @@ val with_tool_support : capabilities -> supports_tools:bool -> capabilities
 
 (** Apply a {!Capability_manifest.entry} on top of a provider-preset base.
 
-    [entry.base_label] (if present) is resolved via
-    {!capabilities_for_provider_label}; unknown or absent labels fall back
-    to {!default_capabilities}.  Each [Some] field in [entry] overrides the
+    [entry.base_label] (if present) is a parsed {!Capability_manifest.base_label}
+    and is resolved via {!capabilities_for_provider_label}; an absent label falls
+    back to {!default_capabilities}.  Each [Some] field in [entry] overrides the
     corresponding field; [None] fields inherit from the base.
 
     @since 0.188.0 *)

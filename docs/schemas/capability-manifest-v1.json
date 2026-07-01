@@ -40,7 +40,29 @@
         },
         "base": {
           "type": "string",
-          "description": "Provider preset to use as a starting point before applying overrides. One of: 'openai_chat', 'openai_chat_extended', 'anthropic', 'gemini', 'ollama', 'glm', 'kimi', 'nemotron'. Defaults to OAS default_capabilities if absent or unrecognised.",
+          "enum": [
+            "anthropic",
+            "kimi",
+            "openai_compat",
+            "ollama",
+            "gemini",
+            "glm",
+            "dashscope",
+            "claude",
+            "openai",
+            "openai_chat",
+            "zhipu",
+            "glm-coding",
+            "openai_compat_chat_extended",
+            "openai_chat_extended",
+            "xai",
+            "mistral",
+            "cohere",
+            "mimo",
+            "ollama_cloud",
+            "nvidia"
+          ],
+          "description": "Provider preset to use as a starting point before applying overrides. If absent, OAS starts from default_capabilities. Unknown values are rejected.",
           "examples": ["openai_chat", "anthropic", "gemini", "ollama"]
         },
         "max_context_tokens": {

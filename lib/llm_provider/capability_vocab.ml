@@ -229,8 +229,8 @@ let reasoning_streaming_format_of_string raw =
    (RFC-OAS-034 §2 rule 4 — unknown -> None, not permissive default).
 
    Must stay in sync with the set of labels [Capabilities.capabilities_for_provider_label]
-   resolves to [Some]; a drift-guard test in [test/test_capabilities.ml] pins the
-   forward direction (every value here resolves). Labels are normalized
+   resolves to [Some]; a drift-guard test in [Capabilities] pins the forward
+   direction (every value here resolves). Labels are normalized
    (lowercase + trim) before membership checks, matching that resolver. *)
 let base_label_values =
   [ (* Provider_kind.of_string canonical kinds *)

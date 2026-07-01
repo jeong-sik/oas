@@ -2,9 +2,27 @@
 
     @since 0.188.0 *)
 
+type base_label = string
+
+let normalize_base_label raw = String.lowercase_ascii (String.trim raw)
+
+let base_label_of_string raw =
+  let normalized = normalize_base_label raw in
+  if List.mem normalized Capability_vocab.base_label_values
+  then Ok normalized
+  else
+    Error
+      (Printf.sprintf
+         "unknown base preset %S (canonical: %s)"
+         normalized
+         (String.concat ", " Capability_vocab.base_label_values))
+;;
+
+let base_label_to_string label = label
+
 type entry =
   { id_prefix : string
-  ; base_label : string option
+  ; base_label : base_label option
   ; max_context_tokens : int option
   ; max_output_tokens : int option
   ; supports_tools : bool option
@@ -303,8 +321,13 @@ let parse_entry json =
   (* Validate [base] against the closed preset vocab at parse time (mirrors the
      other canonical fields below) so an unknown label fails closed instead of
      silently resolving to [default_capabilities] downstream (RFC-OAS-034). *)
-  let* base_label =
+  let* base_label_raw =
     canonical_choice "base" ~allowed:Capability_vocab.base_label_values json
+  in
+  let* base_label =
+    match base_label_raw with
+    | None -> Ok None
+    | Some raw -> Result.map (fun label -> Some label) (base_label_of_string raw)
   in
   let* thinking_control_format =
     canonical_choice
