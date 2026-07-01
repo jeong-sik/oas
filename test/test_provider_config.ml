@@ -679,9 +679,9 @@ let test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "runpod_mtp"
+provider_name = "qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_reasoning = true
@@ -692,7 +692,7 @@ thinking_control_format = "chat_template_kwargs"
        let cfg =
          Provider_config.make
            ~kind:OpenAI_compat
-           ~model_id:"runpod_mtp.qwen36-35b-a3b-mtp"
+           ~model_id:"qwen3-mtp.qwen36-35b-a3b-mtp"
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
@@ -719,9 +719,9 @@ let test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row () 
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "runpod_mtp"
+provider_name = "qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_reasoning = true
@@ -740,6 +740,62 @@ thinking_control_format = "chat_template_kwargs"
          "bare raw model id does not inherit provider-qualified row"
          true
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+;;
+
+(* RFC-OAS-034 §6: host-invariant regression. Capability is a function of the
+   serving runtime x model (the WHAT), never of the endpoint host (the WHERE).
+   The same OpenAI-compatible kind + same provider-qualified model_id must
+   resolve to the SAME capabilities whether the endpoint is rented on RunPod, on
+   an arbitrary domain, or served on localhost. This pins that no host branch
+   (e.g. base_url_targets_runpod_proxy -> "runpod_mtp") can ever re-key
+   capability provenance to the host: moving the endpoint must not silently
+   change or drop capabilities. *)
+let test_capabilities_are_invariant_across_host () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
+base = "openai_chat"
+provider_name = "qwen3-mtp"
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun () ->
+       let caps_for base_url =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"qwen3-mtp/qwen36-35b-a3b-mtp"
+           ~base_url
+           ()
+         |> Provider_config.capabilities_for_config_model
+       in
+       let runpod = caps_for "https://abc123.proxy.runpod.net/v1" in
+       let arbitrary = caps_for "https://mybox.example.com/v1" in
+       let localhost = caps_for "http://127.0.0.1:8085/v1" in
+       match runpod, arbitrary, localhost with
+       | Some on_runpod, Some on_arbitrary, Some on_localhost ->
+         check_bool
+           "capability identical on RunPod host and arbitrary domain"
+           true
+           (on_runpod = on_arbitrary);
+         check_bool
+           "capability identical on remote host and localhost"
+           true
+           (on_arbitrary = on_localhost);
+         (* The resolved capability is the real serving-contract row, not an
+            empty default — so the invariance above is over a non-trivial set. *)
+         check_bool "resolved row keeps tools" true on_runpod.supports_tools;
+         check_bool "resolved row keeps reasoning" true on_runpod.supports_reasoning;
+         check_bool
+           "resolved row keeps chat_template_kwargs dialect"
+           true
+           (on_runpod.thinking_control_format = Capabilities.Chat_template_kwargs)
+       | _ ->
+         Alcotest.fail
+           "provider-qualified serving-contract model must resolve on every host")
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -2122,6 +2178,10 @@ let () =
             "bare model id does not resolve provider-qualified row"
             `Quick
             test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row
+        ; Alcotest.test_case
+            "capabilities are invariant across endpoint host"
+            `Quick
+            test_capabilities_are_invariant_across_host
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
