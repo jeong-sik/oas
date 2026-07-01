@@ -31,6 +31,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.12](https://github.com/jeong-sik/oas/compare/v0.208.11...v0.208.12) (2026-07-01)
+
+
+### Bug Fixes
+
+* accept declared provider-qualified compat models ([#2418](https://github.com/jeong-sik/oas/issues/2418)) ([0149c70](https://github.com/jeong-sik/oas/commit/0149c70e9a8719542011a8acb7f984f7e952b1bd))
+* **agent:** release default unbounded turn budget ([#2422](https://github.com/jeong-sik/oas/issues/2422)) ([0a6d2cd](https://github.com/jeong-sik/oas/commit/0a6d2cd0c2834efd92fe60ac2bb9cfc2bd21acbf))
+
 ## [0.208.11](https://github.com/jeong-sik/oas/compare/v0.208.10...v0.208.11) (2026-07-01)
 
 
