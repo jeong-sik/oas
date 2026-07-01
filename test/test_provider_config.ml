@@ -1903,7 +1903,14 @@ let test_capability_provider_label_ollama_cloud_exact_host () =
   Alcotest.(check bool)
     "suffix lookalike rejected"
     false
-    (String.equal "ollama_cloud" (label "https://ollama.com.evil.example/v1"))
+    (String.equal "ollama_cloud" (label "https://ollama.com.evil.example/v1"));
+  (* A prefix matcher also accepts a userinfo-based lookalike: the authority
+     [ollama.com@evil.example] makes [starts_with "https://ollama.com"] true
+     while the real [Uri.host] is [evil.example]. Exact host equality rejects it. *)
+  Alcotest.(check bool)
+    "userinfo lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.com@evil.example/v1"))
 ;;
 
 (* ── Suite ────────────────────────────────────────────── *)
