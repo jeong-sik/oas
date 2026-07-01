@@ -59,6 +59,11 @@ let with_temp_model_catalog contents f =
     (fun () -> f path)
 ;;
 
+let isolate_ambient_runtime_sources () =
+  Capability_manifest.set_global [];
+  Model_catalog_test_support.install_repo_model_catalog ~suite:"Capabilities"
+;;
+
 (* ── Default capabilities ────────────────────────────── *)
 
 let test_default_no_limits () =
@@ -1437,8 +1442,7 @@ thinking_control_format = "chat_template_kwargs"
          Capability_manifest.set_global manifest;
          Fun.protect
            ~finally:(fun () ->
-             Capability_manifest.clear_global ();
-             Model_catalog.clear_global ())
+             isolate_ambient_runtime_sources ())
            (fun () ->
               match Capabilities.for_model_id "s9-precedence-model-v1" with
               | Some c ->
@@ -2215,6 +2219,7 @@ let test_prefix_ordering_invariant () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
+  isolate_ambient_runtime_sources ();
   run
     "Capabilities"
     [ ( "defaults"
