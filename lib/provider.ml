@@ -272,20 +272,12 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> anthropic_capabilities)
-  | Local { base_url } ->
-    (* Local llama-server/vLLM/LM Studio endpoints use the OpenAI-compatible
-       request envelope, but a bare model id is not an endpoint declaration for
-       thinking/reasoning/tool/schema dialects. Reuse the Provider_config
-       boundary so local compat endpoints follow the same fail-closed rule as
-       raw OpenAICompat providers. *)
-    let config =
-      Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.OpenAI_compat
-        ~model_id
-        ~base_url
-        ()
-    in
-    (match Llm_provider.Provider_config.capabilities_for_config_model config with
+  | Local { base_url = _ } ->
+    (* [Local] is an explicit endpoint declaration from the operator, unlike a
+       raw [OpenAICompat] URL. Allow the model catalog to provide local
+       model-specific wire capabilities while keeping raw OpenAI-compatible
+       endpoints fail-closed below. *)
+    (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> default_openai_compat_capabilities ())
   | OpenAICompat { base_url; _ } ->
@@ -831,6 +823,21 @@ let provider_config_of_agent
               invalid_arg
                 "provider sanitized_api_key: Custom_registered excluded by outer match"
           in
+          let model_capabilities_override =
+            match p.provider with
+            | Local _ -> Llm_provider.Capabilities.for_model_id p.model_id
+            | Anthropic | OpenAICompat _ -> None
+            | Custom_registered _ ->
+              invalid_arg
+                "provider model_capabilities_override: Custom_registered excluded by \
+                 outer match"
+          in
+          let supports_structured_output_override =
+            Option.map
+              (fun (caps : Llm_provider.Capabilities.capabilities) ->
+                 caps.supports_structured_output)
+              model_capabilities_override
+          in
           build
             ~kind
             ~resolved_base_url:url
@@ -838,6 +845,8 @@ let provider_config_of_agent
             ~headers
             ~request_path:(request_path p.provider)
             ~model_id:p.model_id
+            ?supports_structured_output_override
+            ?model_capabilities_override
             ()))
   | None ->
     let fallback_provider : config =

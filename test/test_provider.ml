@@ -424,27 +424,27 @@ let test_raw_openai_compat_does_not_infer_minimax_from_model_id () =
     capabilities.supports_reasoning_budget
 ;;
 
-let test_local_compat_does_not_infer_dialect_from_model_id () =
+let test_local_compat_uses_declared_catalog_dialect () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:(Provider.Local { base_url = "http://127.0.0.1:8085" })
       ~model_id:"dashscope-3.5-35b"
   in
-  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
   Alcotest.(check bool)
     "supports extended thinking"
-    false
+    true
     capabilities.supports_extended_thinking;
   Alcotest.(check bool)
     "supports reasoning budget"
-    false
+    true
     capabilities.supports_reasoning_budget;
   Alcotest.(check bool)
-    "no thinking control"
+    "catalog thinking control"
     true
-    (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control);
-  Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
-  Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p
+    (capabilities.thinking_control_format = Llm_provider.Capabilities.Chat_template_kwargs);
+  Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
 ;;
 
 let test_anthropic_capabilities_consults_for_model_id () =
@@ -837,7 +837,19 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
     Alcotest.(check (list (pair string string)))
       "headers"
       [ "Content-Type", "application/json" ]
-      pc.headers
+      pc.headers;
+    Alcotest.(check (option bool))
+      "local structured output override follows catalog"
+      (Some true)
+      pc.supports_structured_output_override;
+    Alcotest.(check bool)
+      "local catalog capability override projected"
+      true
+      (match pc.model_capabilities_override with
+       | Some caps ->
+         caps.Llm_provider.Capabilities.supports_reasoning
+         && caps.thinking_control_format = Llm_provider.Capabilities.Chat_template_kwargs
+       | None -> false)
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -1201,9 +1213,9 @@ let () =
             `Quick
             test_raw_openai_compat_does_not_infer_minimax_from_model_id
         ; Alcotest.test_case
-            "local compat does not infer dialect"
+            "local compat uses catalog dialect"
             `Quick
-            test_local_compat_does_not_infer_dialect_from_model_id
+            test_local_compat_uses_declared_catalog_dialect
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick
