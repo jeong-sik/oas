@@ -63,6 +63,7 @@
     "heuristic_markers": "RFC-OAS-023/RFC-OAS-029: target zero for untyped heuristic runtime routing; new heuristic code requires a waiver and sunset plan.",
     "local_workspace_path_literals": "RFC-OAS-023: target zero; new local developer paths are never accepted without waiver.",
     "model_id_string_classifiers_outside_catalog": "RFC-OAS-029: keep model-id string classification inside catalog/capability boundary modules; scattered model matching is SSOT drift.",
+    "base_url_host_fuzzy_classifiers": "RFC-OAS-034: host/URL is transport, not capability provenance. New fuzzy String matching (starts_with/ends_with/contains/is_substring) on base_url/host is forbidden; bind vendor identity via exact Uri.host equality and capability via the model catalog. Existing ollama.com matchers are reducible debt (migrate to exact Uri.host).",
     "stub_markers": "RFC-OAS-023: target zero; assert false is excluded because it is commonly used for unreachable proof arms.",
     "workaround_markers": "RFC-OAS-023/RFC-OAS-029: target zero for permanent runtime workaround debt; temporary additions require waiver and sunset issue.",
     "wildcard_silent_defaults": "RFC-OAS-023: reduce by replacing permissive catch-all defaults with typed/default-explicit handling."

@@ -30,6 +30,7 @@ METRICS = (
     "heuristic_markers",
     "workaround_markers",
     "model_id_string_classifiers_outside_catalog",
+    "base_url_host_fuzzy_classifiers",
     "stub_markers",
     "wildcard_silent_defaults",
 )
@@ -47,6 +48,19 @@ MODEL_ID_STRING_CLASSIFIER_RE = re.compile(
     r".*\b(?:config\.)?model(?:_id)?\b"
     r"|\b(?:config\.)?model(?:_id)?\b"
     r".*\bString\.(?:lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal)\b"
+)
+# Fuzzy string classification of a base_url / host, forbidden by RFC-OAS-034
+# (host/URL is transport, not capability provenance). Only the inexact matchers
+# are flagged: [String.equal] is intentionally excluded because exact
+# [Uri.host] equality is the sanctioned way to bind a vendor-canonical host to a
+# provider identity. Normalisation-only calls ([lowercase_ascii]/[trim]) are not
+# classifiers and are excluded too. New matches must migrate to exact host
+# equality or a model-catalog capability binding.
+HOST_URL_FUZZY_CLASSIFIER_RE = re.compile(
+    r"\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
+    r".*\b(?:base_url|host)\b"
+    r"|\b(?:base_url|host)\b"
+    r".*\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
 )
 STUB_RE = re.compile(
     r"\bNot_implemented\b"
@@ -231,6 +245,16 @@ def measure_texts(files, config):
                         lineno,
                         raw_line,
                     )
+                if HOST_URL_FUZZY_CLASSIFIER_RE.search(code_line):
+                    bump(
+                        metrics,
+                        examples,
+                        max_examples,
+                        "base_url_host_fuzzy_classifiers",
+                        path,
+                        lineno,
+                        raw_line,
+                    )
                 if STUB_RE.search(line):
                     bump(metrics, examples, max_examples, "stub_markers", path, lineno, raw_line)
                 if WILDCARD_SILENT_RE.search(line):
@@ -322,6 +346,8 @@ def self_test(config):
             "let workaround_flag = true",
             "let model_norm = String.lowercase_ascii model_id",
             "let model_is_qwen = String.starts_with ~prefix:\"qwen\" model_id",
+            "let is_proxy = String.ends_with ~suffix:sfx host",
+            "let host_ok = String.equal host api_host",
             "| _ -> None",
             "let path = \\\\\"/home/alice/me/tmp\\\\\"",
             "let impossible = assert false",
@@ -338,6 +364,7 @@ def self_test(config):
         "heuristic_markers": 1,
         "local_workspace_path_literals": 1,
         "model_id_string_classifiers_outside_catalog": 2,
+        "base_url_host_fuzzy_classifiers": 1,
         "stub_markers": 0,
         "workaround_markers": 1,
         "wildcard_silent_defaults": 1,
