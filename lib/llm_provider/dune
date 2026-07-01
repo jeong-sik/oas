@@ -6,6 +6,7 @@
  (libraries
   yojson
   otoml
+  dune-site
   ppx_deriving_yojson.runtime
   eio
   eio.unix
@@ -23,3 +24,8 @@
   (pps ppx_deriving_yojson ppx_deriving.show ppx_deriving.eq ppx_inline_test))
  (instrumentation
   (backend bisect_ppx)))
+
+(generate_sites_module
+ (module model_catalog_sites)
+ (sourceroot)
+ (sites agent_sdk))

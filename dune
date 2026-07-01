@@ -1,0 +1,7 @@
+(install
+ (section
+  (site
+   (agent_sdk model_catalog)))
+ (package agent_sdk)
+ (files
+  (models.toml as models.toml)))

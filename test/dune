@@ -131,6 +131,7 @@
   test_mcp_session
   test_metric_contract
   test_metrics
+  test_model_catalog_default
   test_model_registry
   test_module_check
   test_multimodal

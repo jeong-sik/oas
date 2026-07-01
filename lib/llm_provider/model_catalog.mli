@@ -55,6 +55,20 @@ type t = model_entry list
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 
+(** Candidate locations for the packaged default [models.toml].
+
+    The paths come from Dune's site metadata and, for uninstalled development
+    builds, Dune's source-root metadata. The list preserves missing candidates
+    so {!load_default} can report exactly what it tried. *)
+val default_catalog_paths : unit -> string list
+
+(** Load the packaged default [models.toml].
+
+    Returns [Error] when the default catalog cannot be found or parsed; callers
+    that require catalog-backed capability decisions should propagate that error
+    rather than falling back silently. *)
+val load_default : unit -> (t, string) result
+
 (** Longest-prefix lookup for catalog model IDs.
 
     In addition to exact catalog syntax, [lookup] accepts a flattened
@@ -69,7 +83,19 @@ val lookup : t -> string -> model_entry option
     [id_prefix], if that entry declares one. *)
 val provider_name_for_model_id : t -> string -> string option
 
+(** Return the active model catalog.
+
+    Resolution order:
+    - runtime override installed with {!set_global}
+    - [OAS_MODEL_CATALOG], when set to a non-empty path
+    - packaged default [models.toml] installed through the agent_sdk
+      [model_catalog] Dune site, or the source-root [models.toml] when running
+      from an uninstalled Dune build
+
+    The ambient result is cached after the first load. {!clear_global} clears
+    the runtime override and the ambient cache. *)
 val global : unit -> t option
+
 val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

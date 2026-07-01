@@ -1100,10 +1100,11 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
 
     The catalog itself is resolved by {!Model_catalog.global}, in order:
     runtime override installed via {!Model_catalog.set_global}, then the
-    [OAS_MODEL_CATALOG] environment variable. The env discovery is cached
-    after first load; embedding hosts and test harnesses can call
-    [Model_catalog.preload_global] or inject [OAS_MODEL_CATALOG] during
-    bootstrap.
+    [OAS_MODEL_CATALOG] environment variable, then the packaged default
+    [models.toml]. Ambient discovery is cached after first load; embedding
+    hosts and test harnesses can call [Model_catalog.preload_global], inject
+    [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
+    override.
 
     Returns [None] when no catalog is available or when the catalog has
     no entry whose [id_prefix] matches [model_id]. There is no in-code

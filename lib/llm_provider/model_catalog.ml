@@ -46,6 +46,8 @@ type model_entry =
 
 type t = model_entry list
 
+let default_catalog_filename = "models.toml"
+
 let find_string_opt toml path =
   match Otoml.find_opt toml Otoml.get_string path with
   | Some s -> Some s
@@ -385,6 +387,54 @@ let load_runtime_file path =
     None
 ;;
 
+let is_existing_file path =
+  try Sys.file_exists path && not (Sys.is_directory path) with
+  | Sys_error _ -> false
+;;
+
+let dedupe_paths paths =
+  List.fold_left
+    (fun seen path -> if List.mem path seen then seen else path :: seen)
+    []
+    paths
+  |> List.rev
+;;
+
+let default_catalog_paths () =
+  let site_paths =
+    List.map
+      (fun dir -> Filename.concat dir default_catalog_filename)
+      Model_catalog_sites.Sites.model_catalog
+  in
+  let source_paths =
+    match Model_catalog_sites.sourceroot with
+    | None -> []
+    | Some root -> [ Filename.concat root default_catalog_filename ]
+  in
+  site_paths @ source_paths |> dedupe_paths
+;;
+
+let load_default () =
+  match default_catalog_paths () with
+  | [] -> Error "default model catalog has no Dune site or source-root candidate paths"
+  | paths ->
+    let rec first_loaded errors = function
+      | [] ->
+        Error
+          (Printf.sprintf
+             "default model catalog failed to load from candidate path(s): %s"
+             (String.concat "; " (List.rev errors)))
+      | path :: rest ->
+        let load_result =
+          if is_existing_file path then load_file path else Error "file not found"
+        in
+        (match load_result with
+         | Ok catalog -> Ok catalog
+         | Error msg -> first_loaded (Printf.sprintf "%s: %s" path msg :: errors) rest)
+    in
+    first_loaded [] paths
+;;
+
 let dot_qualified_aliases model_id =
   let original_model_id = String.trim model_id in
   match String.index_opt original_model_id '.' with
@@ -436,8 +486,22 @@ type env_cache =
 
 let load_ambient_catalog () =
   match Cli_common_env.get "OAS_MODEL_CATALOG" with
-  | None -> None
   | Some path -> load_runtime_file path
+  | None ->
+    (match load_default () with
+     | Ok catalog ->
+       Diag.info
+         "model_catalog"
+         "loaded %d default model entries from packaged catalog"
+         (List.length catalog);
+       Some catalog
+     | Error msg ->
+       Diag.warn
+         "model_catalog"
+         "failed to load packaged default model catalog: %s; set OAS_MODEL_CATALOG to an \
+          explicit catalog path to override"
+         msg;
+       None)
 ;;
 
 let env_loaded_catalog : env_cache Atomic.t = Atomic.make Unloaded
@@ -457,7 +521,12 @@ let load_ambient_once () =
 
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global t = Atomic.set runtime_override (Some t)
-let clear_global () = Atomic.set runtime_override None
+
+let clear_global () =
+  Atomic.set runtime_override None;
+  Atomic.set env_loaded_catalog Unloaded
+;;
+
 let preload_global () = ignore (load_ambient_once () : t option)
 
 let global () =
