@@ -114,7 +114,7 @@ let test_tool_call_projection_preserves_fields_and_adjacent_reasoning () =
   Alcotest.(check string) "call_id" "call_weather" call.Ct.call_id;
   Alcotest.(check string) "name" "get_weather" call.Ct.name;
   Alcotest.check json_eq "input" input call.Ct.input;
-  Alcotest.(check int) "order_index" 2 call.Ct.order_index;
+  Alcotest.(check int) "order_index" 0 call.Ct.order_index;
   check_provider_kind "call" (Some PK.Ollama) call.Ct.provider_kind;
   match call.Ct.adjacent_reasoning with
   | Ct.Adjacent_reasoning [ block ] ->
@@ -139,13 +139,13 @@ let test_tool_calls_keep_interleaved_reasoning_groups () =
   match Ct.tool_calls_of_response resp with
   | [ first; second; third ] ->
     Alcotest.(check string) "first id" "call_1" first.Ct.call_id;
-    Alcotest.(check int) "first order" 1 first.Ct.order_index;
+    Alcotest.(check int) "first order" 0 first.Ct.order_index;
     (match first.Ct.adjacent_reasoning with
      | Ct.Adjacent_reasoning [ block ] ->
        check_visible_reasoning "first reasoning" 0 None block
      | _ -> Alcotest.fail "first call should have one adjacent reasoning block");
     Alcotest.(check string) "second id" "call_2" second.Ct.call_id;
-    Alcotest.(check int) "second order" 4 second.Ct.order_index;
+    Alcotest.(check int) "second order" 1 second.Ct.order_index;
     (match second.Ct.adjacent_reasoning with
      | Ct.Adjacent_reasoning [ visible; redacted ] ->
        check_visible_reasoning "second visible reasoning" 2 None visible;
@@ -156,7 +156,7 @@ let test_tool_calls_keep_interleaved_reasoning_groups () =
          (List.length blocks)
      | Ct.No_adjacent_reasoning -> Alcotest.fail "second call should have reasoning");
     Alcotest.(check string) "third id" "call_3" third.Ct.call_id;
-    Alcotest.(check int) "third order" 5 third.Ct.order_index;
+    Alcotest.(check int) "third order" 2 third.Ct.order_index;
     check_no_adjacent_reasoning "third call" third.Ct.adjacent_reasoning
   | calls -> Alcotest.failf "expected three tool calls, got %d" (List.length calls)
 ;;
@@ -170,7 +170,7 @@ let test_text_breaks_reasoning_adjacency () =
       ]
   in
   let call = one_tool_call resp in
-  Alcotest.(check int) "order_index" 2 call.Ct.order_index;
+  Alcotest.(check int) "order_index" 0 call.Ct.order_index;
   check_no_adjacent_reasoning "text break" call.Ct.adjacent_reasoning
 ;;
 

@@ -11,8 +11,8 @@ type t = string
 
 let of_string s = s
 
-let of_env var =
-  match Sys.getenv_opt var with
+let of_env ?(getenv = Cli_common_env.default_getenv) var =
+  match Cli_common_env.get ~getenv var with
   | Some s -> Some (of_string s)
   | None -> None
 ;;
@@ -39,4 +39,16 @@ let%test "empty secret is empty" = is_empty empty
 
 let%test "secret of string round-trips through header_value" =
   header_value (of_string "k") = "k"
+;;
+
+let%test "secret of_env honors injected env boundary" =
+  let getenv name = if String.equal name "OAS_TEST_SECRET" then Some "  k  " else None in
+  match of_env ~getenv "OAS_TEST_SECRET" with
+  | Some secret -> header_value secret = "k"
+  | None -> false
+;;
+
+let%test "secret of_env treats empty env value as absent" =
+  let getenv name = if String.equal name "OAS_TEST_SECRET" then Some "   " else None in
+  of_env ~getenv "OAS_TEST_SECRET" = None
 ;;

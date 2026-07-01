@@ -76,7 +76,8 @@ let reasoning_of_block ~order_index (block : Types.content_block) =
 ;;
 
 type scan_state =
-  { order_index : int
+  { block_index : int
+  ; tool_index : int
   ; provider_kind : Provider_kind.t option
   ; pending_reasoning_rev : provider_reasoning_block list
   ; tool_calls_rev : provider_tool_call list
@@ -112,14 +113,15 @@ let scan_tool_call state (block : Types.content_block) =
   let adjacent_reasoning = adjacent_reasoning_of_pending state.pending_reasoning_rev in
   match
     tool_call_of_block
-      ~order_index:state.order_index
+      ~order_index:state.tool_index
       ?provider_kind
       ~adjacent_reasoning
       block
   with
   | Some tool_call ->
     { state with
-      order_index = state.order_index + 1
+      block_index = state.block_index + 1
+    ; tool_index = state.tool_index + 1
     ; pending_reasoning_rev = []
     ; tool_calls_rev = tool_call :: state.tool_calls_rev
     }
@@ -127,23 +129,24 @@ let scan_tool_call state (block : Types.content_block) =
     (match block with
      | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ ->
        let pending_reasoning_rev =
-         match reasoning_of_block ~order_index:state.order_index block with
+         match reasoning_of_block ~order_index:state.block_index block with
          | Some reasoning -> reasoning :: state.pending_reasoning_rev
          | None -> state.pending_reasoning_rev
        in
-       { state with order_index = state.order_index + 1; pending_reasoning_rev }
+       { state with block_index = state.block_index + 1; pending_reasoning_rev }
      | Types.Text _
      | Types.ToolUse _
      | Types.ToolResult _
      | Types.Image _
      | Types.Document _
      | Types.Audio _ ->
-       { state with order_index = state.order_index + 1; pending_reasoning_rev = [] })
+       { state with block_index = state.block_index + 1; pending_reasoning_rev = [] })
 ;;
 
 let tool_calls_of_response (response : Types.api_response) : provider_tool_call list =
   let initial =
-    { order_index = 0
+    { block_index = 0
+    ; tool_index = 0
     ; provider_kind = provider_kind_of_response response
     ; pending_reasoning_rev = []
     ; tool_calls_rev = []

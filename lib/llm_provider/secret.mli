@@ -10,7 +10,12 @@
 type t = private string
 
 val of_string : string -> t
-val of_env : string -> t option
+
+(** [of_env ?getenv var] reads [var] through the canonical environment
+    boundary and wraps a non-empty value as a secret. [?getenv] is useful for
+    tests/callers that need to resolve values without reading process env. *)
+val of_env : ?getenv:(string -> string option) -> string -> t option
+
 val empty : t
 val is_empty : t -> bool
 

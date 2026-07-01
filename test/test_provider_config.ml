@@ -1171,6 +1171,136 @@ let with_repository_model_catalog f =
        Fun.protect f ~finally:restore)
 ;;
 
+let test_validate_output_schema_openai_official_catalog () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"gpt-4o"
+        ~base_url:"https://api.openai.com/v1"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    check_bool
+      "catalog OpenAI official host accepts json_schema"
+      true
+      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+;;
+
+let test_validate_output_schema_ollama_cloud_catalog_accepted () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"minimax-m3"
+        ~base_url:"https://ollama.com/v1"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    check_bool
+      "catalog Ollama Cloud model accepts json_schema"
+      true
+      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+;;
+
+let test_validate_output_schema_ollama_cloud_catalog_rejects_model_without_so () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"mistral-large-3:675b"
+        ~base_url:"https://ollama.com/v1"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    match Provider_config.validate_output_schema_request cfg with
+    | Error msg ->
+      check_string
+        "rejection reason"
+        "model mistral-large-3:675b does not advertise native structured output"
+        msg
+    | Ok () -> Alcotest.fail "expected Ollama Cloud model capability rejection")
+;;
+
+let test_validate_output_schema_native_ollama_catalog_rejects_model_without_so () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"ministral-3:8b"
+        ~base_url:"http://localhost:11434"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    match Provider_config.validate_output_schema_request cfg with
+    | Error msg ->
+      check_string
+        "rejection reason"
+        "model ministral-3:8b does not advertise native structured output"
+        msg
+    | Ok () -> Alcotest.fail "expected native Ollama model capability rejection")
+;;
+
+let test_validate_output_schema_unknown_openai_compat_host_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"generic"
+      ~base_url:"https://openai-compatible.example.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "unknown OpenAI-compatible host rejects json_schema"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_cli_sampling_params_accepts_anthropic_min_p () =
+  let cfg =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-4"
+      ~base_url:"https://api.anthropic.com"
+      ~min_p:0.05
+      ()
+  in
+  check_bool
+    "anthropic min_p validation is currently accepted"
+    true
+    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
+;;
+
+let test_connect_timeout_s_default_none () =
+  let cfg =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
+  in
+  Alcotest.(check (option (float 0.001)))
+    "default connect timeout"
+    None
+    cfg.connect_timeout_s
+;;
+
+let test_connect_timeout_s_explicit_override () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"https://x"
+      ~connect_timeout_s:600.0
+      ()
+  in
+  Alcotest.(check (option (float 0.001)))
+    "explicit connect timeout"
+    (Some 600.0)
+    cfg.connect_timeout_s
+;;
+
 let test_provider_name_of_config_glm_general () =
   let cfg =
     Provider_config.make
@@ -1646,6 +1776,14 @@ let () =
     [ ( "defaults"
       , [ Alcotest.test_case "make defaults" `Quick test_make_defaults
         ; Alcotest.test_case "default headers" `Quick test_default_headers
+        ; Alcotest.test_case
+            "connect timeout default"
+            `Quick
+            test_connect_timeout_s_default_none
+        ; Alcotest.test_case
+            "connect timeout override"
+            `Quick
+            test_connect_timeout_s_explicit_override
         ] )
     ; ( "request_path"
       , [ Alcotest.test_case "anthropic" `Quick test_request_path_anthropic
@@ -1700,6 +1838,10 @@ let () =
             "official openai catalog model"
             `Quick
             test_validate_output_schema_openai_official_catalog_model
+        ; Alcotest.test_case
+            "official openai catalog"
+            `Quick
+            test_validate_output_schema_openai_official_catalog
         ; Alcotest.test_case
             "generic compat rejected"
             `Quick
@@ -1761,6 +1903,22 @@ let () =
             `Quick
             test_validate_output_schema_capability_rejected
         ; Alcotest.test_case
+            "ollama cloud catalog accepted"
+            `Quick
+            test_validate_output_schema_ollama_cloud_catalog_accepted
+        ; Alcotest.test_case
+            "ollama cloud catalog rejects model without SO"
+            `Quick
+            test_validate_output_schema_ollama_cloud_catalog_rejects_model_without_so
+        ; Alcotest.test_case
+            "native ollama catalog rejects model without SO"
+            `Quick
+            test_validate_output_schema_native_ollama_catalog_rejects_model_without_so
+        ; Alcotest.test_case
+            "unknown openai compat host rejected"
+            `Quick
+            test_validate_output_schema_unknown_openai_compat_host_rejected
+        ; Alcotest.test_case
             "raw compat qwen does not inherit bare capability"
             `Quick
             test_openai_compat_raw_qwen_does_not_inherit_bare_capability
@@ -1809,6 +1967,10 @@ let () =
             "default attempt timeout hints"
             `Quick
             test_default_attempt_timeout_s
+        ; Alcotest.test_case
+            "cli sampling params"
+            `Quick
+            test_validate_cli_sampling_params_accepts_anthropic_min_p
         ; Alcotest.test_case
             "turn hard caps and clamp"
             `Quick

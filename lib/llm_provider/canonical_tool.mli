@@ -49,8 +49,10 @@ type adjacent_reasoning =
 (** A single tool call projected at the provider boundary.
 
     [call_id], [name], and [input] are mirrors of [ToolUse]. [order_index] is
-    the zero-based position in the response content list. [provider_kind] is
-    copied from response telemetry when present; it is never guessed. *)
+    the zero-based position in the ToolUse-only subsequence, so reasoning/text
+    interleaving does not make downstream call ordering depend on non-tool
+    blocks. [provider_kind] is copied from response telemetry when present; it
+    is never guessed. *)
 type provider_tool_call =
   { call_id : string
   ; name : string
@@ -76,7 +78,9 @@ val tool_call_of_block
 
     The projection is pure and total. Non-[ToolUse] blocks are ignored as tool
     calls but still affect adjacency: any non-reasoning block clears pending
-    adjacent reasoning. *)
+    adjacent reasoning. [provider_tool_call.order_index] counts ToolUse blocks
+    only; [provider_reasoning_block.order_index] remains the content-block
+    position of the reasoning block. *)
 val tool_calls_of_response : Types.api_response -> provider_tool_call list
 
 (** A single tool result projected at the provider boundary. Lane A: [call_id]
