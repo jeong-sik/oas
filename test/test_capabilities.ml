@@ -1524,7 +1524,8 @@ let test_manifest_unknown_modality_priority_warns_and_falls_back () =
       (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
       (fun () -> Capabilities.apply_manifest_entry entry)
   in
-  check bool
+  check
+    bool
     "unknown modality_priority falls back to base"
     true
     (caps.modality_priority = Capabilities.default_capabilities.modality_priority);
