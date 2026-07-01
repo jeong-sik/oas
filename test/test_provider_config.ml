@@ -1527,8 +1527,11 @@ let test_capability_provider_label_deepseek_exact_host () =
   in
   (* RFC-OAS-034 rule 2: api.deepseek.com is DeepSeek's canonical vendor host, so
      its endpoint carries the vendor identity regardless of scheme. *)
-  check_string "https apex is deepseek" "deepseek" (label "https://api.deepseek.com/v1");
-  check_string "http apex is deepseek" "deepseek" (label "http://api.deepseek.com");
+  check_string
+    "https canonical host is deepseek"
+    "deepseek"
+    (label "https://api.deepseek.com/v1");
+  check_string "http canonical host is deepseek" "deepseek" (label "http://api.deepseek.com");
   (* Exact [Uri.host] equality must reject look-alikes so a hostile or accidental
      host cannot inherit the deepseek vendor identity. Falls back to the transport
      kind label ("openai_compat") rather than "deepseek". *)

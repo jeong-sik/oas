@@ -407,8 +407,10 @@ val reasoning_effort_of_config : t -> string option
 
 (** Capability catalog provider namespace for [config].
 
-    This is usually {!string_of_provider_kind}, except official Ollama Cloud
-    endpoints are scoped as ["ollama_cloud"] even when they use the
+    This is usually {!string_of_provider_kind}, except vendor-canonical hosts
+    matched by exact [Uri.host] equality (RFC-OAS-034 §2 rule 2): official
+    Ollama Cloud endpoints are scoped as ["ollama_cloud"], and DeepSeek's
+    canonical host [api.deepseek.com] as ["deepseek"], even when they use the
     OpenAI-compatible wire kind. *)
 val capability_provider_label : t -> string
 

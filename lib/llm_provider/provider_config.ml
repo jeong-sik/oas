@@ -208,7 +208,8 @@ let base_url_targets_openai base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
 ;;
 
-(* RFC-OAS-034 §2 rule 2: a vendor-canonical domain (host == vendor) may bind a
+(* RFC-OAS-034 §2 rule 2: a vendor-canonical domain (the host is itself the
+   vendor's canonical domain, so host identifies the provider) may bind a
    provider label, matched by exact [Uri.host] equality (no prefix, no look-alike).
    [api.deepseek.com] is DeepSeek's canonical vendor host, so its endpoint carries
    the vendor identity "deepseek" rather than the generic transport kind
