@@ -2265,7 +2265,10 @@ let () =
             `Quick
             test_lookup_kimi_k2_native_cloud_suffix
         ; test_case "dashscope" `Quick test_lookup_provider_m
-        ; test_case "dashscope gguf name" `Quick test_lookup_provider_m_dashscope_gguf_name
+        ; test_case
+            "dashscope gguf name"
+            `Quick
+            test_lookup_provider_m_dashscope_gguf_name
         ; test_case
             "qwen3-mtp dot-qualified name"
             `Quick
