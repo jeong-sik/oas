@@ -455,7 +455,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
 ;;
 
 let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
-  let check_gemma4_coder label c =
+  let check_gemma4_coder label (c : Capabilities.capabilities) =
     check (option int) (label ^ " context 256K") (Some 262_144) c.max_context_tokens;
     check bool (label ^ " tools") true c.supports_tools;
     check bool (label ^ " tool_choice") true c.supports_tool_choice;
