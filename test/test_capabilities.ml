@@ -480,6 +480,10 @@ let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
    with
    | Some c -> check_gemma4_coder "runpod_rtxa6000 gemma4 coder" c
    | None -> fail "strict provider lookup should match runpod_rtxa6000 gemma4 coder");
+  (match Capabilities.for_model_id "runpod_rtxa6000.gemma4-coder-fable5-q4km" with
+   | Some c -> check_gemma4_coder "dot-qualified runpod_rtxa6000 gemma4 coder" c
+   | None ->
+     fail "dot-qualified runtime id should match runpod_rtxa6000.gemma4-coder-fable5-q4km");
   match Capabilities.for_model_id "gemma4-coder-fable5-q4km" with
   | Some c -> check_gemma4_coder "bare gemma4 coder" c
   | None -> fail "bare lookup should match gemma4-coder-fable5-q4km"
