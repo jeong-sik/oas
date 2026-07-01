@@ -5,13 +5,14 @@ open Provider_kind
 let base_url_targets_ollama_cloud base_url =
   match Uri.of_string base_url |> Uri.host with
   | None -> false
-  | Some host -> String.equal (String.lowercase_ascii host) "ollama.com"
+  | Some host -> String.equal (String.lowercase_ascii (String.trim host)) "ollama.com"
 ;;
 
 let base_url_targets_openai base_url =
   match Uri.of_string base_url |> Uri.host with
   | None -> false
-  | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
+  | Some host ->
+    String.equal (String.lowercase_ascii (String.trim host)) "api.openai.com"
 ;;
 
 let base_url_targets_runpod_proxy base_url =
