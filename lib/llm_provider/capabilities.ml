@@ -1136,8 +1136,14 @@ let provider_qualified_model_id_candidates ~provider_label ~model_id =
          else None)
       provider_prefixes
   in
+  (* When [model_id] is already provider-qualified, only the stripped bare
+     suffix is a useful candidate for re-qualification below in
+     [provider_qualified_catalog_keys]. Including the original [model_id]
+     alongside it used to make that function re-prepend [provider_label] onto
+     an already-qualified id (e.g. "runpod_mtp/runpod_mtp.qwen..."), which
+     never matches a real catalog [id_prefix] — pure wasted lookups. *)
   match stripped with
-  | Some suffix when String.trim suffix <> "" -> [ suffix; model_id ]
+  | Some suffix when String.trim suffix <> "" -> [ suffix ]
   | Some _ | None -> [ model_id ]
 ;;
 
