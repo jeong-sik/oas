@@ -421,10 +421,7 @@ let () =
     [ ( "classify"
       , [ test_case "http status mapping" `Quick test_classify_error
         ; test_case "edge cases" `Quick test_classify_error_edge_cases
-        ; test_case
-            "402 payment required"
-            `Quick
-            test_classify_error_402_payment_required
+        ; test_case "402 payment required" `Quick test_classify_error_402_payment_required
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable
