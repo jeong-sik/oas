@@ -763,6 +763,12 @@ let complete_stream_http
                 | Some evt -> emit_telemetry evt
                 | None -> ()
               in
+              (* Phase O observability: env-gated ([OAS_WIRE_CAPTURE_DIR])
+                 redacted tee of raw pre-parse stream chunks. The environment is
+                 read once here; when unset [wire_sink] is a no-op so the hot
+                 loop below pays only an indirect call. Attributes a
+                 degenerate-repetition bug to the model vs. the stream parser. *)
+              let wire_sink = Wire_capture.make_sink ~provider ~model in
               let stream_read_result =
                 try
                   (match config.kind with
@@ -772,6 +778,7 @@ let complete_stream_http
                        ?idle_timeout:stream_idle_timeout_s
                        ~reader
                        ~on_line:(fun line ->
+                         wire_sink line;
                          match Streaming.parse_ollama_ndjson_chunk line with
                          | None ->
                            dispatch
@@ -797,6 +804,7 @@ let complete_stream_http
                        ?idle_timeout:stream_idle_timeout_s
                        ~reader
                        ~on_data:(fun ~event_type data ->
+                         wire_sink data;
                          let events =
                            match config.kind with
                            | Provider_config.Anthropic ->
