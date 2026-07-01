@@ -626,6 +626,24 @@ let with_model_catalog_toml contents f =
          Fun.protect f ~finally:restore)
 ;;
 
+let with_repository_model_catalog f =
+  let previous_catalog = Model_catalog.global () in
+  let restore () =
+    match previous_catalog with
+    | Some catalog -> Model_catalog.set_global catalog
+    | None -> Model_catalog.clear_global ()
+  in
+  let candidates = [ "models.toml"; "../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> Alcotest.fail "models.toml not found"
+  | Some path ->
+    (match Model_catalog.load_file path with
+     | Error msg -> Alcotest.failf "failed to load %s: %s" path msg
+     | Ok catalog ->
+       Model_catalog.set_global catalog;
+       Fun.protect f ~finally:restore)
+;;
+
 let test_openai_compat_raw_tool_capability_requires_endpoint_declaration () =
   with_model_catalog_toml
     {|
@@ -712,27 +730,28 @@ thinking_control_format = "chat_template_kwargs"
    only held because the provider-qualified catalog hit was incorrectly
    discarded by the same guard meant for the bare fallback. *)
 let test_openai_compat_runpod_proxy_label_uses_real_catalog_declaration () =
-  let cfg =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"qwen36-35b-a3b-mtp"
-      ~base_url:"https://abc123.proxy.runpod.net/v1"
-      ()
-  in
-  Alcotest.(check string)
-    "RunPod proxy capability namespace"
-    "runpod_mtp"
-    (Provider_config.capability_provider_label cfg);
-  match Provider_config.capabilities_for_config_model cfg with
-  | None ->
-    Alcotest.fail
-      "runpod_mtp/qwen36-35b-a3b-mtp is a real models.toml row; it must not be treated \
-       as an undeclared endpoint"
-  | Some caps ->
-    Alcotest.(check bool)
-      "real catalog row's declared thinking dialect is honored"
-      true
-      (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"qwen36-35b-a3b-mtp"
+        ~base_url:"https://abc123.proxy.runpod.net/v1"
+        ()
+    in
+    Alcotest.(check string)
+      "RunPod proxy capability namespace"
+      "runpod_mtp"
+      (Provider_config.capability_provider_label cfg);
+    match Provider_config.capabilities_for_config_model cfg with
+    | None ->
+      Alcotest.fail
+        "runpod_mtp/qwen36-35b-a3b-mtp is a real models.toml row; it must not be treated \
+         as an undeclared endpoint"
+    | Some caps ->
+      Alcotest.(check bool)
+        "real catalog row's declared thinking dialect is honored"
+        true
+        (caps.thinking_control_format = Capabilities.Chat_template_kwargs))
 ;;
 
 let test_openai_compat_runpod_proxy_label_uses_declared_catalog_dialect () =
@@ -783,6 +802,29 @@ let test_openai_compat_runpod_proxy_label_is_catalog_only () =
     "RunPod proxy namespace is not a provider preset"
     true
     (Option.is_none (Capabilities.capabilities_for_provider_label "runpod_mtp"))
+;;
+
+let test_ollama_cloud_label_matches_official_host_only () =
+  let cfg host =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"kimi-k2.6" ~base_url:host ()
+  in
+  Alcotest.(check string)
+    "official host classified as ollama_cloud"
+    "ollama_cloud"
+    (Provider_config.capability_provider_label (cfg "https://ollama.com/v1"));
+  Alcotest.(check bool)
+    "lookalike suffix host is not classified as ollama_cloud"
+    false
+    (String.equal
+       "ollama_cloud"
+       (Provider_config.capability_provider_label
+          (cfg "https://ollama.com.evil.example/v1")));
+  Alcotest.(check bool)
+    "lookalike prefix host is not classified as ollama_cloud"
+    false
+    (String.equal
+       "ollama_cloud"
+       (Provider_config.capability_provider_label (cfg "https://ollama.computer/v1")))
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -1347,24 +1389,6 @@ let test_structured_output_name_of_schema () =
 ;;
 
 (* ── provider_name_of_config ─────────────────────────── *)
-
-let with_repository_model_catalog f =
-  let previous_catalog = Model_catalog.global () in
-  let restore () =
-    match previous_catalog with
-    | Some catalog -> Model_catalog.set_global catalog
-    | None -> Model_catalog.clear_global ()
-  in
-  let candidates = [ "models.toml"; "../models.toml" ] in
-  match List.find_opt Sys.file_exists candidates with
-  | None -> Alcotest.fail "models.toml not found for provider_name tests"
-  | Some path ->
-    (match Model_catalog.load_file path with
-     | Error msg -> Alcotest.failf "failed to load %s: %s" path msg
-     | Ok catalog ->
-       Model_catalog.set_global catalog;
-       Fun.protect f ~finally:restore)
-;;
 
 let test_validate_output_schema_openai_official_catalog () =
   with_repository_model_catalog (fun () ->
@@ -2193,6 +2217,10 @@ let () =
             "runpod proxy label is catalog-only"
             `Quick
             test_openai_compat_runpod_proxy_label_is_catalog_only
+        ; Alcotest.test_case
+            "ollama_cloud label matches official host only"
+            `Quick
+            test_ollama_cloud_label_matches_official_host_only
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick

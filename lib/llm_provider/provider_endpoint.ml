@@ -3,9 +3,9 @@
 open Provider_kind
 
 let base_url_targets_ollama_cloud base_url =
-  let base_url = String.lowercase_ascii (String.trim base_url) in
-  String.starts_with ~prefix:"https://ollama.com" base_url
-  || String.starts_with ~prefix:"http://ollama.com" base_url
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "ollama.com"
 ;;
 
 let base_url_targets_openai base_url =
