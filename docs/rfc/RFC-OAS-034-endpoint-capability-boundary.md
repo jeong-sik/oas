@@ -104,17 +104,33 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 1. namespace provenance를 명시 선언으로 도입 (`model_id` prefix 또는 config 필드). PR #2404(declarative override SSOT)와 정렬.
 2. `base_url_targets_runpod_proxy → "runpod_mtp"`(B1/B2) 및 `is_local → "nous"`(B3)를 포함한 모든 generic-host→capability 매핑 삭제.
 3. host-결합 namespace를 serving-contract 식별자로 rename.
-4. P3 경화(B4~B7): `Uri.host` 정확 비교, unknown→false 시작, manifest 오타 warn.
-5. §5 ratchet 추가로 재발 차단.
+4. P3 경화 — 적대적 재감사(#2414) 후 착지: **B4**=ollama `Uri.host` 정확 비교(#2420), **B7**=min_p를 `is_local` 대신 catalog-declared로(#2425), **model_catalog**=unknown TOML 키 fail-closed(#2426). **B5/B6는 false-positive로 강등**(discovery=capability=f(runtime) legit / manifest=이미 fail-closed). **B4'(:804 host→output_schema capability), :840(unknown base label→silent default)는 설계 변경 필요로 defer**(§7 참조).
+5. §5 ratchet 추가로 재발 차단 — **#2419 착지**(hardening ratchet 확장).
 
-## 5. Ratchet (RFC-OAS-022 미러)
+## 5. Ratchet (RFC-OAS-022/023 미러) — 구현: PR #2419
 
-`.ci/endpoint-capability-baseline.json` + `scripts/ci-endpoint-capability-ratchet.sh` + workflow로 다음 metric을 monotone-decrease 고정:
+초안은 standalone `scripts/ci-endpoint-capability-ratchet.sh` +
+`.ci/endpoint-capability-baseline.json`을 제안했으나, **기존 production hardening
+ratchet**(`scripts/hardening-ratchet.sh`, RFC-OAS-023)에 metric 1개를 추가하는
+방식으로 구현했다. scan/waiver/baseline/reporting 인프라를 재사용해 중복
+(anti-pattern #1 scattered infra)을 피한다. 이미 `model_id_string_classifiers_outside_catalog`라는 정확한 대칭 metric이 존재한다.
 
-- **host_to_capability_label** — `base_url_targets_*` 또는 `is_local` 결과가 `capability_provider_label` / `provider_name_of_config`의 capability-선택 label로 흘러가는 사이트 수. baseline = P1·P2 삭제 후 **0**, 이후 증가 금지.
-- 판정: `capability_provider_label` / `provider_name_of_config`의 반환 label 중 vendor-canonical allowlist(`ollama_cloud`, `openai`, `glm`, `glm-coding` 등 정확-host 근거) 외의 host-유도 label = 위반.
+- **`base_url_host_fuzzy_classifiers`** (`.ci/hardening-baseline.json`) —
+  `base_url`/`host`/`Uri.host`에 대한 fuzzy `String` 매칭
+  (`starts_with`/`ends_with`/`contains`/`is_substring`) 사이트 수를
+  monotone-decrease 고정. baseline = 기존 `ollama.com` 매처(B4 reducible debt),
+  이후 증가 금지.
+- 판정 경계: exact `String.equal (Uri.host …) "vendor"`
+  (vendor-canonical identity)와 정규화(`lowercase_ascii`/`trim`)는 **제외** →
+  legit 패턴 오탐 없음. `is_local`(hand-rolled `String.sub`)도 transport
+  predicate라 제외.
+- **차단 실증 (mutation test)**: #2374의
+  `String.ends_with ~suffix:".proxy.runpod.net" host` 주입 시 count가 baseline을
+  초과해 `--check`가 FAIL(+1) → revert 시 OK. 원칙 RFC만으론 못 막던 host→capability
+  재도입을 기계적으로 차단(#2374·#2408이 재발 실측).
 
-RFC-OAS-022의 script/workflow shape를 그대로 미러하되 metric set만 교체한다. baseline 없이 두면 다음 리팩터 wave에서 `_targets_<rental>` branch가 다시 들어온다(#2374·#2408이 실측).
+baseline은 신규 metric만 수술적으로 add한다. 나머지 hardening metric은 drift로
+stale-high(monotone-safe)이며, 전체 rebaseline은 별도 hygiene 작업으로 분리.
 
 ## 6. Verification (완료 정의)
 
@@ -131,3 +147,16 @@ RFC-OAS-022의 script/workflow shape를 그대로 미러하되 metric set만 교
 - **PR #2404** declarative override SSOT — B1/B2/B3의 root fix가 안착할 기반.
 - **PR #2374, #2408** — 본 RFC가 흡수하는 트리거 (host→capability namespace, 중복 구현).
 - `~/me/instructions/software-development.md` §워크어라운드 거부 기준, AI 코드 생성 안티패턴 #1(scattered hardcoded)·#2(unknown→permissive)·#3(boundary violation).
+
+### 구현 현황 (추적 이슈 #2414)
+
+| finding | 상태 | PR |
+|---|---|---|
+| B3 `is_local → "nous"` 중립화 | merged | #2415 |
+| §5 ratchet (`base_url_host_fuzzy_classifiers`) | Draft | #2419 |
+| B4 ollama `Uri.host` 정확 비교 | Draft | #2420 |
+| B7 min_p catalog-declared (host 비의존) | Draft | #2425 |
+| model_catalog unknown 키 fail-closed | Draft | #2426 |
+| B5 discovery / B6 manifest | false-positive (미구현) | — |
+| B4'(:804 host→output_schema) / :840(base label) | defer (설계 변경) | — |
+| B1/B2 (#2374·#2408 흡수) | 미착수 | — |
