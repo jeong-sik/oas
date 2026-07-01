@@ -7,40 +7,45 @@ type sink = string -> unit
 let noop : sink = fun _ -> ()
 
 let write_line ~dir ~provider ~model chunk =
-  (try if not (Sys.file_exists dir) then Unix.mkdir dir 0o700 with _ -> ());
+  (try if not (Sys.file_exists dir) then Unix.mkdir dir 0o700 with
+   | _ -> ());
   let path = Filename.concat dir "raw-stream.jsonl" in
   try
     let oc = open_out_gen [ Open_append; Open_creat ] 0o600 path in
     Fun.protect
       ~finally:(fun () -> close_out_noerr oc)
       (fun () ->
-        let json : Yojson.Safe.t =
-          `Assoc
-            [
-              ("provider", `String provider);
-              ("model", `String model);
-              ("chunk", `String (Secret_redactor.redact_string chunk));
-            ]
-        in
-        output_string oc (Yojson.Safe.to_string json ^ "\n"))
-  with _ -> ()
+         let json : Yojson.Safe.t =
+           `Assoc
+             [ "provider", `String provider
+             ; "model", `String model
+             ; "chunk", `String (Secret_redactor.redact_string chunk)
+             ]
+         in
+         output_string oc (Yojson.Safe.to_string json ^ "\n"))
+  with
+  | _ -> ()
+;;
 
 let make_sink ~provider ~model =
   match Sys.getenv_opt env_dir with
   | None | Some "" -> noop
   | Some dir -> fun chunk -> write_line ~dir ~provider ~model chunk
+;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
 
 let contains ~needle haystack =
-  let nl = String.length needle and hl = String.length haystack in
-  if nl = 0 then true
-  else
+  let nl = String.length needle
+  and hl = String.length haystack in
+  if nl = 0
+  then true
+  else (
     let rec loop i =
-      i + nl <= hl
-      && (String.equal (String.sub haystack i nl) needle || loop (i + 1))
+      i + nl <= hl && (String.equal (String.sub haystack i nl) needle || loop (i + 1))
     in
-    loop 0
+    loop 0)
+;;
 
 let%test "make_sink is a no-op when env is unset" =
   Unix.putenv env_dir "";
@@ -48,6 +53,7 @@ let%test "make_sink is a no-op when env is unset" =
   s "raw chunk";
   (* no exception, no output path assumed *)
   true
+;;
 
 let%test "make_sink writes a redacted line when env is set" =
   let dir = Filename.temp_dir "oas_wire" "" in
@@ -67,6 +73,7 @@ let%test "make_sink writes a redacted line when env is set" =
   (not (contains ~needle:token content))
   && contains ~needle:"[REDACTED]" content
   && contains ~needle:"deepseek-v4-flash" content
+;;
 
 let%test "disabled sink writes nothing" =
   let dir = Filename.temp_dir "oas_wire_off" "" in
@@ -74,3 +81,4 @@ let%test "disabled sink writes nothing" =
   let s = make_sink ~provider:"p" ~model:"m" in
   s "chunk";
   not (Sys.file_exists (Filename.concat dir "raw-stream.jsonl"))
+;;

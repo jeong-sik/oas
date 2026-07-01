@@ -14,12 +14,12 @@
 
     @since introduced for the keeper repetition investigation (Phase O). *)
 
-type sink = string -> unit
 (** A per-chunk capture function. Call with each raw pre-parse chunk. *)
+type sink = string -> unit
 
-val make_sink : provider:string -> model:string -> sink
 (** [make_sink ~provider ~model] reads [OAS_WIRE_CAPTURE_DIR] once. If unset or
     empty it returns a no-op sink. Otherwise it returns a sink that appends one
     redacted JSON line ([{provider, model, chunk}]) per chunk to
     [<dir>/raw-stream.jsonl]. All I/O is best-effort; failures are swallowed so
     capture never perturbs the stream. *)
+val make_sink : provider:string -> model:string -> sink
