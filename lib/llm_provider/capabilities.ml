@@ -1119,6 +1119,44 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
     no entry whose [id_prefix] matches [model_id]. There is no in-code
     fallback table: the former built-in static table was removed when
     model specifications were externalized to the TOML catalog. *)
+let provider_qualified_separators = [ "/"; ":"; "." ]
+
+let provider_qualified_model_id_candidates ~provider_label ~model_id =
+  let normalized_model_id = String.lowercase_ascii model_id in
+  let provider_prefixes =
+    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
+  in
+  let stripped =
+    List.find_map
+      (fun prefix ->
+         if String.starts_with ~prefix normalized_model_id
+         then (
+           let prefix_len = String.length prefix in
+           Some (String.sub model_id prefix_len (String.length model_id - prefix_len)))
+         else None)
+      provider_prefixes
+  in
+  match stripped with
+  | Some suffix when String.trim suffix <> "" -> [ suffix; model_id ]
+  | Some _ | None -> [ model_id ]
+;;
+
+let provider_qualified_catalog_keys ~provider_label ~model_id =
+  let provider_label = String.lowercase_ascii (String.trim provider_label) in
+  let model_id = String.trim model_id in
+  let keys =
+    provider_qualified_model_id_candidates ~provider_label ~model_id
+    |> List.concat_map (fun model_id ->
+      List.map
+        (fun separator -> provider_label ^ separator ^ model_id)
+        provider_qualified_separators)
+  in
+  let prefixes =
+    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
+  in
+  keys, prefixes
+;;
+
 let for_model_id_catalog model_id =
   match Model_catalog.global () with
   | Some catalog ->
@@ -1158,10 +1196,9 @@ let for_model_id model_id =
 ;;
 
 let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string) =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.trim model_id in
-  let candidates = [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ] in
-  let qualified_prefixes = [ provider_label ^ "/"; provider_label ^ ":" ] in
+  let candidates, qualified_prefixes =
+    provider_qualified_catalog_keys ~provider_label ~model_id
+  in
   match Model_catalog.global () with
   | None -> None
   | Some catalog ->
@@ -1233,10 +1270,9 @@ let thinking_control_token_for_provider_model_id
       ~(provider_label : string)
       ~(model_id : string)
   =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.trim model_id in
-  let candidates = [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ] in
-  let qualified_prefixes = [ provider_label ^ "/"; provider_label ^ ":" ] in
+  let candidates, qualified_prefixes =
+    provider_qualified_catalog_keys ~provider_label ~model_id
+  in
   let provider_catalog_match =
     match Model_catalog.global () with
     | None -> None

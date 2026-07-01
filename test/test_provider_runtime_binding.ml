@@ -277,6 +277,66 @@ reasoning_replay = "preserve_always"
          (caps.reasoning_replay_override = Llm_provider.Capabilities.Force_preserve_always))
 ;;
 
+let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
+  with_provider_catalog
+    {|
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "runpod_mtp",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://runpod.example.invalid/v1",
+      "request_path": "/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat"
+    }
+  ]
+}
+|}
+    (fun () ->
+       with_model_catalog
+         {|
+[[models]]
+id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+base = "openai_chat"
+provider_name = "runpod_mtp"
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
+|}
+         (fun () ->
+            let cfg =
+              Llm_provider.Provider_config.make
+                ~kind:Llm_provider.Provider_config.OpenAI_compat
+                ~model_id:"runpod_mtp.qwen36-35b-a3b-mtp"
+                ~base_url:"https://runpod.example.invalid/v1"
+                ~request_path:"/chat/completions"
+                ()
+            in
+            let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+            Alcotest.(check bool) "runpod row keeps tools" true caps.supports_tools;
+            Alcotest.(check bool)
+              "runpod row keeps parallel tools"
+              true
+              caps.supports_parallel_tool_calls;
+            Alcotest.(check bool)
+              "runpod row keeps reasoning"
+              true
+              caps.supports_reasoning;
+            Alcotest.(check bool)
+              "runpod row uses chat_template_kwargs"
+              true
+              (caps.thinking_control_format
+               = Llm_provider.Capabilities.Chat_template_kwargs)))
+;;
+
 let expect_tool_choice_ok label cfg =
   match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
   | Ok () -> ()
@@ -662,6 +722,10 @@ let () =
             "provider-qualified model catalog capabilities"
             `Quick
             test_capabilities_for_provider_config_uses_provider_qualified_model_catalog
+        ; Alcotest.test_case
+            "dot-qualified model catalog capabilities"
+            `Quick
+            test_capabilities_for_provider_config_uses_dot_qualified_model_catalog
         ; Alcotest.test_case
             "forced tool_choice provider invariants"
             `Quick

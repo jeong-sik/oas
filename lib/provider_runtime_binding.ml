@@ -386,7 +386,15 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
   let caps =
     match PConfig.capabilities_for_config_model cfg with
     | Some model_caps -> model_caps
-    | None -> caps
+    | None ->
+      (match
+         Llm_provider.Capabilities.for_provider_model_id
+           ~allow_bare_fallback:false
+           ~provider_label:(provider_id_of_provider_config cfg)
+           ~model_id:cfg.model_id
+       with
+       | Some model_caps -> model_caps
+       | None -> caps)
   in
   match cfg.supports_tool_choice_override with
   | Some supports_tool_choice ->

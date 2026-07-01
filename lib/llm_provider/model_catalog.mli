@@ -54,6 +54,15 @@ type t = model_entry list
 
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
+
+(** Longest-prefix lookup for catalog model IDs.
+
+    In addition to exact catalog syntax, [lookup] accepts a flattened
+    [<provider_label>.<model_id>] value and resolves it against
+    [<provider_label>/<model_id>] or [<provider_label>:<model_id>] entries. This
+    keeps embedding runtimes that use dot-qualified model identifiers on the
+    same provider-qualified catalog path rather than falling back to generic
+    OpenAI-compatible capabilities. *)
 val lookup : t -> string -> model_entry option
 
 (** Return the catalog-declared provider identity for the longest matching
