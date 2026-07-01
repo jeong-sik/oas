@@ -10,6 +10,7 @@
 open Types
 
 let ( let* ) = Result.bind
+let keep_alive_env_var = "OAS_OLLAMA_KEEP_ALIVE"
 
 (* ── Request building ────────────────────────────────── *)
 
@@ -131,7 +132,7 @@ let build_request
     match Cli_common_env.trim_non_empty_opt config.keep_alive with
     | Some v -> v
     | None ->
-      (match Cli_common_env.get "OAS_OLLAMA_KEEP_ALIVE" with
+      (match Cli_common_env.get keep_alive_env_var with
        | Some v -> v
        | None -> "-1")
   in
@@ -394,16 +395,23 @@ let parse_ollama_response json_str =
 [@@@coverage off]
 
 (** Run [f] with the [OAS_OLLAMA_KEEP_ALIVE] env var set to [value], then
-    restore the caller's original setting. Guaranteed restore on exception. *)
+    restore the caller's original setting. Guaranteed restore on exception.
+    OCaml's [Unix]/[Sys] modules have no portable unsetenv (verified against
+    the installed 5.4.1 Unix.mli/Sys.mli — neither declares one), so a var
+    that was originally unset is restored to [""] rather than truly removed
+    from the process environment. This is equivalent for every current
+    reader ([Cli_common_env.get] treats [Some ""] the same as [None] via
+    [trim_non_empty_opt]), but is not a true unset for code that reads the
+    var via bare [Sys.getenv_opt]/[Cli_common_env.default_getenv]. *)
 let with_keep_alive_env value f =
-  let orig = Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" in
+  let orig = Cli_common_env.default_getenv keep_alive_env_var in
   let restore () =
     match orig with
-    | None -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" ""
-    | Some v -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" v
+    | None -> Unix.putenv keep_alive_env_var ""
+    | Some v -> Unix.putenv keep_alive_env_var v
   in
   Fun.protect ~finally:restore (fun () ->
-    Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" value;
+    Unix.putenv keep_alive_env_var value;
     f ())
 ;;
 
