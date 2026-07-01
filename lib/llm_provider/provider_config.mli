@@ -407,9 +407,22 @@ val reasoning_effort_of_config : t -> string option
 
 (** Capability catalog provider namespace for [config].
 
-    This is usually {!string_of_provider_kind}, except official Ollama Cloud
-    endpoints are scoped as ["ollama_cloud"] even when they use the
-    OpenAI-compatible wire kind. *)
+    This is usually {!string_of_provider_kind}, except endpoint families that
+    publish provider-qualified catalog rows while using the OpenAI-compatible
+    wire kind:
+
+    - official Ollama Cloud endpoints are scoped as ["ollama_cloud"];
+    - RunPod proxy endpoints ([proxy.runpod.net] and subdomains) are scoped as
+      ["runpod_mtp"].
+
+    This namespace is for model capability lookup only; it does not
+    determine provider/transport identity for telemetry or routing (see
+    {!Provider_registry.provider_name_of_config}, which intentionally keeps
+    those axes separate). ["runpod_mtp"] is catalog-qualified-only, not a
+    provider-level preset: raw OpenAI-compatible endpoints (RunPod included)
+    still reject undeclared model capabilities unless a provider-qualified
+    catalog row or an explicit capability override proves the runtime
+    contract. *)
 val capability_provider_label : t -> string
 
 (** Resolve model capabilities using provider-qualified catalog entries first.

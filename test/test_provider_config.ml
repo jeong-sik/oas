@@ -1256,6 +1256,85 @@ let with_repository_model_catalog f =
        Fun.protect f ~finally:restore)
 ;;
 
+(* ── RunPod proxy capability label ───────────────────────
+   Root cause: [capability_provider_label] derived the catalog namespace
+   purely from [config.kind] (plus an Ollama Cloud base_url special-case),
+   so a RunPod-hosted OpenAI-compatible config always got "openai_compat".
+   The repo's own [models.toml] declares this model under the
+   provider-qualified id_prefix "runpod_mtp/qwen36-35b-a3b-mtp"; without the
+   base_url classifier below, that qualified row could never match, the
+   lookup fell back to the bare "qwen36-35b-a3b-mtp" row, and that bare row's
+   [chat_template_kwargs] dialect made
+   [raw_openai_compat_requires_endpoint_declaration] reject it (correctly --
+   an undeclared endpoint should not inherit a thinking dialect for free). *)
+let test_openai_compat_runpod_proxy_label_resolves_qualified_catalog_row () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"qwen36-35b-a3b-mtp"
+        ~base_url:"https://abc123.proxy.runpod.net/v1"
+        ()
+    in
+    check_string
+      "RunPod proxy resolves to the runpod_mtp capability namespace"
+      "runpod_mtp"
+      (Provider_config.capability_provider_label cfg);
+    match Provider_config.capabilities_for_config_model cfg with
+    | None ->
+      Alcotest.fail
+        "runpod_mtp/qwen36-35b-a3b-mtp is a real, provider-qualified models.toml row; it \
+         must not be treated as an undeclared endpoint"
+    | Some caps ->
+      check_bool
+        "declared chat_template_kwargs thinking dialect is honored"
+        true
+        (caps.thinking_control_format = Capabilities.Chat_template_kwargs))
+;;
+
+(* Same host family, but a model_id the catalog does not declare under
+   "runpod_mtp/": this must stay fail-closed. The base_url classifier only
+   changes *which namespace* is searched; it must not grant RunPod proxies a
+   blanket capability preset for arbitrary/unknown models. *)
+let test_openai_compat_runpod_proxy_label_stays_fail_closed_for_unknown_model () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"totally-unknown-model-id"
+        ~base_url:"https://abc123.proxy.runpod.net/v1"
+        ()
+    in
+    check_bool
+      "unknown model on a RunPod proxy endpoint is not trusted"
+      true
+      (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+;;
+
+(* The capability namespace change must not leak into provider/transport
+   identity: RunPod proxy endpoints are not a registered endpoint binding, so
+   [provider_name_of_config] must keep reporting the honest generic
+   "openai_compat" label (mirrors the identity/provenance separation from
+   oas#2373, fixing #2329). *)
+let test_provider_name_of_config_runpod_proxy_stays_openai_compat () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"qwen36-35b-a3b-mtp"
+        ~base_url:"https://abc123.proxy.runpod.net/v1"
+        ()
+    in
+    check_string
+      "RunPod proxy capability namespace"
+      "runpod_mtp"
+      (Provider_config.capability_provider_label cfg);
+    check_string
+      "RunPod proxy transport/telemetry identity stays generic"
+      "openai_compat"
+      (Provider_registry.provider_name_of_config cfg))
+;;
+
 let test_validate_output_schema_openai_official_catalog () =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -2044,6 +2123,14 @@ let () =
             `Quick
             test_openai_compat_raw_template_dialect_requires_endpoint_declaration
         ; Alcotest.test_case
+            "runpod proxy label resolves qualified catalog row"
+            `Quick
+            test_openai_compat_runpod_proxy_label_resolves_qualified_catalog_row
+        ; Alcotest.test_case
+            "runpod proxy label stays fail-closed for unknown model"
+            `Quick
+            test_openai_compat_runpod_proxy_label_stays_fail_closed_for_unknown_model
+        ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
             test_validate_responses_request_path_allows_structured_output
@@ -2133,6 +2220,10 @@ let () =
             "unmatched openai_compat"
             `Quick
             test_provider_name_of_config_unmatched_openai_compat
+        ; Alcotest.test_case
+            "runpod proxy capability label is not transport identity"
+            `Quick
+            test_provider_name_of_config_runpod_proxy_stays_openai_compat
         ; Alcotest.test_case
             "ignores xai catalog model"
             `Quick

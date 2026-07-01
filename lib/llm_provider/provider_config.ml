@@ -208,15 +208,54 @@ let base_url_targets_openai base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
 ;;
 
+(* RunPod serves OpenAI-compatible endpoints from per-pod subdomains of the
+   shared [proxy.runpod.net] host (e.g. [https://<pod-id>.proxy.runpod.net]).
+   That host is RunPod's own documented proxy domain -- not an
+   operator-supplied or model-supplied value -- so classifying it here is the
+   same "explicit endpoint registry binding" shape as
+   [base_url_targets_ollama_cloud] / [base_url_targets_openai] above.
+
+   This does NOT resurrect the model-id -> transport-identity inference that
+   oas#2373 (fixing #2329) removed from
+   [Provider_registry.provider_name_of_config]: that fix correctly bars
+   deriving *transport/telemetry* identity from catalog model provenance
+   (a "grok" model id served through an arbitrary compatible gateway is not
+   evidence the gateway is xAI). This label is scoped to capability *lookup*
+   only and is keyed on the actual endpoint host, never on [config.model_id]
+   or catalog [provider_name] metadata -- so the same collision risk does not
+   apply. *)
+let base_url_targets_runpod_proxy base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host ->
+    let host = String.lowercase_ascii (String.trim host) in
+    String.equal host "proxy.runpod.net"
+    || String.ends_with ~suffix:".proxy.runpod.net" host
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
-  else string_of_provider_kind config.kind
+  else (
+    match config.kind with
+    | OpenAI_compat when base_url_targets_runpod_proxy config.base_url -> "runpod_mtp"
+    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope ->
+      string_of_provider_kind config.kind)
 ;;
 
+(* [runpod_mtp] stays in the "raw, no built-in source" bucket alongside
+   [openai_compat]: the label only proves the wire transport is a known
+   RunPod proxy, not that every model served through it is declared. A
+   provider-qualified catalog row (["runpod_mtp/<model_id>"]) still has to
+   exist for {!capabilities_for_config_model} to trust a model's
+   capabilities; models the catalog does not know fall through to the same
+   fail-closed bare/global check as any other undeclared OpenAI-compatible
+   endpoint -- this label change does not grant RunPod proxies a blanket
+   capability preset. *)
 let raw_openai_compat_without_builtin_source config provider_label =
   match config.kind, provider_label with
-  | OpenAI_compat, "openai_compat" -> not (base_url_targets_openai config.base_url)
+  | OpenAI_compat, ("openai_compat" | "runpod_mtp") ->
+    not (base_url_targets_openai config.base_url)
   | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> false
 ;;
 
@@ -318,6 +357,12 @@ let capabilities_for_config_model (config : t) =
     let provider_label = capability_provider_label config in
     if raw_openai_compat_without_builtin_source config provider_label
     then (
+      (* A provider-qualified catalog hit (e.g. "runpod_mtp/<model_id>") IS
+         the explicit endpoint declaration this fail-closed policy requires;
+         it must return immediately without being re-checked by
+         [raw_openai_compat_requires_endpoint_declaration] below, which exists
+         only to gate the bare/global fallback that has no provider
+         qualification at all. *)
       match
         Capabilities.for_provider_model_id
           ~allow_bare_fallback:false
