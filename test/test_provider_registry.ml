@@ -990,9 +990,9 @@ let test_requires_any () =
 (* ── Kind ↔ registry integrity ────────────────────────── *)
 
 (** Minimal [Provider_config.t] construction for a given kind, using a
-    localhost base URL so [is_local = true] for [OpenAI_compat] (resolves
-    to the registry's "nous" entry) and a plain (non-coding) URL for
-    [Glm] (resolves to "glm"). *)
+    localhost base URL for [OpenAI_compat] (a local endpoint resolves to the
+    neutral "openai_compat" label per RFC-OAS-034, not a vendor entry) and a
+    plain (non-coding) URL for [Glm] (resolves to "glm"). *)
 let mk_config_for_kind kind =
   let base_url =
     match kind with
@@ -1038,11 +1038,24 @@ let test_every_kind_resolves_in_registry () =
            name
            entry.name
        | None ->
-         failf
-           "%s: provider_name_of_config returned %S but registry has no entry for it; \
-            either register the provider or fix the naming function"
-           label
-           name)
+         (* OpenAI_compat is the generic compatibility kind: a local or otherwise
+            unmatched OpenAI-compatible endpoint resolves to the neutral
+            "openai_compat" label, which is intentionally not a registered vendor
+            entry (RFC-OAS-034). Every other kind must resolve to a registered
+            entry, so adding a variant without registration still fails here. *)
+         (match kind with
+          | Provider_config.OpenAI_compat ->
+            check
+              string
+              (Printf.sprintf "%s: neutral compat fallback" label)
+              "openai_compat"
+              name
+          | _ ->
+            failf
+              "%s: provider_name_of_config returned %S but registry has no entry for it; \
+               either register the provider or fix the naming function"
+              label
+              name))
     Provider_config.all_provider_kinds
 ;;
 

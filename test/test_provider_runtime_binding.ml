@@ -209,6 +209,62 @@ let test_capabilities_for_provider_config_honors_override () =
       caps.supports_named_tool_choice)
 ;;
 
+let test_local_openai_compat_capabilities_not_inflated_by_locality () =
+  (* RFC-OAS-034: host locality must not grant the extended capability preset.
+     A local OpenAI-compatible endpoint on a non-default port serving an
+     uncatalogued model resolves to base openai_compat capabilities — reasoning
+     and extended thinking are NOT inferred from the endpoint being local. Before
+     the fix, [is_local -> "nous"] routed this to the extended preset. *)
+  let cfg =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"uncatalogued-local-model"
+      ~base_url:"http://127.0.0.1:8199"
+      ~request_path:"/v1/chat/completions"
+      ()
+  in
+  let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+  Alcotest.(check bool) "no reasoning from locality" false caps.supports_reasoning;
+  Alcotest.(check bool)
+    "no extended thinking from locality"
+    false
+    caps.supports_extended_thinking;
+  Alcotest.(check bool)
+    "no reasoning budget from locality"
+    false
+    caps.supports_reasoning_budget
+;;
+
+let test_capabilities_host_invariant_local_vs_remote () =
+  (* RFC-OAS-034: capability = f(runtime x model), not f(host). The same kind +
+     uncatalogued model resolves to the same reasoning capability whether the
+     endpoint is local (non-default port) or remote. *)
+  let make base_url =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"uncatalogued-model"
+      ~base_url
+      ~request_path:"/v1/chat/completions"
+      ()
+  in
+  let local =
+    Provider_runtime_binding.capabilities_for_provider_config
+      (make "http://127.0.0.1:8199")
+  in
+  let remote =
+    Provider_runtime_binding.capabilities_for_provider_config
+      (make "https://remote.example/v1")
+  in
+  Alcotest.(check bool)
+    "reasoning capability is host-invariant"
+    remote.supports_reasoning
+    local.supports_reasoning;
+  Alcotest.(check bool)
+    "both resolve to base (no reasoning)"
+    false
+    local.supports_reasoning
+;;
+
 let test_catalog_structured_output_capability_projects_to_provider_config () =
   with_provider_catalog catalog_json (fun () ->
     let binding = expect_binding "subscriber-local" in
@@ -742,6 +798,14 @@ let () =
             "find and provider config fallbacks"
             `Quick
             test_find_empty_missing_and_provider_config_fallbacks
+        ; Alcotest.test_case
+            "local capabilities not inflated by locality"
+            `Quick
+            test_local_openai_compat_capabilities_not_inflated_by_locality
+        ; Alcotest.test_case
+            "capabilities host-invariant local vs remote"
+            `Quick
+            test_capabilities_host_invariant_local_vs_remote
         ] )
     ; ( "builtins"
       , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves
