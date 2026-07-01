@@ -1,3 +1,3 @@
 (lang dune 3.22)
 (name agent_sdk)
-(version 0.208.8) ; x-release-please-version
+(version 0.208.9) ; x-release-please-version
