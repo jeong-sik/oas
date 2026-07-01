@@ -31,6 +31,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.10](https://github.com/jeong-sik/oas/compare/v0.208.9...v0.208.10) (2026-07-01)
+
+
+### Bug Fixes
+
+* let resume config override thinking policy ([#2412](https://github.com/jeong-sik/oas/issues/2412)) ([6543568](https://github.com/jeong-sik/oas/commit/65435688c4059563e6432800bdd1318acec03961))
+* **provider:** revert Local dialect inference to fail-closed ([#2410](https://github.com/jeong-sik/oas/issues/2410)) ([2ea8be8](https://github.com/jeong-sik/oas/commit/2ea8be89eeb1734f37521d9951f5f3095ef2f403))
+* **retry:** classify HTTP 402 as first-class PaymentRequired, not InvalidRequest ([#2407](https://github.com/jeong-sik/oas/issues/2407)) ([ff0d8f0](https://github.com/jeong-sik/oas/commit/ff0d8f02a2024e58a005ad00a29cf0922f16f4ed))
+
 ## [0.208.9](https://github.com/jeong-sik/oas/compare/v0.208.8...v0.208.9) (2026-07-01)
 
 
