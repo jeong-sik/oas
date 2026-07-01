@@ -64,7 +64,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 
 ## 3. 미비 사항 인벤토리 (감사 확정)
 
-### P1 — PR #2374 / #2408 (미머지, 머지 차단) · host → capability namespace
+### P1 — PR #2374 / #2408 (미병합, 병합 차단) · host → capability namespace
 
 | # | 위치 | 증상 | severity |
 |---|------|------|----------|
