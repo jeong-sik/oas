@@ -743,8 +743,8 @@ thinking_control_format = "chat_template_kwargs"
        match Provider_config.capabilities_for_config_model cfg with
        | None ->
          Alcotest.fail
-           "provider-qualified runpod_mtp catalog entry IS the endpoint \
-            declaration; it must not be rejected"
+           "provider-qualified runpod_mtp catalog entry IS the endpoint declaration; it \
+            must not be rejected"
        | Some caps ->
          Alcotest.(check bool)
            "provider-qualified catalog hit uses its declared thinking dialect"
