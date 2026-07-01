@@ -726,8 +726,8 @@ let test_openai_compat_runpod_proxy_label_uses_real_catalog_declaration () =
   match Provider_config.capabilities_for_config_model cfg with
   | None ->
     Alcotest.fail
-      "runpod_mtp/qwen36-35b-a3b-mtp is a real models.toml row; it must not be \
-       treated as an undeclared endpoint"
+      "runpod_mtp/qwen36-35b-a3b-mtp is a real models.toml row; it must not be treated \
+       as an undeclared endpoint"
   | Some caps ->
     Alcotest.(check bool)
       "real catalog row's declared thinking dialect is honored"
