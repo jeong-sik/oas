@@ -1,4 +1,4 @@
-# RFC-OAS-030: Relocate thinking_control_format variants to capability_vocab (leaf SSOT)
+# RFC-OAS-033: Relocate thinking_control_format variants to capability_vocab (leaf SSOT)
 
 | | |
 |---|---|
@@ -86,7 +86,7 @@ Steps 1–2 are one PR (the move). Steps 3–5 are a second PR (the delegation s
 
 - **Compiler**: after the move, the only `match thinking_control_format` arms that compile are exhaustive ones. Adding a variant to `capability_vocab` flags every match site at compile time — the property the current duplication defeats.
 - **Single-table proof**: tests must assert that exported `values` are derived from the same table used by `of_string`; the table must represent every constructor exactly once. A round-trip test is allowed only as a secondary check, because three independent encodings can still round-trip accidentally.
-- **Property test**: `List.for_all Capability_vocab.thinking_control_format_values (fun s -> Capability_vocab.thinking_control_format_of_string s <> None)` plus constructor coverage against the table.
+- **Property test**: `List.for_all (fun s -> Capability_vocab.thinking_control_format_of_string s <> None) Capability_vocab.thinking_control_format_values` plus constructor coverage against the table.
 - **Delegation test**: assert the surviving parser returns identical results to the deleted local matches (pin output before deletion).
 - **Warning preservation**: manifest/catalog unknown-value call sites must keep the existing observable warning behavior after delegating to `Capability_vocab`; `None` without a warning is a silent failure regression.
 
