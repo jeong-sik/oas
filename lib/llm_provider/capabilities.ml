@@ -755,9 +755,84 @@ let reasoning_efforts_of_catalog_strings ~field values =
     None
 ;;
 
-let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
+type declarative_capability_overrides =
+  { base_label : string option
+  ; max_context_tokens : int option
+  ; max_output_tokens : int option
+  ; supports_tools : bool option
+  ; supports_tool_choice : bool option
+  ; supports_required_tool_choice : bool option
+  ; supports_named_tool_choice : bool option
+  ; supports_parallel_tool_calls : bool option
+  ; assistant_tool_content_format : string option
+  ; supports_reasoning : bool option
+  ; supports_extended_thinking : bool option
+  ; supports_reasoning_budget : bool option
+  ; accepted_reasoning_efforts : string list option
+  ; supports_response_format_json : bool option
+  ; supports_structured_output : bool option
+  ; supports_multimodal_inputs : bool option
+  ; supports_image_input : bool option
+  ; supports_audio_input : bool option
+  ; supports_video_input : bool option
+  ; modality_priority : string option
+  ; supports_native_streaming : bool option
+  ; supports_system_prompt : bool option
+  ; supports_caching : bool option
+  ; supports_prompt_caching : bool option
+  ; supports_top_k : bool option
+  ; supports_min_p : bool option
+  ; supports_seed : bool option
+  ; supports_computer_use : bool option
+  ; supports_code_execution : bool option
+  ; thinking_control_format : string option
+  ; preserve_thinking_control_format : string option
+  ; reasoning_output_format : string option
+  ; reasoning_streaming_format : string option
+  ; reasoning_replay : string option
+  }
+
+let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
+  { base_label = entry.base_label
+  ; max_context_tokens = entry.max_context_tokens
+  ; max_output_tokens = entry.max_output_tokens
+  ; supports_tools = entry.supports_tools
+  ; supports_tool_choice = entry.supports_tool_choice
+  ; supports_required_tool_choice = entry.supports_required_tool_choice
+  ; supports_named_tool_choice = entry.supports_named_tool_choice
+  ; supports_parallel_tool_calls = entry.supports_parallel_tool_calls
+  ; assistant_tool_content_format = entry.assistant_tool_content_format
+  ; supports_reasoning = entry.supports_reasoning
+  ; supports_extended_thinking = entry.supports_extended_thinking
+  ; supports_reasoning_budget = entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts = entry.accepted_reasoning_efforts
+  ; supports_response_format_json = entry.supports_response_format_json
+  ; supports_structured_output = entry.supports_structured_output
+  ; supports_multimodal_inputs = entry.supports_multimodal_inputs
+  ; supports_image_input = entry.supports_image_input
+  ; supports_audio_input = entry.supports_audio_input
+  ; supports_video_input = entry.supports_video_input
+  ; modality_priority = None
+  ; supports_native_streaming = entry.supports_native_streaming
+  ; supports_system_prompt = entry.supports_system_prompt
+  ; supports_caching = entry.supports_caching
+  ; supports_prompt_caching = entry.supports_prompt_caching
+  ; supports_top_k = entry.supports_top_k
+  ; supports_min_p = entry.supports_min_p
+  ; supports_seed = entry.supports_seed
+  ; supports_computer_use = entry.supports_computer_use
+  ; supports_code_execution = entry.supports_code_execution
+  ; thinking_control_format = entry.thinking_control_format
+  ; preserve_thinking_control_format = entry.preserve_thinking_control_format
+  ; reasoning_output_format = entry.reasoning_output_format
+  ; reasoning_streaming_format = entry.reasoning_streaming_format
+  ; reasoning_replay = entry.reasoning_replay
+  }
+;;
+
+let apply_declarative_capability_overrides overrides =
   let base =
-    match entry.base_label with
+    match overrides.base_label with
     | None -> default_capabilities
     | Some label ->
       (match capabilities_for_provider_label label with
@@ -769,15 +844,15 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
     | None -> base_val
   in
   let supports_tool_choice =
-    override_bool base.supports_tool_choice entry.supports_tool_choice
+    override_bool base.supports_tool_choice overrides.supports_tool_choice
   in
   let supports_required_tool_choice =
-    match entry.supports_required_tool_choice with
+    match overrides.supports_required_tool_choice with
     | Some required -> required && supports_tool_choice
     | None -> base.supports_required_tool_choice && supports_tool_choice
   in
   let supports_named_tool_choice =
-    match entry.supports_named_tool_choice, entry.supports_tool_choice with
+    match overrides.supports_named_tool_choice, overrides.supports_tool_choice with
     | Some named, _ -> named && supports_tool_choice
     | None, Some true -> true
     | None, Some false -> false
@@ -788,16 +863,20 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
     | None -> base_val
   in
   { base with
-    max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
-  ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
-  ; supports_tools = override_bool base.supports_tools entry.supports_tools
+    max_context_tokens =
+      override_int_opt base.max_context_tokens overrides.max_context_tokens
+  ; max_output_tokens =
+      override_int_opt base.max_output_tokens overrides.max_output_tokens
+  ; supports_tools = override_bool base.supports_tools overrides.supports_tools
   ; supports_tool_choice
   ; supports_required_tool_choice
   ; supports_named_tool_choice
   ; supports_parallel_tool_calls =
-      override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+      override_bool
+        base.supports_parallel_tool_calls
+        overrides.supports_parallel_tool_calls
   ; assistant_tool_content_format =
-      (match entry.assistant_tool_content_format with
+      (match overrides.assistant_tool_content_format with
        | Some s ->
          (match assistant_tool_content_format_of_catalog_string s with
           | Some format -> format
@@ -805,13 +884,14 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             warn_unknown_capability_value ~field:"assistant_tool_content_format" s;
             base.assistant_tool_content_format)
        | None -> base.assistant_tool_content_format)
-  ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
+  ; supports_reasoning =
+      override_bool base.supports_reasoning overrides.supports_reasoning
   ; supports_extended_thinking =
-      override_bool base.supports_extended_thinking entry.supports_extended_thinking
+      override_bool base.supports_extended_thinking overrides.supports_extended_thinking
   ; supports_reasoning_budget =
-      override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+      override_bool base.supports_reasoning_budget overrides.supports_reasoning_budget
   ; accepted_reasoning_efforts =
-      (match entry.accepted_reasoning_efforts with
+      (match overrides.accepted_reasoning_efforts with
        | Some values ->
          (match
             reasoning_efforts_of_catalog_strings
@@ -822,33 +902,42 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
           | None -> base.accepted_reasoning_efforts)
        | None -> base.accepted_reasoning_efforts)
   ; supports_response_format_json =
-      override_bool base.supports_response_format_json entry.supports_response_format_json
+      override_bool
+        base.supports_response_format_json
+        overrides.supports_response_format_json
   ; supports_structured_output =
-      override_bool base.supports_structured_output entry.supports_structured_output
+      override_bool base.supports_structured_output overrides.supports_structured_output
   ; supports_multimodal_inputs =
-      override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
+      override_bool base.supports_multimodal_inputs overrides.supports_multimodal_inputs
   ; supports_image_input =
-      override_bool base.supports_image_input entry.supports_image_input
+      override_bool base.supports_image_input overrides.supports_image_input
   ; supports_audio_input =
-      override_bool base.supports_audio_input entry.supports_audio_input
+      override_bool base.supports_audio_input overrides.supports_audio_input
   ; supports_video_input =
-      override_bool base.supports_video_input entry.supports_video_input
+      override_bool base.supports_video_input overrides.supports_video_input
+  ; modality_priority =
+      (match overrides.modality_priority with
+       | Some s ->
+         (match modality_priority_of_catalog_string s with
+          | Some priority -> priority
+          | None -> base.modality_priority)
+       | None -> base.modality_priority)
   ; supports_native_streaming =
-      override_bool base.supports_native_streaming entry.supports_native_streaming
+      override_bool base.supports_native_streaming overrides.supports_native_streaming
   ; supports_system_prompt =
-      override_bool base.supports_system_prompt entry.supports_system_prompt
-  ; supports_caching = override_bool base.supports_caching entry.supports_caching
+      override_bool base.supports_system_prompt overrides.supports_system_prompt
+  ; supports_caching = override_bool base.supports_caching overrides.supports_caching
   ; supports_prompt_caching =
-      override_bool base.supports_prompt_caching entry.supports_prompt_caching
-  ; supports_top_k = override_bool base.supports_top_k entry.supports_top_k
-  ; supports_min_p = override_bool base.supports_min_p entry.supports_min_p
-  ; supports_seed = override_bool base.supports_seed entry.supports_seed
+      override_bool base.supports_prompt_caching overrides.supports_prompt_caching
+  ; supports_top_k = override_bool base.supports_top_k overrides.supports_top_k
+  ; supports_min_p = override_bool base.supports_min_p overrides.supports_min_p
+  ; supports_seed = override_bool base.supports_seed overrides.supports_seed
   ; supports_computer_use =
-      override_bool base.supports_computer_use entry.supports_computer_use
+      override_bool base.supports_computer_use overrides.supports_computer_use
   ; supports_code_execution =
-      override_bool base.supports_code_execution entry.supports_code_execution
+      override_bool base.supports_code_execution overrides.supports_code_execution
   ; thinking_control_format =
-      (match entry.thinking_control_format with
+      (match overrides.thinking_control_format with
        | Some s ->
          (match thinking_control_format_of_manifest_string s with
           | Some t -> t
@@ -857,7 +946,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             base.thinking_control_format)
        | None -> base.thinking_control_format)
   ; preserve_thinking_control_format =
-      (match entry.preserve_thinking_control_format with
+      (match overrides.preserve_thinking_control_format with
        | Some s ->
          (match preserve_thinking_control_format_of_manifest_string s with
           | Some t -> t
@@ -866,7 +955,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             base.preserve_thinking_control_format)
        | None -> base.preserve_thinking_control_format)
   ; reasoning_output_format =
-      (match entry.reasoning_output_format with
+      (match overrides.reasoning_output_format with
        | Some s ->
          (match reasoning_output_format_of_catalog_string s with
           | Some format -> format
@@ -875,7 +964,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             base.reasoning_output_format)
        | None -> base.reasoning_output_format)
   ; reasoning_streaming_format =
-      (match entry.reasoning_streaming_format with
+      (match overrides.reasoning_streaming_format with
        | Some s ->
          (match reasoning_streaming_format_of_catalog_string s with
           | Some format -> format
@@ -884,7 +973,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             base.reasoning_streaming_format)
        | None -> base.reasoning_streaming_format)
   ; reasoning_replay_override =
-      (match entry.reasoning_replay with
+      (match overrides.reasoning_replay with
        | Some s ->
          (match reasoning_replay_override_of_catalog_string s with
           | Some replay -> replay
@@ -893,6 +982,10 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             base.reasoning_replay_override)
        | None -> base.reasoning_replay_override)
   }
+;;
+
+let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
+  entry |> overrides_of_manifest_entry |> apply_declarative_capability_overrides
 ;;
 
 let%test "apply_manifest_entry applies thinking_control_format (RFC-OAS-023)" =
@@ -959,151 +1052,46 @@ let%test "reasoning_replay_override_of_catalog_string parses vocabulary" =
   && reasoning_replay_override_of_catalog_string "bogus" = None
 ;;
 
-let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
-  let base =
-    match entry.base_label with
-    | None -> default_capabilities
-    | Some label ->
-      (match capabilities_for_provider_label label with
-       | Some c -> c
-       | None -> default_capabilities)
-  in
-  let override_bool base_val = function
-    | Some b -> b
-    | None -> base_val
-  in
-  let supports_tool_choice =
-    override_bool base.supports_tool_choice entry.supports_tool_choice
-  in
-  let supports_required_tool_choice =
-    match entry.supports_required_tool_choice with
-    | Some required -> required && supports_tool_choice
-    | None -> base.supports_required_tool_choice && supports_tool_choice
-  in
-  let supports_named_tool_choice =
-    match entry.supports_named_tool_choice, entry.supports_tool_choice with
-    | Some named, _ -> named && supports_tool_choice
-    | None, Some true -> true
-    | None, Some false -> false
-    | None, None -> base.supports_named_tool_choice && supports_tool_choice
-  in
-  let override_int_opt base_val = function
-    | Some n -> Some n
-    | None -> base_val
-  in
-  { base with
-    max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
-  ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
-  ; supports_tools = override_bool base.supports_tools entry.supports_tools
-  ; supports_tool_choice
-  ; supports_required_tool_choice
-  ; supports_named_tool_choice
-  ; supports_parallel_tool_calls =
-      override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
-  ; assistant_tool_content_format =
-      (match entry.assistant_tool_content_format with
-       | Some s ->
-         (match assistant_tool_content_format_of_catalog_string s with
-          | Some format -> format
-          | None ->
-            warn_unknown_capability_value ~field:"assistant_tool_content_format" s;
-            base.assistant_tool_content_format)
-       | None -> base.assistant_tool_content_format)
-  ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
-  ; supports_extended_thinking =
-      override_bool base.supports_extended_thinking entry.supports_extended_thinking
-  ; supports_reasoning_budget =
-      override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
-  ; accepted_reasoning_efforts =
-      (match entry.accepted_reasoning_efforts with
-       | Some values ->
-         (match
-            reasoning_efforts_of_catalog_strings
-              ~field:"accepted_reasoning_efforts"
-              values
-          with
-          | Some efforts -> Some efforts
-          | None -> base.accepted_reasoning_efforts)
-       | None -> base.accepted_reasoning_efforts)
-  ; supports_response_format_json =
-      override_bool base.supports_response_format_json entry.supports_response_format_json
-  ; supports_structured_output =
-      override_bool base.supports_structured_output entry.supports_structured_output
-  ; supports_multimodal_inputs =
-      override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
-  ; supports_image_input =
-      override_bool base.supports_image_input entry.supports_image_input
-  ; supports_audio_input =
-      override_bool base.supports_audio_input entry.supports_audio_input
-  ; supports_video_input =
-      override_bool base.supports_video_input entry.supports_video_input
-  ; supports_native_streaming =
-      override_bool base.supports_native_streaming entry.supports_native_streaming
-  ; supports_system_prompt =
-      override_bool base.supports_system_prompt entry.supports_system_prompt
-  ; supports_caching = override_bool base.supports_caching entry.supports_caching
-  ; supports_prompt_caching =
-      override_bool base.supports_prompt_caching entry.supports_prompt_caching
-  ; supports_top_k = override_bool base.supports_top_k entry.supports_top_k
-  ; supports_min_p = override_bool base.supports_min_p entry.supports_min_p
-  ; supports_seed = override_bool base.supports_seed entry.supports_seed
-  ; supports_computer_use =
-      override_bool base.supports_computer_use entry.supports_computer_use
-  ; supports_code_execution =
-      override_bool base.supports_code_execution entry.supports_code_execution
-  ; modality_priority =
-      (match entry.modality_priority with
-       | Some s ->
-         (match modality_priority_of_catalog_string s with
-          | Some priority -> priority
-          | None -> base.modality_priority)
-       | None -> base.modality_priority)
-  ; thinking_control_format =
-      (match entry.thinking_control_format with
-       | Some s ->
-         (match thinking_control_format_of_manifest_string s with
-          | Some t -> t
-          | None ->
-            warn_unknown_capability_value ~field:"thinking_control_format" s;
-            base.thinking_control_format)
-       | None -> base.thinking_control_format)
-  ; preserve_thinking_control_format =
-      (match entry.preserve_thinking_control_format with
-       | Some s ->
-         (match preserve_thinking_control_format_of_manifest_string s with
-          | Some t -> t
-          | None ->
-            warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
-            base.preserve_thinking_control_format)
-       | None -> base.preserve_thinking_control_format)
-  ; reasoning_output_format =
-      (match entry.reasoning_output_format with
-       | Some s ->
-         (match reasoning_output_format_of_catalog_string s with
-          | Some format -> format
-          | None ->
-            warn_unknown_capability_value ~field:"reasoning_output_format" s;
-            base.reasoning_output_format)
-       | None -> base.reasoning_output_format)
-  ; reasoning_streaming_format =
-      (match entry.reasoning_streaming_format with
-       | Some s ->
-         (match reasoning_streaming_format_of_catalog_string s with
-          | Some format -> format
-          | None ->
-            warn_unknown_capability_value ~field:"reasoning_streaming_format" s;
-            base.reasoning_streaming_format)
-       | None -> base.reasoning_streaming_format)
-  ; reasoning_replay_override =
-      (match entry.reasoning_replay with
-       | Some s ->
-         (match reasoning_replay_override_of_catalog_string s with
-          | Some replay -> replay
-          | None ->
-            warn_unknown_capability_value ~field:"reasoning_replay" s;
-            base.reasoning_replay_override)
-       | None -> base.reasoning_replay_override)
+let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
+  { base_label = entry.base_label
+  ; max_context_tokens = entry.max_context_tokens
+  ; max_output_tokens = entry.max_output_tokens
+  ; supports_tools = entry.supports_tools
+  ; supports_tool_choice = entry.supports_tool_choice
+  ; supports_required_tool_choice = entry.supports_required_tool_choice
+  ; supports_named_tool_choice = entry.supports_named_tool_choice
+  ; supports_parallel_tool_calls = entry.supports_parallel_tool_calls
+  ; assistant_tool_content_format = entry.assistant_tool_content_format
+  ; supports_reasoning = entry.supports_reasoning
+  ; supports_extended_thinking = entry.supports_extended_thinking
+  ; supports_reasoning_budget = entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts = entry.accepted_reasoning_efforts
+  ; supports_response_format_json = entry.supports_response_format_json
+  ; supports_structured_output = entry.supports_structured_output
+  ; supports_multimodal_inputs = entry.supports_multimodal_inputs
+  ; supports_image_input = entry.supports_image_input
+  ; supports_audio_input = entry.supports_audio_input
+  ; supports_video_input = entry.supports_video_input
+  ; modality_priority = entry.modality_priority
+  ; supports_native_streaming = entry.supports_native_streaming
+  ; supports_system_prompt = entry.supports_system_prompt
+  ; supports_caching = entry.supports_caching
+  ; supports_prompt_caching = entry.supports_prompt_caching
+  ; supports_top_k = entry.supports_top_k
+  ; supports_min_p = entry.supports_min_p
+  ; supports_seed = entry.supports_seed
+  ; supports_computer_use = entry.supports_computer_use
+  ; supports_code_execution = entry.supports_code_execution
+  ; thinking_control_format = entry.thinking_control_format
+  ; preserve_thinking_control_format = entry.preserve_thinking_control_format
+  ; reasoning_output_format = entry.reasoning_output_format
+  ; reasoning_streaming_format = entry.reasoning_streaming_format
+  ; reasoning_replay = entry.reasoning_replay
   }
+;;
+
+let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
+  entry |> overrides_of_catalog_entry |> apply_declarative_capability_overrides
 ;;
 
 (** Look up capabilities for [model_id] in the loaded model catalog only.
