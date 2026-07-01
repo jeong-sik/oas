@@ -272,12 +272,22 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> anthropic_capabilities)
-  | Local _ ->
-    (* Local (llama-server) uses OpenAI-compatible API.
-         Resolve capabilities by model_id, fall back to openai_chat. *)
-    (match Llm_provider.Capabilities.for_model_id model_id with
+  | Local { base_url } ->
+    (* Local llama-server/vLLM/LM Studio endpoints use the OpenAI-compatible
+       request envelope, but a bare model id is not an endpoint declaration for
+       thinking/reasoning/tool/schema dialects. Reuse the Provider_config
+       boundary so local compat endpoints follow the same fail-closed rule as
+       raw OpenAICompat providers. *)
+    let config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id
+        ~base_url
+        ()
+    in
+    (match Llm_provider.Provider_config.capabilities_for_config_model config with
      | Some caps -> caps
-     | None -> openai_compat_chat_capabilities)
+     | None -> default_openai_compat_capabilities ())
   | OpenAICompat { base_url; _ } ->
     if
       Llm_provider.Zai_catalog.is_glm_model_id model_id

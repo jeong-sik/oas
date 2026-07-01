@@ -676,19 +676,10 @@ let test_with_context_thresholds_default_fallback () =
 let test_with_context_thresholds_fallback_from_provider () =
   with_net
   @@ fun net ->
-  (* Construct a Provider.config whose model_id triggers a distinctive
-     max_context_tokens via [Llm_provider.Capabilities.for_model_id].
-     [Local] + [qwen3-35b] routes through the Local branch of
-     [Provider.capabilities_for_model], which calls [for_model_id] and
-     returns [max_context_tokens = Some 262_144] for any [qwen3*]
-     prefix. We deliberately avoid the [Anthropic] branch because it
-     returns the base [anthropic_capabilities] record regardless of
-     [model_id] (separate issue — see capabilities_for_model). *)
+  (* Construct a Provider.config whose provider has a distinctive declared
+     max_context_tokens. The built-in Kimi provider resolves to 256K. *)
   let provider : Provider.config =
-    { provider = Local { base_url = "http://localhost:11434" }
-    ; model_id = "qwen3-35b"
-    ; api_key_env = "DUMMY"
-    }
+    Provider.custom_provider ~name:"kimi" ~model_id:"kimi-k2.7-code" ()
   in
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
@@ -699,11 +690,11 @@ let test_with_context_thresholds_fallback_from_provider () =
   in
   let reducer = Option.get (Agent.options agent).context_reducer in
   (* No explicit input/total tokens on the builder, so resolution
-     falls through to the provider-capability branch. qwen3 →
-     max_context_tokens = 262_144, budget = 262_144 * 0.5 = 131_072 *)
+     falls through to the provider-capability branch. Kimi →
+     max_context_tokens = 256_000, budget = 256_000 * 0.5 = 128_000 *)
   Alcotest.(check (option int))
     "provider-derived fallback budget"
-    (Some 131_072)
+    (Some 128_000)
     (extract_token_budget reducer)
 ;;
 
@@ -712,14 +703,11 @@ let test_with_context_thresholds_fallback_from_provider () =
 let test_with_context_thresholds_invalid_ignored () =
   with_net
   @@ fun net ->
-  (* A qwen3 provider yields a known max_context_tokens (262_144); an explicit
+  (* The built-in Kimi provider yields a known max_context_tokens (256K); an explicit
      [context_window_tokens:0] must be ignored, so the budget falls through to
-     the provider-derived value (262_144 * 0.5 = 131_072) rather than 0. *)
+     the provider-derived value (256K * 0.5 = 128_000) rather than 0. *)
   let provider : Provider.config =
-    { provider = Local { base_url = "http://localhost:11434" }
-    ; model_id = "qwen3-35b"
-    ; api_key_env = "DUMMY"
-    }
+    Provider.custom_provider ~name:"kimi" ~model_id:"kimi-k2.7-code" ()
   in
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
@@ -731,7 +719,7 @@ let test_with_context_thresholds_invalid_ignored () =
   let reducer = Option.get (Agent.options agent).context_reducer in
   Alcotest.(check (option int))
     "zero context_window_tokens ignored; provider fallback"
-    (Some 131_072)
+    (Some 128_000)
     (extract_token_budget reducer)
 ;;
 
