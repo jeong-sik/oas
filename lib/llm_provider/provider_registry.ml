@@ -423,10 +423,10 @@ let normalize_url value =
 ;;
 
 let default () =
-  (* The default registry is populated once and then treated as read-only.
-     It is accessed from both Eio fibers and synchronous config-building code,
-     so we avoid any mutex on the read path after construction. *)
-  let t = { mu = None; entries = Hashtbl.create 8 } in
+  (* The default registry uses Stdlib.Mutex because its guarded sections are
+     short Hashtbl operations and the returned value still exposes the mutable
+     registry API. *)
+  let t = create_sync () in
   let max_context_from_capabilities ~default caps =
     match caps.Capabilities.max_context_tokens with
     | Some ctx when ctx > default -> ctx

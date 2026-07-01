@@ -45,9 +45,7 @@ let with_lock t f =
   | Stdlib_mu mu ->
     Mutex.lock mu;
     Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
-  | Eio_mu mu ->
-    Eio.Mutex.lock mu;
-    Fun.protect ~finally:(fun () -> Eio.Mutex.unlock mu) f
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 (* ── Query ──────────────────────────────────────────────────── *)
