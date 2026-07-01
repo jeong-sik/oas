@@ -1502,6 +1502,44 @@ let test_manifest_wrong_type_feature_fields_warn_and_ignore () =
   check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
 ;;
 
+let test_manifest_unknown_modality_priority_warns_and_falls_back () =
+  (* Regression: apply_declarative_capability_overrides's modality_priority
+     branch fell back to the base value silently on an unrecognized string,
+     unlike every other vocabulary field in the same record (thinking_control_
+     format, reasoning_output_format, etc.), which all call
+     warn_unknown_capability_value. *)
+  let warnings = ref [] in
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"modality-unknown","modality_priority":"image_only"}]}|}
+  in
+  let entry =
+    match Capability_manifest.of_json json with
+    | Ok [ entry ] -> entry
+    | Ok _ -> Alcotest.fail "expected one manifest entry"
+    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+  in
+  let caps =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () -> Capabilities.apply_manifest_entry entry)
+  in
+  check bool
+    "unknown modality_priority falls back to base"
+    true
+    (caps.modality_priority = Capabilities.default_capabilities.modality_priority);
+  let has_warning =
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Diag.Warn
+         && String.equal ctx "capabilities"
+         && string_contains_sub msg "modality_priority"
+         && string_contains_sub msg "image_only")
+      !warnings
+  in
+  check bool "warns for unknown modality_priority" true has_warning
+;;
+
 let test_manifest_rejects_wrong_type_base () =
   let json =
     Yojson.Safe.from_string
@@ -2344,6 +2382,10 @@ let () =
             "wrong-type feature fields warn and ignore"
             `Quick
             test_manifest_wrong_type_feature_fields_warn_and_ignore
+        ; test_case
+            "unknown modality_priority warns and falls back"
+            `Quick
+            test_manifest_unknown_modality_priority_warns_and_falls_back
         ; test_case "wrong-type base rejects" `Quick test_manifest_rejects_wrong_type_base
         ; test_case
             "wrong-type policy string rejects"

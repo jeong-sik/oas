@@ -920,7 +920,9 @@ let apply_declarative_capability_overrides overrides =
        | Some s ->
          (match modality_priority_of_catalog_string s with
           | Some priority -> priority
-          | None -> base.modality_priority)
+          | None ->
+            warn_unknown_capability_value ~field:"modality_priority" s;
+            base.modality_priority)
        | None -> base.modality_priority)
   ; supports_native_streaming =
       override_bool base.supports_native_streaming overrides.supports_native_streaming
