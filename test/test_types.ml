@@ -232,7 +232,7 @@ let test_default_config () =
   let c = Types.default_config in
   Alcotest.(check string) "name" "agent" c.name;
   Alcotest.(check (option int)) "max_tokens" None c.max_tokens;
-  Alcotest.(check int) "max_turns" 10 c.max_turns;
+  Alcotest.(check int) "max_turns" 0 c.max_turns;
   Alcotest.(check bool) "no system prompt" true (c.system_prompt = None);
   Alcotest.(check bool) "no top_p" true (c.top_p = None);
   Alcotest.(check bool) "no top_k" true (c.top_k = None);
@@ -240,6 +240,16 @@ let test_default_config () =
   Alcotest.(check bool) "no enable_thinking" true (c.enable_thinking = None);
   Alcotest.(check bool) "no thinking_budget" true (c.thinking_budget = None);
   Alcotest.(check bool) "cache off" false c.cache_system_prompt
+;;
+
+let test_has_finite_max_turns () =
+  Alcotest.(check bool) "0 is the unbounded sentinel" false (Types.has_finite_max_turns 0);
+  Alcotest.(check bool) "positive is finite" true (Types.has_finite_max_turns 10);
+  Alcotest.(check bool)
+    "negative is out-of-contract but must still be treated as finite (fails closed \
+     instead of silently becoming unbounded)"
+    true
+    (Types.has_finite_max_turns (-1))
 ;;
 
 (* ── yojson roundtrips (Phase 3) ──────────────────────────────── *)
@@ -1216,7 +1226,10 @@ let () =
             `Quick
             test_default_inference_telemetry
         ] )
-    ; "config", [ Alcotest.test_case "default_config" `Quick test_default_config ]
+    ; ( "config"
+      , [ Alcotest.test_case "default_config" `Quick test_default_config
+        ; Alcotest.test_case "has_finite_max_turns" `Quick test_has_finite_max_turns
+        ] )
     ; ( "yojson_roundtrip"
       , [ Alcotest.test_case "model" `Quick test_model_yojson_roundtrip
         ; Alcotest.test_case "role" `Quick test_role_yojson_roundtrip

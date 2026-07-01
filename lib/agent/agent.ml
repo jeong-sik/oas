@@ -81,9 +81,9 @@ let provide_input agent request response =
   Agent_elicitation.apply_response agent request response
 ;;
 
-(* ── Shared loop guard (max_turns + idle) ─────────── *)
+(* ── Shared loop guard (finite max_turns + idle) ─────────── *)
 
-(** Check max_turns and idle detection.
+(** Check finite max_turns and idle detection.
     Token and cost are telemetry-only and never gate the loop.
     Returns [Some error] when any guard fires, [None] to proceed. *)
 let check_loop_guard agent =
@@ -91,7 +91,9 @@ let check_loop_guard agent =
   | Some pred when pred agent.state.turn_count ->
     Some (Error.Agent (Error.ExitConditionMet { turn = agent.state.turn_count }))
   | _ ->
-    if agent.state.turn_count >= agent.state.config.max_turns
+    if
+      Types.has_finite_max_turns agent.state.config.max_turns
+      && agent.state.turn_count >= agent.state.config.max_turns
     then
       Some
         (Error.Agent

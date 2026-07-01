@@ -393,7 +393,7 @@ let test_error_domain_full_roundtrip () =
     ; Agent_sdk.Error.Config (MissingEnvVar { var_name = "API_KEY" })
     ; Agent_sdk.Error.Config (UnsupportedProvider { detail = "unknown" })
     ; Agent_sdk.Error.Config
-        (InvalidConfig { field = "max_turns"; detail = "must be > 0" })
+        (InvalidConfig { field = "max_turns"; detail = "must be >= 0, got -1" })
     ; Agent_sdk.Error.Mcp (ServerStartFailed { command = "node"; detail = "not found" })
     ; Agent_sdk.Error.Mcp (InitializeFailed { detail = "timeout" })
     ; Agent_sdk.Error.Mcp (ToolListFailed { detail = "parse" })

@@ -233,6 +233,42 @@ let test_agent_run_max_turns () =
   | Exit -> ()
 ;;
 
+let test_agent_run_zero_max_turns_is_unbounded () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let responses =
+      List.init 12 (fun i ->
+        openai_tool_use_response "loop_tool" (Printf.sprintf {|{"i":%d}|} i))
+      @ [ openai_text_response "done" ]
+    in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20032 responses in
+    let loop_tool =
+      Tool.create
+        ~name:"loop_tool"
+        ~description:"Called repeatedly"
+        ~parameters:
+          [ { Types.name = "i"
+            ; description = "iteration"
+            ; param_type = Types.Integer
+            ; required = false
+            }
+          ]
+        (fun _input -> Ok { Types.content = "looped"; _meta = None })
+    in
+    let agent = make_agent ~net:env#net ~tools:[ loop_tool ] ~max_turns:0 url in
+    match Agent.run ~sw agent "loop past default cap" with
+    | Ok resp ->
+      check string "final text" "done" (extract_text resp);
+      check bool "turn count passed old default" true ((Agent.state agent).turn_count > 10);
+      Eio.Switch.fail sw Exit
+    | Error e -> fail (Error.to_string e)
+  with
+  | Exit -> ()
+;;
+
 (* ── Test 4: With hooks ──────────────────────────────── *)
 
 let test_agent_run_with_hooks () =
@@ -803,6 +839,10 @@ let () =
     [ ( "basic"
       , [ test_case "simple text" `Quick test_agent_run_simple
         ; test_case "max turns" `Quick test_agent_run_max_turns
+        ; test_case
+            "zero max_turns is unbounded"
+            `Quick
+            test_agent_run_zero_max_turns_is_unbounded
         ; test_case "http error" `Quick test_agent_run_http_error
         ; test_case
             "context overflow auto retry can be disabled"
