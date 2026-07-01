@@ -11,18 +11,17 @@ for model-specific feature and limit facts.
 
 ## Why
 
-`Capabilities.for_model_id` uses a built-in prefix table (H12 anti-pattern).
-Every new model or quantization variant currently requires a library code
-change.  The manifest layer adds a runtime override path that takes priority
-over the built-in table, eliminating this maintenance burden for custom
-deployments.
+`Capabilities.for_model_id` resolves model facts from the model catalog first,
+then from the capability manifest. The manifest layer is still useful for
+custom deployments and local variants, but it cannot override an authoritative
+catalog row for the same model prefix.
 
 ## Priority
 
 ```
-Manifest entry (OAS_CAPABILITY_MANIFEST, prefix match)
+Model catalog row (OAS_MODEL_CATALOG, prefix match)
     ↓ miss
-Built-in for_model_id prefix table
+Manifest entry (OAS_CAPABILITY_MANIFEST, prefix match)
     ↓ miss
 Discovery-based inference / caller default
 ```
@@ -54,7 +53,7 @@ export OAS_CAPABILITY_MANIFEST=~/.config/oas/caps.json
 ```
 
 Any model whose ID starts with `my-llama-q4` (case-insensitive) will now use
-these capabilities instead of the built-in defaults.
+these capabilities when no model catalog row matches that model prefix.
 
 ## Schema Reference
 
