@@ -15,6 +15,7 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
+  | PaymentRequired of { message : string }
   | InvalidRequest of
       { message : string
       ; reason : invalid_request_reason
@@ -68,6 +69,7 @@ let error_message = function
   | Overloaded r -> Printf.sprintf "Overloaded: %s" r.message
   | ServerError r -> Printf.sprintf "Server error %d: %s" r.status r.message
   | AuthError r -> Printf.sprintf "Auth error: %s" r.message
+  | PaymentRequired r -> Printf.sprintf "Payment required: %s" r.message
   | InvalidRequest r ->
     Printf.sprintf
       "Invalid request (%s): %s"
@@ -212,10 +214,20 @@ let is_retryable = function
     true
   | InvalidRequest _ -> false
   | AuthError _ | ContextOverflow _ | NotFound _ -> false
+  | PaymentRequired _ ->
+    (* HTTP 402 is definitionally non-retryable: the account has zero
+       balance/credit. No message-substring check needed — the status code
+       alone is the signal (unlike RateLimited, where most 429s are
+       transient throttles and only some are hard quota exhaustion). *)
+    false
 ;;
 
 let is_hard_quota = function
   | RateLimited { message; _ } -> is_hard_quota_message message
+  | PaymentRequired _ ->
+    (* HTTP 402 Payment Required IS a hard quota/billing exhaustion signal
+       by HTTP semantics alone — independent of the message body. *)
+    true
   | Overloaded _
   | ServerError _
   | AuthError _
@@ -355,6 +367,7 @@ let classify_error ~status ~body : api_error =
   let message = extract_error_message body in
   match status with
   | 401 -> AuthError { message }
+  | 402 -> PaymentRequired { message }
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }
@@ -447,6 +460,7 @@ let with_retry_map_error
       | Overloaded _
       | ServerError _
       | AuthError _
+      | PaymentRequired _
       | InvalidRequest _
       | NotFound _
       | ContextOverflow _
@@ -559,6 +573,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | PaymentRequired _
   | NotFound _
   | ContextOverflow _
   | NetworkError _
@@ -585,6 +600,7 @@ let%test "classify_error returns ContextOverflow for overflow body" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | PaymentRequired _
   | InvalidRequest _
   | NotFound _
   | NetworkError _
@@ -600,6 +616,7 @@ let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | PaymentRequired _
   | NotFound _
   | ContextOverflow _
   | NetworkError _
@@ -870,6 +887,7 @@ let%test "classify_error 429 hard-quota clears retry_after" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | PaymentRequired _
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
@@ -884,6 +902,41 @@ let%test "classify_error 429 transient preserves retry_after" =
   match classify_error ~status:429 ~body with
   | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
   | RateLimited { retry_after = None; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | PaymentRequired _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
+;;
+
+(* HTTP 402 Payment Required — first-class classification, not the
+   Unknown_invalid_request catch-all (see PaymentRequired variant doc). *)
+let%test "classify_error 402 maps to PaymentRequired" =
+  let body = {|{"error":{"message":"Insufficient Balance"}}|} in
+  match classify_error ~status:402 ~body with
+  | PaymentRequired { message } -> String.equal message "Insufficient Balance"
+  | RateLimited _
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
+;;
+
+let%test "classify_error 402 (DeepSeek-shaped body) is not retryable and is hard quota" =
+  let body =
+    {|{"error":{"message":"Insufficient Balance","type":"insufficient_balance_error"}}|}
+  in
+  match classify_error ~status:402 ~body with
+  | PaymentRequired _ as err -> (not (is_retryable err)) && is_hard_quota err
+  | RateLimited _
   | Overloaded _
   | ServerError _
   | AuthError _

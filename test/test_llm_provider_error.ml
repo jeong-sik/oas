@@ -216,6 +216,23 @@ let test_retry_hard_quota_mapping () =
   | _ -> fail "expected HardQuota"
 ;;
 
+let test_retry_payment_required_mapping () =
+  (* HTTP 402 (e.g. DeepSeek's "Insufficient Balance") is a hard billing
+     signal by status code alone — it maps onto the same [HardQuota]
+     provider_error a hard-quota 429 would produce, not [InvalidRequest]. *)
+  let err =
+    Error.of_retry_api_error
+      ~provider:"deepseek"
+      (Retry.PaymentRequired { message = "Insufficient Balance" })
+  in
+  match err with
+  | Error.HardQuota { provider; retry_after; detail } ->
+    check string "provider" "deepseek" provider;
+    check (option (float 0.001)) "retry_after" None retry_after;
+    check string "detail" "Insufficient Balance" detail
+  | _ -> fail "expected HardQuota"
+;;
+
 let test_retry_overloaded_unknown_provider_mapping () =
   let check_unknown_provider provider =
     let err =
@@ -582,6 +599,7 @@ let () =
     ; ( "mapping"
       , [ test_case "Retry RateLimited" `Quick test_retry_rate_limit_mapping
         ; test_case "Retry hard quota" `Quick test_retry_hard_quota_mapping
+        ; test_case "Retry payment required" `Quick test_retry_payment_required_mapping
         ; test_case
             "Retry overloaded unknown provider"
             `Quick

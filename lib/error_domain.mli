@@ -32,6 +32,9 @@ type provider_error =
   | `Invalid_request of string
   | `Not_found of string
   | `Context_overflow of string * int option
+  | `Payment_required of string
+    (** HTTP 402 — hard billing/quota exhaustion, distinct from
+        [`Invalid_request]. Always non-retryable. *)
   ]
 
 (** {1 Tool errors} *)

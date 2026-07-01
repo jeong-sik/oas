@@ -67,6 +67,28 @@ let test_classify_error_edge_cases () =
   | _ -> fail "expected NotFound for 404"
 ;;
 
+(* HTTP 402 (Payment Required): DeepSeek returns this with a plain
+   "Insufficient Balance" body when the account has zero balance. Before this
+   fix, 402 fell through the [classify_error] catch-all and became an
+   [InvalidRequest { reason = Unknown_invalid_request }], rendering as
+   "Invalid request (unknown): Insufficient Balance" — misleading, and
+   [is_hard_quota] never fired for it since only [RateLimited] is inspected. *)
+let test_classify_error_402_payment_required () =
+  let body = {|{"error":{"message":"Insufficient Balance"}}|} in
+  let err = Retry.classify_error ~status:402 ~body in
+  (match err with
+   | Retry.PaymentRequired { message } ->
+     check string "402 message" "Insufficient Balance" message
+   | _ -> fail "expected PaymentRequired for 402");
+  check bool "402 is not retryable" false (Retry.is_retryable err);
+  check bool "402 is a hard quota signal" true (Retry.is_hard_quota err);
+  check
+    string
+    "402 error_message rendering"
+    "Payment required: Insufficient Balance"
+    (Retry.error_message err)
+;;
+
 let test_is_retryable () =
   check
     bool
@@ -108,7 +130,12 @@ let test_is_retryable () =
     bool
     "not found not retryable"
     false
-    (Retry.is_retryable (Retry.NotFound { message = "" }))
+    (Retry.is_retryable (Retry.NotFound { message = "" }));
+  check
+    bool
+    "payment required not retryable"
+    false
+    (Retry.is_retryable (Retry.PaymentRequired { message = "" }))
 ;;
 
 let test_invalid_request_reason_boundary () =
@@ -142,6 +169,8 @@ let test_error_message_all_variants () =
     ; Retry.Overloaded { message = "busy" }, "Overloaded: busy"
     ; Retry.ServerError { status = 503; message = "down" }, "Server error 503: down"
     ; Retry.AuthError { message = "bad key" }, "Auth error: bad key"
+    ; ( Retry.PaymentRequired { message = "Insufficient Balance" }
+      , "Payment required: Insufficient Balance" )
     ; ( Retry.InvalidRequest { message = "wrong"; reason = Unknown_invalid_request }
       , "Invalid request (unknown): wrong" )
     ; Retry.NotFound { message = "no model" }, "Not found: no model"
@@ -392,6 +421,10 @@ let () =
     [ ( "classify"
       , [ test_case "http status mapping" `Quick test_classify_error
         ; test_case "edge cases" `Quick test_classify_error_edge_cases
+        ; test_case
+            "402 payment required"
+            `Quick
+            test_classify_error_402_payment_required
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable

@@ -20,6 +20,7 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
+  | PaymentRequired of { message : string }
   | InvalidRequest of
       { message : string
       ; reason : invalid_request_reason
@@ -58,7 +59,9 @@ val is_context_overflow_message : string -> bool
     A retry of the exact same request will never succeed until billing /
     capacity is restored out-of-band.
 
-    Only [RateLimited] messages are inspected; other variants return [false].
+    [RateLimited] messages are inspected via substring match; [PaymentRequired]
+    (HTTP 402) is always [true] by status-code semantics alone (no message
+    inspection needed). Other variants return [false].
 
     Consumers (e.g. health trackers) use this to apply an immediate
     long cooldown instead of transient backoff.

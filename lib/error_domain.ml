@@ -14,6 +14,7 @@ type provider_error =
   | `Invalid_request of string
   | `Not_found of string
   | `Context_overflow of string * int option
+  | `Payment_required of string
   ]
 
 type tool_error =
@@ -91,6 +92,7 @@ let of_api_error (err : Retry.api_error) : provider_error =
   | Retry.InvalidRequest r -> `Invalid_request r.message
   | Retry.NotFound r -> `Not_found r.message
   | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
+  | Retry.PaymentRequired r -> `Payment_required r.message
 ;;
 
 let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error =
@@ -170,6 +172,7 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Not_found msg -> Error.Api (Retry.NotFound { message = msg })
   | `Context_overflow (msg, limit) ->
     Error.Api (Retry.ContextOverflow { message = msg; limit })
+  | `Payment_required msg -> Error.Api (Retry.PaymentRequired { message = msg })
 ;;
 
 let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
@@ -261,6 +264,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Invalid_request _
   | `Not_found _
   | `Context_overflow _
+  | `Payment_required _
   | `Tool_exec_failed _
   | `Tool_timeout _
   | `Max_turns_exceeded _
