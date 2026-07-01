@@ -194,6 +194,13 @@ let of_retry_api_error ?provider err =
       ; detail = r.message
       }
   | Retry.AuthError r -> AuthError { provider; detail = r.message }
+  | Retry.PaymentRequired r ->
+    (* HTTP 402 is a hard billing-exhaustion signal by status code alone —
+       map directly onto the existing [HardQuota] provider_error rather than
+       [InvalidRequest], so downstream consumers (health trackers) see the
+       same "stop retrying, apply long cooldown" signal a hard-quota 429
+       would produce. *)
+    HardQuota { provider; retry_after = None; detail = r.message }
   | Retry.InvalidRequest r -> InvalidRequest { provider; reason = r.message }
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
   | Retry.ContextOverflow r ->

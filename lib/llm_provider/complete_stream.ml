@@ -107,6 +107,7 @@ let%test "stream rate-limit converges to typed RateLimited (not NetworkError Unk
      | Retry.Overloaded _
      | Retry.ServerError _
      | Retry.AuthError _
+     | Retry.PaymentRequired _
      | Retry.InvalidRequest _
      | Retry.NotFound _
      | Retry.ContextOverflow _

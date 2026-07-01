@@ -417,6 +417,25 @@ let test_retryable_context_overflow () =
     (Error_domain.is_retryable (`Context_overflow ("overflow", Some 8192)))
 ;;
 
+let test_roundtrip_api_payment_required () =
+  let orig = Error.Api (Retry.PaymentRequired { message = "Insufficient Balance" }) in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Payment_required "Insufficient Balance" -> ()
+   | _ -> Alcotest.fail "expected Payment_required");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Api (Retry.PaymentRequired { message = "Insufficient Balance" }) -> ()
+  | _ -> Alcotest.fail "roundtrip mismatch for PaymentRequired"
+;;
+
+let test_retryable_payment_required () =
+  Alcotest.(check bool)
+    "payment_required not retryable"
+    false
+    (Error_domain.is_retryable (`Payment_required "Insufficient Balance"))
+;;
+
 let test_roundtrip_agent_idle_detected () =
   let orig = Error.Agent (IdleDetected { consecutive_idle_turns = 3 }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -806,6 +825,10 @@ let () =
             "api context_overflow_no_limit"
             `Quick
             test_roundtrip_api_context_overflow_no_limit
+        ; Alcotest.test_case
+            "api payment_required"
+            `Quick
+            test_roundtrip_api_payment_required
         ; Alcotest.test_case "agent max_turns" `Quick test_roundtrip_agent_max_turns
         ; Alcotest.test_case
             "agent execution_timeout"
@@ -857,6 +880,7 @@ let () =
         ; Alcotest.test_case "auth_error" `Quick test_retryable_auth_error
         ; Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request
         ; Alcotest.test_case "context_overflow" `Quick test_retryable_context_overflow
+        ; Alcotest.test_case "payment_required" `Quick test_retryable_payment_required
         ; Alcotest.test_case "max_turns" `Quick test_retryable_max_turns
         ; Alcotest.test_case "idle_detected" `Quick test_retryable_idle_detected
         ; Alcotest.test_case "unrecognized_stop" `Quick test_retryable_unrecognized_stop
