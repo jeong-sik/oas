@@ -22,23 +22,19 @@ type mutex =
   | Eio_mu of Eio.Mutex.t
 
 type t =
-  { mu : mutex option
+  { mu : mutex
   ; entries : (string, entry) Hashtbl.t
   }
 
-let create () = { mu = Some (Eio_mu (Eio.Mutex.create ())); entries = Hashtbl.create 8 }
-
-let create_sync () =
-  { mu = Some (Stdlib_mu (Mutex.create ())); entries = Hashtbl.create 8 }
-;;
+let create () = { mu = Eio_mu (Eio.Mutex.create ()); entries = Hashtbl.create 8 }
+let create_sync () = { mu = Stdlib_mu (Mutex.create ()); entries = Hashtbl.create 8 }
 
 let with_lock t f =
   match t.mu with
-  | None -> f ()
-  | Some (Stdlib_mu mu) ->
+  | Stdlib_mu mu ->
     Mutex.lock mu;
     Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
-  | Some (Eio_mu mu) -> Eio.Mutex.use_rw ~protect:true mu f
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 let register' t entry = Hashtbl.replace t.entries entry.name entry

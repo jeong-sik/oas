@@ -6,16 +6,29 @@
 
 open Agent_sdk
 
-let with_dummy_api_key f =
-  let key = "OAS_TEST_ILLEGAL_HOOK_API_KEY" in
-  let previous = Sys.getenv_opt "ANTHROPIC_API_KEY" in
-  Unix.putenv "ANTHROPIC_API_KEY" key;
-  Fun.protect
-    ~finally:(fun () ->
-      match previous with
-      | Some v -> Unix.putenv "ANTHROPIC_API_KEY" v
-      | None -> Unix.putenv "ANTHROPIC_API_KEY" "")
-    f
+let mock_response : Types.api_response =
+  { id = "illegal-hook-mock"
+  ; model = "mock-model"
+  ; stop_reason = EndTurn
+  ; content = [ Text "unused" ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let mock_transport : Llm_provider.Llm_transport.t =
+  { complete_sync =
+      (fun _req ->
+        { Llm_provider.Llm_transport.response = Ok mock_response; latency_ms = None })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok mock_response)
+  }
+;;
+
+let mock_provider : Provider.config =
+  { provider = Provider.Local { base_url = "http://mock.local" }
+  ; model_id = "mock-model"
+  ; api_key_env = ""
+  }
 ;;
 
 let is_illegal_hook_error = function
@@ -26,23 +39,26 @@ let is_illegal_hook_error = function
 ;;
 
 let test_before_turn_skip_returns_error () =
-  with_dummy_api_key (fun () ->
-    Eio_main.run
-    @@ fun env ->
-    Eio.Switch.run
-    @@ fun sw ->
-    let net = Eio.Stdenv.net env in
-    let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Skip) } in
-    let options = { Agent_types.default_options with hooks } in
-    let config =
-      { Types.default_config with name = "illegal-hook-test"; max_turns = 1 }
-    in
-    let agent = Agent.create ~net ~config ~options () in
-    let result = Agent.run ~sw agent "hello" in
-    Alcotest.(check bool)
-      "before_turn Skip returns illegal-hook error"
-      true
-      (is_illegal_hook_error result))
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Skip) } in
+  let options =
+    { Agent_types.default_options with
+      hooks
+    ; provider = Some mock_provider
+    ; transport = Some mock_transport
+    }
+  in
+  let config = { Types.default_config with name = "illegal-hook-test"; max_turns = 1 } in
+  let agent = Agent.create ~net ~config ~options () in
+  let result = Agent.run ~sw agent "hello" in
+  Alcotest.(check bool)
+    "before_turn Skip returns illegal-hook error"
+    true
+    (is_illegal_hook_error result)
 ;;
 
 let () =
