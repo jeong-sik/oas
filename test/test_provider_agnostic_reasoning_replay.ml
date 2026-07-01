@@ -75,12 +75,12 @@ let catalog_model_profile_resolvers
     , fun () -> Capabilities.for_model_id "qwen/qwen3.6-35b-a3b" )
   ; ( "model:dashscope-3.5-35b-a3b"
     , fun () -> Capabilities.for_model_id "dashscope-3.5-35b-a3b" )
-  ; ( "provider:qwen3-mtp.qwen3-mtp.qwen36-35b-a3b-mtp"
+  ; ( "provider:vllm-qwen3-mtp.vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
     , fun () ->
         Capabilities.for_provider_model_id
           ~allow_bare_fallback:false
-          ~provider_label:"qwen3-mtp"
-          ~model_id:"qwen3-mtp.qwen36-35b-a3b-mtp" )
+          ~provider_label:"vllm-qwen3-mtp"
+          ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp" )
   ]
 ;;
 

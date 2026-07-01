@@ -440,7 +440,7 @@ let test_lookup_provider_m_dashscope_gguf_name () =
 ;;
 
 let test_lookup_provider_m_qwen3_mtp_dot_name () =
-  match Capabilities.for_model_id "qwen3-mtp.qwen36-35b-a3b-mtp" with
+  match Capabilities.for_model_id "vllm-qwen3-mtp.qwen36-35b-a3b-mtp" with
   | Some c ->
     check (option int) "context 128K" (Some 131_072) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
@@ -448,7 +448,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
     check bool "reasoning" true c.supports_reasoning;
     check
       bool
-      "qwen3-mtp dot-qualified qwen3.6 uses chat_template_kwargs"
+      "vllm-qwen3-mtp dot-qualified qwen3.6 uses chat_template_kwargs"
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs)
   | None -> fail "should match dot-qualified qwen3.6 model id"
@@ -2270,7 +2270,7 @@ let () =
             `Quick
             test_lookup_provider_m_dashscope_gguf_name
         ; test_case
-            "qwen3-mtp dot-qualified name"
+            "vllm-qwen3-mtp dot-qualified name"
             `Quick
             test_lookup_provider_m_qwen3_mtp_dot_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash

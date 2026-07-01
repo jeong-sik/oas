@@ -1140,7 +1140,7 @@ let provider_qualified_model_id_candidates ~provider_label ~model_id =
      suffix is a useful candidate for re-qualification below in
      [provider_qualified_catalog_keys]. Including the original [model_id]
      alongside it used to make that function re-prepend [provider_label] onto
-     an already-qualified id (e.g. "qwen3-mtp/qwen3-mtp.qwen..."), which
+     an already-qualified id (e.g. "vllm-qwen3-mtp/vllm-qwen3-mtp.qwen..."), which
      never matches a real catalog [id_prefix] — pure wasted lookups. *)
   match stripped with
   | Some suffix when String.trim suffix <> "" -> [ suffix ]

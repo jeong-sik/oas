@@ -679,9 +679,9 @@ let test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "qwen3-mtp"
+provider_name = "vllm-qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_reasoning = true
@@ -692,7 +692,7 @@ thinking_control_format = "chat_template_kwargs"
        let cfg =
          Provider_config.make
            ~kind:OpenAI_compat
-           ~model_id:"qwen3-mtp.qwen36-35b-a3b-mtp"
+           ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
@@ -719,9 +719,9 @@ let test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row () 
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "qwen3-mtp"
+provider_name = "vllm-qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_reasoning = true
@@ -754,9 +754,9 @@ let test_capabilities_are_invariant_across_host () =
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "qwen3-mtp"
+provider_name = "vllm-qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_reasoning = true
@@ -767,7 +767,7 @@ thinking_control_format = "chat_template_kwargs"
        let caps_for base_url =
          Provider_config.make
            ~kind:OpenAI_compat
-           ~model_id:"qwen3-mtp/qwen36-35b-a3b-mtp"
+           ~model_id:"vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
            ~base_url
            ()
          |> Provider_config.capabilities_for_config_model
