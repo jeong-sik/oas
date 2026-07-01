@@ -1520,6 +1520,34 @@ let test_provider_name_of_config_unmatched_openai_compat () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
+let test_capability_provider_label_deepseek_exact_host () =
+  let label base_url =
+    Provider_config.capability_provider_label
+      (Provider_config.make ~kind:OpenAI_compat ~model_id:"deepseek-v4-pro" ~base_url ())
+  in
+  (* RFC-OAS-034 rule 2: api.deepseek.com is DeepSeek's canonical vendor host, so
+     its endpoint carries the vendor identity regardless of scheme. *)
+  check_string
+    "https canonical host is deepseek"
+    "deepseek"
+    (label "https://api.deepseek.com/v1");
+  check_string
+    "http canonical host is deepseek"
+    "deepseek"
+    (label "http://api.deepseek.com");
+  (* Exact [Uri.host] equality must reject look-alikes so a hostile or accidental
+     host cannot inherit the deepseek vendor identity. Falls back to the transport
+     kind label ("openai_compat") rather than "deepseek". *)
+  check_string
+    "subdomain lookalike is not deepseek"
+    "openai_compat"
+    (label "https://api.deepseek.com.evil.example/v1");
+  check_string
+    "userinfo lookalike is not deepseek"
+    "openai_compat"
+    (label "https://api.deepseek.com@evil.example/v1")
+;;
+
 let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -1924,6 +1952,35 @@ let test_wire_kind_roundtrip_via_yojson () =
   | None -> Alcotest.fail "roundtrip produced None"
 ;;
 
+let test_capability_provider_label_ollama_cloud_exact_host () =
+  let label base_url =
+    Provider_config.capability_provider_label
+      (Provider_config.make ~kind:Ollama ~model_id:"m" ~base_url ())
+  in
+  (* Apex ollama.com resolves to the cloud vendor label regardless of scheme. *)
+  check_string "https apex is cloud" "ollama_cloud" (label "https://ollama.com/v1");
+  check_string "http apex is cloud" "ollama_cloud" (label "http://ollama.com");
+  (* RFC-OAS-034 B4: a raw URL-prefix match ([starts_with "https://ollama.com"])
+     wrongly accepted these lookalike hosts because the prefix ends inside a
+     longer hostname. Exact [Uri.host] equality must reject them so a hostile or
+     accidental lookalike cannot inherit the ollama-cloud identity. *)
+  Alcotest.(check bool)
+    "subdomain lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.company.com/v1"));
+  Alcotest.(check bool)
+    "suffix lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.com.evil.example/v1"));
+  (* A prefix matcher also accepts a userinfo-based lookalike: the authority
+     [ollama.com@evil.example] makes [starts_with "https://ollama.com"] true
+     while the real [Uri.host] is [evil.example]. Exact host equality rejects it. *)
+  Alcotest.(check bool)
+    "userinfo lookalike rejected"
+    false
+    (String.equal "ollama_cloud" (label "https://ollama.com@evil.example/v1"))
+;;
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -2209,6 +2266,10 @@ let () =
             test_provider_name_of_config_local_openai_compat
         ; Alcotest.test_case "openrouter" `Quick test_provider_name_of_config_openrouter
         ; Alcotest.test_case
+            "deepseek vendor host label (exact Uri.host, RFC-OAS-034)"
+            `Quick
+            test_capability_provider_label_deepseek_exact_host
+        ; Alcotest.test_case
             "unmatched openai_compat"
             `Quick
             test_provider_name_of_config_unmatched_openai_compat
@@ -2309,6 +2370,12 @@ let () =
             "record JSON roundtrip preserves variant"
             `Quick
             test_wire_kind_roundtrip_via_yojson
+        ] )
+    ; ( "capability_provider_label"
+      , [ Alcotest.test_case
+            "ollama cloud matched by exact host, lookalikes rejected"
+            `Quick
+            test_capability_provider_label_ollama_cloud_exact_host
         ] )
     ]
 ;;

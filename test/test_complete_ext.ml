@@ -292,8 +292,8 @@ let test_sampling_defaults_and_overlay () =
   let local_defaulted = Complete.apply_sampling_defaults local in
   check
     (option (float 0.001))
-    "local min_p defaulted"
-    (Some Constants.Sampling.openai_compat_min_p)
+    "uncatalogued local OpenAI_compat min_p not defaulted (RFC-OAS-034)"
+    None
     local_defaulted.min_p;
   let explicit = make_config ~min_p:0.2 ~top_p:0.7 ~top_k:17 () in
   let explicit_defaulted = Complete.apply_sampling_defaults explicit in

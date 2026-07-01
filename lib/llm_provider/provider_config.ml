@@ -197,9 +197,17 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let base_url_targets_ollama_cloud base_url =
-  let base_url = String.lowercase_ascii (String.trim base_url) in
-  String.starts_with ~prefix:"https://ollama.com" base_url
-  || String.starts_with ~prefix:"http://ollama.com" base_url
+  (* Match the ollama cloud vendor host by exact [Uri.host] equality, mirroring
+     [base_url_targets_openai]. A raw prefix match on the URL string
+     ([String.starts_with ~prefix:"https://ollama.com"]) also accepts
+     lookalike hosts such as [https://ollama.company.com] and
+     [https://ollama.com.evil.example], because the prefix ends inside a longer
+     hostname. Parsing the host first and comparing it exactly is the sanctioned
+     vendor-identity binding (RFC-OAS-034: host is transport/identity, matched by
+     exact host equality, not fuzzy string prefix). *)
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "ollama.com"
 ;;
 
 let base_url_targets_openai base_url =
@@ -208,9 +216,25 @@ let base_url_targets_openai base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
 ;;
 
+(* RFC-OAS-034 §2 rule 2: a vendor-canonical domain (the host is itself the
+   vendor's canonical domain, so host identifies the provider) may bind a
+   provider label, matched by exact [Uri.host] equality (no prefix, no look-alike).
+   [api.deepseek.com] is DeepSeek's canonical vendor host, so its endpoint carries
+   the vendor identity "deepseek" rather than the generic transport kind
+   "openai_compat". This is host->identity (allowed), not host->capability of a
+   generic rental edge (forbidden, e.g. *.proxy.runpod.net). Mirrors
+   [base_url_targets_openai]. *)
+let base_url_targets_deepseek base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "api.deepseek.com"
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
+  else if base_url_targets_deepseek config.base_url
+  then "deepseek"
   else string_of_provider_kind config.kind
 ;;
 
