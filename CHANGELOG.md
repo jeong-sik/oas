@@ -31,6 +31,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.11](https://github.com/jeong-sik/oas/compare/v0.208.10...v0.208.11) (2026-07-01)
+
+
+### Bug Fixes
+
+* **provider:** resolve dot-qualified catalog models ([#2406](https://github.com/jeong-sik/oas/issues/2406)) ([ed7cd19](https://github.com/jeong-sik/oas/commit/ed7cd19313edfb5c37f832d189d64ec073c6feb1))
+* **provider:** resolve local OpenAI-compat endpoints to neutral label, not vendor "nous" ([#2415](https://github.com/jeong-sik/oas/issues/2415)) ([b0dd6a0](https://github.com/jeong-sik/oas/commit/b0dd6a09545a6cee29cea87bcfeb9fe117ba2174))
+
 ## [0.208.10](https://github.com/jeong-sik/oas/compare/v0.208.9...v0.208.10) (2026-07-01)
 
 
