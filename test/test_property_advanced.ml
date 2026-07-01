@@ -274,7 +274,7 @@ let test_local_provider_resolve_always_succeeds =
 let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"Local DashScope_3 models get reasoning capability"
+    ~name:"Local DashScope_3 models require endpoint declaration"
     (QCheck.make
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
@@ -289,7 +289,28 @@ let test_capabilities_provider_m_reasoning =
              ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
              ~model_id
          in
-         caps.supports_reasoning))
+         not caps.supports_reasoning))
+;;
+
+let test_local_glm_model_id_requires_endpoint_declaration =
+  QCheck.Test.make
+    ~count:50
+    ~name:"Local GLM model ids require endpoint declaration (not ZAI-inferred)"
+    (QCheck.make
+       ~print:(fun s -> s)
+       (QCheck.Gen.oneof
+          [ QCheck.Gen.return "glm-5.2"
+          ; QCheck.Gen.return "glm-4.6"
+          ; QCheck.Gen.return "glm-4.5"
+          ]))
+    (fun model_id ->
+       with_repo_model_catalog (fun () ->
+         let caps =
+           Provider.capabilities_for_model
+             ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
+             ~model_id
+         in
+         (not caps.supports_reasoning) && not caps.supports_extended_thinking))
 ;;
 
 let test_raw_openai_compat_dashscope_requires_endpoint_declaration =
@@ -419,6 +440,7 @@ let () =
       ; (* Provider resolve *)
         test_local_provider_resolve_always_succeeds
       ; test_capabilities_provider_m_reasoning
+      ; test_local_glm_model_id_requires_endpoint_declaration
       ; test_raw_openai_compat_dashscope_requires_endpoint_declaration
       ; (* Context reducer *)
         test_context_reducer_never_adds
