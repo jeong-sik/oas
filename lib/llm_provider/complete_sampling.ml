@@ -375,7 +375,10 @@ let%test "provider_sampling_defaults Gemini has no min_p" =
   d.default_min_p = None
 ;;
 
-let%test "apply_sampling_defaults does not default min_p for uncatalogued local OpenAI_compat (RFC-OAS-034)" =
+let%test
+    "apply_sampling_defaults does not default min_p for uncatalogued local OpenAI_compat \
+     (RFC-OAS-034)"
+  =
   (* An uncatalogued model on a local endpoint must NOT receive the min_p floor:
      locality is transport, not a declared min_p capability. Before RFC-OAS-034
      this asserted [Some ...] purely because [is_local] was true. *)
@@ -458,7 +461,10 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
   applied.min_p = None
 ;;
 
-let%test "apply_sampling_defaults DashScope model keeps min_p default (kind-declared, not host)" =
+let%test
+    "apply_sampling_defaults DashScope model keeps min_p default (kind-declared, not \
+     host)"
+  =
   (* DashScope carries the min_p floor via provider_sampling_defaults regardless
      of host — the kind declares the capability. Uses kind=DashScope (qwen is a
      DashScope model) so the assertion no longer relies on is_local, which
