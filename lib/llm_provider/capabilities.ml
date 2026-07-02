@@ -448,6 +448,7 @@ let ollama_capabilities =
    [/v1] path opt in per-row in [models.toml]. *)
 let ollama_cloud_capabilities =
   { ollama_capabilities with supports_structured_output = false }
+;;
 
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with

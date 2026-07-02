@@ -757,7 +757,11 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
-         check bool (model_id ^ " no structured output") false c.supports_structured_output)
+         check
+           bool
+           (model_id ^ " no structured output")
+           false
+           c.supports_structured_output)
     cases
 ;;
 
