@@ -1850,10 +1850,18 @@ supports_native_streaming = true
 supports_top_k = true
 supports_min_p = true
 
+# Serving-contract namespace (RFC-OAS-034 §2 rule 1): the capability set below
+# (MTP, chat_template_kwargs thinking, tools, reasoning) is a function of the
+# serving runtime x model, NOT of where the endpoint is rented. The namespace is
+# named for that contract ("vllm-qwen3-mtp"), not for a hosting provider. A consumer
+# selects it by declaring model_id = "vllm-qwen3-mtp/<model>" (or "vllm-qwen3-mtp.<model>"),
+# so capability provenance is an explicit declaration — never inferred from a
+# host such as *.proxy.runpod.net. (Renamed from "runpod_mtp"; RunPod is an
+# opaque transport alias OAS does not classify on.)
 [[models]]
-id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "runpod_mtp"
+provider_name = "vllm-qwen3-mtp"
 max_context_tokens = 131072
 supports_tools = true
 supports_tool_choice = true

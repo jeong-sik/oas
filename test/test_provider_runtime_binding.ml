@@ -340,7 +340,7 @@ let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
   "schema_version": 1,
   "providers": [
     {
-      "id": "runpod_mtp",
+      "id": "vllm-qwen3-mtp",
       "kind": "openai_compat",
       "transport": "http",
       "base_url": "https://runpod.example.invalid/v1",
@@ -355,9 +355,9 @@ let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
        with_model_catalog
          {|
 [[models]]
-id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
-provider_name = "runpod_mtp"
+provider_name = "vllm-qwen3-mtp"
 supports_tools = true
 supports_tool_choice = true
 supports_parallel_tool_calls = true
@@ -371,23 +371,26 @@ preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
             let cfg =
               Llm_provider.Provider_config.make
                 ~kind:Llm_provider.Provider_config.OpenAI_compat
-                ~model_id:"runpod_mtp.qwen36-35b-a3b-mtp"
+                ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
                 ~base_url:"https://runpod.example.invalid/v1"
                 ~request_path:"/chat/completions"
                 ()
             in
             let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
-            Alcotest.(check bool) "runpod row keeps tools" true caps.supports_tools;
             Alcotest.(check bool)
-              "runpod row keeps parallel tools"
+              "vllm-qwen3-mtp row keeps tools"
+              true
+              caps.supports_tools;
+            Alcotest.(check bool)
+              "vllm-qwen3-mtp row keeps parallel tools"
               true
               caps.supports_parallel_tool_calls;
             Alcotest.(check bool)
-              "runpod row keeps reasoning"
+              "vllm-qwen3-mtp row keeps reasoning"
               true
               caps.supports_reasoning;
             Alcotest.(check bool)
-              "runpod row uses chat_template_kwargs"
+              "vllm-qwen3-mtp row uses chat_template_kwargs"
               true
               (caps.thinking_control_format
                = Llm_provider.Capabilities.Chat_template_kwargs)))

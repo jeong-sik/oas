@@ -57,7 +57,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 
 1. **capability/namespace provenance = 명시적 config·model 선언.** generic host·URL 유도 금지.
    - namespace는 `model_id` prefix(`<namespace>/<model_id>`) 또는 provider config의 명시 필드(serving-contract 식별자)에서 온다.
-   - namespace 이름은 host-무관 serving-contract로: `runpod_mtp` → 예 `vllm-qwen3-mtp` / `qwen3-mtp` (host 제거).
+   - namespace 이름은 host-무관 serving-contract로: `runpod_mtp` → `vllm-qwen3-mtp` (host 제거). serving runtime(vLLM MTP) × model(qwen3)을 식별하되, 기존 catalog family prefix(`qwen3`)로 시작하지 않아야 dot-qualified lookup이 family row로 shadowing되지 않는다.
 2. **vendor-canonical 도메인 → provider는 허용**, 단 **정확 `Uri.host` 등가**로 (prefix 금지, look-alike 차단). generic rental host → capability는 금지.
 3. **path → wire-protocol**(Responses vs Chat)은 path가 실제 API envelope를 결정하는 경우에만, 정확 문자열 등가 + 비대상 kind는 catch-all 없는 exhaustive match로 fail-closed (`request_path_targets_responses_api`/`validate_request_path`가 정답례).
 4. **unknown host/provider/model/label → Unknown/None/fail-closed.** permissive/specific default 금지 (CLAUDE.md AI코드생성 #2).
@@ -159,4 +159,4 @@ stale-high(monotone-safe)이며, 전체 rebaseline은 별도 hygiene 작업으�
 | model_catalog unknown 키 fail-closed | Draft | #2426 |
 | B5 discovery / B6 manifest | false-positive (미구현) | — |
 | B4'(:804 host→output_schema) / :840(base label) | defer (설계 변경) | — |
-| B1/B2 (#2374·#2408 흡수) | 미착수 | — |
+| B1/B2 (#2374·#2408 흡수) | Draft — namespace `runpod_mtp`→`vllm-qwen3-mtp` rename + host-불변 회귀 테스트. #2374·#2408은 불필요(명시 선언 경로가 이미 작동)로 close | 이 PR |

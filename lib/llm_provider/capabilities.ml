@@ -1165,7 +1165,7 @@ let provider_qualified_model_id_candidates ~provider_label ~model_id =
      suffix is a useful candidate for re-qualification below in
      [provider_qualified_catalog_keys]. Including the original [model_id]
      alongside it used to make that function re-prepend [provider_label] onto
-     an already-qualified id (e.g. "runpod_mtp/runpod_mtp.qwen..."), which
+     an already-qualified id (e.g. "vllm-qwen3-mtp/vllm-qwen3-mtp.qwen..."), which
      never matches a real catalog [id_prefix] — pure wasted lookups. *)
   match stripped with
   | Some suffix when String.trim suffix <> "" -> [ suffix ]
@@ -1729,7 +1729,7 @@ let%test "for_model_id_catalog qwen3.5 routes to Qwen_3 family" =
     | None -> false)
 ;;
 
-let%test "for_model_id_catalog qwen36 runpod alias routes to Qwen_3 family" =
+let%test "for_model_id_catalog qwen36 model routes to Qwen_3 family" =
   with_test_catalog (fun () ->
     match for_model_id_catalog "qwen36-35b-a3b-mtp" with
     | Some c ->
