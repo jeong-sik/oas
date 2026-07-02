@@ -48,6 +48,12 @@ MODEL_ID_STRING_CLASSIFIER_RE = re.compile(
     r".*\b(?:config\.)?model(?:_id)?\b"
     r"|\b(?:config\.)?model(?:_id)?\b"
     r".*\bString\.(?:lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal)\b"
+    # Delegated model-id prefix classification: calling the Zai_catalog GLM
+    # prefix classifier outside the catalog/capability boundary is the same
+    # SSOT drift as inlining String.starts_with on a model id, but the lexical
+    # String.* patterns above cannot see the delegation (RFC-OAS-023/029;
+    # the api_openai.ml is_glm_request removal is the reference cleanup).
+    r"|\bis_glm_model_id\b"
 )
 # Fuzzy string classification of a base_url / host, forbidden by RFC-OAS-034
 # (host/URL is transport, not capability provenance). Only the inexact matchers
