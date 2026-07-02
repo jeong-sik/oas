@@ -1453,6 +1453,146 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   check bool "tools omitted for glm none" false (List.mem_assoc "tools" assoc)
 ;;
 
+(* PR #2439 review regression: a provider registered in
+   [Provider_registry.default] with [kind = Glm] must serialize with the full
+   GLM dialect even though the model id carries no "glm-" prefix — the
+   serializer resolves [Custom_registered] through the same typed registry
+   projection as validation. Before the shared projection, the serializer
+   degraded every [Custom_registered] to a synthetic (OpenAI_compat, "")
+   config: validation classified the request as GLM while the body below
+   lost the reasoning_content replay and the thinking.clear_thinking field. *)
+let test_build_openai_body_registered_glm_gets_glm_dialect () =
+  let model_id = "charglm-3" in
+  check
+    bool
+    "premise: model id has no glm- prefix"
+    false
+    (Llm_provider.Zai_catalog.is_glm_model_id model_id);
+  let provider_config = declared_provider_config "glm" model_id in
+  let messages =
+    [ { Types.role = Types.Assistant
+      ; content =
+          [ Types.Thinking { signature = None; content = "I should call the calculator." }
+          ; Types.ToolUse
+              { id = "call_1"
+              ; name = "calculator"
+              ; input = `Assoc [ "expr", `String "2+2" ]
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = model_id
+        ; enable_thinking = Some true
+        ; preserve_thinking = Some true
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 0 in
+  check
+    string
+    "reasoning_content replayed for registered glm"
+    "I should call the calculator."
+    (assistant |> member "reasoning_content" |> to_string);
+  check
+    bool
+    "preserved registered glm request clears no thinking"
+    false
+    (json |> member "thinking" |> member "clear_thinking" |> to_bool)
+;;
+
+(* Same registry-kind proof for [glm-coding] through the tool-choice coercion
+   arm: GLM has no [tool_choice:"none"] representation, so both the field and
+   the tools list are dropped. Before the shared projection, the degraded
+   generic config serialized ["none"] and kept the tools list. *)
+let test_build_openai_body_registered_glm_coding_tool_choice_none_omits_tools () =
+  let model_id = "charglm-3" in
+  check
+    bool
+    "premise: model id has no glm- prefix"
+    false
+    (Llm_provider.Zai_catalog.is_glm_model_id model_id);
+  let provider_config = declared_provider_config "glm-coding" model_id in
+  let state =
+    { Types.config =
+        { Types.default_config with model = model_id; tool_choice = Some Types.None_ }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let tool_json =
+    `Assoc
+      [ "name", `String "calculator"
+      ; "description", `String "math"
+      ; "input_schema", `Assoc [ "type", `String "object" ]
+      ]
+  in
+  let json =
+    Api.build_openai_body
+      ~provider_config
+      ~config:state
+      ~messages:[]
+      ~tools:[ tool_json ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check
+    bool
+    "tool_choice omitted for registered glm-coding none"
+    false
+    (List.mem_assoc "tool_choice" assoc);
+  check
+    bool
+    "tools omitted for registered glm-coding none"
+    false
+    (List.mem_assoc "tools" assoc)
+;;
+
+(* A [Custom_registered] name absent from both provider registries fails
+   closed through the public builder: validation and the serializer's dialect
+   projection share one [custom_registered_projection] resolver, so the only
+   observable outcome is this single typed error — never a silently degraded
+   generic body. *)
+let test_build_openai_body_unknown_registered_provider_fails_closed () =
+  let provider_config =
+    declared_provider_config "no-such-registered-provider" "charglm-3"
+  in
+  let state =
+    { Types.config = { Types.default_config with model = "charglm-3" }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  match Api.build_openai_body_result ~provider_config ~config:state ~messages:[] () with
+  | Ok _ -> fail "expected fail-closed error for unknown Custom_registered provider"
+  | Error reason ->
+    check
+      bool
+      "names the unknown provider"
+      true
+      (contains_substring
+         ~sub:{|"no-such-registered-provider" not found in provider registries|}
+         reason)
+;;
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -2321,6 +2461,18 @@ let () =
             "glm none tool_choice omits tools"
             `Quick
             test_build_openai_body_glm_tool_choice_none_omits_tools
+        ; test_case
+            "registered glm gets glm dialect"
+            `Quick
+            test_build_openai_body_registered_glm_gets_glm_dialect
+        ; test_case
+            "registered glm-coding none tool_choice omits tools"
+            `Quick
+            test_build_openai_body_registered_glm_coding_tool_choice_none_omits_tools
+        ; test_case
+            "unknown registered provider fails closed"
+            `Quick
+            test_build_openai_body_unknown_registered_provider_fails_closed
         ; test_case "with cache_system_prompt" `Quick test_build_body_with_cache
         ; test_case
             "tools cache_control with flag"
