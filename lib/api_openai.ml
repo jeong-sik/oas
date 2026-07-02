@@ -51,25 +51,41 @@ let capabilities_for_request ?provider_config (config : agent_state) =
       ~model_id:(model_to_string config.config.model)
 ;;
 
-let is_zai_provider_config (cfg : Provider.config) =
-  (* Enumerate every [Provider.provider] variant (the type of
-     [cfg.provider]) so the compiler flags any new constructor here.
-     ZAI detection depends on a [base_url] field; [Anthropic] and
-     [Custom_registered] don't carry one so they are non-ZAI today,
-     but a future base_url-carrying variant (e.g. [Provider_n_server],
-     [Openrouter]) would silently inherit "non-ZAI" under the previous
-     [_ -> false] catch-all even if its URL was a ZAI endpoint. *)
-  match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
-    Llm_provider.Zai_catalog.is_zai_base_url base_url
-  | Provider.Anthropic | Provider.Custom_registered _ -> false
-;;
+(* Typed request-boundary projection for GLM (Z.AI) dialect decisions,
+   mirroring the provider-client path's [Provider_config.t] boundary in
+   [Backend_openai_request]. Only [kind]/[base_url]/[model_id] and the
+   thinking fields feeding [PConfig.glm_should_replay_reasoning] /
+   [PConfig.zai_glm_clear_thinking_request_field] are populated; do not read
+   sampling or transport fields from it.
 
-let is_glm_request ?provider_config (config : agent_state) =
-  match provider_config with
-  | Some (cfg : Provider.config) ->
-    is_zai_provider_config cfg && Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
-  | None -> Llm_provider.Zai_catalog.is_glm_model_id (model_to_string config.config.model)
+   Enumerate every [Provider.provider] variant (the type of [cfg.provider])
+   so the compiler flags any new constructor here. ZAI detection depends on a
+   declared [base_url]; [Anthropic] carries none and [Custom_registered]
+   providers keep their registry-declared dispatch (non-GLM in this builder
+   today), so both project to a non-ZAI config. A missing [?provider_config]
+   fails closed to an empty [base_url]: a bare "glm-…" model id without a
+   declared Z.AI endpoint never acquires GLM dialect, coercions, or
+   capabilities ([PConfig.is_zai_glm_config] is [false] for every non-ZAI
+   projection), matching the endpoint-declaration guard in
+   [Provider.capabilities_for_model]. *)
+let serialization_provider_config ?provider_config (config : agent_state) : PConfig.t =
+  let kind, base_url, model_id =
+    match provider_config with
+    | Some (cfg : Provider.config) ->
+      (match cfg.provider with
+       | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
+         PConfig.OpenAI_compat, base_url, cfg.model_id
+       | Provider.Anthropic -> PConfig.Anthropic, "", cfg.model_id
+       | Provider.Custom_registered _ -> PConfig.OpenAI_compat, "", cfg.model_id)
+    | None -> PConfig.OpenAI_compat, "", model_to_string config.config.model
+  in
+  PConfig.make
+    ~kind
+    ~model_id
+    ~base_url
+    ?enable_thinking:config.config.enable_thinking
+    ?preserve_thinking:config.config.preserve_thinking
+    ()
 ;;
 
 let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
@@ -119,8 +135,8 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
 
 let provider_config_kind_for_openai_compat ~base_url ~model_id =
   if
-    Llm_provider.Zai_catalog.is_zai_base_url base_url
-    && Llm_provider.Zai_catalog.is_glm_model_id model_id
+    PConfig.is_zai_glm_config
+      (PConfig.make ~kind:PConfig.OpenAI_compat ~model_id ~base_url ())
   then PConfig.Glm
   else PConfig.OpenAI_compat
 ;;
@@ -174,12 +190,14 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
     in
     Ok (provider_kind, model_id, caps)
   | None ->
+    (* No declared provider endpoint: fail closed to the generic
+       OpenAI-compatible contract. A bare "glm-…" model id is not an endpoint
+       declaration, so it acquires neither GLM kind nor GLM capabilities here
+       (endpoint-declaration guard parity with
+       [Provider.capabilities_for_model]). *)
     let model_id = model_to_string config.config.model in
-    if Llm_provider.Zai_catalog.is_glm_model_id model_id
-    then Ok (PConfig.Glm, model_id, Llm_provider.Capabilities.glm_capabilities)
-    else (
-      let caps = capabilities_for_request config in
-      Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps))
+    let caps = capabilities_for_request config in
+    Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps)
 ;;
 
 let validate_tool_choice_request ?provider_config (config : agent_state) =
@@ -195,12 +213,33 @@ let validate_tool_choice_request ?provider_config (config : agent_state) =
          caps)
 ;;
 
-let reasoning_dialect_for_request capabilities (config : agent_state) =
-  capabilities
-  |> llm_capabilities_of_provider_capabilities
-  |> Llm_provider.Reasoning_dialect.of_capabilities
-  |> Llm_provider.Reasoning_dialect.with_preserve_thinking
-       ~preserve_thinking:config.config.preserve_thinking
+let reasoning_dialect_for_request
+      ~(serialization_config : PConfig.t)
+      capabilities
+      (config : agent_state)
+  =
+  let dialect =
+    capabilities
+    |> llm_capabilities_of_provider_capabilities
+    |> Llm_provider.Reasoning_dialect.of_capabilities
+    |> Llm_provider.Reasoning_dialect.with_preserve_thinking
+         ~preserve_thinking:config.config.preserve_thinking
+  in
+  (* RFC-OAS-029 S3.1: GLM Preserved-Thinking replay resolves to a typed
+     [replay_policy] at this single dialect boundary (mirroring
+     [Reasoning_dialect.for_provider_config]), so the message serializer below
+     consumes only the typed policy via
+     [Backend_openai_serialize.dialect_messages_of_message] instead of
+     re-deriving GLM-ness at serialize time. *)
+  if PConfig.is_zai_glm_config serialization_config
+  then
+    { dialect with
+      Llm_provider.Reasoning_dialect.replay_policy =
+        (if PConfig.glm_should_replay_reasoning serialization_config
+         then Llm_provider.Reasoning_dialect.Preserve_always
+         else Llm_provider.Reasoning_dialect.No_replay)
+    }
+  else dialect
 ;;
 
 let add_sampling_field dialect (config : agent_state) field value body_assoc =
@@ -213,15 +252,23 @@ let add_sampling_field dialect (config : agent_state) field value body_assoc =
   else (field, value) :: body_assoc
 ;;
 
+(* [is_zai_glm] is [PConfig.is_zai_glm_config] of the request-boundary
+   [serialization_provider_config], resolved once in
+   [build_openai_body_unchecked] — the same typed source that drives the
+   dialect and clear_thinking sites. GLM has no [tool_choice:"none"]
+   representation, so the field is omitted and [should_include_tools] drops
+   the tools list; GLM only documents ["auto"] (see
+   [Capabilities.glm_capabilities]), so [Auto]/[Any] serialize as ["auto"]
+   ([Any] is already rejected by [validate_tool_choice_request] before
+   serialization). *)
 let effective_tool_choice_json
       (capabilities : Provider.capabilities)
-      ?provider_config
+      ~is_zai_glm
       (config : agent_state)
   =
-  let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
-  | Some Types.None_ when is_glm -> None
-  | Some (Types.Auto | Types.Any) when is_glm ->
+  | Some Types.None_ when is_zai_glm -> None
+  | Some (Types.Auto | Types.Any) when is_zai_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
@@ -230,16 +277,18 @@ let effective_tool_choice_json
   | _ -> None
 ;;
 
-let should_include_tools ?provider_config (config : agent_state) =
+let should_include_tools ~is_zai_glm (config : agent_state) =
   match config.config.tool_choice with
-  | Some Types.None_ when is_glm_request ?provider_config config -> false
+  | Some Types.None_ when is_zai_glm -> false
   | _ -> true
 ;;
 
 let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
-  let dialect = reasoning_dialect_for_request capabilities config in
+  let serialization_config = serialization_provider_config ?provider_config config in
+  let is_zai_glm = PConfig.is_zai_glm_config serialization_config in
+  let dialect = reasoning_dialect_for_request ~serialization_config capabilities config in
   let assistant_tool_content_format =
     capabilities.Provider.assistant_tool_content_format
   in
@@ -248,29 +297,25 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
     | Some entries
       when entries <> []
            && capabilities.supports_tools
-           && should_include_tools ?provider_config config -> Some entries
+           && should_include_tools ~is_zai_glm config -> Some entries
     | _ -> None
   in
   let sanitized_messages =
     Llm_provider.Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
   let provider_messages =
+    (* Reasoning replay is decided by the typed dialect
+       ([Reasoning_dialect.should_replay_reasoning] via [replay_policy]),
+       resolved once in [reasoning_dialect_for_request]; the serializer no
+       longer branches on GLM-ness. GLM's tool-only assistant content shape
+       comes from [assistant_tool_content_format]
+       ([Assistant_tool_content_empty_string] in
+       [Capabilities.glm_capabilities]), matching the provider-client path in
+       [Backend_openai_request.build_request_assoc]. *)
     let message_serializer =
-      (* Gate GLM reasoning_content replay on Preserved Thinking, matching the
-         provider-client path in Backend_openai_request via the same SSOT
-         predicate. [Types.agent_config] carries no [clear_thinking] field, so it
-         resolves from [preserve_thinking]. *)
-      if
-        is_glm_request ?provider_config config
-        && Llm_provider.Provider_config.glm_should_replay_reasoning_fields
-             ~enable_thinking:config.config.enable_thinking
-             ~clear_thinking:None
-             ~preserve_thinking:config.config.preserve_thinking
-      then Llm_provider.Backend_openai_serialize.glm_messages_of_message
-      else
-        Llm_provider.Backend_openai_serialize.dialect_messages_of_message
-          ~assistant_tool_content_format
-          dialect
+      Llm_provider.Backend_openai_serialize.dialect_messages_of_message
+        ~assistant_tool_content_format
+        dialect
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
@@ -312,11 +357,14 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
     then body_assoc
     else (
       let zai_glm_clear_thinking =
+        (* [Types.agent_config] carries no [clear_thinking] field, so the
+           projection's [clear_thinking = None] resolves from
+           [preserve_thinking] inside the SSOT resolver. *)
         Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
           ~thinking_control_format:capabilities.thinking_control_format
-          ~is_zai_glm:(is_glm_request ?provider_config config)
-          ~clear_thinking:None
-          ~preserve_thinking:config.config.preserve_thinking
+          ~is_zai_glm
+          ~clear_thinking:serialization_config.PConfig.clear_thinking
+          ~preserve_thinking:serialization_config.PConfig.preserve_thinking
       in
       Llm_provider.Reasoning_dialect.request_control_fields
         dialect
@@ -338,7 +386,7 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
     | None -> body_assoc
   in
   let body_assoc =
-    match effective_tool_choice_json capabilities ?provider_config config with
+    match effective_tool_choice_json capabilities ~is_zai_glm config with
     | Some choice_json -> ("tool_choice", choice_json) :: body_assoc
     | None -> body_assoc
   in

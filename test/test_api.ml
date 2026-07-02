@@ -1027,7 +1027,15 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
   | Ok _ -> fail "expected Result.Error for unsupported GLM named tool_choice"
 ;;
 
-let test_build_openai_body_rejects_bare_glm_forced_tool_choice () =
+(* Endpoint-declaration fail-closed guard: a bare "glm-…" model id without a
+   declared Z.AI [?provider_config] endpoint is not a GLM request. It resolves
+   to the generic OpenAI-compatible contract, so the named tool_choice that a
+   declared GLM endpoint rejects
+   ([test_build_openai_body_rejects_glm_forced_tool_choice]) validates and
+   serializes as the standard function form here. Before the typed-dialect
+   reshape, [is_glm_request] classified this request as GLM from the model-id
+   prefix alone and rejected it. *)
+let test_build_openai_body_bare_glm_named_tool_choice_is_generic () =
   let state =
     { Types.config =
         { Types.default_config with
@@ -1051,9 +1059,164 @@ let test_build_openai_body_rejects_bare_glm_forced_tool_choice () =
     Api.build_openai_body_result ~config:state ~messages:[] ~tools:[ tool_json ] ()
   with
   | Error reason ->
-    check bool "mentions tool_choice" true (contains_substring ~sub:"tool_choice" reason);
-    check bool "mentions tool name" true (contains_substring ~sub:"calculator" reason)
-  | Ok _ -> fail "expected Result.Error for unsupported bare GLM named tool_choice"
+    fail ("expected generic OpenAI-compat acceptance for bare glm model id: " ^ reason)
+  | Ok body ->
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    check
+      string
+      "named function form preserved"
+      "calculator"
+      (json |> member "tool_choice" |> member "function" |> member "name" |> to_string);
+    check bool "tools preserved" true (List.mem_assoc "tools" (to_assoc json))
+;;
+
+(* Complement of [test_build_openai_body_glm_preserves_reasoning_content]: the
+   same Preserved-Thinking configuration WITHOUT a declared Z.AI endpoint gets
+   no GLM dialect behavior. Before the typed-dialect reshape, the prefix-only
+   [is_glm_request] None-branch replayed prior-turn reasoning_content for any
+   "glm-…" model id regardless of endpoint. *)
+let test_build_openai_body_bare_glm_gets_no_glm_dialect () =
+  let messages =
+    [ { Types.role = Types.Assistant
+      ; content =
+          [ Types.Thinking { signature = None; content = "I should call the calculator." }
+          ; Types.ToolUse
+              { id = "call_1"
+              ; name = "calculator"
+              ; input = `Assoc [ "expr", `String "2+2" ]
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = "glm-5"
+        ; enable_thinking = Some true
+        ; preserve_thinking = Some true
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 0 in
+  check
+    bool
+    "no reasoning_content replay without declared endpoint"
+    false
+    (List.mem_assoc "reasoning_content" (to_assoc assistant));
+  check
+    bool
+    "no GLM thinking object without declared endpoint"
+    false
+    (List.mem_assoc "thinking" (to_assoc json))
+;;
+
+(* GLM's tool_choice [None_] coercion (omit the field, drop the tools list —
+   [test_build_openai_body_glm_tool_choice_none_omits_tools]) applies only
+   behind a declared Z.AI endpoint; a bare "glm-…" model id keeps the generic
+   OpenAI-compatible ["none"] serialization with tools intact. Before the
+   typed-dialect reshape, the prefix classifier dropped both. *)
+let test_build_openai_body_bare_glm_tool_choice_none_is_generic () =
+  let state =
+    { Types.config =
+        { Types.default_config with model = "glm-5"; tool_choice = Some Types.None_ }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let tool_json =
+    `Assoc
+      [ "name", `String "calculator"
+      ; "description", `String "math"
+      ; "input_schema", `Assoc [ "type", `String "object" ]
+      ]
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ~tools:[ tool_json ] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    string
+    "generic none tool_choice serialized"
+    "none"
+    (json |> member "tool_choice" |> to_string);
+  check bool "tools preserved" true (List.mem_assoc "tools" (to_assoc json))
+;;
+
+(* Declared Z.AI GLM endpoint under the default clear_thinking=true (no
+   [preserve_thinking]): the typed dialect resolves to No_replay, so
+   prior-turn reasoning_content stays out of the request history even though
+   the request is GLM (RFC-OAS-030). Locks the non-replay arm of the typed
+   [replay_policy] promotion in [reasoning_dialect_for_request]. *)
+let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
+  let provider_config =
+    { Provider.provider =
+        Provider.OpenAICompat
+          { base_url = Llm_provider.Zai_catalog.general_base_url
+          ; auth_header = None
+          ; path = "/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "glm-5"
+    ; api_key_env = ""
+    }
+  in
+  let messages =
+    [ { Types.role = Types.Assistant
+      ; content =
+          [ Types.Thinking { signature = None; content = "I should call the calculator." }
+          ; Types.ToolUse
+              { id = "call_1"
+              ; name = "calculator"
+              ; input = `Assoc [ "expr", `String "2+2" ]
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = provider_config.model_id
+        ; enable_thinking = Some true
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 0 in
+  check
+    bool
+    "no reasoning_content replay under default clear_thinking"
+    false
+    (List.mem_assoc "reasoning_content" (to_assoc assistant));
+  check
+    bool
+    "clearing GLM request clears thinking"
+    true
+    (json |> member "thinking" |> member "clear_thinking" |> to_bool)
 ;;
 
 let test_build_openai_body_glm_preserves_reasoning_content () =
@@ -2123,9 +2286,21 @@ let () =
             `Quick
             test_build_openai_body_rejects_glm_forced_tool_choice
         ; test_case
-            "bare glm rejects unsupported forced tool choice"
+            "bare glm named tool choice is generic"
             `Quick
-            test_build_openai_body_rejects_bare_glm_forced_tool_choice
+            test_build_openai_body_bare_glm_named_tool_choice_is_generic
+        ; test_case
+            "bare glm gets no glm dialect"
+            `Quick
+            test_build_openai_body_bare_glm_gets_no_glm_dialect
+        ; test_case
+            "bare glm none tool_choice is generic"
+            `Quick
+            test_build_openai_body_bare_glm_tool_choice_none_is_generic
+        ; test_case
+            "glm default clear_thinking skips replay"
+            `Quick
+            test_build_openai_body_glm_default_clear_thinking_skips_replay
         ; test_case
             "glm preserved reasoning replay"
             `Quick

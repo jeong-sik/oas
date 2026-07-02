@@ -35,8 +35,7 @@
     ],
     "local_workspace_path_literals": [],
     "model_id_string_classifiers_outside_catalog": [
-      "lib/llm_provider/backend_gemini.ml:53:let model_id = String.lowercase_ascii (String.trim config.model_id) in",
-      "lib/provider.ml:53:let normalized = String.lowercase_ascii (String.trim model_id) in"
+      "lib/provider.ml:70:if Llm_provider.Zai_catalog.is_glm_model_id model_id && not is_native_glm"
     ],
     "stub_markers": [],
     "wildcard_silent_defaults": [
@@ -59,7 +58,7 @@
     "exception_message_classifiers": 1,
     "heuristic_markers": 2,
     "local_workspace_path_literals": 0,
-    "model_id_string_classifiers_outside_catalog": 2,
+    "model_id_string_classifiers_outside_catalog": 1,
     "stub_markers": 0,
     "wildcard_silent_defaults": 251,
     "workaround_markers": 0
