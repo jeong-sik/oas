@@ -414,6 +414,8 @@ thinking_control_format = "ollama_think"
 supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
+# OpenAI-compatible /v1 transport does not guarantee schema-shaped output.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/devstral-2:123b"
@@ -624,6 +626,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+# OpenAI-compatible /v1 transport does not guarantee schema-shaped output.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/kimi-k2.6"
@@ -642,6 +646,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+# OpenAI-compatible /v1 transport does not guarantee schema-shaped output.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/kimi-k2.7-code"
@@ -660,6 +666,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+# OpenAI-compatible /v1 transport does not guarantee schema-shaped output.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/minimax-m2.1"
@@ -718,7 +726,9 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_response_format_json = true
-supports_structured_output = true
+# OpenAI-compatible /v1 transport accepts json_schema but does not guarantee
+# schema-shaped output; use the native /api/chat lane for strict schemas.
+supports_structured_output = false
 supports_native_streaming = true
 
 [[models]]
