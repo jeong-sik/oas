@@ -336,6 +336,124 @@ let test_provider_name_of_ollama_cloud_config () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
+(* ── provider_name_of_config: identity vs env override ──────────────
+   Provider identity of an already-built config must be deterministic:
+   the documented canonical URL always resolves to its provider, and the
+   env-overridden default URL resolves to it additively. A process env
+   override must never erase the documented default identity. *)
+
+let ollama_cfg base_url =
+  Provider_config.make
+    ~kind:Provider_config.Ollama
+    ~model_id:"glm-5.1:cloud"
+    ~base_url
+    ~request_path:"/api/chat"
+    ()
+;;
+
+let openai_compat_cfg base_url =
+  Provider_config.make
+    ~kind:Provider_config.OpenAI_compat
+    ~model_id:"deepseek-v4-pro"
+    ~base_url
+    ~request_path:"/chat/completions"
+    ()
+;;
+
+let test_provider_name_ollama_cloud_identity_survives_env_override () =
+  let override = "https://ollama-cloud-proxy.example" in
+  with_env "OLLAMA_CLOUD_BASE_URL" override (fun () ->
+    check
+      string
+      "canonical URL keeps ollama_cloud identity under env override"
+      "ollama_cloud"
+      (Provider_registry.provider_name_of_config (ollama_cfg "https://ollama.com"));
+    check
+      string
+      "env-overridden URL also resolves ollama_cloud"
+      "ollama_cloud"
+      (Provider_registry.provider_name_of_config (ollama_cfg override));
+    check
+      string
+      "unrelated URL still resolves ollama"
+      "ollama"
+      (Provider_registry.provider_name_of_config (ollama_cfg "http://127.0.0.1:11434")))
+;;
+
+let test_provider_name_ollama_cloud_identity_injected_getenv () =
+  let override = "https://ollama-cloud-injected.example" in
+  let getenv name =
+    if String.equal name "OLLAMA_CLOUD_BASE_URL" then Some override else None
+  in
+  check
+    string
+    "canonical URL keeps ollama_cloud identity under injected override"
+    "ollama_cloud"
+    (Provider_registry.provider_name_of_config ~getenv (ollama_cfg "https://ollama.com"));
+  check
+    string
+    "injected override URL also resolves ollama_cloud"
+    "ollama_cloud"
+    (Provider_registry.provider_name_of_config ~getenv (ollama_cfg override))
+;;
+
+let test_provider_name_deepseek_identity_survives_env_override () =
+  let override = "https://deepseek-proxy.example/v1" in
+  with_env "DEEPSEEK_BASE_URL" override (fun () ->
+    check
+      string
+      "canonical URL keeps deepseek identity under env override"
+      "deepseek"
+      (Provider_registry.provider_name_of_config
+         (openai_compat_cfg "https://api.deepseek.com"));
+    check
+      string
+      "env-overridden URL also resolves deepseek"
+      "deepseek"
+      (Provider_registry.provider_name_of_config (openai_compat_cfg override)))
+;;
+
+let test_provider_name_deepseek_identity_injected_getenv () =
+  let override = "https://deepseek-injected.example/v1" in
+  let getenv name =
+    if String.equal name "DEEPSEEK_BASE_URL" then Some override else None
+  in
+  check
+    string
+    "canonical URL keeps deepseek identity under injected override"
+    "deepseek"
+    (Provider_registry.provider_name_of_config
+       ~getenv
+       (openai_compat_cfg "https://api.deepseek.com"));
+  check
+    string
+    "injected override URL also resolves deepseek"
+    "deepseek"
+    (Provider_registry.provider_name_of_config ~getenv (openai_compat_cfg override));
+  check
+    string
+    "unrelated URL still falls back to openai_compat"
+    "openai_compat"
+    (Provider_registry.provider_name_of_config
+       ~getenv
+       (openai_compat_cfg "https://unlisted.example/v1"))
+;;
+
+let test_provider_name_env_override_cannot_steal_canonical_identity () =
+  (* An override pointing at another provider's documented endpoint must not
+     reassign it: canonical matches resolve before env-derived matches. *)
+  let getenv name =
+    if String.equal name "DEEPSEEK_BASE_URL" then Some "https://api.x.ai/v1" else None
+  in
+  check
+    string
+    "xai canonical URL stays xai despite deepseek override"
+    "xai"
+    (Provider_registry.provider_name_of_config
+       ~getenv
+       (openai_compat_cfg "https://api.x.ai/v1"))
+;;
+
 let default_entry_base_url name =
   let reg = Provider_registry.default () in
   match Provider_registry.find reg name with
@@ -1170,6 +1288,26 @@ let () =
             "provider_name_of_config returns ollama_cloud"
             `Quick
             test_provider_name_of_ollama_cloud_config
+        ; test_case
+            "ollama_cloud identity survives env override"
+            `Quick
+            test_provider_name_ollama_cloud_identity_survives_env_override
+        ; test_case
+            "ollama_cloud identity with injected getenv"
+            `Quick
+            test_provider_name_ollama_cloud_identity_injected_getenv
+        ; test_case
+            "deepseek identity survives env override"
+            `Quick
+            test_provider_name_deepseek_identity_survives_env_override
+        ; test_case
+            "deepseek identity with injected getenv"
+            `Quick
+            test_provider_name_deepseek_identity_injected_getenv
+        ; test_case
+            "env override cannot steal canonical identity"
+            `Quick
+            test_provider_name_env_override_cannot_steal_canonical_identity
         ; test_case
             "nous base_url reads LLM_ENDPOINTS at registry construction"
             `Quick
