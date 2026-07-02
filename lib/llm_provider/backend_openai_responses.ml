@@ -346,24 +346,12 @@ let response_text_config_of_config (config : Provider_config.t) =
 
 let capabilities_of_config = Backend_openai_request.capabilities_of_config
 
-let effective_max_output_tokens (config : Provider_config.t) =
-  let caps = capabilities_of_config config in
-  match config.max_tokens, caps.max_output_tokens with
-  | None, Some cap -> cap
-  | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
-  | Some n, Some cap when n > cap -> cap
-  | Some n, _ -> n
-;;
-
-let add_sampling_field dialect (config : Provider_config.t) field value body =
-  if
-    Reasoning_dialect.ignores_sampling_param
-      dialect
-      ~enable_thinking:config.enable_thinking
-      field
-  then body
-  else (field, value) :: body
-;;
+(* Output-token budget (clamp WARN included) and sampling-drop policy
+   (dialect WARN included) are single-sourced with the Chat Completions
+   builder; Responses only renames the budget wire field to
+   [max_output_tokens]. *)
+let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
+let add_sampling_field = Backend_openai_request.add_sampling_field
 
 let build_request
       ?(stream = false)
@@ -436,12 +424,19 @@ let build_request
     else body
   in
   let body =
-    match config.tool_choice, Backend_openai_request.effective_tool_choice config with
-    | Some choice, Some _ ->
-      (match tool_choice_to_responses_json choice with
-       | Some choice -> ("tool_choice", choice) :: body
-       | None -> body)
-    | Some _, None | None, _ -> body
+    (* Same emission gate as the Chat builder
+       ([Backend_openai_request.should_emit_tool_choice]): advisory [Auto]
+       is suppressed when the model does not support tool_choice. Only the
+       wire mapping ([tool_choice_to_responses_json]) is Responses-specific. *)
+    if Backend_openai_request.should_emit_tool_choice config
+    then (
+      match config.tool_choice, Backend_openai_request.effective_tool_choice config with
+      | Some choice, Some _ ->
+        (match tool_choice_to_responses_json choice with
+         | Some choice -> ("tool_choice", choice) :: body
+         | None -> body)
+      | Some _, None | None, _ -> body)
+    else body
   in
   let body =
     match tools with

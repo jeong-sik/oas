@@ -12,6 +12,33 @@ val effective_tool_choice : Provider_config.t -> Yojson.Safe.t option
 val effective_tools : Provider_config.t -> Yojson.Safe.t list -> Yojson.Safe.t list
 val structured_schema_of_config : Provider_config.t -> Yojson.Safe.t option
 val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
+
+(** Resolve the output-token budget emitted on the wire: caller override
+    clamped to the capability ceiling (one-shot WARN on clamp), the model
+    capability when the caller sends none, then the unknown-model fallback.
+    Chat Completions emits the value as [max_tokens], the Responses envelope
+    as [max_output_tokens] — the field name is per-envelope, the resolution
+    policy is single-sourced here. *)
+val effective_max_output_tokens : Provider_config.t -> int
+
+(** Prepend [(field, value)] to [body] unless the reasoning dialect ignores
+    the sampling parameter while thinking is enabled, in which case the field
+    is dropped with a one-shot WARN per ([model_id], [field]). *)
+val add_sampling_field
+  :  Reasoning_dialect.t
+  -> Provider_config.t
+  -> string
+  -> Yojson.Safe.t
+  -> (string * Yojson.Safe.t) list
+  -> (string * Yojson.Safe.t) list
+
+(** Shared tool_choice emission gate for the Chat and Responses envelopes:
+    explicit forcing ([Any] / [Tool _]) is always emitted (validation fails
+    closed on unsupported forcing), advisory [Auto] only when the model
+    supports tool_choice ([supports_tool_choice_override] wins over the
+    capability record). *)
+val should_emit_tool_choice : Provider_config.t -> bool
+
 val openai_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 val response_format_of_config : Provider_config.t -> Yojson.Safe.t option

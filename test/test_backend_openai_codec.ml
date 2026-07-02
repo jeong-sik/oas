@@ -2213,6 +2213,138 @@ let test_responses_build_request_uses_text_format_json_object () =
     (member "text" body |> member "format" |> member "type" |> to_string)
 ;;
 
+(* Regression: the Responses builder shares the Chat builder's max-token
+   resolution policy, so an over-cap caller value is clamped WITH the
+   one-shot capability-drop WARN — not silently. The unique model_id keeps
+   the process-wide WARN dedup table from suppressing the assertion. *)
+let test_responses_build_request_warns_on_max_tokens_clamp () =
+  let model_id = "codec-responses-clamp-warn" in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~max_tokens:4096
+      ~model_capabilities_override:
+        { Capabilities.default_capabilities with
+          Capabilities.max_output_tokens = Some 64
+        }
+      ()
+  in
+  let drops = ref [] in
+  let previous_metrics = Metrics.get_global () in
+  Fun.protect
+    ~finally:(fun () -> Metrics.set_global previous_metrics)
+    (fun () ->
+       Metrics.set_global
+         { Metrics.noop with
+           on_capability_drop =
+             (fun ~model_id ~field -> drops := (model_id, field) :: !drops)
+         };
+       let body =
+         Responses.build_request ~config ~messages:[ msg User [ Text "hi" ] ] ()
+         |> Yojson.Safe.from_string
+       in
+       check_int
+         "max_output_tokens clamped to capability ceiling"
+         64
+         (member "max_output_tokens" body |> to_int));
+  match !drops with
+  | [ (dropped_model, field) ] ->
+    check_string "clamp warn model" model_id dropped_model;
+    check_string "clamp warn field" "max_tokens:clamp" field
+  | drops ->
+    Alcotest.failf "expected exactly one capability-drop warn, got %d" (List.length drops)
+;;
+
+(* Regression: dialect-suppressed sampling params are dropped WITH the
+   one-shot WARN in the Responses builder, matching the Chat builder. The
+   [Thinking_object] capability resolves to a dialect that ignores
+   [temperature] while thinking is enabled. *)
+let test_responses_build_request_warns_on_dialect_suppressed_sampling () =
+  let model_id = "codec-responses-sampling-warn" in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~max_tokens:128
+      ~temperature:0.7
+      ~enable_thinking:true
+      ~model_capabilities_override:
+        { Capabilities.default_capabilities with
+          Capabilities.thinking_control_format = Capabilities.Thinking_object
+        }
+      ()
+  in
+  let warns = ref [] in
+  let body =
+    Diag.with_sink
+      (fun level ~ctx message ->
+         match level with
+         | Diag.Warn -> warns := (ctx, message) :: !warns
+         | Diag.Debug | Diag.Info | Diag.Error -> ())
+      (fun () ->
+         Responses.build_request ~config ~messages:[ msg User [ Text "hi" ] ] ()
+         |> Yojson.Safe.from_string)
+  in
+  check_bool "temperature dropped from body" true (member "temperature" body = `Null);
+  match !warns with
+  | [ (ctx, _) ] -> check_string "sampling-drop warn ctx" "backend_openai" ctx
+  | warns ->
+    Alcotest.failf "expected exactly one sampling-drop warn, got %d" (List.length warns)
+;;
+
+(* Regression: the Responses builder routes advisory [Auto] tool_choice
+   through the same capability gate as the Chat builder
+   ([supports_tool_choice_override] wins over the capability record). *)
+let test_responses_tool_choice_respects_capability_gate () =
+  let make_config ~supports =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"codec-responses-tool-choice-gate"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~max_tokens:128
+      ~tool_choice:Auto
+      ~supports_tool_choice_override:supports
+      ()
+  in
+  let responses_body ~supports =
+    Responses.build_request
+      ~config:(make_config ~supports)
+      ~messages:[ msg User [ Text "weather?" ] ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  check_bool
+    "responses omits auto tool_choice when gate denies"
+    true
+    (member "tool_choice" (responses_body ~supports:false) = `Null);
+  check_string
+    "responses emits auto tool_choice when gate allows"
+    "auto"
+    (member "tool_choice" (responses_body ~supports:true) |> to_string);
+  (* Parity: the Chat builder resolves the same gate to the same decision. *)
+  let chat_body ~supports =
+    Backend_openai.build_request
+      ~config:(make_config ~supports)
+      ~messages:[ msg User [ Text "weather?" ] ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  check_bool
+    "chat omits auto tool_choice when gate denies"
+    true
+    (member "tool_choice" (chat_body ~supports:false) = `Null);
+  check_string
+    "chat emits auto tool_choice when gate allows"
+    "auto"
+    (member "tool_choice" (chat_body ~supports:true) |> to_string)
+;;
+
 let () =
   Alcotest.run
     "backend_openai_codec"
@@ -2399,6 +2531,18 @@ let () =
             "build request text.format json_object"
             `Quick
             test_responses_build_request_uses_text_format_json_object
+        ; Alcotest.test_case
+            "build request warns on max_tokens clamp"
+            `Quick
+            test_responses_build_request_warns_on_max_tokens_clamp
+        ; Alcotest.test_case
+            "build request warns on dialect-suppressed sampling"
+            `Quick
+            test_responses_build_request_warns_on_dialect_suppressed_sampling
+        ; Alcotest.test_case
+            "tool_choice respects capability gate"
+            `Quick
+            test_responses_tool_choice_respects_capability_gate
         ] )
     ]
 ;;
