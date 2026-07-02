@@ -111,8 +111,15 @@ let find_data_url_comma s pos =
     else (
       match s.[i] with
       | ',' -> Some i
-      | ch when is_data_url_header_terminal ch -> None
-      | _ -> loop (i + 1))
+      | '"' | '\'' | '<' | '>' | ' ' | '\t' | '\n' | '\r' -> None
+      | '\000' .. '\b'
+      | '\011' | '\012' | '\014'
+      | '\015' .. '!'
+      | '#' .. '&'
+      | '(' .. '+'
+      | '-' .. ';'
+      | '='
+      | '?' .. '\255' -> loop (i + 1))
   in
   loop pos
 ;;
@@ -345,9 +352,8 @@ let%test "redact_string masks private key block" =
 ;;
 
 let%test "redact_json preserves structure" =
-  match redact_json (`Assoc [ "key", `String "Bearer tok" ]) with
-  | `Assoc [ ("key", `String "Bearer [REDACTED]") ] -> true
-  | _ -> false
+  redact_json (`Assoc [ "key", `String "Bearer tok" ])
+  = `Assoc [ "key", `String "Bearer [REDACTED]" ]
 ;;
 
 let%test "redact_string collapses base64 media data url" =
