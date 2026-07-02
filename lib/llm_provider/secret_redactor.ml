@@ -224,14 +224,17 @@ let redact_known_tokens s =
   Buffer.contents buf
 ;;
 
+let redact_common_tokens s =
+  let s = redact_url_userinfo s in
+  let s = redact_private_key_block s in
+  let s = redact_prefixes s builtin_prefixes in
+  redact_known_tokens s
+;;
+
 let redact_string s =
   match redact_media_data_url s with
-  | Some redacted -> redacted
-  | None ->
-    let s = redact_url_userinfo s in
-    let s = redact_private_key_block s in
-    let s = redact_prefixes s builtin_prefixes in
-    redact_known_tokens s
+  | Some redacted -> redact_common_tokens redacted
+  | None -> redact_common_tokens s
 ;;
 
 let rec redact_json = function
@@ -277,6 +280,12 @@ let%test "redact_string collapses base64 media data url" =
   let payload = String.make (128 * 1024) 'A' in
   redact_string ("data:image/png;base64," ^ payload)
   = "data:image/png;base64,[REDACTED_MEDIA]"
+;;
+
+let%test "redact_string still masks tokens in media data url header" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_string ("data:image/png;name=sk-media-secret;base64," ^ payload)
+  = "data:image/png;name=[REDACTED];base64,[REDACTED_MEDIA]"
 ;;
 
 let%test "redact_json collapses image_url data url" =
