@@ -101,6 +101,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_audio_input = caps.supports_audio_input
   ; supports_video_input = caps.supports_video_input
   ; modality_priority = caps.modality_priority
+  ; task = caps.task
   ; supports_native_streaming = caps.supports_native_streaming
   ; supports_system_prompt = caps.supports_system_prompt
   ; supports_caching = caps.supports_caching

@@ -29,6 +29,11 @@ type model_entry =
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
   ; modality_priority : string option
+  ; task : Capability_vocab.task option
+    (** Catalog-declared inference task for non-chat models (transcription,
+        speech, image/video generation). Parsed fail-closed against
+        {!Capability_vocab.task_values}; [None] means the entry declares no
+        task — it is never inferred from the model id. *)
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option

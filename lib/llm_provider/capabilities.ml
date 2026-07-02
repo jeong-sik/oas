@@ -66,6 +66,15 @@ type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+(** Catalog-declared inference task for non-chat models. [None] on every
+    chat/completion model; a value is only ever set by an explicit [task]
+    field on a model catalog entry — never inferred from the model id. *)
+type task = Capability_vocab.task =
+  | Transcription
+  | Speech
+  | Image_generation
+  | Video_generation
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -129,6 +138,11 @@ type capabilities =
     (** Block ordering applied to multimodal user messages just before
         serialization. [Visual_first] for Gemma 4 family.
         @since 0.193.0 *)
+  ; (* ── Inference task ────────────────────────────────── *)
+    task : task option
+    (** Inference task declared by the model catalog entry (transcription,
+        speech, image/video generation). [None] = no declared task; there is
+        no model-id inference fallback. *)
   ; (* ── Protocol ──────────────────────────────────────── *)
     supports_native_streaming : bool
   ; supports_system_prompt : bool
@@ -188,6 +202,7 @@ let default_capabilities =
   ; supports_audio_input = false
   ; supports_video_input = false
   ; modality_priority = Modality.Preserve_input_order
+  ; task = None
   ; supports_native_streaming = false
   ; supports_system_prompt = true
   ; (* most models support it *)
@@ -776,6 +791,7 @@ type declarative_capability_overrides =
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
   ; modality_priority : string option
+  ; task : Capability_vocab.task option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
@@ -813,6 +829,9 @@ let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
   ; modality_priority = None
+  ; (* The JSON capability manifest carries no task field; task is
+       catalog-only vocabulary. *)
+    task = None
   ; supports_native_streaming = entry.supports_native_streaming
   ; supports_system_prompt = entry.supports_system_prompt
   ; supports_caching = entry.supports_caching
@@ -924,6 +943,11 @@ let apply_declarative_capability_overrides overrides =
             warn_unknown_capability_value ~field:"modality_priority" s;
             base.modality_priority)
        | None -> base.modality_priority)
+  ; task =
+      (* Already typed at the catalog parse boundary; no string re-parse. *)
+      (match overrides.task with
+       | Some _ as task -> task
+       | None -> base.task)
   ; supports_native_streaming =
       override_bool base.supports_native_streaming overrides.supports_native_streaming
   ; supports_system_prompt =
@@ -1075,6 +1099,7 @@ let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
   ; modality_priority = entry.modality_priority
+  ; task = entry.task
   ; supports_native_streaming = entry.supports_native_streaming
   ; supports_system_prompt = entry.supports_system_prompt
   ; supports_caching = entry.supports_caching
@@ -1441,6 +1466,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_audio_input = None
   ; supports_video_input = None
   ; modality_priority = None
+  ; task = None
   ; supports_native_streaming = None
   ; supports_system_prompt = None
   ; supports_caching = None

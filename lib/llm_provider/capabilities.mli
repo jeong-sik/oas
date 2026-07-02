@@ -48,6 +48,15 @@ type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+(** Catalog-declared inference task for non-chat models. [None] on every
+    chat/completion model; a value is only ever set by an explicit [task]
+    field on a model catalog entry — never inferred from the model id. *)
+type task = Capability_vocab.task =
+  | Transcription
+  | Speech
+  | Image_generation
+  | Video_generation
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -84,6 +93,11 @@ type capabilities =
   ; supports_audio_input : bool
   ; supports_video_input : bool
   ; modality_priority : Modality.priority
+  ; (* Inference task *)
+    task : task option
+    (** Inference task declared by the model catalog entry (transcription,
+        speech, image/video generation). [None] = no declared task; there is
+        no model-id inference fallback. *)
   ; (* Protocol *)
     supports_native_streaming : bool
   ; supports_system_prompt : bool

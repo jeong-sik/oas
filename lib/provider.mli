@@ -93,6 +93,17 @@ type reasoning_streaming_format = Llm_provider.Capabilities.reasoning_streaming_
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+(** Catalog-declared inference task for non-chat models (audio transcription,
+    speech synthesis, image/video generation). A value is only ever set by an
+    explicit [task] field on a [models.toml] catalog entry — it is never
+    inferred from the model id. This closed variant replaced the former
+    model-id substring heuristic and the [string option] payload it produced. *)
+type task = Llm_provider.Capabilities.task =
+  | Transcription
+  | Speech
+  | Image_generation
+  | Video_generation
+
 (* Re-export the canonical capabilities record from [Llm_provider.Capabilities]
    with its type equality exposed, so downstream consumers (e.g. catalog
    overlays) can pass an [Llm_provider.Capabilities.capabilities] straight into
@@ -127,6 +138,7 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supports_audio_input : bool
   ; supports_video_input : bool
   ; modality_priority : Llm_provider.Modality.priority
+  ; task : task option
   ; supports_native_streaming : bool
   ; supports_system_prompt : bool
   ; supports_caching : bool
@@ -147,7 +159,9 @@ type inference_contract =
   { provider : provider
   ; model_id : string
   ; modality : modality
-  ; task : string option
+  ; task : task option
+    (** Catalog-declared task threaded from [capabilities.task]; [None] for
+        every model whose catalog entry declares no [task] field. *)
   }
 
 type model_spec =
@@ -162,6 +176,7 @@ type model_spec =
 val request_kind : provider -> request_kind
 val request_path : provider -> string
 val modality_to_string : modality -> string
+val task_to_string : task -> string
 val modality_of_capabilities : capabilities -> modality
 val default_capabilities : capabilities
 val capabilities_for_model : provider:provider -> model_id:string -> capabilities
