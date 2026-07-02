@@ -13,7 +13,7 @@
     closure so the streaming hot loop pays only an indirect call — the
     environment is read once per stream, never per chunk.
 
-    @since introduced for the keeper repetition investigation (Phase O). *)
+    @since introduced for the agent output repetition investigation (Phase O). *)
 
 (** A per-chunk capture function. Call with each raw pre-parse chunk. *)
 type sink = string -> unit
