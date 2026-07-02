@@ -104,7 +104,8 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 1. namespace provenance를 명시 선언으로 도입 (`model_id` prefix 또는 config 필드). PR #2404(declarative override SSOT)와 정렬.
 2. `base_url_targets_runpod_proxy → "runpod_mtp"`(B1/B2) 및 `is_local → "nous"`(B3)를 포함한 모든 generic-host→capability 매핑 삭제.
 3. host-결합 namespace를 serving-contract 식별자로 rename.
-4. P3 경화 — 적대적 재감사(#2414) 후 착지: **B4**=ollama `Uri.host` 정확 비교(#2420), **B7**=min_p를 `is_local` 대신 catalog-declared로(#2425), **model_catalog**=unknown TOML 키 fail-closed(#2426). **B5/B6는 false-positive로 강등**(discovery=capability=f(runtime) legit / manifest=이미 fail-closed). **B4'(:804 host→output_schema capability), :840(unknown base label→silent default)는 설계 변경 필요로 defer**(§7 참조).
+4. P3 경화 — 적대적 재감사(#2414) 후 착지: **B4**=ollama `Uri.host` 정확 비교(#2420), **B7**=min_p를 `is_local` 대신 catalog-declared로(#2425), **model_catalog**=unknown TOML 키 fail-closed(#2426), **:840**=unknown base label parse-time fail-closed(이 PR). **B5/B6는 false-positive로 강등**(discovery=capability=f(runtime) legit / manifest=이미 fail-closed).
+   **B4'(:804 host→output_schema capability)는 설계 변경 필요로 defer**(§7 참조).
 5. §5 ratchet 추가로 재발 차단 — **#2419 착지**(hardening ratchet 확장).
 
 ## 5. Ratchet (RFC-OAS-022/023 미러) — 구현: PR #2419
