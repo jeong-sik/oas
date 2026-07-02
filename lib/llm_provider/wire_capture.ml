@@ -1,7 +1,9 @@
 (** See [wire_capture.mli]. *)
 
 let env_dir = "OAS_WIRE_CAPTURE_DIR"
+let env_max_bytes = "OAS_WIRE_CAPTURE_MAX_BYTES"
 let capture_filename = "raw-stream.jsonl"
+let default_max_bytes = 64 * 1024 * 1024
 
 type sink = string -> unit
 
@@ -82,7 +84,36 @@ let append_json_line ~path line =
          write_all fd line 0 (String.length line)))
 ;;
 
-let write_line ~path ~provider ~model ~warned chunk =
+let file_size path =
+  try (Unix.stat path).Unix.st_size with
+  | Unix.Unix_error _ | Sys_error _ -> 0
+;;
+
+let int_of_env s =
+  match int_of_string_opt s with
+  | Some n when n > 0 -> Some n
+  | Some _ | None -> None
+;;
+
+let capture_max_bytes ?getenv () =
+  match Cli_common_env.get ?getenv env_max_bytes with
+  | None -> Some default_max_bytes
+  | Some "" -> Some default_max_bytes
+  | Some s -> int_of_env s
+;;
+
+(** Rotate [path] to [path ^ ".1"], deleting any previous backup. This is
+    best-effort: failures are ignored because the harness must not perturb the
+    stream. *)
+let rotate_file path =
+  let backup = path ^ ".1" in
+  (try Sys.remove backup with
+   | Sys_error _ | Unix.Unix_error _ -> ());
+  try Unix.rename path backup with
+  | Sys_error _ | Unix.Unix_error _ -> ()
+;;
+
+let write_line ~path ~provider ~model ~warned ~max_bytes chunk =
   let json : Yojson.Safe.t =
     `Assoc
       [ "provider", `String provider
@@ -91,6 +122,10 @@ let write_line ~path ~provider ~model ~warned chunk =
       ]
   in
   let line = Yojson.Safe.to_string json ^ "\n" in
+  (match max_bytes with
+   | Some cap when cap > 0 && file_size path + String.length line > cap ->
+     rotate_file path
+   | Some _ | None -> ());
   try append_json_line ~path line with
   | Sys_error msg ->
     if not !warned
@@ -119,7 +154,8 @@ let make_sink ?getenv ~provider ~model =
      | Ok () ->
        let path = Filename.concat dir capture_filename in
        let warned = ref false in
-       fun chunk -> write_line ~path ~provider ~model ~warned chunk)
+       let max_bytes = capture_max_bytes ?getenv () in
+       fun chunk -> write_line ~path ~provider ~model ~warned ~max_bytes chunk)
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
@@ -249,4 +285,51 @@ let%test "capture mutex does not block Eio fiber scheduling" =
           with_append_mutex (fun () -> observed_by_waiter := !progress))
       ];
     !observed_by_holder && !observed_by_waiter)
+;;
+
+let%test "make_sink rotates file when max bytes would be exceeded" =
+  let dir = Filename.temp_dir "oas_wire_rotate" "" in
+  let max_bytes = 128 in
+  let s =
+    make_sink
+      ~getenv:(fun name ->
+        if String.equal name env_dir
+        then Some dir
+        else if String.equal name env_max_bytes
+        then Some (string_of_int max_bytes)
+        else None)
+      ~provider:"p"
+      ~model:"m"
+  in
+  s (String.make 64 'a');
+  s (String.make 64 'b');
+  let path = Filename.concat dir capture_filename in
+  let backup = path ^ ".1" in
+  Sys.file_exists backup
+  && Sys.file_exists path
+  &&
+  let content = read_file path in
+  contains ~needle:"\"chunk\":\"" content
+;;
+
+let%test "make_sink respects zero/invalid max bytes as no cap" =
+  let dir = Filename.temp_dir "oas_wire_nocap" "" in
+  let s =
+    make_sink
+      ~getenv:(fun name ->
+        if String.equal name env_dir
+        then Some dir
+        else if String.equal name env_max_bytes
+        then Some "0"
+        else None)
+      ~provider:"p"
+      ~model:"m"
+  in
+  s (String.make 64 'x');
+  s (String.make 64 'y');
+  let path = Filename.concat dir capture_filename in
+  (not (Sys.file_exists (path ^ ".1")))
+  &&
+  let content = read_file path in
+  contains ~needle:"\"chunk\":\"" content
 ;;
