@@ -55,15 +55,24 @@ let token_len s pos =
 let redaction_marker = "[REDACTED]"
 let media_redaction_marker = "[REDACTED_MEDIA]"
 
-let starts_with_ci s ~prefix =
+let is_uri_scheme_char ch =
+  ('a' <= ch && ch <= 'z')
+  || ('A' <= ch && ch <= 'Z')
+  || ('0' <= ch && ch <= '9')
+  || Char.equal ch '+'
+  || Char.equal ch '-'
+  || Char.equal ch '.'
+;;
+
+let starts_with_ci_at s pos ~prefix =
   let len = String.length s in
   let prefix_len = String.length prefix in
-  if prefix_len > len
+  if pos < 0 || pos + prefix_len > len
   then false
   else (
     let rec loop i =
       i = prefix_len
-      || (Char.equal (Char.lowercase_ascii s.[i]) (Char.lowercase_ascii prefix.[i])
+      || (Char.equal (Char.lowercase_ascii s.[pos + i]) (Char.lowercase_ascii prefix.[i])
           && loop (i + 1))
     in
     loop 0)
@@ -81,17 +90,82 @@ let contains_substring_ci s needle =
   needle_len = 0 || scan 0
 ;;
 
+let is_data_url_boundary s pos = pos = 0 || not (is_uri_scheme_char s.[pos - 1])
+
+let is_data_url_header_terminal ch =
+  Char.equal ch '"'
+  || Char.equal ch '\''
+  || Char.equal ch '<'
+  || Char.equal ch '>'
+  || Char.equal ch ' '
+  || Char.equal ch '\t'
+  || Char.equal ch '\n'
+  || Char.equal ch '\r'
+;;
+
+let find_data_url_comma s pos =
+  let len = String.length s in
+  let rec loop i =
+    if i >= len
+    then None
+    else (
+      match s.[i] with
+      | ',' -> Some i
+      | ch when is_data_url_header_terminal ch -> None
+      | _ -> loop (i + 1))
+  in
+  loop pos
+;;
+
+let is_base64_payload_char ch =
+  ('a' <= ch && ch <= 'z')
+  || ('A' <= ch && ch <= 'Z')
+  || ('0' <= ch && ch <= '9')
+  || Char.equal ch '+'
+  || Char.equal ch '/'
+  || Char.equal ch '='
+;;
+
+let base64_payload_end s pos =
+  let len = String.length s in
+  let rec loop i = if i < len && is_base64_payload_char s.[i] then loop (i + 1) else i in
+  loop pos
+;;
+
+let find_media_data_url s pos =
+  let len = String.length s in
+  let rec scan i =
+    if i >= len
+    then None
+    else if is_data_url_boundary s i && starts_with_ci_at s i ~prefix:"data:"
+    then (
+      match find_data_url_comma s i with
+      | None -> scan (i + 1)
+      | Some comma ->
+        let header = String.sub s i (comma - i) in
+        if contains_substring_ci header ";base64"
+        then Some (i, comma, base64_payload_end s (comma + 1))
+        else scan (i + 1))
+    else scan (i + 1)
+  in
+  scan pos
+;;
+
 let redact_media_data_url s =
-  if not (starts_with_ci s ~prefix:"data:")
-  then None
-  else (
-    match String.index_opt s ',' with
-    | None -> None
-    | Some comma ->
-      let header = String.sub s 0 comma in
-      if contains_substring_ci header ";base64"
-      then Some (String.sub s 0 (comma + 1) ^ media_redaction_marker)
-      else None)
+  match find_media_data_url s 0 with
+  | None -> None
+  | Some first ->
+    let buf = Buffer.create (String.length s) in
+    let rec loop pos (start, comma, payload_end) =
+      Buffer.add_substring buf s pos (start - pos);
+      Buffer.add_substring buf s start (comma - start + 1);
+      Buffer.add_string buf media_redaction_marker;
+      match find_media_data_url s payload_end with
+      | None -> Buffer.add_substring buf s payload_end (String.length s - payload_end)
+      | Some next -> loop payload_end next
+    in
+    loop 0 first;
+    Some (Buffer.contents buf)
 ;;
 
 let has_prefix_at s pos prefix =
@@ -286,6 +360,22 @@ let%test "redact_string still masks tokens in media data url header" =
   let payload = String.make (128 * 1024) 'A' in
   redact_string ("data:image/png;name=sk-media-secret;base64," ^ payload)
   = "data:image/png;name=[REDACTED];base64,[REDACTED_MEDIA]"
+;;
+
+let%test "redact_string collapses embedded base64 media data url" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_string ("prefix data:image/png;base64," ^ payload ^ " suffix")
+  = "prefix data:image/png;base64,[REDACTED_MEDIA] suffix"
+;;
+
+let%test "redact_string collapses media data url inside json text" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_string ("{\"url\":\"data:image/png;base64," ^ payload ^ "\",\"ok\":true}")
+  = "{\"url\":\"data:image/png;base64,[REDACTED_MEDIA]\",\"ok\":true}"
+;;
+
+let%test "redact_string does not treat metadata key as data url" =
+  redact_string "metadata:text/plain;base64,AAAA" = "metadata:text/plain;base64,AAAA"
 ;;
 
 let%test "redact_json collapses image_url data url" =
