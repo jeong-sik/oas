@@ -5,8 +5,9 @@
     tool arguments, or provider error bodies, the redactor scrubs common
     patterns before persistence or emission.
 
-    The scanner is intentionally simple (substring-based) to avoid pulling in
-    a regex library and to keep latency predictable in the hot trace path.
+    The scanner is intentionally simple (allocation-conscious string scanning)
+    to avoid pulling in a regex library and to keep latency predictable in the
+    hot trace path.
 
     @since 0.207.0 *)
 
@@ -52,20 +53,62 @@ let token_len s pos =
 ;;
 
 let redaction_marker = "[REDACTED]"
+let media_redaction_marker = "[REDACTED_MEDIA]"
+
+let starts_with_ci s ~prefix =
+  let len = String.length s in
+  let prefix_len = String.length prefix in
+  if prefix_len > len
+  then false
+  else (
+    let rec loop i =
+      i = prefix_len
+      || (Char.equal (Char.lowercase_ascii s.[i]) (Char.lowercase_ascii prefix.[i])
+          && loop (i + 1))
+    in
+    loop 0)
+;;
+
+let contains_substring_ci s needle =
+  let len = String.length s in
+  let needle_len = String.length needle in
+  let rec matches_at pos i =
+    i = needle_len
+    || (Char.equal (Char.lowercase_ascii s.[pos + i]) (Char.lowercase_ascii needle.[i])
+        && matches_at pos (i + 1))
+  in
+  let rec scan pos = pos + needle_len <= len && (matches_at pos 0 || scan (pos + 1)) in
+  needle_len = 0 || scan 0
+;;
+
+let redact_media_data_url s =
+  if not (starts_with_ci s ~prefix:"data:")
+  then None
+  else (
+    match String.index_opt s ',' with
+    | None -> None
+    | Some comma ->
+      let header = String.sub s 0 comma in
+      if contains_substring_ci header ";base64"
+      then Some (String.sub s 0 (comma + 1) ^ media_redaction_marker)
+      else None)
+;;
 
 let has_prefix_at s pos prefix =
+  let len = String.length s in
   let n = String.length prefix in
-  pos + n <= String.length s && String.sub s pos n = prefix
+  if pos < 0 || pos + n > len
+  then false
+  else (
+    let rec loop i = i = n || (Char.equal s.[pos + i] prefix.[i] && loop (i + 1)) in
+    loop 0)
 ;;
 
 let find_prefix s pos prefix =
+  let len = String.length s in
   let n = String.length prefix in
   let rec scan i =
-    if i + n > String.length s
-    then None
-    else if has_prefix_at s i prefix
-    then Some i
-    else scan (i + 1)
+    if i + n > len then None else if has_prefix_at s i prefix then Some i else scan (i + 1)
   in
   scan pos
 ;;
@@ -76,16 +119,14 @@ let redact_prefixes s prefixes =
   let buf = Buffer.create (String.length s) in
   let rec loop pos =
     if pos >= String.length s
-    then Buffer.add_substring buf s pos (String.length s - pos)
+    then ()
     else (
       match
         List.find_map
           (fun prefix -> Option.map (fun i -> i, prefix) (find_prefix s pos prefix))
           prefixes
       with
-      | None ->
-        Buffer.add_char buf s.[pos];
-        loop (pos + 1)
+      | None -> Buffer.add_substring buf s pos (String.length s - pos)
       | Some (i, prefix) ->
         Buffer.add_substring buf s pos (i - pos);
         Buffer.add_string buf prefix;
@@ -184,10 +225,13 @@ let redact_known_tokens s =
 ;;
 
 let redact_string s =
-  let s = redact_url_userinfo s in
-  let s = redact_private_key_block s in
-  let s = redact_prefixes s builtin_prefixes in
-  redact_known_tokens s
+  match redact_media_data_url s with
+  | Some redacted -> redacted
+  | None ->
+    let s = redact_url_userinfo s in
+    let s = redact_private_key_block s in
+    let s = redact_prefixes s builtin_prefixes in
+    redact_known_tokens s
 ;;
 
 let rec redact_json = function
@@ -227,6 +271,26 @@ let%test "redact_json preserves structure" =
   match redact_json (`Assoc [ "key", `String "Bearer tok" ]) with
   | `Assoc [ ("key", `String "Bearer [REDACTED]") ] -> true
   | _ -> false
+;;
+
+let%test "redact_string collapses base64 media data url" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_string ("data:image/png;base64," ^ payload)
+  = "data:image/png;base64,[REDACTED_MEDIA]"
+;;
+
+let%test "redact_json collapses image_url data url" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_json
+    (`Assoc
+        [ "image_url", `Assoc [ "url", `String ("data:image/png;base64," ^ payload) ] ])
+  = `Assoc
+      [ "image_url", `Assoc [ "url", `String "data:image/png;base64,[REDACTED_MEDIA]" ] ]
+;;
+
+let%test "redact_string preserves large non-secret payload" =
+  let payload = String.make (128 * 1024) 'A' in
+  redact_string payload = payload
 ;;
 
 let%test "redact_string leaves ordinary text alone" =
