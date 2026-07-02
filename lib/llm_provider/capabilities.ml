@@ -454,7 +454,7 @@ let ollama_capabilities =
    replay and caused the CoT loop (#2236).
 
    IMPORTANT: do not inherit [supports_structured_output] from local Ollama.
-   MASC and other consumers reach Ollama Cloud through the OpenAI-compatible
+   Host applications reach Ollama Cloud through the OpenAI-compatible
    [/v1/chat/completions] transport, which accepts [response_format.type =
    json_schema] but does NOT guarantee schema-shaped output. The native Ollama
    [/api/chat] transport (provider kind [Ollama]) enforces schemas via the
