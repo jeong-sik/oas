@@ -67,8 +67,14 @@ val command_in_path : ?path:string -> string -> bool
 
     If [OAS_PROVIDER_CATALOG] or {!Provider_catalog.set_global} supplies
     entries, those entries are overlaid last and may add or replace provider
-    ids without changing SDK code. *)
-val default : unit -> t
+    ids without changing SDK code.
+
+    [*_BASE_URL] env overrides are resolved when [default] is called, not at
+    module load, so a registry built after the environment changes reflects
+    the new values. [?getenv] (default [Sys.getenv_opt]) is the RFC-OAS-024
+    dependency-injection seam: tests inject a resolver instead of mutating
+    the process environment. *)
+val default : ?getenv:(string -> string option) -> unit -> t
 
 (** Best-effort canonical provider name for a concrete provider config.
     Unlike [Provider_config.string_of_provider_kind], this keeps

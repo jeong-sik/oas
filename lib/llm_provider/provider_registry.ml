@@ -252,15 +252,15 @@ let discovered_endpoint_max_context (url : string) =
   Discovery.discovered_context_for_url url
 ;;
 
-let default_llama_endpoint () =
-  match Discovery.parse_llm_endpoints_env () with
+let default_llama_endpoint ?getenv () =
+  match Discovery.parse_llm_endpoints_env ?getenv () with
   | first :: _ -> first
-  | [] -> Discovery.resolve_default_endpoint ()
+  | [] -> Discovery.resolve_default_endpoint ?getenv ()
 ;;
 
-let llama_defaults () =
+let llama_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = default_llama_endpoint ()
+  ; base_url = default_llama_endpoint ?getenv ()
   ; api_key_env = ""
   ; request_path = "/v1/chat/completions"
   }
@@ -274,56 +274,62 @@ let claude_defaults =
   }
 ;;
 
-let env_or_default env_name default_url =
-  match Cli_common_env.get env_name with
+(* Env overrides resolve at call time through the RFC-OAS-024 [?getenv]
+   seam; the [*_defaults] thunks below must not be forced at module load
+   (see the module-initialization invariant on [initial_llama_endpoints]). *)
+let env_or_default ?getenv env_name default_url =
+  match Cli_common_env.get ?getenv env_name with
   | Some url -> url
   | None -> default_url
 ;;
 
-let gemini_defaults =
+let gemini_defaults ?getenv () =
   { kind = Gemini
   ; base_url =
-      env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
+      env_or_default
+        ?getenv
+        "GEMINI_BASE_URL"
+        "https://generativelanguage.googleapis.com/v1beta"
   ; api_key_env = "GEMINI_API_KEY"
   ; request_path = ""
   }
 ;;
 
-let glm_defaults =
+let glm_defaults ?getenv () =
   { kind = Glm
-  ; base_url = env_or_default "ZAI_BASE_URL" Zai_catalog.general_base_url
+  ; base_url = env_or_default ?getenv "ZAI_BASE_URL" Zai_catalog.general_base_url
   ; api_key_env = "ZAI_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let glm_coding_defaults =
+let glm_coding_defaults ?getenv () =
   { kind = Glm
-  ; base_url = env_or_default "ZAI_CODING_BASE_URL" Zai_catalog.coding_base_url
+  ; base_url = env_or_default ?getenv "ZAI_CODING_BASE_URL" Zai_catalog.coding_base_url
   ; api_key_env = "ZAI_CODING_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let kimi_defaults =
+let kimi_defaults ?getenv () =
   { kind = Kimi
-  ; base_url = env_or_default "KIMI_BASE_URL" "https://api.kimi.com/coding"
+  ; base_url = env_or_default ?getenv "KIMI_BASE_URL" "https://api.kimi.com/coding"
   ; api_key_env = "KIMI_API_KEY"
   ; request_path = "/v1/messages"
   }
 ;;
 
-let ollama_defaults () =
+let ollama_defaults ?getenv () =
   { kind = Ollama
-  ; base_url = Discovery.resolve_ollama_endpoint ()
+  ; base_url = Discovery.resolve_ollama_endpoint ?getenv ()
   ; api_key_env = ""
   ; request_path = "/api/chat"
   }
 ;;
 
-let ollama_cloud_defaults =
+let ollama_cloud_defaults ?getenv () =
   { kind = Ollama
-  ; base_url = env_or_default "OLLAMA_CLOUD_BASE_URL" "https://ollama.com"
+  ; base_url = env_or_default ?getenv "OLLAMA_CLOUD_BASE_URL" "https://ollama.com"
   ; api_key_env = "OLLAMA_CLOUD_API_KEY"
   ; request_path = "/api/chat"
   }
@@ -337,26 +343,27 @@ let openrouter_defaults =
   }
 ;;
 
-let provider_i_defaults =
+let provider_i_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.groq.com/openai/v1"
+  ; base_url = env_or_default ?getenv "GROQ_BASE_URL" "https://api.groq.com/openai/v1"
   ; api_key_env = "GROQ_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let deepseek_defaults =
+let deepseek_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
+  ; base_url = env_or_default ?getenv "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
   ; api_key_env = "DEEPSEEK_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let dashscope_defaults =
+let dashscope_defaults ?getenv () =
   { kind = DashScope
   ; base_url =
       env_or_default
+        ?getenv
         "DASHSCOPE_BASE_URL"
         "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
   ; api_key_env = "DASHSCOPE_API_KEY"
@@ -364,41 +371,44 @@ let dashscope_defaults =
   }
 ;;
 
-let siliconflow_defaults =
+let siliconflow_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "SILICONFLOW_BASE_URL" "https://api.siliconflow.cn/v1"
+  ; base_url =
+      env_or_default ?getenv "SILICONFLOW_BASE_URL" "https://api.siliconflow.cn/v1"
   ; api_key_env = "SILICONFLOW_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let xai_defaults =
+let xai_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "XAI_BASE_URL" "https://api.x.ai/v1"
+  ; base_url = env_or_default ?getenv "XAI_BASE_URL" "https://api.x.ai/v1"
   ; api_key_env = "XAI_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let mistral_defaults =
+let mistral_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "MISTRAL_BASE_URL" "https://api.mistral.ai/v1"
+  ; base_url = env_or_default ?getenv "MISTRAL_BASE_URL" "https://api.mistral.ai/v1"
   ; api_key_env = "MISTRAL_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let cohere_defaults =
+let cohere_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "COHERE_BASE_URL" "https://api.cohere.com/compatibility/v1"
+  ; base_url =
+      env_or_default ?getenv "COHERE_BASE_URL" "https://api.cohere.com/compatibility/v1"
   ; api_key_env = "COHERE_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let mimo_defaults =
+let mimo_defaults ?getenv () =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "MIMO_BASE_URL" "https://token-plan-sgp.xiaomimimo.com/v1"
+  ; base_url =
+      env_or_default ?getenv "MIMO_BASE_URL" "https://token-plan-sgp.xiaomimimo.com/v1"
   ; api_key_env = "MIMO_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -418,7 +428,7 @@ let normalize_url value =
     strip_trailing_slash trimmed)
 ;;
 
-let default () =
+let default ?getenv () =
   (* The default registry uses Stdlib.Mutex because its guarded sections are
      short Hashtbl operations and the returned value still exposes the mutable
      registry API. *)
@@ -450,17 +460,25 @@ let default () =
   in
   reg
     "nous"
-    (llama_defaults ())
+    (llama_defaults ?getenv ())
     ~max_context:128_000
     Capabilities.openai_compat_chat_extended_capabilities;
   reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
-  reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
-  reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
-  reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
+  reg
+    "gemini"
+    (gemini_defaults ?getenv ())
+    ~max_context:1_000_000
+    Capabilities.gemini_capabilities;
+  reg "glm" (glm_defaults ?getenv ()) ~max_context:200_000 Capabilities.glm_capabilities;
+  reg
+    "glm-coding"
+    (glm_coding_defaults ?getenv ())
+    ~max_context:128_000
+    Capabilities.glm_capabilities;
   register
     t
     { name = "kimi"
-    ; defaults = kimi_defaults
+    ; defaults = kimi_defaults ?getenv ()
     ; max_context =
         max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
     ; capabilities = Capabilities.kimi_capabilities
@@ -473,53 +491,61 @@ let default () =
     Capabilities.openai_compat_chat_extended_capabilities;
   reg
     "groq"
-    provider_i_defaults
+    (provider_i_defaults ?getenv ())
     ~max_context:131_072
     Capabilities.openai_compat_chat_capabilities;
   (* Deepseek v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
     "deepseek"
-    deepseek_defaults
+    (deepseek_defaults ?getenv ())
     ~max_context:1_000_000
     Capabilities.openai_compat_chat_capabilities;
   reg
     "dashscope"
-    dashscope_defaults
+    (dashscope_defaults ?getenv ())
     ~max_context:131_072
     Capabilities.dashscope_capabilities;
   reg
     "alibaba"
-    dashscope_defaults
+    (dashscope_defaults ?getenv ())
     ~max_context:131_072
     Capabilities.dashscope_capabilities;
   reg
     "siliconflow"
-    siliconflow_defaults
+    (siliconflow_defaults ?getenv ())
     ~max_context:128_000
     Capabilities.openai_compat_chat_capabilities;
-  reg "xai" xai_defaults ~max_context:1_000_000 (capabilities_for_registered_label "xai");
+  reg
+    "xai"
+    (xai_defaults ?getenv ())
+    ~max_context:1_000_000
+    (capabilities_for_registered_label "xai");
   reg
     "mistral"
-    mistral_defaults
+    (mistral_defaults ?getenv ())
     ~max_context:260_000
     (capabilities_for_registered_label "mistral");
   reg
     "cohere"
-    cohere_defaults
+    (cohere_defaults ?getenv ())
     ~max_context:256_000
     (capabilities_for_registered_label "cohere");
-  reg "mimo" mimo_defaults ~max_context:128_000 (capabilities_for_registered_label "mimo");
+  reg
+    "mimo"
+    (mimo_defaults ?getenv ())
+    ~max_context:128_000
+    (capabilities_for_registered_label "mimo");
   register
     t
     { name = "ollama"
-    ; defaults = ollama_defaults ()
+    ; defaults = ollama_defaults ?getenv ()
     ; max_context = 262_144
     ; capabilities = Capabilities.ollama_capabilities
     ; is_available = (fun () -> true)
     };
   reg
     "ollama_cloud"
-    ollama_cloud_defaults
+    (ollama_cloud_defaults ?getenv ())
     ~max_context:262_144
     Capabilities.ollama_cloud_capabilities;
   overlay_provider_catalog t;
@@ -536,7 +562,7 @@ let provider_name_of_config (config : Provider_config.t) =
     if
       String.equal
         (normalize_url config.base_url)
-        (normalize_url ollama_cloud_defaults.base_url)
+        (normalize_url (ollama_cloud_defaults ()).base_url)
     then "ollama_cloud"
     else "ollama"
   | DashScope -> "dashscope"

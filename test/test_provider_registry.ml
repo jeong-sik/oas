@@ -361,6 +361,76 @@ let test_default_ollama_base_url_reads_ollama_host_at_call_time () =
     check string "second registry" second (default_entry_base_url "ollama"))
 ;;
 
+(* Providers whose base_url accepts a [*_BASE_URL] env override, with the
+   documented SSOT default that applies when the variable is unset.
+   [alibaba] shares [dashscope]'s defaults record, so both appear under
+   the same env var. *)
+let call_time_base_url_env_overrides =
+  [ "gemini", "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
+  ; "glm", "ZAI_BASE_URL", Zai_catalog.general_base_url
+  ; "glm-coding", "ZAI_CODING_BASE_URL", Zai_catalog.coding_base_url
+  ; "kimi", "KIMI_BASE_URL", "https://api.kimi.com/coding"
+  ; "ollama_cloud", "OLLAMA_CLOUD_BASE_URL", "https://ollama.com"
+  ; "groq", "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
+  ; "deepseek", "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+  ; ( "dashscope"
+    , "DASHSCOPE_BASE_URL"
+    , "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" )
+  ; ( "alibaba"
+    , "DASHSCOPE_BASE_URL"
+    , "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" )
+  ; "siliconflow", "SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"
+  ; "xai", "XAI_BASE_URL", "https://api.x.ai/v1"
+  ; "mistral", "MISTRAL_BASE_URL", "https://api.mistral.ai/v1"
+  ; "cohere", "COHERE_BASE_URL", "https://api.cohere.com/compatibility/v1"
+  ; "mimo", "MIMO_BASE_URL", "https://token-plan-sgp.xiaomimimo.com/v1"
+  ]
+;;
+
+let test_default_base_urls_read_env_at_registry_construction () =
+  List.iter
+    (fun (provider, env_var, _default_url) ->
+       let first = Printf.sprintf "http://127.0.0.1:18201/%s-first" provider in
+       let second = Printf.sprintf "http://127.0.0.1:18202/%s-second" provider in
+       with_env env_var first (fun () ->
+         check
+           string
+           (provider ^ " first registry")
+           first
+           (default_entry_base_url provider);
+         Unix.putenv env_var second;
+         check
+           string
+           (provider ^ " second registry")
+           second
+           (default_entry_base_url provider)))
+    call_time_base_url_env_overrides
+;;
+
+let test_default_base_urls_resolve_injected_getenv () =
+  List.iter
+    (fun (provider, env_var, _default_url) ->
+       let injected = Printf.sprintf "http://127.0.0.1:18203/%s-injected" provider in
+       let getenv name = if String.equal name env_var then Some injected else None in
+       let reg = Provider_registry.default ~getenv () in
+       match Provider_registry.find reg provider with
+       | Some e ->
+         check string (provider ^ " injected base_url") injected e.defaults.base_url
+       | None -> failf "%s should exist" provider)
+    call_time_base_url_env_overrides
+;;
+
+let test_default_base_urls_fall_back_without_env () =
+  let reg = Provider_registry.default ~getenv:(fun _ -> None) () in
+  List.iter
+    (fun (provider, _env_var, default_url) ->
+       match Provider_registry.find reg provider with
+       | Some e ->
+         check string (provider ^ " documented default") default_url e.defaults.base_url
+       | None -> failf "%s should exist" provider)
+    call_time_base_url_env_overrides
+;;
+
 let test_default_max_context () =
   let reg = Provider_registry.default () in
   (match Provider_registry.find reg "nous" with
@@ -1108,6 +1178,18 @@ let () =
             "ollama base_url reads OLLAMA_HOST at registry construction"
             `Quick
             test_default_ollama_base_url_reads_ollama_host_at_call_time
+        ; test_case
+            "base_url env overrides read at registry construction"
+            `Quick
+            test_default_base_urls_read_env_at_registry_construction
+        ; test_case
+            "base_url env overrides resolve injected getenv"
+            `Quick
+            test_default_base_urls_resolve_injected_getenv
+        ; test_case
+            "base_url falls back to documented default without env"
+            `Quick
+            test_default_base_urls_fall_back_without_env
         ; test_case "max_context values" `Quick test_default_max_context
         ; test_case
             "max_context matches capabilities"
