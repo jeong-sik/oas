@@ -17,13 +17,13 @@ let with_env key value f =
 (* ── Registry CRUD ──────────────────────────────────── *)
 
 let test_empty_registry () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   check int "empty has 0 entries" 0 (List.length (Provider_registry.all reg));
   check (option reject) "find on empty is None" None (Provider_registry.find reg "nope")
 ;;
 
 let test_register_and_find () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let entry : Provider_registry.entry =
     { name = "test-provider"
     ; defaults =
@@ -45,7 +45,7 @@ let test_register_and_find () =
 ;;
 
 let test_overwrite () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let mk url : Provider_registry.entry =
     { name = "p"
     ; defaults =
@@ -68,7 +68,7 @@ let test_overwrite () =
 ;;
 
 let test_unregister () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let entry : Provider_registry.entry =
     { name = "temp"
     ; defaults =
@@ -91,7 +91,7 @@ let test_unregister () =
 (* ── Availability ───────────────────────────────────── *)
 
 let test_available_filter () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let mk name avail : Provider_registry.entry =
     { name
     ; defaults =
@@ -154,7 +154,7 @@ let test_command_in_path_misses_unknown_binary () =
 (* ── Capability queries ─────────────────────────────── *)
 
 let test_find_capable_tools () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =
@@ -178,7 +178,7 @@ let test_find_capable_tools () =
 ;;
 
 let test_find_capable_composite () =
-  let reg = Provider_registry.create () in
+  let reg = Provider_registry.create_sync () in
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =

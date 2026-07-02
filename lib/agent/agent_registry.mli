@@ -19,6 +19,11 @@ type agent_entry =
 type t
 
 val create : unit -> t
+
+(** Create a registry backed by {!Stdlib.Mutex} for synchronous tests and
+    serialization code that runs outside of an Eio scheduler. *)
+val create_sync : unit -> t
+
 val register_local : t -> name:string -> Agent.t -> unit
 val register_remote : t -> name:string -> url:string -> Agent_card.agent_card -> unit
 val unregister : t -> string -> unit

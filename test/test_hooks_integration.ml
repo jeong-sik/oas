@@ -515,7 +515,7 @@ let test_context_injector_adds_data () =
           ; extra_messages = []
           }
     in
-    let ctx = Context.create ~eio:false () in
+    let ctx = Context.create_sync () in
     let options =
       { Agent.default_options with base_url; context_injector = Some injector }
     in

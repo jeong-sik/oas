@@ -245,11 +245,11 @@ let empty_state () : aggregate_state =
 ;;
 
 (** Thread-safe aggregating metrics backend.
-    Accumulates per-provider counters in a hash table guarded by a Mutex.
-    The critical sections are pure counter/Hashtbl updates with no I/O or
-    scheduler yield points, so a Stdlib mutex keeps the public snapshot/export
-    API usable from both Eio fibers and ordinary OCaml threads.
-    Call {!Aggregating.snapshot} to read all counters as an immutable list.
+    Accumulates per-provider counters in a hash table guarded by an
+    {!Stdlib.Mutex}. The guarded sections are pure counter updates, so this
+    remains safe on Eio callback paths without requiring exporters/tests to run
+    inside an Eio scheduler. Call {!Aggregating.snapshot} to read all counters
+    as an immutable list.
 
     @since 0.188.0 *)
 type hooks = t
@@ -269,7 +269,7 @@ module Aggregating = struct
 
   let with_lock agg f =
     Mutex.lock agg.mutex;
-    Fun.protect ~finally:(fun () -> Mutex.unlock agg.mutex) f
+    Fun.protect f ~finally:(fun () -> Mutex.unlock agg.mutex)
   ;;
 
   let with_state agg key f =

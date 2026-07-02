@@ -244,7 +244,7 @@ let test_dynamic_reducer () =
 (* ── Context scoped isolation ────────────────────────────────── *)
 
 let test_context_scope_isolation () =
-  let parent = Context.create ~eio:false () in
+  let parent = Context.create_sync () in
   Context.set parent "shared_key" (`String "shared_value");
   Context.set parent "private_key" (`String "private_value");
   let scope =

@@ -24,8 +24,12 @@ type agent_entry =
       ; card : Agent_card.agent_card
       }
 
+type mutex =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
 type t =
-  { mu : Mutex.t
+  { mu : mutex
   ; agents : (string, agent_entry) Hashtbl.t
   ; log : Log.t
   }
@@ -33,15 +37,25 @@ type t =
 (* ── Constructor ─────────────────────────────────────────── *)
 
 let create () =
-  { mu = Mutex.create ()
+  { mu = Eio_mu (Eio.Mutex.create ())
+  ; agents = Hashtbl.create 16
+  ; log = Log.create ~module_name:"agent_registry" ()
+  }
+;;
+
+let create_sync () =
+  { mu = Stdlib_mu (Mutex.create ())
   ; agents = Hashtbl.create 16
   ; log = Log.create ~module_name:"agent_registry" ()
   }
 ;;
 
 let with_lock t f =
-  Mutex.lock t.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+  match t.mu with
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 (* ── Registration ────────────────────────────────────────── *)

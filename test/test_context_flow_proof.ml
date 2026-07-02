@@ -104,7 +104,7 @@ let test_full_chain_across_turns () =
     (capturing_handler call_count captured_turn1_body)
     (fun ~sw ~net ~base_url ->
        let tool, _ = fresh_echo_tool () in
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        (* Layer 1: Injector writes a known marker to Context.t *)
        let injector : Hooks.context_injector =
          fun ~tool_name:_ ~input:_ ~output:_ ->
@@ -170,7 +170,7 @@ let test_no_injector_no_context () =
     (capturing_handler call_count captured)
     (fun ~sw ~net ~base_url ->
        let tool, _ = fresh_echo_tool () in
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        let hook_saw_data = ref false in
        let hooks =
          { Hooks.empty with
@@ -240,7 +240,7 @@ let test_accumulation_across_tool_calls () =
   in
   with_mock_server ~port:18202 multi_tool_handler2 (fun ~sw ~net ~base_url ->
     let tool, tool_calls = fresh_echo_tool () in
-    let ctx = Context.create ~eio:false () in
+    let ctx = Context.create_sync () in
     let inject_count = ref 0 in
     let injector : Hooks.context_injector =
       fun ~tool_name:_ ~input:_ ~output:_ ->
@@ -306,7 +306,7 @@ let test_context_identity () =
     (capturing_handler call_count captured)
     (fun ~sw ~net ~base_url ->
        let tool, _ = fresh_echo_tool () in
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        (* Pre-seed context with a value *)
        Context.set ctx "pre_seed" (`String "before_run");
        let injector : Hooks.context_injector =

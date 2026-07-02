@@ -13,7 +13,7 @@ let make_checkpoint
       ?(created_at = 1000.0)
       ?(tools = [])
       ?(tool_choice = None)
-      ?(context = Context.create ~eio:false ())
+      ?(context = Context.create_sync ())
       ?(enable_thinking = None)
       ?(preserve_thinking = None)
       ?(thinking_budget = None)
@@ -149,7 +149,7 @@ let test_resume_from_fresh_metadata () =
 ;;
 
 let test_resume_from_copies_checkpoint_context () =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
   let cp = make_checkpoint ~context:ctx () in
   let s = Session.resume_from cp in
@@ -199,7 +199,7 @@ let test_resume_restores_messages () =
 let test_resume_restores_context () =
   with_net
   @@ fun net ->
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set_scoped ctx Context.User "theme" (`String "dark");
   let cp = make_checkpoint ~context:ctx () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
@@ -316,8 +316,8 @@ let test_resume_custom_options () =
 let test_resume_restores_tool_result_relocation_state () =
   with_net
   @@ fun net ->
-  let checkpoint_context = Context.create ~eio:false () in
-  let checkpoint_crs = Content_replacement_state.create () in
+  let checkpoint_context = Context.create_sync () in
+  let checkpoint_crs = Content_replacement_state.create_sync () in
   Content_replacement_state.record_replacement
     checkpoint_crs
     { tool_use_id = "t1"; preview = "cached-preview"; original_chars = 4096 };
@@ -348,7 +348,7 @@ let test_resume_restores_tool_result_relocation_state () =
          |> Result.get_ok
        in
        store_ref := Some store;
-       let supplied_crs = Content_replacement_state.create () in
+       let supplied_crs = Content_replacement_state.create_sync () in
        let opts =
          { Agent.default_options with
            tool_result_relocation = Some (store, supplied_crs)

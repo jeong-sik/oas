@@ -19,6 +19,14 @@ let hook_failed_sdk_error ~hook_name ~stage ~detail =
   Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
 ;;
 
+let illegal_hook_decision ~stage ~decision =
+  Error.Internal
+    (Printf.sprintf
+       "illegal hook decision %s in %s"
+       (Agent_lifecycle.hook_decision_to_string decision)
+       stage)
+;;
+
 let stage_input ?raw_trace_run ?clock agent =
   let ts = Pipeline_common.timestamp_now ?clock () in
   set_lifecycle agent ~ready_at:ts Ready;
@@ -80,9 +88,10 @@ let stage_input ?raw_trace_run ?clock agent =
   | Hooks.HookFailed { stage; detail } ->
     Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
   | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ ->
-    (* Unreachable after [Hooks.invoke_validated] for before_turn. Fail-fast
-       so a validation bypass cannot silently start a turn. *)
-    assert false
+    (* Reject illegal hook decisions with a typed error instead of crashing.
+       [Hooks.invoke_validated] normally filters these out; this branch guards
+       against a validation bypass or future hook matrix drift. *)
+    Error (illegal_hook_decision ~stage:"before_turn" ~decision:before_decision)
 ;;
 
 (* Lower a canonical tool-result projection to the [Types.tool_result] the
@@ -298,10 +307,8 @@ let stage_parse ?raw_trace_run ?clock agent =
        | Hooks.ApprovalRequired
        | Hooks.ElicitInput _
        | Hooks.Nudge _ ->
-         (* Unreachable after [Hooks.invoke_validated] for before_turn_params.
-            Fail-fast so a validation bypass cannot silently use default
-            parameters. *)
-         assert false)
+         (* Reject illegal hook decisions with a typed error instead of crashing. *)
+         Error (illegal_hook_decision ~stage:"before_turn_params" ~decision))
   in
   let original_config = agent.state.config in
   let new_config =

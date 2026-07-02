@@ -17,16 +17,24 @@ type entry =
   ; is_available : unit -> bool
   }
 
+type mutex =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
 type t =
-  { mu : Mutex.t
+  { mu : mutex
   ; entries : (string, entry) Hashtbl.t
   }
 
-let create () = { mu = Mutex.create (); entries = Hashtbl.create 8 }
+let create () = { mu = Eio_mu (Eio.Mutex.create ()); entries = Hashtbl.create 8 }
+let create_sync () = { mu = Stdlib_mu (Mutex.create ()); entries = Hashtbl.create 8 }
 
 let with_lock t f =
-  Mutex.lock t.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+  match t.mu with
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 let register' t entry = Hashtbl.replace t.entries entry.name entry
@@ -411,7 +419,10 @@ let normalize_url value =
 ;;
 
 let default () =
-  let t = create () in
+  (* The default registry uses Stdlib.Mutex because its guarded sections are
+     short Hashtbl operations and the returned value still exposes the mutable
+     registry API. *)
+  let t = create_sync () in
   let max_context_from_capabilities ~default caps =
     match caps.Capabilities.max_context_tokens with
     | Some ctx when ctx > default -> ctx

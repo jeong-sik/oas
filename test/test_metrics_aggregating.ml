@@ -348,8 +348,9 @@ let test_aggregating_inner_delegation () =
 ;;
 
 let () =
-  (* Intentionally not wrapped in Eio_main.run: snapshot/export APIs must work
-     for ordinary periodic exporters and tests that have no Eio scheduler. *)
+  (* This suite intentionally stays outside [Eio_main.run]. Aggregating is part
+     of the public exporter/test surface and must remain safe from ordinary
+     synchronous callers. *)
   run
     "Metrics.Aggregating"
     [ "create", [ test_case "empty snapshot" `Quick test_aggregating_create_empty ]

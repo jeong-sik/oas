@@ -727,6 +727,57 @@ let test_proactive_compaction_phase_and_checkpoint () =
   | Exit -> ()
 ;;
 
+let test_pre_compact_hook_failure_skips_compaction_and_continues () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_multi_mock ~sw ~net:env#net ~port:20032 [ openai_text_response "continued" ]
+    in
+    let provider : Provider.config =
+      { provider = Provider.Local { base_url = url }
+      ; model_id = "mock-model"
+      ; api_key_env = ""
+      }
+    in
+    let post_compact_seen = ref false in
+    let hooks =
+      { Hooks.empty with
+        pre_compact =
+          Some (fun _ -> Hooks.HookFailed { stage = "pre_compact"; detail = "boom" })
+      ; post_compact =
+          Some
+            (function
+              | Hooks.PostCompact _ ->
+                post_compact_seen := true;
+                Hooks.Continue
+              | _ -> Hooks.Continue)
+      }
+    in
+    let config =
+      { Types.default_config with
+        name = "pre-compact-failure-owner"
+      ; max_turns = 3
+      ; context_compact_ratio = Some 0.01
+      }
+    in
+    let options =
+      { Agent.default_options with base_url = url; provider = Some provider; hooks }
+    in
+    let agent = Agent.create ~net:env#net ~config ~options () in
+    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
+    (match Agent.run ~sw agent "continue" with
+     | Error e -> fail (Error.to_string e)
+     | Ok resp ->
+       check string "response text" "continued" (extract_text resp);
+       check bool "post_compact not fired" false !post_compact_seen);
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_emergency_compaction_phase_and_checkpoint () =
   Eio_main.run
   @@ fun env ->
@@ -862,6 +913,10 @@ let () =
             "proactive phase and checkpoint labels"
             `Quick
             test_proactive_compaction_phase_and_checkpoint
+        ; test_case
+            "pre_compact HookFailed skips compaction"
+            `Quick
+            test_pre_compact_hook_failure_skips_compaction_and_continues
         ; test_case
             "emergency phase and checkpoint labels"
             `Quick

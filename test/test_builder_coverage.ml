@@ -150,7 +150,7 @@ let test_agent_accessors () =
     Tool.create ~name:"test_tool" ~description:"desc" ~parameters:[] (fun _input ->
       Ok { Types.content = "result"; _meta = None })
   in
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "key" (`String "value");
   let b =
     Builder.create ~net:env#net ~model:Types.default_config.model
@@ -222,7 +222,7 @@ let test_agent_clone () =
 let test_agent_clone_copy_context () =
   Eio_main.run
   @@ fun env ->
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "test_key" (`String "test_val");
   let b =
     Builder.create ~net:env#net ~model:Types.default_config.model

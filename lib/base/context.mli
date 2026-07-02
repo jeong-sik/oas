@@ -24,14 +24,17 @@ type concurrency_backend =
   | Stdlib_mutex
   | Eio_mutex
 
-(** Create a new context.
+(** Create a new context using {!Eio.Mutex}.
 
-    [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
-    the context is shared across parallel fibers under an Eio scheduler.
-    [~eio:false] keeps the {!Stdlib.Mutex} implementation for use outside of an
-    Eio fiber (e.g. synchronous tests or serialization). The argument is
-    required so callers explicitly choose the concurrency model. *)
-val create : eio:bool -> unit -> t
+    This is the default for agent execution paths where the context may be
+    shared across parallel fibers under an Eio scheduler. *)
+val create : unit -> t
+
+(** Create a new context using {!Stdlib.Mutex}.
+
+    Use this for synchronous tests, serialization, or any code that runs
+    outside of an Eio fiber. *)
+val create_sync : unit -> t
 
 val get : t -> string -> Yojson.Safe.t option
 val set : t -> string -> Yojson.Safe.t -> unit

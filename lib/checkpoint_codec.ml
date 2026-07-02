@@ -469,7 +469,7 @@ let of_json json =
         json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
       and* context =
         match json |> member "context" with
-        | `Null -> Ok (Context.create ~eio:false ())
+        | `Null -> Ok (Context.create_sync ())
         | `Assoc _ as value -> Ok (Context.of_json value)
         | _ ->
           Error

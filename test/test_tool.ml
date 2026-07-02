@@ -65,7 +65,7 @@ let test_context_handler_receives_context () =
            Error
              { Types.message = "key not found"; recoverable = true; error_class = None })
   in
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "key" (`String "ctx_value");
   let actual = Tool.execute ~context:ctx tool `Null in
   match actual with
@@ -83,7 +83,7 @@ let test_context_handler_writes_context () =
          Context.set ctx "written" (`Int 42);
          Ok { Types.content = "done"; _meta = None })
   in
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   let _result = Tool.execute ~context:ctx tool `Null in
   check bool "context was written" true (Context.get ctx "written" = Some (`Int 42))
 ;;
@@ -558,7 +558,7 @@ let () =
                      })
             in
             let wrapped = Tool.with_defaults [ "agent", `String "worker-1" ] tool in
-            let ctx = Context.create ~eio:false () in
+            let ctx = Context.create_sync () in
             match Tool.execute ~context:ctx wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->
               check string "default in ctx handler" "worker-1" content

@@ -130,7 +130,7 @@ let test_store_below_threshold_not_persisted () =
 (* ── 2. Content_replacement_state: multi-turn ─────────── *)
 
 let test_crs_multi_turn_freezing () =
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   (* Turn 1: t1 replaced, t2 kept *)
   Content_replacement_state.record_replacement
     crs
@@ -168,7 +168,7 @@ let test_crs_multi_turn_freezing () =
 ;;
 
 let test_crs_json_roundtrip_preserves_decisions () =
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   Content_replacement_state.record_replacement
     crs
     { tool_use_id = "t1"; preview = "p1"; original_chars = 100 };
@@ -207,7 +207,7 @@ let test_make_tool_results_with_relocation () =
     }
   in
   let store = Tool_result_store.create config |> Result.get_ok in
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "read"
@@ -267,7 +267,7 @@ let test_make_tool_results_persist_failure_freezes_kept () =
     }
   in
   let store = Tool_result_store.create config |> Result.get_ok in
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   let original = String.make 200 'x' in
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "..."
@@ -311,7 +311,7 @@ let test_make_tool_results_publishes_content_replacement_events () =
     }
   in
   let store = Tool_result_store.create config |> Result.get_ok in
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   let mock_results : Agent_tools.tool_execution_result list =
@@ -378,7 +378,7 @@ let test_make_tool_results_publishes_content_replacement_events () =
 (* ── 4. Compaction + relocation compose ───────────────── *)
 
 let test_compaction_preserves_relocated_previews () =
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   (* Simulate: t1 was relocated (preview in message), t2 was kept *)
   Content_replacement_state.record_replacement
     crs
@@ -435,7 +435,7 @@ let test_compaction_preserves_relocated_previews () =
 ;;
 
 let test_compose_prune_then_relocation_reapply () =
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   Content_replacement_state.record_replacement
     crs
     { tool_use_id = "t1"; preview = "short_preview"; original_chars = 100000 };
@@ -497,7 +497,7 @@ let test_aggregate_budget_persists_largest () =
     }
   in
   let store = Tool_result_store.create config |> Result.get_ok in
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   (* 3 results: total = 8000+4000+3000 = 15000, at budget boundary.
      Actually make total > budget: 8000+5000+4000 = 17000 > 15000 *)
   let mock_results : Agent_tools.tool_execution_result list =
@@ -573,7 +573,7 @@ let test_aggregate_budget_disabled () =
     }
   in
   let store = Tool_result_store.create config |> Result.get_ok in
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
@@ -602,8 +602,8 @@ let test_aggregate_budget_disabled () =
 (* ── 6. CRS checkpoint persistence (Phase 2) ────────── *)
 
 let test_crs_checkpoint_roundtrip () =
-  let ctx = Context.create ~eio:false () in
-  let crs = Content_replacement_state.create () in
+  let ctx = Context.create_sync () in
+  let crs = Content_replacement_state.create_sync () in
   Content_replacement_state.record_replacement
     crs
     { tool_use_id = "t1"; preview = "p1"; original_chars = 5000 };
@@ -630,7 +630,7 @@ let test_crs_checkpoint_roundtrip () =
 ;;
 
 let test_crs_restore_from_empty_context () =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   (* No CRS saved — should return fresh empty state *)
   let crs = Content_replacement_state.restore_from_context ctx in
   Alcotest.(check int) "empty state" 0 (Content_replacement_state.seen_count crs)
@@ -639,7 +639,7 @@ let test_crs_restore_from_empty_context () =
 (* ── 7. Relocate_tool_results reducer (Phase 2) ─────── *)
 
 let test_relocate_reducer_reapplies_frozen () =
-  let crs = Content_replacement_state.create () in
+  let crs = Content_replacement_state.create_sync () in
   Content_replacement_state.record_replacement
     crs
     { tool_use_id = "t1"; preview = "cached_preview"; original_chars = 50000 };

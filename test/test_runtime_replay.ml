@@ -86,7 +86,7 @@ let mk_checkpoint ?(messages = []) ?(created_at = 1.0) ?(turn_count = 0) session
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; context = Context.create ~eio:false ()
+  ; context = Context.create_sync ()
   ; mcp_sessions = []
   ; working_context = None
   }

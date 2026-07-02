@@ -88,7 +88,7 @@ let start_card_server ~sw ~net card =
 (* ── Registration and lookup ────────────────────────────── *)
 
 let test_register_local () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let agent = make_agent () in
   Agent_registry.register_local reg ~name:"test-agent" agent;
   match Agent_registry.lookup reg "test-agent" with
@@ -99,7 +99,7 @@ let test_register_local () =
 ;;
 
 let test_register_remote () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let card : Agent_card.agent_card =
     { name = "remote-agent"
     ; description = Some "A remote agent"
@@ -131,14 +131,14 @@ let test_register_remote () =
 ;;
 
 let test_lookup_missing () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   check bool "none" true (Option.is_none (Agent_registry.lookup reg "nope"))
 ;;
 
 (* ── List operations ────────────────────────────────────── *)
 
 let test_list_all () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let agent = make_agent () in
   Agent_registry.register_local reg ~name:"a" agent;
   Agent_registry.register_local reg ~name:"b" agent;
@@ -147,7 +147,7 @@ let test_list_all () =
 ;;
 
 let test_count () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   check int "empty" 0 (Agent_registry.count reg);
   let agent = make_agent () in
   Agent_registry.register_local reg ~name:"x" agent;
@@ -157,7 +157,7 @@ let test_count () =
 (* ── Capability filtering ───────────────────────────────── *)
 
 let test_list_by_capability () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let card_tools : Agent_card.agent_card =
     { name = "tools-agent"
     ; description = None
@@ -198,7 +198,7 @@ let test_list_by_capability () =
 (* ── Tool filtering ─────────────────────────────────────── *)
 
 let test_list_by_tool () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let card : Agent_card.agent_card =
     { name = "tool-owner"
     ; description = None
@@ -230,7 +230,7 @@ let test_list_by_tool () =
 (* ── Unregister ─────────────────────────────────────────── *)
 
 let test_unregister () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let agent = make_agent () in
   Agent_registry.register_local reg ~name:"temp" agent;
   check int "before" 1 (Agent_registry.count reg);
@@ -269,7 +269,7 @@ let test_discover_unreachable () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   match
     Agent_registry.discover_and_register
       ~sw
@@ -326,7 +326,7 @@ let test_fetch_card_http_client () =
 (* ── Overwrite registration ─────────────────────────────── *)
 
 let test_overwrite () =
-  let reg = Agent_registry.create () in
+  let reg = Agent_registry.create_sync () in
   let card1 : Agent_card.agent_card =
     { name = "v1"
     ; description = None

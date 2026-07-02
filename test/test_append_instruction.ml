@@ -45,7 +45,7 @@ let test_dynamic_source () =
 ;;
 
 let test_from_context () =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "system.rules" (`String "Be concise.");
   let config : Append_instruction.config = { sources = [ FromContext "system.rules" ] } in
   (match Append_instruction.render ~context:ctx ~turn:0 config with

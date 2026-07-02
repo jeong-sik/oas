@@ -188,7 +188,7 @@ let test_agent_type_clone_variants () =
   let config = { Types.default_config with name = "clone-source"; max_turns = 5 } in
   Eio_main.run
   @@ fun env ->
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   Context.set context "marker" (`String "copied");
   let agent =
     Internal_agent.create

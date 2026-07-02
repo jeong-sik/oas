@@ -86,7 +86,7 @@ let test_injector_with_extra_messages () =
 
 (* Test context updates applied correctly *)
 let test_context_updates_applied () =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   let updates = [ "key1", `String "v1"; "key2", `Bool true ] in
   List.iter (fun (k, v) -> Context.set ctx k v) updates;
   (match Context.get ctx "key1" with

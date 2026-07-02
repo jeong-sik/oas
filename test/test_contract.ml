@@ -394,7 +394,7 @@ let test_context_with_contract_includes_quota_allocations () =
 ;;
 
 let test_context_with_contract_preserves_identity () =
-  let original = Context.create ~eio:false () in
+  let original = Context.create_sync () in
   Context.set original "user_data" (`String "hello");
   let c = Contract.with_runtime_awareness "test" Contract.empty in
   match Contract.context_with_contract ~context:original c with
