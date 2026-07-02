@@ -2085,7 +2085,7 @@ let () =
             `Quick
             test_validate_output_schema_unknown_openai_compat_rejected
         ; Alcotest.test_case
-            "ollama cloud minimax accepted"
+            "ollama cloud minimax rejected"
             `Quick
             test_validate_output_schema_ollama_cloud_minimax_rejected
         ; Alcotest.test_case
@@ -2101,7 +2101,7 @@ let () =
             `Quick
             test_validate_output_schema_openai_compat_declared_endpoint_accepted
         ; Alcotest.test_case
-            "ollama cloud accepted"
+            "ollama cloud minimax output_schema rejected"
             `Quick
             test_validate_output_schema_ollama_cloud_minimax_output_schema_rejected
         ; Alcotest.test_case
@@ -2149,7 +2149,7 @@ let () =
             `Quick
             test_validate_output_schema_capability_rejected
         ; Alcotest.test_case
-            "ollama cloud catalog accepted"
+            "ollama cloud catalog minimax rejected"
             `Quick
             test_validate_output_schema_ollama_cloud_catalog_minimax_rejected
         ; Alcotest.test_case
