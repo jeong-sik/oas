@@ -57,6 +57,62 @@ let with_empty_capability_sources f =
     f
 ;;
 
+let task_testable =
+  Alcotest.testable
+    (fun ppf task -> Format.pp_print_string ppf (Provider.task_to_string task))
+    ( = )
+;;
+
+(* Install a synthetic catalog from inline TOML for the duration of [f], then
+   restore the original. Goes through [Model_catalog.load_file] so the tests
+   exercise the real fail-closed parse path. *)
+let with_catalog_toml content f =
+  let path = Filename.temp_file "oas_provider_task_catalog" ".toml" in
+  let original = Llm_provider.Model_catalog.global () in
+  Fun.protect
+    ~finally:(fun () ->
+      (try Sys.remove path with
+       | Sys_error _ -> ());
+      match original with
+      | Some c -> Llm_provider.Model_catalog.set_global c
+      | None -> Llm_provider.Model_catalog.clear_global ())
+    (fun () ->
+       let oc = open_out path in
+       output_string oc content;
+       close_out oc;
+       match Llm_provider.Model_catalog.load_file path with
+       | Ok catalog ->
+         Llm_provider.Model_catalog.set_global catalog;
+         f ()
+       | Error e -> Alcotest.fail ("test catalog load failed: " ^ e))
+;;
+
+let task_catalog_toml =
+  {|
+[[models]]
+id_prefix = "acme-transcribe"
+supports_audio_input = true
+task = "transcription"
+
+[[models]]
+id_prefix = "acme-tts"
+task = "speech"
+
+[[models]]
+id_prefix = "acme-image"
+supports_image_input = true
+task = "image_generation"
+
+[[models]]
+id_prefix = "acme-video"
+supports_video_input = true
+task = "video_generation"
+
+[[models]]
+id_prefix = "acme-chat"
+|}
+;;
+
 let test_missing_env_var () =
   (* Anthropic provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
@@ -224,7 +280,7 @@ let test_model_spec_openrouter_capabilities () =
     "contract modality"
     "multimodal"
     (Provider.modality_to_string contract.modality);
-  Alcotest.(check (option string)) "contract task" None contract.task;
+  Alcotest.(check (option task_testable)) "contract task" None contract.task;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" false spec.capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" false spec.capabilities.supports_top_k;
@@ -242,55 +298,95 @@ let test_inference_contract_anthropic_multimodal () =
     (Provider.modality_to_string contract.modality)
 ;;
 
-let test_inference_contract_task_transcription () =
-  let cfg : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url = "https://api.openai.com/v1"
-          ; auth_header = Some "Authorization"
-          ; path = "/audio/transcriptions"
-          ; static_token = None
-          }
-    ; model_id = "whisper-1"
-    ; api_key_env = "OPENAI_API_KEY"
-    }
-  in
-  let contract = Provider.inference_contract_of_config cfg in
-  Alcotest.(check (option string)) "task" (Some "transcription") contract.task
+let test_capabilities_task_catalog_declared () =
+  with_catalog_toml task_catalog_toml (fun () ->
+    let task_of model_id =
+      match Llm_provider.Capabilities.for_model_id model_id with
+      | Some (caps : Provider.capabilities) -> caps.task
+      | None -> Alcotest.failf "catalog entry expected for %s" model_id
+    in
+    Alcotest.(check (option task_testable))
+      "transcription"
+      (Some Provider.Transcription)
+      (task_of "acme-transcribe-1");
+    Alcotest.(check (option task_testable))
+      "speech"
+      (Some Provider.Speech)
+      (task_of "acme-tts-1");
+    Alcotest.(check (option task_testable))
+      "image generation"
+      (Some Provider.Image_generation)
+      (task_of "acme-image-1");
+    Alcotest.(check (option task_testable))
+      "video generation"
+      (Some Provider.Video_generation)
+      (task_of "acme-video-1");
+    Alcotest.(check (option task_testable))
+      "entry without a task field declares no task"
+      None
+      (task_of "acme-chat-1"))
 ;;
 
-let test_inference_contract_task_image_generation () =
-  let cfg : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/images/generations"
-          ; static_token = None
-          }
-    ; model_id = "glm-image"
-    ; api_key_env = ""
-    }
-  in
-  let contract = Provider.inference_contract_of_config cfg in
-  Alcotest.(check (option string)) "task" (Some "image_generation") contract.task
+let test_inference_contract_task_catalog_declared () =
+  with_catalog_toml task_catalog_toml (fun () ->
+    (* The [Anthropic] branch of [capabilities_for_model] consults the model
+       catalog without the raw-endpoint declaration gate, so this exercises
+       the full config -> capabilities -> contract threading. *)
+    let cfg : Provider.config =
+      { provider = Anthropic
+      ; model_id = "acme-transcribe-1"
+      ; api_key_env = "ANTHROPIC_API_KEY"
+      }
+    in
+    let contract = Provider.inference_contract_of_config cfg in
+    Alcotest.(check (option task_testable))
+      "catalog-declared task reaches the contract"
+      (Some Provider.Transcription)
+      contract.task)
 ;;
 
-let test_inference_contract_task_video_generation () =
-  let cfg : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/videos/generations"
-          ; static_token = None
-          }
-    ; model_id = "cogvideox-2"
-    ; api_key_env = ""
-    }
-  in
-  let contract = Provider.inference_contract_of_config cfg in
-  Alcotest.(check (option string)) "task" (Some "video_generation") contract.task
+(* Regression for the deleted model-id substring classifier: these ids used to
+   be classified as transcription/image_generation/video_generation purely by
+   substring. Without a catalog-declared [task] they must stay [None]. *)
+let test_inference_contract_task_never_inferred_from_model_id () =
+  with_catalog_toml task_catalog_toml (fun () ->
+    let contract_task provider model_id =
+      let cfg : Provider.config = { provider; model_id; api_key_env = "" } in
+      (Provider.inference_contract_of_config cfg).task
+    in
+    Alcotest.(check (option task_testable))
+      "whisper-style id declares no task"
+      None
+      (contract_task
+         (OpenAICompat
+            { base_url = "https://api.openai.com/v1"
+            ; auth_header = Some "Authorization"
+            ; path = "/audio/transcriptions"
+            ; static_token = None
+            })
+         "whisper-1");
+    Alcotest.(check (option task_testable))
+      "glm-image id declares no task"
+      None
+      (contract_task
+         (OpenAICompat
+            { base_url = Llm_provider.Zai_catalog.general_base_url
+            ; auth_header = None
+            ; path = "/images/generations"
+            ; static_token = None
+            })
+         "glm-image");
+    Alcotest.(check (option task_testable))
+      "cogvideox id declares no task"
+      None
+      (contract_task
+         (OpenAICompat
+            { base_url = Llm_provider.Zai_catalog.general_base_url
+            ; auth_header = None
+            ; path = "/videos/generations"
+            ; static_token = None
+            })
+         "cogvideox-2"))
 ;;
 
 let test_zai_glm5v_capabilities_include_image_input () =
@@ -1165,17 +1261,17 @@ let () =
             `Quick
             test_inference_contract_anthropic_multimodal
         ; Alcotest.test_case
-            "task inference transcription"
+            "task catalog declared capabilities"
             `Quick
-            test_inference_contract_task_transcription
+            test_capabilities_task_catalog_declared
         ; Alcotest.test_case
-            "task inference image generation"
+            "task catalog declared contract"
             `Quick
-            test_inference_contract_task_image_generation
+            test_inference_contract_task_catalog_declared
         ; Alcotest.test_case
-            "task inference video generation"
+            "task never inferred from model id"
             `Quick
-            test_inference_contract_task_video_generation
+            test_inference_contract_task_never_inferred_from_model_id
         ; Alcotest.test_case
             "zai glm-5v image capabilities"
             `Quick

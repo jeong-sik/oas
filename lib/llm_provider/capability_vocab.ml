@@ -43,6 +43,15 @@ type reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+(** Inference task a catalog entry declares for non-chat models (audio
+    transcription, speech synthesis, image/video generation). Chat and
+    completion models declare no task. *)
+type task =
+  | Transcription
+  | Speech
+  | Image_generation
+  | Video_generation
+
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
 let thinking_control_format_table =
@@ -104,6 +113,40 @@ let modality_priority_values =
   ; "visual_first"
   ; "visual-first"
   ]
+;;
+
+let task_table =
+  [ "transcription", Transcription
+  ; "speech", Speech
+  ; "image_generation", Image_generation
+  ; "video_generation", Video_generation
+  ]
+;;
+
+let task_values = List.map fst task_table
+
+let task_of_string raw =
+  match normalize raw with
+  | "" -> None
+  | normalized -> List.assoc_opt normalized task_table
+;;
+
+let task_to_string = function
+  | Transcription -> "transcription"
+  | Speech -> "speech"
+  | Image_generation -> "image_generation"
+  | Video_generation -> "video_generation"
+;;
+
+let%test "task values parse through the canonical table" =
+  List.for_all (fun raw -> Option.is_some (task_of_string raw)) task_values
+;;
+
+let%test "task round-trips through to_string and of_string" =
+  List.for_all
+    (fun (raw, task) ->
+       task_to_string task = raw && task_of_string (task_to_string task) = Some task)
+    task_table
 ;;
 
 let reasoning_replay_table =

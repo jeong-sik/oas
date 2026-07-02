@@ -35,7 +35,7 @@ type inference_contract =
   { provider : provider
   ; model_id : string
   ; modality : modality
-  ; task : string option
+  ; task : task option
   }
 
 type model_spec =
@@ -120,32 +120,7 @@ let modality_of_capabilities (caps : capabilities) =
   else Text
 ;;
 
-let task_of_model_id model_id =
-  let has needle = Util.contains_substring_ci ~haystack:model_id ~needle in
-  if has "whisper" || has "transcribe" || has "transcription" || has "stt"
-  then Some "transcription"
-  else if has "tts" || has "text-to-speech" || has "voice"
-  then Some "speech"
-  else if
-    has "imagegen"
-    || has "image-gen"
-    || has "gpt-image"
-    || has "cogview"
-    || has "glm-image"
-    || has "seedream"
-    || has "flux"
-  then Some "image_generation"
-  else if
-    has "video-gen"
-    || has "veo"
-    || has "kling"
-    || has "sora"
-    || has "wan"
-    || has "cogvideox"
-    || has "vidu"
-  then Some "video_generation"
-  else None
-;;
+let task_to_string = Llm_provider.Capability_vocab.task_to_string
 
 let modality_supported (caps : capabilities) = function
   | Text -> true
@@ -379,7 +354,10 @@ let build_inference_contract ~provider ~model_id ~(capabilities : capabilities) 
     { provider
     ; model_id
     ; modality = modality_of_capabilities capabilities
-    ; task = task_of_model_id model_id
+    ; (* Catalog-declared only (models.toml [task] field via capabilities);
+         undeclared models carry no task — the former model-id substring
+         classifier was removed. *)
+      task = capabilities.task
     }
   in
   match validate_inference_contract ~capabilities contract with

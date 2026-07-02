@@ -38,6 +38,12 @@ let make_test_impl ?(name = "test-provider") ?(request_path = "/v1/test") ()
 (* Wrap a test body in Eio_main.run to provide the Eio effect handler *)
 let with_eio f () = Eio_main.run @@ fun _env -> f ()
 
+let task_testable =
+  Alcotest.testable
+    (fun ppf task -> Format.pp_print_string ppf (Provider.task_to_string task))
+    ( = )
+;;
+
 (* ── Registry CRUD ──────────────────────────────────────────── *)
 
 let test_register_and_find () =
@@ -176,7 +182,7 @@ let test_model_spec_registered () =
     "contract modality"
     "text"
     (Provider.modality_to_string contract.modality);
-  Alcotest.(check (option string)) "contract task" None contract.task;
+  Alcotest.(check (option task_testable)) "contract task" None contract.task;
   Alcotest.(check bool) "supports_tools" true spec.capabilities.supports_tools
 ;;
 

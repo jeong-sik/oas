@@ -23,6 +23,7 @@ type model_entry =
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
   ; modality_priority : string option
+  ; task : Capability_vocab.task option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
@@ -179,6 +180,27 @@ let reasoning_streaming_format_opt ~entry_id key toml =
             Capability_vocab.reasoning_streaming_format_syntax))
 ;;
 
+(* Typed at the parse boundary: an entry either declares a canonical task or
+   fails the whole catalog load. Storing the raw string here would defer the
+   unknown-value decision to a warn-and-keep-base fallback at capability
+   application time. *)
+let task_opt ~entry_id key toml =
+  match find_string_field ~entry_id key toml with
+  | Error e -> Error e
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    (match Capability_vocab.task_of_string raw with
+     | Some _ as task -> Ok task
+     | None ->
+       Error
+         (Printf.sprintf
+            "model entry %S field %S has unknown value %S (canonical: %s)"
+            entry_id
+            key
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " Capability_vocab.task_values)))
+;;
+
 (* Every field [parse_entry] reads below. A misspelled or stale key (e.g.
    [suports_tools]) would otherwise be silently ignored, leaving the capability
    at its default and hiding the misconfiguration. Enumerate the table keys and
@@ -208,6 +230,7 @@ let known_entry_keys =
   ; "supports_audio_input"
   ; "supports_video_input"
   ; "modality_priority"
+  ; "task"
   ; "supports_native_streaming"
   ; "supports_system_prompt"
   ; "supports_caching"
@@ -296,6 +319,7 @@ let parse_entry entry_toml =
            ~allowed:Capability_vocab.modality_priority_values
            entry_toml
        in
+       let task_result = task_opt ~entry_id:id_prefix "task" entry_toml in
        let thinking_control_format_result =
          canonical_string_opt
            ~entry_id:id_prefix
@@ -333,23 +357,26 @@ let parse_entry entry_toml =
           ( base_label_result
           , provider_name_result
           , modality_priority_result
+          , task_result
           , thinking_control_format_result
           , preserve_thinking_control_format_result
           , reasoning_output_format_result
           , reasoning_streaming_format_result
           , thinking_control_token_result )
         with
-        | (Error _ as e), _, _, _, _, _, _, _
-        | _, (Error _ as e), _, _, _, _, _, _
-        | _, _, (Error _ as e), _, _, _, _, _
-        | _, _, _, (Error _ as e), _, _, _, _
-        | _, _, _, _, (Error _ as e), _, _, _
-        | _, _, _, _, _, (Error _ as e), _, _
-        | _, _, _, _, _, _, (Error _ as e), _
-        | _, _, _, _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _, _, _, _, _
+        | _, (Error _ as e), _, _, _, _, _, _, _
+        | _, _, (Error _ as e), _, _, _, _, _, _
+        | _, _, _, (Error _ as e), _, _, _, _, _
+        | _, _, _, _, (Error _ as e), _, _, _, _
+        | _, _, _, _, _, (Error _ as e), _, _, _
+        | _, _, _, _, _, _, (Error _ as e), _, _
+        | _, _, _, _, _, _, _, (Error _ as e), _
+        | _, _, _, _, _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok provider_name
           , Ok modality_priority
+          , Ok task
           , Ok thinking_control_format
           , Ok preserve_thinking_control_format
           , Ok reasoning_output_format
@@ -386,6 +413,7 @@ let parse_entry entry_toml =
             ; supports_audio_input = find_bool_opt entry_toml [ "supports_audio_input" ]
             ; supports_video_input = find_bool_opt entry_toml [ "supports_video_input" ]
             ; modality_priority
+            ; task
             ; supports_native_streaming =
                 find_bool_opt entry_toml [ "supports_native_streaming" ]
             ; supports_system_prompt =
@@ -428,6 +456,27 @@ let%test "parse_entry accepts an entry whose fields are all known" =
   match parse_entry entry with
   | Ok _ -> true
   | Error _ -> false
+;;
+
+let%test "parse_entry parses a canonical task value into the closed variant" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\ntask = \"transcription\"" in
+  match parse_entry entry with
+  | Ok { task = Some Capability_vocab.Transcription; _ } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry rejects an unknown task value, not silently dropped" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\ntask = \"chat\"" in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "parse_entry leaves task undeclared as None" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"" in
+  match parse_entry entry with
+  | Ok { task = None; _ } -> true
+  | Ok _ | Error _ -> false
 ;;
 
 let load_file path =
