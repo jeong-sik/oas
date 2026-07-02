@@ -31,6 +31,32 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.13](https://github.com/jeong-sik/oas/compare/v0.208.12...v0.208.13) (2026-07-02)
+
+
+### Features
+
+* **llm_provider:** expose packaged model catalog ([#2424](https://github.com/jeong-sik/oas/issues/2424)) ([9e4403c](https://github.com/jeong-sik/oas/commit/9e4403cb6fbe3ba132dcbd9cb0b16c1bbef1476c))
+* **llm_provider:** raw stream wire capture 관측 하네스 (Phase O) ([#2435](https://github.com/jeong-sik/oas/issues/2435)) ([6ea88e6](https://github.com/jeong-sik/oas/commit/6ea88e6d54cc4eb6804d84b698805aebef6f4b50))
+* **ratchet:** host/base_url fuzzy-classifier hardening metric (RFC-OAS-034 §5) ([#2419](https://github.com/jeong-sik/oas/issues/2419)) ([853e32b](https://github.com/jeong-sik/oas/commit/853e32b9e9bd3018a258f7f9f1afcd3298d31ff6))
+
+
+### Bug Fixes
+
+* **boundary:** remove coordinator-specific term from capabilities doc comment ([#2443](https://github.com/jeong-sik/oas/issues/2443)) ([7ac7ddc](https://github.com/jeong-sik/oas/commit/7ac7ddcf5f45c57086eec9144345859dedf1c52b))
+* **boundary:** remove coordinator-specific term from wire_capture doc comment ([#2441](https://github.com/jeong-sik/oas/issues/2441)) ([42d44d8](https://github.com/jeong-sik/oas/commit/42d44d8bb143adf2a3bb548c5f48edc564c30bfb))
+* **catalog:** add runpod gemma4 coder capabilities ([#2431](https://github.com/jeong-sik/oas/issues/2431)) ([56d7e48](https://github.com/jeong-sik/oas/commit/56d7e4850d695e430d93a8036b1b5b211243d7a4))
+* **catalog:** reject unknown fields in model catalog entries, not silently drop (RFC-OAS-034) ([#2426](https://github.com/jeong-sik/oas/issues/2426)) ([3592c05](https://github.com/jeong-sik/oas/commit/3592c0553b940a5c7d193a9e94b61539ee0bff82))
+* **provider:** defer 13 residual *_defaults BASE_URL env reads from module load to call time ([#2436](https://github.com/jeong-sik/oas/issues/2436)) ([b883c80](https://github.com/jeong-sik/oas/commit/b883c80ea87be0e12fcdf201cc467ea90e742bec))
+* **provider:** match ollama cloud host by exact Uri.host, not URL prefix (RFC-OAS-034 B4) ([#2420](https://github.com/jeong-sik/oas/issues/2420)) ([84ef566](https://github.com/jeong-sik/oas/commit/84ef566e10b05035efdb267046c4e072623d642b))
+* **provider:** Ollama Cloud /v1 does not guarantee structured output ([#2440](https://github.com/jeong-sik/oas/issues/2440)) ([2084e5f](https://github.com/jeong-sik/oas/commit/2084e5f7096688c123570aa39042d54597907b54))
+* **provider:** recognize api.deepseek.com as deepseek vendor host (RFC-OAS-034) ([#2427](https://github.com/jeong-sik/oas/issues/2427)) ([b103e6b](https://github.com/jeong-sik/oas/commit/b103e6bcc729ccdd78620b262eb964268b30a3fb))
+* **provider:** rename runpod_mtp namespace to host-agnostic vllm-qwen3-mtp (RFC-OAS-034 B1/B2) ([#2432](https://github.com/jeong-sik/oas/issues/2432)) ([b624354](https://github.com/jeong-sik/oas/commit/b62435409236925d49648ec2151bdefe4b0593e9))
+* **provider:** single-source Responses builder policy with Chat builder ([#2437](https://github.com/jeong-sik/oas/issues/2437)) ([1b7da64](https://github.com/jeong-sik/oas/commit/1b7da64714824b585361207bba21b0041b5b128c))
+* **ratchet:** host/base_url fuzzy-classifier detector precision + recall ([#2419](https://github.com/jeong-sik/oas/issues/2419) follow-up) ([#2430](https://github.com/jeong-sik/oas/issues/2430)) ([de66104](https://github.com/jeong-sik/oas/commit/de66104ffb3023705564f73131da114b0616fa24))
+* **sampling:** do not default min_p from host locality for uncatalogued models (RFC-OAS-034 B7) ([#2425](https://github.com/jeong-sik/oas/issues/2425)) ([382bb2b](https://github.com/jeong-sik/oas/commit/382bb2b668cd83755faa5290d983a53bc0b6c608))
+* **test:** list model catalog default test module ([#2429](https://github.com/jeong-sik/oas/issues/2429)) ([97076aa](https://github.com/jeong-sik/oas/commit/97076aa6dae6ee8ac14a1857a9232ea6373118f6))
+
 ## [0.208.12](https://github.com/jeong-sik/oas/compare/v0.208.11...v0.208.12) (2026-07-01)
 
 
