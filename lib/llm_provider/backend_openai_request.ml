@@ -151,6 +151,48 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
+(* Resolve the output-token budget from three layers:
+   1. Caller override ([config.max_tokens = Some n]) - explicit request
+   2. Model capability ([caps.max_output_tokens]) - provider's ceiling
+   3. Fallback [Constants.resolve_unknown_model_max_tokens_fallback] -
+      last resort when both are unknown
+
+   When the caller sends [None], they want the model's own maximum.
+   When the caller sends [Some n], we clamp to the capability ceiling
+   to avoid 400 errors that corrupt partial-commit state.
+
+   The resolved value is always emitted - Anthropic and most
+   OpenAI-compat endpoints REQUIRE the field. Chat Completions emits it
+   as [max_tokens], the Responses envelope as [max_output_tokens]: the
+   field name is per-envelope, the resolution policy (clamp WARN
+   included) is single-sourced here. *)
+let effective_max_output_tokens (config : Provider_config.t) =
+  let caps = capabilities_of_config config in
+  match config.max_tokens, caps.max_output_tokens with
+  | None, Some cap -> cap
+  | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
+  | Some n, Some cap when n > cap ->
+    warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
+    cap
+  | Some n, _ -> n
+;;
+
+(* Shared tool_choice emission gate for the Chat and Responses envelopes.
+   Explicit forcing ([Any] / [Tool _]) is caller intent and always reaches
+   [effective_tool_choice], which fails closed on unsupported forcing.
+   Advisory [Auto] is emitted only when the model supports tool_choice
+   ([supports_tool_choice_override] wins over the capability record).
+   [None_] / absent tool_choice resolve to [None] in
+   [effective_tool_choice], so the gate value is irrelevant for them. *)
+let should_emit_tool_choice (config : Provider_config.t) =
+  match config.tool_choice with
+  | Some (Any | Tool _) -> true
+  | Some (Auto | None_) | None ->
+    (match config.supports_tool_choice_override with
+     | Some v -> v
+     | None -> (capabilities_of_config config).supports_tool_choice)
+;;
+
 (* Resolution delegated to [Provider_config.glm_clear_thinking] (SSOT) so the
    request-body clear_thinking field below and the reasoning-replay gate cannot
    diverge. *)
@@ -198,33 +240,12 @@ let build_request_assoc
      | _ -> [])
     @ List.concat_map message_serializer sanitized_messages
   in
-  (* Look up per-model capabilities once - drives:
-     (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
-     (2) the [top_k] / [min_p] sampling-field gates further down.
-     If no model-specific record exists, fall back to the provider-kind
-     preset, then to conservative defaults for unknown OpenAI-compatible
-     configs. *)
-  (* Resolve [max_tokens] from three layers:
-     1. Caller override ([config.max_tokens = Some n]) - explicit request
-     2. Model capability ([caps.max_output_tokens]) - provider's ceiling
-     3. Fallback [Constants.resolve_unknown_model_max_tokens_fallback] -
-        last resort when both are unknown
-
-     When the caller sends [None], they want the model's own maximum.
-     When the caller sends [Some n], we clamp to the capability ceiling
-     to avoid 400 errors that corrupt partial-commit state.
-
-     The resolved value is always emitted - Anthropic and most
-     OpenAI-compat endpoints REQUIRE the field. *)
-  let effective_max_tokens =
-    match config.max_tokens, caps.max_output_tokens with
-    | None, Some cap -> cap
-    | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
-    | Some n, Some cap when n > cap ->
-      warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
-      cap
-    | Some n, _ -> n
-  in
+  (* Per-model capabilities ([caps] above) drive the [top_k] / [min_p]
+     sampling-field gates further down; the output-token budget (clamp
+     WARN included) is resolved by the shared
+     [effective_max_output_tokens] policy and emitted here under the
+     Chat Completions [max_tokens] field name. *)
+  let effective_max_tokens = effective_max_output_tokens config in
   let body =
     [ "model", `String config.model_id
     ; "messages", `List provider_messages
@@ -290,22 +311,13 @@ let build_request_assoc
       ()
     @ body
   in
-  let supports_tool_choice =
-    match config.supports_tool_choice_override with
-    | Some v -> v
-    | None -> caps.supports_tool_choice
-  in
   let body =
-    match config.tool_choice with
-    | Some (Any | Tool _) ->
-      (match effective_tool_choice config with
-       | Some choice_json -> ("tool_choice", choice_json) :: body
-       | None -> body)
-    | _ when supports_tool_choice ->
-      (match effective_tool_choice config with
-       | Some choice_json -> ("tool_choice", choice_json) :: body
-       | None -> body)
-    | _ -> body
+    if should_emit_tool_choice config
+    then (
+      match effective_tool_choice config with
+      | Some choice_json -> ("tool_choice", choice_json) :: body
+      | None -> body)
+    else body
   in
   let body =
     match tools with
