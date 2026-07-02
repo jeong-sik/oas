@@ -67,8 +67,14 @@ val command_in_path : ?path:string -> string -> bool
 
     If [OAS_PROVIDER_CATALOG] or {!Provider_catalog.set_global} supplies
     entries, those entries are overlaid last and may add or replace provider
-    ids without changing SDK code. *)
-val default : unit -> t
+    ids without changing SDK code.
+
+    [*_BASE_URL] env overrides are resolved when [default] is called, not at
+    module load, so a registry built after the environment changes reflects
+    the new values. [?getenv] (default [Sys.getenv_opt]) is the RFC-OAS-024
+    dependency-injection seam: tests inject a resolver instead of mutating
+    the process environment. *)
+val default : ?getenv:(string -> string option) -> unit -> t
 
 (** Best-effort canonical provider name for a concrete provider config.
     Unlike [Provider_config.string_of_provider_kind], this keeps
@@ -78,8 +84,19 @@ val default : unit -> t
     endpoints, falls back to a stable kind-derived label. Model catalog
     provider names are intentionally not used as provider identity without
     an explicit provider kind or endpoint registry binding: request
-    compatibility and provider identity are orthogonal. *)
-val provider_name_of_config : Provider_config.t -> string
+    compatibility and provider identity are orthogonal.
+
+    Identity is matched against a pure endpoint-identity table, not against
+    a call-time registry construction: the documented canonical URL of each
+    default provider always identifies that provider, and the current
+    [*_BASE_URL] env override identifies it additively when set. A process
+    env override therefore never erases the documented default identity of
+    an already-built config. [?getenv] (default [Sys.getenv_opt]) is the
+    RFC-OAS-024 injection seam for the additive override lookup. *)
+val provider_name_of_config
+  :  ?getenv:(string -> string option)
+  -> Provider_config.t
+  -> string
 
 (** Initial fallback endpoint snapshot. This is intentionally not parsed from
     [LLM_ENDPOINTS] at module load. For current env-aware active endpoints, use
