@@ -731,8 +731,9 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
 
 let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
   (* The OpenAI-compatible /v1 transport used by the ollama_cloud provider
-     identity accepts json_schema requests but does not enforce schema-shaped
-     output for these models. They must not advertise native structured output. *)
+     identity keeps JSON response-format requests available but does not enforce
+     schema-shaped output for these models. They must preserve JSON mode while
+     not advertising native structured output. *)
   let cases =
     [ "kimi-k2.5"
     ; "kimi-k2.6"
@@ -757,6 +758,11 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
          check
            bool
            (model_id ^ " no structured output")
@@ -1106,10 +1112,12 @@ let check_frontier_model
          (streaming_reasoning_to_string dialect.streaming))
 ;;
 
-let test_frontier_grouped_tool_thinking_structured_models () =
+let test_frontier_grouped_tool_thinking_provider_contracts () =
   (* This matrix is intentionally named after current production-provider
      evidence, not broad model families. Every row must keep the axes needed by
-     multi-turn + thinking/reasoning + tool-use + structured-output workflows.
+     multi-turn + thinking/reasoning + tool-use + provider output-contract
+     workflows. The structured_contract field covers strict schema support,
+     native structured support, and explicit no-structured-output rows.
      Replay semantics are provider-specific: Kimi/Anthropic preserve every
      turn, DeepSeek preserves tool-call turns, and other side-channel providers
      only need stream separation here. *)
@@ -2337,9 +2345,9 @@ let () =
             `Quick
             test_ollama_cloud_provider_qualified_preserves_shared_bare_family
         ; test_case
-            "frontier grouped tool/thinking/structured models"
+            "frontier grouped tool/thinking/provider contracts"
             `Quick
-            test_frontier_grouped_tool_thinking_structured_models
+            test_frontier_grouped_tool_thinking_provider_contracts
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
