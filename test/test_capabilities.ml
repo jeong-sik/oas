@@ -683,12 +683,13 @@ let test_ollama_cloud_current_catalog_resolves () =
     cases
 ;;
 
-let test_ollama_cloud_grouped_so_rows_have_required_axes () =
-  (* Live grouped SO smokes for these Ollama Cloud rows exercise the same
-     production workflow: tool call -> tool_result replay -> final
-     response_format/json_schema answer while reasoning may stream on a side
-     channel. The catalog must not regress any one of those axes to a generic
-     text-only or no-structured-output profile. *)
+let test_ollama_cloud_grouped_rows_have_required_axes () =
+  (* Live grouped smokes for these Ollama Cloud rows exercise the same
+     production workflow: tool call -> tool_result replay -> final answer while
+     reasoning may stream on a side channel. The catalog must not regress any
+     one of these axes to a generic text-only profile. Structured output is
+     checked separately because the OpenAI-compatible /v1 transport does not
+     guarantee schema-shaped output for every model. *)
   let cases =
     [ "qwen3.5:397b"
     ; "gemma4:31b"
@@ -721,11 +722,52 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
            (model_id ^ " json response format")
            true
            c.supports_response_format_json;
-         check bool (model_id ^ " structured output") true c.supports_structured_output;
          check_thinking_control
            (model_id ^ " uses Ollama native think")
            Capabilities.Ollama_think
            c.thinking_control_format)
+    cases
+;;
+
+let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
+  (* The OpenAI-compatible /v1 transport used by the ollama_cloud provider
+     identity keeps JSON response-format requests available but does not enforce
+     schema-shaped output for these models. They must preserve JSON mode while
+     not advertising native structured output. *)
+  let cases =
+    [ "kimi-k2.5"
+    ; "kimi-k2.6"
+    ; "kimi-k2.7-code"
+    ; "minimax-m3"
+    ; "deepseek-v4-pro"
+    ; "deepseek-v4-flash"
+    ; "glm-5.2"
+    ; "gpt-oss:20b"
+    ; "gpt-oss:120b"
+    ; "nemotron-3-ultra"
+    ; "qwen3.5:397b"
+    ]
+  in
+  List.iter
+    (fun model_id ->
+       match
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
+         check
+           bool
+           (model_id ^ " no structured output")
+           false
+           c.supports_structured_output)
     cases
 ;;
 
@@ -982,12 +1024,7 @@ let check_frontier_model
          true
          c.supports_structured_output
      | No_structured_output ->
-       check bool (label ^ " no structured output") false c.supports_structured_output;
-       check
-         bool
-         (label ^ " no response_format/json_schema")
-         false
-         c.supports_response_format_json);
+       check bool (label ^ " no structured output") false c.supports_structured_output);
     let dialect = frontier_dialect route model_id c in
     (match replay_contract with
      | Replay_not_required ->
@@ -1075,10 +1112,12 @@ let check_frontier_model
          (streaming_reasoning_to_string dialect.streaming))
 ;;
 
-let test_frontier_grouped_tool_thinking_structured_models () =
+let test_frontier_grouped_tool_thinking_provider_contracts () =
   (* This matrix is intentionally named after current production-provider
      evidence, not broad model families. Every row must keep the axes needed by
-     multi-turn + thinking/reasoning + tool-use + structured-output workflows.
+     multi-turn + thinking/reasoning + tool-use + provider output-contract
+     workflows. The structured_contract field covers strict schema support,
+     native structured support, and explicit no-structured-output rows.
      Replay semantics are provider-specific: Kimi/Anthropic preserve every
      turn, DeepSeek preserves tool-call turns, and other side-channel providers
      only need stream separation here. *)
@@ -1157,70 +1196,70 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Provider_qualified "ollama_cloud"
       , "qwen3.5:397b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Gemma4"
       , Provider_qualified "ollama_cloud"
       , "gemma4:31b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Kimi K2.7 Code"
       , Provider_qualified "ollama_cloud"
       , "kimi-k2.7-code"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_every_turn
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud MiniMax M3"
       , Provider_qualified "ollama_cloud"
       , "minimax-m3"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "reasoning" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
       , Provider_qualified "ollama_cloud"
       , "nemotron-3-ultra"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Pro"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-pro"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Flash"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-flash"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GLM 5.2"
       , Provider_qualified "ollama_cloud"
       , "glm-5.2"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GPT-OSS 20B"
       , Provider_qualified "ollama_cloud"
       , "gpt-oss:20b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GPT-OSS 120B"
       , Provider_qualified "ollama_cloud"
       , "gpt-oss:120b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ]
@@ -2289,9 +2328,13 @@ let () =
             `Quick
             test_ollama_cloud_current_catalog_resolves
         ; test_case
-            "ollama cloud grouped SO rows keep required axes"
+            "ollama cloud grouped rows keep required axes"
             `Quick
-            test_ollama_cloud_grouped_so_rows_have_required_axes
+            test_ollama_cloud_grouped_rows_have_required_axes
+        ; test_case
+            "ollama cloud grouped non-SO rows do not advertise SO"
+            `Quick
+            test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so
         ; test_case
             "ollama cloud Kimi preserves historical reasoning"
             `Quick
@@ -2305,9 +2348,9 @@ let () =
             `Quick
             test_ollama_cloud_provider_qualified_preserves_shared_bare_family
         ; test_case
-            "frontier grouped tool/thinking/structured models"
+            "frontier grouped tool/thinking/provider contracts"
             `Quick
-            test_frontier_grouped_tool_thinking_structured_models
+            test_frontier_grouped_tool_thinking_provider_contracts
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown

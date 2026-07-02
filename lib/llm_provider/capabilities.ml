@@ -451,8 +451,19 @@ let ollama_capabilities =
    replies still reach the user through the display path
    ([Api.text_blocks_to_string] includes [Thinking] blocks); they are no longer
    promoted into assistant answer text, which previously re-injected reasoning on
-   replay and caused the CoT loop (#2236). *)
-let ollama_cloud_capabilities = ollama_capabilities
+   replay and caused the CoT loop (#2236).
+
+   IMPORTANT: do not inherit [supports_structured_output] from local Ollama.
+   MASC and other consumers reach Ollama Cloud through the OpenAI-compatible
+   [/v1/chat/completions] transport, which accepts [response_format.type =
+   json_schema] but does NOT guarantee schema-shaped output. The native Ollama
+   [/api/chat] transport (provider kind [Ollama]) enforces schemas via the
+   [format] field and keeps [supports_structured_output = true]. Models that
+   have been live-verified to return exact schema-shaped JSON through the
+   [/v1] path opt in per-row in [models.toml]. *)
+let ollama_cloud_capabilities =
+  { ollama_capabilities with supports_structured_output = false }
+;;
 
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with

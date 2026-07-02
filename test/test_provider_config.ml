@@ -298,7 +298,7 @@ let test_validate_output_schema_unknown_openai_compat_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_ollama_cloud_minimax_accepted () =
+let test_validate_output_schema_ollama_cloud_minimax_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -308,10 +308,13 @@ let test_validate_output_schema_ollama_cloud_minimax_accepted () =
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
-  check_bool
-    "Ollama Cloud minimax accepted"
-    true
-    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "rejection"
+      "model minimax-m3 does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected Ollama Cloud minimax-m3 capability rejection"
 ;;
 
 let test_validate_output_schema_ollama_cloud_mistral_rejected () =
@@ -369,7 +372,7 @@ let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_ollama_cloud_accepted () =
+let test_validate_output_schema_ollama_cloud_minimax_output_schema_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -378,10 +381,13 @@ let test_validate_output_schema_ollama_cloud_accepted () =
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
-  check_bool
-    "ollama cloud model with native SO guarantee accepted"
-    true
-    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "rejection"
+      "model minimax-m3 does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected Ollama Cloud minimax-m3 capability rejection"
 ;;
 
 let test_validate_output_schema_ollama_cloud_rejects_unverified_model () =
@@ -1395,7 +1401,7 @@ let test_validate_output_schema_openai_official_catalog () =
       (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
 ;;
 
-let test_validate_output_schema_ollama_cloud_catalog_accepted () =
+let test_validate_output_schema_ollama_cloud_catalog_minimax_rejected () =
   with_repository_model_catalog (fun () ->
     let cfg =
       Provider_config.make
@@ -1406,10 +1412,13 @@ let test_validate_output_schema_ollama_cloud_catalog_accepted () =
         ~output_schema:(`Assoc [ "type", `String "object" ])
         ()
     in
-    check_bool
-      "catalog Ollama Cloud model accepts json_schema"
-      true
-      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+    match Provider_config.validate_output_schema_request cfg with
+    | Error msg ->
+      check_string
+        "rejection reason"
+        "model minimax-m3 does not advertise native structured output"
+        msg
+    | Ok () -> Alcotest.fail "expected Ollama Cloud minimax-m3 capability rejection")
 ;;
 
 let test_validate_output_schema_ollama_cloud_catalog_rejects_model_without_so () =
@@ -2131,9 +2140,9 @@ let () =
             `Quick
             test_validate_output_schema_unknown_openai_compat_rejected
         ; Alcotest.test_case
-            "ollama cloud minimax accepted"
+            "ollama cloud minimax rejected"
             `Quick
-            test_validate_output_schema_ollama_cloud_minimax_accepted
+            test_validate_output_schema_ollama_cloud_minimax_rejected
         ; Alcotest.test_case
             "ollama cloud mistral rejected"
             `Quick
@@ -2147,9 +2156,9 @@ let () =
             `Quick
             test_validate_output_schema_openai_compat_declared_endpoint_accepted
         ; Alcotest.test_case
-            "ollama cloud accepted"
+            "ollama cloud minimax output_schema rejected"
             `Quick
-            test_validate_output_schema_ollama_cloud_accepted
+            test_validate_output_schema_ollama_cloud_minimax_output_schema_rejected
         ; Alcotest.test_case
             "ollama cloud rejects unverified model"
             `Quick
@@ -2195,9 +2204,9 @@ let () =
             `Quick
             test_validate_output_schema_capability_rejected
         ; Alcotest.test_case
-            "ollama cloud catalog accepted"
+            "ollama cloud catalog minimax rejected"
             `Quick
-            test_validate_output_schema_ollama_cloud_catalog_accepted
+            test_validate_output_schema_ollama_cloud_catalog_minimax_rejected
         ; Alcotest.test_case
             "ollama cloud catalog rejects model without SO"
             `Quick
