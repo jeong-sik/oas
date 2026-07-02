@@ -218,9 +218,33 @@ let test_resolve_provider_typoed () =
 ;;
 
 let test_resolve_provider_empty_uses_fallback () =
-  match Runtime_server_resolve.resolve_provider ~provider:"  " () with
-  | Ok (Some _) -> ()
-  | _ -> Alcotest.fail "expected fallback provider"
+  Llm_provider.Cli_common_env.with_env Defaults.fallback_provider_env_var "" (fun () ->
+    match Runtime_server_resolve.resolve_provider ~provider:"  " () with
+    | Ok (Some cfg) ->
+      (match cfg.Provider.provider with
+       | Provider.Custom_registered { name } ->
+         Alcotest.(check string) "default fallback provider" "claude" name
+       | Provider.Local _ -> Alcotest.fail "default fallback must not resolve to local"
+       | _ -> Alcotest.fail "expected registered default fallback provider")
+    | _ -> Alcotest.fail "expected fallback provider")
+;;
+
+let test_resolve_execution_default_fallback () =
+  Llm_provider.Cli_common_env.with_env Defaults.fallback_provider_env_var "" (fun () ->
+    match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+    | Ok res ->
+      Alcotest.(check string) "selected" "claude" res.selected_provider;
+      Alcotest.(check (option string))
+        "resolved provider"
+        (Some "claude")
+        res.resolved_provider;
+      (match res.provider_cfg with
+       | Some { Provider.provider = Provider.Custom_registered { name }; _ } ->
+         Alcotest.(check string) "provider cfg" "claude" name
+       | Some { Provider.provider = Provider.Local _; _ } ->
+         Alcotest.fail "default execution fallback must not resolve to local"
+       | _ -> Alcotest.fail "expected registered default fallback provider")
+    | Error _ -> Alcotest.fail "expected Ok")
 ;;
 
 let test_resolve_provider_model_override () =
@@ -521,6 +545,10 @@ let () =
             "fallback when both None"
             `Quick
             test_resolve_execution_fallback
+        ; Alcotest.test_case
+            "default fallback when both None"
+            `Quick
+            test_resolve_execution_default_fallback
         ] )
     ]
 ;;

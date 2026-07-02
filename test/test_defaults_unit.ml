@@ -57,9 +57,17 @@ let () =
         ] )
     ; (* ── resolve_fallback_provider ───────────────────── *)
       ( "resolve_fallback_provider"
-      , [ test_case "default fallback provider is non-empty" `Quick (fun () ->
-            let p = Defaults.resolve_fallback_provider () in
-            check bool "non-empty" true (String.length p > 0))
+      , [ test_case "default fallback provider is non-local" `Quick (fun () ->
+            check string "default" "claude" Defaults.default_fallback_provider;
+            Llm_provider.Cli_common_env.with_env
+              Defaults.fallback_provider_env_var
+              ""
+              (fun () ->
+                 check
+                   string
+                   "empty env default"
+                   "claude"
+                   (Defaults.resolve_fallback_provider ())))
         ; test_case "reads env at call time" `Quick (fun () ->
             Llm_provider.Cli_common_env.with_env
               Defaults.fallback_provider_env_var
