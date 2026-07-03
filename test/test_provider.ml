@@ -1120,6 +1120,110 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
         Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
 ;;
 
+let agent_state_with_schema schema : Types.agent_state =
+  let base = agent_state_with_params () in
+  let cfg = { base.config with response_format = Types.JsonSchema schema } in
+  { base with config = cfg }
+;;
+
+let test_provider_config_of_agent_custom_registered_ollama_cloud_row_honors_so () =
+  (* Regression for the P1 masking issue in #2440: Custom_registered ollama_cloud
+     must not let the provider default (supports_structured_output=false) hide
+     per-model catalog rows.  devstral-2:123b is declared as schema-capable. *)
+  with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
+    let schema = `Assoc [ "type", `String "object" ] in
+    let cfg : Provider.config =
+      { provider = Custom_registered { name = "ollama_cloud" }
+      ; model_id = "devstral-2:123b"
+      ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+      }
+    in
+    let state = agent_state_with_schema schema in
+    match
+      Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+    with
+    | Ok pc ->
+      Alcotest.(check bool)
+        "row is authoritative: no model_capabilities_override"
+        true
+        (Option.is_none pc.model_capabilities_override);
+      Alcotest.(check bool)
+        "row is authoritative: no supports_structured_output_override"
+        true
+        (Option.is_none pc.supports_structured_output_override);
+      Alcotest.(check bool)
+        "provider kind stays Ollama"
+        true
+        (pc.kind = Llm_provider.Provider_config.Ollama);
+      Alcotest.(check bool)
+        "schema request accepted because row advertises SO"
+        true
+        (Result.is_ok (Llm_provider.Provider_config.validate_output_schema_request pc))
+    | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
+;;
+
+let test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so () =
+  (* minimax-m3 catalog row explicitly does not guarantee schema-shaped output.
+     The named-provider path must reject the request with the model capability
+     error, not silently inherit the provider default. *)
+  with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
+    let schema = `Assoc [ "type", `String "object" ] in
+    let cfg : Provider.config =
+      { provider = Custom_registered { name = "ollama_cloud" }
+      ; model_id = "minimax-m3"
+      ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+      }
+    in
+    let state = agent_state_with_schema schema in
+    match
+      Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+    with
+    | Ok pc ->
+      Alcotest.(check bool)
+        "row is authoritative: no model_capabilities_override"
+        true
+        (Option.is_none pc.model_capabilities_override);
+      (match Llm_provider.Provider_config.validate_output_schema_request pc with
+       | Error msg ->
+         Alcotest.(check bool)
+           "rejected with model capability reason"
+           true
+           (Util.contains_substring_ci
+              ~haystack:msg
+              ~needle:"does not advertise native structured output")
+       | Ok () -> Alcotest.fail "expected rejection for ollama_cloud/minimax-m3")
+    | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
+;;
+
+let test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_default () =
+  (* When no provider-qualified model catalog row exists, the named provider path
+     should still project the registry default capabilities (the pre-#2440
+     behavior for explicit Provider_catalog endpoints), not leave capabilities
+     unconstrained. *)
+  with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
+    let schema = `Assoc [ "type", `String "object" ] in
+    let cfg : Provider.config =
+      { provider = Custom_registered { name = "ollama_cloud" }
+      ; model_id = "totally-unknown-model-with-no-row"
+      ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+      }
+    in
+    let state = agent_state_with_schema schema in
+    match
+      Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+    with
+    | Ok pc ->
+      Alcotest.(check bool)
+        "registry default override is present when no row exists"
+        true
+        (Option.is_some pc.model_capabilities_override);
+      Alcotest.(check bool)
+        "schema request rejected by provider default"
+        true
+        (Result.is_error (Llm_provider.Provider_config.validate_output_schema_request pc))
+    | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
+;;
+
 let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration () =
   with_provider_catalog
     {|
@@ -1420,6 +1524,18 @@ let () =
             "custom registered ollama_cloud falls back to OLLAMA_API_KEY"
             `Quick
             test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback
+        ; Alcotest.test_case
+            "custom registered ollama_cloud row honors structured output"
+            `Quick
+            test_provider_config_of_agent_custom_registered_ollama_cloud_row_honors_so
+        ; Alcotest.test_case
+            "custom registered ollama_cloud row rejects structured output"
+            `Quick
+            test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so
+        ; Alcotest.test_case
+            "custom registered ollama_cloud unknown uses provider default"
+            `Quick
+            test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_default
         ; Alcotest.test_case
             "catalog structured output endpoint declaration"
             `Quick

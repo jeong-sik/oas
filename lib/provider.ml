@@ -753,6 +753,29 @@ let provider_config_of_agent
                         name
                   }))
         | Some entry ->
+          (* If a provider-qualified model catalog row exists for this
+             registered provider, let the row be authoritative instead of
+             masking it with the provider default.  This prevents a blanket
+             provider-level capability record (e.g. ollama_cloud_capabilities)
+             from overriding per-model facts such as structured-output
+             opt-ins/outs in models.toml.  When there is no matching row, fall
+             back to the registry entry's declared capabilities so explicit
+             Provider_catalog endpoint declarations still win. *)
+          let registry_caps_override =
+            match
+              Llm_provider.Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:name
+                ~model_id:p.model_id
+            with
+            | Some _ -> None
+            | None -> Some entry.capabilities
+          in
+          let registry_so_override =
+            Option.map
+              (fun caps -> caps.supports_structured_output)
+              registry_caps_override
+          in
           (match find_provider name with
            | Some impl ->
              (match impl.resolve p with
@@ -765,9 +788,8 @@ let provider_config_of_agent
                   ~headers
                   ~request_path:entry.defaults.request_path
                   ~model_id:p.model_id
-                  ~supports_structured_output_override:
-                    entry.capabilities.supports_structured_output
-                  ~model_capabilities_override:entry.capabilities
+                  ?supports_structured_output_override:registry_so_override
+                  ?model_capabilities_override:registry_caps_override
                   ())
            | None ->
              let api_key =
@@ -786,9 +808,8 @@ let provider_config_of_agent
                ~headers
                ~request_path:entry.defaults.request_path
                ~model_id:p.model_id
-               ~supports_structured_output_override:
-                 entry.capabilities.supports_structured_output
-               ~model_capabilities_override:entry.capabilities
+               ?supports_structured_output_override:registry_so_override
+               ?model_capabilities_override:registry_caps_override
                ()))
      | Anthropic | Local _ | OpenAICompat _ ->
        (match resolve p with
