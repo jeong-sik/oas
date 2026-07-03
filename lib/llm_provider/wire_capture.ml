@@ -64,9 +64,12 @@ let with_file_lock ~lock_path f =
       if !locked then unlock_noerr fd;
       close_noerr fd)
     (fun () ->
-       Unix.lockf fd Unix.F_LOCK 0;
-       locked := true;
-       f ())
+       try
+         Unix.lockf fd Unix.F_TLOCK 0;
+         locked := true;
+         f ()
+       with
+       | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
 ;;
 
 let rec write_all fd line offset remaining =
@@ -119,6 +122,22 @@ let path_exists path =
   | Unix.Unix_error _ | Sys_error _ -> true
 ;;
 
+let prune_if_over_cap ~path ~max_bytes =
+  if file_size path > max_bytes then unlink_if_exists path else Ok ()
+;;
+
+let prune_over_cap_capture_files_unlocked ~path ~max_bytes =
+  match prune_if_over_cap ~path ~max_bytes with
+  | Error _ as err -> err
+  | Ok () -> prune_if_over_cap ~path:(path ^ ".1") ~max_bytes
+;;
+
+let prune_over_cap_capture_files ~path ~max_bytes =
+  with_append_mutex (fun () ->
+    with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
+      prune_over_cap_capture_files_unlocked ~path ~max_bytes))
+;;
+
 (** Rotate [path] to [path ^ ".1"], deleting any previous backup. Failures are
     surfaced to the caller so capture can skip instead of exceeding the cap. *)
 let rotate_file path =
@@ -138,18 +157,16 @@ let append_bounded_json_line ~path ~max_bytes line =
   with_append_mutex (fun () ->
     with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
       let line_bytes = String.length line in
-      let current_size = file_size path in
-      if current_size > max_bytes
-      then (
-        match unlink_if_exists path with
-        | Error _ as err -> err
-        | Ok () -> Ok (append_json_line_unlocked ~path line))
-      else if current_size + line_bytes > max_bytes
-      then (
-        match rotate_file path with
-        | Error _ as err -> err
-        | Ok () -> Ok (append_json_line_unlocked ~path line))
-      else Ok (append_json_line_unlocked ~path line)))
+      match prune_over_cap_capture_files_unlocked ~path ~max_bytes with
+      | Error _ as err -> err
+      | Ok () ->
+        let current_size = file_size path in
+        if current_size + line_bytes > max_bytes
+        then (
+          match rotate_file path with
+          | Error _ as err -> err
+          | Ok () -> Ok (append_json_line_unlocked ~path line))
+        else Ok (append_json_line_unlocked ~path line)))
 ;;
 
 let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk =
@@ -164,6 +181,29 @@ let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk
   let line_bytes = String.length line in
   if line_bytes > max_bytes
   then (
+    (try
+       match prune_over_cap_capture_files ~path ~max_bytes with
+       | Ok () -> ()
+       | Error msg ->
+         if not !warned
+         then (
+           warned := true;
+           Diag.warn "wire_capture" "skipped capture cleanup for %S: %s" path msg)
+     with
+     | Sys_error msg ->
+       if not !warned
+       then (
+         warned := true;
+         Diag.warn "wire_capture" "cleanup failed for %S: %s" path msg)
+     | Unix.Unix_error (err, fn, arg) ->
+       if not !warned
+       then (
+         warned := true;
+         Diag.warn
+           "wire_capture"
+           "cleanup failed for %S: %s"
+           path
+           (unix_error_message err fn arg)));
     if not !oversized_warned
     then (
       oversized_warned := true;
@@ -470,6 +510,61 @@ let%test "make_sink drops already oversized capture file before appending" =
   &&
   let content = read_file path in
   contains ~needle:"small chunk" content
+;;
+
+let%test "make_sink drops already oversized backup before appending" =
+  let dir = Filename.temp_dir "oas_wire_drop_oversized_backup" "" in
+  let max_bytes = 256 in
+  let path = Filename.concat dir capture_filename in
+  let backup = path ^ ".1" in
+  let oc = open_out_bin backup in
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () -> output_string oc (String.make 512 'a'));
+  let s =
+    make_sink
+      ~getenv:(fun name ->
+        if String.equal name env_dir
+        then Some dir
+        else if String.equal name env_max_bytes
+        then Some (string_of_int max_bytes)
+        else None)
+      ~provider:"p"
+      ~model:"m"
+  in
+  s "small chunk";
+  (not (Sys.file_exists backup))
+  &&
+  let content = read_file path in
+  contains ~needle:"small chunk" content
+;;
+
+let%test "make_sink drops oversized files before skipping oversized records" =
+  let dir = Filename.temp_dir "oas_wire_drop_before_oversized_skip" "" in
+  let max_bytes = 256 in
+  let path = Filename.concat dir capture_filename in
+  let backup = path ^ ".1" in
+  let write_big path =
+    let oc = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 512 'a'))
+  in
+  write_big path;
+  write_big backup;
+  let s =
+    make_sink
+      ~getenv:(fun name ->
+        if String.equal name env_dir
+        then Some dir
+        else if String.equal name env_max_bytes
+        then Some (string_of_int max_bytes)
+        else None)
+      ~provider:"p"
+      ~model:"m"
+  in
+  s (String.make 1024 'x');
+  (not (Sys.file_exists path)) && not (Sys.file_exists backup)
 ;;
 
 let%test "invalid max bytes falls back to default cap with warning" =
