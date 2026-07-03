@@ -13,10 +13,11 @@
     closure so the streaming hot loop pays only an indirect call — the
     environment is read once per stream, never per chunk.
 
-    Growth is bounded by [OAS_WIRE_CAPTURE_MAX_BYTES] (default 64 MiB). When a
-    chunk would push [raw-stream.jsonl] past the cap the current file is rotated
-    to [raw-stream.jsonl.1] and a fresh file is started, so at most two cap-sized
-    files exist in the capture directory.
+    Growth is bounded by [OAS_WIRE_CAPTURE_MAX_BYTES] (default 64 MiB). Invalid
+    or non-positive configured values fail closed to the default cap and emit a
+    warning. When a chunk would push [raw-stream.jsonl] past the cap the current
+    file is rotated to [raw-stream.jsonl.1] and a fresh file is started, so at
+    most two cap-sized files exist in the capture directory.
 
     @since introduced for the agent output repetition investigation (Phase O). *)
 

@@ -89,17 +89,14 @@ let file_size path =
   | Unix.Unix_error _ | Sys_error _ -> 0
 ;;
 
-let int_of_env s =
-  match int_of_string_opt s with
-  | Some n when n > 0 -> Some n
-  | Some _ | None -> None
-;;
-
 let capture_max_bytes ?getenv () =
   match Cli_common_env.get ?getenv env_max_bytes with
-  | None -> Some default_max_bytes
-  | Some "" -> Some default_max_bytes
-  | Some s -> int_of_env s
+  | None -> default_max_bytes, None
+  | Some "" -> default_max_bytes, None
+  | Some s ->
+    (match int_of_string_opt s with
+     | Some n when n > 0 -> n, None
+     | Some _ | None -> default_max_bytes, Some s)
 ;;
 
 (** Rotate [path] to [path ^ ".1"], deleting any previous backup. This is
@@ -122,10 +119,7 @@ let write_line ~path ~provider ~model ~warned ~max_bytes chunk =
       ]
   in
   let line = Yojson.Safe.to_string json ^ "\n" in
-  (match max_bytes with
-   | Some cap when cap > 0 && file_size path + String.length line > cap ->
-     rotate_file path
-   | Some _ | None -> ());
+  if file_size path + String.length line > max_bytes then rotate_file path;
   try append_json_line ~path line with
   | Sys_error msg ->
     if not !warned
@@ -154,7 +148,16 @@ let make_sink ?getenv ~provider ~model =
      | Ok () ->
        let path = Filename.concat dir capture_filename in
        let warned = ref false in
-       let max_bytes = capture_max_bytes ?getenv () in
+       let max_bytes, invalid_max_bytes = capture_max_bytes ?getenv () in
+       (match invalid_max_bytes with
+        | None -> ()
+        | Some value ->
+          Diag.warn
+            "wire_capture"
+            "%s=%S is invalid; using default cap %d bytes"
+            env_max_bytes
+            value
+            default_max_bytes);
        fun chunk -> write_line ~path ~provider ~model ~warned ~max_bytes chunk)
 ;;
 
@@ -312,24 +315,35 @@ let%test "make_sink rotates file when max bytes would be exceeded" =
   contains ~needle:"\"chunk\":\"" content
 ;;
 
-let%test "make_sink respects zero/invalid max bytes as no cap" =
+let%test "invalid max bytes falls back to default cap with warning" =
   let dir = Filename.temp_dir "oas_wire_nocap" "" in
-  let s =
-    make_sink
-      ~getenv:(fun name ->
-        if String.equal name env_dir
-        then Some dir
-        else if String.equal name env_max_bytes
-        then Some "0"
-        else None)
-      ~provider:"p"
-      ~model:"m"
+  let warnings = ref [] in
+  let max_bytes, invalid =
+    capture_max_bytes
+      ~getenv:(fun name -> if String.equal name env_max_bytes then Some "0" else None)
+      ()
   in
-  s (String.make 64 'x');
-  s (String.make 64 'y');
-  let path = Filename.concat dir capture_filename in
-  (not (Sys.file_exists (path ^ ".1")))
-  &&
-  let content = read_file path in
-  contains ~needle:"\"chunk\":\"" content
+  let s =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         make_sink
+           ~getenv:(fun name ->
+             if String.equal name env_dir
+             then Some dir
+             else if String.equal name env_max_bytes
+             then Some "0"
+             else None)
+           ~provider:"p"
+           ~model:"m")
+  in
+  s "chunk";
+  max_bytes = default_max_bytes
+  && invalid = Some "0"
+  && List.exists
+       (fun (level, ctx, msg) ->
+          level = Diag.Warn
+          && String.equal ctx "wire_capture"
+          && contains ~needle:"invalid; using default cap" msg)
+       !warnings
 ;;
