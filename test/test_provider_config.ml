@@ -1681,7 +1681,10 @@ let test_capability_provider_label_kimi_exact_host () =
     "https canonical host is kimi"
     "kimi"
     (label "https://api.kimi.com/coding/v1");
-  check_string "http canonical host is kimi" "kimi" (label "http://api.kimi.com/coding/v1");
+  check_string
+    "http canonical host is kimi"
+    "kimi"
+    (label "http://api.kimi.com/coding/v1");
   (* Exact [Uri.host] equality rejects look-alikes, and the separate pay-per-token
      Moonshot platform host (api.moonshot.ai) is deliberately not mapped — it is an
      incompatible key/billing product (oas#2452). Both fall back to the transport
