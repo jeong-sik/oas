@@ -222,10 +222,13 @@ let test_resolve_provider_empty_uses_fallback () =
     match Runtime_server_resolve.resolve_provider ~provider:"  " () with
     | Ok (Some cfg) ->
       (match cfg.Provider.provider with
-       | Provider.Custom_registered { name } ->
-         Alcotest.(check string) "default fallback provider" "claude" name
+       | Provider.Anthropic ->
+         Alcotest.(check string)
+           "default fallback model"
+           Model_registry.default_model_id_fallback
+           cfg.Provider.model_id
        | Provider.Local _ -> Alcotest.fail "default fallback must not resolve to local"
-       | _ -> Alcotest.fail "expected registered default fallback provider")
+       | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
     | _ -> Alcotest.fail "expected fallback provider")
 ;;
 
@@ -239,12 +242,94 @@ let test_resolve_execution_default_fallback () =
         (Some "claude")
         res.resolved_provider;
       (match res.provider_cfg with
-       | Some { Provider.provider = Provider.Custom_registered { name }; _ } ->
-         Alcotest.(check string) "provider cfg" "claude" name
+       | Some { Provider.provider = Provider.Anthropic; model_id; _ } ->
+         Alcotest.(check string)
+           "provider cfg model"
+           Model_registry.default_model_id_fallback
+           model_id
        | Some { Provider.provider = Provider.Local _; _ } ->
          Alcotest.fail "default execution fallback must not resolve to local"
-       | _ -> Alcotest.fail "expected registered default fallback provider")
+       | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
     | Error _ -> Alcotest.fail "expected Ok")
+;;
+
+let test_resolve_execution_sdk_default_options_do_not_force_local () =
+  Llm_provider.Cli_common_env.with_env Defaults.fallback_provider_env_var "" (fun () ->
+    let session =
+      { dummy_session with provider = Sdk_client_types.default_options.provider }
+    in
+    match Runtime_server_resolve.resolve_execution session dummy_spawn with
+    | Ok res ->
+      Alcotest.(check string) "selected" "claude" res.selected_provider;
+      (match res.provider_cfg with
+       | Some { Provider.provider = Provider.Anthropic; _ } -> ()
+       | Some { Provider.provider = Provider.Local _; _ } ->
+         Alcotest.fail "SDK default options must not force local"
+       | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
+    | Error _ -> Alcotest.fail "expected Ok")
+;;
+
+let test_resolve_execution_default_fallback_canonicalizes_model_alias () =
+  Llm_provider.Cli_common_env.with_env Defaults.fallback_provider_env_var "" (fun () ->
+    let detail = { dummy_spawn with model = Some "sonnet" } in
+    match Runtime_server_resolve.resolve_execution dummy_session detail with
+    | Ok res ->
+      Alcotest.(check string) "selected" "claude" res.selected_provider;
+      Alcotest.(check (option string))
+        "resolved model"
+        (Some "claude-sonnet-4-6-20250514")
+        res.resolved_model;
+      (match res.provider_cfg with
+       | Some { Provider.provider = Provider.Anthropic; model_id; _ } ->
+         Alcotest.(check string) "canonical model" "claude-sonnet-4-6-20250514" model_id
+       | _ -> Alcotest.fail "expected direct Anthropic provider")
+    | Error _ -> Alcotest.fail "expected Ok")
+;;
+
+let test_resolve_execution_default_fallback_ignores_catalog_claude_collision () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "loopback-claude",
+          "aliases": ["claude"],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "http://127.0.0.1:8000",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "local-loopback-model",
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       Llm_provider.Cli_common_env.with_env
+         Defaults.fallback_provider_env_var
+         ""
+         (fun () ->
+            match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+            | Ok res ->
+              Alcotest.(check string) "selected" "claude" res.selected_provider;
+              Alcotest.(check (option string))
+                "resolved provider"
+                (Some "claude")
+                res.resolved_provider;
+              (match res.provider_cfg with
+               | Some { Provider.provider = Provider.Anthropic; model_id; _ } ->
+                 Alcotest.(check string)
+                   "builtin default model"
+                   Model_registry.default_model_id_fallback
+                   model_id
+               | Some { Provider.provider = Provider.Custom_registered { name }; _ } ->
+                 Alcotest.failf
+                   "catalog collision should not win default fallback: %s"
+                   name
+               | Some { Provider.provider = Provider.Local _; _ } ->
+                 Alcotest.fail "catalog collision should not localize default fallback"
+               | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
+            | Error _ -> Alcotest.fail "expected Ok"))
 ;;
 
 let test_resolve_provider_model_override () =
@@ -549,6 +634,18 @@ let () =
             "default fallback when both None"
             `Quick
             test_resolve_execution_default_fallback
+        ; Alcotest.test_case
+            "SDK defaults do not force local"
+            `Quick
+            test_resolve_execution_sdk_default_options_do_not_force_local
+        ; Alcotest.test_case
+            "default fallback canonicalizes model alias"
+            `Quick
+            test_resolve_execution_default_fallback_canonicalizes_model_alias
+        ; Alcotest.test_case
+            "default fallback ignores catalog claude collision"
+            `Quick
+            test_resolve_execution_default_fallback_ignores_catalog_claude_collision
         ] )
     ]
 ;;

@@ -408,6 +408,16 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
 ;;
 
 let resolve_model binding ~requested_model =
+  let normalize_requested_model model =
+    match binding.kind with
+    | PConfig.Anthropic -> Model_registry.resolve_model_id model
+    | PConfig.Kimi
+    | PConfig.OpenAI_compat
+    | PConfig.Ollama
+    | PConfig.Gemini
+    | PConfig.Glm
+    | PConfig.DashScope -> model
+  in
   let fallback_default_model () =
     match binding.kind with
     | PConfig.Ollama -> "default"
@@ -419,7 +429,7 @@ let resolve_model binding ~requested_model =
     | PConfig.DashScope -> binding.id
   in
   match Option.bind requested_model trim_non_empty with
-  | Some model -> model
+  | Some model -> normalize_requested_model model
   | None ->
     (match binding.default_model with
      | Some model when String.trim model <> "" -> model

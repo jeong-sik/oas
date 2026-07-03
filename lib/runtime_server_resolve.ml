@@ -45,6 +45,36 @@ let provider_config_of_binding ~model_id (binding : Provider_runtime_binding.t) 
   }
 ;;
 
+let model_for_provider provider model ~default =
+  match Util.trim_non_empty_opt model with
+  | Some requested ->
+    (match provider with
+     | Provider.Anthropic -> Model_registry.resolve_model_id requested
+     | Provider.Local _ | Provider.OpenAICompat _ | Provider.Custom_registered _ ->
+       requested)
+  | None -> default
+;;
+
+let with_requested_model ?model (cfg : Provider.config) =
+  { cfg with
+    Provider.model_id = model_for_provider cfg.provider model ~default:cfg.model_id
+  }
+;;
+
+let builtin_claude_config ?model () =
+  let model_id =
+    model_for_provider
+      Provider.Anthropic
+      model
+      ~default:(Model_registry.default_model_id_value ())
+  in
+  { Provider.provider = Provider.Anthropic
+  ; model_id
+  ; api_key_env =
+      Provider.default_api_key_env_of_kind Llm_provider.Provider_config.Anthropic
+  }
+;;
+
 let resolve_from_bindings ~provider_name ?model () =
   match Provider_runtime_binding.find provider_name with
   | Some binding ->
@@ -56,9 +86,11 @@ let resolve_from_bindings ~provider_name ?model () =
     let resolved_model = Model_registry.resolve_model_id provider_name in
     if not (String.equal resolved_model provider_name)
     then (
+      let model_id =
+        model_for_provider Provider.Anthropic model ~default:resolved_model
+      in
       match Provider_runtime_binding.find "claude" with
-      | Some binding ->
-        Ok (Some (provider_config_of_binding ~model_id:resolved_model binding))
+      | Some binding -> Ok (Some (provider_config_of_binding ~model_id binding))
       | None ->
         unsupported_provider
           "provider alias resolved to an Anthropic model but provider bindings have no \
@@ -71,45 +103,40 @@ let resolve_from_bindings ~provider_name ?model () =
            (valid_provider_detail ()))
 ;;
 
+let resolve_selected_provider ~implicit_fallback selected ?model () =
+  match selected with
+  | "mock" | "echo" ->
+    let* () = ensure_test_provider_enabled selected in
+    Ok None
+  | "local" -> Ok (Some (with_requested_model ?model (Provider.local_llm ())))
+  | ("claude" | "anthropic") when implicit_fallback ->
+    Ok (Some (builtin_claude_config ?model ()))
+  | other -> resolve_from_bindings ~provider_name:other ?model ()
+;;
+
 let resolve_provider ?provider ?model () =
-  let selected =
+  let selected, implicit_fallback =
     match provider with
     | Some value when String.trim value <> "" ->
-      String.lowercase_ascii (String.trim value)
-    | _ -> Defaults.resolve_fallback_provider ()
+      String.lowercase_ascii (String.trim value), false
+    | _ -> Defaults.resolve_fallback_provider (), true
   in
-  let base =
-    match selected with
-    | "mock" | "echo" ->
-      let* () = ensure_test_provider_enabled selected in
-      Ok None
-    | "local" -> Ok (Some (Provider.local_llm ()))
-    | other -> resolve_from_bindings ~provider_name:other ?model ()
-  in
+  let base = resolve_selected_provider ~implicit_fallback selected ?model () in
   match base with
   | Error _ as e -> e
-  | Ok None -> Ok None
-  | Ok (Some cfg) ->
-    Ok
-      (Some
-         { cfg with
-           model_id =
-             (match model with
-              | Some value when String.trim value <> "" -> value
-              | _ -> cfg.model_id)
-         })
+  | Ok _ as ok -> ok
 ;;
 
 let resolve_execution (session : session) (detail : spawn_agent_request) =
   let first_some = Util.first_some in
-  let selected_provider =
+  let selected_provider, implicit_fallback =
     match detail.provider with
     | Some value when String.trim value <> "" ->
-      String.lowercase_ascii (String.trim value)
+      String.lowercase_ascii (String.trim value), false
     | _ ->
       (match Util.trim_non_empty_opt session.provider with
-       | Some value -> String.lowercase_ascii value
-       | None -> Defaults.resolve_fallback_provider ())
+       | Some value -> String.lowercase_ascii value, false
+       | None -> Defaults.resolve_fallback_provider (), true)
   in
   let requested_model = Util.trim_non_empty_opt detail.model in
   match selected_provider with
@@ -124,8 +151,9 @@ let resolve_execution (session : session) (detail : spawn_agent_request) =
       }
   | _ ->
     (match
-       resolve_provider
-         ~provider:selected_provider
+       resolve_selected_provider
+         ~implicit_fallback
+         selected_provider
          ?model:(first_some requested_model session.model)
          ()
      with

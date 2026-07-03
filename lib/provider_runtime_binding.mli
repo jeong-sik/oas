@@ -77,8 +77,10 @@ val capabilities_for_provider_config
   -> Llm_provider.Capabilities.capabilities
 
 (** Resolve the model that should be used for a binding. [requested_model]
-    wins when non-empty, followed by the binding catalog default, then OAS
-    provider defaults. *)
+    wins when non-empty, with Anthropic bindings normalizing known model
+    aliases through {!Model_registry.resolve_model_id}; unknown requested
+    models still pass through unchanged. Empty requested models fall back to
+    the binding catalog default, then OAS provider defaults. *)
 val resolve_model : t -> requested_model:string option -> string
 
 (** Convert a binding into the low-level provider config used by OAS
