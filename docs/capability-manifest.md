@@ -112,20 +112,24 @@ must update the parser and this schema together.
 ### Base presets
 
 The `base` field names a provider preset from
-`Capabilities.capabilities_for_provider_label`.  The absent-or-unrecognised
-default is `default_capabilities` (all flags false, no limits).
+`Capabilities.capabilities_for_provider_label`.  When `base` is absent, OAS uses
+`default_capabilities` (all flags false, no limits).  Unrecognised `base` values
+are rejected when the manifest is parsed.
 
 | Label | Description |
 |-------|-------------|
-| `openai_chat` | OpenAI GPT (chat completions, 128K ctx) |
-| `openai_chat_extended` | OpenAI GPT with reasoning + top\_k/min\_p |
-| `anthropic` | Claude (1M ctx, extended thinking, caching) |
+| `anthropic`, `claude` | Claude (1M ctx, extended thinking, caching) |
+| `dashscope` | DashScope |
 | `gemini` | Gemini (1M ctx, audio/video, code execution) |
-| `ollama` | Ollama local server |
-| `ollama_cloud` | Ollama Cloud native `/api/chat`; parsed reasoning may be final visible text |
-| `glm` | GLM / ZhipuAI |
+| `glm`, `zhipu`, `glm-coding` | GLM / ZhipuAI |
 | `kimi` | Kimi (262K ctx, reasoning) |
-| `nemotron` | NVIDIA NIM Nemotron (chat\_template\_kwargs thinking) |
+| `openai_compat` | OpenAI-compatible base preset |
+| `ollama` | Ollama local server |
+| `openai_chat` | OpenAI GPT (chat completions, 128K ctx) |
+| `openai`, `openai_compat_chat_extended` | OpenAI-compatible aliases |
+| `openai_chat_extended` | OpenAI GPT with reasoning + top\_k/min\_p |
+| `ollama_cloud` | Ollama Cloud native `/api/chat`; parsed reasoning may be final visible text |
+| `xai`, `mistral`, `cohere`, `mimo`, `nvidia` | Hosted provider presets |
 
 ## OCaml API
 
@@ -149,9 +153,15 @@ let caps = Capabilities.for_model_id "my-llama-q4-k4"
 ### Apply a manifest entry directly
 
 ```ocaml
+let base_label =
+  match Capability_manifest.base_label_of_string "openai_chat" with
+  | Ok label -> label
+  | Error msg -> invalid_arg msg
+in
+
 let entry : Capability_manifest.entry =
   { id_prefix = "my-model"
-  ; base_label = Some "openai_chat"
+  ; base_label = Some base_label
   ; max_context_tokens = Some 65536
   ; supports_tools = Some true
   ; (* all other fields: None = inherit from base *)

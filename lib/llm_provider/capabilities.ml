@@ -700,6 +700,26 @@ let%test "capabilities_of_kind aliases the same presets as the label classifier"
     ]
 ;;
 
+let%test "every base_label vocab value resolves to a preset (no false-reject)" =
+  (* SSOT drift-guard (RFC-OAS-034): [Capability_vocab.base_label_values] is what
+     the catalog/manifest parsers accept for a [base] field. If a listed value
+     did NOT resolve here, the parser would accept a label that then silently
+     collapses to [default_capabilities] — reopening the gap this closes. So
+     every vocab value must resolve to [Some]. (The reverse — resolver labels not
+     in the vocab — is caught loudly at parse time, not silently.) *)
+  List.for_all
+    (fun label -> Option.is_some (capabilities_for_provider_label label))
+    Capability_vocab.base_label_values
+;;
+
+let%test "unknown base label resolves to None, not a permissive default" =
+  (* The classifier fails closed on unrecognised labels; the parsers turn that
+     [None] into a parse Error rather than [default_capabilities]. *)
+  List.for_all
+    (fun label -> Option.is_none (capabilities_for_provider_label label))
+    [ "runpod_mtp"; "vllm"; "typo_label"; "" ]
+;;
+
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size = { caps with max_context_tokens = Some ctx_size }
 
@@ -820,7 +840,7 @@ type declarative_capability_overrides =
   }
 
 let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
-  { base_label = entry.base_label
+  { base_label = Option.map Capability_manifest.base_label_to_string entry.base_label
   ; max_context_tokens = entry.max_context_tokens
   ; max_output_tokens = entry.max_output_tokens
   ; supports_tools = entry.supports_tools
