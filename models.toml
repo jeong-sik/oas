@@ -1624,6 +1624,18 @@ supports_tool_choice = false
 supports_native_streaming = true
 
 # Kimi Models
+#
+# kimi-for-coding is the Kimi Code *coding plan* alias (api.kimi.com/coding),
+# not the pay-per-token platform API: the key comes from the Kimi Code console,
+# the two credentials are not interchangeable, and the gateway picks the served
+# version (Thinking on = K2.7 Code, off = K2.6 — kimi.com/code docs, checked
+# 2026-07-03). Pricing 0.0 means subscription-included, not free-tier.
+# Structured output is path-dependent on this gateway: the OpenAI-compatible
+# /v1/chat/completions path honors response_format json_schema (measured 10/10,
+# 2026-07-03) while the Anthropic-compatible /v1/messages path — the one the
+# builtin "kimi" provider uses — silently ignores output_format. The row
+# inherits supports_structured_output=false from base="kimi"; override
+# per-entry only for a deployment that routes through the OpenAI path.
 [[models]]
 id_prefix = "kimi-for-coding"
 base = "kimi"
