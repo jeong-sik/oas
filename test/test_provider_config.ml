@@ -979,6 +979,17 @@ let test_is_local_localhost () =
   check_bool "localhost is local" true (Provider_config.is_local cfg)
 ;;
 
+let test_is_local_ipv6_loopback () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"http://[::1]:8085"
+      ()
+  in
+  check_bool "ipv6 loopback is local" true (Provider_config.is_local cfg)
+;;
+
 let test_is_local_remote_false () =
   let cfg =
     Provider_config.make
@@ -2267,6 +2278,7 @@ let () =
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip
         ; Alcotest.test_case "localhost" `Quick test_is_local_localhost
+        ; Alcotest.test_case "ipv6 loopback" `Quick test_is_local_ipv6_loopback
         ; Alcotest.test_case "remote false" `Quick test_is_local_remote_false
         ; Alcotest.test_case
             "host boundary false"

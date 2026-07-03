@@ -936,8 +936,18 @@ let has_host_prefix ~url ~prefix =
   || Char.equal url.[next_index] '#'
 ;;
 
+let is_loopback_host host =
+  match String.lowercase_ascii (String.trim host) with
+  | "127.0.0.1" | "localhost" | "::1" | "0:0:0:0:0:0:0:1" -> true
+  | _ -> false
+;;
+
 let is_local (config : t) =
-  let url = String.lowercase_ascii (String.trim config.base_url) in
-  has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
-  || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
+  let url = String.trim config.base_url in
+  match Uri.of_string url |> Uri.host with
+  | Some host -> is_loopback_host host
+  | None ->
+    let url = String.lowercase_ascii url in
+    has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
+    || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
 ;;
