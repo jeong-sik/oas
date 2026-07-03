@@ -286,6 +286,80 @@ let test_resolve_execution_default_fallback_canonicalizes_model_alias () =
     | Error _ -> Alcotest.fail "expected Ok")
 ;;
 
+let test_resolve_execution_default_fallback_canonicalizes_env_model_alias () =
+  Llm_provider.Cli_common_env.with_env Defaults.fallback_provider_env_var "" (fun () ->
+    Llm_provider.Cli_common_env.with_env
+      Model_registry.default_model_id_env_var
+      "sonnet"
+      (fun () ->
+         match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+         | Ok res ->
+           Alcotest.(check string) "selected" "claude" res.selected_provider;
+           Alcotest.(check (option string))
+             "resolved model"
+             (Some "claude-sonnet-4-6-20250514")
+             res.resolved_model;
+           (match res.provider_cfg with
+            | Some { Provider.provider = Provider.Anthropic; model_id; _ } ->
+              Alcotest.(check string)
+                "canonical env default"
+                "claude-sonnet-4-6-20250514"
+                model_id
+            | _ -> Alcotest.fail "expected direct Anthropic provider")
+         | Error _ -> Alcotest.fail "expected Ok"))
+;;
+
+let test_resolve_execution_default_fallback_preserves_nonlocal_catalog_claude_override () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "proxy-claude",
+          "aliases": ["claude"],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "https://proxy.example/v1",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "proxy-claude-model",
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       Llm_provider.Cli_common_env.with_env
+         Defaults.fallback_provider_env_var
+         ""
+         (fun () ->
+            match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+            | Ok res ->
+              Alcotest.(check string) "selected" "claude" res.selected_provider;
+              Alcotest.(check (option string))
+                "resolved provider"
+                (Some "proxy-claude")
+                res.resolved_provider;
+              Alcotest.(check (option string))
+                "resolved model"
+                (Some "proxy-claude-model")
+                res.resolved_model;
+              (match res.provider_cfg with
+               | Some
+                   { Provider.provider = Provider.Custom_registered { name }
+                   ; model_id
+                   ; _
+                   } ->
+                 Alcotest.(check string) "catalog provider id" "proxy-claude" name;
+                 Alcotest.(check string)
+                   "catalog default model"
+                   "proxy-claude-model"
+                   model_id
+               | Some { Provider.provider = Provider.Local _; _ } ->
+                 Alcotest.fail "non-local catalog override must not resolve to local"
+               | _ -> Alcotest.fail "expected non-local catalog provider")
+            | Error _ -> Alcotest.fail "expected Ok"))
+;;
+
 let test_resolve_execution_default_fallback_ignores_catalog_claude_collision () =
   with_provider_catalog
     {|{
@@ -328,6 +402,57 @@ let test_resolve_execution_default_fallback_ignores_catalog_claude_collision () 
                    name
                | Some { Provider.provider = Provider.Local _; _ } ->
                  Alcotest.fail "catalog collision should not localize default fallback"
+               | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
+            | Error _ -> Alcotest.fail "expected Ok"))
+;;
+
+let test_resolve_execution_model_alias_fallback_ignores_catalog_claude_collision () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "loopback-claude",
+          "aliases": ["claude"],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "http://127.0.0.1:8000",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "local-loopback-model",
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       Llm_provider.Cli_common_env.with_env
+         Defaults.fallback_provider_env_var
+         "sonnet"
+         (fun () ->
+            match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+            | Ok res ->
+              Alcotest.(check string) "selected" "sonnet" res.selected_provider;
+              Alcotest.(check (option string))
+                "resolved provider"
+                (Some "claude")
+                res.resolved_provider;
+              Alcotest.(check (option string))
+                "resolved model"
+                (Some "claude-sonnet-4-6-20250514")
+                res.resolved_model;
+              (match res.provider_cfg with
+               | Some { Provider.provider = Provider.Anthropic; model_id; _ } ->
+                 Alcotest.(check string)
+                   "canonical alias fallback model"
+                   "claude-sonnet-4-6-20250514"
+                   model_id
+               | Some { Provider.provider = Provider.Custom_registered { name }; _ } ->
+                 Alcotest.failf
+                   "catalog collision should not win model alias fallback: %s"
+                   name
+               | Some { Provider.provider = Provider.Local _; _ } ->
+                 Alcotest.fail
+                   "catalog collision should not localize model alias fallback"
                | _ -> Alcotest.fail "expected direct Anthropic default fallback provider")
             | Error _ -> Alcotest.fail "expected Ok"))
 ;;
@@ -643,9 +768,21 @@ let () =
             `Quick
             test_resolve_execution_default_fallback_canonicalizes_model_alias
         ; Alcotest.test_case
+            "default fallback canonicalizes env model alias"
+            `Quick
+            test_resolve_execution_default_fallback_canonicalizes_env_model_alias
+        ; Alcotest.test_case
+            "default fallback preserves non-local catalog claude override"
+            `Quick
+            test_resolve_execution_default_fallback_preserves_nonlocal_catalog_claude_override
+        ; Alcotest.test_case
             "default fallback ignores catalog claude collision"
             `Quick
             test_resolve_execution_default_fallback_ignores_catalog_claude_collision
+        ; Alcotest.test_case
+            "model alias fallback ignores catalog claude collision"
+            `Quick
+            test_resolve_execution_model_alias_fallback_ignores_catalog_claude_collision
         ] )
     ]
 ;;

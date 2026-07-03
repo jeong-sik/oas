@@ -146,7 +146,7 @@ let model_catalog_default_for_base_label base_label =
 
 let registry_default_model provider_id =
   match normalize provider_id with
-  | "claude" | "anthropic" -> Some Model_registry.default_model_id
+  | "claude" | "anthropic" -> None
   | "ollama" -> Some "default"
   | provider_id ->
     (match model_catalog_default_for_base_label provider_id with
@@ -258,6 +258,18 @@ let find label =
       (match builtin_alias_target normalized with
        | Some target -> binding_by_exact_label registry target
        | None -> None))
+;;
+
+let find_catalog label =
+  let normalized = normalize label in
+  if normalized = ""
+  then None
+  else (
+    let registry = PR.default () in
+    match PC.global () with
+    | Some catalog ->
+      Option.map (binding_of_catalog_entry registry) (PC.lookup catalog normalized)
+    | None -> None)
 ;;
 
 let known_labels () =
@@ -421,7 +433,8 @@ let resolve_model binding ~requested_model =
   let fallback_default_model () =
     match binding.kind with
     | PConfig.Ollama -> "default"
-    | PConfig.Anthropic
+    | PConfig.Anthropic ->
+      Model_registry.default_model_id_value () |> Model_registry.resolve_model_id
     | PConfig.Kimi
     | PConfig.OpenAI_compat
     | PConfig.Gemini
@@ -432,7 +445,7 @@ let resolve_model binding ~requested_model =
   | Some model -> normalize_requested_model model
   | None ->
     (match binding.default_model with
-     | Some model when String.trim model <> "" -> model
+     | Some model when String.trim model <> "" -> normalize_requested_model model
      | Some _blank_default_model -> fallback_default_model ()
      | None -> fallback_default_model ())
 ;;
@@ -450,4 +463,8 @@ let to_provider_config ?model binding =
     ?request_path
     ?max_context
     ()
+;;
+
+let is_local ?model binding =
+  to_provider_config ?model binding |> Llm_provider.Provider_config.is_local
 ;;

@@ -45,6 +45,10 @@ val all : unit -> t list
     case-insensitive and whitespace-trimmed. *)
 val find : string -> t option
 
+(** Find a runtime binding only from the process/env provider catalog overlay.
+    Built-in registry providers are intentionally excluded. *)
+val find_catalog : string -> t option
+
 (** Return all known binding ids and selector aliases. This is a display /
     diagnostics surface; callers should use {!find} for resolution. *)
 val known_labels : unit -> string list
@@ -86,3 +90,7 @@ val resolve_model : t -> requested_model:string option -> string
 (** Convert a binding into the low-level provider config used by OAS
     transports. *)
 val to_provider_config : ?model:string -> t -> Llm_provider.Provider_config.t
+
+(** Whether a binding resolves to a local loopback endpoint for the selected
+    model. *)
+val is_local : ?model:string -> t -> bool

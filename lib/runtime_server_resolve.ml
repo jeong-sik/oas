@@ -38,7 +38,8 @@ let valid_provider_detail () =
   String.concat ", " (List.sort_uniq String.compare names)
 ;;
 
-let provider_config_of_binding ~model_id (binding : Provider_runtime_binding.t) =
+let provider_config_of_binding ?model (binding : Provider_runtime_binding.t) =
+  let model_id = Provider_runtime_binding.resolve_model binding ~requested_model:model in
   { Provider.provider = Provider.Custom_registered { name = binding.id }
   ; model_id
   ; api_key_env = binding.api_key_env
@@ -66,7 +67,8 @@ let builtin_claude_config ?model () =
     model_for_provider
       Provider.Anthropic
       model
-      ~default:(Model_registry.default_model_id_value ())
+      ~default:
+        (Model_registry.default_model_id_value () |> Model_registry.resolve_model_id)
   in
   { Provider.provider = Provider.Anthropic
   ; model_id
@@ -75,26 +77,42 @@ let builtin_claude_config ?model () =
   }
 ;;
 
-let resolve_from_bindings ~provider_name ?model () =
+let nonlocal_catalog_config ?model labels =
+  List.find_map
+    (fun label ->
+       match Provider_runtime_binding.find_catalog label with
+       | Some binding when not (Provider_runtime_binding.is_local ?model binding) ->
+         Some (provider_config_of_binding ?model binding)
+       | Some _ | None -> None)
+    labels
+;;
+
+let implicit_claude_fallback_config selected ?model () =
+  match nonlocal_catalog_config ?model [ selected; "claude"; "anthropic" ] with
+  | Some cfg -> cfg
+  | None -> builtin_claude_config ?model ()
+;;
+
+let resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model () =
+  let model_id = model_for_provider Provider.Anthropic model ~default:resolved_model in
+  if implicit_fallback
+  then Ok (Some (implicit_claude_fallback_config "claude" ~model:model_id ()))
+  else (
+    match Provider_runtime_binding.find "claude" with
+    | Some binding -> Ok (Some (provider_config_of_binding ~model:model_id binding))
+    | None ->
+      unsupported_provider
+        "provider alias resolved to an Anthropic model but provider bindings have no \
+         \"claude\" entry")
+;;
+
+let resolve_from_bindings ~implicit_fallback ~provider_name ?model () =
   match Provider_runtime_binding.find provider_name with
-  | Some binding ->
-    let model_id =
-      Provider_runtime_binding.resolve_model binding ~requested_model:model
-    in
-    Ok (Some (provider_config_of_binding ~model_id binding))
+  | Some binding -> Ok (Some (provider_config_of_binding ?model binding))
   | None ->
     let resolved_model = Model_registry.resolve_model_id provider_name in
     if not (String.equal resolved_model provider_name)
-    then (
-      let model_id =
-        model_for_provider Provider.Anthropic model ~default:resolved_model
-      in
-      match Provider_runtime_binding.find "claude" with
-      | Some binding -> Ok (Some (provider_config_of_binding ~model_id binding))
-      | None ->
-        unsupported_provider
-          "provider alias resolved to an Anthropic model but provider bindings have no \
-           \"claude\" entry")
+    then resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model ()
     else
       unsupported_provider
         (Printf.sprintf
@@ -110,8 +128,8 @@ let resolve_selected_provider ~implicit_fallback selected ?model () =
     Ok None
   | "local" -> Ok (Some (with_requested_model ?model (Provider.local_llm ())))
   | ("claude" | "anthropic") when implicit_fallback ->
-    Ok (Some (builtin_claude_config ?model ()))
-  | other -> resolve_from_bindings ~provider_name:other ?model ()
+    Ok (Some (implicit_claude_fallback_config selected ?model ()))
+  | other -> resolve_from_bindings ~implicit_fallback ~provider_name:other ?model ()
 ;;
 
 let resolve_provider ?provider ?model () =
