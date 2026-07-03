@@ -396,206 +396,213 @@ let%test "capture mutex does not block Eio fiber scheduling" =
 ;;
 
 let%test "make_sink rotates file when max bytes would be exceeded" =
-  let dir = Filename.temp_dir "oas_wire_rotate" "" in
-  let max_bytes = 128 in
-  let s =
-    make_sink
-      ~getenv:(fun name ->
-        if String.equal name env_dir
-        then Some dir
-        else if String.equal name env_max_bytes
-        then Some (string_of_int max_bytes)
-        else None)
-      ~provider:"p"
-      ~model:"m"
-  in
-  s (String.make 64 'a');
-  s (String.make 64 'b');
-  let path = Filename.concat dir capture_filename in
-  let backup = path ^ ".1" in
-  Sys.file_exists backup
-  && Sys.file_exists path
-  &&
-  let content = read_file path in
-  contains ~needle:"\"chunk\":\"" content
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_rotate" "" in
+    let max_bytes = 128 in
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s (String.make 64 'a');
+    s (String.make 64 'b');
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    Sys.file_exists backup
+    && Sys.file_exists path
+    &&
+    let content = read_file path in
+    contains ~needle:"\"chunk\":\"" content)
 ;;
 
 let%test "make_sink skips oversized records instead of exceeding max bytes" =
-  let dir = Filename.temp_dir "oas_wire_oversized" "" in
-  let warnings = ref [] in
-  let max_bytes = 128 in
-  Diag.with_sink
-    (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-    (fun () ->
-       let s =
-         make_sink
-           ~getenv:(fun name ->
-             if String.equal name env_dir
-             then Some dir
-             else if String.equal name env_max_bytes
-             then Some (string_of_int max_bytes)
-             else None)
-           ~provider:"p"
-           ~model:"m"
-       in
-       s (String.make 1024 'x'));
-  let path = Filename.concat dir capture_filename in
-  (not (Sys.file_exists path))
-  && List.exists
-       (fun (level, ctx, msg) ->
-          level = Diag.Warn
-          && String.equal ctx "wire_capture"
-          && contains ~needle:"skipped capture chunk" msg)
-       !warnings
-;;
-
-let%test "make_sink skips when rotation cannot preserve cap" =
-  let dir = Filename.temp_dir "oas_wire_rotate_fail" "" in
-  let warnings = ref [] in
-  let max_bytes = 256 in
-  let path = Filename.concat dir capture_filename in
-  let backup = path ^ ".1" in
-  let oc = open_out_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_out oc)
-    (fun () -> output_string oc (String.make 250 'a'));
-  Unix.mkdir backup 0o700;
-  Diag.with_sink
-    (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-    (fun () ->
-       let s =
-         make_sink
-           ~getenv:(fun name ->
-             if String.equal name env_dir
-             then Some dir
-             else if String.equal name env_max_bytes
-             then Some (string_of_int max_bytes)
-             else None)
-           ~provider:"p"
-           ~model:"m"
-       in
-       s "small chunk");
-  file_size path <= max_bytes
-  && List.exists
-       (fun (level, ctx, msg) ->
-          level = Diag.Warn
-          && String.equal ctx "wire_capture"
-          && contains ~needle:"skipped capture write" msg)
-       !warnings
-;;
-
-let%test "make_sink drops already oversized capture file before appending" =
-  let dir = Filename.temp_dir "oas_wire_drop_oversized" "" in
-  let max_bytes = 256 in
-  let path = Filename.concat dir capture_filename in
-  let backup = path ^ ".1" in
-  let oc = open_out_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_out oc)
-    (fun () -> output_string oc (String.make 512 'a'));
-  let s =
-    make_sink
-      ~getenv:(fun name ->
-        if String.equal name env_dir
-        then Some dir
-        else if String.equal name env_max_bytes
-        then Some (string_of_int max_bytes)
-        else None)
-      ~provider:"p"
-      ~model:"m"
-  in
-  s "small chunk";
-  file_size path <= max_bytes
-  && (not (Sys.file_exists backup))
-  &&
-  let content = read_file path in
-  contains ~needle:"small chunk" content
-;;
-
-let%test "make_sink drops already oversized backup before appending" =
-  let dir = Filename.temp_dir "oas_wire_drop_oversized_backup" "" in
-  let max_bytes = 256 in
-  let path = Filename.concat dir capture_filename in
-  let backup = path ^ ".1" in
-  let oc = open_out_bin backup in
-  Fun.protect
-    ~finally:(fun () -> close_out oc)
-    (fun () -> output_string oc (String.make 512 'a'));
-  let s =
-    make_sink
-      ~getenv:(fun name ->
-        if String.equal name env_dir
-        then Some dir
-        else if String.equal name env_max_bytes
-        then Some (string_of_int max_bytes)
-        else None)
-      ~provider:"p"
-      ~model:"m"
-  in
-  s "small chunk";
-  (not (Sys.file_exists backup))
-  &&
-  let content = read_file path in
-  contains ~needle:"small chunk" content
-;;
-
-let%test "make_sink drops oversized files before skipping oversized records" =
-  let dir = Filename.temp_dir "oas_wire_drop_before_oversized_skip" "" in
-  let max_bytes = 256 in
-  let path = Filename.concat dir capture_filename in
-  let backup = path ^ ".1" in
-  let write_big path =
-    let oc = open_out_bin path in
-    Fun.protect
-      ~finally:(fun () -> close_out oc)
-      (fun () -> output_string oc (String.make 512 'a'))
-  in
-  write_big path;
-  write_big backup;
-  let s =
-    make_sink
-      ~getenv:(fun name ->
-        if String.equal name env_dir
-        then Some dir
-        else if String.equal name env_max_bytes
-        then Some (string_of_int max_bytes)
-        else None)
-      ~provider:"p"
-      ~model:"m"
-  in
-  s (String.make 1024 'x');
-  (not (Sys.file_exists path)) && not (Sys.file_exists backup)
-;;
-
-let%test "invalid max bytes falls back to default cap with warning" =
-  let dir = Filename.temp_dir "oas_wire_nocap" "" in
-  let warnings = ref [] in
-  let max_bytes, invalid =
-    capture_max_bytes
-      ~getenv:(fun name -> if String.equal name env_max_bytes then Some "0" else None)
-      ()
-  in
-  let s =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_oversized" "" in
+    let warnings = ref [] in
+    let max_bytes = 128 in
     Diag.with_sink
       (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
       (fun () ->
-         make_sink
-           ~getenv:(fun name ->
-             if String.equal name env_dir
-             then Some dir
-             else if String.equal name env_max_bytes
-             then Some "0"
-             else None)
-           ~provider:"p"
-           ~model:"m")
-  in
-  s "chunk";
-  max_bytes = default_max_bytes
-  && invalid = Some "0"
-  && List.exists
-       (fun (level, ctx, msg) ->
-          level = Diag.Warn
-          && String.equal ctx "wire_capture"
-          && contains ~needle:"invalid; using default cap" msg)
-       !warnings
+         let s =
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some (string_of_int max_bytes)
+               else None)
+             ~provider:"p"
+             ~model:"m"
+         in
+         s (String.make 1024 'x'));
+    let path = Filename.concat dir capture_filename in
+    (not (Sys.file_exists path))
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"skipped capture chunk" msg)
+         !warnings)
+;;
+
+let%test "make_sink skips when rotation cannot preserve cap" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_rotate_fail" "" in
+    let warnings = ref [] in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 250 'a'));
+    Unix.mkdir backup 0o700;
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         let s =
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some (string_of_int max_bytes)
+               else None)
+             ~provider:"p"
+             ~model:"m"
+         in
+         s "small chunk");
+    file_size path <= max_bytes
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"skipped capture write" msg)
+         !warnings)
+;;
+
+let%test "make_sink drops already oversized capture file before appending" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_oversized" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 512 'a'));
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s "small chunk";
+    file_size path <= max_bytes
+    && (not (Sys.file_exists backup))
+    &&
+    let content = read_file path in
+    contains ~needle:"small chunk" content)
+;;
+
+let%test "make_sink drops already oversized backup before appending" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_oversized_backup" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin backup in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 512 'a'));
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s "small chunk";
+    (not (Sys.file_exists backup))
+    &&
+    let content = read_file path in
+    contains ~needle:"small chunk" content)
+;;
+
+let%test "make_sink drops oversized files before skipping oversized records" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_before_oversized_skip" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let write_big path =
+      let oc = open_out_bin path in
+      Fun.protect
+        ~finally:(fun () -> close_out oc)
+        (fun () -> output_string oc (String.make 512 'a'))
+    in
+    write_big path;
+    write_big backup;
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s (String.make 1024 'x');
+    (not (Sys.file_exists path)) && not (Sys.file_exists backup))
+;;
+
+let%test "invalid max bytes falls back to default cap with warning" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_nocap" "" in
+    let warnings = ref [] in
+    let max_bytes, invalid =
+      capture_max_bytes
+        ~getenv:(fun name -> if String.equal name env_max_bytes then Some "0" else None)
+        ()
+    in
+    let s =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () ->
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some "0"
+               else None)
+             ~provider:"p"
+             ~model:"m")
+    in
+    s "chunk";
+    max_bytes = default_max_bytes
+    && invalid = Some "0"
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"invalid; using default cap" msg)
+         !warnings)
 ;;
