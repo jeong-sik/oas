@@ -36,7 +36,7 @@ let bool_env_or default var =
 ;;
 
 let fallback_provider_env_var = "OAS_FALLBACK_PROVIDER"
-let default_fallback_provider = "local"
+let default_fallback_provider = "claude"
 let resolve_local_llm_url () = Llm_provider.Discovery.resolve_default_endpoint ()
 
 let resolve_fallback_provider () =

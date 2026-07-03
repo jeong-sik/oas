@@ -30,8 +30,9 @@ val resolve_local_llm_url : unit -> string
 (** Environment variable used by {!resolve_fallback_provider}. *)
 val fallback_provider_env_var : string
 
-(** Default provider returned by {!resolve_fallback_provider} when
-    {!fallback_provider_env_var} is unset or empty. *)
+(** Non-local default provider returned by {!resolve_fallback_provider} when
+    {!fallback_provider_env_var} is unset or empty. Local providers remain opt-in via
+    an explicit ["local"] provider value or [OAS_FALLBACK_PROVIDER=local]. *)
 val default_fallback_provider : string
 
 (** Fallback provider name.

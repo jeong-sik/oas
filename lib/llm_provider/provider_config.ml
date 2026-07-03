@@ -936,8 +936,40 @@ let has_host_prefix ~url ~prefix =
   || Char.equal url.[next_index] '#'
 ;;
 
+let is_loopback_ip_literal host =
+  try
+    let normalized = Unix.inet_addr_of_string host |> Unix.string_of_inet_addr in
+    String.equal normalized "::1"
+    ||
+    let is_ipv4_loopback literal =
+      match String.split_on_char '.' literal with
+      | first_octet :: _ -> String.equal first_octet "127"
+      | _ -> false
+    in
+    let is_ipv4_mapped_loopback literal =
+      let prefix = "::ffff:" in
+      let prefix_len = String.length prefix in
+      String.length literal > prefix_len
+      && String.equal (String.sub literal 0 prefix_len) prefix
+      && is_ipv4_loopback
+           (String.sub literal prefix_len (String.length literal - prefix_len))
+    in
+    is_ipv4_loopback normalized || is_ipv4_mapped_loopback normalized
+  with
+  | Failure _ | Unix.Unix_error _ -> false
+;;
+
+let is_loopback_host host =
+  let host = String.lowercase_ascii (String.trim host) in
+  String.equal host "localhost" || is_loopback_ip_literal host
+;;
+
 let is_local (config : t) =
-  let url = String.lowercase_ascii (String.trim config.base_url) in
-  has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
-  || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
+  let url = String.trim config.base_url in
+  match Uri.of_string url |> Uri.host with
+  | Some host -> is_loopback_host host
+  | None ->
+    let url = String.lowercase_ascii url in
+    has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
+    || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
 ;;
