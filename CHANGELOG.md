@@ -31,6 +31,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.16](https://github.com/jeong-sik/oas/compare/v0.208.15...v0.208.16) (2026-07-03)
+
+
+### Bug Fixes
+
+* **llm_provider:** offload wire capture I/O to a background fiber ([#2456](https://github.com/jeong-sik/oas/issues/2456)) ([3684c32](https://github.com/jeong-sik/oas/commit/3684c32fabab4daf74b6fc4eea6619b3fdf1a5c7))
+* **provider_config:** replace fuzzy ollama host classifier with exact Uri.host equality ([#2458](https://github.com/jeong-sik/oas/issues/2458)) ([5c53517](https://github.com/jeong-sik/oas/commit/5c535170880091888ef552be9a212ac922259fdd))
+
 ## [0.208.15](https://github.com/jeong-sik/oas/compare/v0.208.14...v0.208.15) (2026-07-03)
 
 
