@@ -936,10 +936,21 @@ let has_host_prefix ~url ~prefix =
   || Char.equal url.[next_index] '#'
 ;;
 
+let is_loopback_ip_literal host =
+  try
+    let normalized = Unix.inet_addr_of_string host |> Unix.string_of_inet_addr in
+    String.equal normalized "::1"
+    ||
+    match String.split_on_char '.' normalized with
+    | "127" :: _ -> true
+    | _ -> false
+  with
+  | Failure _ | Unix.Unix_error _ -> false
+;;
+
 let is_loopback_host host =
-  match String.lowercase_ascii (String.trim host) with
-  | "127.0.0.1" | "localhost" | "::1" | "0:0:0:0:0:0:0:1" -> true
-  | _ -> false
+  let host = String.lowercase_ascii (String.trim host) in
+  String.equal host "localhost" || is_loopback_ip_literal host
 ;;
 
 let is_local (config : t) =
