@@ -139,7 +139,12 @@ let append_bounded_json_line ~path ~max_bytes line =
     with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
       let line_bytes = String.length line in
       let current_size = file_size path in
-      if current_size + line_bytes > max_bytes
+      if current_size > max_bytes
+      then (
+        match unlink_if_exists path with
+        | Error _ as err -> err
+        | Ok () -> Ok (append_json_line_unlocked ~path line))
+      else if current_size + line_bytes > max_bytes
       then (
         match rotate_file path with
         | Error _ as err -> err
@@ -437,6 +442,34 @@ let%test "make_sink skips when rotation cannot preserve cap" =
           && String.equal ctx "wire_capture"
           && contains ~needle:"skipped capture write" msg)
        !warnings
+;;
+
+let%test "make_sink drops already oversized capture file before appending" =
+  let dir = Filename.temp_dir "oas_wire_drop_oversized" "" in
+  let max_bytes = 256 in
+  let path = Filename.concat dir capture_filename in
+  let backup = path ^ ".1" in
+  let oc = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () -> output_string oc (String.make 512 'a'));
+  let s =
+    make_sink
+      ~getenv:(fun name ->
+        if String.equal name env_dir
+        then Some dir
+        else if String.equal name env_max_bytes
+        then Some (string_of_int max_bytes)
+        else None)
+      ~provider:"p"
+      ~model:"m"
+  in
+  s "small chunk";
+  file_size path <= max_bytes
+  && (not (Sys.file_exists backup))
+  &&
+  let content = read_file path in
+  contains ~needle:"small chunk" content
 ;;
 
 let%test "invalid max bytes falls back to default cap with warning" =
