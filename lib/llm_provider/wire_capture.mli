@@ -17,7 +17,9 @@
     or non-positive configured values fail closed to the default cap and emit a
     warning. When a chunk would push [raw-stream.jsonl] past the cap the current
     file is rotated to [raw-stream.jsonl.1] and a fresh file is started, so at
-    most two cap-sized files exist in the capture directory.
+    most two cap-sized files exist in the capture directory. A single encoded
+    JSON line larger than the cap is skipped with a warning instead of exceeding
+    the bound.
 
     @since introduced for the agent output repetition investigation (Phase O). *)
 

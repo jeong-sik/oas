@@ -110,7 +110,7 @@ let rotate_file path =
   | Sys_error _ | Unix.Unix_error _ -> ()
 ;;
 
-let write_line ~path ~provider ~model ~warned ~max_bytes chunk =
+let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk =
   let json : Yojson.Safe.t =
     `Assoc
       [ "provider", `String provider
@@ -119,22 +119,36 @@ let write_line ~path ~provider ~model ~warned ~max_bytes chunk =
       ]
   in
   let line = Yojson.Safe.to_string json ^ "\n" in
-  if file_size path + String.length line > max_bytes then rotate_file path;
-  try append_json_line ~path line with
-  | Sys_error msg ->
-    if not !warned
+  let line_bytes = String.length line in
+  if line_bytes > max_bytes
+  then (
+    if not !oversized_warned
     then (
-      warned := true;
-      Diag.warn "wire_capture" "write failed for %S: %s" path msg)
-  | Unix.Unix_error (err, fn, arg) ->
-    if not !warned
-    then (
-      warned := true;
+      oversized_warned := true;
       Diag.warn
         "wire_capture"
-        "write failed for %S: %s"
+        "skipped capture chunk for %S: encoded JSON line is %d bytes, exceeding cap %d \
+         bytes"
         path
-        (unix_error_message err fn arg))
+        line_bytes
+        max_bytes))
+  else (
+    if file_size path + line_bytes > max_bytes then rotate_file path;
+    try append_json_line ~path line with
+    | Sys_error msg ->
+      if not !warned
+      then (
+        warned := true;
+        Diag.warn "wire_capture" "write failed for %S: %s" path msg)
+    | Unix.Unix_error (err, fn, arg) ->
+      if not !warned
+      then (
+        warned := true;
+        Diag.warn
+          "wire_capture"
+          "write failed for %S: %s"
+          path
+          (unix_error_message err fn arg)))
 ;;
 
 let make_sink ?getenv ~provider ~model =
@@ -148,6 +162,7 @@ let make_sink ?getenv ~provider ~model =
      | Ok () ->
        let path = Filename.concat dir capture_filename in
        let warned = ref false in
+       let oversized_warned = ref false in
        let max_bytes, invalid_max_bytes = capture_max_bytes ?getenv () in
        (match invalid_max_bytes with
         | None -> ()
@@ -158,7 +173,8 @@ let make_sink ?getenv ~provider ~model =
             env_max_bytes
             value
             default_max_bytes);
-       fun chunk -> write_line ~path ~provider ~model ~warned ~max_bytes chunk)
+       fun chunk ->
+         write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk)
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
@@ -313,6 +329,35 @@ let%test "make_sink rotates file when max bytes would be exceeded" =
   &&
   let content = read_file path in
   contains ~needle:"\"chunk\":\"" content
+;;
+
+let%test "make_sink skips oversized records instead of exceeding max bytes" =
+  let dir = Filename.temp_dir "oas_wire_oversized" "" in
+  let warnings = ref [] in
+  let max_bytes = 128 in
+  let s =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         make_sink
+           ~getenv:(fun name ->
+             if String.equal name env_dir
+             then Some dir
+             else if String.equal name env_max_bytes
+             then Some (string_of_int max_bytes)
+             else None)
+           ~provider:"p"
+           ~model:"m")
+  in
+  s (String.make 1024 'x');
+  let path = Filename.concat dir capture_filename in
+  (not (Sys.file_exists path))
+  && List.exists
+       (fun (level, ctx, msg) ->
+          level = Diag.Warn
+          && String.equal ctx "wire_capture"
+          && contains ~needle:"skipped capture chunk" msg)
+       !warnings
 ;;
 
 let%test "invalid max bytes falls back to default cap with warning" =
