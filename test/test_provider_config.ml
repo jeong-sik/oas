@@ -1532,6 +1532,27 @@ let test_validate_output_schema_unknown_openai_compat_host_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
+let test_validate_output_schema_ollama_subdomain_rejected () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"gpt-4o"
+        ~base_url:"https://api.ollama.com/v1"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    match Provider_config.validate_output_schema_request cfg with
+    | Error msg ->
+      check_string
+        "rejection reason"
+        "native structured output is only wired for declared OpenAI-compatible \
+         endpoints, got https://api.ollama.com/v1"
+        msg
+    | Ok () -> Alcotest.fail "expected Ollama subdomain to fail closed")
+;;
+
 let test_validate_cli_sampling_params_accepts_anthropic_min_p () =
   let cfg =
     Provider_config.make
@@ -2310,6 +2331,10 @@ let () =
             "unknown openai compat host rejected"
             `Quick
             test_validate_output_schema_unknown_openai_compat_host_rejected
+        ; Alcotest.test_case
+            "ollama subdomain is not a declared endpoint"
+            `Quick
+            test_validate_output_schema_ollama_subdomain_rejected
         ; Alcotest.test_case
             "raw compat qwen does not inherit bare capability"
             `Quick

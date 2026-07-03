@@ -849,9 +849,7 @@ let openai_host_supports_output_schema base_url =
   | None -> false
   | Some host ->
     let host = String.lowercase_ascii host in
-    String.equal host "api.openai.com"
-    || String.equal host "ollama.com"
-    || String.ends_with ~suffix:".ollama.com" host
+    String.equal host "api.openai.com" || String.equal host "ollama.com"
 ;;
 
 let endpoint_supports_openai_compat_output_schema (config : t) =

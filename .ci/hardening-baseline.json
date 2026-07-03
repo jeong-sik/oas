@@ -1,9 +1,7 @@
 {
   "_comment": "Production hardening ratchet baseline. Source: docs/rfc/RFC-OAS-023-hardening-ratchet.md. Regenerate with scripts/hardening-ratchet.sh --rebaseline.",
   "examples": {
-    "base_url_host_fuzzy_classifiers": [
-      "lib/llm_provider/provider_config.ml:834:|| String.ends_with ~suffix:\".ollama.com\" host"
-    ],
+    "base_url_host_fuzzy_classifiers": [],
     "direct_env_reads": [
       "lib/llm_provider/cli_common_env.ml:11:let default_getenv = Sys.getenv_opt",
       "lib/llm_provider/env_parse.ml:10:match Sys.getenv_opt name with",
@@ -46,9 +44,9 @@
     ],
     "workaround_markers": []
   },
-  "lastUpdatedCommit": "b46951c86eb666bf75e7ae5a6464ad067cd77776",
+  "lastUpdatedCommit": "4d371c24d12ad5b55a2c3641391f2fd95b6a61cc",
   "metrics": {
-    "base_url_host_fuzzy_classifiers": 1,
+    "base_url_host_fuzzy_classifiers": 0,
     "direct_env_reads": 11,
     "direct_env_reads_outside_env_boundary": 8,
     "exception_message_classifiers": 1,
