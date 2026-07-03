@@ -4,6 +4,7 @@ let env_dir = "OAS_WIRE_CAPTURE_DIR"
 let env_max_bytes = "OAS_WIRE_CAPTURE_MAX_BYTES"
 let capture_filename = "raw-stream.jsonl"
 let default_max_bytes = 64 * 1024 * 1024
+let async_stream_capacity = 64
 
 type sink = string -> unit
 
@@ -240,7 +241,7 @@ let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk
           (unix_error_message err fn arg)))
 ;;
 
-let make_sink ?getenv ~provider ~model =
+let make_sink ?getenv ?sw ~provider ~model =
   match Cli_common_env.get ?getenv env_dir with
   | None -> noop
   | Some dir ->
@@ -262,8 +263,51 @@ let make_sink ?getenv ~provider ~model =
             env_max_bytes
             value
             default_max_bytes);
-       fun chunk ->
-         write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk)
+       let write =
+         write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes
+       in
+       (match sw with
+        | None -> write
+        | Some sw ->
+          let stream = Eio.Stream.create async_stream_capacity in
+          let drop_warned = ref false in
+          let writer_failed = ref false in
+          let rec writer () =
+            let chunk = Eio.Stream.take stream in
+            write chunk;
+            writer ()
+          in
+          Eio.Fiber.fork_daemon ~sw (fun () ->
+            (try writer () with
+             | Eio.Cancel.Cancelled _ ->
+               (* Switch cancelled: drain any remaining queued chunks best-effort
+                  before exiting so the tail of a stream is not silently lost. *)
+               let rec drain () =
+                 match Eio.Stream.take_nonblocking stream with
+                 | Some chunk ->
+                   write chunk;
+                   drain ()
+                 | None -> ()
+               in
+               drain ()
+             | exn ->
+               if not !writer_failed
+               then (
+                 writer_failed := true;
+                 Diag.warn
+                   "wire_capture"
+                   "background writer failed for %S: %s"
+                   path
+                   (Printexc.to_string exn)));
+            `Stop_daemon);
+          fun chunk ->
+            if Eio.Stream.length stream >= async_stream_capacity
+            then (
+              if not !drop_warned
+              then (
+                drop_warned := true;
+                Diag.warn "wire_capture" "capture queue full; dropping chunk for %S" path))
+            else Eio.Stream.add stream chunk))
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
@@ -313,15 +357,17 @@ let%test "make_sink is a no-op when env is unset or empty" =
 let%test "make_sink writes redacted binary JSONL when env is set" =
   Eio_main.run (fun _env ->
     let dir = Filename.temp_dir "oas_wire" "" in
-    let s =
-      make_sink
-        ~getenv:(capture_getenv dir)
-        ~provider:"ollama_cloud"
-        ~model:"deepseek-v4-flash"
-    in
     (* Built at runtime so no literal secret appears in source. *)
     let token = "ghp_" ^ String.make 36 '7' in
-    s ("delta content " ^ token ^ " end");
+    Eio.Switch.run (fun sw ->
+      let s =
+        make_sink
+          ~sw
+          ~getenv:(capture_getenv dir)
+          ~provider:"ollama_cloud"
+          ~model:"deepseek-v4-flash"
+      in
+      s ("delta content " ^ token ^ " end"));
     let path = Filename.concat dir capture_filename in
     let content = read_file path in
     (not (contains ~needle:token content))
@@ -332,10 +378,11 @@ let%test "make_sink writes redacted binary JSONL when env is set" =
 let%test "multiple active sinks append complete JSONL lines" =
   Eio_main.run (fun _env ->
     let dir = Filename.temp_dir "oas_wire_multi" "" in
-    let s1 = make_sink ~getenv:(capture_getenv dir) ~provider:"p1" ~model:"m1" in
-    let s2 = make_sink ~getenv:(capture_getenv dir) ~provider:"p2" ~model:"m2" in
-    s1 (String.make 4096 'a');
-    s2 (String.make 4096 'b');
+    Eio.Switch.run (fun sw ->
+      let s1 = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p1" ~model:"m1" in
+      let s2 = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p2" ~model:"m2" in
+      s1 (String.make 4096 'a');
+      s2 (String.make 4096 'b'));
     let content = read_file (Filename.concat dir capture_filename) in
     let lines =
       String.split_on_char '\n' content |> List.filter (fun line -> line <> "")
@@ -350,19 +397,10 @@ let%test "multiple active sinks append complete JSONL lines" =
 let%test "make_sink disables capture when env path is a file" =
   Eio_main.run (fun _env ->
     let path = Filename.temp_file "oas_wire_file" ".txt" in
-    let warnings = ref [] in
-    let s =
-      Diag.with_sink
-        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-        (fun () -> make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m")
-    in
+    let before = read_file path in
+    let s = make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m" in
     s "chunk";
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "wire_capture"
-         && contains ~needle:"not a directory" msg)
-      !warnings)
+    Sys.file_exists path && String.equal before (read_file path))
 ;;
 
 let%test "disabled sink writes nothing" =
@@ -399,19 +437,21 @@ let%test "make_sink rotates file when max bytes would be exceeded" =
   Eio_main.run (fun _env ->
     let dir = Filename.temp_dir "oas_wire_rotate" "" in
     let max_bytes = 128 in
-    let s =
-      make_sink
-        ~getenv:(fun name ->
-          if String.equal name env_dir
-          then Some dir
-          else if String.equal name env_max_bytes
-          then Some (string_of_int max_bytes)
-          else None)
-        ~provider:"p"
-        ~model:"m"
-    in
-    s (String.make 64 'a');
-    s (String.make 64 'b');
+    Eio.Switch.run (fun sw ->
+      let s =
+        make_sink
+          ~sw
+          ~getenv:(fun name ->
+            if String.equal name env_dir
+            then Some dir
+            else if String.equal name env_max_bytes
+            then Some (string_of_int max_bytes)
+            else None)
+          ~provider:"p"
+          ~model:"m"
+      in
+      s (String.make 64 'a');
+      s (String.make 64 'b'));
     let path = Filename.concat dir capture_filename in
     let backup = path ^ ".1" in
     Sys.file_exists backup
@@ -429,18 +469,20 @@ let%test "make_sink skips oversized records instead of exceeding max bytes" =
     Diag.with_sink
       (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
       (fun () ->
-         let s =
-           make_sink
-             ~getenv:(fun name ->
-               if String.equal name env_dir
-               then Some dir
-               else if String.equal name env_max_bytes
-               then Some (string_of_int max_bytes)
-               else None)
-             ~provider:"p"
-             ~model:"m"
-         in
-         s (String.make 1024 'x'));
+         Eio.Switch.run (fun sw ->
+           let s =
+             make_sink
+               ~sw
+               ~getenv:(fun name ->
+                 if String.equal name env_dir
+                 then Some dir
+                 else if String.equal name env_max_bytes
+                 then Some (string_of_int max_bytes)
+                 else None)
+               ~provider:"p"
+               ~model:"m"
+           in
+           s (String.make 1024 'x')));
     let path = Filename.concat dir capture_filename in
     (not (Sys.file_exists path))
     && List.exists
@@ -466,18 +508,20 @@ let%test "make_sink skips when rotation cannot preserve cap" =
     Diag.with_sink
       (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
       (fun () ->
-         let s =
-           make_sink
-             ~getenv:(fun name ->
-               if String.equal name env_dir
-               then Some dir
-               else if String.equal name env_max_bytes
-               then Some (string_of_int max_bytes)
-               else None)
-             ~provider:"p"
-             ~model:"m"
-         in
-         s "small chunk");
+         Eio.Switch.run (fun sw ->
+           let s =
+             make_sink
+               ~sw
+               ~getenv:(fun name ->
+                 if String.equal name env_dir
+                 then Some dir
+                 else if String.equal name env_max_bytes
+                 then Some (string_of_int max_bytes)
+                 else None)
+               ~provider:"p"
+               ~model:"m"
+           in
+           s "small chunk"));
     file_size path <= max_bytes
     && List.exists
          (fun (level, ctx, msg) ->
@@ -497,18 +541,20 @@ let%test "make_sink drops already oversized capture file before appending" =
     Fun.protect
       ~finally:(fun () -> close_out oc)
       (fun () -> output_string oc (String.make 512 'a'));
-    let s =
-      make_sink
-        ~getenv:(fun name ->
-          if String.equal name env_dir
-          then Some dir
-          else if String.equal name env_max_bytes
-          then Some (string_of_int max_bytes)
-          else None)
-        ~provider:"p"
-        ~model:"m"
-    in
-    s "small chunk";
+    Eio.Switch.run (fun sw ->
+      let s =
+        make_sink
+          ~sw
+          ~getenv:(fun name ->
+            if String.equal name env_dir
+            then Some dir
+            else if String.equal name env_max_bytes
+            then Some (string_of_int max_bytes)
+            else None)
+          ~provider:"p"
+          ~model:"m"
+      in
+      s "small chunk");
     file_size path <= max_bytes
     && (not (Sys.file_exists backup))
     &&
@@ -526,18 +572,20 @@ let%test "make_sink drops already oversized backup before appending" =
     Fun.protect
       ~finally:(fun () -> close_out oc)
       (fun () -> output_string oc (String.make 512 'a'));
-    let s =
-      make_sink
-        ~getenv:(fun name ->
-          if String.equal name env_dir
-          then Some dir
-          else if String.equal name env_max_bytes
-          then Some (string_of_int max_bytes)
-          else None)
-        ~provider:"p"
-        ~model:"m"
-    in
-    s "small chunk";
+    Eio.Switch.run (fun sw ->
+      let s =
+        make_sink
+          ~sw
+          ~getenv:(fun name ->
+            if String.equal name env_dir
+            then Some dir
+            else if String.equal name env_max_bytes
+            then Some (string_of_int max_bytes)
+            else None)
+          ~provider:"p"
+          ~model:"m"
+      in
+      s "small chunk");
     (not (Sys.file_exists backup))
     &&
     let content = read_file path in
@@ -558,18 +606,20 @@ let%test "make_sink drops oversized files before skipping oversized records" =
     in
     write_big path;
     write_big backup;
-    let s =
-      make_sink
-        ~getenv:(fun name ->
-          if String.equal name env_dir
-          then Some dir
-          else if String.equal name env_max_bytes
-          then Some (string_of_int max_bytes)
-          else None)
-        ~provider:"p"
-        ~model:"m"
-    in
-    s (String.make 1024 'x');
+    Eio.Switch.run (fun sw ->
+      let s =
+        make_sink
+          ~sw
+          ~getenv:(fun name ->
+            if String.equal name env_dir
+            then Some dir
+            else if String.equal name env_max_bytes
+            then Some (string_of_int max_bytes)
+            else None)
+          ~provider:"p"
+          ~model:"m"
+      in
+      s (String.make 1024 'x'));
     (not (Sys.file_exists path)) && not (Sys.file_exists backup))
 ;;
 
@@ -582,21 +632,23 @@ let%test "invalid max bytes falls back to default cap with warning" =
         ~getenv:(fun name -> if String.equal name env_max_bytes then Some "0" else None)
         ()
     in
-    let s =
-      Diag.with_sink
-        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-        (fun () ->
-           make_sink
-             ~getenv:(fun name ->
-               if String.equal name env_dir
-               then Some dir
-               else if String.equal name env_max_bytes
-               then Some "0"
-               else None)
-             ~provider:"p"
-             ~model:"m")
-    in
-    s "chunk";
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         Eio.Switch.run (fun sw ->
+           let s =
+             make_sink
+               ~sw
+               ~getenv:(fun name ->
+                 if String.equal name env_dir
+                 then Some dir
+                 else if String.equal name env_max_bytes
+                 then Some "0"
+                 else None)
+               ~provider:"p"
+               ~model:"m"
+           in
+           s "chunk"));
     max_bytes = default_max_bytes
     && invalid = Some "0"
     && List.exists
@@ -605,4 +657,55 @@ let%test "invalid max bytes falls back to default cap with warning" =
             && String.equal ctx "wire_capture"
             && contains ~needle:"invalid; using default cap" msg)
          !warnings)
+;;
+
+let%test "async sink enqueue does not wait for slow writer" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let dir = Filename.temp_dir "oas_wire_async_nonblock" "" in
+    let enqueue_elapsed = ref 0.0 in
+    Eio.Switch.run (fun sw ->
+      let s = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p" ~model:"m" in
+      Eio.Fiber.both
+        (fun () ->
+           (* Hold the append mutex so the background writer cannot make
+             progress. A synchronous sink would block here for the full
+             duration. *)
+           with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
+        (fun () ->
+           Eio.Time.sleep clock 0.05;
+           let t0 = Unix.gettimeofday () in
+           s "chunk";
+           enqueue_elapsed := Unix.gettimeofday () -. t0));
+    !enqueue_elapsed < 0.1)
+;;
+
+let%test "async sink drops newest chunk when queue is full" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let dir = Filename.temp_dir "oas_wire_async_drop" "" in
+    let warnings = ref [] in
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         Eio.Switch.run (fun sw ->
+           let s = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p" ~model:"m" in
+           Eio.Fiber.both
+             (fun () ->
+                (* Hold the append mutex so the writer cannot drain the queue. *)
+                with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
+             (fun () ->
+                (* Fill and overflow the queue. Each add is non-blocking. *)
+                for i = 1 to async_stream_capacity + 3 do
+                  s (Printf.sprintf "chunk-%d" i)
+                done)));
+    (* The writer was blocked for the whole time, so at most [capacity]
+       chunks could have been accepted; the rest were dropped with one
+       warning. *)
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Diag.Warn
+         && String.equal ctx "wire_capture"
+         && contains ~needle:"capture queue full" msg)
+      !warnings)
 ;;

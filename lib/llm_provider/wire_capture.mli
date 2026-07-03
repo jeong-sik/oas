@@ -26,17 +26,27 @@
 (** A per-chunk capture function. Call with each raw pre-parse chunk. *)
 type sink = string -> unit
 
-(** [make_sink ~provider ~model] reads [OAS_WIRE_CAPTURE_DIR] once through the
-    llm_provider env boundary. If unset or empty it returns a no-op sink.
+(** [make_sink ?sw ~provider ~model] reads [OAS_WIRE_CAPTURE_DIR] once through
+    the llm_provider env boundary. If unset or empty it returns a no-op sink.
     Otherwise it validates or creates the capture directory once and returns a
     sink that appends one redacted JSON line ([{provider, model, chunk}]) per
     chunk to [<dir>/raw-stream.jsonl]. Expected I/O failures are reported once
     via {!Diag.warn}; capture never perturbs the stream.
 
-    The returned sink uses a fiber-aware mutex and must be called from within an
-    Eio fiber when capture is enabled; the no-op sink may be called anywhere. *)
+    When [~sw] is supplied and capture is enabled, the sink enqueues chunks on
+    a bounded {!Eio.Stream.t} and a dedicated daemon writer fiber (forked under
+    [sw]) drains the queue to disk. This keeps the streaming hot path from
+    blocking on capture I/O. If the queue fills, new chunks are dropped with a
+    single warning rather than back-pressuring the stream. When the switch
+    cancels the daemon writer, it drains any remaining queued chunks best-effort
+    before exiting.
+
+    When [~sw] is omitted, the sink performs synchronous writes under the
+    existing fiber-aware mutex (legacy behavior). The no-op sink may be called
+    anywhere. *)
 val make_sink
   :  ?getenv:(string -> string option)
+  -> ?sw:Eio.Switch.t
   -> provider:string
   -> model:string
   -> sink
