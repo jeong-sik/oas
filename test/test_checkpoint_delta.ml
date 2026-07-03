@@ -192,8 +192,9 @@ let with_env key value f =
     | Some previous -> Unix.putenv key previous
     | None -> Unix.putenv key ""
   in
-  (* OCaml's Unix module on our supported switches does not provide unsetenv.
-     For this feature flag helper, the empty string is equivalent to "off". *)
+  (* OCaml 5.5 adds Unix.unsetenv, but our supported switches are still on the
+     5.4 floor. For this feature flag helper, the empty string is equivalent to
+     "off". *)
   (match value with
    | Some next -> Unix.putenv key next
    | None -> Unix.putenv key "");
