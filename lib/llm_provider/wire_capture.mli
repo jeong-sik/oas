@@ -34,12 +34,12 @@ type sink = string -> unit
     via {!Diag.warn}; capture never perturbs the stream.
 
     When [~sw] is supplied and capture is enabled, the sink enqueues chunks on
-    a bounded {!Eio.Stream.t} and a dedicated writer fiber (forked under [sw])
-    drains the queue to disk. This keeps the streaming hot path from blocking
-    on capture I/O. If the queue fills, new chunks are dropped with a single
-    warning rather than back-pressuring the stream. When the switch is
-    cancelled the writer drains any remaining queued chunks best-effort before
-    exiting.
+    a bounded {!Eio.Stream.t} and a dedicated daemon writer fiber (forked under
+    [sw]) drains the queue to disk. This keeps the streaming hot path from
+    blocking on capture I/O. If the queue fills, new chunks are dropped with a
+    single warning rather than back-pressuring the stream. When the switch
+    cancels the daemon writer, it drains any remaining queued chunks best-effort
+    before exiting.
 
     When [~sw] is omitted, the sink performs synchronous writes under the
     existing fiber-aware mutex (legacy behavior). The no-op sink may be called

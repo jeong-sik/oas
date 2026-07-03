@@ -277,28 +277,29 @@ let make_sink ?getenv ?sw ~provider ~model =
             write chunk;
             writer ()
           in
-          Eio.Fiber.fork ~sw (fun () ->
-            try writer () with
-            | Eio.Cancel.Cancelled _ ->
-              (* Switch cancelled: drain any remaining queued chunks best-effort
-                before exiting so the tail of a stream is not silently lost. *)
-              let rec drain () =
-                match Eio.Stream.take_nonblocking stream with
-                | Some chunk ->
-                  write chunk;
-                  drain ()
-                | None -> ()
-              in
-              drain ()
-            | exn ->
-              if not !writer_failed
-              then (
-                writer_failed := true;
-                Diag.warn
-                  "wire_capture"
-                  "background writer failed for %S: %s"
-                  path
-                  (Printexc.to_string exn)));
+          Eio.Fiber.fork_daemon ~sw (fun () ->
+            (try writer () with
+             | Eio.Cancel.Cancelled _ ->
+               (* Switch cancelled: drain any remaining queued chunks best-effort
+                  before exiting so the tail of a stream is not silently lost. *)
+               let rec drain () =
+                 match Eio.Stream.take_nonblocking stream with
+                 | Some chunk ->
+                   write chunk;
+                   drain ()
+                 | None -> ()
+               in
+               drain ()
+             | exn ->
+               if not !writer_failed
+               then (
+                 writer_failed := true;
+                 Diag.warn
+                   "wire_capture"
+                   "background writer failed for %S: %s"
+                   path
+                   (Printexc.to_string exn)));
+            `Stop_daemon);
           fun chunk ->
             if Eio.Stream.length stream >= async_stream_capacity
             then (
@@ -396,19 +397,10 @@ let%test "multiple active sinks append complete JSONL lines" =
 let%test "make_sink disables capture when env path is a file" =
   Eio_main.run (fun _env ->
     let path = Filename.temp_file "oas_wire_file" ".txt" in
-    let warnings = ref [] in
-    let s =
-      Diag.with_sink
-        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-        (fun () -> make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m")
-    in
+    let before = read_file path in
+    let s = make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m" in
     s "chunk";
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "wire_capture"
-         && contains ~needle:"not a directory" msg)
-      !warnings)
+    Sys.file_exists path && String.equal before (read_file path))
 ;;
 
 let%test "disabled sink writes nothing" =

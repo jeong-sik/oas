@@ -621,7 +621,7 @@ let complete_stream_http
                  loop below pays only an indirect call. Attributes a
                  degenerate-repetition bug to the model vs. the stream parser.
 
-                 The sink is scoped to a per-request switch so the background
+                 The sink is scoped to a per-request switch so the daemon
                  writer fiber is cancelled (and drains its queue) as soon as the
                  stream body is consumed, instead of leaking until the caller's
                  long-lived switch terminates. *)
