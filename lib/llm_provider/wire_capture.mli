@@ -23,7 +23,10 @@ type sink = string -> unit
     Otherwise it validates or creates the capture directory once and returns a
     sink that appends one redacted JSON line ([{provider, model, chunk}]) per
     chunk to [<dir>/raw-stream.jsonl]. Expected I/O failures are reported once
-    via {!Diag.warn}; capture never perturbs the stream. *)
+    via {!Diag.warn}; capture never perturbs the stream.
+
+    The returned sink uses a fiber-aware mutex and must be called from within an
+    Eio fiber when capture is enabled; the no-op sink may be called anywhere. *)
 val make_sink
   :  ?getenv:(string -> string option)
   -> provider:string

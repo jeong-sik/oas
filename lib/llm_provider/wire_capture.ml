@@ -37,11 +37,11 @@ let ensure_capture_dir dir =
   | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
 ;;
 
-let append_mutex = Mutex.create ()
+let append_mutex = Eio.Mutex.create ()
 
 let with_append_mutex f =
-  Mutex.lock append_mutex;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock append_mutex)
+  Eio.Mutex.lock append_mutex;
+  Fun.protect f ~finally:(fun () -> Eio.Mutex.unlock append_mutex)
 ;;
 
 let close_noerr fd =
@@ -167,53 +167,58 @@ let%test "make_sink is a no-op when env is unset or empty" =
 ;;
 
 let%test "make_sink writes redacted binary JSONL when env is set" =
-  let dir = Filename.temp_dir "oas_wire" "" in
-  let s =
-    make_sink
-      ~getenv:(capture_getenv dir)
-      ~provider:"ollama_cloud"
-      ~model:"deepseek-v4-flash"
-  in
-  (* Built at runtime so no literal secret appears in source. *)
-  let token = "ghp_" ^ String.make 36 '7' in
-  s ("delta content " ^ token ^ " end");
-  let path = Filename.concat dir capture_filename in
-  let content = read_file path in
-  (not (contains ~needle:token content))
-  && contains ~needle:"[REDACTED]" content
-  && contains ~needle:"deepseek-v4-flash" content
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire" "" in
+    let s =
+      make_sink
+        ~getenv:(capture_getenv dir)
+        ~provider:"ollama_cloud"
+        ~model:"deepseek-v4-flash"
+    in
+    (* Built at runtime so no literal secret appears in source. *)
+    let token = "ghp_" ^ String.make 36 '7' in
+    s ("delta content " ^ token ^ " end");
+    let path = Filename.concat dir capture_filename in
+    let content = read_file path in
+    (not (contains ~needle:token content))
+    && contains ~needle:"[REDACTED]" content
+    && contains ~needle:"deepseek-v4-flash" content)
 ;;
 
 let%test "multiple active sinks append complete JSONL lines" =
-  let dir = Filename.temp_dir "oas_wire_multi" "" in
-  let s1 = make_sink ~getenv:(capture_getenv dir) ~provider:"p1" ~model:"m1" in
-  let s2 = make_sink ~getenv:(capture_getenv dir) ~provider:"p2" ~model:"m2" in
-  s1 (String.make 4096 'a');
-  s2 (String.make 4096 'b');
-  let content = read_file (Filename.concat dir capture_filename) in
-  let lines = String.split_on_char '\n' content |> List.filter (fun line -> line <> "") in
-  match lines with
-  | [ line1; line2 ] ->
-    contains ~needle:"\"provider\":\"p1\"" line1
-    && contains ~needle:"\"provider\":\"p2\"" line2
-  | _ -> false
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_multi" "" in
+    let s1 = make_sink ~getenv:(capture_getenv dir) ~provider:"p1" ~model:"m1" in
+    let s2 = make_sink ~getenv:(capture_getenv dir) ~provider:"p2" ~model:"m2" in
+    s1 (String.make 4096 'a');
+    s2 (String.make 4096 'b');
+    let content = read_file (Filename.concat dir capture_filename) in
+    let lines =
+      String.split_on_char '\n' content |> List.filter (fun line -> line <> "")
+    in
+    match lines with
+    | [ line1; line2 ] ->
+      contains ~needle:"\"provider\":\"p1\"" line1
+      && contains ~needle:"\"provider\":\"p2\"" line2
+    | _ -> false)
 ;;
 
 let%test "make_sink disables capture when env path is a file" =
-  let path = Filename.temp_file "oas_wire_file" ".txt" in
-  let warnings = ref [] in
-  let s =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () -> make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m")
-  in
-  s "chunk";
-  List.exists
-    (fun (level, ctx, msg) ->
-       level = Diag.Warn
-       && String.equal ctx "wire_capture"
-       && contains ~needle:"not a directory" msg)
-    !warnings
+  Eio_main.run (fun _env ->
+    let path = Filename.temp_file "oas_wire_file" ".txt" in
+    let warnings = ref [] in
+    let s =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m")
+    in
+    s "chunk";
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Diag.Warn
+         && String.equal ctx "wire_capture"
+         && contains ~needle:"not a directory" msg)
+      !warnings)
 ;;
 
 let%test "disabled sink writes nothing" =
@@ -222,4 +227,26 @@ let%test "disabled sink writes nothing" =
   with_cwd dir (fun () ->
     s "chunk";
     not (Sys.file_exists capture_filename))
+;;
+
+let%test "capture mutex does not block Eio fiber scheduling" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let progress = ref false in
+    let observed_by_holder = ref false in
+    let observed_by_waiter = ref false in
+    Eio.Fiber.all
+      [ (fun () ->
+          with_append_mutex (fun () ->
+            (* Simulate slow capture I/O while holding the shared lock. *)
+            Eio.Time.sleep clock 0.2;
+            observed_by_holder := !progress))
+      ; (fun () ->
+          Eio.Time.sleep clock 0.05;
+          progress := true)
+      ; (fun () ->
+          Eio.Time.sleep clock 0.01;
+          with_append_mutex (fun () -> observed_by_waiter := !progress))
+      ];
+    !observed_by_holder && !observed_by_waiter)
 ;;
