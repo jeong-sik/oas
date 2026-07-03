@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.15](https://github.com/jeong-sik/oas/compare/v0.208.14...v0.208.15) (2026-07-03)
+
+
+### Bug Fixes
+
+* **provider:** map api.kimi.com coding-plan host to kimi vendor identity ([#2454](https://github.com/jeong-sik/oas/issues/2454)) ([6c6d5ca](https://github.com/jeong-sik/oas/commit/6c6d5ca3971b82e3de746e70b1dac6f15842385d)), closes [#2452](https://github.com/jeong-sik/oas/issues/2452) [#2414](https://github.com/jeong-sik/oas/issues/2414)
+
 ## [0.208.14](https://github.com/jeong-sik/oas/compare/v0.208.13...v0.208.14) (2026-07-03)
 
 
