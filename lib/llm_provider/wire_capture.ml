@@ -56,6 +56,19 @@ let unlock_noerr fd =
   | Unix.Unix_error _ -> ()
 ;;
 
+let with_file_lock ~lock_path f =
+  let fd = Unix.openfile lock_path [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_CLOEXEC ] 0o600 in
+  let locked = ref false in
+  Fun.protect
+    ~finally:(fun () ->
+      if !locked then unlock_noerr fd;
+      close_noerr fd)
+    (fun () ->
+       Unix.lockf fd Unix.F_LOCK 0;
+       locked := true;
+       f ())
+;;
+
 let rec write_all fd line offset remaining =
   if remaining > 0
   then (
@@ -64,24 +77,16 @@ let rec write_all fd line offset remaining =
     | written -> write_all fd line (offset + written) (remaining - written))
 ;;
 
-let append_json_line ~path line =
-  with_append_mutex (fun () ->
-    let fd =
-      Unix.openfile
-        path
-        [ Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC ]
-        0o600
-    in
-    let locked = ref false in
-    Fun.protect
-      ~finally:(fun () ->
-        if !locked then unlock_noerr fd;
-        close_noerr fd)
-      (fun () ->
-         ignore (Unix.lseek fd 0 Unix.SEEK_SET : int);
-         Unix.lockf fd Unix.F_TLOCK 0;
-         locked := true;
-         write_all fd line 0 (String.length line)))
+let append_json_line_unlocked ~path line =
+  let fd =
+    Unix.openfile
+      path
+      [ Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC ]
+      0o600
+  in
+  Fun.protect
+    ~finally:(fun () -> close_noerr fd)
+    (fun () -> write_all fd line 0 (String.length line))
 ;;
 
 let file_size path =
@@ -99,15 +104,47 @@ let capture_max_bytes ?getenv () =
      | Some _ | None -> default_max_bytes, Some s)
 ;;
 
-(** Rotate [path] to [path ^ ".1"], deleting any previous backup. This is
-    best-effort: failures are ignored because the harness must not perturb the
-    stream. *)
+let unlink_if_exists path =
+  try Ok (Unix.unlink path) with
+  | Unix.Unix_error (Unix.ENOENT, _, _) -> Ok ()
+  | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
+;;
+
+let path_exists path =
+  try
+    ignore (Unix.stat path : Unix.stats);
+    true
+  with
+  | Unix.Unix_error (Unix.ENOENT, _, _) -> false
+  | Unix.Unix_error _ | Sys_error _ -> true
+;;
+
+(** Rotate [path] to [path ^ ".1"], deleting any previous backup. Failures are
+    surfaced to the caller so capture can skip instead of exceeding the cap. *)
 let rotate_file path =
   let backup = path ^ ".1" in
-  (try Sys.remove backup with
-   | Sys_error _ | Unix.Unix_error _ -> ());
-  try Unix.rename path backup with
-  | Sys_error _ | Unix.Unix_error _ -> ()
+  match unlink_if_exists backup with
+  | Error _ as err -> err
+  | Ok () ->
+    if not (path_exists path)
+    then Ok ()
+    else (
+      try Ok (Unix.rename path backup) with
+      | Unix.Unix_error (Unix.ENOENT, _, _) -> Ok ()
+      | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
+;;
+
+let append_bounded_json_line ~path ~max_bytes line =
+  with_append_mutex (fun () ->
+    with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
+      let line_bytes = String.length line in
+      let current_size = file_size path in
+      if current_size + line_bytes > max_bytes
+      then (
+        match rotate_file path with
+        | Error _ as err -> err
+        | Ok () -> Ok (append_json_line_unlocked ~path line))
+      else Ok (append_json_line_unlocked ~path line)))
 ;;
 
 let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk =
@@ -133,8 +170,15 @@ let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk
         line_bytes
         max_bytes))
   else (
-    if file_size path + line_bytes > max_bytes then rotate_file path;
-    try append_json_line ~path line with
+    try
+      match append_bounded_json_line ~path ~max_bytes line with
+      | Ok () -> ()
+      | Error msg ->
+        if not !warned
+        then (
+          warned := true;
+          Diag.warn "wire_capture" "skipped capture write for %S: %s" path msg)
+    with
     | Sys_error msg ->
       if not !warned
       then (
@@ -335,10 +379,10 @@ let%test "make_sink skips oversized records instead of exceeding max bytes" =
   let dir = Filename.temp_dir "oas_wire_oversized" "" in
   let warnings = ref [] in
   let max_bytes = 128 in
-  let s =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () ->
+  Diag.with_sink
+    (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+    (fun () ->
+       let s =
          make_sink
            ~getenv:(fun name ->
              if String.equal name env_dir
@@ -347,9 +391,9 @@ let%test "make_sink skips oversized records instead of exceeding max bytes" =
              then Some (string_of_int max_bytes)
              else None)
            ~provider:"p"
-           ~model:"m")
-  in
-  s (String.make 1024 'x');
+           ~model:"m"
+       in
+       s (String.make 1024 'x'));
   let path = Filename.concat dir capture_filename in
   (not (Sys.file_exists path))
   && List.exists
@@ -357,6 +401,41 @@ let%test "make_sink skips oversized records instead of exceeding max bytes" =
           level = Diag.Warn
           && String.equal ctx "wire_capture"
           && contains ~needle:"skipped capture chunk" msg)
+       !warnings
+;;
+
+let%test "make_sink skips when rotation cannot preserve cap" =
+  let dir = Filename.temp_dir "oas_wire_rotate_fail" "" in
+  let warnings = ref [] in
+  let max_bytes = 256 in
+  let path = Filename.concat dir capture_filename in
+  let backup = path ^ ".1" in
+  let oc = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () -> output_string oc (String.make 250 'a'));
+  Unix.mkdir backup 0o700;
+  Diag.with_sink
+    (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+    (fun () ->
+       let s =
+         make_sink
+           ~getenv:(fun name ->
+             if String.equal name env_dir
+             then Some dir
+             else if String.equal name env_max_bytes
+             then Some (string_of_int max_bytes)
+             else None)
+           ~provider:"p"
+           ~model:"m"
+       in
+       s "small chunk");
+  file_size path <= max_bytes
+  && List.exists
+       (fun (level, ctx, msg) ->
+          level = Diag.Warn
+          && String.equal ctx "wire_capture"
+          && contains ~needle:"skipped capture write" msg)
        !warnings
 ;;
 
