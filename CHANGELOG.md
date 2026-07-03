@@ -31,6 +31,17 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.14](https://github.com/jeong-sik/oas/compare/v0.208.13...v0.208.14) (2026-07-03)
+
+
+### Bug Fixes
+
+* **catalog:** validate base preset label at parse time, not silent default (RFC-OAS-034 :840) ([#2433](https://github.com/jeong-sik/oas/issues/2433)) ([ed4b30a](https://github.com/jeong-sik/oas/commit/ed4b30a13bee189f65a4dc1f08fc92414ac06684))
+* **llm_provider:** harden redaction for large media payloads ([#2444](https://github.com/jeong-sik/oas/issues/2444)) ([8c8db16](https://github.com/jeong-sik/oas/commit/8c8db16c2d7ce703f9662f7353f7dc54e5111d68))
+* **llm_provider:** use Eio.Mutex in wire_capture to avoid blocking fiber scheduling ([#2449](https://github.com/jeong-sik/oas/issues/2449)) ([815845b](https://github.com/jeong-sik/oas/commit/815845b23561a41430c8b28369e9760533410c9e))
+* **provider:** honor per-model catalog rows on Custom_registered path ([#2447](https://github.com/jeong-sik/oas/issues/2447)) ([390008e](https://github.com/jeong-sik/oas/commit/390008e0bcec02b787a7b0e49adc48c7c7683154))
+* **provider:** remove last model-id GLM classifier, gate GLM base entries by endpoint declaration ([#2446](https://github.com/jeong-sik/oas/issues/2446)) ([8bdf25d](https://github.com/jeong-sik/oas/commit/8bdf25d678f85f4c00893aa2f068bfb9edcf3ea7))
+
 ## [0.208.13](https://github.com/jeong-sik/oas/compare/v0.208.12...v0.208.13) (2026-07-02)
 
 
