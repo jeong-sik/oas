@@ -1439,6 +1439,23 @@ let test_manifest_base_absent_uses_default () =
   | None -> fail "expected Some"
 ;;
 
+let test_manifest_base_label_constructor_rejects_unknown () =
+  match Capability_manifest.base_label_of_string "not_a_preset" with
+  | Error _ -> ()
+  | Ok _ -> fail "unknown base label should not be constructible"
+;;
+
+let test_manifest_base_label_constructor_canonicalizes () =
+  match Capability_manifest.base_label_of_string " OpenAI_CHAT " with
+  | Ok label ->
+    check
+      string
+      "canonical base label"
+      "openai_chat"
+      (Capability_manifest.base_label_to_string label)
+  | Error msg -> failf "known base label should parse: %s" msg
+;;
+
 let test_example_manifest_base_labels_are_canonical () =
   let path =
     [ "docs/example-capability-manifest.json"
@@ -1462,6 +1479,7 @@ let test_example_manifest_base_labels_are_canonical () =
            then
              check bool (Printf.sprintf "expected base for %s" entry.id_prefix) true false
          | Some label ->
+           let label = Capability_manifest.base_label_to_string label in
            check
              bool
              (Printf.sprintf "base label resolves for %s: %s" entry.id_prefix label)
@@ -2409,6 +2427,14 @@ let () =
         ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
         ; test_case "base anthropic" `Quick test_manifest_base_label_anthropic
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
+        ; test_case
+            "base label constructor rejects unknown"
+            `Quick
+            test_manifest_base_label_constructor_rejects_unknown
+        ; test_case
+            "base label constructor canonicalizes"
+            `Quick
+            test_manifest_base_label_constructor_canonicalizes
         ; test_case
             "example base labels are canonical"
             `Quick

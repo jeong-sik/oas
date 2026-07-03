@@ -35,19 +35,29 @@
 
     @since 0.188.0 *)
 
+(** Canonical provider capability preset label accepted by the manifest parser. *)
+type base_label = private string
+
+(** Validate and canonicalize a provider capability preset label. *)
+val base_label_of_string : string -> (base_label, string) result
+
+(** Return the canonical wire label. *)
+val base_label_to_string : base_label -> string
+
 (** One entry in the capability manifest.
 
     [id_prefix] is matched as a case-insensitive prefix against the
     model ID being looked up.  [base] names a provider preset from
     {!Capabilities.capabilities_for_provider_label} (e.g.
-    ["openai_chat"], ["anthropic"]); when absent or unrecognised the
-    built-in [default_capabilities] is used.
+    ["openai_chat"], ["anthropic"]); when absent, the built-in
+    [default_capabilities] is used.  Unrecognised labels are rejected
+    by {!base_label_of_string} and by the JSON parser.
 
     All other fields are optional overrides: a [None] value means
     "inherit from the base", a [Some v] value replaces the base value. *)
 type entry =
   { id_prefix : string
-  ; base_label : string option
+  ; base_label : base_label option
     (** Provider preset label, e.g. ["openai_chat"] or ["anthropic"]. *)
   ; max_context_tokens : int option (** [None] = inherit from base. *)
   ; max_output_tokens : int option (** [None] = inherit from base. *)
@@ -114,9 +124,10 @@ type t = entry list
 
     Returns [Error msg] when [schema_version] is missing or not 1,
     the root object contains an unknown field, a model entry contains
-    an unknown field, or a model entry is missing the required
-    [id_prefix] field.  The non-operational [_comment] field is
-    accepted at the root and entry levels. *)
+    an unknown field, a model entry is missing the required [id_prefix]
+    field, or [base] names an unknown provider preset.  The
+    non-operational [_comment] field is accepted at the root and entry
+    levels. *)
 val of_json : Yojson.Safe.t -> (t, string) result
 
 (** [load_file path] reads and parses a manifest from the given file
