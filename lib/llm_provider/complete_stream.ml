@@ -614,7 +614,19 @@ let complete_stream_http
           ~body:body_with_stream
           ~f:(fun reader ->
             emit_stream_event on_event Types.Connected;
-            let body_logic () =
+            Eio.Switch.run (fun wire_sw ->
+              (* Phase O observability: env-gated ([OAS_WIRE_CAPTURE_DIR])
+                 redacted tee of raw pre-parse stream chunks. The environment is
+                 read once here; when unset [wire_sink] is a no-op so the hot
+                 loop below pays only an indirect call. Attributes a
+                 degenerate-repetition bug to the model vs. the stream parser.
+
+                 The sink is scoped to a per-request switch so the background
+                 writer fiber is cancelled (and drains its queue) as soon as the
+                 stream body is consumed, instead of leaking until the caller's
+                 long-lived switch terminates. *)
+              let wire_sink = Wire_capture.make_sink ~sw:wire_sw ~provider ~model in
+              let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
               let openai_state = ref None in
               let streaming_reasoning =
@@ -763,12 +775,6 @@ let complete_stream_http
                 | Some evt -> emit_telemetry evt
                 | None -> ()
               in
-              (* Phase O observability: env-gated ([OAS_WIRE_CAPTURE_DIR])
-                 redacted tee of raw pre-parse stream chunks. The environment is
-                 read once here; when unset [wire_sink] is a no-op so the hot
-                 loop below pays only an indirect call. Attributes a
-                 degenerate-repetition bug to the model vs. the stream parser. *)
-              let wire_sink = Wire_capture.make_sink ~provider ~model in
               let stream_read_result =
                 try
                   (match config.kind with
@@ -900,7 +906,7 @@ let complete_stream_http
                 publish_summary ~terminal:!terminal_state ();
                 result
             in
-            body_logic ())
+            body_logic ()))
           ()
       with
       | Error _ as e ->
