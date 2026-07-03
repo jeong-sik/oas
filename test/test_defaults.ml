@@ -9,8 +9,9 @@ open Alcotest
 let setenv k v = Unix.putenv k v
 
 let unsetenv k =
-  (* Unix has no portable unsetenv; setting empty triggers the
-     "empty → default" branch in env_or, which is what we want. *)
+  (* On the current supported 5.4 floor there is no Unix.unsetenv; setting
+     empty triggers the "empty → default" branch in env_or, which is what we
+     want. *)
   try Unix.putenv k "" with
   | _ -> ()
 ;;

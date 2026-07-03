@@ -16,7 +16,8 @@ val bool_env : ?default:bool -> string -> bool
 
 (** Temporarily set [name] while [f] runs, then restore the previous value.
 
-    OCaml's Unix module does not expose portable unsetenv. If [name] was absent,
-    this restores it to [""]. The parsers in this module treat [""]
+    OCaml 5.5 adds [Unix.unsetenv], but this library still supports the 5.4
+    floor. If [name] was absent, this restores it to [""]. The parsers in this
+    module treat [""]
     equivalently to an absent value. *)
 val with_env : string -> string -> (unit -> 'a) -> 'a
