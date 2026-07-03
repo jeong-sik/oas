@@ -263,51 +263,50 @@ let make_sink ?getenv ?sw ~provider ~model =
             env_max_bytes
             value
             default_max_bytes);
-       let write = write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes in
-       match sw with
-       | None -> write
-       | Some sw ->
-         let stream = Eio.Stream.create async_stream_capacity in
-         let drop_warned = ref false in
-         let writer_failed = ref false in
-         let rec writer () =
-           let chunk = Eio.Stream.take stream in
-           write chunk;
-           writer ()
-         in
-         Eio.Fiber.fork ~sw (fun () ->
-           try writer () with
-           | Eio.Cancel.Cancelled _ ->
-             (* Switch cancelled: drain any remaining queued chunks best-effort
+       let write =
+         write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes
+       in
+       (match sw with
+        | None -> write
+        | Some sw ->
+          let stream = Eio.Stream.create async_stream_capacity in
+          let drop_warned = ref false in
+          let writer_failed = ref false in
+          let rec writer () =
+            let chunk = Eio.Stream.take stream in
+            write chunk;
+            writer ()
+          in
+          Eio.Fiber.fork ~sw (fun () ->
+            try writer () with
+            | Eio.Cancel.Cancelled _ ->
+              (* Switch cancelled: drain any remaining queued chunks best-effort
                 before exiting so the tail of a stream is not silently lost. *)
-             let rec drain () =
-               match Eio.Stream.take_nonblocking stream with
-               | Some chunk ->
-                 write chunk;
-                 drain ()
-               | None -> ()
-             in
-             drain ()
-           | exn ->
-             if not !writer_failed
-             then (
-               writer_failed := true;
-               Diag.warn
-                 "wire_capture"
-                 "background writer failed for %S: %s"
-                 path
-                 (Printexc.to_string exn)));
-         fun chunk ->
-           if Eio.Stream.length stream >= async_stream_capacity
-           then (
-             if not !drop_warned
-             then (
-               drop_warned := true;
-               Diag.warn
-                 "wire_capture"
-                 "capture queue full; dropping chunk for %S"
-                 path))
-           else Eio.Stream.add stream chunk)
+              let rec drain () =
+                match Eio.Stream.take_nonblocking stream with
+                | Some chunk ->
+                  write chunk;
+                  drain ()
+                | None -> ()
+              in
+              drain ()
+            | exn ->
+              if not !writer_failed
+              then (
+                writer_failed := true;
+                Diag.warn
+                  "wire_capture"
+                  "background writer failed for %S: %s"
+                  path
+                  (Printexc.to_string exn)));
+          fun chunk ->
+            if Eio.Stream.length stream >= async_stream_capacity
+            then (
+              if not !drop_warned
+              then (
+                drop_warned := true;
+                Diag.warn "wire_capture" "capture queue full; dropping chunk for %S" path))
+            else Eio.Stream.add stream chunk))
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
@@ -357,6 +356,8 @@ let%test "make_sink is a no-op when env is unset or empty" =
 let%test "make_sink writes redacted binary JSONL when env is set" =
   Eio_main.run (fun _env ->
     let dir = Filename.temp_dir "oas_wire" "" in
+    (* Built at runtime so no literal secret appears in source. *)
+    let token = "ghp_" ^ String.make 36 '7' in
     Eio.Switch.run (fun sw ->
       let s =
         make_sink
@@ -365,8 +366,6 @@ let%test "make_sink writes redacted binary JSONL when env is set" =
           ~provider:"ollama_cloud"
           ~model:"deepseek-v4-flash"
       in
-      (* Built at runtime so no literal secret appears in source. *)
-      let token = "ghp_" ^ String.make 36 '7' in
       s ("delta content " ^ token ^ " end"));
     let path = Filename.concat dir capture_filename in
     let content = read_file path in
@@ -677,15 +676,15 @@ let%test "async sink enqueue does not wait for slow writer" =
       let s = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p" ~model:"m" in
       Eio.Fiber.both
         (fun () ->
-          (* Hold the append mutex so the background writer cannot make
+           (* Hold the append mutex so the background writer cannot make
              progress. A synchronous sink would block here for the full
              duration. *)
-          with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
+           with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
         (fun () ->
-          Eio.Time.sleep clock 0.05;
-          let t0 = Unix.gettimeofday () in
-          s "chunk";
-          enqueue_elapsed := Unix.gettimeofday () -. t0));
+           Eio.Time.sleep clock 0.05;
+           let t0 = Unix.gettimeofday () in
+           s "chunk";
+           enqueue_elapsed := Unix.gettimeofday () -. t0));
     !enqueue_elapsed < 0.1)
 ;;
 
@@ -701,13 +700,13 @@ let%test "async sink drops newest chunk when queue is full" =
            let s = make_sink ~sw ~getenv:(capture_getenv dir) ~provider:"p" ~model:"m" in
            Eio.Fiber.both
              (fun () ->
-               (* Hold the append mutex so the writer cannot drain the queue. *)
-               with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
+                (* Hold the append mutex so the writer cannot drain the queue. *)
+                with_append_mutex (fun () -> Eio.Time.sleep clock 0.3))
              (fun () ->
-               (* Fill and overflow the queue. Each add is non-blocking. *)
-               for i = 1 to async_stream_capacity + 3 do
-                 s (Printf.sprintf "chunk-%d" i)
-               done)));
+                (* Fill and overflow the queue. Each add is non-blocking. *)
+                for i = 1 to async_stream_capacity + 3 do
+                  s (Printf.sprintf "chunk-%d" i)
+                done)));
     (* The writer was blocked for the whole time, so at most [capacity]
        chunks could have been accepted; the rest were dropped with one
        warning. *)

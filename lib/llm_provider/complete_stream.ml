@@ -627,286 +627,290 @@ let complete_stream_http
                  long-lived switch terminates. *)
               let wire_sink = Wire_capture.make_sink ~sw:wire_sw ~provider ~model in
               let body_logic () =
-              let acc = Complete_stream_acc.create_stream_acc () in
-              let openai_state = ref None in
-              let streaming_reasoning =
-                (Reasoning_dialect.for_provider_config config).streaming
-              in
-              (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
+                let acc = Complete_stream_acc.create_stream_acc () in
+                let openai_state = ref None in
+                let streaming_reasoning =
+                  (Reasoning_dialect.for_provider_config config).streaming
+                in
+                (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
                  exception paths sees consistent state. *)
-              let get_state () =
-                match !openai_state with
-                | Some s -> s
-                | None ->
-                  let s = Streaming.create_openai_stream_state ~provider ~model () in
-                  openai_state := Some s;
-                  s
-              in
-              let dispatch (events, tel_opt) =
-                (* RFC-OAS-020: capture first-event + first-token
+                let get_state () =
+                  match !openai_state with
+                  | Some s -> s
+                  | None ->
+                    let s = Streaming.create_openai_stream_state ~provider ~model () in
+                    openai_state := Some s;
+                    s
+                in
+                let dispatch (events, tel_opt) =
+                  (* RFC-OAS-020: capture first-event + first-token
                    wall-clock offsets. [first_event_at_ref] fires on
                    ANY first event (prelude or token);
                    [first_token_at_ref] fires on generated token events,
                    including hidden reasoning. The two refs together
                    distinguish prefill from generation latency. *)
-                let elapsed_ms = latency_ms_float latency_counter in
-                (* Thinking-only cutoff timestamps follow the injected Eio
+                  let elapsed_ms = latency_ms_float latency_counter in
+                  (* Thinking-only cutoff timestamps follow the injected Eio
                    clock when one is available, so a mock clock controls the
                    cutoff in tests. Telemetry durations use the monotonic
                    [latency_counter] above and therefore do not depend on
                    wall-clock adjustments. *)
-                let cutoff_now =
-                  match clock with
-                  | Some c -> Eio.Time.now c
-                  | None -> Unix.gettimeofday ()
-                in
-                if events <> []
-                then (
-                  (match elapsed_ms with
-                   | Some elapsed_ms when Option.is_none !first_event_at_ref ->
-                     first_event_at_ref := Some elapsed_ms
-                   | Some _ | None -> ());
-                  stream_idle_state := Http_client.Awaiting_first_delta);
-                if
-                  Option.is_none !first_token_at_ref
-                  && List.exists Streaming.sse_event_is_first_token_signal events
-                then first_token_at_ref := elapsed_ms;
-                if
-                  Option.is_none !first_deliverable_at_ref
-                  && List.exists Streaming.sse_event_is_deliverable_progress_signal events
-                then first_deliverable_at_ref := elapsed_ms;
-                List.iter
-                  (fun evt ->
-                     emit_stream_event on_event evt;
-                     Complete_stream_acc.accumulate_event acc evt;
-                     (* RFC-OAS-019: classify each delta for the
+                  let cutoff_now =
+                    match clock with
+                    | Some c -> Eio.Time.now c
+                    | None -> Unix.gettimeofday ()
+                  in
+                  if events <> []
+                  then (
+                    (match elapsed_ms with
+                     | Some elapsed_ms when Option.is_none !first_event_at_ref ->
+                       first_event_at_ref := Some elapsed_ms
+                     | Some _ | None -> ());
+                    stream_idle_state := Http_client.Awaiting_first_delta);
+                  if
+                    Option.is_none !first_token_at_ref
+                    && List.exists Streaming.sse_event_is_first_token_signal events
+                  then first_token_at_ref := elapsed_ms;
+                  if
+                    Option.is_none !first_deliverable_at_ref
+                    && List.exists
+                         Streaming.sse_event_is_deliverable_progress_signal
+                         events
+                  then first_deliverable_at_ref := elapsed_ms;
+                  List.iter
+                    (fun evt ->
+                       emit_stream_event on_event evt;
+                       Complete_stream_acc.accumulate_event acc evt;
+                       (* RFC-OAS-019: classify each delta for the
                         [Streaming_summary] kind_breakdown that fires at
                         finalize. Wire errors set terminal_state; per-chunk
                         emission of [Streaming_chunk_n] is no longer
                         published — only the lifecycle summary is. *)
-                     match classify_chunk_kind evt with
-                     | `Skip -> ()
-                     | `Thinking ->
-                       stream_idle_state := Http_client.Streaming_thinking;
-                       if
-                         Option.is_none !first_deliverable_at_ref
-                         && Option.is_none !thinking_only_started_at_ref
-                       then thinking_only_started_at_ref := Some cutoff_now;
-                       incr n_thinking
-                     | `Answer ->
-                       stream_idle_state := Http_client.Streaming_answer;
-                       thinking_only_started_at_ref := None;
-                       incr n_answer
-                     | `Tool_call_start ->
-                       stream_idle_state := Http_client.Streaming_tool_call;
-                       thinking_only_started_at_ref := None;
-                       incr n_tool_call_start
-                     | `Tool_call_arg_delta ->
-                       stream_idle_state := Http_client.Streaming_tool_call;
-                       thinking_only_started_at_ref := None;
-                       incr n_tool_call_arg_delta
-                     | `Tool_call_complete ->
-                       stream_idle_state := Http_client.Streaming_tool_call;
-                       thinking_only_started_at_ref := None;
-                       incr n_tool_call_complete
-                     | `Substrate ->
-                       stream_idle_state := Http_client.Streaming_substrate;
-                       incr n_substrate
-                     | `Heartbeat ->
-                       stream_idle_state := Http_client.Streaming_heartbeat;
-                       incr n_heartbeat
-                     | `Done ->
-                       stream_idle_state := Http_client.Streaming_done;
-                       incr n_done
-                     | `Wire_error ->
-                       stream_idle_state := Http_client.Streaming_unknown;
-                       terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
-                  events;
-                (match
-                   ( stream_idle_timeout_s
-                   , !first_deliverable_at_ref
-                   , !thinking_only_started_at_ref )
-                 with
-                 | Some timeout_s, None, Some started_at
-                   when Streaming.thinking_only_timeout_exceeded
-                          ~timeout_s
-                          ~started_at
-                          ~now:cutoff_now -> raise Eio.Time.Timeout
-                 | Some _, _, _ | None, _, _ -> ());
-                if events <> []
-                then
-                  if not !first_chunk_seen
-                  then (
-                    first_chunk_seen := true;
-                    (* Reuse the per-dispatch monotonic elapsed sample. This
+                       match classify_chunk_kind evt with
+                       | `Skip -> ()
+                       | `Thinking ->
+                         stream_idle_state := Http_client.Streaming_thinking;
+                         if
+                           Option.is_none !first_deliverable_at_ref
+                           && Option.is_none !thinking_only_started_at_ref
+                         then thinking_only_started_at_ref := Some cutoff_now;
+                         incr n_thinking
+                       | `Answer ->
+                         stream_idle_state := Http_client.Streaming_answer;
+                         thinking_only_started_at_ref := None;
+                         incr n_answer
+                       | `Tool_call_start ->
+                         stream_idle_state := Http_client.Streaming_tool_call;
+                         thinking_only_started_at_ref := None;
+                         incr n_tool_call_start
+                       | `Tool_call_arg_delta ->
+                         stream_idle_state := Http_client.Streaming_tool_call;
+                         thinking_only_started_at_ref := None;
+                         incr n_tool_call_arg_delta
+                       | `Tool_call_complete ->
+                         stream_idle_state := Http_client.Streaming_tool_call;
+                         thinking_only_started_at_ref := None;
+                         incr n_tool_call_complete
+                       | `Substrate ->
+                         stream_idle_state := Http_client.Streaming_substrate;
+                         incr n_substrate
+                       | `Heartbeat ->
+                         stream_idle_state := Http_client.Streaming_heartbeat;
+                         incr n_heartbeat
+                       | `Done ->
+                         stream_idle_state := Http_client.Streaming_done;
+                         incr n_done
+                       | `Wire_error ->
+                         stream_idle_state := Http_client.Streaming_unknown;
+                         terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
+                    events;
+                  (match
+                     ( stream_idle_timeout_s
+                     , !first_deliverable_at_ref
+                     , !thinking_only_started_at_ref )
+                   with
+                   | Some timeout_s, None, Some started_at
+                     when Streaming.thinking_only_timeout_exceeded
+                            ~timeout_s
+                            ~started_at
+                            ~now:cutoff_now -> raise Eio.Time.Timeout
+                   | Some _, _, _ | None, _, _ -> ());
+                  if events <> []
+                  then
+                    if not !first_chunk_seen
+                    then (
+                      first_chunk_seen := true;
+                      (* Reuse the per-dispatch monotonic elapsed sample. This
                        keeps inter-chunk gaps measured dispatch-to-dispatch
                        instead of mixing in per-event processing time. *)
-                    let ttfrc_ms = elapsed_ms in
-                    ttfrc_ref := ttfrc_ms;
-                    emit_telemetry
-                      (Telemetry_event.Streaming_first_chunk
-                         { provider; model; ttfrc_ms; requested_at });
-                    last_chunk_t := elapsed_ms;
-                    chunk_counter := 1)
-                  else (
-                    (* [elapsed_ms] is the dispatch-entry sample bound above.
+                      let ttfrc_ms = elapsed_ms in
+                      ttfrc_ref := ttfrc_ms;
+                      emit_telemetry
+                        (Telemetry_event.Streaming_first_chunk
+                           { provider; model; ttfrc_ms; requested_at });
+                      last_chunk_t := elapsed_ms;
+                      chunk_counter := 1)
+                    else (
+                      (* [elapsed_ms] is the dispatch-entry sample bound above.
                        [last_chunk_t] is also a dispatch-entry sample, so
                        [inter_chunk_ms] is a clean dispatch-to-dispatch gap. *)
-                    (match elapsed_ms, !last_chunk_t with
-                     | Some elapsed_ms, Some last_chunk_t ->
-                       let inter_chunk_ms = elapsed_ms -. last_chunk_t in
-                       (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
+                      (match elapsed_ms, !last_chunk_t with
+                       | Some elapsed_ms, Some last_chunk_t ->
+                         let inter_chunk_ms = elapsed_ms -. last_chunk_t in
+                         (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
                           removed. Inter-chunk gaps are accumulated for the
                           percentile reservoir in [Streaming_summary]. Metrics
                           sinks still receive the raw sample so aggregate backends
                           can preserve latency counters without re-expanding the
                           public telemetry stream. *)
-                       metrics.on_streaming_chunk
-                         ~provider
-                         ~model_id:model
-                         ~chunk_index:!chunk_counter
-                         ~inter_chunk_ms;
-                       inter_chunk_samples := inter_chunk_ms :: !inter_chunk_samples
-                     | Some _, None | None, Some _ | None, None -> ());
-                    last_chunk_t := elapsed_ms;
-                    incr chunk_counter);
-                match tel_opt with
-                | Some evt -> emit_telemetry evt
-                | None -> ()
-              in
-              let stream_read_result =
-                try
-                  (match config.kind with
-                   | Provider_config.Ollama ->
-                     Http_client.read_ndjson
-                       ?clock
-                       ?idle_timeout:stream_idle_timeout_s
-                       ~reader
-                       ~on_line:(fun line ->
-                         wire_sink line;
-                         match Streaming.parse_ollama_ndjson_chunk line with
-                         | None ->
-                           dispatch
-                             ( [ Types.SSEParseFailed
-                                   { raw = line
-                                   ; reason = "ollama_ndjson_chunk_parse_failure"
-                                   }
-                               ]
-                             , None )
-                         | Some chunk ->
-                           (match chunk.oll_timings with
-                            | Some _ as t -> ollama_timings := t
-                            | None -> ());
-                           (match chunk.oll_usage with
-                            | Some _ as u -> ollama_usage := u
-                            | None -> ());
-                           dispatch
-                             (Streaming.ollama_chunk_to_events (get_state ()) chunk))
-                       ()
-                   | _non_ollama_kind ->
-                     Http_client.read_sse
-                       ?clock
-                       ?idle_timeout:stream_idle_timeout_s
-                       ~reader
-                       ~on_data:(fun ~event_type data ->
-                         wire_sink data;
-                         let events =
-                           match config.kind with
-                           | Provider_config.Anthropic ->
-                             (match Streaming.parse_sse_event event_type data with
-                              | Some evt -> [ evt ], None
-                              | None -> [], None)
-                           | Provider_config.OpenAI_compat when uses_responses_api ->
-                             Streaming.responses_sse_to_events
-                               (get_state ())
-                               event_type
-                               data
-                           | Provider_config.OpenAI_compat
-                           | Provider_config.DashScope
-                           | Provider_config.Kimi ->
-                             (match
-                                Streaming.parse_openai_sse_chunk ~streaming_reasoning data
-                              with
-                              | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                (* A [None] from the chunk parser is the [DONE]
+                         metrics.on_streaming_chunk
+                           ~provider
+                           ~model_id:model
+                           ~chunk_index:!chunk_counter
+                           ~inter_chunk_ms;
+                         inter_chunk_samples := inter_chunk_ms :: !inter_chunk_samples
+                       | Some _, None | None, Some _ | None, None -> ());
+                      last_chunk_t := elapsed_ms;
+                      incr chunk_counter);
+                  match tel_opt with
+                  | Some evt -> emit_telemetry evt
+                  | None -> ()
+                in
+                let stream_read_result =
+                  try
+                    (match config.kind with
+                     | Provider_config.Ollama ->
+                       Http_client.read_ndjson
+                         ?clock
+                         ?idle_timeout:stream_idle_timeout_s
+                         ~reader
+                         ~on_line:(fun line ->
+                           wire_sink line;
+                           match Streaming.parse_ollama_ndjson_chunk line with
+                           | None ->
+                             dispatch
+                               ( [ Types.SSEParseFailed
+                                     { raw = line
+                                     ; reason = "ollama_ndjson_chunk_parse_failure"
+                                     }
+                                 ]
+                               , None )
+                           | Some chunk ->
+                             (match chunk.oll_timings with
+                              | Some _ as t -> ollama_timings := t
+                              | None -> ());
+                             (match chunk.oll_usage with
+                              | Some _ as u -> ollama_usage := u
+                              | None -> ());
+                             dispatch
+                               (Streaming.ollama_chunk_to_events (get_state ()) chunk))
+                         ()
+                     | _non_ollama_kind ->
+                       Http_client.read_sse
+                         ?clock
+                         ?idle_timeout:stream_idle_timeout_s
+                         ~reader
+                         ~on_data:(fun ~event_type data ->
+                           wire_sink data;
+                           let events =
+                             match config.kind with
+                             | Provider_config.Anthropic ->
+                               (match Streaming.parse_sse_event event_type data with
+                                | Some evt -> [ evt ], None
+                                | None -> [], None)
+                             | Provider_config.OpenAI_compat when uses_responses_api ->
+                               Streaming.responses_sse_to_events
+                                 (get_state ())
+                                 event_type
+                                 data
+                             | Provider_config.OpenAI_compat
+                             | Provider_config.DashScope
+                             | Provider_config.Kimi ->
+                               (match
+                                  Streaming.parse_openai_sse_chunk
+                                    ~streaming_reasoning
+                                    data
+                                with
+                                | Some chunk ->
+                                  Streaming.openai_chunk_to_events (get_state ()) chunk
+                                | None ->
+                                  (* A [None] from the chunk parser is the [DONE]
                                    sentinel, a usage-only/empty chunk, OR a
                                    provider error object ([{"error": ...}]) that
                                    has no [choices]. The helper maps [DONE] to a
                                    [MessageStop] (clean close -> no phantom
                                    completion) and an error object to a typed
                                    [SSEError]; everything else yields no events. *)
-                                Streaming.openai_compat_terminal_events data, None)
-                           | Provider_config.Gemini ->
-                             (match Streaming.parse_gemini_sse_chunk data with
-                              | Some chunk ->
-                                Streaming.gemini_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                ( [ Types.SSEParseFailed
-                                      { raw = data
-                                      ; reason = "gemini_sse_chunk_parse_failure"
-                                      }
-                                  ]
-                                , None ))
-                           | Provider_config.Glm ->
-                             (match Backend_glm.parse_stream_chunk data with
-                              | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                (* Same [None] cases as the OpenAI-compatible
+                                  Streaming.openai_compat_terminal_events data, None)
+                             | Provider_config.Gemini ->
+                               (match Streaming.parse_gemini_sse_chunk data with
+                                | Some chunk ->
+                                  Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                | None ->
+                                  ( [ Types.SSEParseFailed
+                                        { raw = data
+                                        ; reason = "gemini_sse_chunk_parse_failure"
+                                        }
+                                    ]
+                                  , None ))
+                             | Provider_config.Glm ->
+                               (match Backend_glm.parse_stream_chunk data with
+                                | Some chunk ->
+                                  Streaming.openai_chunk_to_events (get_state ()) chunk
+                                | None ->
+                                  (* Same [None] cases as the OpenAI-compatible
                                    branch: [DONE] -> [MessageStop], error object
                                    -> [SSEError], else no events. *)
-                                Streaming.openai_compat_terminal_events data, None)
-                           | Provider_config.Ollama ->
-                             [], None (* unreachable: handled above *)
-                         in
-                         dispatch events)
-                       ());
-                  Ok ()
-                with
-                | Eio.Time.Timeout ->
-                  let phase =
-                    Http_client.timeout_phase_of_stream_idle_state !stream_idle_state
-                  in
-                  let message =
-                    Printf.sprintf
-                      "stream_idle_timeout_s deadline exceeded while %s"
-                      (Http_client.stream_idle_state_to_label !stream_idle_state)
-                  in
-                  emit_stream_event on_event (Types.Timeout message);
-                  emit_telemetry
-                    (Telemetry_event.Timeout
-                       { provider
-                       ; model
-                       ; timeout_type = Telemetry_event.Stream_idle !stream_idle_state
-                       });
-                  publish_summary
-                    ~terminal:
-                      (Telemetry_event.Terminal_error
-                         (Printf.sprintf
-                            "stream_idle_timeout_s_exceeded:%s"
-                            (Http_client.stream_idle_state_to_label !stream_idle_state)))
-                    ();
-                  Error (Http_client.TimeoutError { message; phase })
-              in
-              match stream_read_result with
-              | Error _ as err -> err
-              | Ok () ->
-                let result =
-                  match Complete_stream_acc.finalize_stream_acc acc with
-                  | Ok _ as ok -> ok
-                  | Error serr -> Error (http_error_of_stream_error serr)
+                                  Streaming.openai_compat_terminal_events data, None)
+                             | Provider_config.Ollama ->
+                               [], None (* unreachable: handled above *)
+                           in
+                           dispatch events)
+                         ());
+                    Ok ()
+                  with
+                  | Eio.Time.Timeout ->
+                    let phase =
+                      Http_client.timeout_phase_of_stream_idle_state !stream_idle_state
+                    in
+                    let message =
+                      Printf.sprintf
+                        "stream_idle_timeout_s deadline exceeded while %s"
+                        (Http_client.stream_idle_state_to_label !stream_idle_state)
+                    in
+                    emit_stream_event on_event (Types.Timeout message);
+                    emit_telemetry
+                      (Telemetry_event.Timeout
+                         { provider
+                         ; model
+                         ; timeout_type = Telemetry_event.Stream_idle !stream_idle_state
+                         });
+                    publish_summary
+                      ~terminal:
+                        (Telemetry_event.Terminal_error
+                           (Printf.sprintf
+                              "stream_idle_timeout_s_exceeded:%s"
+                              (Http_client.stream_idle_state_to_label !stream_idle_state)))
+                      ();
+                    Error (Http_client.TimeoutError { message; phase })
                 in
-                (* RFC-OAS-019: emit one [Streaming_summary] at stream
+                match stream_read_result with
+                | Error _ as err -> err
+                | Ok () ->
+                  let result =
+                    match Complete_stream_acc.finalize_stream_acc acc with
+                    | Ok _ as ok -> ok
+                    | Error serr -> Error (http_error_of_stream_error serr)
+                  in
+                  (* RFC-OAS-019: emit one [Streaming_summary] at stream
                    finalize on the normal path. terminal_state defaults to
                    [Terminal_done]; wire errors during dispatch upgrade it
                    in place. *)
-                publish_summary ~terminal:!terminal_state ();
-                result
-            in
-            body_logic ()))
+                  publish_summary ~terminal:!terminal_state ();
+                  result
+              in
+              body_logic ()))
           ()
       with
       | Error _ as e ->
