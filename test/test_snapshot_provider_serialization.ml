@@ -172,6 +172,42 @@ let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
     ()
 ;;
 
+(* Structured-output wire fixture. Pins the [output_schema] -> provider wire
+   field for the two native backends whose schema serialization path had no
+   snapshot: Ollama emits the raw schema under [format]; Anthropic wraps it as
+   [format].{type:"json_schema", schema}. Guards against a silent-drop
+   regression where a serializer refactor stops emitting the schema (the
+   structured-output boundary of RFC-OAS-023 / RFC-OAS-034). OpenAI and Gemini
+   already have this coverage in test_backend_openai_codec / test_backend_gemini;
+   these two backends did not. *)
+let output_schema_fixture =
+  `Assoc
+    [ "type", `String "object"
+    ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
+    ; "required", `List [ `String "answer" ]
+    ]
+;;
+
+let schema_cfg ~kind ~base_url =
+  Provider_config.make
+    ~kind
+    ~model_id:"oas-snapshot-fixture-model"
+    ~base_url
+    ~api_key:"test-key"
+    ~max_tokens:1024
+    ~temperature:0.7
+    ~output_schema:output_schema_fixture
+    ~supports_structured_output_override:true
+    ~keep_alive:"-1"
+    ()
+;;
+
+let ollama_schema_cfg = schema_cfg ~kind:Ollama ~base_url:"http://127.0.0.1:11434"
+
+let anthropic_schema_cfg =
+  schema_cfg ~kind:Anthropic ~base_url:"https://api.anthropic.com"
+;;
+
 (* ── Helpers ────────────────────────────────────────── *)
 
 let snapshot label expected actual = check string label expected actual
@@ -746,6 +782,48 @@ let test_ollama_any () =
   check bool "no tool_choice field" false (contains ~needle:{|"tool_choice"|} body)
 ;;
 
+(* ── Structured-output wire (output_schema serialization) ──── *)
+
+let test_ollama_output_schema () =
+  let body =
+    Backend_ollama.build_request
+      ~config:ollama_schema_cfg
+      ~messages:[ msg User [ Text "Answer as JSON." ] ]
+      ()
+  in
+  (* Ollama native /api/chat carries the raw JSON Schema under [format]. *)
+  check
+    bool
+    "ollama emits output_schema under the [format] field"
+    true
+    (contains ~needle:{|"format":{"type":"object"|} body);
+  check
+    bool
+    "ollama [format] schema retains the declared required key"
+    true
+    (contains ~needle:{|"required":["answer"]|} body)
+;;
+
+let test_anthropic_output_schema () =
+  let body =
+    Backend_anthropic.build_request
+      ~config:anthropic_schema_cfg
+      ~messages:[ msg User [ Text "Answer as JSON." ] ]
+      ()
+  in
+  (* Anthropic wraps the schema as [format].{type:"json_schema", schema}. *)
+  check
+    bool
+    {|anthropic emits [format] with type "json_schema"|}
+    true
+    (contains ~needle:{|"format":{"type":"json_schema","schema":{|} body);
+  check
+    bool
+    "anthropic [format] schema retains the declared required key"
+    true
+    (contains ~needle:{|"required":["answer"]|} body)
+;;
+
 (* ── Suite ──────────────────────────────────────────── *)
 
 let () =
@@ -820,5 +898,12 @@ let () =
         ] )
     ; "glm", [ test_case "tool_choice Any" `Quick test_glm_any ]
     ; "ollama", [ test_case "tool_choice Any" `Quick test_ollama_any ]
+    ; ( "structured_output_wire"
+      , [ test_case "ollama output_schema -> format" `Quick test_ollama_output_schema
+        ; test_case
+            "anthropic output_schema -> format.json_schema"
+            `Quick
+            test_anthropic_output_schema
+        ] )
     ]
 ;;
