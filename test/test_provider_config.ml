@@ -1667,6 +1667,39 @@ let test_capability_provider_label_deepseek_exact_host () =
     (label "https://api.deepseek.com@evil.example/v1")
 ;;
 
+let test_capability_provider_label_kimi_exact_host () =
+  let label base_url =
+    Provider_config.capability_provider_label
+      (Provider_config.make ~kind:OpenAI_compat ~model_id:"kimi-for-coding" ~base_url ())
+  in
+  (* RFC-OAS-034 rule 2: api.kimi.com is the Kimi Code coding-plan gateway's
+     canonical vendor host, so an OpenAI-compatible endpoint pointed at it carries
+     the vendor identity "kimi" regardless of scheme (oas#2452). This routes
+     kimi-for-coding to [kimi_capabilities] instead of provider_default, so the
+     runtime capability gate accepts it. *)
+  check_string
+    "https canonical host is kimi"
+    "kimi"
+    (label "https://api.kimi.com/coding/v1");
+  check_string "http canonical host is kimi" "kimi" (label "http://api.kimi.com/coding/v1");
+  (* Exact [Uri.host] equality rejects look-alikes, and the separate pay-per-token
+     Moonshot platform host (api.moonshot.ai) is deliberately not mapped — it is an
+     incompatible key/billing product (oas#2452). Both fall back to the transport
+     kind label ("openai_compat"). *)
+  check_string
+    "subdomain lookalike is not kimi"
+    "openai_compat"
+    (label "https://api.kimi.com.evil.example/v1");
+  check_string
+    "userinfo lookalike is not kimi"
+    "openai_compat"
+    (label "https://api.kimi.com@evil.example/v1");
+  check_string
+    "moonshot platform host is not mapped to kimi"
+    "openai_compat"
+    (label "https://api.moonshot.ai/v1")
+;;
+
 let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -2406,6 +2439,10 @@ let () =
             "deepseek vendor host label (exact Uri.host, RFC-OAS-034)"
             `Quick
             test_capability_provider_label_deepseek_exact_host
+        ; Alcotest.test_case
+            "kimi coding-plan vendor host label (exact Uri.host, RFC-OAS-034, oas#2452)"
+            `Quick
+            test_capability_provider_label_kimi_exact_host
         ; Alcotest.test_case
             "unmatched openai_compat"
             `Quick

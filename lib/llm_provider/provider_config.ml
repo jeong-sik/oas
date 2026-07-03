@@ -230,11 +230,31 @@ let base_url_targets_deepseek base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.deepseek.com"
 ;;
 
+(* RFC-OAS-034 §2 rule 2: [api.kimi.com] is the Kimi Code coding-plan gateway's
+   canonical vendor host, so an OpenAI-compatible endpoint served from it carries
+   the vendor identity "kimi" (and its [kimi_capabilities] preset) rather than the
+   generic transport kind "openai_compat". Without this mapping an OpenAI-compat
+   runtime pointed at api.kimi.com/coding/v1 resolves its label to "openai_compat",
+   trips [raw_openai_compat_requires_endpoint_declaration], and is rejected by the
+   capability gate as absent from the catalog (oas#2452). Scope is deliberately the
+   coding-plan host only: the pay-per-token Moonshot platform (api.moonshot.ai) is
+   a separate product with an incompatible key/billing contract (oas#2452), so it
+   is not mapped here. Matched by exact [Uri.host] equality, mirroring
+   [base_url_targets_deepseek]: host->identity (allowed), not host->capability of a
+   generic rental edge (forbidden). *)
+let base_url_targets_kimi base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "api.kimi.com"
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
   else if base_url_targets_deepseek config.base_url
   then "deepseek"
+  else if base_url_targets_kimi config.base_url
+  then "kimi"
   else string_of_provider_kind config.kind
 ;;
 
