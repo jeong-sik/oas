@@ -354,9 +354,17 @@ let kimi_capabilities =
        same replay contract for catalog rows whose per-entry capabilities inherit
        base="kimi" without repeating the policy. *)
   ; supports_response_format_json = true
-  ; (* Native Moonshot/Kimi docs used for K2/K2.7 do not document an OpenAI
-       json_schema-equivalent strict structured-output field. Ollama Cloud
-       Kimi rows are provider-qualified and declare their own schema support. *)
+  ; (* Path-dependent, so keep the builtin declaration false. The platform
+       chat-completions API documents response_format json_schema with
+       strict=true (MFJS spec) — platform.kimi.ai/docs/api/chat, checked
+       2026-07-03 — and the Kimi Code coding-plan gateway honors it on its
+       OpenAI-compatible path (measured 10/10 schema compliance at
+       api.kimi.com/coding/v1/chat/completions). But this builtin speaks the
+       Anthropic-compatible /v1/messages path, which silently ignores
+       output_format and returns free text (measured 2026-07-03). A deployment
+       that routes Kimi through an OpenAI-compatible provider config can
+       override per-entry via the model catalog. Ollama Cloud Kimi rows are
+       provider-qualified and declare their own schema support. *)
     supports_structured_output = false
   ; supports_system_prompt = true
   ; supports_native_streaming = true
