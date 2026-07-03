@@ -396,13 +396,13 @@ let parse_ollama_response json_str =
 
 (** Run [f] with the [OAS_OLLAMA_KEEP_ALIVE] env var set to [value], then
     restore the caller's original setting. Guaranteed restore on exception.
-    OCaml's [Unix]/[Sys] modules have no portable unsetenv (verified against
-    the installed 5.4.1 Unix.mli/Sys.mli — neither declares one), so a var
-    that was originally unset is restored to [""] rather than truly removed
-    from the process environment. This is equivalent for every current
-    reader ([Cli_common_env.get] treats [Some ""] the same as [None] via
-    [trim_non_empty_opt]), but is not a true unset for code that reads the
-    var via bare [Sys.getenv_opt]/[Cli_common_env.default_getenv]. *)
+    OCaml 5.5 adds [Unix.unsetenv], but the supported 5.4.1 floor used here
+    does not expose it (nor does [Sys]). A var that was originally unset is
+    restored to [""] rather than truly removed from the process environment.
+    This is equivalent for every current reader ([Cli_common_env.get] treats
+    [Some ""] the same as [None] via [trim_non_empty_opt]), but is not a true
+    unset for code that reads the var via bare
+    [Sys.getenv_opt]/[Cli_common_env.default_getenv]. *)
 let with_keep_alive_env value f =
   let orig = Cli_common_env.default_getenv keep_alive_env_var in
   let restore () =

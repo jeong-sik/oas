@@ -13,8 +13,8 @@ open Agent_sdk
 
 let with_env key value f =
   let previous = Sys.getenv_opt key in
-  (* OCaml's Unix module has no portable unsetenv; OAS env readers treat an
-     empty value as unset. *)
+  (* On the current supported 5.4 floor there is no Unix.unsetenv; OAS env
+     readers treat an empty value as unset. *)
   let restore () =
     match previous with
     | Some previous -> Unix.putenv key previous
