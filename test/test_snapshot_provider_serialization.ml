@@ -899,10 +899,7 @@ let () =
     ; "glm", [ test_case "tool_choice Any" `Quick test_glm_any ]
     ; "ollama", [ test_case "tool_choice Any" `Quick test_ollama_any ]
     ; ( "structured_output_wire"
-      , [ test_case
-            "ollama output_schema -> format"
-            `Quick
-            test_ollama_output_schema
+      , [ test_case "ollama output_schema -> format" `Quick test_ollama_output_schema
         ; test_case
             "anthropic output_schema -> format.json_schema"
             `Quick
