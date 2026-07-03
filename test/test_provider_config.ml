@@ -1012,6 +1012,28 @@ let test_is_local_ipv6_full_loopback () =
   check_bool "full ipv6 loopback is local" true (Provider_config.is_local cfg)
 ;;
 
+let test_is_local_ipv4_mapped_ipv6_loopback () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"http://[::ffff:127.0.0.1]:8085"
+      ()
+  in
+  check_bool "ipv4-mapped ipv6 loopback is local" true (Provider_config.is_local cfg)
+;;
+
+let test_is_local_ipv4_mapped_ipv6_remote_false () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"http://[::ffff:192.0.2.1]:8085"
+      ()
+  in
+  check_bool "ipv4-mapped ipv6 remote is not local" false (Provider_config.is_local cfg)
+;;
+
 let test_is_local_remote_false () =
   let cfg =
     Provider_config.make
@@ -2306,6 +2328,14 @@ let () =
         ; Alcotest.test_case "localhost" `Quick test_is_local_localhost
         ; Alcotest.test_case "ipv6 loopback" `Quick test_is_local_ipv6_loopback
         ; Alcotest.test_case "full ipv6 loopback" `Quick test_is_local_ipv6_full_loopback
+        ; Alcotest.test_case
+            "ipv4-mapped ipv6 loopback"
+            `Quick
+            test_is_local_ipv4_mapped_ipv6_loopback
+        ; Alcotest.test_case
+            "ipv4-mapped ipv6 remote false"
+            `Quick
+            test_is_local_ipv4_mapped_ipv6_remote_false
         ; Alcotest.test_case "remote false" `Quick test_is_local_remote_false
         ; Alcotest.test_case
             "host boundary false"

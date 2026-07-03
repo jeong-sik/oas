@@ -941,9 +941,20 @@ let is_loopback_ip_literal host =
     let normalized = Unix.inet_addr_of_string host |> Unix.string_of_inet_addr in
     String.equal normalized "::1"
     ||
-    match String.split_on_char '.' normalized with
-    | "127" :: _ -> true
-    | _ -> false
+    let is_ipv4_loopback literal =
+      match String.split_on_char '.' literal with
+      | first_octet :: _ -> String.equal first_octet "127"
+      | _ -> false
+    in
+    let is_ipv4_mapped_loopback literal =
+      let prefix = "::ffff:" in
+      let prefix_len = String.length prefix in
+      String.length literal > prefix_len
+      && String.equal (String.sub literal 0 prefix_len) prefix
+      && is_ipv4_loopback
+           (String.sub literal prefix_len (String.length literal - prefix_len))
+    in
+    is_ipv4_loopback normalized || is_ipv4_mapped_loopback normalized
   with
   | Failure _ | Unix.Unix_error _ -> false
 ;;
