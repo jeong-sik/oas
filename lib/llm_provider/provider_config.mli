@@ -410,8 +410,10 @@ val reasoning_effort_of_config : t -> string option
     This is usually {!string_of_provider_kind}, except vendor-canonical hosts
     (RFC-OAS-034 §2 rule 2): official Ollama Cloud endpoints are scoped as
     ["ollama_cloud"], and DeepSeek's canonical host [api.deepseek.com] as
-    ["deepseek"], even when they use the OpenAI-compatible wire kind. Both are
-    matched by exact [Uri.host] equality (no prefix, no look-alike). *)
+    ["deepseek"], while the Kimi Code coding-plan gateway host [api.kimi.com]
+    is scoped as ["kimi"], even when they use the OpenAI-compatible wire kind.
+    These are matched by exact [Uri.host] equality (no prefix, no
+    look-alike). *)
 val capability_provider_label : t -> string
 
 (** Resolve model capabilities using provider-qualified catalog entries first.
