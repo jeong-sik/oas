@@ -1,7 +1,9 @@
 (** See [wire_capture.mli]. *)
 
 let env_dir = "OAS_WIRE_CAPTURE_DIR"
+let env_max_bytes = "OAS_WIRE_CAPTURE_MAX_BYTES"
 let capture_filename = "raw-stream.jsonl"
+let default_max_bytes = 64 * 1024 * 1024
 
 type sink = string -> unit
 
@@ -54,6 +56,22 @@ let unlock_noerr fd =
   | Unix.Unix_error _ -> ()
 ;;
 
+let with_file_lock ~lock_path f =
+  let fd = Unix.openfile lock_path [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_CLOEXEC ] 0o600 in
+  let locked = ref false in
+  Fun.protect
+    ~finally:(fun () ->
+      if !locked then unlock_noerr fd;
+      close_noerr fd)
+    (fun () ->
+       try
+         Unix.lockf fd Unix.F_TLOCK 0;
+         locked := true;
+         f ()
+       with
+       | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
+;;
+
 let rec write_all fd line offset remaining =
   if remaining > 0
   then (
@@ -62,27 +80,96 @@ let rec write_all fd line offset remaining =
     | written -> write_all fd line (offset + written) (remaining - written))
 ;;
 
-let append_json_line ~path line =
-  with_append_mutex (fun () ->
-    let fd =
-      Unix.openfile
-        path
-        [ Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC ]
-        0o600
-    in
-    let locked = ref false in
-    Fun.protect
-      ~finally:(fun () ->
-        if !locked then unlock_noerr fd;
-        close_noerr fd)
-      (fun () ->
-         ignore (Unix.lseek fd 0 Unix.SEEK_SET : int);
-         Unix.lockf fd Unix.F_TLOCK 0;
-         locked := true;
-         write_all fd line 0 (String.length line)))
+let append_json_line_unlocked ~path line =
+  let fd =
+    Unix.openfile
+      path
+      [ Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC ]
+      0o600
+  in
+  Fun.protect
+    ~finally:(fun () -> close_noerr fd)
+    (fun () -> write_all fd line 0 (String.length line))
 ;;
 
-let write_line ~path ~provider ~model ~warned chunk =
+let file_size path =
+  try (Unix.stat path).Unix.st_size with
+  | Unix.Unix_error _ | Sys_error _ -> 0
+;;
+
+let capture_max_bytes ?getenv () =
+  match Cli_common_env.get ?getenv env_max_bytes with
+  | None -> default_max_bytes, None
+  | Some "" -> default_max_bytes, None
+  | Some s ->
+    (match int_of_string_opt s with
+     | Some n when n > 0 -> n, None
+     | Some _ | None -> default_max_bytes, Some s)
+;;
+
+let unlink_if_exists path =
+  try Ok (Unix.unlink path) with
+  | Unix.Unix_error (Unix.ENOENT, _, _) -> Ok ()
+  | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
+;;
+
+let path_exists path =
+  try
+    ignore (Unix.stat path : Unix.stats);
+    true
+  with
+  | Unix.Unix_error (Unix.ENOENT, _, _) -> false
+  | Unix.Unix_error _ | Sys_error _ -> true
+;;
+
+let prune_if_over_cap ~path ~max_bytes =
+  if file_size path > max_bytes then unlink_if_exists path else Ok ()
+;;
+
+let prune_over_cap_capture_files_unlocked ~path ~max_bytes =
+  match prune_if_over_cap ~path ~max_bytes with
+  | Error _ as err -> err
+  | Ok () -> prune_if_over_cap ~path:(path ^ ".1") ~max_bytes
+;;
+
+let prune_over_cap_capture_files ~path ~max_bytes =
+  with_append_mutex (fun () ->
+    with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
+      prune_over_cap_capture_files_unlocked ~path ~max_bytes))
+;;
+
+(** Rotate [path] to [path ^ ".1"], deleting any previous backup. Failures are
+    surfaced to the caller so capture can skip instead of exceeding the cap. *)
+let rotate_file path =
+  let backup = path ^ ".1" in
+  match unlink_if_exists backup with
+  | Error _ as err -> err
+  | Ok () ->
+    if not (path_exists path)
+    then Ok ()
+    else (
+      try Ok (Unix.rename path backup) with
+      | Unix.Unix_error (Unix.ENOENT, _, _) -> Ok ()
+      | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
+;;
+
+let append_bounded_json_line ~path ~max_bytes line =
+  with_append_mutex (fun () ->
+    with_file_lock ~lock_path:(path ^ ".lock") (fun () ->
+      let line_bytes = String.length line in
+      match prune_over_cap_capture_files_unlocked ~path ~max_bytes with
+      | Error _ as err -> err
+      | Ok () ->
+        let current_size = file_size path in
+        if current_size + line_bytes > max_bytes
+        then (
+          match rotate_file path with
+          | Error _ as err -> err
+          | Ok () -> Ok (append_json_line_unlocked ~path line))
+        else Ok (append_json_line_unlocked ~path line)))
+;;
+
+let write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk =
   let json : Yojson.Safe.t =
     `Assoc
       [ "provider", `String provider
@@ -91,21 +178,66 @@ let write_line ~path ~provider ~model ~warned chunk =
       ]
   in
   let line = Yojson.Safe.to_string json ^ "\n" in
-  try append_json_line ~path line with
-  | Sys_error msg ->
-    if not !warned
+  let line_bytes = String.length line in
+  if line_bytes > max_bytes
+  then (
+    (try
+       match prune_over_cap_capture_files ~path ~max_bytes with
+       | Ok () -> ()
+       | Error msg ->
+         if not !warned
+         then (
+           warned := true;
+           Diag.warn "wire_capture" "skipped capture cleanup for %S: %s" path msg)
+     with
+     | Sys_error msg ->
+       if not !warned
+       then (
+         warned := true;
+         Diag.warn "wire_capture" "cleanup failed for %S: %s" path msg)
+     | Unix.Unix_error (err, fn, arg) ->
+       if not !warned
+       then (
+         warned := true;
+         Diag.warn
+           "wire_capture"
+           "cleanup failed for %S: %s"
+           path
+           (unix_error_message err fn arg)));
+    if not !oversized_warned
     then (
-      warned := true;
-      Diag.warn "wire_capture" "write failed for %S: %s" path msg)
-  | Unix.Unix_error (err, fn, arg) ->
-    if not !warned
-    then (
-      warned := true;
+      oversized_warned := true;
       Diag.warn
         "wire_capture"
-        "write failed for %S: %s"
+        "skipped capture chunk for %S: encoded JSON line is %d bytes, exceeding cap %d \
+         bytes"
         path
-        (unix_error_message err fn arg))
+        line_bytes
+        max_bytes))
+  else (
+    try
+      match append_bounded_json_line ~path ~max_bytes line with
+      | Ok () -> ()
+      | Error msg ->
+        if not !warned
+        then (
+          warned := true;
+          Diag.warn "wire_capture" "skipped capture write for %S: %s" path msg)
+    with
+    | Sys_error msg ->
+      if not !warned
+      then (
+        warned := true;
+        Diag.warn "wire_capture" "write failed for %S: %s" path msg)
+    | Unix.Unix_error (err, fn, arg) ->
+      if not !warned
+      then (
+        warned := true;
+        Diag.warn
+          "wire_capture"
+          "write failed for %S: %s"
+          path
+          (unix_error_message err fn arg)))
 ;;
 
 let make_sink ?getenv ~provider ~model =
@@ -119,7 +251,19 @@ let make_sink ?getenv ~provider ~model =
      | Ok () ->
        let path = Filename.concat dir capture_filename in
        let warned = ref false in
-       fun chunk -> write_line ~path ~provider ~model ~warned chunk)
+       let oversized_warned = ref false in
+       let max_bytes, invalid_max_bytes = capture_max_bytes ?getenv () in
+       (match invalid_max_bytes with
+        | None -> ()
+        | Some value ->
+          Diag.warn
+            "wire_capture"
+            "%s=%S is invalid; using default cap %d bytes"
+            env_max_bytes
+            value
+            default_max_bytes);
+       fun chunk ->
+         write_line ~path ~provider ~model ~warned ~oversized_warned ~max_bytes chunk)
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
@@ -249,4 +393,216 @@ let%test "capture mutex does not block Eio fiber scheduling" =
           with_append_mutex (fun () -> observed_by_waiter := !progress))
       ];
     !observed_by_holder && !observed_by_waiter)
+;;
+
+let%test "make_sink rotates file when max bytes would be exceeded" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_rotate" "" in
+    let max_bytes = 128 in
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s (String.make 64 'a');
+    s (String.make 64 'b');
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    Sys.file_exists backup
+    && Sys.file_exists path
+    &&
+    let content = read_file path in
+    contains ~needle:"\"chunk\":\"" content)
+;;
+
+let%test "make_sink skips oversized records instead of exceeding max bytes" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_oversized" "" in
+    let warnings = ref [] in
+    let max_bytes = 128 in
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         let s =
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some (string_of_int max_bytes)
+               else None)
+             ~provider:"p"
+             ~model:"m"
+         in
+         s (String.make 1024 'x'));
+    let path = Filename.concat dir capture_filename in
+    (not (Sys.file_exists path))
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"skipped capture chunk" msg)
+         !warnings)
+;;
+
+let%test "make_sink skips when rotation cannot preserve cap" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_rotate_fail" "" in
+    let warnings = ref [] in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 250 'a'));
+    Unix.mkdir backup 0o700;
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () ->
+         let s =
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some (string_of_int max_bytes)
+               else None)
+             ~provider:"p"
+             ~model:"m"
+         in
+         s "small chunk");
+    file_size path <= max_bytes
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"skipped capture write" msg)
+         !warnings)
+;;
+
+let%test "make_sink drops already oversized capture file before appending" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_oversized" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 512 'a'));
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s "small chunk";
+    file_size path <= max_bytes
+    && (not (Sys.file_exists backup))
+    &&
+    let content = read_file path in
+    contains ~needle:"small chunk" content)
+;;
+
+let%test "make_sink drops already oversized backup before appending" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_oversized_backup" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let oc = open_out_bin backup in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (String.make 512 'a'));
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s "small chunk";
+    (not (Sys.file_exists backup))
+    &&
+    let content = read_file path in
+    contains ~needle:"small chunk" content)
+;;
+
+let%test "make_sink drops oversized files before skipping oversized records" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_drop_before_oversized_skip" "" in
+    let max_bytes = 256 in
+    let path = Filename.concat dir capture_filename in
+    let backup = path ^ ".1" in
+    let write_big path =
+      let oc = open_out_bin path in
+      Fun.protect
+        ~finally:(fun () -> close_out oc)
+        (fun () -> output_string oc (String.make 512 'a'))
+    in
+    write_big path;
+    write_big backup;
+    let s =
+      make_sink
+        ~getenv:(fun name ->
+          if String.equal name env_dir
+          then Some dir
+          else if String.equal name env_max_bytes
+          then Some (string_of_int max_bytes)
+          else None)
+        ~provider:"p"
+        ~model:"m"
+    in
+    s (String.make 1024 'x');
+    (not (Sys.file_exists path)) && not (Sys.file_exists backup))
+;;
+
+let%test "invalid max bytes falls back to default cap with warning" =
+  Eio_main.run (fun _env ->
+    let dir = Filename.temp_dir "oas_wire_nocap" "" in
+    let warnings = ref [] in
+    let max_bytes, invalid =
+      capture_max_bytes
+        ~getenv:(fun name -> if String.equal name env_max_bytes then Some "0" else None)
+        ()
+    in
+    let s =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () ->
+           make_sink
+             ~getenv:(fun name ->
+               if String.equal name env_dir
+               then Some dir
+               else if String.equal name env_max_bytes
+               then Some "0"
+               else None)
+             ~provider:"p"
+             ~model:"m")
+    in
+    s "chunk";
+    max_bytes = default_max_bytes
+    && invalid = Some "0"
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && String.equal ctx "wire_capture"
+            && contains ~needle:"invalid; using default cap" msg)
+         !warnings)
 ;;
