@@ -108,20 +108,24 @@ let resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model () =
 
 let resolve_from_bindings ~implicit_fallback ~provider_name ?model () =
   let resolved_model = Model_registry.resolve_model_id provider_name in
-  if implicit_fallback && not (String.equal resolved_model provider_name)
-  then resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model ()
-  else (
-    match Provider_runtime_binding.find provider_name with
-    | Some binding -> Ok (Some (provider_config_of_binding ?model binding))
-    | None ->
-      if not (String.equal resolved_model provider_name)
-      then resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model ()
-      else
-        unsupported_provider
-          (Printf.sprintf
-             "unknown provider %S; valid: %s"
-             provider_name
-             (valid_provider_detail ())))
+  let model_alias = not (String.equal resolved_model provider_name) in
+  match
+    if implicit_fallback then nonlocal_catalog_config ?model [ provider_name ] else None
+  with
+  | Some cfg -> Ok (Some cfg)
+  | None ->
+    (match Provider_runtime_binding.find provider_name with
+     | Some binding when (not implicit_fallback) || not model_alias ->
+       Ok (Some (provider_config_of_binding ?model binding))
+     | Some _ | None ->
+       if model_alias
+       then resolve_anthropic_model_alias ~implicit_fallback ~resolved_model ?model ()
+       else
+         unsupported_provider
+           (Printf.sprintf
+              "unknown provider %S; valid: %s"
+              provider_name
+              (valid_provider_detail ())))
 ;;
 
 let resolve_selected_provider ~implicit_fallback selected ?model () =

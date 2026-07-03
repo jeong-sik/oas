@@ -550,6 +550,55 @@ let test_resolve_execution_model_alias_fallback_ignores_catalog_sonnet_collision
             | Error _ -> Alcotest.fail "expected Ok"))
 ;;
 
+let test_resolve_execution_model_alias_fallback_preserves_nonlocal_catalog_sonnet () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "sonnet",
+          "aliases": [],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "https://remote-sonnet.example/v1",
+          "request_path": "/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "remote-sonnet-model",
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       Llm_provider.Cli_common_env.with_env
+         Defaults.fallback_provider_env_var
+         "sonnet"
+         (fun () ->
+            match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+            | Ok res ->
+              Alcotest.(check string) "selected" "sonnet" res.selected_provider;
+              Alcotest.(check (option string))
+                "resolved provider"
+                (Some "sonnet")
+                res.resolved_provider;
+              Alcotest.(check (option string))
+                "resolved model"
+                (Some "remote-sonnet-model")
+                res.resolved_model;
+              (match res.provider_cfg with
+               | Some
+                   { Provider.provider = Provider.Custom_registered { name }
+                   ; model_id
+                   ; _
+                   } ->
+                 Alcotest.(check string) "catalog provider" "sonnet" name;
+                 Alcotest.(check string) "catalog model" "remote-sonnet-model" model_id
+               | Some { Provider.provider = Provider.Anthropic; _ } ->
+                 Alcotest.fail
+                   "non-local catalog sonnet should win before model alias fallback"
+               | _ -> Alcotest.fail "expected non-local catalog sonnet provider")
+            | Error _ -> Alcotest.fail "expected Ok"))
+;;
+
 let test_resolve_provider_model_override () =
   match
     Runtime_server_resolve.resolve_provider ~provider:"sonnet" ~model:"my-custom-model" ()
@@ -884,6 +933,10 @@ let () =
             "model alias fallback ignores catalog sonnet collision"
             `Quick
             test_resolve_execution_model_alias_fallback_ignores_catalog_sonnet_collision
+        ; Alcotest.test_case
+            "model alias fallback preserves non-local catalog sonnet"
+            `Quick
+            test_resolve_execution_model_alias_fallback_preserves_nonlocal_catalog_sonnet
         ] )
     ]
 ;;
