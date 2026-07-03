@@ -410,6 +410,15 @@ let test_zai_glm5v_capabilities_include_image_input () =
     capabilities.supports_multimodal_inputs
 ;;
 
+let non_glm_prefixed_glm_catalog_toml =
+  {|
+[[models]]
+id_prefix = "fake-glm-model"
+base = "glm"
+max_context_tokens = 999999
+|}
+;;
+
 let test_non_zai_glm_capabilities_stay_openai_compat () =
   let cfg : Provider.config =
     { provider =
@@ -429,6 +438,32 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
     "extended thinking disabled"
     false
     capabilities.supports_extended_thinking
+;;
+
+(* Regression for the provider.ml model-id classifier removal: a catalog entry
+   with [base = "glm"] but no "glm-" model-id prefix must be gated by endpoint
+   declaration, not by a model-id substring check. A raw OpenAI-compatible
+   endpoint must fall back to generic defaults even when the entry declares no
+   capability that triggers [capability_requires_endpoint_declaration]. *)
+let test_glm_base_requires_endpoint_declaration_not_model_id_prefix () =
+  with_catalog_toml non_glm_prefixed_glm_catalog_toml (fun () ->
+    let cfg : Provider.config =
+      { provider =
+          OpenAICompat
+            { base_url = "https://openrouter.ai/api/v1"
+            ; auth_header = None
+            ; path = "/chat/completions"
+            ; static_token = None
+            }
+      ; model_id = "fake-glm-model"
+      ; api_key_env = ""
+      }
+    in
+    let capabilities = Provider.capabilities_for_config cfg in
+    Alcotest.(check (option int))
+      "non-zai endpoint does not inherit glm base context window"
+      (Some 128_000)
+      capabilities.max_context_tokens)
 ;;
 
 let test_validate_inference_contract_rejects_unsupported_modality () =
@@ -1280,6 +1315,10 @@ let () =
             "non-zai glm stays openai compat"
             `Quick
             test_non_zai_glm_capabilities_stay_openai_compat
+        ; Alcotest.test_case
+            "glm base requires endpoint declaration not model-id prefix"
+            `Quick
+            test_glm_base_requires_endpoint_declaration_not_model_id_prefix
         ; Alcotest.test_case
             "invalid modality gets actionable error"
             `Quick

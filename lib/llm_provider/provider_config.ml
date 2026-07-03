@@ -321,7 +321,10 @@ let catalog_entry_requires_endpoint_declaration (entry : Model_catalog.model_ent
   with
   | Some ("openai_chat" | "openai_chat_extended"), Some _ -> false
   | Some ("openai_chat" | "openai_chat_extended"), None -> true
-  | Some "glm", _ -> false
+  (* GLM capabilities (reasoning, tools, thinking dialects) require a declared
+     Z.AI GLM endpoint. A raw OpenAI-compatible or local endpoint serving a
+     model id that merely matches a GLM catalog prefix must not inherit them. *)
+  | Some "glm", _ -> true
   | Some _, _ -> true
   | None, Some _ -> false
   | None, None -> true
