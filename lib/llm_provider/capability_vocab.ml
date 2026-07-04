@@ -43,6 +43,15 @@ type reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+type sampling_parameter =
+  | Temperature
+  | Top_p
+  | Top_k
+  | Min_p
+  | Presence_penalty
+  | Frequency_penalty
+  | Seed
+
 (** Inference task a catalog entry declares for non-chat models (audio
     transcription, speech synthesis, image/video generation). Chat and
     completion models declare no task. *)
@@ -219,6 +228,49 @@ let reasoning_streaming_format_of_string raw =
     then None
     else Some (Delta_reasoning_field field)
   | _ -> None
+;;
+
+let sampling_parameter_table =
+  [ "temperature", Temperature
+  ; "top_p", Top_p
+  ; "top_k", Top_k
+  ; "min_p", Min_p
+  ; "presence_penalty", Presence_penalty
+  ; "frequency_penalty", Frequency_penalty
+  ; "seed", Seed
+  ]
+;;
+
+let sampling_parameter_values = List.map fst sampling_parameter_table
+
+let sampling_parameter_of_string raw =
+  match normalize raw with
+  | "" -> None
+  | normalized -> List.assoc_opt normalized sampling_parameter_table
+;;
+
+let sampling_parameter_to_string = function
+  | Temperature -> "temperature"
+  | Top_p -> "top_p"
+  | Top_k -> "top_k"
+  | Min_p -> "min_p"
+  | Presence_penalty -> "presence_penalty"
+  | Frequency_penalty -> "frequency_penalty"
+  | Seed -> "seed"
+;;
+
+let%test "sampling_parameter values parse through the canonical table" =
+  List.for_all
+    (fun raw -> Option.is_some (sampling_parameter_of_string raw))
+    sampling_parameter_values
+;;
+
+let%test "sampling_parameter round-trips through to_string and of_string" =
+  List.for_all
+    (fun (_raw, parameter) ->
+       sampling_parameter_of_string (sampling_parameter_to_string parameter)
+       = Some parameter)
+    sampling_parameter_table
 ;;
 
 (* Closed vocabulary of catalog/manifest [base] labels — the provider presets a

@@ -172,6 +172,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_min_p = caps.supports_min_p
   ; supports_seed = caps.supports_seed
   ; supports_seed_with_images = caps.supports_seed_with_images
+  ; ignored_sampling_parameters = caps.ignored_sampling_parameters
   ; supports_computer_use = caps.supports_computer_use
   ; supports_code_execution = caps.supports_code_execution
   ; emits_usage_tokens = caps.emits_usage_tokens
@@ -272,12 +273,13 @@ let reasoning_dialect_for_request
   else dialect
 ;;
 
-let add_sampling_field dialect (config : agent_state) field value body_assoc =
+let add_sampling_field dialect (config : agent_state) parameter value body_assoc =
+  let field = Llm_provider.Capabilities.sampling_parameter_to_string parameter in
   if
     Llm_provider.Reasoning_dialect.ignores_sampling_param
       dialect
       ~enable_thinking:config.config.enable_thinking
-      field
+      parameter
   then body_assoc
   else (field, value) :: body_assoc
 ;;
@@ -366,17 +368,34 @@ let build_openai_body_unchecked
   let body_assoc =
     match config.config.temperature with
     | Some temp ->
-      add_sampling_field dialect config "temperature" (`Float temp) body_assoc
+      add_sampling_field
+        dialect
+        config
+        Llm_provider.Capabilities.Temperature
+        (`Float temp)
+        body_assoc
     | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_p with
-    | Some top_p -> add_sampling_field dialect config "top_p" (`Float top_p) body_assoc
+    | Some top_p ->
+      add_sampling_field
+        dialect
+        config
+        Llm_provider.Capabilities.Top_p
+        (`Float top_p)
+        body_assoc
     | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_k with
-    | Some top_k when capabilities.supports_top_k -> ("top_k", `Int top_k) :: body_assoc
+    | Some top_k when capabilities.supports_top_k ->
+      add_sampling_field
+        dialect
+        config
+        Llm_provider.Capabilities.Top_k
+        (`Int top_k)
+        body_assoc
     | None -> body_assoc
     | Some _ ->
       Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"top_k";
@@ -384,7 +403,13 @@ let build_openai_body_unchecked
   in
   let body_assoc =
     match config.config.min_p with
-    | Some min_p when capabilities.supports_min_p -> ("min_p", `Float min_p) :: body_assoc
+    | Some min_p when capabilities.supports_min_p ->
+      add_sampling_field
+        dialect
+        config
+        Llm_provider.Capabilities.Min_p
+        (`Float min_p)
+        body_assoc
     | None -> body_assoc
     | Some _ ->
       Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"min_p";

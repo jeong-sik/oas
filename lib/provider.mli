@@ -93,6 +93,15 @@ type reasoning_streaming_format = Llm_provider.Capabilities.reasoning_streaming_
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+type sampling_parameter = Llm_provider.Capabilities.sampling_parameter =
+  | Temperature
+  | Top_p
+  | Top_k
+  | Min_p
+  | Presence_penalty
+  | Frequency_penalty
+  | Seed
+
 (** Catalog-declared inference task for non-chat models (audio transcription,
     speech synthesis, image/video generation). A value is only ever set by an
     explicit [task] field on a [models.toml] catalog entry — it is never
@@ -148,6 +157,7 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supports_min_p : bool
   ; supports_seed : bool
   ; supports_seed_with_images : bool
+  ; ignored_sampling_parameters : sampling_parameter list
   ; supports_computer_use : bool
   ; supports_code_execution : bool
   ; (* Usage reporting *)

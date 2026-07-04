@@ -264,6 +264,7 @@ let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) 
   || caps.supports_min_p
   || caps.supports_seed
   || caps.supports_seed_with_images
+  || caps.ignored_sampling_parameters <> []
   || caps.supports_computer_use
   || caps.supports_code_execution
 ;;

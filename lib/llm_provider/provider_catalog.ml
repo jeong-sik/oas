@@ -319,6 +319,25 @@ let parse_accepted_reasoning_efforts = function
     loop [] values
 ;;
 
+let parse_ignored_sampling_parameters = function
+  | None -> Ok None
+  | Some values ->
+    let rec loop acc = function
+      | [] -> Ok (Some (List.rev acc))
+      | raw :: rest ->
+        let normalized = String.lowercase_ascii (String.trim raw) in
+        (match Capability_vocab.sampling_parameter_of_string normalized with
+         | Some parameter -> loop (parameter :: acc) rest
+         | None ->
+           Error
+             (Printf.sprintf
+                "unknown ignored_sampling_parameters value %S (canonical: %s)"
+                normalized
+                (String.concat ", " Capability_vocab.sampling_parameter_values)))
+    in
+    loop [] values
+;;
+
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
@@ -393,6 +412,10 @@ let parse_capabilities provider_json =
   let* accepted_reasoning_efforts =
     parse_accepted_reasoning_efforts
       (member_string_list "accepted_reasoning_efforts" cap_json)
+  in
+  let* ignored_sampling_parameters =
+    parse_ignored_sampling_parameters
+      (member_string_list "ignored_sampling_parameters" cap_json)
   in
   let caps =
     base
@@ -596,6 +619,11 @@ let parse_capabilities provider_json =
       caps
       (fun caps v -> { caps with Capabilities.supports_seed_with_images = v })
       cap_json
+    |> fun caps ->
+    (match ignored_sampling_parameters with
+     | Some ignored_sampling_parameters ->
+       { caps with Capabilities.ignored_sampling_parameters }
+     | None -> caps)
     |> fun caps ->
     override_bool
       "supports_computer_use"

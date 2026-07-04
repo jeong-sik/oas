@@ -22,6 +22,10 @@ open Yojson.Safe.Util
 let json_of_body body = Yojson.Safe.from_string body
 let member_is_absent name json = json |> member name = `Null
 
+let sampling_parameter_names parameters =
+  List.map CAP.sampling_parameter_to_string parameters
+;;
+
 let string_contains_sub s sub =
   let len = String.length s
   and sub_len = String.length sub in
@@ -269,7 +273,7 @@ let test_declared_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
     (list string)
     "no ignored sampling params"
     []
-    (RD.sampling_params_ignored_when_thinking dialect)
+    (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect))
 ;;
 
 let test_qwen36_reasoning_dialect_without_preserve_drops_reasoning () =
@@ -626,7 +630,7 @@ let test_deepseek_reasoning_dialect_semantics () =
     (list string)
     "ignored sampling params"
     [ "temperature"; "top_p"; "presence_penalty"; "frequency_penalty" ]
-    (RD.sampling_params_ignored_when_thinking dialect)
+    (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect))
 ;;
 
 let test_deepseek_sampling_suppressed_in_thinking_mode () =
@@ -809,6 +813,11 @@ let test_kimi_k26_defaults_to_tool_call_replay () =
     "requires tool-call replay"
     true
     (RD.requires_reasoning_replay_on_tool_call dialect);
+  check
+    (list string)
+    "ignored sampling params"
+    [ "temperature"; "top_p" ]
+    (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect));
   let user_json =
     BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
   in
@@ -826,6 +835,15 @@ let test_kimi_k26_defaults_to_tool_call_replay () =
     "tool reasoning_content"
     "use calculator"
     (tool |> member "messages" |> index 0 |> member "reasoning_content" |> to_string)
+;;
+
+let test_kimi_k26_omits_fixed_sampling_with_disabled_thinking () =
+  let config =
+    kimi_config ~enable_thinking:false ~temperature:0.7 ~top_p:0.9 "kimi-k2.6"
+  in
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check_member_absent "temperature" json;
+  check_member_absent "top_p" json
 ;;
 
 let test_kimi_k26_preserve_requests_keep_all () =
@@ -870,7 +888,7 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
     (list string)
     "ignored sampling params"
     [ "temperature"; "top_p" ]
-    (RD.sampling_params_ignored_when_thinking dialect);
+    (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect));
   let user_json =
     BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
   in
@@ -1062,7 +1080,7 @@ let test_gemma4_reasoning_dialect_uses_template_parser () =
     (list string)
     "no ignored sampling params"
     []
-    (RD.sampling_params_ignored_when_thinking dialect)
+    (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect))
 ;;
 
 let test_anthropic_reasoning_dialect_preserves_thinking () =
@@ -1290,6 +1308,10 @@ let () =
               "kimi k2.6 defaults to tool-call replay"
               `Quick
               test_kimi_k26_defaults_to_tool_call_replay
+          ; test_case
+              "kimi k2.6 omits fixed sampling with disabled thinking"
+              `Quick
+              test_kimi_k26_omits_fixed_sampling_with_disabled_thinking
           ; test_case
               "kimi k2.6 preserve requests keep all"
               `Quick

@@ -31,6 +31,7 @@ type model_entry =
   ; supports_top_k : bool option
   ; supports_min_p : bool option
   ; supports_seed : bool option
+  ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
@@ -200,6 +201,31 @@ let reasoning_streaming_format_opt ~entry_id key toml =
             Capability_vocab.reasoning_streaming_format_syntax))
 ;;
 
+let sampling_parameters_opt ~entry_id key toml =
+  match find_string_list_opt toml [ key ] with
+  | None -> Ok None
+  | Some values ->
+    let parsed, unknown =
+      List.fold_right
+        (fun raw (parsed, unknown) ->
+           match Capability_vocab.sampling_parameter_of_string raw with
+           | Some parameter -> parameter :: parsed, unknown
+           | None -> parsed, String.lowercase_ascii (String.trim raw) :: unknown)
+        values
+        ([], [])
+    in
+    (match unknown with
+     | [] -> Ok (Some parsed)
+     | values ->
+       Error
+         (Printf.sprintf
+            "model entry %S field %S has unknown value(s) %s (canonical: %s)"
+            entry_id
+            key
+            (String.concat ", " values)
+            (String.concat ", " Capability_vocab.sampling_parameter_values)))
+;;
+
 (* Typed at the parse boundary: an entry either declares a canonical task or
    fails the whole catalog load. Storing the raw string here would defer the
    unknown-value decision to a warn-and-keep-base fallback at capability
@@ -258,6 +284,7 @@ let known_entry_keys =
   ; "supports_top_k"
   ; "supports_min_p"
   ; "supports_seed"
+  ; "ignored_sampling_parameters"
   ; "supports_computer_use"
   ; "supports_code_execution"
   ; "thinking_control_format"
@@ -350,6 +377,12 @@ let parse_entry entry_toml =
            entry_toml
        in
        let task_result = task_opt ~entry_id:id_prefix "task" entry_toml in
+       let ignored_sampling_parameters_result =
+         sampling_parameters_opt
+           ~entry_id:id_prefix
+           "ignored_sampling_parameters"
+           entry_toml
+       in
        let thinking_control_format_result =
          canonical_string_opt
            ~entry_id:id_prefix
@@ -388,25 +421,28 @@ let parse_entry entry_toml =
           , provider_name_result
           , modality_priority_result
           , task_result
+          , ignored_sampling_parameters_result
           , thinking_control_format_result
           , preserve_thinking_control_format_result
           , reasoning_output_format_result
           , reasoning_streaming_format_result
           , thinking_control_token_result )
         with
-        | (Error _ as e), _, _, _, _, _, _, _, _
-        | _, (Error _ as e), _, _, _, _, _, _, _
-        | _, _, (Error _ as e), _, _, _, _, _, _
-        | _, _, _, (Error _ as e), _, _, _, _, _
-        | _, _, _, _, (Error _ as e), _, _, _, _
-        | _, _, _, _, _, (Error _ as e), _, _, _
-        | _, _, _, _, _, _, (Error _ as e), _, _
-        | _, _, _, _, _, _, _, (Error _ as e), _
-        | _, _, _, _, _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _, _, _, _, _, _
+        | _, (Error _ as e), _, _, _, _, _, _, _, _
+        | _, _, (Error _ as e), _, _, _, _, _, _, _
+        | _, _, _, (Error _ as e), _, _, _, _, _, _
+        | _, _, _, _, (Error _ as e), _, _, _, _, _
+        | _, _, _, _, _, (Error _ as e), _, _, _, _
+        | _, _, _, _, _, _, (Error _ as e), _, _, _
+        | _, _, _, _, _, _, _, (Error _ as e), _, _
+        | _, _, _, _, _, _, _, _, (Error _ as e), _
+        | _, _, _, _, _, _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok provider_name
           , Ok modality_priority
           , Ok task
+          , Ok ignored_sampling_parameters
           , Ok thinking_control_format
           , Ok preserve_thinking_control_format
           , Ok reasoning_output_format
@@ -454,6 +490,7 @@ let parse_entry entry_toml =
             ; supports_top_k = find_bool_opt entry_toml [ "supports_top_k" ]
             ; supports_min_p = find_bool_opt entry_toml [ "supports_min_p" ]
             ; supports_seed = find_bool_opt entry_toml [ "supports_seed" ]
+            ; ignored_sampling_parameters
             ; supports_computer_use = find_bool_opt entry_toml [ "supports_computer_use" ]
             ; supports_code_execution =
                 find_bool_opt entry_toml [ "supports_code_execution" ]
@@ -507,6 +544,29 @@ let%test "parse_entry leaves task undeclared as None" =
   match parse_entry entry with
   | Ok { task = None; _ } -> true
   | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry parses ignored_sampling_parameters into closed variants" =
+  let entry =
+    Otoml.Parser.from_string
+      "id_prefix = \"m\"\nignored_sampling_parameters = [\"temperature\", \"top_p\"]"
+  in
+  match parse_entry entry with
+  | Ok
+      { ignored_sampling_parameters =
+          Some [ Capability_vocab.Temperature; Capability_vocab.Top_p ]
+      ; _
+      } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry rejects unknown ignored_sampling_parameters" =
+  let entry =
+    Otoml.Parser.from_string "id_prefix = \"m\"\nignored_sampling_parameters = [\"temp\"]"
+  in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "parse_entry rejects an unknown base preset, not silent default" =
