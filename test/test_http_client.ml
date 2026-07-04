@@ -192,6 +192,24 @@ let test_read_sse_idle_without_clock_raises () =
       (Util.contains_substring_ci ~haystack:msg ~needle:"idle_timeout")
 ;;
 
+let test_read_ndjson_idle_without_clock_raises () =
+  Eio_main.run
+  @@ fun _env ->
+  let flow =
+    Eio.Flow.string_source
+      {|{"ok":true}
+|}
+  in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  match Http_client.read_ndjson ~idle_timeout:1.0 ~reader ~on_line:ignore () with
+  | () -> Alcotest.fail "expected Invalid_argument for idle_timeout without clock"
+  | exception Invalid_argument msg ->
+    Alcotest.(check bool)
+      "message names the disarm hazard"
+      true
+      (Util.contains_substring_ci ~haystack:msg ~needle:"idle_timeout")
+;;
+
 let test_post_stream_invalid_url_returns_network_error () =
   Eio_main.run
   @@ fun env ->
@@ -508,6 +526,12 @@ let () =
             "invalid url returns network error"
             `Quick
             test_post_stream_invalid_url_returns_network_error
+        ] )
+    ; ( "read_ndjson"
+      , [ Alcotest.test_case
+            "idle_timeout without clock raises"
+            `Quick
+            test_read_ndjson_idle_without_clock_raises
         ] )
     ; ( "timeout_phase"
       , [ Alcotest.test_case "policy labels" `Quick test_timeout_phase_policy_labels
