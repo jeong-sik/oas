@@ -918,18 +918,16 @@ let validate_output_schema_request (config : t) =
        Error
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
-     | Kimi | OpenAI_compat ->
-       (match validate_model_structured_output_capability config with
-        | Error _ as error -> error
-        | Ok () ->
-          if endpoint_supports_openai_compat_output_schema config
-          then Ok ()
-          else
-            Error
-              (Printf.sprintf
-                 "native structured output is only wired for declared OpenAI-compatible \
-                  endpoints, got %s"
-                 config.base_url)))
+     | Kimi -> validate_model_structured_output_capability config
+     | OpenAI_compat ->
+       if endpoint_supports_openai_compat_output_schema config
+       then validate_model_structured_output_capability config
+       else
+         Error
+           (Printf.sprintf
+              "native structured output is only wired for declared OpenAI-compatible \
+               endpoints, got %s"
+              config.base_url))
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
