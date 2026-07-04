@@ -121,10 +121,19 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; output_wire
     }
   | Thinking_object_only ->
+    let replay_policy =
+      match preserve_wire with
+      | Thinking_object_keep_all -> Drop_without_tool_preserve_with_tool
+      | No_preserve_thinking_control
+      | Chat_template_kwargs_preserve_thinking
+      | Top_level_preserve_thinking
+      | Always_preserved_thinking -> default.replay_policy
+    in
     { default with
       toggle_default = Provider_default
     ; toggle_wire = Thinking_object_only
     ; preserve_wire
+    ; replay_policy
     ; streaming = Delta_field "reasoning_content"
     ; output_wire
     }
