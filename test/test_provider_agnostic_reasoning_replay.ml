@@ -219,6 +219,59 @@ let test_replay_matches_should_replay_reasoning_any_provider () =
     (profile_cases ())
 ;;
 
+let test_representative_provider_replay_semantics_are_explicit () =
+  let profiles = profile_cases () in
+  let find_caps name =
+    match List.assoc_opt name profiles with
+    | Some caps -> caps
+    | None -> Alcotest.failf "missing representative profile: %s" name
+  in
+  let cases =
+    [ ( "openai_compat_chat_extended"
+      , "no_replay"
+      , false
+      , false
+      , "OpenAI-compatible reasoning effort keeps provider reasoning hidden" )
+    ; ( "ollama"
+      , "no_replay"
+      , false
+      , false
+      , "Ollama native thinking is parsed/hidden, not replayed as reasoning_content" )
+    ; ( "model:mimo-v2.5-pro"
+      , "drop_without_tool_preserve_with_tool"
+      , false
+      , true
+      , "MiMo Deep Thinking requires reasoning_content pass-through on tool turns" )
+    ; ( "model:deepseek-v4-pro"
+      , "drop_without_tool_preserve_with_tool"
+      , false
+      , true
+      , "DeepSeek-style thinking object replays only assistant tool-call reasoning" )
+    ; ( "model:kimi-k2.7-code"
+      , "preserve_always"
+      , true
+      , true
+      , "Kimi latest preserved-thinking catalog entries replay reasoning on all turns" )
+    ]
+  in
+  List.iter
+    (fun (name, expected_policy, expect_plain, expect_tool, why) ->
+       let dialect = RD.of_capabilities (find_caps name) in
+       check_string
+         (Printf.sprintf "[%s] replay policy (%s)" name why)
+         expected_policy
+         (RD.replay_policy_to_string dialect.replay_policy);
+       check_bool
+         (Printf.sprintf "[%s] plain-answer reasoning replay" name)
+         expect_plain
+         (RD.should_replay_reasoning dialect ~assistant_had_tool_call:false);
+       check_bool
+         (Printf.sprintf "[%s] tool-call reasoning replay" name)
+         expect_tool
+         (RD.should_replay_reasoning dialect ~assistant_had_tool_call:true))
+    cases
+;;
+
 (* INV3 (recursion closure): simulate N replay rounds of a reasoning-only reply
    fed back into history. The serialized content must stay empty every round —
    the reasoning never accumulates into the answer channel, so there is no
@@ -326,6 +379,10 @@ let () =
             "wire replay matches should_replay_reasoning (all providers)"
             `Quick
             test_replay_matches_should_replay_reasoning_any_provider
+        ; Alcotest.test_case
+            "representative provider replay semantics are explicit"
+            `Quick
+            test_representative_provider_replay_semantics_are_explicit
         ; Alcotest.test_case
             "reasoning-only replay never accumulates into content (all providers)"
             `Quick

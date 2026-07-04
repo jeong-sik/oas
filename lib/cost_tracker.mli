@@ -12,6 +12,7 @@ type cost_report =
   ; output_tokens : int
   ; cache_creation_tokens : int
   ; cache_read_tokens : int
+  ; cache_miss_input_tokens : int
   ; api_calls : int
   ; avg_cost_per_call : float
   }

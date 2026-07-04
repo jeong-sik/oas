@@ -251,7 +251,7 @@ let test_reduce_aggressive_drops_thinking () =
            msg.content)
       result
   in
-  (* Drop_thinking preserves last 2 messages, so thinking in earlier messages is dropped *)
+  (* Drop_thinking removes unsigned thinking blocks, including recent messages. *)
   Alcotest.(check bool) "thinking dropped from old messages" false has_thinking
 ;;
 

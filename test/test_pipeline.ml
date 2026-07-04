@@ -373,6 +373,87 @@ let test_pipeline_tool_recovery_rejects_openai_compat_provider () =
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
 
+let repeated_invalid_tool_response id : Types.api_response =
+  { id
+  ; model = "mock-model"
+  ; stop_reason = StopToolUse
+  ; content = [ ToolUse { id; name = "my_tool"; input = `Assoc [] } ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let provider_calls = ref 0 in
+  let next_response (_req : Llm_provider.Llm_transport.completion_request) =
+    incr provider_calls;
+    match !provider_calls with
+    | 1 | 2 -> repeated_invalid_tool_response (Printf.sprintf "invalid-%d" !provider_calls)
+    | _ -> Alcotest.fail "unexpected third provider call"
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun req ->
+          { Llm_provider.Llm_transport.response = Ok (next_response req)
+          ; latency_ms = None
+          })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ req -> Ok (next_response req))
+    }
+  in
+  let executed = ref 0 in
+  let tool =
+    Tool.create
+      ~name:"my_tool"
+      ~description:"requires x"
+      ~parameters:
+        [ { Types.name = "x"
+          ; description = "required input"
+          ; param_type = Types.String
+          ; required = true
+          }
+        ]
+      (fun _ ->
+         incr executed;
+         Ok { Types.content = "should not execute"; _meta = None })
+  in
+  let options =
+    { Agent.default_options with
+      transport = Some transport
+    ; provider = Some (Provider_mock.to_provider_config ())
+    ; guardrails = Guardrails.permissive
+    }
+  in
+  let agent =
+    Agent.create
+      ~net
+      ~tools:[ tool ]
+      ~config:{ Types.default_config with name = "validation-loop-block-test" }
+      ~options
+      ()
+  in
+  match Agent.run ~sw agent "call my_tool" with
+  | Ok response ->
+    Alcotest.(check int) "provider calls" 2 !provider_calls;
+    Alcotest.(check int) "tool handler not executed" 0 !executed;
+    Alcotest.(check string)
+      "blocked response mentions loop stop"
+      "I stopped the tool loop"
+      (String.sub (Types.text_of_response response) 0 23);
+    (match List.rev (Agent.state agent).messages with
+     | { Types.role = Assistant; content = [ Text text ]; _ } :: _ ->
+       Alcotest.(check bool)
+         "final assistant message persisted"
+         true
+         (Util.string_contains ~needle:"same invalid tool call" text)
+     | _ -> Alcotest.fail "expected persisted final assistant text")
+  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+;;
+
 (* ── Provider_mock: additional coverage ─────────────────── *)
 
 let test_mock_reset () =
@@ -1191,6 +1272,10 @@ let () =
             "tool recovery rejects openai compat"
             `Quick
             test_pipeline_tool_recovery_rejects_openai_compat_provider
+        ; Alcotest.test_case
+            "repeated validation error loop blocks"
+            `Quick
+            test_repeated_validation_error_loop_blocks_without_third_provider_call
         ; Alcotest.test_case "extra system context" `Quick test_prepare_turn_extra_context
         ; Alcotest.test_case
             "tool filter override"

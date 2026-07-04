@@ -95,6 +95,45 @@ type turn_outcome =
   | ToolsExecuted
   | IdleSkipped
 
+let all_validation_error_results = function
+  | [] -> false
+  | results ->
+    List.for_all
+      (fun (result : Agent_tools.tool_execution_result) ->
+         result.is_error
+         &&
+         match result.failure_kind with
+         | Some Agent_tools.Validation_error -> true
+         | Some Agent_tools.Recoverable_tool_error
+         | Some Agent_tools.Non_retryable_tool_error
+         | None -> false)
+      results
+;;
+
+let validation_loop_blocked_text ~consecutive_idle_turns results =
+  let tool_names =
+    results
+    |> List.map (fun (result : Agent_tools.tool_execution_result) -> result.tool_name)
+    |> List.sort_uniq String.compare
+    |> String.concat ", "
+  in
+  let tool_names = if tool_names = "" then "(unknown)" else tool_names in
+  let last_error =
+    results
+    |> List.find_map (fun (result : Agent_tools.tool_execution_result) ->
+      if result.is_error then Some result.content else None)
+    |> Option.value ~default:"validation error"
+    |> fun s -> Util.clip s 700
+  in
+  Printf.sprintf
+    "I stopped the tool loop because the same invalid tool call was repeated after \
+     validation feedback. Tool(s): %s. Repeated invalid turn count: %d. Last \
+     validation error: %s"
+    tool_names
+    consecutive_idle_turns
+    last_error
+;;
+
 let persist_turn_checkpoint_for_state agent stage state =
   match agent.checkpoint_sink with
   | None -> Ok ()
@@ -371,7 +410,7 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
-let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty =
+let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses_nonempty =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -536,6 +575,30 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
               | Raw_trace.Trace_error err -> Error err
             in
             let* results = results in
+            let uses_default_idle_policy =
+              Option.is_none agent.options.hooks.on_idle
+              && Option.is_none agent.options.hooks.on_idle_escalated
+            in
+            let repeated_validation_loop_blocked =
+              idle_result.is_idle
+              && uses_default_idle_policy
+              && all_validation_error_results results
+            in
+            let validation_loop_blocked_response =
+              if repeated_validation_loop_blocked
+              then
+                Some
+                  { response with
+                    stop_reason = EndTurn
+                  ; content =
+                      [ Text
+                          (validation_loop_blocked_text
+                             ~consecutive_idle_turns:agent.consecutive_idle_turns
+                             results)
+                      ]
+                  }
+              else None
+            in
             let tool_result_event_envelope = Pipeline_common.event_envelope agent in
             let tool_results =
               Agent_turn.make_tool_results
@@ -551,25 +614,25 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
              | Some (_, crs) ->
                Content_replacement_state.persist_to_context agent.context crs
              | None -> ());
-            (* Tool-call validation / recoverable errors flow back to the model as
-              is_error tool_results; the model self-corrects on a subsequent turn.
-              There is no separate retry-count gate — runaway is bounded by the
-              shared loop guard (max_turns + idle detection + token budget), the real
-              backpressure. (origin/main reached the same "tool failure is never
-              turn-fatal" outcome by neutering the Exhausted branch; this removes the
-              legacy tool-retry mechanism entirely, which subsumes that change.) *)
+            (* Tool-call validation / recoverable errors usually flow back to
+              the model as is_error tool_results so it can self-correct on a
+              subsequent turn. A repeated identical validation-only tool call
+              under the default idle policy is terminalized below: it has
+              already received schema feedback and another provider round would
+              replay the same large context without executing useful work. *)
             let tool_feedback = tool_results in
             let followup_text =
-              match !pending_nudge with
-              | Some nudge -> Some nudge
-              | None when idle_result.is_idle && not !idle_handled ->
+              match validation_loop_blocked_response, !pending_nudge with
+              | Some _, _ -> None
+              | None, Some nudge -> Some nudge
+              | None, None when idle_result.is_idle && not !idle_handled ->
                 Some
                   (Printf.sprintf
                      "[Idle warning: You called the same tool(s) with identical \
                       arguments %d time(s) in a row. Try a different tool or change your \
                       arguments to make progress.]"
                      agent.consecutive_idle_turns)
-              | None -> None
+              | None, None -> None
             in
             update_state agent (fun s ->
               let messages =
@@ -595,6 +658,16 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
                    ~results
                in
                update_state agent (fun s -> { s with messages = new_messages }));
+            (match validation_loop_blocked_response with
+             | None -> ()
+             | Some blocked_response ->
+               update_state agent (fun s ->
+                 { s with
+                   messages =
+                     Util.snoc
+                       s.messages
+                       (make_message ~role:Assistant blocked_response.content)
+                 }));
             let* () = persist_turn_checkpoint agent After_tool_results_appended in
             (* The idle nudge (and the fallback anti-repetition hint) is appended
               as a separate role:User message after the role:Tool result message.
@@ -602,7 +675,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
               before the required tool replies, which strict providers reject. *)
             ignore idle_handled;
             (* suppress unused warning after dedup *)
-            (* In-memory message hygiene after each tool execution round.
+            match validation_loop_blocked_response with
+            | Some blocked_response ->
+              Agent_types.reset_idle_state agent;
+              Ok (Complete blocked_response)
+            | None ->
+              (* In-memory message hygiene after each tool execution round.
             Without this, agent.state.messages grows unbounded across turns —
             context_reducer only trims before API calls, not in the stored state.
 
@@ -615,7 +693,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
             in Agent_turn.prepare_messages, not here.  Keeping stored messages
             unmodified preserves the byte-identical conversation prefix that
             local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
-            Ok ToolsExecuted))
+              Ok ToolsExecuted))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -664,7 +742,12 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
             let result =
-              stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty
+              stage_execute
+                ?raw_trace_run
+                agent
+                ~effective_guardrails
+                ~response
+                tool_uses_nonempty
             in
             (match result with
              | Ok IdleSkipped ->
