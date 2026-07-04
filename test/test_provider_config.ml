@@ -1532,6 +1532,26 @@ let test_validate_output_schema_unknown_openai_compat_host_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
+let test_validate_output_schema_mimo_json_schema_rejected () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"mimo-v2.5-pro"
+        ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
+        ~response_format_json:true
+        ~output_schema:(`Assoc [ "type", `String "object" ])
+        ()
+    in
+    match Provider_config.validate_output_schema_request cfg with
+    | Error msg ->
+      check_string
+        "rejection reason"
+        "model mimo-v2.5-pro does not advertise native structured output"
+        msg
+    | Ok () -> Alcotest.fail "expected MiMo json_schema request to fail closed")
+;;
+
 let test_validate_output_schema_ollama_subdomain_rejected () =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -1722,6 +1742,49 @@ let test_capability_provider_label_kimi_exact_host () =
     "moonshot platform host is not mapped to kimi"
     "openai_compat"
     (label "https://api.moonshot.ai/v1")
+;;
+
+let test_capability_provider_label_mimo_exact_host () =
+  let label base_url =
+    Provider_config.capability_provider_label
+      (Provider_config.make ~kind:OpenAI_compat ~model_id:"mimo-v2.5-pro" ~base_url ())
+  in
+  (* RFC-OAS-034 rule 2: Xiaomi MiMo's public API host and token-plan regional
+     gateways are vendor-canonical hosts. Exact host matching lets the runtime
+     capability gate resolve bare official MiMo model ids without provider_default
+     fallback, while still rejecting look-alikes. *)
+  List.iter
+    (fun base_url ->
+       check_string ("mimo canonical host: " ^ base_url) "mimo" (label base_url))
+    [ "https://api.xiaomimimo.com/v1"
+    ; "https://token-plan-cn.xiaomimimo.com/v1"
+    ; "https://token-plan-sgp.xiaomimimo.com/v1"
+    ; "https://token-plan-ams.xiaomimimo.com/v1"
+    ; "https://token-plan-sgp.xiaomimimo.com/anthropic"
+    ];
+  check_string
+    "subdomain lookalike is not mimo"
+    "openai_compat"
+    (label "https://token-plan-sgp.xiaomimimo.com.evil.example/v1");
+  check_string
+    "userinfo lookalike is not mimo"
+    "openai_compat"
+    (label "https://token-plan-sgp.xiaomimimo.com@evil.example/v1");
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"mimo-v2.5-pro"
+        ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
+        ~request_path:"/chat/completions"
+        ()
+    in
+    match Provider_config.capabilities_for_config_model cfg with
+    | Some caps ->
+      check_bool "resolves MiMo reasoning" true caps.supports_reasoning;
+      check_bool "resolves MiMo JSON mode" true caps.supports_response_format_json;
+      check_bool "does not claim json_schema" false caps.supports_structured_output
+    | None -> Alcotest.fail "MiMo token-plan host should resolve catalog capabilities")
 ;;
 
 let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
@@ -2332,6 +2395,10 @@ let () =
             `Quick
             test_validate_output_schema_unknown_openai_compat_host_rejected
         ; Alcotest.test_case
+            "mimo json_schema rejected"
+            `Quick
+            test_validate_output_schema_mimo_json_schema_rejected
+        ; Alcotest.test_case
             "ollama subdomain is not a declared endpoint"
             `Quick
             test_validate_output_schema_ollama_subdomain_rejected
@@ -2471,6 +2538,10 @@ let () =
             "kimi coding-plan vendor host label (exact Uri.host, RFC-OAS-034, oas#2452)"
             `Quick
             test_capability_provider_label_kimi_exact_host
+        ; Alcotest.test_case
+            "mimo token-plan vendor host label (exact Uri.host, RFC-OAS-034)"
+            `Quick
+            test_capability_provider_label_mimo_exact_host
         ; Alcotest.test_case
             "unmatched openai_compat"
             `Quick

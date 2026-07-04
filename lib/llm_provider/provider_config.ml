@@ -248,6 +248,31 @@ let base_url_targets_kimi base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.kimi.com"
 ;;
 
+(* RFC-OAS-034 §2 rule 2: Xiaomi MiMo's public API host and token-plan regional
+   gateways are vendor-canonical hosts. This host matcher records identity only:
+   the regular API is the pay-per-token API product, while Token Plan is a
+   coding-tool subscription with regional OpenAI-compatible and Anthropic-compatible
+   gateways. Protocol and request-path selection still come from the provider
+   config, so an [/anthropic] base URL is not normalized into OpenAI chat by this
+   matcher. An OpenAI-compatible runtime pointed at one of these endpoints carries
+   the vendor identity "mimo" instead of the generic transport label
+   "openai_compat"; otherwise the runtime capability gate requires a
+   provider-qualified catalog row and refuses bare official MiMo model ids. Hosts
+   are matched by exact [Uri.host] equality to avoid inheriting capabilities on
+   look-alike domains. Official docs checked 2026-07-04:
+   mimo.mi.com/docs token-plan subscription and OpenAI-compatible Chat API. *)
+let base_url_targets_mimo base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host ->
+    (match String.lowercase_ascii host with
+     | "api.xiaomimimo.com"
+     | "token-plan-cn.xiaomimimo.com"
+     | "token-plan-sgp.xiaomimimo.com"
+     | "token-plan-ams.xiaomimimo.com" -> true
+     | _ -> false)
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
@@ -255,6 +280,8 @@ let capability_provider_label (config : t) =
   then "deepseek"
   else if base_url_targets_kimi config.base_url
   then "kimi"
+  else if base_url_targets_mimo config.base_url
+  then "mimo"
   else string_of_provider_kind config.kind
 ;;
 
@@ -852,10 +879,14 @@ let openai_host_supports_output_schema base_url =
     String.equal host "api.openai.com" || String.equal host "ollama.com"
 ;;
 
+let openai_compat_endpoint_declared_for_output_schema_gate base_url =
+  openai_host_supports_output_schema base_url || base_url_targets_mimo base_url
+;;
+
 let endpoint_supports_openai_compat_output_schema (config : t) =
   match config.supports_structured_output_override with
   | Some supported -> supported
-  | None -> openai_host_supports_output_schema config.base_url
+  | None -> openai_compat_endpoint_declared_for_output_schema_gate config.base_url
 ;;
 
 (** A native-schema request is in effect when either field carries one.

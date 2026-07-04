@@ -320,6 +320,29 @@ let test_default_deepseek_api_key_env () =
   check bool "documented key available" true (availability ~deepseek:"deepseek-secret")
 ;;
 
+let test_default_mimo_entry () =
+  let reg = Provider_registry.default ~getenv:(fun _ -> None) () in
+  match Provider_registry.find reg "mimo" with
+  | Some e ->
+    check
+      bool
+      "kind is OpenAI_compat"
+      true
+      (e.defaults.kind = Provider_config.OpenAI_compat);
+    check string "base_url" "https://token-plan-sgp.xiaomimimo.com/v1" e.defaults.base_url;
+    check string "api_key_env" "MIMO_API_KEY" e.defaults.api_key_env;
+    check string "request_path" "/chat/completions" e.defaults.request_path;
+    check int "max_context" 1_000_000 e.max_context;
+    check bool "has reasoning" true e.capabilities.supports_reasoning;
+    check bool "has JSON mode" true e.capabilities.supports_response_format_json;
+    check
+      bool
+      "no native structured output"
+      false
+      e.capabilities.supports_structured_output
+  | None -> fail "mimo should exist"
+;;
+
 let test_provider_name_of_ollama_cloud_config () =
   let cfg =
     Provider_config.make
@@ -1284,6 +1307,7 @@ let () =
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case "deepseek entry" `Quick test_default_deepseek_entry
         ; test_case "deepseek api key env" `Quick test_default_deepseek_api_key_env
+        ; test_case "mimo entry" `Quick test_default_mimo_entry
         ; test_case
             "provider_name_of_config returns ollama_cloud"
             `Quick

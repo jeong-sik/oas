@@ -408,6 +408,29 @@ let openai_compat_chat_extended_capabilities =
   }
 ;;
 
+let mimo_capabilities =
+  { openai_compat_chat_capabilities with
+    max_context_tokens = Some 1_000_000
+  ; max_output_tokens = Some 128_000
+  ; supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_reasoning_budget = false
+  ; thinking_control_format = Thinking_object_only
+  ; reasoning_output_format = Split_reasoning_fields
+  ; reasoning_streaming_format = Delta_reasoning_field "reasoning_content"
+  ; reasoning_replay_override = Force_drop_without_tool_preserve_with_tool
+  ; supports_required_tool_choice = false
+  ; supports_named_tool_choice = false
+  ; supports_response_format_json = true
+  ; supports_structured_output = false
+  ; supports_multimodal_inputs = false
+  ; supports_image_input = false
+  ; supports_audio_input = false
+  ; supports_video_input = false
+  ; supports_native_streaming = true
+  }
+;;
+
 (* Ollama OpenAI-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
    ignored for some models). Some DashScope_3.5 deployments w/ native Jinja
@@ -683,7 +706,8 @@ let capabilities_for_provider_label label =
      | "openai_compat_chat_extended" | "openai_chat_extended" ->
        Some openai_compat_chat_extended_capabilities
      | "xai" | "mistral" -> Some openai_compat_chat_extended_capabilities
-     | "cohere" | "mimo" -> Some openai_compat_chat_capabilities
+     | "cohere" -> Some openai_compat_chat_capabilities
+     | "mimo" -> Some mimo_capabilities
      | "ollama_cloud" -> Some ollama_cloud_capabilities
      | "nvidia" -> Some provider_l_capabilities
      | _ -> None)
