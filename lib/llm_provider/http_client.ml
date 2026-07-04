@@ -1225,6 +1225,13 @@ let parse_sse_line line =
         , String.sub line value_start (String.length line - value_start) ))
 ;;
 
+let idle_timeout_without_clock site =
+  invalid_arg
+    (site
+     ^ ": idle_timeout is set but no clock was supplied — the idle deadline would be \
+        silently disarmed (pass ?clock, or drop ?idle_timeout)")
+;;
+
 let require_clock_when_idle ~site ~clock ~idle_timeout =
   match clock, idle_timeout with
   | None, Some _ ->
@@ -1232,10 +1239,7 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
        to silently disarm and leave a stalled stream blocking forever
        (the read_sse idle-disarm bug family). Misconfiguration must fail
        at the call site, not at 3 a.m. as a hung fiber. *)
-    invalid_arg
-      (site
-       ^ ": idle_timeout is set but no clock was supplied — the idle deadline would be \
-          silently disarmed (pass ?clock, or drop ?idle_timeout)")
+    idle_timeout_without_clock site
   | Some _, _ | None, None -> ()
 ;;
 
@@ -1254,9 +1258,7 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
     | Some _, None | None, None -> inner ()
-    | None, Some _ ->
-      (* Rejected by [require_clock_when_idle] above. *)
-      assert false
+    | None, Some _ -> idle_timeout_without_clock "read_sse"
   in
   let current_event_type = ref None in
   let rec loop () =
@@ -1299,9 +1301,7 @@ let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
     | Some _, None | None, None -> Eio.Buf_read.line reader
-    | None, Some _ ->
-      (* Rejected by [require_clock_when_idle] above. *)
-      assert false
+    | None, Some _ -> idle_timeout_without_clock "read_ndjson"
   in
   let rec loop () =
     match read_line () with
