@@ -918,8 +918,7 @@ let validate_output_schema_request (config : t) =
        Error
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
-     | Kimi -> validate_model_structured_output_capability config
-     | OpenAI_compat ->
+     | Kimi | OpenAI_compat ->
        if endpoint_supports_openai_compat_output_schema config
        then validate_model_structured_output_capability config
        else

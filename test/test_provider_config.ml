@@ -503,6 +503,45 @@ let test_validate_output_schema_kimi_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
+let test_validate_output_schema_kimi_declared_endpoint_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:true
+      ~model_capabilities_override:
+        { Capabilities.kimi_capabilities with supports_structured_output = true }
+      ()
+  in
+  check_bool
+    "declared Kimi coding endpoint accepts schema"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_kimi_undeclared_endpoint_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~model_capabilities_override:
+        { Capabilities.kimi_capabilities with supports_structured_output = true }
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "rejection reason"
+      "native structured output is only wired for declared OpenAI-compatible endpoints, \
+       got https://api.kimi.com/v1"
+      msg
+  | Ok () -> Alcotest.fail "expected undeclared Kimi endpoint to fail closed"
+;;
+
 let test_validate_output_schema_unrequested_ok () =
   let cfg =
     Provider_config.make
@@ -2295,6 +2334,14 @@ let () =
             "kimi rejected"
             `Quick
             test_validate_output_schema_kimi_rejected
+        ; Alcotest.test_case
+            "kimi declared endpoint accepted"
+            `Quick
+            test_validate_output_schema_kimi_declared_endpoint_accepted
+        ; Alcotest.test_case
+            "kimi undeclared endpoint rejected"
+            `Quick
+            test_validate_output_schema_kimi_undeclared_endpoint_rejected
         ; Alcotest.test_case
             "dashscope accepted"
             `Quick
