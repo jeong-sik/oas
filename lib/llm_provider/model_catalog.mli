@@ -55,7 +55,7 @@ type model_entry =
   ; cache_read_multiplier : float option
   }
 
-type provider_entry =
+type provider_entry = Model_provider_catalog.entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_kind.t

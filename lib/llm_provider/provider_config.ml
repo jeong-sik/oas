@@ -203,10 +203,10 @@ let capability_provider_label (config : t) =
 ;;
 
 let raw_openai_compat_without_builtin_source config provider_label =
-  match config.kind, provider_label with
-  | OpenAI_compat, "openai_compat" ->
-    not (Provider_endpoint_identity.base_url_targets_openai config.base_url)
-  | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> false
+  Provider_endpoint_identity.raw_openai_compat_without_builtin_source
+    ~kind:config.kind
+    ~base_url:config.base_url
+    ~provider_label
 ;;
 
 let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) =
