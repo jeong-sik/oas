@@ -156,8 +156,9 @@ let test_local_skips_env_var () =
     }
   in
   match Provider.resolve cfg with
-  | Ok (base_url, _api_key, _headers) ->
-    Alcotest.(check string) "base_url" "http://localhost:9999" base_url
+  | Ok (base_url, api_key, _headers) ->
+    Alcotest.(check string) "base_url" "http://localhost:9999" base_url;
+    Alcotest.(check string) "local api_key" "" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "Local should always succeed: %s" (Error.to_string e))
 ;;
@@ -947,7 +948,7 @@ let test_provider_config_of_agent_none_fallback () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_provider_config_of_agent_local_strips_dummy_key () =
+let test_provider_config_of_agent_local_keeps_empty_api_key () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:11434" }
     ; model_id = "dashscope-3.5"
@@ -964,7 +965,7 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
       "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
-    Alcotest.(check string) "local strips dummy api_key" "" (pc.api_key :> string);
+    Alcotest.(check string) "local api_key remains empty" "" (pc.api_key :> string);
     Alcotest.(check (list (pair string string)))
       "headers"
       [ "Content-Type", "application/json" ]
@@ -1501,9 +1502,9 @@ let () =
             `Quick
             test_provider_config_of_agent_none_fallback
         ; Alcotest.test_case
-            "local strips dummy key"
+            "local keeps empty api key"
             `Quick
-            test_provider_config_of_agent_local_strips_dummy_key
+            test_provider_config_of_agent_local_keeps_empty_api_key
         ; Alcotest.test_case
             "custom registered preserves kind (#1003)"
             `Quick
