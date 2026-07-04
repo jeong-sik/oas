@@ -1745,32 +1745,32 @@ let test_capability_provider_label_kimi_exact_host () =
 ;;
 
 let test_capability_provider_label_mimo_exact_host () =
-  let label base_url =
-    Provider_config.capability_provider_label
-      (Provider_config.make ~kind:OpenAI_compat ~model_id:"mimo-v2.5-pro" ~base_url ())
-  in
-  (* RFC-OAS-034 rule 2: Xiaomi MiMo's public API host and token-plan regional
-     gateways are vendor-canonical hosts. Exact host matching lets the runtime
-     capability gate resolve bare official MiMo model ids without provider_default
-     fallback, while still rejecting look-alikes. *)
-  List.iter
-    (fun base_url ->
-       check_string ("mimo canonical host: " ^ base_url) "mimo" (label base_url))
-    [ "https://api.xiaomimimo.com/v1"
-    ; "https://token-plan-cn.xiaomimimo.com/v1"
-    ; "https://token-plan-sgp.xiaomimimo.com/v1"
-    ; "https://token-plan-ams.xiaomimimo.com/v1"
-    ; "https://token-plan-sgp.xiaomimimo.com/anthropic"
-    ];
-  check_string
-    "subdomain lookalike is not mimo"
-    "openai_compat"
-    (label "https://token-plan-sgp.xiaomimimo.com.evil.example/v1");
-  check_string
-    "userinfo lookalike is not mimo"
-    "openai_compat"
-    (label "https://token-plan-sgp.xiaomimimo.com@evil.example/v1");
   with_repository_model_catalog (fun () ->
+    let label base_url =
+      Provider_config.capability_provider_label
+        (Provider_config.make ~kind:OpenAI_compat ~model_id:"mimo-v2.5-pro" ~base_url ())
+    in
+    (* RFC-OAS-034 rule 2: Xiaomi MiMo's public API host and token-plan regional
+       gateways are catalog-declared vendor-canonical hosts. Exact host matching
+       lets the runtime capability gate resolve bare official MiMo model ids
+       without provider_default fallback, while still rejecting look-alikes. *)
+    List.iter
+      (fun base_url ->
+         check_string ("mimo canonical host: " ^ base_url) "mimo" (label base_url))
+      [ "https://api.xiaomimimo.com/v1"
+      ; "https://token-plan-cn.xiaomimimo.com/v1"
+      ; "https://token-plan-sgp.xiaomimimo.com/v1"
+      ; "https://token-plan-ams.xiaomimimo.com/v1"
+      ; "https://token-plan-sgp.xiaomimimo.com/anthropic"
+      ];
+    check_string
+      "subdomain lookalike is not mimo"
+      "openai_compat"
+      (label "https://token-plan-sgp.xiaomimimo.com.evil.example/v1");
+    check_string
+      "userinfo lookalike is not mimo"
+      "openai_compat"
+      (label "https://token-plan-sgp.xiaomimimo.com@evil.example/v1");
     let cfg =
       Provider_config.make
         ~kind:OpenAI_compat

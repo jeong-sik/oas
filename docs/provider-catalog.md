@@ -28,6 +28,12 @@ Resolution order:
 2. `OAS_PROVIDER_CATALOG`
 3. Built-in provider seed data
 
+The packaged `models.toml` can also carry shareable provider identity rows under
+`[[providers]]`. Those rows are data, not OCaml vendor branches: OAS uses them
+to register default provider entries and to resolve exact endpoint identity
+without hardcoded host lists. External products can read the same TOML file and
+project the same provider/model catalog into their runtime config.
+
 Catalog entries overwrite built-in provider ids when ids collide. Aliases are
 registered as additional lookup keys for the same entry.
 
@@ -60,6 +66,30 @@ is to consolidate them — relying on first-match-wins or last-write-wins
 makes the behavior depend on which API the caller used.
 
 ## Schema
+
+Packaged TOML provider rows:
+
+```toml
+[[providers]]
+id = "mimo"
+kind = "openai_compat"
+base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
+base_url_env = "MIMO_BASE_URL"
+request_path = "/chat/completions"
+api_key_env = "MIMO_API_KEY"
+default_model = "mimo-v2.5-pro"
+capabilities_base = "mimo"
+identity_hosts = [
+  "api.xiaomimimo.com",
+  "token-plan-sgp.xiaomimimo.com",
+]
+```
+
+`identity_hosts` are matched by exact `Uri.host` equality only. They are
+provider identity declarations, not capability guesses for arbitrary compatible
+gateways.
+
+Runtime JSON overlay:
 
 ```json
 {

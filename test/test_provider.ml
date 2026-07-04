@@ -44,7 +44,7 @@ let install_repo_model_catalog () =
 let with_empty_capability_sources f =
   let original_catalog = Llm_provider.Model_catalog.global () in
   let original_manifest = Llm_provider.Capability_manifest.global () in
-  Llm_provider.Model_catalog.set_global [];
+  Llm_provider.Model_catalog.set_global Llm_provider.Model_catalog.empty;
   Llm_provider.Capability_manifest.set_global [];
   Fun.protect
     ~finally:(fun () ->

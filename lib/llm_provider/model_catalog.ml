@@ -45,8 +45,28 @@ type model_entry =
   ; cache_read_multiplier : float option
   }
 
-type t = model_entry list
+type provider_entry =
+  { id : string
+  ; aliases : string list
+  ; kind : Provider_kind.t
+  ; base_url : string
+  ; base_url_env : string option
+  ; request_path : string
+  ; api_key_env : string
+  ; default_model : string option
+  ; capabilities_base : string option
+  ; identity_hosts : string list
+  }
 
+type t =
+  { models : model_entry list
+  ; providers : provider_entry list
+  }
+
+let empty = { models = []; providers = [] }
+let of_model_entries models = { empty with models }
+let model_entries t = t.models
+let provider_entries t = t.providers
 let default_catalog_filename = "models.toml"
 
 let find_string_opt toml path =
@@ -137,6 +157,34 @@ let find_string_list_opt toml path =
   | Some values -> Some values
   | None -> None
   | exception Otoml.Type_error _ -> None
+;;
+
+let string_list_field ~entry_kind ~entry_id key toml =
+  match Otoml.find_opt toml (Otoml.get_array Otoml.get_string) [ key ] with
+  | Some values ->
+    let rec loop acc = function
+      | [] -> Ok (Some (List.rev acc))
+      | raw :: rest ->
+        let trimmed = String.trim raw in
+        if trimmed = ""
+        then
+          Error
+            (Printf.sprintf
+               "%s entry %S field %S must not contain empty strings"
+               entry_kind
+               entry_id
+               key)
+        else loop (trimmed :: acc) rest
+    in
+    loop [] values
+  | None -> Ok None
+  | exception Otoml.Type_error _ ->
+    Error
+      (Printf.sprintf
+         "%s entry %S field %S expected string array"
+         entry_kind
+         entry_id
+         key)
 ;;
 
 let canonical_string_list_opt ~entry_id key ~allowed toml =
@@ -505,6 +553,162 @@ let%test "parse_entry accepts a known base preset" =
   | Error _ -> false
 ;;
 
+let known_provider_keys =
+  [ "id"
+  ; "aliases"
+  ; "kind"
+  ; "base_url"
+  ; "base_url_env"
+  ; "request_path"
+  ; "api_key_env"
+  ; "default_model"
+  ; "capabilities_base"
+  ; "identity_hosts"
+  ]
+;;
+
+let reject_unknown_provider_keys ~entry_id entry_toml =
+  match Otoml.list_table_keys_result entry_toml with
+  | Error _ -> Ok ()
+  | Ok keys ->
+    (match List.filter (fun k -> not (List.mem k known_provider_keys)) keys with
+     | [] -> Ok ()
+     | unknown ->
+       Error
+         (Printf.sprintf
+            "provider entry %S contains unknown field(s): %s"
+            entry_id
+            (String.concat ", " unknown)))
+;;
+
+let required_provider_string ~entry_id key toml =
+  match exact_non_empty_string_field ~entry_id key toml with
+  | Ok (Some value) -> Ok value
+  | Ok None ->
+    Error (Printf.sprintf "provider entry %S missing required %S field" entry_id key)
+  | Error _ as e -> e
+;;
+
+let provider_kind_field ~entry_id toml =
+  match required_provider_string ~entry_id "kind" toml with
+  | Error _ as e -> e
+  | Ok raw ->
+    (match Provider_kind.of_string raw with
+     | Some kind -> Ok kind
+     | None ->
+       Error
+         (Printf.sprintf
+            "provider entry %S field \"kind\" has unknown value %S (canonical: %s)"
+            entry_id
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " (List.map Provider_kind.to_string Provider_kind.all))))
+;;
+
+let parse_provider_entry provider_toml =
+  match non_empty_string_field ~entry_id:"<unknown>" "id" provider_toml with
+  | Error _ as e -> e
+  | Ok None -> Error "provider entry missing required \"id\" field"
+  | Ok (Some id) ->
+    let unknown_keys_result = reject_unknown_provider_keys ~entry_id:id provider_toml in
+    let kind_result = provider_kind_field ~entry_id:id provider_toml in
+    let base_url_result =
+      required_provider_string ~entry_id:id "base_url" provider_toml
+    in
+    let request_path_result =
+      required_provider_string ~entry_id:id "request_path" provider_toml
+    in
+    let api_key_env_result =
+      required_provider_string ~entry_id:id "api_key_env" provider_toml
+    in
+    let base_url_env_result =
+      exact_non_empty_string_field ~entry_id:id "base_url_env" provider_toml
+    in
+    let default_model_result =
+      exact_non_empty_string_field ~entry_id:id "default_model" provider_toml
+    in
+    let capabilities_base_result =
+      canonical_string_opt
+        ~entry_id:id
+        "capabilities_base"
+        ~allowed:Capability_vocab.base_label_values
+        provider_toml
+    in
+    let aliases_result =
+      string_list_field ~entry_kind:"provider" ~entry_id:id "aliases" provider_toml
+    in
+    let identity_hosts_result =
+      string_list_field ~entry_kind:"provider" ~entry_id:id "identity_hosts" provider_toml
+    in
+    (match
+       ( unknown_keys_result
+       , kind_result
+       , base_url_result
+       , request_path_result
+       , api_key_env_result
+       , base_url_env_result
+       , default_model_result
+       , capabilities_base_result
+       , aliases_result
+       , identity_hosts_result )
+     with
+     | (Error _ as e), _, _, _, _, _, _, _, _, _
+     | _, (Error _ as e), _, _, _, _, _, _, _, _
+     | _, _, (Error _ as e), _, _, _, _, _, _, _
+     | _, _, _, (Error _ as e), _, _, _, _, _, _
+     | _, _, _, _, (Error _ as e), _, _, _, _, _
+     | _, _, _, _, _, (Error _ as e), _, _, _, _
+     | _, _, _, _, _, _, (Error _ as e), _, _, _
+     | _, _, _, _, _, _, _, (Error _ as e), _, _
+     | _, _, _, _, _, _, _, _, (Error _ as e), _
+     | _, _, _, _, _, _, _, _, _, (Error _ as e) -> e
+     | ( Ok ()
+       , Ok kind
+       , Ok base_url
+       , Ok request_path
+       , Ok api_key_env
+       , Ok base_url_env
+       , Ok default_model
+       , Ok capabilities_base
+       , Ok aliases
+       , Ok identity_hosts ) ->
+       Ok
+         { id
+         ; aliases = Option.value aliases ~default:[]
+         ; kind
+         ; base_url
+         ; base_url_env
+         ; request_path
+         ; api_key_env
+         ; default_model
+         ; capabilities_base
+         ; identity_hosts =
+             Option.value identity_hosts ~default:[] |> List.map String.lowercase_ascii
+         })
+;;
+
+let parse_table_array toml key parse =
+  match Otoml.find_opt toml (Otoml.get_array Fun.id) [ key ] with
+  | None -> Ok []
+  | Some items ->
+    let results = List.map parse items in
+    let errors =
+      List.filter_map
+        (function
+          | Error e -> Some e
+          | Ok _ -> None)
+        results
+    in
+    if errors <> []
+    then Error (String.concat "; " errors)
+    else
+      Ok
+        (List.filter_map
+           (function
+             | Ok entry -> Some entry
+             | Error _ -> None)
+           results)
+;;
+
 let load_file path =
   let parse_res =
     try Ok (Otoml.Parser.from_file path) with
@@ -517,32 +721,23 @@ let load_file path =
   match parse_res with
   | Error _ as e -> e
   | Ok toml ->
-    (match Otoml.find_opt toml (Otoml.get_array Fun.id) [ "models" ] with
-     | None -> Ok []
-     | Some entries_toml ->
-       let results = List.map parse_entry entries_toml in
-       let errors =
-         List.filter_map
-           (function
-             | Error e -> Some e
-             | Ok _ -> None)
-           results
-       in
-       if errors <> []
-       then Error (String.concat "; " errors)
-       else
-         Ok
-           (List.filter_map
-              (function
-                | Ok e -> Some e
-                | Error _ -> None)
-              results))
+    (match parse_table_array toml "models" parse_entry with
+     | Error _ as e -> e
+     | Ok models ->
+       (match parse_table_array toml "providers" parse_provider_entry with
+        | Error _ as e -> e
+        | Ok providers -> Ok { models; providers }))
 ;;
 
 let load_runtime_file path =
   match load_file path with
   | Ok catalog ->
-    Diag.info "model_catalog" "loaded %d model entries from %s" (List.length catalog) path;
+    Diag.info
+      "model_catalog"
+      "loaded %d model entries and %d provider entries from %s"
+      (List.length catalog.models)
+      (List.length catalog.providers)
+      path;
     Some catalog
   | Error msg ->
     Diag.warn "model_catalog" "failed to load %s: %s" path msg;
@@ -617,7 +812,7 @@ let lookup t model_id =
   let sorted_t =
     List.fast_sort
       (fun a b -> compare (String.length b.id_prefix) (String.length a.id_prefix))
-      t
+      t.models
   in
   let rec lookup_candidates = function
     | [] -> None
@@ -642,6 +837,77 @@ let provider_name_for_model_id t model_id =
   | Some _ | None -> None
 ;;
 
+let normalize_url value =
+  let trimmed = String.trim value in
+  if trimmed = ""
+  then trimmed
+  else (
+    let rec strip_trailing_slash s =
+      let len = String.length s in
+      if len > 1 && s.[len - 1] = '/'
+      then strip_trailing_slash (String.sub s 0 (len - 1))
+      else s
+    in
+    strip_trailing_slash trimmed)
+;;
+
+let host_of_url value =
+  match Uri.of_string value |> Uri.host with
+  | None -> None
+  | Some host -> Some (String.lowercase_ascii host)
+;;
+
+let provider_base_url_matches ?getenv (entry : provider_entry) base_url =
+  let normalized = normalize_url base_url in
+  String.equal (normalize_url entry.base_url) normalized
+  ||
+  match entry.base_url_env with
+  | None -> false
+  | Some env_name ->
+    (match Cli_common_env.get ?getenv env_name with
+     | None -> false
+     | Some override -> String.equal (normalize_url override) normalized)
+;;
+
+let provider_host_matches (entry : provider_entry) base_url =
+  match host_of_url base_url with
+  | None -> false
+  | Some host -> List.exists (String.equal host) entry.identity_hosts
+;;
+
+let provider_label_of_entry (entry : provider_entry) =
+  let normalized = String.lowercase_ascii (String.trim entry.id) in
+  if normalized = "" then None else Some normalized
+;;
+
+let provider_label_for_base_url ?getenv t ~kind ~base_url =
+  match
+    List.find_opt
+      (fun (entry : provider_entry) ->
+         entry.kind = kind
+         && (provider_base_url_matches ?getenv entry base_url
+             || provider_host_matches entry base_url))
+      t.providers
+  with
+  | None -> None
+  | Some entry -> provider_label_of_entry entry
+;;
+
+let provider_label_for_endpoint ?getenv t ~kind ~base_url ~request_path =
+  let request_path = String.trim request_path in
+  match
+    List.find_opt
+      (fun (entry : provider_entry) ->
+         entry.kind = kind
+         && String.equal (String.trim entry.request_path) request_path
+         && (provider_base_url_matches ?getenv entry base_url
+             || provider_host_matches entry base_url))
+      t.providers
+  with
+  | None -> None
+  | Some entry -> provider_label_of_entry entry
+;;
+
 type env_cache =
   | Unloaded
   | Loaded of t option
@@ -654,8 +920,9 @@ let load_ambient_catalog () =
      | Ok catalog ->
        Diag.info
          "model_catalog"
-         "loaded %d default model entries from packaged catalog"
-         (List.length catalog);
+         "loaded %d default model entries and %d provider entries from packaged catalog"
+         (List.length catalog.models)
+         (List.length catalog.providers);
        Some catalog
      | Error msg ->
        Diag.warn

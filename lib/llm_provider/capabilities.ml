@@ -1661,7 +1661,7 @@ let gemma4_openai_test_entry id_prefix : Model_catalog.model_entry =
   }
 ;;
 
-let test_catalog : Model_catalog.t =
+let test_catalog_entries =
   [ qwen3_family_test_entry "qwen3"
   ; qwen3_family_test_entry "qwen-3"
   ; qwen3_family_test_entry "qwen/qwen3.6"
@@ -1766,6 +1766,8 @@ let test_catalog : Model_catalog.t =
   ]
 ;;
 
+let test_catalog : Model_catalog.t = Model_catalog.of_model_entries test_catalog_entries
+
 (* Installs [test_catalog] as the runtime override for the duration of [f],
    then clears the override (which falls back to ambient discovery, the
    pre-test state in this runner). *)
@@ -1844,23 +1846,24 @@ let%test "for_model_id_catalog catalog miss returns None" =
 ;;
 
 let%test "for_model_id_catalog empty catalog returns None" =
-  Model_catalog.set_global [];
+  Model_catalog.set_global Model_catalog.empty;
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
     Option.is_none (for_model_id_catalog "qwen3-32b"))
 ;;
 
 let%test "thinking_control_token catalog runtime override rejects blank or padded token" =
   Model_catalog.set_global
-    [ { (test_catalog_entry "programmatic-blank-catalog-token") with
-        thinking_control_token = Some " \t "
-      }
-    ; { (test_catalog_entry "programmatic-padded-catalog-token") with
-        thinking_control_token = Some " <|think|> "
-      }
-    ; { (test_catalog_entry "programmatic-exact-catalog-token") with
-        thinking_control_token = Some "<|think|>"
-      }
-    ];
+    (Model_catalog.of_model_entries
+       [ { (test_catalog_entry "programmatic-blank-catalog-token") with
+           thinking_control_token = Some " \t "
+         }
+       ; { (test_catalog_entry "programmatic-padded-catalog-token") with
+           thinking_control_token = Some " <|think|> "
+         }
+       ; { (test_catalog_entry "programmatic-exact-catalog-token") with
+           thinking_control_token = Some "<|think|>"
+         }
+       ]);
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
     Option.is_none
       (thinking_control_token_for_model_id "programmatic-blank-catalog-token")

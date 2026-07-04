@@ -255,9 +255,18 @@ let capability_provider_label (config : t) =
   then "deepseek"
   else if base_url_targets_kimi config.base_url
   then "kimi"
-  else if Mimo_hosts.base_url_targets config.base_url
-  then "mimo"
-  else string_of_provider_kind config.kind
+  else (
+    match Model_catalog.global () with
+    | Some catalog ->
+      (match
+         Model_catalog.provider_label_for_base_url
+           catalog
+           ~kind:config.kind
+           ~base_url:config.base_url
+       with
+       | Some label -> label
+       | None -> string_of_provider_kind config.kind)
+    | None -> string_of_provider_kind config.kind)
 ;;
 
 let raw_openai_compat_without_builtin_source config provider_label =
@@ -855,7 +864,13 @@ let openai_host_supports_output_schema base_url =
 ;;
 
 let openai_compat_endpoint_declared_for_output_schema_gate base_url =
-  openai_host_supports_output_schema base_url || Mimo_hosts.base_url_targets base_url
+  openai_host_supports_output_schema base_url
+  ||
+  match Model_catalog.global () with
+  | Some catalog ->
+    Option.is_some
+      (Model_catalog.provider_label_for_base_url catalog ~kind:OpenAI_compat ~base_url)
+  | None -> false
 ;;
 
 let endpoint_supports_openai_compat_output_schema (config : t) =
