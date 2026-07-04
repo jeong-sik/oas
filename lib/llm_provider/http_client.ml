@@ -1244,7 +1244,8 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
 ;;
 
 let read_sse ?clock ?idle_timeout ~reader ~on_data () =
-  require_clock_when_idle ~site:"read_sse" ~clock ~idle_timeout;
+  let site = "read_sse" in
+  require_clock_when_idle ~site ~clock ~idle_timeout;
   (* SSE keepalive comments carry no payload. Skipping them inside the
      SAME [with_timeout_exn] window preserves the idle deadline so a
      provider that emits only keepalives still trips [idle_timeout]
@@ -1258,7 +1259,7 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
     | Some _, None | None, None -> inner ()
-    | None, Some _ -> idle_timeout_without_clock "read_sse"
+    | None, Some _ -> idle_timeout_without_clock site
   in
   let current_event_type = ref None in
   let rec loop () =
@@ -1296,12 +1297,13 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
     wrapped in [Eio.Time.with_timeout_exn] so a stalled stream raises
     [Eio.Time.Timeout] after [idle_timeout] seconds of silence. *)
 let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
-  require_clock_when_idle ~site:"read_ndjson" ~clock ~idle_timeout;
+  let site = "read_ndjson" in
+  require_clock_when_idle ~site ~clock ~idle_timeout;
   let read_line () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
     | Some _, None | None, None -> Eio.Buf_read.line reader
-    | None, Some _ -> idle_timeout_without_clock "read_ndjson"
+    | None, Some _ -> idle_timeout_without_clock site
   in
   let rec loop () =
     match read_line () with
