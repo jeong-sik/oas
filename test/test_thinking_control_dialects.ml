@@ -143,7 +143,14 @@ let declared_qwen_openai_compat_config
     ()
 ;;
 
-let kimi_config ?enable_thinking ?preserve_thinking ?thinking_budget model_id =
+let kimi_config
+      ?enable_thinking
+      ?preserve_thinking
+      ?thinking_budget
+      ?temperature
+      ?top_p
+      model_id
+  =
   PC.make
     ~kind:Kimi
     ~model_id
@@ -151,6 +158,8 @@ let kimi_config ?enable_thinking ?preserve_thinking ?thinking_budget model_id =
     ?enable_thinking
     ?preserve_thinking
     ?thinking_budget
+    ?temperature
+    ?top_p
     ()
 ;;
 
@@ -769,6 +778,11 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
     "replay policy"
     "preserve_always"
     (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    (list string)
+    "ignored sampling params"
+    [ "temperature"; "top_p" ]
+    (RD.sampling_params_ignored_when_thinking dialect);
   let user_json =
     BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
   in
@@ -784,6 +798,16 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
     "reasoning_content"
     "plain thought"
     (assistant |> member "reasoning_content" |> to_string)
+;;
+
+let test_kimi_latest_omits_sampling_even_with_disabled_thinking_override () =
+  let config =
+    kimi_config ~enable_thinking:false ~temperature:0.7 ~top_p:0.9 "kimi-k2.7-code"
+  in
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check_member_absent "thinking" json;
+  check_member_absent "temperature" json;
+  check_member_absent "top_p" json
 ;;
 
 let test_ollama_qwen_uses_native_think_bool () =
@@ -1160,6 +1184,10 @@ let () =
               "kimi latest always-preserved omits thinking param"
               `Quick
               test_kimi_latest_always_preserved_omits_thinking_param
+          ; test_case
+              "kimi latest omits fixed sampling params"
+              `Quick
+              test_kimi_latest_omits_sampling_even_with_disabled_thinking_override
           ] )
       ; ( "ollama"
         , [ test_case
