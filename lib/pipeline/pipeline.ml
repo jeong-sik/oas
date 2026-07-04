@@ -127,8 +127,8 @@ let validation_loop_blocked_text ~consecutive_idle_turns results =
   in
   Printf.sprintf
     "I stopped the tool loop because the same invalid tool call was repeated after \
-     validation feedback. Tool(s): %s. Repeated invalid turn count: %d. Last \
-     validation error: %s"
+     validation feedback. Tool(s): %s. Repeated invalid turn count: %d. Last validation \
+     error: %s"
     tool_names
     consecutive_idle_turns
     last_error
@@ -675,12 +675,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
               before the required tool replies, which strict providers reject. *)
             ignore idle_handled;
             (* suppress unused warning after dedup *)
-            match validation_loop_blocked_response with
-            | Some blocked_response ->
-              Agent_types.reset_idle_state agent;
-              Ok (Complete blocked_response)
-            | None ->
-              (* In-memory message hygiene after each tool execution round.
+            (match validation_loop_blocked_response with
+             | Some blocked_response ->
+               Agent_types.reset_idle_state agent;
+               Ok (Complete blocked_response)
+             | None ->
+               (* In-memory message hygiene after each tool execution round.
             Without this, agent.state.messages grows unbounded across turns —
             context_reducer only trims before API calls, not in the stored state.
 
@@ -689,11 +689,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                with short stubs. Tool results are the largest allocation source.
             2. Hard message cap: keep last 100 messages. Prevents unbounded growth
                in long-running agents (600+ turns). *)
-            (* Tool-result stubbing and message cap are now applied at call-time
+               (* Tool-result stubbing and message cap are now applied at call-time
             in Agent_turn.prepare_messages, not here.  Keeping stored messages
             unmodified preserves the byte-identical conversation prefix that
             local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
-              Ok ToolsExecuted))
+               Ok ToolsExecuted)))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)

@@ -115,7 +115,6 @@ let tool_result_ids (msg : message) =
 ;;
 
 let has_tool_result msg = tool_result_ids msg <> []
-
 let has_tool_use msg = tool_use_ids msg <> []
 
 let has_reasoning_block (msg : message) =
@@ -295,12 +294,7 @@ let apply_drop_thinking messages =
        assistant reasoning is context weight and should not survive
        [drop_thinking]. *)
     | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> preserve_reasoning
-    | Text _
-    | ToolUse _
-    | ToolResult _
-    | Image _
-    | Document _
-    | Audio _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> true
   in
   List.filter_map
     (fun (msg : message) ->

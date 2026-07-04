@@ -393,7 +393,8 @@ let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
   let next_response (_req : Llm_provider.Llm_transport.completion_request) =
     incr provider_calls;
     match !provider_calls with
-    | 1 | 2 -> repeated_invalid_tool_response (Printf.sprintf "invalid-%d" !provider_calls)
+    | 1 | 2 ->
+      repeated_invalid_tool_response (Printf.sprintf "invalid-%d" !provider_calls)
     | _ -> Alcotest.fail "unexpected third provider call"
   in
   let transport : Llm_provider.Llm_transport.t =
