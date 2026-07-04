@@ -11,8 +11,9 @@ let canonical =
 ;;
 
 let base_url_targets base_url =
-  Uri.of_string base_url
-  |> Uri.host
-  |> Option.map String.lowercase_ascii
-  |> Option.exists (fun host -> List.exists (String.equal host) canonical)
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host ->
+    let host = String.lowercase_ascii host in
+    List.exists (String.equal host) canonical
 ;;
