@@ -391,6 +391,55 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          true
          bare_native.supports_code_execution
      | None -> fail "should match native bare Kimi route");
+    (match Capabilities.for_model_id "kimi-k2.6" with
+     | Some k26 ->
+       check_thinking_control
+         "Kimi K2.6 has thinking object control"
+         Capabilities.Thinking_object_only
+         k26.thinking_control_format;
+       check
+         bool
+         "Kimi K2.6 supports thinking.keep all"
+         true
+         (k26.preserve_thinking_control_format = Capabilities.Thinking_object_keep_all);
+       let dialect = Reasoning_dialect.of_capabilities k26 in
+       check
+         string
+         "Kimi K2.6 replays only tool-call reasoning by default"
+         "drop_without_tool_preserve_with_tool"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+     | None -> fail "should match Kimi K2.6 native route");
+    (match Capabilities.for_model_id "kimi-k2.5" with
+     | Some k25 ->
+       check_thinking_control
+         "Kimi K2.5 has thinking object control"
+         Capabilities.Thinking_object_only
+         k25.thinking_control_format;
+       check
+         bool
+         "Kimi K2.5 does not expose preserved thinking"
+         true
+         (k25.preserve_thinking_control_format = Capabilities.No_preserve_thinking_control);
+       let dialect = Reasoning_dialect.of_capabilities k25 in
+       check
+         string
+         "Kimi K2.5 does not replay historical reasoning"
+         "no_replay"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+     | None -> fail "should match Kimi K2.5 native route");
+    (match Capabilities.for_model_id "kimi-k2.7-code-highspeed" with
+     | Some highspeed ->
+       check_thinking_control
+         "Kimi K2.7 highspeed inherits latest no-toggle behavior"
+         Capabilities.No_thinking_control
+         highspeed.thinking_control_format;
+       check
+         bool
+         "Kimi K2.7 highspeed always preserves reasoning"
+         true
+         (highspeed.preserve_thinking_control_format
+          = Capabilities.Always_preserved_thinking)
+     | None -> fail "should match Kimi K2.7 highspeed route");
     (match
        Capabilities.for_provider_model_id
          ~allow_bare_fallback:true
