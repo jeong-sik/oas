@@ -395,7 +395,7 @@ let model_spec_of_config (cfg : config) =
 
 let resolve (cfg : config) =
   match cfg.provider with
-  | Local { base_url } -> Ok (base_url, "dummy", [ "Content-Type", "application/json" ])
+  | Local { base_url } -> Ok (base_url, "", [ "Content-Type", "application/json" ])
   | Anthropic ->
     (match Sys.getenv_opt cfg.api_key_env with
      | Some key ->

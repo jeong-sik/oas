@@ -39,7 +39,7 @@ let () =
         ~config ~messages ?tools ());
     parse_response = Api.parse_openai_response;
     resolve = (fun _cfg ->
-      Ok ("http://localhost:8000", "dummy",
+      Ok ("http://localhost:8000", "",
           [("Content-Type", "application/json")]));
   }
 
