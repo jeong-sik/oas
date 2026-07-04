@@ -1956,19 +1956,80 @@ supports_multimodal_inputs = true
 supports_image_input = true
 supports_native_streaming = true
 
-# Mimo Models
+# Xiaomi MiMo V2.5 capability specs.
+# Token Plan and the regular API expose the same vendor model capabilities for
+# these rows, but they are different products operationally: Token Plan is a
+# coding-tool subscription with regional gateways and tp-* keys; the regular API
+# is pay-per-token billing on api.xiaomimimo.com. The /anthropic Token Plan
+# gateway is a different wire protocol and is not represented by these
+# openai_chat rows.
+[[providers]]
+id = "mimo"
+kind = "openai_compat"
+base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
+base_url_env = "MIMO_BASE_URL"
+request_path = "/chat/completions"
+api_key_env = "MIMO_API_KEY"
+default_model = "mimo-v2.5-pro"
+capabilities_base = "mimo"
+identity_hosts = [
+  "api.xiaomimimo.com",
+  "token-plan-cn.xiaomimimo.com",
+  "token-plan-sgp.xiaomimimo.com",
+  "token-plan-ams.xiaomimimo.com",
+]
+
+[[models]]
+id_prefix = "mimo-v2.5-pro"
+base = "openai_chat"
+provider_name = "mimo"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = false
+thinking_control_format = "thinking_object_only"
+reasoning_output_format = "split_reasoning_fields"
+reasoning_streaming_format = "delta:reasoning_content"
+reasoning_replay = "drop_without_tool_preserve_with_tool"
+supports_tools = true
+supports_tool_choice = true
+supports_required_tool_choice = false
+supports_named_tool_choice = false
+supports_response_format_json = true
+# Xiaomi documents structured output as JSON mode (`json_object`) and directs
+# clients to validate schema conformance locally. Do not advertise native
+# json_schema structured output from the chat-completions catalog row.
+supports_structured_output = false
+supports_multimodal_inputs = false
+supports_image_input = false
+supports_audio_input = false
+supports_video_input = false
+supports_native_streaming = true
+
 [[models]]
 id_prefix = "mimo-v2.5"
 base = "openai_chat"
 provider_name = "mimo"
+max_context_tokens = 1000000
+max_output_tokens = 128000
 supports_reasoning = true
-# Live MiMo V2.5 OpenAI-compatible smoke, checked 2026-06-29: responses carry
-# reasoning in the `reasoning_content` side-channel, accept tool calls, stream
-# reasoning/tool deltas separately, and accept response_format/json_schema.
+supports_extended_thinking = true
+supports_reasoning_budget = false
 thinking_control_format = "thinking_object_only"
+reasoning_output_format = "split_reasoning_fields"
+reasoning_streaming_format = "delta:reasoning_content"
+reasoning_replay = "drop_without_tool_preserve_with_tool"
 supports_tools = true
+supports_tool_choice = true
+supports_required_tool_choice = false
+supports_named_tool_choice = false
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_video_input = true
 supports_native_streaming = true
 
 # Nvidia Models

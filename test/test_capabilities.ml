@@ -130,16 +130,56 @@ let test_openai_extended () =
 let test_lookup_mimo_v25_pro () =
   match Capabilities.for_model_id "mimo-v2.5-pro" with
   | Some c ->
+    check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+    check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "has reasoning" true c.supports_reasoning;
+    check bool "has extended thinking" true c.supports_extended_thinking;
     check_thinking_control
       "uses thinking object only"
       Capabilities.Thinking_object_only
       c.thinking_control_format;
     check bool "has tools" true c.supports_tools;
+    check bool "has tool_choice" true c.supports_tool_choice;
     check bool "has response_format json" true c.supports_response_format_json;
-    check bool "has structured output" true c.supports_structured_output;
+    check bool "no native structured output" false c.supports_structured_output;
+    check bool "pro row is text-only" false c.supports_multimodal_inputs;
+    check bool "pro row has no image input" false c.supports_image_input;
+    check bool "pro row has no audio input" false c.supports_audio_input;
+    check bool "pro row has no video input" false c.supports_video_input;
+    check
+      bool
+      "uses split reasoning fields"
+      true
+      (c.reasoning_output_format = Capabilities.Split_reasoning_fields);
+    check
+      bool
+      "streams reasoning_content deltas"
+      true
+      (c.reasoning_streaming_format
+       = Capabilities.Delta_reasoning_field "reasoning_content");
+    check
+      bool
+      "preserves reasoning on tool turns only"
+      true
+      (c.reasoning_replay_override
+       = Capabilities.Force_drop_without_tool_preserve_with_tool);
     check bool "has native streaming" true c.supports_native_streaming
   | None -> fail "should match mimo-v2.5-pro"
+;;
+
+let test_lookup_mimo_v25_multimodal () =
+  match Capabilities.for_model_id "mimo-v2.5" with
+  | Some c ->
+    check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+    check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
+    check bool "has reasoning" true c.supports_reasoning;
+    check bool "has response_format json" true c.supports_response_format_json;
+    check bool "no native structured output" false c.supports_structured_output;
+    check bool "multimodal" true c.supports_multimodal_inputs;
+    check bool "image input" true c.supports_image_input;
+    check bool "audio input" true c.supports_audio_input;
+    check bool "video input" true c.supports_video_input
+  | None -> fail "should match mimo-v2.5"
 ;;
 
 (* ── Model lookup ────────────────────────────────────── *)
@@ -1210,8 +1250,8 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , Direct_model
       , "mimo-v2.5-pro"
       , Reasoning_only
-      , Response_format_json_schema
-      , Replay_not_required
+      , No_structured_output
+      , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Pro"
       , Direct_model
@@ -2252,10 +2292,34 @@ let test_kimi_tool_choice_capabilities () =
   check bool "rejects named forced tool_choice" false c.supports_named_tool_choice
 ;;
 
+let test_mimo_provider_capabilities () =
+  let c = Capabilities.mimo_capabilities in
+  check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+  check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
+  check bool "has reasoning" true c.supports_reasoning;
+  check_thinking_control
+    "uses thinking object only"
+    Capabilities.Thinking_object_only
+    c.thinking_control_format;
+  check bool "has tools" true c.supports_tools;
+  check bool "has JSON mode" true c.supports_response_format_json;
+  check bool "does not claim json_schema" false c.supports_structured_output;
+  check
+    bool
+    "preserves reasoning on tool turns only"
+    true
+    (c.reasoning_replay_override = Capabilities.Force_drop_without_tool_preserve_with_tool);
+  match Capabilities.capabilities_for_provider_label "mimo" with
+  | Some via_label ->
+    check bool "provider label resolves MiMo preset" true (via_label == c)
+  | None -> fail "mimo provider label should resolve"
+;;
+
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
     [ "openai_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
     ; "kimi", Some Capabilities.kimi_capabilities
+    ; "mimo", Some Capabilities.mimo_capabilities
     ; "dashscope", Some Capabilities.dashscope_capabilities
     ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
     ; "dashscope-3.5", Capabilities.for_model_id "dashscope-3.5-35b-a3b"
@@ -2372,6 +2436,7 @@ let () =
         ; test_case "openai extended" `Quick test_openai_extended
         ; test_case "dashscope" `Quick test_dashscope_capabilities
         ; test_case "kimi tool_choice" `Quick test_kimi_tool_choice_capabilities
+        ; test_case "mimo provider" `Quick test_mimo_provider_capabilities
         ; test_case
             "openai compat reasoning records have explicit control"
             `Quick
@@ -2458,6 +2523,7 @@ let () =
             `Quick
             test_frontier_grouped_tool_thinking_provider_contracts
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
+        ; test_case "mimo-v2.5 multimodal" `Quick test_lookup_mimo_v25_multimodal
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive

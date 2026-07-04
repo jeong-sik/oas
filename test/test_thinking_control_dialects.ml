@@ -98,6 +98,7 @@ let declared_catalog_openai_compat_config
       ?temperature
       ?top_p
       ?tool_choice
+      ?(response_format_json = false)
       ?output_schema
       model_id
   =
@@ -112,6 +113,7 @@ let declared_catalog_openai_compat_config
     ?temperature
     ?top_p
     ?tool_choice
+    ~response_format_json
     ?output_schema
     ()
 ;;
@@ -326,20 +328,12 @@ let test_qwen36_dashscope_dialect_reports_enable_thinking () =
     (RD.toggle_wire_to_string dialect.toggle_wire)
 ;;
 
-let test_mimo_v25_uses_thinking_object_and_json_schema () =
-  let schema =
-    `Assoc
-      [ "type", `String "object"
-      ; "additionalProperties", `Bool false
-      ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
-      ; "required", `List [ `String "answer" ]
-      ]
-  in
+let test_mimo_v25_uses_thinking_object_and_json_mode () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
       ~enable_thinking:false
-      ~output_schema:schema
+      ~response_format_json:true
       "mimo-v2.5-pro"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -360,13 +354,9 @@ let test_mimo_v25_uses_thinking_object_and_json_schema () =
   check
     string
     "response_format type"
-    "json_schema"
+    "json_object"
     (response_format |> member "type" |> to_string);
-  check
-    bool
-    "json schema strict"
-    true
-    (response_format |> member "json_schema" |> member "strict" |> to_bool)
+  check_member_absent "json_schema" response_format
 ;;
 
 let test_openai_reasoning_dialect_uses_reasoning_effort () =
@@ -1241,9 +1231,9 @@ let () =
               `Quick
               test_qwen36_dashscope_dialect_reports_enable_thinking
           ; test_case
-              "mimo v2.5 uses thinking object and json_schema"
+              "mimo v2.5 uses thinking object and json mode"
               `Quick
-              test_mimo_v25_uses_thinking_object_and_json_schema
+              test_mimo_v25_uses_thinking_object_and_json_mode
           ; test_case
               "openai reasoning dialect uses reasoning_effort"
               `Quick

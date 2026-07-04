@@ -134,6 +134,7 @@ type capabilities =
 val default_capabilities : capabilities
 val anthropic_capabilities : capabilities
 val kimi_capabilities : capabilities
+val mimo_capabilities : capabilities
 val openai_compat_chat_capabilities : capabilities
 val openai_compat_chat_extended_capabilities : capabilities
 val gemini_capabilities : capabilities

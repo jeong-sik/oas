@@ -376,15 +376,6 @@ let cohere_identity =
   }
 ;;
 
-let mimo_identity =
-  { identity_name = "mimo"
-  ; identity_kind = OpenAI_compat
-  ; canonical_base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
-  ; base_url_env = Some "MIMO_BASE_URL"
-  ; identity_request_path = "/chat/completions"
-  }
-;;
-
 (* Deterministic match order for [provider_name_of_config]. Canonical URLs
    are pairwise distinct; if two env overrides are set to the same URL, the
    first entry here wins (canonical matches are resolved in a separate pass
@@ -399,7 +390,6 @@ let endpoint_identities =
   ; xai_identity
   ; mistral_identity
   ; cohere_identity
-  ; mimo_identity
   ]
 ;;
 
@@ -531,14 +521,6 @@ let cohere_defaults ?getenv () =
   }
 ;;
 
-let mimo_defaults ?getenv () =
-  { kind = mimo_identity.identity_kind
-  ; base_url = identity_default_base_url ?getenv mimo_identity
-  ; api_key_env = "MIMO_API_KEY"
-  ; request_path = mimo_identity.identity_request_path
-  }
-;;
-
 let normalize_url value =
   let trimmed = String.trim value in
   if trimmed = ""
@@ -582,6 +564,40 @@ let default ?getenv () =
         (Printf.sprintf
            "Provider_registry.default: no capabilities for registered provider %S"
            label)
+  in
+  let register_model_catalog_provider (entry : Model_catalog.provider_entry) =
+    let capability_label =
+      Option.value entry.capabilities_base ~default:entry.id
+      |> String.lowercase_ascii
+      |> String.trim
+    in
+    let caps = capabilities_for_registered_label capability_label in
+    let defaults : provider_defaults =
+      { kind = entry.kind
+      ; base_url =
+          (match entry.base_url_env with
+           | None -> entry.base_url
+           | Some env_name -> env_or_default ?getenv env_name entry.base_url)
+      ; api_key_env = entry.api_key_env
+      ; request_path = entry.request_path
+      }
+    in
+    let max_context = max_context_from_capabilities ~default:128_000 caps in
+    let register_name name =
+      let normalized = String.lowercase_ascii (String.trim name) in
+      if normalized <> ""
+      then
+        register
+          t
+          { name = normalized
+          ; defaults
+          ; max_context
+          ; capabilities = caps
+          ; is_available = (fun () -> has_api_key defaults.api_key_env)
+          }
+    in
+    register_name entry.id;
+    List.iter register_name entry.aliases
   in
   reg
     "nous"
@@ -655,11 +671,10 @@ let default ?getenv () =
     (cohere_defaults ?getenv ())
     ~max_context:256_000
     (capabilities_for_registered_label "cohere");
-  reg
-    "mimo"
-    (mimo_defaults ?getenv ())
-    ~max_context:128_000
-    (capabilities_for_registered_label "mimo");
+  (match Model_catalog.global () with
+   | None -> ()
+   | Some catalog ->
+     List.iter register_model_catalog_provider (Model_catalog.provider_entries catalog));
   register
     t
     { name = "ollama"
@@ -775,6 +790,17 @@ let provider_name_of_config ?getenv (config : Provider_config.t) =
           |> Option.map (fun names -> List.nth_opt names 0)
           |> Option.join
       in
+      let model_catalog_match () =
+        match Model_catalog.global () with
+        | None -> None
+        | Some catalog ->
+          Model_catalog.provider_label_for_endpoint
+            ?getenv
+            catalog
+            ~kind:config.kind
+            ~base_url:config.base_url
+            ~request_path:config.request_path
+      in
       match canonical_match with
       | Some identity -> identity.identity_name
       | None ->
@@ -784,9 +810,12 @@ let provider_name_of_config ?getenv (config : Provider_config.t) =
            (match catalog_match () with
             | Some name -> name
             | None ->
-              (* Provider identity must come from the concrete kind or an explicit
+              (match model_catalog_match () with
+               | Some name -> name
+               | None ->
+                 (* Provider identity must come from the concrete kind or an explicit
                  endpoint identity. Model catalog provider names describe model
                  provenance/capabilities; using them here would infer transport
                  semantics from a model id on arbitrary compatible gateways. *)
-              "openai_compat")))
+                 "openai_compat"))))
 ;;

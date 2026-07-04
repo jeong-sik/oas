@@ -3,10 +3,13 @@ module Capabilities = Llm_provider.Capabilities
 module Model_catalog = Llm_provider.Model_catalog
 
 let id_prefixes catalog =
-  List.map (fun (entry : Model_catalog.model_entry) -> entry.id_prefix) catalog
+  catalog
+  |> Model_catalog.model_entries
+  |> List.map (fun (entry : Model_catalog.model_entry) -> entry.id_prefix)
 ;;
 
-let first_id_prefix ~suite = function
+let first_id_prefix ~suite catalog =
+  match Model_catalog.model_entries catalog with
   | [] -> failf "%s: repo model catalog should not be empty" suite
   | (entry : Model_catalog.model_entry) :: _ -> entry.id_prefix
 ;;

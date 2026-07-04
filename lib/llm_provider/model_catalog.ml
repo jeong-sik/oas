@@ -45,8 +45,28 @@ type model_entry =
   ; cache_read_multiplier : float option
   }
 
-type t = model_entry list
+type provider_entry = Model_provider_catalog.entry =
+  { id : string
+  ; aliases : string list
+  ; kind : Provider_kind.t
+  ; base_url : string
+  ; base_url_env : string option
+  ; request_path : string
+  ; api_key_env : string
+  ; default_model : string option
+  ; capabilities_base : string option
+  ; identity_hosts : string list
+  }
 
+type t =
+  { models : model_entry list
+  ; providers : provider_entry list
+  }
+
+let empty = { models = []; providers = [] }
+let of_model_entries models = { empty with models }
+let model_entries t = t.models
+let provider_entries t = t.providers
 let default_catalog_filename = "models.toml"
 
 let find_string_opt toml path =
@@ -505,6 +525,29 @@ let%test "parse_entry accepts a known base preset" =
   | Error _ -> false
 ;;
 
+let parse_table_array toml key parse =
+  match Otoml.find_opt toml (Otoml.get_array Fun.id) [ key ] with
+  | None -> Ok []
+  | Some items ->
+    let results = List.map parse items in
+    let errors =
+      List.filter_map
+        (function
+          | Error e -> Some e
+          | Ok _ -> None)
+        results
+    in
+    if errors <> []
+    then Error (String.concat "; " errors)
+    else
+      Ok
+        (List.filter_map
+           (function
+             | Ok entry -> Some entry
+             | Error _ -> None)
+           results)
+;;
+
 let load_file path =
   let parse_res =
     try Ok (Otoml.Parser.from_file path) with
@@ -517,32 +560,23 @@ let load_file path =
   match parse_res with
   | Error _ as e -> e
   | Ok toml ->
-    (match Otoml.find_opt toml (Otoml.get_array Fun.id) [ "models" ] with
-     | None -> Ok []
-     | Some entries_toml ->
-       let results = List.map parse_entry entries_toml in
-       let errors =
-         List.filter_map
-           (function
-             | Error e -> Some e
-             | Ok _ -> None)
-           results
-       in
-       if errors <> []
-       then Error (String.concat "; " errors)
-       else
-         Ok
-           (List.filter_map
-              (function
-                | Ok e -> Some e
-                | Error _ -> None)
-              results))
+    (match parse_table_array toml "models" parse_entry with
+     | Error _ as e -> e
+     | Ok models ->
+       (match parse_table_array toml "providers" Model_provider_catalog.parse_entry with
+        | Error _ as e -> e
+        | Ok providers -> Ok { models; providers }))
 ;;
 
 let load_runtime_file path =
   match load_file path with
   | Ok catalog ->
-    Diag.info "model_catalog" "loaded %d model entries from %s" (List.length catalog) path;
+    Diag.info
+      "model_catalog"
+      "loaded %d model entries and %d provider entries from %s"
+      (List.length catalog.models)
+      (List.length catalog.providers)
+      path;
     Some catalog
   | Error msg ->
     Diag.warn "model_catalog" "failed to load %s: %s" path msg;
@@ -617,7 +651,7 @@ let lookup t model_id =
   let sorted_t =
     List.fast_sort
       (fun a b -> compare (String.length b.id_prefix) (String.length a.id_prefix))
-      t
+      t.models
   in
   let rec lookup_candidates = function
     | [] -> None
@@ -642,6 +676,19 @@ let provider_name_for_model_id t model_id =
   | Some _ | None -> None
 ;;
 
+let provider_label_for_base_url ?getenv t ~kind ~base_url =
+  Model_provider_catalog.provider_label_for_base_url ?getenv t.providers ~kind ~base_url
+;;
+
+let provider_label_for_endpoint ?getenv t ~kind ~base_url ~request_path =
+  Model_provider_catalog.provider_label_for_endpoint
+    ?getenv
+    t.providers
+    ~kind
+    ~base_url
+    ~request_path
+;;
+
 type env_cache =
   | Unloaded
   | Loaded of t option
@@ -654,8 +701,9 @@ let load_ambient_catalog () =
      | Ok catalog ->
        Diag.info
          "model_catalog"
-         "loaded %d default model entries from packaged catalog"
-         (List.length catalog);
+         "loaded %d default model entries and %d provider entries from packaged catalog"
+         (List.length catalog.models)
+         (List.length catalog.providers);
        Some catalog
      | Error msg ->
        Diag.warn

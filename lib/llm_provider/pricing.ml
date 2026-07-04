@@ -901,7 +901,7 @@ let%test "pricing_for_model_opt: cloud-style unknown returns None" =
 
 let with_empty_catalog f =
   let original = Model_catalog.global () in
-  Model_catalog.set_global [];
+  Model_catalog.set_global Model_catalog.empty;
   Fun.protect
     ~finally:(fun () ->
       match original with

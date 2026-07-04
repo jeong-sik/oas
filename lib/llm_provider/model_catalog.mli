@@ -55,8 +55,25 @@ type model_entry =
   ; cache_read_multiplier : float option
   }
 
-type t = model_entry list
+type provider_entry = Model_provider_catalog.entry =
+  { id : string
+  ; aliases : string list
+  ; kind : Provider_kind.t
+  ; base_url : string
+  ; base_url_env : string option
+  ; request_path : string
+  ; api_key_env : string
+  ; default_model : string option
+  ; capabilities_base : string option
+  ; identity_hosts : string list
+  }
 
+type t
+
+val empty : t
+val of_model_entries : model_entry list -> t
+val model_entries : t -> model_entry list
+val provider_entries : t -> provider_entry list
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 
@@ -87,6 +104,29 @@ val lookup : t -> string -> model_entry option
 (** Return the catalog-declared provider identity for the longest matching
     [id_prefix], if that entry declares one. *)
 val provider_name_for_model_id : t -> string -> string option
+
+(** Return the catalog-declared provider identity for a concrete endpoint.
+
+    Matching is exact and declaration-driven: [base_url] matches either the
+    provider row's canonical [base_url], its optional [base_url_env] override,
+    or one of its exact [identity_hosts]. No model id is consulted. *)
+val provider_label_for_base_url
+  :  ?getenv:(string -> string option)
+  -> t
+  -> kind:Provider_kind.t
+  -> base_url:string
+  -> string option
+
+(** Like {!provider_label_for_base_url}, but also requires the request path to
+    match the provider row. Use this for telemetry/provider-name identity where
+    the wire shape matters, not for capability host gates. *)
+val provider_label_for_endpoint
+  :  ?getenv:(string -> string option)
+  -> t
+  -> kind:Provider_kind.t
+  -> base_url:string
+  -> request_path:string
+  -> string option
 
 (** Return the active model catalog.
 

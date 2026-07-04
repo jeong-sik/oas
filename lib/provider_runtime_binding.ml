@@ -141,7 +141,7 @@ let model_catalog_default_for_base_label base_label =
            trim_non_empty entry.id_prefix
          | Some _other_base -> None
          | None -> None)
-      catalog
+      (Llm_provider.Model_catalog.model_entries catalog)
 ;;
 
 let registry_default_model provider_id =
