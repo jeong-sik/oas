@@ -769,6 +769,104 @@ let test_thinking_object_keep_all_axis_replays_reasoning () =
       (assistant |> member "reasoning_content" |> to_string))
 ;;
 
+let test_thinking_object_keep_all_axis_defaults_to_tool_replay () =
+  with_manifest keep_all_axis_manifest (fun () ->
+    let config = declared_catalog_openai_compat_config "keep-all-axis-test" in
+    let dialect = RD.for_provider_config config in
+    check
+      string
+      "replay policy"
+      "drop_without_tool_preserve_with_tool"
+      (RD.replay_policy_to_string dialect.replay_policy);
+    check
+      bool
+      "requires tool-call replay"
+      true
+      (RD.requires_reasoning_replay_on_tool_call dialect);
+    let plain =
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      |> json_of_body
+    in
+    let tool =
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+      |> json_of_body
+    in
+    let plain_assistant = plain |> member "messages" |> index 0 in
+    let tool_assistant = tool |> member "messages" |> index 0 in
+    check_member_absent "reasoning_content" plain_assistant;
+    check
+      string
+      "tool reasoning_content"
+      "use calculator"
+      (tool_assistant |> member "reasoning_content" |> to_string))
+;;
+
+let test_kimi_k26_defaults_to_tool_call_replay () =
+  let config = kimi_config "kimi-k2.6" in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "thinking_object_only"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "drop_without_tool_preserve_with_tool"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    bool
+    "requires tool-call replay"
+    true
+    (RD.requires_reasoning_replay_on_tool_call dialect);
+  let user_json =
+    BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
+  in
+  check_member_absent "thinking" user_json;
+  let plain =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+  in
+  let tool =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    |> json_of_body
+  in
+  check_member_absent "reasoning_content" (plain |> member "messages" |> index 0);
+  check
+    string
+    "tool reasoning_content"
+    "use calculator"
+    (tool |> member "messages" |> index 0 |> member "reasoning_content" |> to_string)
+;;
+
+let test_kimi_k26_preserve_requests_keep_all () =
+  let config = kimi_config ~preserve_thinking:true "kimi-k2.6" in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
+  check string "thinking keep" "all" (thinking |> member "keep" |> to_string);
+  check_member_absent "chat_template_kwargs" json
+;;
+
+let test_kimi_k25_does_not_emit_keep_all () =
+  let config = kimi_config ~enable_thinking:true ~preserve_thinking:true "kimi-k2.5" in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "replay policy"
+    "no_replay"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
+  check_member_absent "keep" thinking
+;;
+
 let test_kimi_latest_always_preserved_omits_thinking_param () =
   let config = kimi_config "kimi-k2.7-code" in
   let dialect = RD.for_provider_config config in
@@ -798,6 +896,20 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
     "reasoning_content"
     "plain thought"
     (assistant |> member "reasoning_content" |> to_string)
+;;
+
+let test_kimi_latest_highspeed_uses_k27_semantics () =
+  let config = kimi_config "kimi-k2.7-code-highspeed" in
+  let dialect = RD.for_provider_config config in
+  check string "toggle wire" "no_toggle" (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check_member_absent "thinking" json;
+  check_member_absent "chat_template_kwargs" json
 ;;
 
 let test_kimi_latest_omits_sampling_even_with_disabled_thinking_override () =
@@ -1181,9 +1293,29 @@ let () =
               `Quick
               test_thinking_object_keep_all_axis_replays_reasoning
           ; test_case
+              "thinking_object_keep_all axis defaults to tool-call replay"
+              `Quick
+              test_thinking_object_keep_all_axis_defaults_to_tool_replay
+          ; test_case
+              "kimi k2.6 defaults to tool-call replay"
+              `Quick
+              test_kimi_k26_defaults_to_tool_call_replay
+          ; test_case
+              "kimi k2.6 preserve requests keep all"
+              `Quick
+              test_kimi_k26_preserve_requests_keep_all
+          ; test_case
+              "kimi k2.5 does not emit keep all"
+              `Quick
+              test_kimi_k25_does_not_emit_keep_all
+          ; test_case
               "kimi latest always-preserved omits thinking param"
               `Quick
               test_kimi_latest_always_preserved_omits_thinking_param
+          ; test_case
+              "kimi latest highspeed uses k2.7 semantics"
+              `Quick
+              test_kimi_latest_highspeed_uses_k27_semantics
           ; test_case
               "kimi latest omits fixed sampling params"
               `Quick
