@@ -21,13 +21,13 @@ val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
     policy is single-sourced here. *)
 val effective_max_output_tokens : Provider_config.t -> int
 
-(** Prepend [(field, value)] to [body] unless the reasoning dialect ignores
-    the sampling parameter while thinking is enabled, in which case the field
-    is dropped with a one-shot WARN per ([model_id], [field]). *)
+(** Prepend the sampling [(field, value)] to [body] unless the reasoning
+    dialect suppresses that parameter, in which case the field is dropped with a
+    one-shot WARN per ([model_id], [field]). *)
 val add_sampling_field
   :  Reasoning_dialect.t
   -> Provider_config.t
-  -> string
+  -> Capabilities.sampling_parameter
   -> Yojson.Safe.t
   -> (string * Yojson.Safe.t) list
   -> (string * Yojson.Safe.t) list

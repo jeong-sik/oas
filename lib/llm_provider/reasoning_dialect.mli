@@ -34,9 +34,9 @@ type effort_alias_policy =
   | Anthropic_output_max
 
 type sampling_policy =
-  | Sampling_supported
-  | Ignored_always of string list
-  | Ignored_when_thinking of string list
+  { ignored_always : Capabilities.sampling_parameter list
+  ; ignored_when_thinking : Capabilities.sampling_parameter list
+  }
 
 type replay_policy =
   | No_replay
@@ -88,7 +88,11 @@ val chat_template_kwargs_preserve_field
   -> bool option
 
 val top_level_preserve_field : t -> preserve_thinking:bool option -> bool option
-val ignores_sampling_param : t -> enable_thinking:bool option -> string -> bool
+val ignores_sampling_param
+  :  t
+  -> enable_thinking:bool option
+  -> Capabilities.sampling_parameter
+  -> bool
 
 (** Canonical OpenAI-compatible thinking-control request fields for a dialect.
 
@@ -115,13 +119,13 @@ val normalize_effort_value : t -> Reasoning_effort.t -> string option
     Returns [None] when the input means "no reasoning effort field". *)
 val normalize_effort : t -> string -> string option
 
-val sampling_params_ignored_when_thinking : t -> string list
+val sampling_params_ignored_when_thinking : t -> Capabilities.sampling_parameter list
 
-(** [true] when [field] is a sampling parameter the wire format ignores while
-    thinking is enabled. Thinking defaults on: only an explicit
-    [enable_thinking = Some false] keeps the field. Some provider-controlled
-    dialects such as latest Kimi are represented by the full {!t} policy instead
-    of this format-only helper. Keyed on
+(** [true] when [parameter] is a sampling parameter the wire format ignores
+    while thinking is enabled. Thinking defaults on: only an explicit
+    [enable_thinking = Some false] keeps the field. Provider-controlled
+    always-suppressed parameters such as Kimi fixed sampling are represented by
+    the full {!t} policy instead of this format-only helper. Keyed on
     {!Capabilities.thinking_control_format} so both the [Provider_config]-based
     request builder ([Backend_openai_request]) and the agent-state-based one
     ([Api_openai.build_openai_body]) drop the same parameters; the public path
@@ -129,7 +133,7 @@ val sampling_params_ignored_when_thinking : t -> string list
 val sampling_field_ignored_when_thinking
   :  thinking_control_format:Capabilities.thinking_control_format
   -> enable_thinking:bool option
-  -> field:string
+  -> parameter:Capabilities.sampling_parameter
   -> bool
 
 (** Whether an assistant reasoning side-channel should be replayed into a

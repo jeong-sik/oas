@@ -110,6 +110,7 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   ; supports_min_p = caps.supports_min_p
   ; supports_seed = caps.supports_seed
   ; supports_seed_with_images = caps.supports_seed_with_images
+  ; ignored_sampling_parameters = caps.ignored_sampling_parameters
   ; supports_computer_use = caps.supports_computer_use
   ; supports_code_execution = caps.supports_code_execution
   ; emits_usage_tokens = caps.emits_usage_tokens

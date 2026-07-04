@@ -398,12 +398,12 @@ let build_request
   in
   let body =
     match config.temperature with
-    | Some t -> add_sampling_field dialect config "temperature" (`Float t) body
+    | Some t -> add_sampling_field dialect config Capabilities.Temperature (`Float t) body
     | None -> body
   in
   let body =
     match config.top_p with
-    | Some p -> add_sampling_field dialect config "top_p" (`Float p) body
+    | Some p -> add_sampling_field dialect config Capabilities.Top_p (`Float p) body
     | None -> body
   in
   let body =

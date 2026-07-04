@@ -34,27 +34,29 @@ let warn_capability_drop ~model_id ~field =
       field)
 ;;
 
-let warn_dialect_ignored ~model_id ~field =
+let warn_dialect_ignored ~model_id ~parameter =
+  let field = Capabilities.sampling_parameter_to_string parameter in
   let key = model_id, field in
   if not (Hashtbl.mem dialect_ignored_warned key)
   then (
     Hashtbl.replace dialect_ignored_warned key ();
     Diag.warn
       "backend_openai"
-      "dropping request field %s for model %s: the selected reasoning dialect ignores \
-       this sampling parameter while thinking is enabled."
+      "dropping request field %s for model %s: the selected reasoning dialect \
+       suppresses this sampling parameter."
       field
       model_id)
 ;;
 
-let add_sampling_field dialect (config : Provider_config.t) field value body =
+let add_sampling_field dialect (config : Provider_config.t) parameter value body =
+  let field = Capabilities.sampling_parameter_to_string parameter in
   if
     Reasoning_dialect.ignores_sampling_param
       dialect
       ~enable_thinking:config.enable_thinking
-      field
+      parameter
   then (
-    warn_dialect_ignored ~model_id:config.model_id ~field;
+    warn_dialect_ignored ~model_id:config.model_id ~parameter;
     body)
   else (field, value) :: body
 ;;
@@ -254,12 +256,12 @@ let build_request_assoc
   in
   let body =
     match config.temperature with
-    | Some t -> add_sampling_field dialect config "temperature" (`Float t) body
+    | Some t -> add_sampling_field dialect config Capabilities.Temperature (`Float t) body
     | None -> body
   in
   let body =
     match config.top_p with
-    | Some p -> add_sampling_field dialect config "top_p" (`Float p) body
+    | Some p -> add_sampling_field dialect config Capabilities.Top_p (`Float p) body
     | None -> body
   in
   (* Silent drops of user-supplied sampling params are a debugging
@@ -271,7 +273,8 @@ let build_request_assoc
      double-warn at most once per key, which is harmless. *)
   let body =
     match config.top_k with
-    | Some k when caps.supports_top_k -> ("top_k", `Int k) :: body
+    | Some k when caps.supports_top_k ->
+      add_sampling_field dialect config Capabilities.Top_k (`Int k) body
     | Some _ ->
       warn_capability_drop ~model_id:config.model_id ~field:"top_k";
       body
@@ -279,7 +282,8 @@ let build_request_assoc
   in
   let body =
     match config.min_p with
-    | Some p when caps.supports_min_p -> ("min_p", `Float p) :: body
+    | Some p when caps.supports_min_p ->
+      add_sampling_field dialect config Capabilities.Min_p (`Float p) body
     | Some _ ->
       warn_capability_drop ~model_id:config.model_id ~field:"min_p";
       body

@@ -24,9 +24,9 @@ type effort_alias_policy =
   | Anthropic_output_max
 
 type sampling_policy =
-  | Sampling_supported
-  | Ignored_always of string list
-  | Ignored_when_thinking of string list
+  { ignored_always : Capabilities.sampling_parameter list
+  ; ignored_when_thinking : Capabilities.sampling_parameter list
+  }
 
 type replay_policy =
   | No_replay
@@ -60,12 +60,14 @@ type t =
   ; output_wire : output_wire
   }
 
+let sampling_supported = { ignored_always = []; ignored_when_thinking = [] }
+
 let default =
   { toggle_default = Provider_default
   ; toggle_wire = No_toggle
   ; preserve_wire = No_preserve_thinking_control
   ; effort_alias_policy = Preserve_effort
-  ; sampling_policy = Sampling_supported
+  ; sampling_policy = sampling_supported
   ; replay_policy = No_replay
   ; streaming = No_streaming_reasoning
   ; output_wire = No_output_control
@@ -73,10 +75,16 @@ let default =
 ;;
 
 let deepseek_ignored_sampling_params =
-  [ "temperature"; "top_p"; "presence_penalty"; "frequency_penalty" ]
+  [ Capabilities.Temperature
+  ; Capabilities.Top_p
+  ; Capabilities.Presence_penalty
+  ; Capabilities.Frequency_penalty
+  ]
 ;;
 
-let kimi_fixed_sampling_params = [ "temperature"; "top_p" ]
+let sampling_policy_of_capabilities (caps : Capabilities.capabilities) =
+  { sampling_supported with ignored_always = caps.ignored_sampling_parameters }
+;;
 
 let base_of_capabilities (caps : Capabilities.capabilities) =
   let preserve_wire = caps.preserve_thinking_control_format in
@@ -85,6 +93,7 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     | No_reasoning_output_format -> No_output_control
     | Split_reasoning_fields -> Reasoning_split
   in
+  let default = { default with sampling_policy = sampling_policy_of_capabilities caps } in
   match caps.thinking_control_format with
   | No_thinking_control ->
     let dialect = { default with preserve_wire; output_wire } in
@@ -93,7 +102,6 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
        { dialect with
          replay_policy = Preserve_always
        ; streaming = Delta_field "reasoning_content"
-       ; sampling_policy = Ignored_always kimi_fixed_sampling_params
        }
      | No_preserve_thinking_control
      | Thinking_object_keep_all
@@ -104,7 +112,10 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; toggle_wire = Thinking_object { includes_reasoning_effort = true }
     ; preserve_wire
     ; effort_alias_policy = Deepseek_high_or_max
-    ; sampling_policy = Ignored_when_thinking deepseek_ignored_sampling_params
+    ; sampling_policy =
+        { ignored_always = caps.ignored_sampling_parameters
+        ; ignored_when_thinking = deepseek_ignored_sampling_params
+        }
     ; replay_policy = Drop_without_tool_preserve_with_tool
     ; streaming = Delta_field "reasoning_content"
     ; output_wire
@@ -254,12 +265,10 @@ let top_level_preserve_field dialect ~preserve_thinking =
   | Always_preserved_thinking -> None
 ;;
 
-let ignores_sampling_param dialect ~enable_thinking field =
-  match dialect.sampling_policy with
-  | Sampling_supported -> false
-  | Ignored_always params -> List.mem field params
-  | Ignored_when_thinking params ->
-    thinking_enabled ~enable_thinking && List.mem field params
+let ignores_sampling_param dialect ~enable_thinking parameter =
+  List.mem parameter dialect.sampling_policy.ignored_always
+  || (thinking_enabled ~enable_thinking
+      && List.mem parameter dialect.sampling_policy.ignored_when_thinking)
 ;;
 
 let bool_field name = function
@@ -449,9 +458,14 @@ let normalize_effort dialect raw =
 ;;
 
 let sampling_params_ignored_when_thinking dialect =
-  match dialect.sampling_policy with
-  | Sampling_supported -> []
-  | Ignored_always params | Ignored_when_thinking params -> params
+  let params =
+    dialect.sampling_policy.ignored_always
+    @ dialect.sampling_policy.ignored_when_thinking
+  in
+  List.fold_left
+    (fun acc parameter -> if List.mem parameter acc then acc else acc @ [ parameter ])
+    []
+    params
 ;;
 
 (* Sampling params a wire format ignores while thinking is enabled, keyed purely
@@ -459,7 +473,7 @@ let sampling_params_ignored_when_thinking dialect =
    Only DeepSeek-style [Thinking_object] suppresses sampling; the constant is the
    single source of truth, also used by [of_capabilities] above. *)
 let sampling_params_ignored_for_format
-  : Capabilities.thinking_control_format -> string list
+  : Capabilities.thinking_control_format -> Capabilities.sampling_parameter list
   = function
   | Capabilities.Thinking_object -> deepseek_ignored_sampling_params
   | Capabilities.No_thinking_control
@@ -472,14 +486,18 @@ let sampling_params_ignored_for_format
   | Capabilities.Enable_thinking -> []
 ;;
 
-let sampling_field_ignored_when_thinking ~thinking_control_format ~enable_thinking ~field =
+let sampling_field_ignored_when_thinking
+      ~thinking_control_format
+      ~enable_thinking
+      ~parameter
+  =
   let thinking_active =
     match enable_thinking with
     | Some false -> false
     | Some true | None -> true
   in
   thinking_active
-  && List.mem field (sampling_params_ignored_for_format thinking_control_format)
+  && List.mem parameter (sampling_params_ignored_for_format thinking_control_format)
 ;;
 
 let should_replay_reasoning dialect ~assistant_had_tool_call =

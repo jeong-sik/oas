@@ -70,6 +70,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "supports_min_p": true,
               "supports_seed": true,
               "supports_seed_with_images": true,
+              "ignored_sampling_parameters": ["temperature", "top_p"],
               "supports_computer_use": true,
               "supports_code_execution": true,
               "emits_usage_tokens": true,
@@ -131,6 +132,11 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check bool "min p" true caps.supports_min_p;
   check bool "seed" true caps.supports_seed;
   check bool "seed images" true caps.supports_seed_with_images;
+  check
+    (list string)
+    "ignored sampling"
+    [ "temperature"; "top_p" ]
+    (List.map Capabilities.sampling_parameter_to_string caps.ignored_sampling_parameters);
   check bool "computer use" true caps.supports_computer_use;
   check bool "code execution" true caps.supports_code_execution;
   check bool "usage tokens" true caps.emits_usage_tokens;
@@ -387,6 +393,10 @@ let test_removed_catalog_aliases_are_rejected () =
     "accepted reasoning effort rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"accepted_reasoning_efforts":["low","turbo"]}}]}|}
     "unknown accepted_reasoning_efforts";
+  assert_reject
+    "ignored sampling parameter rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"ignored_sampling_parameters":["temp"]}}]}|}
+    "unknown ignored_sampling_parameters";
   assert_reject
     "modality priority rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"modality_priority":"image_only"}}]}|}

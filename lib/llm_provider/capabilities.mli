@@ -48,6 +48,15 @@ type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+type sampling_parameter = Capability_vocab.sampling_parameter =
+  | Temperature
+  | Top_p
+  | Top_k
+  | Min_p
+  | Presence_penalty
+  | Frequency_penalty
+  | Seed
+
 (** Catalog-declared inference task for non-chat models. [None] on every
     chat/completion model; a value is only ever set by an explicit [task]
     field on a model catalog entry — never inferred from the model id. *)
@@ -115,6 +124,9 @@ type capabilities =
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
       providers (Openai, Gemini) do not guarantee it.
       @since 0.185.0 *)
+  ; ignored_sampling_parameters : sampling_parameter list
+    (** Request sampling parameters that must not be serialized for this
+        provider/model even when a caller supplied them. *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -145,6 +157,8 @@ val glm_capabilities : capabilities
 (** NVIDIA NIM Nvidia capabilities: Llama-based, chat_template_kwargs thinking.
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
+
+val sampling_parameter_to_string : sampling_parameter -> string
 
 (** Resolve the exact chat-template token for models whose
     [thinking_control_format] is [Chat_template_token]. The token is catalog /

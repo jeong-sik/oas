@@ -50,6 +50,7 @@ type entry =
   ; supports_top_k : bool option
   ; supports_min_p : bool option
   ; supports_seed : bool option
+  ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
@@ -235,6 +236,30 @@ let canonical_string_list key ~allowed json =
             (String.concat ", " allowed)))
 ;;
 
+let canonical_sampling_parameters key json =
+  match member_string_list key json with
+  | None -> Ok None
+  | Some values ->
+    let parsed, unknown =
+      List.fold_right
+        (fun raw (parsed, unknown) ->
+           match Capability_vocab.sampling_parameter_of_string raw with
+           | Some parameter -> parameter :: parsed, unknown
+           | None -> parsed, String.lowercase_ascii (String.trim raw) :: unknown)
+        values
+        ([], [])
+    in
+    (match unknown with
+     | [] -> Ok (Some parsed)
+     | values ->
+       Error
+         (Printf.sprintf
+            "entry field %S has unknown value(s) %s (canonical: %s)"
+            key
+            (String.concat ", " values)
+            (String.concat ", " Capability_vocab.sampling_parameter_values)))
+;;
+
 let canonical_reasoning_streaming_format key json =
   let open Result_syntax in
   let* value = member_string_closed key json in
@@ -284,6 +309,7 @@ let known_entry_keys =
   ; "supports_top_k"
   ; "supports_min_p"
   ; "supports_seed"
+  ; "ignored_sampling_parameters"
   ; "supports_computer_use"
   ; "supports_code_execution"
   ; "thinking_control_format"
@@ -369,6 +395,9 @@ let parse_entry json =
       ~allowed:Reasoning_effort.all_wire_values
       json
   in
+  let* ignored_sampling_parameters =
+    canonical_sampling_parameters "ignored_sampling_parameters" json
+  in
   Ok
     { id_prefix
     ; base_label
@@ -397,6 +426,7 @@ let parse_entry json =
     ; supports_top_k = member_bool "supports_top_k" json
     ; supports_min_p = member_bool "supports_min_p" json
     ; supports_seed = member_bool "supports_seed" json
+    ; ignored_sampling_parameters
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format

@@ -438,7 +438,14 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          "Kimi K2.7 highspeed always preserves reasoning"
          true
          (highspeed.preserve_thinking_control_format
-          = Capabilities.Always_preserved_thinking)
+          = Capabilities.Always_preserved_thinking);
+       check
+         (list string)
+         "Kimi K2.7 highspeed ignores fixed sampling"
+         [ "temperature"; "top_p" ]
+         (List.map
+            Capabilities.sampling_parameter_to_string
+            highspeed.ignored_sampling_parameters)
      | None -> fail "should match Kimi K2.7 highspeed route");
     (match
        Capabilities.for_provider_model_id
@@ -1772,6 +1779,35 @@ let test_manifest_accepts_reasoning_streaming_format () =
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
+let test_manifest_applies_ignored_sampling_parameters () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"sampling-manifest","ignored_sampling_parameters":["temperature","top_p"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check
+      (list string)
+      "ignored sampling parameters"
+      [ "temperature"; "top_p" ]
+      (List.map
+         Capabilities.sampling_parameter_to_string
+         caps.ignored_sampling_parameters)
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_rejects_unknown_ignored_sampling_parameter () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"sampling-manifest","ignored_sampling_parameters":["temp"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg -> check_contains "mentions field" msg "ignored_sampling"
+  | Ok _ -> Alcotest.fail "expected unknown ignored_sampling_parameters rejection"
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -2537,6 +2573,14 @@ let () =
             "reasoning_streaming_format accepted"
             `Quick
             test_manifest_accepts_reasoning_streaming_format
+        ; test_case
+            "ignored sampling parameters applied"
+            `Quick
+            test_manifest_applies_ignored_sampling_parameters
+        ; test_case
+            "unknown ignored sampling parameter rejects"
+            `Quick
+            test_manifest_rejects_unknown_ignored_sampling_parameter
         ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick

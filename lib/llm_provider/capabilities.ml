@@ -66,6 +66,15 @@ type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
+type sampling_parameter = Capability_vocab.sampling_parameter =
+  | Temperature
+  | Top_p
+  | Top_k
+  | Min_p
+  | Presence_penalty
+  | Frequency_penalty
+  | Seed
+
 (** Catalog-declared inference task for non-chat models. [None] on every
     chat/completion model; a value is only ever set by an explicit [task]
     field on a model catalog entry — never inferred from the model id. *)
@@ -159,6 +168,10 @@ type capabilities =
       achieve near-perfect determinism on identical hardware; cloud
       providers (Openai, Gemini) do not guarantee deterministic output
       when images are in the prompt. *)
+  ; ignored_sampling_parameters : sampling_parameter list
+    (** Request sampling parameters that must not be serialized for this
+        provider/model even when a caller supplied them. This is catalog data,
+        not a model-id heuristic. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -213,6 +226,7 @@ let default_capabilities =
   ; supports_min_p = false
   ; supports_seed = false
   ; supports_seed_with_images = false
+  ; ignored_sampling_parameters = []
   ; supports_computer_use = false
   ; supports_code_execution = false
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
@@ -762,6 +776,8 @@ let reasoning_replay_override_of_catalog_string raw =
   Capability_vocab.reasoning_replay_override_of_string raw
 ;;
 
+let sampling_parameter_to_string = Capability_vocab.sampling_parameter_to_string
+
 let assistant_tool_content_format_of_catalog_string raw =
   Capability_vocab.assistant_tool_content_format_of_string raw
 ;;
@@ -838,6 +854,7 @@ type declarative_capability_overrides =
   ; supports_top_k : bool option
   ; supports_min_p : bool option
   ; supports_seed : bool option
+  ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
@@ -878,6 +895,7 @@ let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
   ; supports_top_k = entry.supports_top_k
   ; supports_min_p = entry.supports_min_p
   ; supports_seed = entry.supports_seed
+  ; ignored_sampling_parameters = entry.ignored_sampling_parameters
   ; supports_computer_use = entry.supports_computer_use
   ; supports_code_execution = entry.supports_code_execution
   ; thinking_control_format = entry.thinking_control_format
@@ -997,6 +1015,10 @@ let apply_declarative_capability_overrides overrides =
   ; supports_top_k = override_bool base.supports_top_k overrides.supports_top_k
   ; supports_min_p = override_bool base.supports_min_p overrides.supports_min_p
   ; supports_seed = override_bool base.supports_seed overrides.supports_seed
+  ; ignored_sampling_parameters =
+      (match overrides.ignored_sampling_parameters with
+       | Some parameters -> parameters
+       | None -> base.ignored_sampling_parameters)
   ; supports_computer_use =
       override_bool base.supports_computer_use overrides.supports_computer_use
   ; supports_code_execution =
@@ -1146,6 +1168,7 @@ let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
   ; supports_top_k = entry.supports_top_k
   ; supports_min_p = entry.supports_min_p
   ; supports_seed = entry.supports_seed
+  ; ignored_sampling_parameters = entry.ignored_sampling_parameters
   ; supports_computer_use = entry.supports_computer_use
   ; supports_code_execution = entry.supports_code_execution
   ; thinking_control_format = entry.thinking_control_format
@@ -1513,6 +1536,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_top_k = None
   ; supports_min_p = None
   ; supports_seed = None
+  ; ignored_sampling_parameters = None
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
@@ -1556,6 +1580,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; supports_top_k = None
   ; supports_min_p = None
   ; supports_seed = None
+  ; ignored_sampling_parameters = None
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
@@ -2183,6 +2208,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.reasoning_output_format = cb.reasoning_output_format
       && ca.reasoning_streaming_format = cb.reasoning_streaming_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
+      && ca.ignored_sampling_parameters = cb.ignored_sampling_parameters
       && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false
   in

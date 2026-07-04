@@ -41,6 +41,10 @@ type model_entry =
   ; supports_top_k : bool option
   ; supports_min_p : bool option
   ; supports_seed : bool option
+  ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
+    (** Request sampling parameters that this catalog row declares must not be
+        serialized. Parsed fail-closed against
+        {!Capability_vocab.sampling_parameter_values}. *)
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
