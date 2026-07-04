@@ -42,8 +42,8 @@ let warn_dialect_ignored ~model_id ~parameter =
     Hashtbl.replace dialect_ignored_warned key ();
     Diag.warn
       "backend_openai"
-      "dropping request field %s for model %s: the selected reasoning dialect \
-       suppresses this sampling parameter."
+      "dropping request field %s for model %s: the selected reasoning dialect suppresses \
+       this sampling parameter."
       field
       model_id)
 ;;

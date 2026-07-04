@@ -88,6 +88,7 @@ val chat_template_kwargs_preserve_field
   -> bool option
 
 val top_level_preserve_field : t -> preserve_thinking:bool option -> bool option
+
 val ignores_sampling_param
   :  t
   -> enable_thinking:bool option

@@ -459,8 +459,7 @@ let normalize_effort dialect raw =
 
 let sampling_params_ignored_when_thinking dialect =
   let params =
-    dialect.sampling_policy.ignored_always
-    @ dialect.sampling_policy.ignored_when_thinking
+    dialect.sampling_policy.ignored_always @ dialect.sampling_policy.ignored_when_thinking
   in
   List.fold_left
     (fun acc parameter -> if List.mem parameter acc then acc else acc @ [ parameter ])

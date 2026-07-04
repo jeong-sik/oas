@@ -542,8 +542,7 @@ let%test "parse_entry parses ignored_sampling_parameters into closed variants" =
 
 let%test "parse_entry rejects unknown ignored_sampling_parameters" =
   let entry =
-    Otoml.Parser.from_string
-      "id_prefix = \"m\"\nignored_sampling_parameters = [\"temp\"]"
+    Otoml.Parser.from_string "id_prefix = \"m\"\nignored_sampling_parameters = [\"temp\"]"
   in
   match parse_entry entry with
   | Error _ -> true
