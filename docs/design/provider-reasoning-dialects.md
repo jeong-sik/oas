@@ -24,7 +24,7 @@ accepting no request-time thinking parameter.
 | `Thinking_object_only` | `Thinking_object_keep_all` | Top-level `thinking` object without effort plus `thinking.keep="all"` when requested | Preserve historical `reasoning_content` when `preserve_thinking=true` |
 | `Chat_template_kwargs` | `Chat_template_kwargs_preserve_thinking` | Self-hosted chat-template kwargs such as Qwen `enable_thinking` / `preserve_thinking` | Preserve historical reasoning only when requested |
 | `Enable_thinking` | `Top_level_preserve_thinking` | DashScope-style top-level `enable_thinking` plus separate `preserve_thinking` | Preserve historical reasoning only when requested |
-| `No_thinking_control` | `Always_preserved_thinking` | Latest Kimi-style models whose thinking is provider-controlled and whose historical `reasoning_content` must remain in messages | Always replay historical reasoning; emit no thinking request field |
+| `No_thinking_control` | `Always_preserved_thinking` | Latest Kimi-style models whose thinking is provider-controlled and whose historical `reasoning_content` must remain in messages | Always replay historical reasoning; emit no thinking request field; omit fixed sampling knobs such as `temperature` / `top_p` |
 | `Chat_template_token` | `No_preserve_thinking_control` | Template token injection such as Gemma `<\|think\|>` | No mandatory replay; parse visible thought channel from generated text |
 | `Ollama_think` | `No_preserve_thinking_control` | Ollama native `/api/chat` top-level `think` bool/level, with thoughts in `message.thinking` | No mandatory replay; parse Ollama thinking side channel |
 | `Reasoning_effort` | `No_preserve_thinking_control` | OpenAI-compatible `reasoning_effort` field | No mandatory replay yet |
@@ -66,13 +66,16 @@ accepting no request-time thinking parameter.
   assistant reasoning forward. Source:
   <https://www.alibabacloud.com/help/en/model-studio/deep-thinking>, checked
   2026-06-14.
-- Kimi official docs: Kimi K2.7-code preserves thinking by default, should not
-  receive a request-time `thinking` parameter, and requires historical assistant
-  `reasoning_content` to remain in `messages`. Older Kimi variants can be
+- Kimi official docs: Kimi K2.7-code preserves thinking by default, does not
+  support non-thinking mode, accepts no useful request-time `thinking.disabled`
+  strategy, and requires historical assistant `reasoning_content` to remain in
+  `messages`. Kimi's thinking-model guide also says not to pass `temperature`
+  for K2.7-code / K2.6; the API reference documents K2.7-code fixed
+  `temperature=1.0` and fixed `top_p=0.95`. Older Kimi variants can be
   described through the separate preserve capability axis if an operator needs
-  them. Source:
-  <https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model>, checked
-  2026-06-29.
+  them. Sources:
+  <https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model>,
+  <https://platform.kimi.ai/docs/api/chat>, checked 2026-07-04.
 
 ## Boundary
 

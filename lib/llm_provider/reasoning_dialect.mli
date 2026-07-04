@@ -35,6 +35,7 @@ type effort_alias_policy =
 
 type sampling_policy =
   | Sampling_supported
+  | Ignored_always of string list
   | Ignored_when_thinking of string list
 
 type replay_policy =
@@ -118,7 +119,9 @@ val sampling_params_ignored_when_thinking : t -> string list
 
 (** [true] when [field] is a sampling parameter the wire format ignores while
     thinking is enabled. Thinking defaults on: only an explicit
-    [enable_thinking = Some false] keeps the field. Keyed on
+    [enable_thinking = Some false] keeps the field. Some provider-controlled
+    dialects such as latest Kimi are represented by the full {!t} policy instead
+    of this format-only helper. Keyed on
     {!Capabilities.thinking_control_format} so both the [Provider_config]-based
     request builder ([Backend_openai_request]) and the agent-state-based one
     ([Api_openai.build_openai_body]) drop the same parameters; the public path
