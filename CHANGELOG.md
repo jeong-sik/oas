@@ -31,6 +31,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.17](https://github.com/jeong-sik/oas/compare/v0.208.16...v0.208.17) (2026-07-04)
+
+
+### Bug Fixes
+
+* **llm_provider:** align kimi k2 thinking dialects ([#2465](https://github.com/jeong-sik/oas/issues/2465)) ([f637dfa](https://github.com/jeong-sik/oas/commit/f637dfac51f76528b921d08f2ddcbbe8698e2d90))
+* **llm_provider:** align kimi sampling prompt strategy ([#2461](https://github.com/jeong-sik/oas/issues/2461)) ([ccdd0f5](https://github.com/jeong-sik/oas/commit/ccdd0f51e749ff6fa1c4bf99ae3f212aa9f4e39c))
+
 ## [0.208.16](https://github.com/jeong-sik/oas/compare/v0.208.15...v0.208.16) (2026-07-03)
 
 
