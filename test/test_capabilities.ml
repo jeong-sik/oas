@@ -142,6 +142,10 @@ let test_lookup_mimo_v25_pro () =
     check bool "has tool_choice" true c.supports_tool_choice;
     check bool "has response_format json" true c.supports_response_format_json;
     check bool "no native structured output" false c.supports_structured_output;
+    check bool "pro row is text-only" false c.supports_multimodal_inputs;
+    check bool "pro row has no image input" false c.supports_image_input;
+    check bool "pro row has no audio input" false c.supports_audio_input;
+    check bool "pro row has no video input" false c.supports_video_input;
     check
       bool
       "uses split reasoning fields"

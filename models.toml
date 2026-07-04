@@ -1985,6 +1985,10 @@ supports_response_format_json = true
 # clients to validate schema conformance locally. Do not advertise native
 # json_schema structured output from the chat-completions catalog row.
 supports_structured_output = false
+supports_multimodal_inputs = false
+supports_image_input = false
+supports_audio_input = false
+supports_video_input = false
 supports_native_streaming = true
 
 [[models]]
