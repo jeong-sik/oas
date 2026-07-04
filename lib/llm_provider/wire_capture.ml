@@ -41,10 +41,7 @@ let ensure_capture_dir dir =
 ;;
 
 let append_mutex = Eio.Mutex.create ()
-
-let with_append_mutex f =
-  Eio.Mutex.use_rw ~protect:true append_mutex f
-;;
+let with_append_mutex f = Eio.Mutex.use_rw ~protect:true append_mutex f
 
 let close_noerr fd =
   try Unix.close fd with
