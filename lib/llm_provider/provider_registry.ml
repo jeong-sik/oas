@@ -379,7 +379,7 @@ let cohere_identity =
 let mimo_identity =
   (* Default to the Token Plan SGP OpenAI-compatible endpoint because this SDK
      entry is intended for coding-tool runtimes. The public API host is accepted
-     by [Provider_config.base_url_targets_mimo] as the same vendor identity, but
+     by [Mimo_hosts.base_url_targets] as the same vendor identity, but
      it has a different billing contract. Token Plan [/anthropic] endpoints are
      a different wire protocol and must be configured with an Anthropic provider
      kind instead of this OpenAI-compatible registry entry. *)
