@@ -115,10 +115,15 @@ let tool_result_ids (msg : message) =
 ;;
 
 let has_tool_result msg = tool_result_ids msg <> []
+
 let has_tool_use msg = tool_use_ids msg <> []
 
-let preserve_thinking_for_tool_use_message (msg : message) =
-  msg.role = Assistant && has_tool_use msg
+let has_reasoning_block (msg : message) =
+  List.exists
+    (function
+      | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+      | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+    msg.content
 ;;
 
 type dangling_repair_report = { synthesized_tool_results : int }
@@ -280,23 +285,31 @@ let apply_merge_contiguous messages =
 ;;
 
 let apply_drop_thinking messages =
-  let total = List.length messages in
+  let preserves_tool_reasoning msg =
+    msg.role = Assistant && has_tool_use msg && has_reasoning_block msg
+  in
+  let keep_after_drop_thinking ~preserve_reasoning (block : content_block) =
+    match block with
+    (* Tool-call reasoning can be required by thinking-capable providers when
+       the assistant tool-call message is replayed in later rounds. Plain
+       assistant reasoning is context weight and should not survive
+       [drop_thinking]. *)
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> preserve_reasoning
+    | Text _
+    | ToolUse _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> true
+  in
   List.filter_map
-    (fun (i, (msg : message)) ->
-       if i >= total - 2 || preserve_thinking_for_tool_use_message msg
-       then Some msg
-       else (
-         let content =
-           List.filter
-             (fun (block : content_block) ->
-                match block with
-                | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> false
-                | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
-                  true)
-             msg.content
-         in
-         if content = [] then None else Some { msg with content }))
-    (List.mapi (fun i msg -> i, msg) messages)
+    (fun (msg : message) ->
+       let preserve_reasoning = preserves_tool_reasoning msg in
+       let content =
+         List.filter (keep_after_drop_thinking ~preserve_reasoning) msg.content
+       in
+       if content = [] then None else Some { msg with content })
+    messages
 ;;
 
 let apply_prune_by_role ~drop_roles messages =

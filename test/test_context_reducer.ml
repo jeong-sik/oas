@@ -733,7 +733,7 @@ let test_drop_thinking_removes () =
     ]
   in
   let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
-  (* First message should have thinking stripped (not in last 2) *)
+  (* Unsigned thinking should be stripped while visible text remains. *)
   match result with
   | { Types.content; _ } :: _ ->
     let has_thinking =
@@ -747,7 +747,7 @@ let test_drop_thinking_removes () =
   | _ -> Alcotest.fail "unexpected result"
 ;;
 
-let test_drop_thinking_preserves_recent () =
+let test_drop_thinking_removes_recent_unsigned () =
   let msgs =
     [ user_msg "q"
     ; Types.
@@ -761,7 +761,6 @@ let test_drop_thinking_preserves_recent () =
     ]
   in
   let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
-  (* Last 2 messages are preserved *)
   match List.nth result 1 with
   | { Types.content; _ } ->
     let has_thinking =
@@ -771,10 +770,10 @@ let test_drop_thinking_preserves_recent () =
           | _ -> false)
         content
     in
-    Alcotest.(check bool) "thinking preserved in recent" true has_thinking
+    Alcotest.(check bool) "unsigned thinking removed in recent" false has_thinking
 ;;
 
-let test_drop_thinking_preserves_tool_use_thinking () =
+let test_drop_thinking_preserves_tool_use_reasoning () =
   let msgs =
     [ user_msg "q1"
     ; Types.
@@ -799,7 +798,7 @@ let test_drop_thinking_preserves_tool_use_thinking () =
     let has_thinking =
       List.exists
         (function
-          | Types.Thinking _ -> true
+          | Types.Thinking { signature = None; content = "pick tool" } -> true
           | _ -> false)
         content
     in
@@ -810,8 +809,48 @@ let test_drop_thinking_preserves_tool_use_thinking () =
           | _ -> false)
         content
     in
-    Alcotest.(check bool) "thinking preserved beside tool_use" true has_thinking;
+    Alcotest.(check bool) "unsigned thinking preserved beside tool_use" true has_thinking;
     Alcotest.(check bool) "redacted thinking preserved beside tool_use" true has_redacted
+;;
+
+let test_drop_thinking_preserves_signed_tool_use_thinking () =
+  let msgs =
+    [ user_msg "q1"
+    ; Types.
+        { role = Assistant
+        ; content =
+            [ Thinking { signature = Some "sig"; content = "signed reasoning" }
+            ; ToolUse { id = "t1"; name = "search"; input = `Assoc [] }
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ; tool_result_msg "t1" "result"
+    ; user_msg "q2"
+    ; asst_msg "done"
+    ]
+  in
+  let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
+  match List.nth result 1 with
+  | { Types.content; _ } ->
+    let has_signed_thinking =
+      List.exists
+        (function
+          | Types.Thinking { signature = Some "sig"; content = "signed reasoning" } ->
+            true
+          | _ -> false)
+        content
+    in
+    let has_tool_use =
+      List.exists
+        (function
+          | Types.ToolUse { id = "t1"; _ } -> true
+          | _ -> false)
+        content
+    in
+    Alcotest.(check bool) "signed thinking preserved" true has_signed_thinking;
+    Alcotest.(check bool) "tool use preserved" true has_tool_use
 ;;
 
 let test_preserve_thinking_removes_summarize_old () =
@@ -1668,13 +1707,17 @@ let () =
     ; ( "drop_thinking"
       , [ Alcotest.test_case "removes old thinking" `Quick test_drop_thinking_removes
         ; Alcotest.test_case
-            "preserves recent thinking"
+            "removes recent unsigned thinking"
             `Quick
-            test_drop_thinking_preserves_recent
+            test_drop_thinking_removes_recent_unsigned
         ; Alcotest.test_case
-            "preserves tool-use thinking"
+            "preserves tool-use reasoning"
             `Quick
-            test_drop_thinking_preserves_tool_use_thinking
+            test_drop_thinking_preserves_tool_use_reasoning
+        ; Alcotest.test_case
+            "preserves signed tool-use thinking"
+            `Quick
+            test_drop_thinking_preserves_signed_tool_use_thinking
         ; Alcotest.test_case
             "preserve_thinking removes summarize_old"
             `Quick

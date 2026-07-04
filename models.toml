@@ -2023,6 +2023,12 @@ max_output_tokens = 128000
 supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = false
+# Live MiMo V2.5 OpenAI-compatible smoke, checked 2026-06-29: responses carry
+# reasoning in the `reasoning_content` side-channel, accept tool calls, stream
+# reasoning/tool deltas separately, and accept response_format/json_schema.
+# MiMo's Deep Thinking docs require assistant tool-call messages to pass back
+# `reasoning_content` in later rounds; plain-answer reasoning still stays out
+# of replay to avoid context growth.
 thinking_control_format = "thinking_object_only"
 reasoning_output_format = "split_reasoning_fields"
 reasoning_streaming_format = "delta:reasoning_content"

@@ -15,6 +15,7 @@ type cost_report =
   ; output_tokens : int
   ; cache_creation_tokens : int
   ; cache_read_tokens : int
+  ; cache_miss_input_tokens : int
   ; api_calls : int
   ; avg_cost_per_call : float
   }
@@ -31,6 +32,12 @@ let report (usage : Types.usage_stats) : cost_report =
   ; output_tokens = usage.total_output_tokens
   ; cache_creation_tokens = usage.total_cache_creation_input_tokens
   ; cache_read_tokens = usage.total_cache_read_input_tokens
+  ; cache_miss_input_tokens =
+      max
+        0
+        (usage.total_input_tokens
+         - usage.total_cache_creation_input_tokens
+         - usage.total_cache_read_input_tokens)
   ; api_calls = usage.api_calls
   ; avg_cost_per_call = avg
   }
@@ -40,7 +47,7 @@ let report (usage : Types.usage_stats) : cost_report =
 let report_to_string (r : cost_report) : string =
   Printf.sprintf
     "Cost: $%.6f (%d calls, avg $%.6f/call) | Tokens: %d in, %d out (cache: %d write, %d \
-     read)"
+     read, %d miss)"
     r.total_usd
     r.api_calls
     r.avg_cost_per_call
@@ -48,4 +55,5 @@ let report_to_string (r : cost_report) : string =
     r.output_tokens
     r.cache_creation_tokens
     r.cache_read_tokens
+    r.cache_miss_input_tokens
 ;;
