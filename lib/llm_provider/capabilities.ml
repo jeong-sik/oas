@@ -1778,6 +1778,23 @@ let test_catalog_entries =
     ; modality_priority = Some "visual_first"
     ; supports_seed = Some true
     }
+  ; { (test_catalog_entry "hf.co/unsloth/gemma-4-e2b-it-qat-gguf") with
+      base_label = Some "ollama"
+    ; max_context_tokens = Some 131_072
+    ; supports_tools = Some true
+    ; supports_tool_choice = Some false
+    ; supports_named_tool_choice = Some false
+    ; supports_reasoning = Some true
+    ; supports_extended_thinking = Some true
+    ; supports_reasoning_budget = Some false
+    ; thinking_control_format = Some "chat_template_token"
+    ; thinking_control_token = Some "<|think|>"
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    ; supports_audio_input = Some true
+    ; modality_priority = Some "visual_first"
+    ; supports_seed = Some true
+    }
   ; { (test_catalog_entry "claude-opus-4") with
       base_label = Some "anthropic"
     ; max_context_tokens = Some 1_000_000
@@ -2018,6 +2035,18 @@ let%test "for_model_id hf.co/unsloth Gemma 4 QAT uses template token thinking" =
   | None -> false
 ;;
 
+let%test "for_model_id hf.co/unsloth Gemma 4 E2B QAT keeps exact 128K audio row" =
+  match for_model_id "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL" with
+  | Some c ->
+    c.supports_tools
+    && c.supports_image_input
+    && c.supports_audio_input
+    && c.max_context_tokens = Some 131_072
+    && c.thinking_control_format = Chat_template_token
+    && c.modality_priority = Modality.Visual_first
+  | None -> false
+;;
+
 let%test "for_model_id hf.co/google Gemma 4 QAT uses template token thinking" =
   match for_model_id "hf.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf" with
   | Some c ->
@@ -2161,6 +2190,11 @@ let%test
       ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
         , fun c -> c.supports_reasoning && c.thinking_control_format = Chat_template_token
         )
+      ; ( "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL"
+        , fun c ->
+            c.supports_audio_input
+            && c.thinking_control_format = Chat_template_token
+            && c.max_context_tokens = Some 131_072 )
       ])
 ;;
 
