@@ -585,6 +585,52 @@ let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
   | None -> fail "bare lookup should match gemma4-coder-fable5-q4km"
 ;;
 
+let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
+  let model_id = "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL" in
+  let check_gemma4_e2b label (c : Capabilities.capabilities) =
+    check (option int) (label ^ " context 128K") (Some 131_072) c.max_context_tokens;
+    check bool (label ^ " tools") true c.supports_tools;
+    check bool (label ^ " forced tool_choice disabled") false c.supports_tool_choice;
+    check bool (label ^ " named tool_choice disabled") false c.supports_named_tool_choice;
+    check bool (label ^ " reasoning") true c.supports_reasoning;
+    check bool (label ^ " extended thinking") true c.supports_extended_thinking;
+    check bool (label ^ " reasoning budget disabled") false c.supports_reasoning_budget;
+    check
+      bool
+      (label ^ " chat_template_token thinking control")
+      true
+      (c.thinking_control_format = Capabilities.Chat_template_token);
+    check bool (label ^ " image input") true c.supports_image_input;
+    check bool (label ^ " audio input") true c.supports_audio_input;
+    check bool (label ^ " multimodal inputs") true c.supports_multimodal_inputs;
+    check
+      bool
+      (label ^ " visual-first priority")
+      true
+      (c.modality_priority = Modality.Visual_first);
+    check bool (label ^ " native streaming") true c.supports_native_streaming;
+    check bool (label ^ " seed") true c.supports_seed
+  in
+  (match
+     Capabilities.for_provider_model_id
+       ~allow_bare_fallback:false
+       ~provider_label:"ollama"
+       ~model_id
+   with
+   | Some c -> check_gemma4_e2b "strict ollama Gemma4 E2B QAT" c
+   | None -> fail "strict Ollama lookup should match local Gemma4 E2B QAT");
+  (match Capabilities.for_model_id model_id with
+   | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
+   | None -> fail "bare lookup should match local Gemma4 E2B QAT");
+  check
+    (option string)
+    "Gemma4 E2B chat-template token"
+    (Some "<|think|>")
+    (Capabilities.thinking_control_token_for_provider_model_id
+       ~provider_label:"ollama"
+       ~model_id)
+;;
+
 let test_lookup_deepseek_v4_flash () =
   match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
@@ -2519,6 +2565,10 @@ let () =
             "runpod rtxa6000 gemma4 coder catalog"
             `Quick
             test_lookup_runpod_rtxa6000_gemma4_coder_catalog
+        ; test_case
+            "local ollama gemma4 e2b qat catalog"
+            `Quick
+            test_lookup_local_ollama_gemma4_e2b_qat_catalog
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
         ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
         ; test_case
