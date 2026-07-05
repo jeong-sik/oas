@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.20](https://github.com/jeong-sik/oas/compare/v0.208.19...v0.208.20) (2026-07-05)
+
+
+### Features
+
+* add local Gemma4 E2B Ollama catalog row ([#2477](https://github.com/jeong-sik/oas/issues/2477)) ([aa12f26](https://github.com/jeong-sik/oas/commit/aa12f26aece8c2b4d90f96ec4d8e4dc0aecc807e))
+
 ## [0.208.19](https://github.com/jeong-sik/oas/compare/v0.208.18...v0.208.19) (2026-07-04)
 
 
