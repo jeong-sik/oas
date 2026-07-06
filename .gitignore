@@ -47,3 +47,6 @@ apply_fix.py
 fix_*.py
 patch_*.py
 .mcp.json
+
+# Generated operational reports must not be committed (boundary hygiene, PR #2470 follow-up)
+reports/
