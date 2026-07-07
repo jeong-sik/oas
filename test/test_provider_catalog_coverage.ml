@@ -267,7 +267,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
           {
             "id": "template-token",
             "kind": "ollama",
-            "capabilities": {"thinking_control_format": "chat_template_token"}
+            "capabilities": {"thinking_control_format": "chat_template_token", "thinking_control_token": "<|think|>"}
           },
           {
             "id": "base-entry",
@@ -336,7 +336,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "template token thinking"
     true
     (template_token.capabilities.thinking_control_format
-     = Capabilities.Chat_template_token);
+     = Capabilities.Chat_template_token "<|think|>");
   let base = require_lookup catalog "base-entry" in
   check bool "capabilities_base supports tools" true base.capabilities.supports_tools;
   check

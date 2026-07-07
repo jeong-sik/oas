@@ -11,7 +11,12 @@ type thinking_control_format =
   | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
-  | Chat_template_token
+  | Chat_template_token of string
+  (** Thinking is toggled by emitting a chat-template token (e.g. [<|think|>])
+          in the system turn. The token is catalog/manifest data carried inside
+          the constructor: a [chat_template_token] wire format cannot exist
+          without its token, so a tokenless declaration fails closed at load
+          instead of raising per request. *)
   | Ollama_think
   | Reasoning_effort
   | Enable_thinking
@@ -63,25 +68,95 @@ type task =
 
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
-let thinking_control_format_table =
+(* The chat-template-token label needs a companion token, so unlike the data-less
+   variants it cannot live in a plain [string -> t] table. The label is still
+   listed in [thinking_control_format_values] for vocab-membership validation;
+   build the full value with [thinking_control_format_of_label_and_token]. *)
+let chat_template_token_label = "chat_template_token"
+
+let thinking_control_format_tokenless_table =
   [ "none", No_thinking_control
   ; "thinking_object", Thinking_object
   ; "thinking_object_adaptive", Thinking_object_adaptive
   ; "thinking_object_only", Thinking_object_only
   ; "chat_template_kwargs", Chat_template_kwargs
-  ; "chat_template_token", Chat_template_token
   ; "ollama_think", Ollama_think
   ; "reasoning_effort", Reasoning_effort
   ; "enable_thinking", Enable_thinking
   ]
 ;;
 
-let thinking_control_format_values = List.map fst thinking_control_format_table
+let thinking_control_format_values =
+  List.map fst thinking_control_format_tokenless_table @ [ chat_template_token_label ]
+;;
 
-let thinking_control_format_of_string raw =
-  match normalize raw with
-  | "" -> None
-  | normalized -> List.assoc_opt normalized thinking_control_format_table
+(* The chat-template thinking token carried by [Chat_template_token], or [None]
+   for every other wire format. Exhaustive so a new [thinking_control_format]
+   variant is compiler-checked here. *)
+let token_of_thinking_control_format = function
+  | Chat_template_token token -> Some token
+  | No_thinking_control
+  | Thinking_object
+  | Thinking_object_adaptive
+  | Thinking_object_only
+  | Chat_template_kwargs
+  | Ollama_think
+  | Reasoning_effort
+  | Enable_thinking -> None
+;;
+
+(* Join a [thinking_control_format] wire label with its companion
+   [thinking_control_token]. The two are one concept: [chat_template_token]
+   carries its token in the constructor, so a chat_template_token label REQUIRES a
+   token, and a token REQUIRES the chat_template_token label. Every crossed
+   combination fails closed here rather than parsing into a value a request
+   builder would reject later.
+
+   Callers validate [format] against [thinking_control_format_values] and [token]
+   for exactness before calling; this function enforces only the cross-field
+   invariant and returns a message the caller prefixes with the offending entry
+   id. *)
+let thinking_control_format_of_label_and_token ~format ~token
+  : (thinking_control_format option, string) result
+  =
+  let token_present =
+    match token with
+    | Some t when String.trim t <> "" -> Some t
+    | Some _ | None -> None
+  in
+  let orphan_token_error =
+    Printf.sprintf
+      "thinking_control_token is only valid with thinking_control_format = %S"
+      chat_template_token_label
+  in
+  match format with
+  | None ->
+    (match token_present with
+     | None -> Ok None
+     | Some _ -> Error orphan_token_error)
+  | Some raw ->
+    let normalized = normalize raw in
+    if String.equal normalized chat_template_token_label
+    then (
+      match token_present with
+      | Some token -> Ok (Some (Chat_template_token token))
+      | None ->
+        Error
+          (Printf.sprintf
+             "thinking_control_format %S requires a non-empty thinking_control_token"
+             chat_template_token_label))
+    else (
+      match token_present with
+      | Some _ -> Error orphan_token_error
+      | None ->
+        (match List.assoc_opt normalized thinking_control_format_tokenless_table with
+         | Some fmt -> Ok (Some fmt)
+         | None ->
+           Error
+             (Printf.sprintf
+                "unknown thinking_control_format %S (canonical: %s)"
+                normalized
+                (String.concat ", " thinking_control_format_values))))
 ;;
 
 let preserve_thinking_control_format_table =
@@ -103,10 +178,48 @@ let preserve_thinking_control_format_of_string raw =
   | normalized -> List.assoc_opt normalized preserve_thinking_control_format_table
 ;;
 
-let%test "thinking_control_format values parse through the canonical table" =
+let%test "thinking_control_format labels resolve through the canonical vocab" =
   List.for_all
-    (fun raw -> Option.is_some (thinking_control_format_of_string raw))
+    (fun raw ->
+       let token =
+         if String.equal (normalize raw) chat_template_token_label
+         then Some "<|think|>"
+         else None
+       in
+       match thinking_control_format_of_label_and_token ~format:(Some raw) ~token with
+       | Ok (Some _) -> true
+       | Ok None | Error _ -> false)
     thinking_control_format_values
+;;
+
+let%test "chat_template_token label without a token fails closed" =
+  match
+    thinking_control_format_of_label_and_token
+      ~format:(Some chat_template_token_label)
+      ~token:None
+  with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "chat_template_token label carries its token into the constructor" =
+  match
+    thinking_control_format_of_label_and_token
+      ~format:(Some chat_template_token_label)
+      ~token:(Some "<|think|>")
+  with
+  | Ok (Some (Chat_template_token "<|think|>")) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "a token declared without the chat_template_token label fails closed" =
+  match
+    thinking_control_format_of_label_and_token
+      ~format:(Some "thinking_object")
+      ~token:(Some "<|think|>")
+  with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "preserve_thinking_control_format values parse through the canonical table" =

@@ -47,8 +47,11 @@ type model_entry =
         {!Capability_vocab.sampling_parameter_values}. *)
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
-  ; thinking_control_format : string option
-  ; thinking_control_token : string option
+  ; thinking_control_format : Capability_vocab.thinking_control_format option
+    (** Joined from the TOML [thinking_control_format] and [thinking_control_token]
+        keys at parse time: [chat_template_token] carries its token in the
+        [Chat_template_token] constructor, so a tokenless row (or a token without
+        that format) fails closed during {!load_file}. *)
   ; preserve_thinking_control_format : string option
   ; reasoning_output_format : string option
   ; reasoning_streaming_format : string option
