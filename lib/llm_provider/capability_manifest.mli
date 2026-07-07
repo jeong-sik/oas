@@ -93,14 +93,14 @@ type entry =
         serialized. *)
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
-  ; thinking_control_format : string option
+  ; thinking_control_format : Capability_vocab.thinking_control_format option
     (** Canonical thinking-wire format (none / thinking_object /
         thinking_object_adaptive / thinking_object_only / chat_template_kwargs /
         chat_template_token / reasoning_effort / enable_thinking); applied in
-        {!Capabilities.apply_manifest_entry}. *)
-  ; thinking_control_token : string option
-    (** Exact chat-template token used when [thinking_control_format] is
-        [chat_template_token]. *)
+        {!Capabilities.apply_manifest_entry}. Joined from the JSON
+        [thinking_control_format] and [thinking_control_token] members at parse
+        time — [chat_template_token] carries its token in the constructor, so a
+        tokenless declaration fails closed in {!of_json}. *)
   ; preserve_thinking_control_format : string option
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /

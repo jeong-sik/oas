@@ -12,7 +12,9 @@ type thinking_control_format = Capability_vocab.thinking_control_format =
   | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
-  | Chat_template_token
+  | Chat_template_token of string
+  (** Thinking toggled by a chat-template token (e.g. [<|think|>]) emitted in
+          the system turn; the token is carried in the constructor. *)
   | Ollama_think
   | Reasoning_effort
   | Enable_thinking

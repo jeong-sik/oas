@@ -233,7 +233,7 @@ let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) 
       | Thinking_object_adaptive
       | Thinking_object_only
       | Chat_template_kwargs
-      | Chat_template_token
+      | Chat_template_token _
       | Ollama_think
       | Reasoning_effort
       | Enable_thinking -> true)
@@ -339,12 +339,6 @@ let capabilities_for_config_model (config : t) =
         ~allow_bare_fallback:true
         ~provider_label
         ~model_id:config.model_id
-;;
-
-let thinking_control_token_for_config_model (config : t) =
-  Capabilities.thinking_control_token_for_provider_model_id
-    ~provider_label:(capability_provider_label config)
-    ~model_id:config.model_id
 ;;
 
 (** Compute auth headers from a provider kind and secret. This is the core
@@ -524,7 +518,7 @@ let zai_glm_clear_thinking_request_field
   | Capabilities.Thinking_object_adaptive
   | Capabilities.Thinking_object_only
   | Capabilities.Chat_template_kwargs
-  | Capabilities.Chat_template_token
+  | Capabilities.Chat_template_token _
   | Capabilities.Ollama_think
   | Capabilities.Reasoning_effort
   | Capabilities.Enable_thinking -> None

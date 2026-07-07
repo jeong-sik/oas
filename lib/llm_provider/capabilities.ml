@@ -18,7 +18,9 @@ type thinking_control_format = Capability_vocab.thinking_control_format =
   | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
-  | Chat_template_token
+  | Chat_template_token of string
+  (** Thinking toggled by a chat-template token (e.g. [<|think|>]) emitted in
+          the system turn; the token is carried in the constructor. *)
   | Ollama_think
   | Reasoning_effort
   | Enable_thinking
@@ -780,10 +782,6 @@ let with_tool_support caps ~supports_tools = { caps with supports_tools }
     when absent or unrecognised.  Each [Some] field in [entry] overrides
     the corresponding field of the base; [None] fields are left unchanged. *)
 
-let thinking_control_format_of_manifest_string raw =
-  Capability_vocab.thinking_control_format_of_string raw
-;;
-
 let preserve_thinking_control_format_of_manifest_string raw =
   Capability_vocab.preserve_thinking_control_format_of_string raw
 ;;
@@ -881,7 +879,9 @@ type declarative_capability_overrides =
   ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
-  ; thinking_control_format : string option
+  ; thinking_control_format : Capability_vocab.thinking_control_format option
+    (* Already joined with its token by the catalog/manifest parser; the token
+       lives in the [Chat_template_token] constructor, not a sibling field. *)
   ; preserve_thinking_control_format : string option
   ; reasoning_output_format : string option
   ; reasoning_streaming_format : string option
@@ -1048,13 +1048,10 @@ let apply_declarative_capability_overrides overrides =
   ; supports_code_execution =
       override_bool base.supports_code_execution overrides.supports_code_execution
   ; thinking_control_format =
+      (* Typed and token-joined at catalog/manifest parse time (unknown labels
+         already failed closed there), so this is a plain override. *)
       (match overrides.thinking_control_format with
-       | Some s ->
-         (match thinking_control_format_of_manifest_string s with
-          | Some t -> t
-          | None ->
-            warn_unknown_capability_value ~field:"thinking_control_format" s;
-            base.thinking_control_format)
+       | Some fmt -> fmt
        | None -> base.thinking_control_format)
   ; preserve_thinking_control_format =
       (match overrides.preserve_thinking_control_format with
@@ -1345,24 +1342,25 @@ let for_provider_model_id
   | None -> if allow_bare_fallback then for_model_id model_id else None
 ;;
 
-let exact_token = function
-  | Some raw when String.trim raw = "" || raw <> String.trim raw -> None
-  | Some raw -> Some raw
-  | None -> None
+(* The token is the single source of truth carried by the entry's
+   [Chat_template_token] constructor (the parser validated its exactness), so it
+   is read back through the constructor rather than a sibling field. *)
+let token_of_declared_format format =
+  Option.bind format Capability_vocab.token_of_thinking_control_format
 ;;
 
 let thinking_control_token_for_model_id_catalog model_id =
   match Model_catalog.global () with
   | Some catalog ->
     (match Model_catalog.lookup catalog model_id with
-     | Some entry -> exact_token entry.thinking_control_token
+     | Some entry -> token_of_declared_format entry.thinking_control_format
      | None -> None)
   | None -> None
 ;;
 
 let thinking_control_token_for_model_id_with_manifest manifest model_id =
   match Capability_manifest.lookup manifest model_id with
-  | Some entry -> exact_token entry.thinking_control_token
+  | Some entry -> token_of_declared_format entry.thinking_control_format
   | None -> thinking_control_token_for_model_id_catalog model_id
 ;;
 
@@ -1370,7 +1368,7 @@ let thinking_control_token_for_model_id model_id =
   match Model_catalog.global () with
   | Some catalog ->
     (match Model_catalog.lookup catalog model_id with
-     | Some entry -> exact_token entry.thinking_control_token
+     | Some entry -> token_of_declared_format entry.thinking_control_format
      | None ->
        (match Capability_manifest.global () with
         | Some manifest ->
@@ -1404,7 +1402,8 @@ let thinking_control_token_for_provider_model_id
                        String.starts_with
                          ~prefix
                          (String.lowercase_ascii (String.trim entry.id_prefix)))
-                    qualified_prefixes -> Some (exact_token entry.thinking_control_token)
+                    qualified_prefixes ->
+             Some (token_of_declared_format entry.thinking_control_format)
            | Some _ | None -> loop rest)
       in
       loop candidates
@@ -1564,7 +1563,6 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
-  ; thinking_control_token = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
   ; reasoning_streaming_format = None
@@ -1608,7 +1606,6 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
-  ; thinking_control_token = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
   ; reasoning_streaming_format = None
@@ -1627,7 +1624,7 @@ let qwen3_family_test_entry id_prefix : Model_catalog.model_entry =
   ; supports_named_tool_choice = Some true
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
-  ; thinking_control_format = Some "chat_template_kwargs"
+  ; thinking_control_format = Some Chat_template_kwargs
   ; preserve_thinking_control_format = Some "chat_template_kwargs_preserve_thinking"
   ; supports_native_streaming = Some true
   }
@@ -1665,7 +1662,7 @@ let deepseek_v4_test_entry id_prefix : Model_catalog.model_entry =
     supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
-  ; thinking_control_format = Some "thinking_object"
+  ; thinking_control_format = Some Thinking_object
   ; supports_native_streaming = Some true
   }
 ;;
@@ -1771,8 +1768,7 @@ let test_catalog_entries =
     ; supports_named_tool_choice = Some false
     ; supports_reasoning = Some true
     ; supports_extended_thinking = Some true
-    ; thinking_control_format = Some "chat_template_token"
-    ; thinking_control_token = Some "<|think|>"
+    ; thinking_control_format = Some (Chat_template_token "<|think|>")
     ; supports_multimodal_inputs = Some true
     ; supports_image_input = Some true
     ; modality_priority = Some "visual_first"
@@ -1787,8 +1783,7 @@ let test_catalog_entries =
     ; supports_reasoning = Some true
     ; supports_extended_thinking = Some true
     ; supports_reasoning_budget = Some false
-    ; thinking_control_format = Some "chat_template_token"
-    ; thinking_control_token = Some "<|think|>"
+    ; thinking_control_format = Some (Chat_template_token "<|think|>")
     ; supports_multimodal_inputs = Some true
     ; supports_image_input = Some true
     ; supports_audio_input = Some true
@@ -1893,47 +1888,37 @@ let%test "for_model_id_catalog empty catalog returns None" =
     Option.is_none (for_model_id_catalog "qwen3-32b"))
 ;;
 
-let%test "thinking_control_token catalog runtime override rejects blank or padded token" =
+let%test "thinking_control_token accessor reads the token from the catalog constructor" =
+  (* The token is the single source of truth carried by [Chat_template_token]; a
+     non-token format resolves to [None]. *)
   Model_catalog.set_global
     (Model_catalog.of_model_entries
-       [ { (test_catalog_entry "programmatic-blank-catalog-token") with
-           thinking_control_token = Some " \t "
+       [ { (test_catalog_entry "programmatic-catalog-token") with
+           thinking_control_format = Some (Chat_template_token "<|think|>")
          }
-       ; { (test_catalog_entry "programmatic-padded-catalog-token") with
-           thinking_control_token = Some " <|think|> "
-         }
-       ; { (test_catalog_entry "programmatic-exact-catalog-token") with
-           thinking_control_token = Some "<|think|>"
+       ; { (test_catalog_entry "programmatic-catalog-no-token") with
+           thinking_control_format = Some Chat_template_kwargs
          }
        ]);
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
-    Option.is_none
-      (thinking_control_token_for_model_id "programmatic-blank-catalog-token")
+    thinking_control_token_for_model_id "programmatic-catalog-token" = Some "<|think|>"
     && Option.is_none
-         (thinking_control_token_for_model_id "programmatic-padded-catalog-token")
-    && thinking_control_token_for_model_id "programmatic-exact-catalog-token"
-       = Some "<|think|>")
+         (thinking_control_token_for_model_id "programmatic-catalog-no-token"))
 ;;
 
-let%test "thinking_control_token manifest runtime override rejects blank or padded token" =
+let%test "thinking_control_token accessor reads the token from the manifest constructor" =
   Capability_manifest.set_global
-    [ { (test_manifest_entry "programmatic-blank-manifest-token") with
-        thinking_control_token = Some " \t "
+    [ { (test_manifest_entry "programmatic-manifest-token") with
+        thinking_control_format = Some (Chat_template_token "<|think|>")
       }
-    ; { (test_manifest_entry "programmatic-padded-manifest-token") with
-        thinking_control_token = Some " <|think|> "
-      }
-    ; { (test_manifest_entry "programmatic-exact-manifest-token") with
-        thinking_control_token = Some "<|think|>"
+    ; { (test_manifest_entry "programmatic-manifest-no-token") with
+        thinking_control_format = Some Chat_template_kwargs
       }
     ];
   Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
-    Option.is_none
-      (thinking_control_token_for_model_id "programmatic-blank-manifest-token")
+    thinking_control_token_for_model_id "programmatic-manifest-token" = Some "<|think|>"
     && Option.is_none
-         (thinking_control_token_for_model_id "programmatic-padded-manifest-token")
-    && thinking_control_token_for_model_id "programmatic-exact-manifest-token"
-       = Some "<|think|>")
+         (thinking_control_token_for_model_id "programmatic-manifest-no-token"))
 ;;
 
 (* --- emits_usage_tokens / capabilities_for_provider_label --- *)
@@ -2030,7 +2015,7 @@ let%test "for_model_id hf.co/unsloth Gemma 4 QAT uses template token thinking" =
     c.supports_reasoning
     && c.supports_extended_thinking
     && (not c.supports_reasoning_budget)
-    && c.thinking_control_format = Chat_template_token
+    && c.thinking_control_format = Chat_template_token "<|think|>"
     && c.modality_priority = Modality.Visual_first
   | None -> false
 ;;
@@ -2042,7 +2027,7 @@ let%test "for_model_id hf.co/unsloth Gemma 4 E2B QAT keeps exact 128K audio row"
     && c.supports_image_input
     && c.supports_audio_input
     && c.max_context_tokens = Some 131_072
-    && c.thinking_control_format = Chat_template_token
+    && c.thinking_control_format = Chat_template_token "<|think|>"
     && c.modality_priority = Modality.Visual_first
   | None -> false
 ;;
@@ -2053,7 +2038,7 @@ let%test "for_model_id hf.co/google Gemma 4 QAT uses template token thinking" =
     c.supports_reasoning
     && c.supports_extended_thinking
     && (not c.supports_reasoning_budget)
-    && c.thinking_control_format = Chat_template_token
+    && c.thinking_control_format = Chat_template_token "<|think|>"
   | None -> false
 ;;
 
@@ -2188,12 +2173,13 @@ let%test
             && c.modality_priority = Modality.Visual_first
             && c.max_context_tokens = Some 262_144 )
       ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
-        , fun c -> c.supports_reasoning && c.thinking_control_format = Chat_template_token
-        )
+        , fun c ->
+            c.supports_reasoning
+            && c.thinking_control_format = Chat_template_token "<|think|>" )
       ; ( "hf.co/unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL"
         , fun c ->
             c.supports_audio_input
-            && c.thinking_control_format = Chat_template_token
+            && c.thinking_control_format = Chat_template_token "<|think|>"
             && c.max_context_tokens = Some 131_072 )
       ])
 ;;

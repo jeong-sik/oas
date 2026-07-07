@@ -155,7 +155,7 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; streaming = Template_parser
     ; output_wire
     }
-  | Chat_template_token ->
+  | Chat_template_token _ ->
     { default with
       toggle_wire = Chat_template_token
     ; preserve_wire
@@ -479,7 +479,7 @@ let sampling_params_ignored_for_format
   | Capabilities.Thinking_object_adaptive
   | Capabilities.Thinking_object_only
   | Capabilities.Chat_template_kwargs
-  | Capabilities.Chat_template_token
+  | Capabilities.Chat_template_token _
   | Capabilities.Ollama_think
   | Capabilities.Reasoning_effort
   | Capabilities.Enable_thinking -> []

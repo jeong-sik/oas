@@ -562,7 +562,7 @@ let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
       bool
       (label ^ " chat_template_token thinking control")
       true
-      (c.thinking_control_format = Capabilities.Chat_template_token);
+      (c.thinking_control_format = Capabilities.Chat_template_token "<|think|>");
     check bool (label ^ " json response format") true c.supports_response_format_json;
     check bool (label ^ " native streaming") true c.supports_native_streaming;
     check bool (label ^ " top_k") true c.supports_top_k;
@@ -599,7 +599,7 @@ let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
       bool
       (label ^ " chat_template_token thinking control")
       true
-      (c.thinking_control_format = Capabilities.Chat_template_token);
+      (c.thinking_control_format = Capabilities.Chat_template_token "<|think|>");
     check bool (label ^ " image input") true c.supports_image_input;
     check bool (label ^ " audio input") true c.supports_audio_input;
     check bool (label ^ " multimodal inputs") true c.supports_multimodal_inputs;
@@ -1783,12 +1783,25 @@ let test_manifest_accepts_thinking_control_token () =
   in
   match Capability_manifest.of_json json with
   | Ok [ entry ] ->
-    Alcotest.(check (option string))
-      "exact token"
-      (Some "<|custom_think|>")
-      entry.thinking_control_token
+    Alcotest.(check bool)
+      "token carried by the constructor"
+      true
+      (entry.thinking_control_format
+       = Some (Capabilities.Chat_template_token "<|custom_think|>"))
   | Ok _ -> Alcotest.fail "expected one manifest entry"
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_rejects_tokenless_chat_template_token () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"tokenless-template-model","thinking_control_format":"chat_template_token"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "names the offending id_prefix" msg "tokenless-template-model";
+    check_contains "mentions the required token" msg "thinking_control_token"
+  | Ok _ -> Alcotest.fail "chat_template_token without a token should fail closed"
 ;;
 
 let test_manifest_rejects_blank_thinking_control_token () =
@@ -2669,6 +2682,10 @@ let () =
             "thinking_control_token accepted"
             `Quick
             test_manifest_accepts_thinking_control_token
+        ; test_case
+            "tokenless chat_template_token rejects"
+            `Quick
+            test_manifest_rejects_tokenless_chat_template_token
         ; test_case
             "blank thinking_control_token rejects"
             `Quick

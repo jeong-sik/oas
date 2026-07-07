@@ -101,6 +101,20 @@ let member_string_strict key json =
     Error (Printf.sprintf "field %S expected string, got %s" key (json_kind actual))
 ;;
 
+let member_exact_non_empty_string_strict key json =
+  match member_string_strict key json with
+  | Error _ as error -> error
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    let trimmed = String.trim raw in
+    if trimmed = ""
+    then Error (Printf.sprintf "field %S must not be empty" key)
+    else if raw <> trimmed
+    then
+      Error (Printf.sprintf "field %S must not have leading or trailing whitespace" key)
+    else Ok (Some raw)
+;;
+
 let member_bool key json =
   match member key json with
   | `Bool b -> Some b
@@ -214,13 +228,6 @@ let parse_optional_capability_value ~field ~canonical parse = function
       | Some value -> Ok (Some value)
       | None ->
         Error (Printf.sprintf "unknown %s %S (canonical: %s)" field normalized canonical))
-;;
-
-let parse_thinking_control_format =
-  parse_optional_capability_value
-    ~field:"thinking_control_format"
-    ~canonical:(String.concat ", " Capability_vocab.thinking_control_format_values)
-    Capability_vocab.thinking_control_format_of_string
 ;;
 
 let parse_preserve_thinking_control_format =
@@ -382,8 +389,12 @@ let parse_capabilities provider_json =
   in
   let* base = capability_base provider_json in
   let* thinking_control_format =
+    (* Provider-level presets declare the same [thinking_control_format] /
+       [thinking_control_token] key pair; join them so a chat_template_token
+       preset without a token — or a token without that format — fails closed. *)
     let* raw = member_string_strict "thinking_control_format" cap_json in
-    parse_thinking_control_format raw
+    let* token = member_exact_non_empty_string_strict "thinking_control_token" cap_json in
+    Capability_vocab.thinking_control_format_of_label_and_token ~format:raw ~token
   in
   let* preserve_thinking_control_format =
     let* raw = member_string_strict "preserve_thinking_control_format" cap_json in

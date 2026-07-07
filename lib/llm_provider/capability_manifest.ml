@@ -53,16 +53,18 @@ type entry =
   ; ignored_sampling_parameters : Capability_vocab.sampling_parameter list option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
-  ; thinking_control_format : string option
+  ; thinking_control_format : Capability_vocab.thinking_control_format option
     (** Canonical thinking-wire format the model uses (none / thinking_object /
         thinking_object_adaptive / thinking_object_only / chat_template_kwargs /
         chat_template_token / reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
-        entry silently dropped the model's thinking knob (RFC-OAS-023). *)
-  ; thinking_control_token : string option
-    (** Exact chat-template token for [thinking_control_format =
-        chat_template_token], for example [<|think|>]. Parsed separately from
-        the enum so request builders do not hardcode model-family tokens. *)
+        entry silently dropped the model's thinking knob (RFC-OAS-023).
+
+        Joined from the JSON [thinking_control_format] and [thinking_control_token]
+        members at parse time: [chat_template_token] carries its token (for
+        example [<|think|>]) in the [Chat_template_token] constructor, so a
+        tokenless declaration — or a token without that format — fails closed in
+        {!parse_entry} rather than raising when a request builder needs it. *)
   ; preserve_thinking_control_format : string option
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
@@ -355,13 +357,19 @@ let parse_entry json =
     | None -> Ok None
     | Some raw -> Result.map (fun label -> Some label) (base_label_of_string raw)
   in
-  let* thinking_control_format =
-    canonical_choice
-      "thinking_control_format"
-      ~allowed:Capability_vocab.thinking_control_format_values
-      json
+  (* Read the raw label and the exact-validated token, then join them:
+     [thinking_control_format_of_label_and_token] validates the label against the
+     vocab and enforces the chat_template_token <-> token cross-field invariant. *)
+  let* thinking_control_format_raw =
+    member_string_closed "thinking_control_format" json
   in
   let* thinking_control_token = non_empty_member_string "thinking_control_token" json in
+  let* thinking_control_format =
+    Capability_vocab.thinking_control_format_of_label_and_token
+      ~format:thinking_control_format_raw
+      ~token:thinking_control_token
+    |> Result.map_error (fun msg -> Printf.sprintf "entry %S %s" id_prefix msg)
+  in
   let* preserve_thinking_control_format =
     canonical_choice
       "preserve_thinking_control_format"
@@ -430,7 +438,6 @@ let parse_entry json =
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format
-    ; thinking_control_token
     ; preserve_thinking_control_format
     ; reasoning_output_format
     ; reasoning_streaming_format

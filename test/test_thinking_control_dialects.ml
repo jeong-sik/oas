@@ -1017,34 +1017,41 @@ thinking_control_token = "<|custom_think|>"
 ;;
 
 let test_ollama_chat_template_token_missing_token_fails_closed () =
-  with_catalog_toml
-    {|
+  (* The token is part of the [Chat_template_token] constructor, so a
+     chat_template_token row with no thinking_control_token now fails closed at
+     catalog LOAD naming the offending id_prefix — not per request. *)
+  let path = Filename.temp_file "oas-tokenless-template" ".toml" in
+  let oc = open_out path in
+  Fun.protect
+    ~finally:(fun () ->
+      close_out_noerr oc;
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       output_string
+         oc
+         {|
 [[models]]
 id_prefix = "tokenless-template-model"
 base = "ollama"
 supports_reasoning = true
 supports_extended_thinking = true
 thinking_control_format = "chat_template_token"
-|}
-    (fun () ->
-       let config =
-         ollama_config ~enable_thinking:true "tokenless-template-model:latest"
-       in
-       let rejection =
-         try
-           ignore (BOL.build_request ~config ~messages:[ user_msg "hi" ] ());
-           None
-         with
-         | Invalid_argument msg -> Some msg
-       in
-       match rejection with
-       | Some msg ->
+|};
+       close_out oc;
+       match MC.load_file path with
+       | Error msg ->
          check
            bool
-           "mentions missing token"
+           "names the offending id_prefix"
            true
-           (string_contains_sub msg "no thinking_control_token")
-       | None -> fail "missing thinking_control_token should reject the request")
+           (string_contains_sub msg "tokenless-template-model");
+         check
+           bool
+           "mentions the required token"
+           true
+           (string_contains_sub msg "thinking_control_token")
+       | Ok _ -> fail "tokenless chat_template_token row should fail closed at load")
 ;;
 
 let test_ollama_gemma4_disabled_uses_native_think_false () =

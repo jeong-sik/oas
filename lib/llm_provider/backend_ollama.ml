@@ -21,17 +21,6 @@ let with_chat_template_thinking_token ~token = function
   | _ -> token
 ;;
 
-let chat_template_thinking_token_exn ~(config : Provider_config.t) =
-  match Provider_config.thinking_control_token_for_config_model config with
-  | Some token -> token
-  | None ->
-    invalid_arg
-      (Printf.sprintf
-         "Backend_ollama.build_request: model %S declares chat_template_token \
-          thinking_control_format but no thinking_control_token"
-         config.model_id)
-;;
-
 (** Build Ollama native [/api/chat] request body.
     Key differences from Openai compat:
     - [think] parameter (boolean) instead of [chat_template_kwargs], except
@@ -58,15 +47,20 @@ let build_request
     | Some c -> c
     | None -> Capabilities.ollama_capabilities
   in
+  (* The token is carried by [Chat_template_token] in the resolved capabilities
+     (fail-closed at catalog/manifest load), so there is no per-request token
+     lookup left that could be missing. *)
+  let chat_template_token =
+    Capability_vocab.token_of_thinking_control_format caps.thinking_control_format
+  in
   let chat_template_token_thinking =
-    think_requested && caps.thinking_control_format = Capabilities.Chat_template_token
+    think_requested && Option.is_some chat_template_token
   in
   let system_prompt =
-    if chat_template_token_thinking
-    then (
-      let token = chat_template_thinking_token_exn ~config in
-      Some (with_chat_template_thinking_token ~token config.system_prompt))
-    else config.system_prompt
+    match chat_template_token with
+    | Some token when think_requested ->
+      Some (with_chat_template_thinking_token ~token config.system_prompt)
+    | Some _ | None -> config.system_prompt
   in
   let messages = Tool_message_pairs.close_for_provider_request messages in
   let provider_messages =

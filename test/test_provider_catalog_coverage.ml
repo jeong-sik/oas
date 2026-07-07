@@ -267,7 +267,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
           {
             "id": "template-token",
             "kind": "ollama",
-            "capabilities": {"thinking_control_format": "chat_template_token"}
+            "capabilities": {"thinking_control_format": "chat_template_token", "thinking_control_token": "<|think|>"}
           },
           {
             "id": "base-entry",
@@ -336,7 +336,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "template token thinking"
     true
     (template_token.capabilities.thinking_control_format
-     = Capabilities.Chat_template_token);
+     = Capabilities.Chat_template_token "<|think|>");
   let base = require_lookup catalog "base-entry" in
   check bool "capabilities_base supports tools" true base.capabilities.supports_tools;
   check
@@ -381,6 +381,18 @@ let test_removed_catalog_aliases_are_rejected () =
     "thinking alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"thinking-object"}}]}|}
     "unknown thinking_control_format";
+  assert_reject
+    "chat template token without token rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"chat_template_token"}}]}|}
+    "thinking_control_token";
+  assert_reject
+    "thinking token without chat template format rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_token":"<|think|>"}}]}|}
+    "thinking_control_token is only valid";
+  assert_reject
+    "padded thinking token rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"chat_template_token","thinking_control_token":" <|think|> "}}]}|}
+    "leading or trailing whitespace";
   assert_reject
     "reasoning replay alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":"preserve-allways"}}]}|}
