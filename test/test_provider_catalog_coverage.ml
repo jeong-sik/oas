@@ -382,6 +382,18 @@ let test_removed_catalog_aliases_are_rejected () =
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"thinking-object"}}]}|}
     "unknown thinking_control_format";
   assert_reject
+    "chat template token without token rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"chat_template_token"}}]}|}
+    "thinking_control_token";
+  assert_reject
+    "thinking token without chat template format rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_token":"<|think|>"}}]}|}
+    "thinking_control_token is only valid";
+  assert_reject
+    "padded thinking token rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"chat_template_token","thinking_control_token":" <|think|> "}}]}|}
+    "leading or trailing whitespace";
+  assert_reject
     "reasoning replay alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":"preserve-allways"}}]}|}
     "unknown reasoning_replay";

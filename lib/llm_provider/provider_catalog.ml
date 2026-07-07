@@ -101,6 +101,20 @@ let member_string_strict key json =
     Error (Printf.sprintf "field %S expected string, got %s" key (json_kind actual))
 ;;
 
+let member_exact_non_empty_string_strict key json =
+  match member_string_strict key json with
+  | Error _ as error -> error
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    let trimmed = String.trim raw in
+    if trimmed = ""
+    then Error (Printf.sprintf "field %S must not be empty" key)
+    else if raw <> trimmed
+    then
+      Error (Printf.sprintf "field %S must not have leading or trailing whitespace" key)
+    else Ok (Some raw)
+;;
+
 let member_bool key json =
   match member key json with
   | `Bool b -> Some b
@@ -379,7 +393,7 @@ let parse_capabilities provider_json =
        [thinking_control_token] key pair; join them so a chat_template_token
        preset without a token — or a token without that format — fails closed. *)
     let* raw = member_string_strict "thinking_control_format" cap_json in
-    let* token = member_string_strict "thinking_control_token" cap_json in
+    let* token = member_exact_non_empty_string_strict "thinking_control_token" cap_json in
     Capability_vocab.thinking_control_format_of_label_and_token ~format:raw ~token
   in
   let* preserve_thinking_control_format =
