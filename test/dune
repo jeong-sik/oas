@@ -70,7 +70,6 @@
   test_context
   test_context_concurrency
   test_context_flow_proof
-  test_context_intent
   test_context_offload
   test_context_reducer
   test_contract
@@ -275,7 +274,6 @@
   test_context
   test_context_concurrency
   test_context_flow_proof
-  test_context_intent
   test_context_offload
   test_context_reducer
   test_contract
