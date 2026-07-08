@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.21](https://github.com/jeong-sik/oas/compare/v0.208.20...v0.208.21) (2026-07-08)
+
+
+### Bug Fixes
+
+* **openai-compat:** chat-template thinking token injection + empty-completion fail-close ([#2483](https://github.com/jeong-sik/oas/issues/2483)) ([#2488](https://github.com/jeong-sik/oas/issues/2488)) ([aad819b](https://github.com/jeong-sik/oas/commit/aad819bb1977c9668dbb87ac13b1ab7d50ac9edb))
+
 ## [0.208.20](https://github.com/jeong-sik/oas/compare/v0.208.19...v0.208.20) (2026-07-05)
 
 
