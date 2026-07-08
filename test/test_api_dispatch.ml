@@ -147,7 +147,7 @@ let test_openai_parse_response () =
   let resp =
     match Api.parse_openai_response_result mock_body with
     | Ok r -> r
-    | Error msg -> failwith msg
+    | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
   check string "model" "gpt" resp.model;
   (match resp.stop_reason with

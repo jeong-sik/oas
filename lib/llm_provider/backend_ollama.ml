@@ -14,13 +14,6 @@ let keep_alive_env_var = "OAS_OLLAMA_KEEP_ALIVE"
 
 (* ── Request building ────────────────────────────────── *)
 
-let with_chat_template_thinking_token ~token = function
-  | Some prompt when not (Api_common.string_is_blank prompt) ->
-    let trimmed = String.trim prompt in
-    if String.starts_with ~prefix:token trimmed then trimmed else token ^ "\n" ^ trimmed
-  | _ -> token
-;;
-
 (** Build Ollama native [/api/chat] request body.
     Key differences from Openai compat:
     - [think] parameter (boolean) instead of [chat_template_kwargs], except
@@ -36,31 +29,23 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let think_requested =
-    match config.enable_thinking with
-    | Some true -> true
-    | Some false -> false
-    | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
-  in
+  let think_requested = Backend_openai_serialize.thinking_requested config in
   let caps =
     match Provider_config.capabilities_for_config_model config with
     | Some c -> c
     | None -> Capabilities.ollama_capabilities
   in
-  (* The token is carried by [Chat_template_token] in the resolved capabilities
-     (fail-closed at catalog/manifest load), so there is no per-request token
-     lookup left that could be missing. *)
-  let chat_template_token =
-    Capability_vocab.token_of_thinking_control_format caps.thinking_control_format
-  in
+  (* The chat-template token injection is shared with the OpenAI-compat request
+     builder ([Backend_openai_serialize]) so the same catalog row cannot be
+     handled asymmetrically (oas#2483). The token is carried by
+     [Chat_template_token] in the resolved capabilities (fail-closed at
+     catalog/manifest load), so there is no per-request token lookup that could
+     be missing. *)
   let chat_template_token_thinking =
-    think_requested && Option.is_some chat_template_token
+    Backend_openai_serialize.chat_template_thinking_active ~config ~caps
   in
   let system_prompt =
-    match chat_template_token with
-    | Some token when think_requested ->
-      Some (with_chat_template_thinking_token ~token config.system_prompt)
-    | Some _ | None -> config.system_prompt
+    Backend_openai_serialize.system_prompt_with_thinking_token ~config ~caps
   in
   let messages = Tool_message_pairs.close_for_provider_request messages in
   let provider_messages =

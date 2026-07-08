@@ -32,8 +32,15 @@ let parse_openai_response_result body_str =
   try
     match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
     | Ok _ as ok -> ok
-    | Error message ->
+    | Error (Llm_provider.Backend_openai_parse.Provider_error message) ->
       Error (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request })
+    | Error (Llm_provider.Backend_openai_parse.Empty_completion _) ->
+      Error
+        (Retry.InvalidRequest
+           { message =
+               "provider returned an empty completion (no thinking, text, or tool calls)"
+           ; reason = Retry.Unknown_invalid_request
+           })
   with
   | Yojson.Json_error msg ->
     Error

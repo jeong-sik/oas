@@ -401,7 +401,8 @@ let%test "parse_openai_response_result error returns Error" =
       (`Assoc [ "error", `Assoc [ "message", `String "rate limited" ] ])
   in
   match parse_openai_response_result json_str with
-  | Error msg -> msg = "rate limited"
+  | Error (Backend_openai_parse.Provider_error msg) -> msg = "rate limited"
+  | Error (Backend_openai_parse.Empty_completion _) -> false
   | Ok _ -> false
 ;;
 
@@ -898,7 +899,7 @@ let%test "parse_openai_response_result end_turn finish_reason" =
   | Error _ -> false
 ;;
 
-let%test "parse_openai_response_result null content" =
+let%test "parse_openai_response_result null content fails closed (oas#2483)" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -913,9 +914,49 @@ let%test "parse_openai_response_result null content" =
                 ] )
           ])
   in
+  (* A 200 with null content and no tool_calls/reasoning is an all-empty
+     completion: it now fails closed as [Empty_completion] instead of the old
+     [Ok content=[]] that stormed downstream. *)
   match parse_openai_response_result json_str with
-  | Ok resp -> resp.stop_reason = EndTurn
-  | Error _ -> false
+  | Error (Backend_openai_parse.Empty_completion e) -> e.stop_reason = EndTurn
+  | Error (Backend_openai_parse.Provider_error _) | Ok _ -> false
+;;
+
+let%test "parse_openai_response_result blank content with tool_calls stays Ok (oas#2483)" =
+  let json_str =
+    Yojson.Safe.to_string
+      (`Assoc
+          [ "id", `String "c1"
+          ; "model", `String "m"
+          ; ( "choices"
+            , `List
+                [ `Assoc
+                    [ "finish_reason", `String "tool_calls"
+                    ; ( "message"
+                      , `Assoc
+                          [ "content", `Null
+                          ; ( "tool_calls"
+                            , `List
+                                [ `Assoc
+                                    [ "id", `String "call_1"
+                                    ; "type", `String "function"
+                                    ; ( "function"
+                                      , `Assoc
+                                          [ "name", `String "do_it"
+                                          ; "arguments", `String "{}"
+                                          ] )
+                                    ]
+                                ] )
+                          ] )
+                    ]
+                ] )
+          ])
+  in
+  (* Blank text WITH tool_calls has content=[ToolUse ..] (non-empty) and must
+     NOT trip the empty-completion guard. *)
+  match parse_openai_response_result json_str with
+  | Ok { content = _ :: _; _ } -> true
+  | Ok { content = []; _ } | Error _ -> false
 ;;
 
 let%test "parse_openai_response_result list content" =
@@ -1035,7 +1076,8 @@ let%test "parse_openai_response_result JSON list wrapping" =
 let%test "parse_openai_response_result error without message" =
   let json_str = Yojson.Safe.to_string (`Assoc [ "error", `Assoc [] ]) in
   match parse_openai_response_result json_str with
-  | Error msg -> msg = "Unknown API error"
+  | Error (Backend_openai_parse.Provider_error msg) -> msg = "Unknown API error"
+  | Error (Backend_openai_parse.Empty_completion _) -> false
   | Ok _ -> false
 ;;
 

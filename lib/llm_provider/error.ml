@@ -263,6 +263,17 @@ let of_provider_failure ?provider kind message =
       | None -> "unknown_parser"
     in
     ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Empty_completion { stop_reason } ->
+    (* oas#2483: a blank-content 200 is a binding-health condition (the provider
+       produced nothing usable), not a malformed body — surface it as
+       [ProviderUnavailable] so consumers treat it as a candidate/binding fault
+       rather than a parse error, and so it never re-enters the silent
+       empty-turn path. *)
+    ProviderUnavailable
+      { provider
+      ; detail =
+          Printf.sprintf "empty completion (stop_reason=%s): %s" stop_reason message
+      }
   | Http_client.Unknown_provider_failure { reason } ->
     let reason =
       match reason with

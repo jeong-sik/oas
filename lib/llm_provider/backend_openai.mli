@@ -15,9 +15,12 @@ val strip_orphaned_tool_results : Types.message list -> Types.message list
 val close_tool_message_pairs_for_request : Types.message list -> Types.message list
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 
-(** Parse an OpenAI-compatible JSON response.
-    Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_openai_response_result : string -> (Types.api_response, string) result
+(** Parse an OpenAI-compatible JSON response. See
+    {!Backend_openai_parse.parse_openai_response_result} for the [parse_error]
+    contract (oas#2483: an all-empty 200 fails closed as [Empty_completion]). *)
+val parse_openai_response_result
+  :  string
+  -> (Types.api_response, Backend_openai_parse.parse_error) result
 
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 

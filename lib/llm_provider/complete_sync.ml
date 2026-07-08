@@ -239,7 +239,22 @@ let complete_http
                 | Provider_config.Kimi ->
                   (match Backend_openai_parse.parse_openai_response_result body with
                    | Ok resp -> Ok resp
-                   | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
+                   | Error (Backend_openai_parse.Provider_error msg) ->
+                     Error (Http_client.HttpError { code = 400; body = msg })
+                   | Error (Backend_openai_parse.Empty_completion e) ->
+                     (* oas#2483: a blank-content 200 fails closed as a typed
+                        provider failure (non-retryable — retrying the same
+                        binding returns empty) instead of Ok content=[]. *)
+                     Error
+                       (Http_client.ProviderFailure
+                          { kind =
+                              Http_client.Empty_completion
+                                { stop_reason = Types.stop_reason_to_string e.stop_reason
+                                }
+                          ; message =
+                              "provider returned an empty assistant turn (no thinking, \
+                               text, or tool calls)"
+                          }))
                 | Provider_config.Gemini ->
                   Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Glm -> Ok (Backend_glm.parse_response body)
