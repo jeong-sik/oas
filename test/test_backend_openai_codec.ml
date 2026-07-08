@@ -153,6 +153,18 @@ let parse_ok json =
     Alcotest.fail ("unexpected parse error: " ^ Parse.parse_error_to_string msg)
 ;;
 
+(* Symmetric to [parse_ok]: assert the fail-closed all-empty 200 path
+   (oas#2483). Returns the [Empty_completion] payload, which preserves
+   [stop_reason]/[usage]/[telemetry] for downstream inspection. *)
+let parse_empty json : Parse.empty_completion =
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error (Parse.Empty_completion e) -> e
+  | Error msg ->
+    Alcotest.fail
+      ("expected Empty_completion, got error: " ^ Parse.parse_error_to_string msg)
+  | Ok _ -> Alcotest.fail "expected Empty_completion, got Ok"
+;;
+
 let test_parse_reasoning_content_and_tool_calls_coexist () =
   (* 2025-2026 providers (DeepSeek, Kimi, Qwen, MiMo) return reasoning_content
      alongside tool_calls. Both must survive parsing into [content]: the
@@ -1519,8 +1531,13 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
   (match invalid_fence.content with
    | [ Text "```json\nnot-json\n```" ] -> ()
    | _ -> Alcotest.fail "invalid JSON fence should keep original text");
+  (* Every content block is malformed (dropped) and whitespace-only
+     reasoning_content yields no Thinking block, so the completion is
+     all-empty and now fails closed as [Empty_completion] (oas#2483) instead
+     of the old [Ok content=[]]. The fail-closed payload still carries the
+     stop_reason. *)
   let no_text =
-    parse_ok
+    parse_empty
       (response_json
          ~content:
            (`List
@@ -1528,9 +1545,13 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
          ~message_fields:[ "reasoning_content", `String "  " ]
          ())
   in
-  check_int "invalid content blocks produce no content" 0 (List.length no_text.content);
+  (match no_text.stop_reason with
+   | EndTurn -> ()
+   | _ -> Alcotest.fail "empty completion should preserve the stop finish_reason as EndTurn");
+  (* Malformed object content also parses to no blocks, but the fail-closed
+     [Empty_completion] payload still surfaces stop_reason and telemetry. *)
   let telemetry =
-    parse_ok
+    parse_empty
       (`Assoc
           [ "id", `String "chatcmpl-telemetry"
           ; "model", `String "provider-d-test"
