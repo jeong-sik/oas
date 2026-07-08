@@ -149,7 +149,8 @@ let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_f
 let parse_ok json =
   match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
   | Ok response -> response
-  | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail ("unexpected parse error: " ^ Parse.parse_error_to_string msg)
 ;;
 
 let test_parse_reasoning_content_and_tool_calls_coexist () =
@@ -359,7 +360,11 @@ let test_parse_reasoning_details_rejects_malformed () =
         ()
     in
     match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
-    | Error msg -> check_bool label true (String.starts_with ~prefix:expected_prefix msg)
+    | Error msg ->
+      check_bool
+        label
+        true
+        (String.starts_with ~prefix:expected_prefix (Parse.parse_error_to_string msg))
     | Ok _ -> Alcotest.fail (label ^ " should fail closed")
   in
   expect_error
@@ -402,7 +407,8 @@ let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
   let response =
     match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
     | Ok r -> r
-    | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
+    | Error msg ->
+      Alcotest.fail ("unexpected parse error: " ^ Parse.parse_error_to_string msg)
   in
   let has_text =
     List.exists
@@ -1437,7 +1443,9 @@ let test_parse_tool_calls_rejects_malformed_and_does_not_drop () =
     check_bool
       "malformed tool call is not silently dropped"
       true
-      (String.starts_with ~prefix:"malformed_tool_call:index:1:" msg)
+      (String.starts_with
+         ~prefix:"malformed_tool_call:index:1:"
+         (Parse.parse_error_to_string msg))
   | Ok _ -> Alcotest.fail "expected malformed tool_calls to fail closed"
 ;;
 
@@ -1464,7 +1472,9 @@ let test_parse_tool_calls_rejects_malformed_arguments () =
     check_bool
       "malformed arguments are not repaired"
       true
-      (String.starts_with ~prefix:"malformed_tool_call_arguments:index:0:" msg)
+      (String.starts_with
+         ~prefix:"malformed_tool_call_arguments:index:0:"
+         (Parse.parse_error_to_string msg))
   | Ok _ -> Alcotest.fail "expected malformed tool arguments to fail closed"
 ;;
 
@@ -1490,14 +1500,15 @@ let test_parse_tool_calls_rejects_non_object_arguments () =
     check_string
       "non-object arguments rejected"
       "malformed_tool_call_arguments:index:0:not_object"
-      msg
+      (Parse.parse_error_to_string msg)
   | Ok _ -> Alcotest.fail "expected scalar tool arguments to fail closed"
 ;;
 
 let test_parse_error_default_message () =
   let json = `Assoc [ "error", `Assoc [] ] |> Yojson.Safe.to_string in
   match Parse.parse_openai_response_result json with
-  | Error msg -> check_string "default error" "Unknown API error" msg
+  | Error msg ->
+    check_string "default error" "Unknown API error" (Parse.parse_error_to_string msg)
   | Ok _ -> Alcotest.fail "expected API error"
 ;;
 

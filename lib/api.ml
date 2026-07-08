@@ -211,10 +211,17 @@ let create_message
                 Ok
                   (Llm_provider.Pricing.annotate_response_cost resp
                    |> fun r -> patch_latency r lat)
-              | Error msg ->
+              | Error parse_err ->
+                let message =
+                  match parse_err with
+                  | Llm_provider.Backend_openai_parse.Provider_error m -> m
+                  | Llm_provider.Backend_openai_parse.Empty_completion _ ->
+                    "provider returned an empty completion (no thinking, text, or tool \
+                     calls)"
+                in
                 Error
                   (Retry.InvalidRequest
-                     { message = msg; reason = Retry.Unknown_invalid_request }))
+                     { message; reason = Retry.Unknown_invalid_request }))
            | `HttpError (code, body_str) ->
              Error (Retry.classify_error ~status:code ~body:body_str)
            | `TransportError err -> Error err

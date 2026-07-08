@@ -431,11 +431,17 @@ let validate_openai_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
     try Backend_openai_parse.parse_openai_response_result json_str with
-    | exn -> Error (Printexc.to_string exn)
+    | exn -> Error (Backend_openai_parse.Provider_error (Printexc.to_string exn))
   in
   match parsed with
   | Ok resp -> Ok (validate_response ~declared_tools resp)
-  | Error response_parse_error ->
+  | Error parse_error ->
+    let response_parse_error =
+      match parse_error with
+      | Backend_openai_parse.Provider_error msg -> msg
+      | Backend_openai_parse.Empty_completion _ ->
+        "empty completion (no thinking, text, or tool calls)"
+    in
     Error { response_backend = "openai"; response_parse_error }
 ;;
 

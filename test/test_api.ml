@@ -1680,7 +1680,9 @@ let test_parse_openai_response_strips_fenced_json () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     (match resp.content with
      | [ Types.Text text ] ->
@@ -1709,7 +1711,9 @@ let test_parse_openai_response_reasoning_content () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
     (match resp.content with
@@ -1746,7 +1750,9 @@ let test_parse_openai_response_reasoning_with_tools () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
     (match resp.content with
@@ -1778,7 +1784,9 @@ let test_parse_openai_response_blank_reasoning () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
     (match resp.content with
@@ -1802,7 +1810,9 @@ let test_parse_openai_response_no_reasoning () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     check int "1 content block" 1 (List.length resp.content);
     (match resp.content with
@@ -1828,7 +1838,9 @@ let test_parse_openai_response_ollama_reasoning () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     check int "2 content blocks (thinking + text)" 2 (List.length resp.content);
     (match resp.content with
@@ -1869,7 +1881,9 @@ let test_parse_openai_response_reasoning_content_preferred () =
   }|}
   in
   match Api.parse_openai_response_result json_str with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error msg ->
+    Alcotest.fail
+      ("unexpected error: " ^ Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok resp ->
     (match resp.content with
      | [ Types.Thinking { content = t; _ }; Types.Text text ] ->
@@ -2244,14 +2258,24 @@ let test_openai_api_error_returns_error () =
     {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|}
   in
   match Api.parse_openai_response_result error_json with
-  | Error msg -> check string "error message" "Invalid API key" msg
+  | Error msg ->
+    check
+      string
+      "error message"
+      "Invalid API key"
+      (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok _ -> Alcotest.fail "expected Error on API error"
 ;;
 
 let test_openai_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
   match Api.parse_openai_response_result error_json with
-  | Error msg -> check string "unknown error" "Unknown API error" msg
+  | Error msg ->
+    check
+      string
+      "unknown error"
+      "Unknown API error"
+      (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok _ -> Alcotest.fail "expected Error on empty error"
 ;;
 
@@ -2262,7 +2286,12 @@ let test_openai_api_error_unknown_message () =
 let test_openai_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
   match Api.parse_openai_response_result error_json with
-  | Error msg -> check string "error msg" "bad request" msg
+  | Error msg ->
+    check
+      string
+      "error (Llm_provider.Backend_openai_parse.parse_error_to_string msg)"
+      "bad request"
+      (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   | Ok _ -> Alcotest.fail "expected Error result"
 ;;
 

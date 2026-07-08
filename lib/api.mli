@@ -62,9 +62,13 @@ val build_openai_body
   -> unit
   -> string
 
-(** Parse an OpenAI-compatible JSON response.
-    Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_openai_response_result : string -> (Types.api_response, string) result
+(** Parse an OpenAI-compatible JSON response. See
+    {!Llm_provider.Backend_openai_parse.parse_openai_response_result} for the
+    [parse_error] contract (oas#2483: an all-empty 200 fails closed as
+    [Empty_completion]). *)
+val parse_openai_response_result
+  :  string
+  -> (Types.api_response, Llm_provider.Backend_openai_parse.parse_error) result
 
 (** {1 Non-streaming request} *)
 

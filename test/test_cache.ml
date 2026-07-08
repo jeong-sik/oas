@@ -156,7 +156,7 @@ let test_openai_usage_with_cached_tokens () =
   let resp =
     match Agent_sdk.Api.parse_openai_response_result json_str with
     | Ok r -> r
-    | Error msg -> failwith msg
+    | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
   match resp.usage with
   | Some u ->
@@ -186,7 +186,7 @@ let test_openai_usage_without_cached_tokens () =
   let resp =
     match Agent_sdk.Api.parse_openai_response_result json_str with
     | Ok r -> r
-    | Error msg -> failwith msg
+    | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
   match resp.usage with
   | Some u ->

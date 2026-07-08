@@ -234,7 +234,16 @@ let build_request_assoc
         ~assistant_tool_content_format
         dialect
     in
-    (match config.system_prompt with
+    (* oas#2483: inject the chat-template thinking token into the system turn for
+       [Chat_template_token] rows, mirroring [backend_ollama]. Without this the
+       toggle is a silent no-op on the OpenAI-compat wire ([request_control_fields]
+       emits no JSON field for this format) and the model can return a
+       blank-content 200 that parses as an empty turn. Caps-gated, so non-token
+       models produce byte-identical wire bytes. *)
+    let system_prompt =
+      Backend_openai_serialize.system_prompt_with_thinking_token ~config ~caps
+    in
+    (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
        [ `Assoc
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]

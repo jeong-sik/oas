@@ -330,7 +330,10 @@ let test_parse_then_serialize_round_trip_any_provider () =
         (Yojson.Safe.to_string reasoning_only_response_json)
     with
     | Ok r -> r
-    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+    | Error msg ->
+      Alcotest.failf
+        "unexpected parse error: %s"
+        (Backend_openai_parse.parse_error_to_string msg)
   in
   (* Parse must keep reasoning typed as Thinking, never a Text answer block. *)
   let has_text =

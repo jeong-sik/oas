@@ -132,6 +132,9 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : string }
   | Provider_parse_error of { parser : string option }
+  (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
+      Non-retryable by default — retrying the same binding returns empty. *)
+  | Empty_completion of { stop_reason : string }
   | Unknown_provider_failure of { reason : string option }
 
 (** Transport-level error. *)

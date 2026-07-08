@@ -232,7 +232,14 @@ let parse_response body =
   | None ->
     (try
        match Backend_openai_parse.parse_openai_response_result_json json with
-       | Error msg -> raise (glm_parse_error msg)
+       | Error (Backend_openai_parse.Provider_error msg) -> raise (glm_parse_error msg)
+       | Error (Backend_openai_parse.Empty_completion _) ->
+         (* oas#2483: GLM fails closed on an empty completion too (raises rather
+            than returning an empty turn). *)
+         raise
+           (glm_parse_error
+              "provider returned an empty assistant turn (no thinking, text, or tool \
+               calls)")
        | Ok resp -> extract_reasoning_content_json resp json
      with
      | Yojson.Safe.Util.Type_error (msg, _) -> raise (glm_parse_error msg)

@@ -7,6 +7,31 @@
 
 open Types
 
+(* oas#2483: a blank-content 200 must not be accepted as [Ok content=[]] (a
+   silent empty turn that storms downstream). The parser fails closed with a
+   typed [Empty_completion] carrying the response identity so a consumer can
+   attribute the empty turn to a runtime binding instead of retrying blindly. *)
+type empty_completion =
+  { id : string
+  ; model : string
+  ; stop_reason : Types.stop_reason
+  ; usage : Types.api_usage option
+  ; telemetry : Types.inference_telemetry option
+  }
+
+type parse_error =
+  | Provider_error of string
+  | Empty_completion of empty_completion
+
+let parse_error_to_string = function
+  | Provider_error msg -> msg
+  | Empty_completion { stop_reason; model; _ } ->
+    Printf.sprintf
+      "empty completion (no thinking, text, or tool calls; model=%s, stop_reason=%s)"
+      model
+      (Types.stop_reason_to_string stop_reason)
+;;
+
 let ( let* ) = Result.bind
 
 let first_some a b =
@@ -352,7 +377,7 @@ let telemetry_of_openai_json json =
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
-let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
+let parse_openai_response_result_json_raw (raw_json : Yojson.Safe.t) =
   let open Yojson.Safe.Util in
   let json =
     match raw_json with
@@ -423,6 +448,18 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
       |> Option.value ~default:"Unknown API error"
     in
     Error msg
+;;
+
+(* oas#2483 fail-closed wrapper: an all-empty completion (no thinking, no text,
+   no tool_calls) becomes a typed [Empty_completion] instead of [Ok content=[]]
+   — the silent empty turn that stormed downstream. Blank text WITH tool_calls
+   has content=[ToolUse ..] (content <> []) and stays [Ok]. *)
+let parse_openai_response_result_json raw_json =
+  match parse_openai_response_result_json_raw raw_json with
+  | Error msg -> Error (Provider_error msg)
+  | Ok ({ content = []; id; model; stop_reason; usage; telemetry } : Types.api_response)
+    -> Error (Empty_completion { id; model; stop_reason; usage; telemetry })
+  | Ok resp -> Ok resp
 ;;
 
 (** [parse_openai_response_result] parses [json_str] then delegates to

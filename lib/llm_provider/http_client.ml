@@ -81,6 +81,11 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : string }
   | Provider_parse_error of { parser : string option }
+  (* oas#2483: the provider returned a 200 with no deliverable content (no
+     thinking, text, or tool_calls). Distinct from a parse error so consumers
+     can attribute it to a runtime binding rather than a malformed body, and so
+     it is non-retryable by default (retrying the same binding returns empty). *)
+  | Empty_completion of { stop_reason : string }
   | Unknown_provider_failure of { reason : string option }
 
 type http_error =
@@ -141,6 +146,7 @@ let provider_failure_kind_to_string = function
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Empty_completion { stop_reason } -> Printf.sprintf "empty_completion:%s" stop_reason
   | Unknown_provider_failure { reason = Some reason } ->
     Printf.sprintf "unknown_provider_failure:%s" reason
   | Unknown_provider_failure { reason = None } -> "unknown_provider_failure"
