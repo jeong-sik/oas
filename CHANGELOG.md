@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.22](https://github.com/jeong-sik/oas/compare/v0.208.21...v0.208.22) (2026-07-08)
+
+
+### Bug Fixes
+
+* **streaming:** fail closed on empty completion at the driver boundary (oas[#2483](https://github.com/jeong-sik/oas/issues/2483)) ([#2491](https://github.com/jeong-sik/oas/issues/2491)) ([a320b04](https://github.com/jeong-sik/oas/commit/a320b04f54dea4f3291a5c6d8c2b085501056455))
+
 ## [0.208.21](https://github.com/jeong-sik/oas/compare/v0.208.20...v0.208.21) (2026-07-08)
 
 
