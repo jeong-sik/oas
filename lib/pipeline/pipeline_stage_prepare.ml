@@ -87,10 +87,11 @@ let stage_input ?raw_trace_run ?clock agent =
   | Hooks.Continue -> Ok ()
   | Hooks.HookFailed { stage; detail } ->
     Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
-  | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ ->
+  | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ | Hooks.Block _ ->
     (* Reject illegal hook decisions with a typed error instead of crashing.
        [Hooks.invoke_validated] normally filters these out; this branch guards
-       against a validation bypass or future hook matrix drift. *)
+       against a validation bypass or future hook matrix drift. [Block] is
+       legal only at pre_tool_use, so it is illegal here. *)
     Error (illegal_hook_decision ~stage:"before_turn" ~decision:before_decision)
 ;;
 
@@ -306,8 +307,10 @@ let stage_parse ?raw_trace_run ?clock agent =
        | Hooks.Override _
        | Hooks.ApprovalRequired
        | Hooks.ElicitInput _
-       | Hooks.Nudge _ ->
-         (* Reject illegal hook decisions with a typed error instead of crashing. *)
+       | Hooks.Nudge _
+       | Hooks.Block _ ->
+         (* Reject illegal hook decisions with a typed error instead of crashing.
+            [Block] is legal only at pre_tool_use, so it is illegal here. *)
          Error (illegal_hook_decision ~stage:"before_turn_params" ~decision))
   in
   let original_config = agent.state.config in

@@ -399,7 +399,11 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
      | Hooks.Override _
      | Hooks.ApprovalRequired
      | Hooks.ElicitInput _
-     | Hooks.Nudge _ -> Hooks.default_turn_params
+     | Hooks.Nudge _
+     | Hooks.Block _ ->
+       (* [Block] is legal only at pre_tool_use; reaching here means validation
+          was bypassed. Fall back to defaults rather than crashing the turn. *)
+       Hooks.default_turn_params
      | Hooks.HookFailed { stage; detail } ->
        invalid_arg
          (Printf.sprintf "hook before_turn_params failed at %s: %s" stage detail))

@@ -171,6 +171,12 @@ type hook_decision =
   (** Returned by [invoke] and [invoke_validated] when a user hook raises or
       returns a stage-illegal decision. Call sites must handle this explicitly;
       the SDK does not coerce it to [Continue]. *)
+  | Block of string
+  (** PreToolUse only: intentional policy rejection. The host executes no tool
+      and emits an [is_error=true], [Non_retryable_tool_error] tool result whose
+      content is the string payload verbatim. Distinct from [Override] (soft
+      nudge, [is_error=false]) and [HookFailed] (unintentional infra failure).
+      Legal only at [PreToolUse]; rejected elsewhere via {!validate_decision}. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -262,6 +268,7 @@ type hook_decision_kind =
   | K_ElicitInput
   | K_Nudge
   | K_HookFailed
+  | K_Block
 
 (** Extract the kind tag from a decision value. *)
 val classify_decision : hook_decision -> hook_decision_kind
