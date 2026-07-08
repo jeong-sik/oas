@@ -854,6 +854,18 @@ let execute_scheduled_tool
              ; failure_kind = Some Non_retryable_tool_error
              ; error_class = Some Types.Deterministic
              }
+           | Hooks.Block reason ->
+             (* Intentional policy rejection from a PreToolUse hook. The host
+                executes no tool; the reason string becomes the tool result
+                content verbatim. Distinct from [Hooks.Override] (soft nudge,
+                is_error=false) and [Hooks.HookFailed] (infra failure). *)
+             { tool_use_id = id
+             ; tool_name = name
+             ; content = reason
+             ; is_error = true
+             ; failure_kind = Some Non_retryable_tool_error
+             ; error_class = Some Types.Deterministic
+             }
          with
          | Out_of_memory -> raise Out_of_memory
          | Stack_overflow -> raise Stack_overflow

@@ -537,9 +537,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
          | Hooks.Override _
          | Hooks.ApprovalRequired
          | Hooks.AdjustParams _
-         | Hooks.ElicitInput _ ->
+         | Hooks.ElicitInput _
+         | Hooks.Block _ ->
            (* Reject illegal hook decisions with a typed error instead of crashing.
-              Stash the failure so the existing idle-hook error path returns it. *)
+              Stash the failure so the existing idle-hook error path returns it.
+              [Block] is legal only at pre_tool_use, so it is illegal here. *)
            idle_hook_failed
            := Some
                 ( "illegal_decision"
@@ -931,8 +933,10 @@ let compact_messages
   | Hooks.ApprovalRequired
   | Hooks.AdjustParams _
   | Hooks.ElicitInput _
-  | Hooks.Nudge _ ->
-    (* Reject illegal hook decisions with a typed error instead of crashing. *)
+  | Hooks.Nudge _
+  | Hooks.Block _ ->
+    (* Reject illegal hook decisions with a typed error instead of crashing.
+       [Block] is legal only at pre_tool_use, so it is illegal here. *)
     Error (illegal_hook_decision ~stage:"pre_compact" ~decision:hook_decision)
 ;;
 

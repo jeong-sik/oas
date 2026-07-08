@@ -211,6 +211,13 @@ type hook_decision =
   (** Internal failure decision returned when invoking a user hook raises or
       returns a stage-illegal decision. Call sites must handle this explicitly;
       it is never coerced to [Continue]. *)
+  | Block of string
+  (** PreToolUse only: intentional policy rejection. The host executes no tool
+      and produces an [is_error=true] tool result ([Non_retryable_tool_error],
+      [Deterministic]) whose content is the string payload verbatim. Distinct
+      from [Override] (soft nudge, [is_error=false]) and [HookFailed]
+      (unintentional infra failure). Use this when a guard forbids the call
+      unconditionally, regardless of any approval callback. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -291,6 +298,7 @@ type hook_decision_kind =
   | K_ElicitInput
   | K_Nudge
   | K_HookFailed
+  | K_Block
 
 let classify_decision = function
   | Continue -> K_Continue
@@ -301,6 +309,7 @@ let classify_decision = function
   | ElicitInput _ -> K_ElicitInput
   | Nudge _ -> K_Nudge
   | HookFailed _ -> K_HookFailed
+  | Block _ -> K_Block
 ;;
 
 let decision_kind_to_string = function
@@ -312,6 +321,7 @@ let decision_kind_to_string = function
   | K_ElicitInput -> "ElicitInput"
   | K_Nudge -> "Nudge"
   | K_HookFailed -> "HookFailed"
+  | K_Block -> "Block"
 ;;
 
 (** Extract a stage name string from a hook_event. *)
@@ -335,30 +345,31 @@ let stage_of_event = function
 (** Legal decision matrix.
 
     {v
-    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
-    ---------------------+----------+------+----------+------------------+--------------+-------------+-------
-    before_turn          |    Y     |      |          |                  |              |      Y      |   Y
-    before_turn_params   |    Y     |      |          |                  |      Y       |             |
-    after_turn           |    Y     |      |          |                  |              |             |
-    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |             |
-    post_tool_use        |    Y     |      |          |                  |              |             |
-    post_tool_use_failure|    Y     |      |          |                  |              |             |
-    on_stop              |    Y     |      |          |                  |              |             |
-    on_idle              |    Y     |  Y   |          |                  |              |             |   Y
-    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y
-    on_error             |    Y     |      |          |                  |              |             |
-    on_tool_error        |    Y     |      |          |                  |              |             |
-    pre_compact          |    Y     |  Y   |          |                  |              |             |
-    post_compact         |    Y     |      |          |                  |              |             |
+    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge | Block
+    ---------------------+----------+------+----------+------------------+--------------+-------------+-------+------
+    before_turn          |    Y     |      |          |                  |              |      Y      |   Y   |
+    before_turn_params   |    Y     |      |          |                  |      Y       |             |       |
+    after_turn           |    Y     |      |          |                  |              |             |       |
+    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |             |       |   Y
+    post_tool_use        |    Y     |      |          |                  |              |             |       |
+    post_tool_use_failure|    Y     |      |          |                  |              |             |       |
+    on_stop              |    Y     |      |          |                  |              |             |       |
+    on_idle              |    Y     |  Y   |          |                  |              |             |   Y   |
+    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y   |
+    on_error             |    Y     |      |          |                  |              |             |       |
+    on_tool_error        |    Y     |      |          |                  |              |             |       |
+    pre_compact          |    Y     |  Y   |          |                  |              |             |       |
+    post_compact         |    Y     |      |          |                  |              |             |       |
     v}
 
-    Fail-closed: any decision not explicitly listed is rejected. *)
+    Fail-closed: any decision not explicitly listed is rejected. [Block] is
+    legal only at [pre_tool_use]. *)
 let legal_decisions_for_stage stage =
   match stage with
   | "before_turn" -> [ K_Continue; K_ElicitInput; K_Nudge ]
   | "before_turn_params" -> [ K_Continue; K_AdjustParams ]
   | "after_turn" -> [ K_Continue ]
-  | "pre_tool_use" -> [ K_Continue; K_Skip; K_Override; K_ApprovalRequired ]
+  | "pre_tool_use" -> [ K_Continue; K_Skip; K_Override; K_ApprovalRequired; K_Block ]
   | "post_tool_use" -> [ K_Continue ]
   | "post_tool_use_failure" -> [ K_Continue ]
   | "on_stop" -> [ K_Continue ]
@@ -527,3 +538,42 @@ let%test "invoke_validated: on_illegal is NOT invoked when hook raises" =
   let _ = invoke_validated ~on_illegal (Some raising) event in
   not !illegal_called
 ;;
+
+(* ── Block variant (RFC-0321) regression tests ─────────────── *)
+
+let%test "Block: classify_decision tags as K_Block" =
+  classify_decision (Block "forbidden") = K_Block
+;;
+
+let%test "Block: decision_kind_to_string" =
+  decision_kind_to_string K_Block = "Block"
+;;
+
+let%test "Block: legal only at pre_tool_use" =
+  List.mem K_Block (legal_decisions_for_stage "pre_tool_use")
+  && not (List.mem K_Block (legal_decisions_for_stage "before_turn"))
+  && not (List.mem K_Block (legal_decisions_for_stage "on_idle"))
+  && not (List.mem K_Block (legal_decisions_for_stage "post_tool_use"))
+  && not (List.mem K_Block (legal_decisions_for_stage "pre_compact"))
+;;
+
+let%test "Block: validate_decision accepts at pre_tool_use" =
+  match validate_decision ~stage:"pre_tool_use" (Block "nope") with
+  | Ok (Block "nope") -> true
+  | _ -> false
+;;
+
+let%test "Block: validate_decision rejects at on_idle" =
+  match validate_decision ~stage:"on_idle" (Block "nope") with
+  | Error msg -> String.length msg > 0
+  | _ -> false
+;;
+
+let%test "Block: invoke_validated coerces illegal Block to HookFailed" =
+  let event = OnIdle { consecutive_idle_turns = 0; tool_names = [] } in
+  let blocking _ = Block "forbidden" in
+  match invoke_validated (Some blocking) event with
+  | HookFailed { stage = "on_idle"; detail } -> String.length detail > 0
+  | _ -> false
+;;
+
