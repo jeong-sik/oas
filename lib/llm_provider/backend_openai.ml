@@ -955,13 +955,8 @@ let%test "parse_openai_response_result blank content with tool_calls stays Ok (o
   (* Blank text WITH tool_calls has content=[ToolUse ..] (non-empty) and must
      NOT trip the empty-completion guard. *)
   match parse_openai_response_result json_str with
-  | Ok resp ->
-    List.exists
-      (function
-        | Types.ToolUse _ -> true
-        | _ -> false)
-      resp.content
-  | Error _ -> false
+  | Ok { content = _ :: _; _ } -> true
+  | Ok { content = []; _ } | Error _ -> false
 ;;
 
 let%test "parse_openai_response_result list content" =
