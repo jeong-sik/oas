@@ -506,6 +506,22 @@ let test_provider_failure_remaining_variants_mapping () =
   | _ -> fail "expected ProviderUnavailable unknown failure"
 ;;
 
+let test_provider_failure_empty_completion_maps_to_unavailable () =
+  List.iter
+    (fun expected ->
+       let mapped =
+         Error.of_http_error
+           ~provider:"openai"
+           (Http_client.empty_completion_error ~stop_reason:expected)
+       in
+       match mapped with
+       | Error.ProviderUnavailable { provider; detail } ->
+         check string "provider" "openai" provider;
+         check bool "nonempty detail" true (String.trim detail <> "")
+       | _ -> fail "expected ProviderUnavailable")
+    [ Types.EndTurn; Types.MaxTokens ]
+;;
+
 let test_http_boundary_remaining_variants_mapping () =
   let accept =
     Error.of_http_error
@@ -621,6 +637,10 @@ let () =
             "Provider failure remaining variants"
             `Quick
             test_provider_failure_remaining_variants_mapping
+        ; test_case
+            "Provider failure empty completion maps to unavailable"
+            `Quick
+            test_provider_failure_empty_completion_maps_to_unavailable
         ; test_case
             "HTTP boundary remaining variants"
             `Quick

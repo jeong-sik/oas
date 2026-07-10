@@ -86,7 +86,9 @@ val make_http_transport
     When [metrics] is provided, fires lifecycle callbacks.
 
     @return [Ok api_response] on success (possibly from cache)
-    @return [Error http_error] on failure *)
+    @return [Error http_error] on failure. A response with no content blocks
+    fails closed as [ProviderFailure { kind = Empty_completion { stop_reason } }]
+    for built-in HTTP, cache, and injected transports alike. *)
 val complete
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -169,6 +171,10 @@ val complete_with_retry
 
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
+
+    A finalized response with no content blocks fails closed as
+    [ProviderFailure { kind = Empty_completion { stop_reason } }] for built-in
+    HTTP and injected transports alike.
 
     [clock] and [stream_idle_timeout_s] together bound two streaming
     stalls on every HTTP streaming path: inter-line idle, and

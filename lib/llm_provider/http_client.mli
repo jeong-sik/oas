@@ -133,8 +133,9 @@ type provider_failure_kind =
   | Cli_startup_failed of { reason : string }
   | Provider_parse_error of { parser : string option }
   (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
-      Non-retryable by default — retrying the same binding returns empty. *)
-  | Empty_completion of { stop_reason : string }
+      The typed stop reason is preserved so downstream policy can distinguish,
+      for example, [MaxTokens] from [EndTurn] without parsing diagnostics. *)
+  | Empty_completion of { stop_reason : Types.stop_reason }
   | Unknown_provider_failure of { reason : string option }
 
 (** Transport-level error. *)
@@ -176,8 +177,17 @@ type http_error =
       invalid CLI policy, or a request that requires a capability the
       transport cannot provide. *)
 
+(** Diagnostic rendering only. Consumers must branch on [provider_failure_kind]
+    directly and never parse this string. *)
 val provider_failure_kind_to_string : provider_failure_kind -> string
+
 val provider_failure_to_string : kind:provider_failure_kind -> message:string -> string
+
+(** Construct the canonical fail-closed transport error for a provider response
+    with no thinking, text, or tool calls. Sync and streaming completion paths
+    must use this helper so the typed stop reason and diagnostic stay aligned. *)
+val empty_completion_error : stop_reason:Types.stop_reason -> http_error
+
 val stream_idle_state_to_label : stream_idle_state -> string
 val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase
 val timeout_phase_to_label : timeout_phase -> string

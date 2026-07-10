@@ -53,6 +53,40 @@ let mk_header_capture_transport headers_ref : Llm_provider.Llm_transport.t =
   }
 ;;
 
+let mk_empty_transport stop_reason : Llm_provider.Llm_transport.t =
+  let response = { (mk_mock_response ()) with stop_reason; content = [] } in
+  { complete_sync = (fun _ -> { response = Ok response; latency_ms = Some 1 })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _ -> Ok response)
+  }
+;;
+
+let make_empty_agent ~net ~stop_reason ~name =
+  let options =
+    { Agent_types.default_options with
+      transport = Some (mk_empty_transport stop_reason)
+    ; provider = Some (Provider_mock.to_provider_config ())
+    ; guardrails = Guardrails.permissive
+    }
+  in
+  Agent.create ~net ~config:{ Types.default_config with name; max_turns = 1 } ~options ()
+;;
+
+let check_agent_empty_failure agent = function
+  | Error (Error.Provider (Llm_provider.Error.ProviderUnavailable _)) ->
+    let state = Agent.state agent in
+    Alcotest.(check int) "turn not advanced" 0 state.turn_count;
+    Alcotest.(check int)
+      "no assistant message"
+      0
+      (List.length
+         (List.filter
+            (fun (message : Types.message) -> message.role = Types.Assistant)
+            state.messages))
+  | Error err ->
+    Alcotest.failf "expected ProviderUnavailable, got %s" (Error.to_string err)
+  | Ok _ -> Alcotest.fail "expected ProviderUnavailable, got Ok"
+;;
+
 let test_sync_dispatches_via_complete_triggers_metrics () =
   Eio_main.run
   @@ fun env ->
@@ -148,6 +182,38 @@ let test_stage_route_passes_trace_context_headers () =
      | None -> Alcotest.fail "missing traceparent header")
 ;;
 
+let test_agent_run_rejects_injected_empty_completion () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  List.iter
+    (fun stop_reason ->
+       let agent =
+         make_empty_agent ~net:(Eio.Stdenv.net env) ~stop_reason ~name:"agent-sync-empty"
+       in
+       Agent.run ~sw agent "ping" |> check_agent_empty_failure agent)
+    [ Types.EndTurn; Types.MaxTokens ]
+;;
+
+let test_agent_run_stream_rejects_injected_empty_completion () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  List.iter
+    (fun stop_reason ->
+       let agent =
+         make_empty_agent
+           ~net:(Eio.Stdenv.net env)
+           ~stop_reason
+           ~name:"agent-stream-empty"
+       in
+       Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "ping"
+       |> check_agent_empty_failure agent)
+    [ Types.EndTurn; Types.MaxTokens ]
+;;
+
 let test_sdk_error_of_http_error_classifies () =
   (* Pure smoke test for the conversion helper introduced in pipeline.ml *)
   let _ : Error.sdk_error =
@@ -228,6 +294,14 @@ let () =
             "stage route forwards trace context"
             `Quick
             test_stage_route_passes_trace_context_headers
+        ; Alcotest.test_case
+            "Agent.run rejects injected empty completion"
+            `Quick
+            test_agent_run_rejects_injected_empty_completion
+        ; Alcotest.test_case
+            "Agent.run_stream rejects injected empty completion"
+            `Quick
+            test_agent_run_stream_rejects_injected_empty_completion
         ] )
     ]
 ;;

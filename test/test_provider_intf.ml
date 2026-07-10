@@ -72,6 +72,12 @@ let openai_response =
   {|{"id":"chatcmpl-provider-intf","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
+let empty_openai_response finish_reason =
+  Printf.sprintf
+    {|{"id":"chatcmpl-empty","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null},"finish_reason":"%s"}],"usage":{"prompt_tokens":1,"completion_tokens":0}}|}
+    finish_reason
+;;
+
 let user_messages =
   [ { role = User
     ; content = [ Text "hello" ]
@@ -130,6 +136,43 @@ let with_mock_server ?port handler f =
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
+;;
+
+let expect_provider_unavailable = function
+  | Error (Error.Provider (Llm_provider.Error.ProviderUnavailable _)) -> ()
+  | Error err ->
+    Alcotest.failf "expected ProviderUnavailable, got %s" (Error.to_string err)
+  | Ok _ -> Alcotest.fail "expected ProviderUnavailable, got Ok"
+;;
+
+let with_openai_response response_body check_result =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  with_mock_server handler (fun ~sw ~net ~base_url ->
+    let provider : Provider.config =
+      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
+    in
+    let (module P : Provider_intf.PROVIDER) = require_provider provider in
+    P.create_message
+      ~sw
+      ~net
+      ~config:(state_for_provider provider)
+      ~messages:user_messages
+      ()
+    |> check_result)
+;;
+
+let expect_invalid_request ~reason ~message_prefix = function
+  | Error (Error.Api (Retry.InvalidRequest { message; reason = actual_reason })) ->
+    Alcotest.(check bool) "reason preserved" true (actual_reason = reason);
+    Alcotest.(check bool)
+      "message prefix preserved"
+      true
+      (String.starts_with ~prefix:message_prefix message)
+  | Error err -> Alcotest.failf "expected InvalidRequest, got %s" (Error.to_string err)
+  | Ok _ -> Alcotest.fail "expected InvalidRequest, got Ok"
 ;;
 
 let test_provider_dispatch_uses_http_client () =
@@ -202,27 +245,104 @@ let test_provider_dispatch_maps_server_error () =
 ;;
 
 let test_provider_dispatch_rejects_malformed_openai_response () =
-  let handler _conn _req body =
-    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"choices":"not-a-list"}|} ()
-  in
-  with_mock_server handler (fun ~sw ~net ~base_url ->
-    let provider : Provider.config =
-      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
-    in
-    let (module P : Provider_intf.PROVIDER) = require_provider provider in
-    match
-      P.create_message
-        ~sw
-        ~net
-        ~config:(state_for_provider provider)
-        ~messages:user_messages
-        ()
-    with
-    | Error (Error.Api (Retry.InvalidRequest { message; _ })) ->
-      Alcotest.(check bool) "parse message present" true (String.length message > 0)
-    | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
-    | Ok _ -> Alcotest.fail "expected malformed response rejection")
+  with_openai_response
+    {|{"choices":"not-a-list"}|}
+    (expect_invalid_request
+       ~reason:Retry.Json_parse_error
+       ~message_prefix:"JSON type error:")
+;;
+
+let test_provider_dispatch_preserves_provider_error_projection () =
+  with_openai_response
+    {|{"error":{"message":"context window exceeded"}}|}
+    (expect_invalid_request
+       ~reason:Retry.Unknown_invalid_request
+       ~message_prefix:"context window exceeded")
+;;
+
+let test_provider_dispatch_preserves_json_parse_error_projection () =
+  with_openai_response
+    "{"
+    (expect_invalid_request
+       ~reason:Retry.Json_parse_error
+       ~message_prefix:"JSON parse error:")
+;;
+
+let test_provider_dispatch_preserves_json_undefined_projection () =
+  with_openai_response
+    {|{"choices":[]}|}
+    (expect_invalid_request
+       ~reason:Retry.Json_parse_error
+       ~message_prefix:"JSON undefined field error:")
+;;
+
+let test_provider_dispatch_empty_openai_maps_to_unavailable () =
+  List.iter
+    (fun finish_reason ->
+       let handler _conn _req body =
+         ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+         Cohttp_eio.Server.respond_string
+           ~status:`OK
+           ~body:(empty_openai_response finish_reason)
+           ()
+       in
+       with_mock_server handler (fun ~sw ~net ~base_url ->
+         let provider : Provider.config =
+           { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
+         in
+         let (module P : Provider_intf.PROVIDER) = require_provider provider in
+         P.create_message
+           ~sw
+           ~net
+           ~config:(state_for_provider provider)
+           ~messages:user_messages
+           ()
+         |> expect_provider_unavailable))
+    [ "stop"; "length" ]
+;;
+
+let test_custom_provider_empty_maps_to_unavailable () =
+  List.iter
+    (fun stop_reason ->
+       let handler _conn _req body =
+         ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+         Cohttp_eio.Server.respond_string ~status:`OK ~body:"custom-empty" ()
+       in
+       with_mock_server handler (fun ~sw ~net ~base_url ->
+         let name =
+           "provider-intf-empty-" ^ Llm_provider.Types.stop_reason_to_string stop_reason
+         in
+         let impl : Provider.provider_impl =
+           { name
+           ; request_kind = Provider.Custom name
+           ; request_path = "/v1/custom"
+           ; capabilities =
+               { Provider.default_capabilities with supports_native_streaming = false }
+           ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
+           ; parse_response =
+               (fun _ ->
+                 { id = "custom-empty"
+                 ; model = "custom-model"
+                 ; stop_reason
+                 ; content = []
+                 ; usage = None
+                 ; telemetry = None
+                 })
+           ; resolve =
+               (fun _ -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
+           }
+         in
+         Provider.register_provider impl;
+         let provider = Provider.custom_provider ~name ~model_id:"custom-model" () in
+         let (module P : Provider_intf.PROVIDER) = require_provider provider in
+         P.create_message
+           ~sw
+           ~net
+           ~config:(state_for_provider provider)
+           ~messages:user_messages
+           ()
+         |> expect_provider_unavailable))
+    [ Llm_provider.Types.EndTurn; Llm_provider.Types.MaxTokens ]
 ;;
 
 let test_custom_provider_dispatch_uses_registered_impl () =
@@ -345,6 +465,26 @@ let () =
             "rejects malformed response"
             `Quick
             test_provider_dispatch_rejects_malformed_openai_response
+        ; Alcotest.test_case
+            "preserves provider error projection"
+            `Quick
+            test_provider_dispatch_preserves_provider_error_projection
+        ; Alcotest.test_case
+            "preserves JSON parse error projection"
+            `Quick
+            test_provider_dispatch_preserves_json_parse_error_projection
+        ; Alcotest.test_case
+            "preserves JSON undefined projection"
+            `Quick
+            test_provider_dispatch_preserves_json_undefined_projection
+        ; Alcotest.test_case
+            "empty OpenAI maps to provider unavailable"
+            `Quick
+            test_provider_dispatch_empty_openai_maps_to_unavailable
+        ; Alcotest.test_case
+            "custom empty maps to provider unavailable"
+            `Quick
+            test_custom_provider_empty_maps_to_unavailable
         ; Alcotest.test_case
             "custom provider dispatch"
             `Quick
