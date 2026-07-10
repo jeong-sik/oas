@@ -246,49 +246,39 @@ let effective_disable_parallel_tool_use
 
 type anthropic_thinking_control =
   | Anthropic_manual_budget
+  | Anthropic_adaptive_default
   | Anthropic_adaptive_preferred
   | Anthropic_adaptive_only
   | Anthropic_always_adaptive
 
-let anthropic_thinking_control_of_id model_id =
-  let id = String.lowercase_ascii (String.trim model_id) in
-  let has_prefix prefixes =
-    List.exists (fun prefix -> String.starts_with ~prefix id) prefixes
+let anthropic_thinking_control_of_vocab_value = function
+  | Capability_vocab.Manual_budget -> Anthropic_manual_budget
+  | Capability_vocab.Adaptive_default -> Anthropic_adaptive_default
+  | Capability_vocab.Adaptive_preferred -> Anthropic_adaptive_preferred
+  | Capability_vocab.Adaptive_only -> Anthropic_adaptive_only
+  | Capability_vocab.Always_adaptive -> Anthropic_always_adaptive
+;;
+
+let anthropic_thinking_control_for_model_id model_id =
+  let manifest_value () =
+    match Capability_manifest.global () with
+    | None -> None
+    | Some manifest ->
+      Capability_manifest.lookup manifest model_id
+      |> Option.bind (fun entry ->
+           Option.map
+             anthropic_thinking_control_of_vocab_value
+             entry.anthropic_thinking_control)
   in
-  if
-    has_prefix
-      [ "claude-fable-5"
-      ; "fable-5"
-      ; "claude-fable-5"
-      ; "claude-mythos-5"
-      ; "mythos-5"
-      ; "claude-mythos-5"
-      ; "claude-mythos-preview"
-      ; "mythos-preview"
-      ; "claude-mythos-preview"
-      ]
-  then Anthropic_always_adaptive
-  else if
-    has_prefix
-      [ "claude-opus-4-8"
-      ; "opus-4-8"
-      ; "claude-opus-4-8"
-      ; "claude-opus-4-7"
-      ; "opus-4-7"
-      ; "claude-opus-4-7"
-      ]
-  then Anthropic_adaptive_only
-  else if
-    has_prefix
-      [ "claude-opus-4-6"
-      ; "opus-4-6"
-      ; "claude-opus-4-6"
-      ; "claude-sonnet-4-6"
-      ; "sonnet-4-6"
-      ; "claude-sonnet-4-6"
-      ]
-  then Anthropic_adaptive_preferred
-  else Anthropic_manual_budget
+  match Model_catalog.global () with
+  | None -> manifest_value ()
+  | Some catalog ->
+    (match Model_catalog.lookup catalog model_id with
+     | Some entry ->
+       Option.map
+         anthropic_thinking_control_of_vocab_value
+         entry.anthropic_thinking_control
+     | None -> manifest_value ())
 ;;
 
 let anthropic_capabilities =
@@ -501,13 +491,12 @@ let ollama_capabilities =
    replay and caused the CoT loop (#2236).
 
    IMPORTANT: do not inherit [supports_structured_output] from local Ollama.
-   Host applications reach Ollama Cloud through the OpenAI-compatible
-   [/v1/chat/completions] transport, which accepts [response_format.type =
-   json_schema] but does NOT guarantee schema-shaped output. The native Ollama
-   [/api/chat] transport (provider kind [Ollama]) enforces schemas via the
-   [format] field and keeps [supports_structured_output = true]. Models that
-   have been live-verified to return exact schema-shaped JSON through the
-   [/v1] path opt in per-row in [models.toml]. *)
+   The official Ollama structured-output documentation currently states that
+   Ollama Cloud does not support structured outputs
+   (https://docs.ollama.com/capabilities/structured-outputs, checked
+   2026-07-10). JSON mode and the native local [/api/chat] schema path are
+   separate contracts; a Cloud model row must remain schema-disabled until the
+   official Cloud contract changes. *)
 let ollama_cloud_capabilities =
   { ollama_capabilities with supports_structured_output = false }
 ;;
@@ -1563,6 +1552,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
+  ; anthropic_thinking_control = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
   ; reasoning_streaming_format = None
@@ -1606,6 +1596,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
+  ; anthropic_thinking_control = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
   ; reasoning_streaming_format = None
@@ -1886,6 +1877,34 @@ let%test "for_model_id_catalog empty catalog returns None" =
   Model_catalog.set_global Model_catalog.empty;
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
     Option.is_none (for_model_id_catalog "qwen3-32b"))
+;;
+
+let%test "Anthropic thinking policy resolves from the model catalog declaration" =
+  Model_catalog.set_global
+    (Model_catalog.of_model_entries
+       [ { (test_catalog_entry "declared-anthropic-model") with
+           anthropic_thinking_control = Some Capability_vocab.Adaptive_preferred
+         }
+       ]);
+  Fun.protect ~finally:Model_catalog.clear_global (fun () ->
+    anthropic_thinking_control_for_model_id "declared-anthropic-model" =
+    Some Anthropic_adaptive_preferred)
+;;
+
+let%test "Anthropic thinking policy falls back to manifest when catalog has no row" =
+  Model_catalog.set_global Model_catalog.empty;
+  Capability_manifest.set_global
+    [ { (test_manifest_entry "manifest-anthropic-model") with
+        anthropic_thinking_control = Some Capability_vocab.Adaptive_only
+      }
+    ];
+  Fun.protect
+    ~finally:(fun () ->
+      Model_catalog.clear_global ();
+      Capability_manifest.clear_global ())
+    (fun () ->
+      anthropic_thinking_control_for_model_id "manifest-anthropic-model" =
+      Some Anthropic_adaptive_only)
 ;;
 
 let%test "thinking_control_token accessor reads the token from the catalog constructor" =

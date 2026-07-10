@@ -53,7 +53,7 @@
 | H02 | Fixed | 16000 + env var chain |
 | H03 | Fixed | `thinking_control_format` handles reasoning_effort |
 | H04 | Fixed | Constants centralized with env var overrides |
-| H05 | Fixed | 3500 + `OAS_PROMPT_CACHE_MIN_CHARS` |
+| H05 | Removed | No OAS character/token approximation; an explicit cache opt-in is serialized and Anthropic applies its model/platform minimum server-side |
 | H06 | Fixed | Cascading env/config/default chain |
 | H07 | MASC | CLI buffer sizes in transport_*.ml |
 | H08 | Structural | Static table fundamental limitation |

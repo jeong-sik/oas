@@ -496,9 +496,11 @@ main(sys.argv)
 PYEOF
 }
 
-case "${1:---check}" in
+mode="${1:---check}"
+
+case "$mode" in
   --measure|--check|--rebaseline|--self-test)
-    run_python "$1"
+    run_python "$mode"
     ;;
   -h|--help)
     sed -n '2,12p' "$0"

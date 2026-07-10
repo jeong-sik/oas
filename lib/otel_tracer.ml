@@ -72,7 +72,10 @@ let default_service_name = "agent-sdk"
 let otel_endpoint_env_var = "OTEL_EXPORTER_OTLP_ENDPOINT"
 let default_config = { service_name = default_service_name; endpoint = None }
 
-let default_config_from_env ?(getenv = Sys.getenv_opt) () =
+let default_config_from_env
+      ?(getenv = Llm_provider.Cli_common_env.get)
+      ()
+  =
   { default_config with endpoint = getenv otel_endpoint_env_var }
 ;;
 

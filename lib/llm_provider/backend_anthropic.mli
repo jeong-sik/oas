@@ -22,6 +22,13 @@ val output_config_for_config
   -> Provider_config.t
   -> Yojson.Safe.t option
 
+(** Resolve the output-token budget emitted on the Anthropic wire.  The
+    caller override is clamped to the selected model capability, otherwise
+    the catalog ceiling is used, with the call-time unknown-model fallback as
+    the final layer.  This is shared with the legacy Agent SDK builder so it
+    cannot invent a separate default. *)
+val effective_max_output_tokens : Provider_config.t -> int
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t

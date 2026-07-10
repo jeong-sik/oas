@@ -38,19 +38,6 @@ let catalog_capabilities model_id =
   | None -> Alcotest.failf "expected catalog capabilities for %s" model_id
 ;;
 
-let with_env name value f =
-  let saved = Sys.getenv_opt name in
-  (match value with
-   | Some v -> Unix.putenv name v
-   | None -> Unix.putenv name "");
-  Fun.protect
-    ~finally:(fun () ->
-      match saved with
-      | Some v -> Unix.putenv name v
-      | None -> Unix.putenv name "")
-    f
-;;
-
 (* ── Anthropic build_request ─────────────────────────── *)
 
 let test_anthropic_basic_body () =
@@ -142,6 +129,24 @@ let test_anthropic_disabled_thinking_omits_adaptive_effort () =
     "output_config omitted (no leaked effort)"
     true
     (json |> member "output_config" = `Null)
+;;
+
+let test_anthropic_sonnet5_explicit_disable_is_serialized () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-5"
+      ~base_url:""
+      ~enable_thinking:false
+      ()
+  in
+  let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "Sonnet 5 explicit disable uses the provider disabled mode"
+    "disabled"
+    (json |> member "thinking" |> member "type" |> to_string)
 ;;
 
 let test_anthropic_thinking_forced_tool_choice_rejected_before_request () =
@@ -1327,7 +1332,7 @@ let test_stream_acc_tool_use () =
 
 (* ── Prompt caching ───────────────────────────────── *)
 
-(* Long prompt exceeding 3500 char threshold for cache_control *)
+(* A long prompt exercises the explicit cache breakpoint serialization. *)
 let long_prompt =
   String.concat
     ""
@@ -1359,7 +1364,7 @@ let test_cache_system_prompt () =
     (cc |> member "type" |> to_string)
 ;;
 
-let test_cache_short_prompt_skips () =
+let test_cache_short_prompt_preserves_opt_in () =
   let config =
     PC.make
       ~kind:Anthropic
@@ -1372,45 +1377,14 @@ let test_cache_short_prompt_skips () =
   let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
+  let system = json |> member "system" |> to_list in
+  Alcotest.(check int) "1 system block" 1 (List.length system);
+  let block = List.hd system in
+  Alcotest.(check string) "type" "text" (block |> member "type" |> to_string);
   Alcotest.(check string)
-    "short = plain string"
-    "Short."
-    (json |> member "system" |> to_string)
-;;
-
-let test_cache_prompt_min_chars_resolves_env_at_build_time () =
-  let system_prompt = "Short prompt." in
-  let config =
-    PC.make
-      ~kind:Anthropic
-      ~model_id:"m"
-      ~base_url:""
-      ~system_prompt
-      ~cache_system_prompt:true
-      ()
-  in
-  let system_json () =
-    let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "system"
-  in
-  with_env Llm_provider.Constants.Env.prompt_cache_min_chars (Some "9999") (fun () ->
-    let open Yojson.Safe.Util in
-    Alcotest.(check string)
-      "high threshold keeps plain string"
-      system_prompt
-      (system_json () |> to_string));
-  with_env Llm_provider.Constants.Env.prompt_cache_min_chars (Some "1") (fun () ->
-    let open Yojson.Safe.Util in
-    let system = system_json () |> to_list in
-    Alcotest.(check int) "low threshold caches system block" 1 (List.length system);
-    let block = List.hd system in
-    Alcotest.(check string) "type" "text" (block |> member "type" |> to_string);
-    Alcotest.(check string)
-      "cache_control type"
-      "ephemeral"
-      (block |> member "cache_control" |> member "type" |> to_string))
+    "cache_control type"
+    "ephemeral"
+    (block |> member "cache_control" |> member "type" |> to_string)
 ;;
 
 let test_cache_no_system_no_cache () =
@@ -1478,6 +1452,10 @@ let () =
             "disabled thinking omits adaptive effort"
             `Quick
             test_anthropic_disabled_thinking_omits_adaptive_effort
+        ; test_case
+            "Sonnet 5 explicit disable is serialized"
+            `Quick
+            test_anthropic_sonnet5_explicit_disable_is_serialized
         ; test_case
             "thinking forced tool_choice rejected before request"
             `Quick
@@ -1619,11 +1597,10 @@ let () =
         ; test_case "no cache when disabled" `Quick test_cache_no_system_no_cache
         ; test_case "last tool gets cache_control" `Quick test_cache_tools
         ; test_case "default cache off" `Quick test_cache_default_false
-        ; test_case "short prompt skips cache" `Quick test_cache_short_prompt_skips
         ; test_case
-            "prompt min chars resolves env at build time"
+            "short prompt preserves opt-in"
             `Quick
-            test_cache_prompt_min_chars_resolves_env_at_build_time
+            test_cache_short_prompt_preserves_opt_in
         ] )
     ]
 ;;

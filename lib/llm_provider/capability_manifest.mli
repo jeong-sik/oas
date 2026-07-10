@@ -101,6 +101,9 @@ type entry =
         [thinking_control_format] and [thinking_control_token] members at parse
         time — [chat_template_token] carries its token in the constructor, so a
         tokenless declaration fails closed in {!of_json}. *)
+  ; anthropic_thinking_control : Capability_vocab.anthropic_thinking_control option
+    (** Anthropic Messages API thinking policy. This is model declaration data,
+        not an identifier-derived guess. *)
   ; preserve_thinking_control_format : string option
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /

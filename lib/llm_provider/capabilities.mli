@@ -188,18 +188,22 @@ val effective_disable_parallel_tool_use
     Older/current manual-thinking models accept
     [thinking: {"type":"enabled","budget_tokens":N}]. Newer adaptive models
     use [thinking: {"type":"adaptive"}] and optional [output_config.effort].
+    Some adaptive-default models accept an explicit [thinking: {"type":"disabled"}]
+    override while omitting the field preserves their provider default.
     Some models require adaptive thinking, and some always run adaptive
     thinking without an explicit [thinking] request field. *)
 type anthropic_thinking_control =
   | Anthropic_manual_budget
+  | Anthropic_adaptive_default
   | Anthropic_adaptive_preferred
   | Anthropic_adaptive_only
   | Anthropic_always_adaptive
 
-(** Return the documented thinking-control protocol for an Anthropic model id.
-    Input is expected lowercased, but the function trims and lowercases for
-    callers that pass raw config values. *)
-val anthropic_thinking_control_of_id : string -> anthropic_thinking_control
+(** Resolve Anthropic thinking control from the model catalog, then the
+    capability manifest when the catalog has no matching row. [None] means
+    neither source declares an Anthropic thinking policy. *)
+val anthropic_thinking_control_for_model_id
+  : string -> anthropic_thinking_control option
 
 (** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code

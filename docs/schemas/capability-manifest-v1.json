@@ -196,6 +196,11 @@
             "enable_thinking"
           ]
         },
+        "anthropic_thinking_control": {
+          "type": "string",
+          "description": "Anthropic Messages API thinking policy; never infer this from the model identifier.",
+          "enum": ["manual_budget", "adaptive_default", "adaptive_preferred", "adaptive_only", "always_adaptive"]
+        },
         "thinking_control_token": {
           "type": "string",
           "description": "Exact chat-template token to inject when thinking_control_format is chat_template_token. Leading or trailing whitespace is rejected.",

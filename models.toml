@@ -1,9 +1,66 @@
 # Unified Model Catalog Configuration
 
 # Anthropic Models
+# Current Claude model limits and thinking modes are sourced from the official
+# Claude Platform model overview / adaptive-thinking docs (checked 2026-07-10).
+# Static pricing rows use standard rates; time-limited promotional pricing is
+# intentionally not encoded as a model capability or runtime control.
+[[models]]
+id_prefix = "claude-fable-5"
+base = "anthropic"
+anthropic_thinking_control = "always_adaptive"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 10.0
+output_per_million = 50.0
+
+[[models]]
+id_prefix = "claude-mythos-5"
+base = "anthropic"
+anthropic_thinking_control = "always_adaptive"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 10.0
+output_per_million = 50.0
+
+[[models]]
+id_prefix = "claude-mythos-preview"
+base = "anthropic"
+anthropic_thinking_control = "always_adaptive"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+
+[[models]]
+id_prefix = "claude-opus-4-8"
+base = "anthropic"
+anthropic_thinking_control = "adaptive_only"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 5.0
+output_per_million = 25.0
+
+[[models]]
+id_prefix = "claude-opus-4-7"
+base = "anthropic"
+anthropic_thinking_control = "adaptive_only"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 5.0
+output_per_million = 25.0
+
+[[models]]
+id_prefix = "claude-sonnet-5"
+base = "anthropic"
+anthropic_thinking_control = "adaptive_default"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 3.0
+output_per_million = 15.0
+
 [[models]]
 id_prefix = "opus-4-6"
 base = "anthropic"
+anthropic_thinking_control = "adaptive_preferred"
 max_context_tokens = 1000000
 max_output_tokens = 128000
 input_per_million = 15.0
@@ -14,6 +71,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "opus-4-5"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 128000
 input_per_million = 15.0
@@ -24,6 +82,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "sonnet-4-6"
 base = "anthropic"
+anthropic_thinking_control = "adaptive_preferred"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -34,6 +93,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "sonnet-4"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -44,6 +104,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "haiku-4-5"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 200000
 max_output_tokens = 8192
 input_per_million = 0.8
@@ -55,6 +116,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-3-7-sonnet"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -65,6 +127,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude_code"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -75,6 +138,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "cc:"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -358,6 +422,11 @@ supports_native_streaming = true
 # Ollama Cloud Models (canonical 2026-06 seed)
 # Source: https://ollama.com/api/tags + /api/show, checked 2026-06-20 KST.
 # Provider-qualified entries preserve Ollama Cloud wire behavior when a model id overlaps another provider.
+# The official structured-output documentation currently says that Ollama Cloud
+# does not support structured outputs. JSON mode remains a separate capability;
+# keep every Ollama Cloud row schema-disabled until the official provider
+# contract changes. Source: https://docs.ollama.com/capabilities/structured-outputs,
+# checked 2026-07-10.
 
 [[models]]
 id_prefix = "ollama_cloud/deepseek-v3.1:671b"
@@ -431,7 +500,7 @@ supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/devstral-small-2:24b"
@@ -448,7 +517,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/gemini-3-flash-preview"
@@ -786,7 +855,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/mistral-large-3:675b"
@@ -892,20 +961,6 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 
-[[models]]
-id_prefix = "ollama_cloud/rnj-1:8b"
-base = "ollama_cloud"
-max_context_tokens = 32768
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = false
-supports_extended_thinking = false
-supports_reasoning_budget = false
-thinking_control_format = "none"
-supports_multimodal_inputs = false
-supports_image_input = false
-supports_native_streaming = true
-
 # Bare entries for Cloud models not already represented elsewhere by a direct-provider seed.
 # Runtime startup still checks bare model membership before OAS provider-qualified dispatch.
 
@@ -951,7 +1006,7 @@ supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "devstral-small-2:24b"
@@ -968,7 +1023,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "gemma3:4b"
@@ -1163,7 +1218,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "mistral-large-3:675b"
@@ -1265,20 +1320,6 @@ thinking_control_format = "ollama_think"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
-supports_native_streaming = true
-
-[[models]]
-id_prefix = "rnj-1:8b"
-base = "ollama_cloud"
-max_context_tokens = 32768
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = false
-supports_extended_thinking = false
-supports_reasoning_budget = false
-thinking_control_format = "none"
-supports_multimodal_inputs = false
-supports_image_input = false
 supports_native_streaming = true
 
 # Gemini Models
@@ -2271,6 +2312,7 @@ output_per_million = 0.0
 [[models]]
 id_prefix = "claude-opus-4-6"
 base = "anthropic"
+anthropic_thinking_control = "adaptive_preferred"
 max_context_tokens = 1000000
 max_output_tokens = 128000
 input_per_million = 15.0
@@ -2281,6 +2323,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-opus-4-5"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 128000
 input_per_million = 15.0
@@ -2291,6 +2334,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-opus-4"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 128000
 input_per_million = 15.0
@@ -2301,6 +2345,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-sonnet-4-6"
 base = "anthropic"
+anthropic_thinking_control = "adaptive_preferred"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -2311,6 +2356,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-sonnet-4"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 1000000
 max_output_tokens = 64000
 input_per_million = 3.0
@@ -2321,6 +2367,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-haiku-4-5"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 200000
 max_output_tokens = 8192
 input_per_million = 0.8
@@ -2331,6 +2378,7 @@ cache_read_multiplier = 0.1
 [[models]]
 id_prefix = "claude-haiku-4"
 base = "anthropic"
+anthropic_thinking_control = "manual_budget"
 max_context_tokens = 200000
 max_output_tokens = 8192
 input_per_million = 0.8

@@ -218,6 +218,7 @@ let kimi_provider_impl : provider_impl =
                  ~config
                  ~messages
                  ~message_to_json:Llm_provider.Api_common.kimi_message_to_json
+                 ~provider_kind:Llm_provider.Provider_config.Kimi
                  ?tools
                  ~stream:false
                  ())))
@@ -397,7 +398,7 @@ let resolve (cfg : config) =
   match cfg.provider with
   | Local { base_url } -> Ok (base_url, "", [ "Content-Type", "application/json" ])
   | Anthropic ->
-    (match Sys.getenv_opt cfg.api_key_env with
+    (match Llm_provider.Cli_common_env.get cfg.api_key_env with
      | Some key ->
        (* Auth header ("x-api-key") is NOT included in the returned headers
           list.  Callers must merge [auth_headers_only_for_kind] at HTTP
@@ -416,7 +417,7 @@ let resolve (cfg : config) =
           time so that [Provider_config.t.headers] never carries tokens. *)
        Ok (base_url, key, [ "Content-Type", "application/json" ])
      | _ ->
-       (match Sys.getenv_opt cfg.api_key_env with
+       (match Llm_provider.Cli_common_env.get cfg.api_key_env with
         | Some key -> Ok (base_url, key, [ "Content-Type", "application/json" ])
         | None -> Ok (base_url, "", [ "Content-Type", "application/json" ])))
   | Custom_registered { name } ->
@@ -571,10 +572,7 @@ let api_key_env_candidates = function
 
 let api_key_from_env env_name =
   api_key_env_candidates env_name
-  |> List.find_map (fun name ->
-    match Sys.getenv_opt name with
-    | Some value when String.trim value <> "" -> Some value
-    | _ -> None)
+  |> List.find_map Llm_provider.Cli_common_env.get
   |> Option.value ~default:""
 ;;
 

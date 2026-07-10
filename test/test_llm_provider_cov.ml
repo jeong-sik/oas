@@ -848,7 +848,6 @@ let test_constants_env_helpers () =
       ; Constants.Env.thinking_budget_default, "4096"
       ; Constants.Env.anthropic_thinking_budget, "2048"
       ; Constants.Env.gemini_thinking_budget, "3072"
-      ; Constants.Env.prompt_cache_min_chars, "4096"
       ; Constants.Env.default_seed, "123"
       ]
   in
@@ -868,10 +867,6 @@ let test_constants_env_helpers () =
     "gemini provider override"
     3072
     (Constants.Thinking.gemini_budget ~getenv ());
-  Alcotest.(check int)
-    "prompt cache chars env override"
-    4096
-    (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv ());
   Alcotest.(check (option int))
     "seed env override"
     (Some 123)
@@ -879,7 +874,6 @@ let test_constants_env_helpers () =
   let invalid_getenv =
     getenv_from
       [ Constants.Env.max_tokens_default, "0"
-      ; Constants.Env.prompt_cache_min_chars, "not-an-int"
       ; Constants.Env.default_seed, "not-an-int"
       ]
   in
@@ -887,10 +881,6 @@ let test_constants_env_helpers () =
     "max tokens invalid env fallback"
     Constants.unknown_model_max_tokens_fallback
     (Constants.resolve_unknown_model_max_tokens_fallback ~getenv:invalid_getenv ());
-  Alcotest.(check int)
-    "prompt cache invalid env fallback"
-    Constants.Anthropic.default_prompt_cache_min_chars
-    (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv:invalid_getenv ());
   Alcotest.(check (option int))
     "seed invalid"
     None
@@ -912,14 +902,6 @@ let test_constants_env_helpers () =
       (Constants.Thinking.anthropic_budget ()));
   with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
     Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()));
-  Alcotest.(check int)
-    "anthropic cache min chars"
-    3500
-    Constants.Anthropic.default_prompt_cache_min_chars;
-  Alcotest.(check int)
-    "anthropic cache min tools"
-    3
-    Constants.Anthropic.prompt_cache_min_tools
 ;;
 
 let test_slot_cache_helpers () =

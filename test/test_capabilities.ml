@@ -815,7 +815,6 @@ let test_ollama_cloud_current_catalog_resolves () =
     ; "nemotron-3-nano:30b", 262_144, false
     ; "devstral-2:123b", 262_144, false
     ; "gemma3:12b", 131_072, true
-    ; "rnj-1:8b", 32_768, false
     ; "nemotron-3-ultra", 262_144, false
     ; "qwen3-coder:480b", 262_144, false
     ; "devstral-small-2:24b", 262_144, true
@@ -964,15 +963,15 @@ let test_ollama_cloud_kimi_preserves_historical_reasoning () =
       (c.reasoning_replay_override = Capabilities.Force_preserve_always)
 ;;
 
-let test_ollama_cloud_mistral_family_structured_output_is_model_specific () =
-  (* Live grouped SO checks on 2026-06-29 showed that these rows all accept
-     JSON-format requests and tool replay, but native schema-shaped final
-     output is not family-wide. Keep the model-specific support in the catalog
-     instead of inheriting the broad ollama_cloud default silently. *)
+let test_ollama_cloud_structured_output_is_disabled_by_provider_contract () =
+  (* The official Ollama structured-output documentation currently says that
+     Ollama Cloud does not support structured outputs. Keep JSON mode and
+     schema enforcement separate: every Cloud row must remain schema-disabled
+     even when a historical probe appeared to accept a schema-shaped reply. *)
   let cases =
-    [ "devstral-2:123b", true
-    ; "devstral-small-2:24b", true
-    ; "ministral-3:14b", true
+    [ "devstral-2:123b", false
+    ; "devstral-small-2:24b", false
+    ; "ministral-3:14b", false
     ; "mistral-large-3:675b", false
     ; "ministral-3:3b", false
     ; "ministral-3:8b", false
@@ -2610,9 +2609,9 @@ let () =
             `Quick
             test_ollama_cloud_kimi_preserves_historical_reasoning
         ; test_case
-            "ollama cloud Mistral-family SO is model-specific"
+            "ollama cloud structured output follows provider contract"
             `Quick
-            test_ollama_cloud_mistral_family_structured_output_is_model_specific
+            test_ollama_cloud_structured_output_is_disabled_by_provider_contract
         ; test_case
             "ollama cloud preserves shared bare families"
             `Quick
