@@ -41,18 +41,6 @@ val sse_event_is_first_token_signal : sse_event -> bool
     @since 0.205.12 *)
 val sse_event_is_deliverable_progress_signal : sse_event -> bool
 
-(** [true] when a stream has spent at least [timeout_s] seconds in
-    hidden-reasoning-only generation before any deliverable signal.
-    Pure helper for {!Complete}'s semantic stream timeout guard.
-
-    @stability Internal
-    @since 0.205.12 *)
-val thinking_only_timeout_exceeded
-  :  timeout_s:float
-  -> started_at:float
-  -> now:float
-  -> bool
-
 (** {1 Openai SSE} *)
 
 (** Wire shape of streamed tool-call arguments. [Args_fragment] is an incremental
