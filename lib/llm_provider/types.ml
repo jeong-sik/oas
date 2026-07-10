@@ -347,7 +347,7 @@ type stop_reason =
   | Compaction (** Anthropic context compaction. *)
   | ContextWindowExceeded (** Anthropic context window exceeded. *)
   | UnmatchedToolCalls
-      (** Internal fail-closed response shape: a provider claimed a tool turn
+  (** Internal fail-closed response shape: a provider claimed a tool turn
           but no executable tool block was assembled. This is not a provider
           terminal reason and is constructed only after wire reconciliation. *)
   | Unknown of string

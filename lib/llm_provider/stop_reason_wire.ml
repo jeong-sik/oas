@@ -16,8 +16,7 @@ let wire_finish_of_string s =
 
 let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   match w with
-  | Tool_calls ->
-    if has_tool_blocks then Types.StopToolUse else Types.UnmatchedToolCalls
+  | Tool_calls -> if has_tool_blocks then Types.StopToolUse else Types.UnmatchedToolCalls
   | Length -> Types.MaxTokens
   | Stop -> Types.EndTurn
   | Refusal -> Types.Refusal
