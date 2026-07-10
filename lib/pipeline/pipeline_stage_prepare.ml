@@ -87,7 +87,11 @@ let stage_input ?raw_trace_run ?clock agent =
   | Hooks.Continue -> Ok ()
   | Hooks.HookFailed { stage; detail } ->
     Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
-  | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ | Hooks.Block _ ->
+  | Hooks.Skip
+  | Hooks.Override _
+  | Hooks.ApprovalRequired
+  | Hooks.AdjustParams _
+  | Hooks.Block _ ->
     (* Reject illegal hook decisions with a typed error instead of crashing.
        [Hooks.invoke_validated] normally filters these out; this branch guards
        against a validation bypass or future hook matrix drift. [Block] is
