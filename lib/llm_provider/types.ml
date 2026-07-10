@@ -346,6 +346,10 @@ type stop_reason =
   | PauseTurn (** Anthropic long-running turn pause. *)
   | Compaction (** Anthropic context compaction. *)
   | ContextWindowExceeded (** Anthropic context window exceeded. *)
+  | UnmatchedToolCalls
+  (** Internal fail-closed response shape: a provider claimed a tool turn
+          but no executable tool block was assembled. This is not a provider
+          terminal reason and is constructed only after wire reconciliation. *)
   | Unknown of string
 [@@deriving show]
 
@@ -358,6 +362,7 @@ let stop_reason_of_string = function
   | "pause_turn" -> PauseTurn
   | "compaction" -> Compaction
   | "model_context_window_exceeded" -> ContextWindowExceeded
+  | "unmatched_tool_calls" -> UnmatchedToolCalls
   | other -> Unknown other
 ;;
 
@@ -377,6 +382,7 @@ let stop_reason_to_string = function
   | PauseTurn -> "pause_turn"
   | Compaction -> "compaction"
   | ContextWindowExceeded -> "model_context_window_exceeded"
+  | UnmatchedToolCalls -> "unmatched_tool_calls"
   | Unknown s -> s
 ;;
 
@@ -395,7 +401,8 @@ let stop_reason_to_metric_label = function
     | Refusal
     | PauseTurn
     | Compaction
-    | ContextWindowExceeded ) as r -> stop_reason_to_string r
+    | ContextWindowExceeded
+    | UnmatchedToolCalls ) as r -> stop_reason_to_string r
 ;;
 
 (** API usage from a single response *)

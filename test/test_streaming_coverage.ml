@@ -206,10 +206,11 @@ let test_acc_message_delta_stop_reason () =
    | StopToolUse -> ()
    | _ -> Alcotest.fail "expected accumulated StopToolUse");
   let resp = finalize_ok acc in
-  (* Finalization reconciles a tool-stop with no tool blocks to Unknown. *)
+  (* Finalization reconciles a tool-stop with no tool blocks to the typed
+     UnmatchedToolCalls outcome. *)
   match resp.stop_reason with
-  | Unknown "tool_calls" -> ()
-  | _ -> Alcotest.fail "expected reconciled Unknown tool_calls"
+  | UnmatchedToolCalls -> ()
+  | _ -> Alcotest.fail "expected reconciled UnmatchedToolCalls"
 ;;
 
 let test_acc_message_delta_none_stop_reason () =

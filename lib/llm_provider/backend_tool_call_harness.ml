@@ -271,8 +271,8 @@ let schema_tool_call_check schema_lookup = function
 
 let stop_reason_matches_tool_calls ~has_tool_calls = function
   | StopToolUse -> has_tool_calls
-  | Unknown _ as stop_reason ->
-    (not has_tool_calls) && Stop_reason_wire.is_unmatched_tool_calls stop_reason
+  | UnmatchedToolCalls -> not has_tool_calls
+  | Unknown _ -> false
   | EndTurn
   | MaxTokens
   | StopSequence

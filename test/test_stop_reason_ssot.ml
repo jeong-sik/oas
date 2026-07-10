@@ -20,6 +20,7 @@ let all_known_variants =
   ; Types.PauseTurn
   ; Types.Compaction
   ; Types.ContextWindowExceeded
+  ; Types.UnmatchedToolCalls
   ]
 ;;
 

@@ -308,7 +308,7 @@ let test_anthropic_tool_use_stop_without_tool_block_fails_closed () =
     bool
     "tool_use stop without a ToolUse block is not executable"
     true
-    (response.stop_reason = T.Unknown "tool_calls");
+    (response.stop_reason = T.UnmatchedToolCalls);
   let result = H.validate_response ~declared_tools:[ "lookup" ] response in
   check bool "validation sees non-tool stop" true result.stop_reason_correct;
   check int "no tool calls found" 0 (List.length result.tool_calls_found)

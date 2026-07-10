@@ -205,6 +205,7 @@ let stop_reason_label : Types.stop_reason -> string = function
   | PauseTurn -> "pause_turn"
   | Compaction -> "compaction"
   | ContextWindowExceeded -> "model_context_window_exceeded"
+  | UnmatchedToolCalls -> "unmatched_tool_calls"
   | Unknown s -> "unknown:" ^ s
 ;;
 

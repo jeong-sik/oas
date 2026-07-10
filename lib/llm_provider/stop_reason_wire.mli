@@ -28,7 +28,7 @@ val wire_finish_of_string : string -> wire_finish
 
 (** Canonical parse-time mapping for backends that know the assembled tool-block
     set at parse time (the non-streaming OpenAI parser). [Tool_calls] and [Other]
-    with [has_tool_blocks = false] fail closed to [Unknown] rather than asserting
+    with [has_tool_blocks = false] fail closed to [UnmatchedToolCalls] rather than asserting
     a tool-use turn that carries no tool. *)
 val of_finish : wire_finish -> has_tool_blocks:bool -> Types.stop_reason
 
@@ -39,16 +39,15 @@ val of_finish : wire_finish -> has_tool_blocks:bool -> Types.stop_reason
 val provisional_of_string : string -> Types.stop_reason
 
 (** Enforce parse-time parity after streaming accumulation. Maps [StopToolUse]
-    with [has_tool_blocks = false] to [Unknown "tool_calls"], and maps
+    with [has_tool_blocks = false] to [UnmatchedToolCalls], and maps
     [Unknown _] with [has_tool_blocks = true] to [StopToolUse] so nonstandard
     finish labels that carried tool blocks follow {!of_finish}. Leaves other
     reasons unchanged. Total over {!Types.stop_reason}: no catch-all, so a new
     [stop_reason] constructor forces a compile error here. *)
 val reconcile : Types.stop_reason -> has_tool_blocks:bool -> Types.stop_reason
 
-(** [true] only for the canonical fail-closed value produced when a provider
+(** [true] only for the typed fail-closed value produced when a provider
     reported a tool-use finish but the assembled response carried no tool
     block. Consumers that need to distinguish this executable-shape invariant
-    from arbitrary unknown stop reasons should use this predicate instead of
-    matching the payload string themselves. *)
+    from arbitrary unknown stop reasons should use this predicate. *)
 val is_unmatched_tool_calls : Types.stop_reason -> bool

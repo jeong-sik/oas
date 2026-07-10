@@ -757,6 +757,15 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                Agent_types.reset_idle_state agent;
                Ok (Complete response)
              | other -> other))
+       | UnmatchedToolCalls ->
+         (* The wire boundary has already classified this response shape as
+            malformed. Keep rejecting it; arbitrary provider terminal reasons
+            remain fail-closed in their own branch below. *)
+         Agent_types.reset_idle_state agent;
+         Error
+           (Error.Agent
+              (UnrecognizedStopReason
+                 { reason = Types.stop_reason_to_string response.stop_reason }))
        | EndTurn
        | MaxTokens
        | StopSequence
