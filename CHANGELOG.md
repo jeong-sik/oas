@@ -8,6 +8,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+* **hooks:** establish 0.209 as the supported compatibility floor for
+  `Hooks.Block` and `K_Block`, which were incorrectly shipped in the 0.208.21
+  patch line. Exhaustive matches must handle the new variants; see the
+  [hook decision migration guide](docs/migrations/0.209-hook-block.md).
+* **context:** remove the public `Agent_sdk.Context_intent` module. Consumers
+  must move query-intent classification to their own typed boundary; see the
+  [0.209 migration guide](docs/migrations/0.209-context-intent-removal.md).
+  The usual deprecation window is waived as a safety exception: restoring the
+  removed implementation or a compatibility shim would preserve heuristic
+  string matching and a silent model-error fallback.
+
 ### Bug Fixes
 
 * **context_offload:** emit a diagnostic warning when tool-result offload write
