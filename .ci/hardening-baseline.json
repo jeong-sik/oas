@@ -25,10 +25,7 @@
     "exception_message_classifiers": [
       "lib/llm_provider/retry.ml:319:let msg = String.lowercase_ascii (extract_error_message body) in"
     ],
-    "heuristic_markers": [
-      "lib/context_intent.ml:84:let heuristic_classify query =",
-      "lib/context_intent.mli:38:val heuristic_classify : string -> classification"
-    ],
+    "heuristic_markers": [],
     "local_workspace_path_literals": [],
     "model_id_string_classifiers_outside_catalog": [],
     "stub_markers": [],
@@ -44,13 +41,13 @@
     ],
     "workaround_markers": []
   },
-  "lastUpdatedCommit": "4d371c24d12ad5b55a2c3641391f2fd95b6a61cc",
+  "lastUpdatedCommit": "4fdf5deb4d9a7579cfd832fa720edf923c290cb0",
   "metrics": {
     "base_url_host_fuzzy_classifiers": 0,
     "direct_env_reads": 11,
     "direct_env_reads_outside_env_boundary": 8,
     "exception_message_classifiers": 1,
-    "heuristic_markers": 2,
+    "heuristic_markers": 0,
     "local_workspace_path_literals": 0,
     "model_id_string_classifiers_outside_catalog": 0,
     "stub_markers": 0,

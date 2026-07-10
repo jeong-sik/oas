@@ -10,27 +10,27 @@ MCP Protocol SDK  <--  OAS (Agent SDK)  <--  External coordinator
 ```
 
 OAS provides generic single-agent primitives: context, hooks, tool/runtime
-abstractions, provider-neutral runtime events, and intent classification.
-Coordinators consume these primitives and add their own orchestration
-semantics. OAS is not allowed to name, depend on, or adapt to any specific
-coordinator.
+abstractions, and provider-neutral runtime events. Coordinators consume these
+primitives and add their own query classification and orchestration semantics.
+OAS is not allowed to name, depend on, or adapt to any specific coordinator.
 
 ## What this means in practice
 
-1. **No coordinator keywords in heuristic classifiers.** Terms like "keeper",
-   "room", "broadcast", or coordinator-specific role names must not appear in
-   OAS keyword lists or prompt templates.
+1. **No coordinator-specific classifiers.** Terms like "keeper", "room",
+   "broadcast", or coordinator-specific role names must not appear in OAS
+   keyword lists or prompt templates.
 
 2. **No coordinator types imported.** OAS must never depend on a coordinator's
    opam package or reference coordinator-specific module names.
 
-3. **Generic vocabulary only.** Where OAS needs coordination-related keywords
-   (e.g. for intent classification), use domain-neutral terms: "assign",
-   "route", "transfer", "coordinate", "sync", "notify", "actor", "group".
+3. **Generic vocabulary only.** Where OAS needs coordination-related language
+   in generic documentation or protocol descriptions, use domain-neutral terms:
+   "assign", "route", "transfer", "coordinate", "sync", "notify", "actor",
+   "group".
 
-4. **Coordinator-specific aliases live downstream.** If a coordinator needs
-   "handoff" to map to `Coordination` intent, it should wrap
-   `Context_intent.intent_of_string` in its own adapter.
+4. **Query-intent classification lives downstream.** A coordinator that needs
+   terms such as "handoff" must own a typed classifier and its failure policy.
+   OAS intentionally provides no heuristic compatibility adapter.
 
 5. **Provider catalogs stay generic.** `OAS_PROVIDER_CATALOG` entries may
    describe provider ids, transport, auth mode, endpoint, default model, and
@@ -44,7 +44,6 @@ coordinator wraps these in is intentionally outside this document.
 
 | Module | Owner |
 |--------|-------|
-| `Context_intent` | OAS |
 | `Contract`, `Completion_contract` | OAS |
 | `Policy`, `Guardrails`, `Guardrail_*` | OAS |
 | `Runtime`, `Runtime_evidence` | OAS |
@@ -63,18 +62,19 @@ do not imply an `Agent_sdk` OCaml module.
 ## Enforcement
 
 - CI: `grep -rn` for a maintained blocklist of coordinator-specific terms in `lib/`.
-- Code review: any new keyword in `context_intent.ml` must be justified as
-  domain-neutral.
+- Code review: query-intent keyword scoring and silent fallback classifiers do
+  not belong in OAS.
 - README and top-level docs must not mention any specific external coordinator
   by name.
 
 ## History
 
-- 2026-03-29: Initial principle established. Removed "delegate", "handoff",
-  "agent", "team" from `context_intent.ml` heuristic keywords. Replaced with
-  "route", "transfer", "actor".
+- 2026-03-29: Initial principle established. Removed downstream vocabulary from
+  the former context-intent classifier and replaced it with generic terms.
 - 2026-04-17: Tightened. Owner/consumers table no longer names downstream
   coordinators; OAS docs do not depend on any specific consumer.
 - 2026-05-21: Removed stale CDAL module ownership after the 0.193.0 migration;
   proof artifacts are schema-level interoperability contracts, not OAS OCaml
   modules.
+- 2026-07-08: Removed the public query-intent classifier. The 0.209 migration
+  guide records the safety exception to the usual deprecation window.
