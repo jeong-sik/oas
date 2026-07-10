@@ -45,34 +45,17 @@ let map_http_error = Http_error_sdk.of_http_error
 
 let map_stream_finalize_result = function
   | Error e -> Error (map_http_error e)
-  | Ok (Ok resp) when resp.content = [] ->
-    (* oas#2483 streaming symmetry: a stream that finalized cleanly but with no
-       content block is the streaming analog of the blank-200 empty completion
-       the non-streaming parser rejects as [Empty_completion]. Fail closed at
-       this consumption boundary so the driver never returns an empty assistant
-       turn as success (the empty-turn storm root). [finalize_stream_acc] stays
-       a pure structural assembler -- its unit tests still observe
-       [Ok content=[]]; only the driver applies the completion policy, mirroring
-       the sync [parse_openai_response_result] wrapper over its raw parser. A
-       truncated stream is already rejected earlier in [finalize_stream_acc]
-       ([stream_terminated_without_stop_reason]); this covers the clean-close
-       empty case. *)
-    Error
-      (map_http_error
-         (Llm_provider.Complete_stream.http_error_of_stream_error
-            (Stream_parse_failed
-               { reason =
-                   Printf.sprintf
-                     "empty_completion:%s"
-                     (stop_reason_to_string resp.stop_reason)
-               ; raw = ""
-               })))
-  | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
-  | Ok (Error serr) ->
-    Error (map_http_error (Llm_provider.Complete_stream.http_error_of_stream_error serr))
+  | Ok result ->
+    let result =
+      Result.map_error Llm_provider.Complete_stream.http_error_of_stream_error result
+      |> Llm_provider.Complete_common.ensure_nonempty_completion
+    in
+    (match result with
+     | Ok resp -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
+     | Error err -> Error (map_http_error err))
 ;;
 
-let%test "map_stream_finalize_result fails closed on empty completion (oas#2483)" =
+let%test "map_stream_finalize_result maps typed empty to provider unavailable (oas#2483)" =
   let empty_resp : api_response =
     { id = "m"
     ; model = "test"
@@ -82,11 +65,12 @@ let%test "map_stream_finalize_result fails closed on empty completion (oas#2483)
     ; telemetry = None
     }
   in
+  let max_tokens_resp = { empty_resp with stop_reason = MaxTokens } in
   let ok_resp = { empty_resp with content = [ Text "hi" ] } in
-  let empty_fails =
-    match map_stream_finalize_result (Ok (Ok empty_resp)) with
-    | Error _ -> true
-    | Ok _ -> false
+  let fails_closed response =
+    match map_stream_finalize_result (Ok (Ok response)) with
+    | Error (Error.Provider (Llm_provider.Error.ProviderUnavailable _)) -> true
+    | Error _ | Ok _ -> false
   in
   (* A content-bearing completion still finalizes Ok: the guard fires only on
      the all-empty clean close, not on every stream. *)
@@ -95,7 +79,7 @@ let%test "map_stream_finalize_result fails closed on empty completion (oas#2483)
     | Ok _ -> true
     | Error _ -> false
   in
-  empty_fails && nonempty_ok
+  fails_closed empty_resp && fails_closed max_tokens_resp && nonempty_ok
 ;;
 
 (** Streaming variant of create_message.

@@ -16,6 +16,25 @@ let anthropic_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_tu
     stop_reason
 ;;
 
+let anthropic_empty_response stop_reason =
+  Printf.sprintf
+    {|{"id":"msg-empty","type":"message","role":"assistant","model":"mock","content":[],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":0}}|}
+    stop_reason
+;;
+
+let anthropic_empty_sse stop_reason =
+  Printf.sprintf
+    "event: message_start\n\
+     data: \
+     {\"type\":\"message_start\",\"message\":{\"id\":\"msg-empty\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n\
+     event: message_delta\n\
+     data: \
+     {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"%s\"},\"usage\":{\"output_tokens\":0}}\n\n\
+     event: message_stop\n\
+     data: {\"type\":\"message_stop\"}\n\n"
+    stop_reason
+;;
+
 let openai_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
@@ -177,6 +196,15 @@ let make_transport response : Llm_transport.t =
   }
 ;;
 
+let check_typed_empty_completion expected = function
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Empty_completion { stop_reason }; _ }) ->
+    check bool "typed stop reason" true (stop_reason = expected)
+  | Ok _ -> fail "expected empty completion error, got Ok"
+  | Error _ -> fail "expected typed empty completion provider failure"
+;;
+
 (* ── complete: success ───────────────────────────────── *)
 
 let test_complete_anthropic_ok () =
@@ -203,6 +231,54 @@ let test_complete_anthropic_ok () =
     | Error _ -> fail "expected Ok"
   with
   | Exit -> ()
+;;
+
+let test_complete_http_rejects_typed_empty_completion () =
+  let run expected wire_stop_reason =
+    Eio_main.run
+    @@ fun env ->
+    try
+      Eio.Switch.run
+      @@ fun sw ->
+      let url =
+        start_mock_server ~sw ~net:env#net (anthropic_empty_response wire_stop_reason)
+      in
+      Complete.complete ~sw ~net:env#net ~config:(make_config url) ~messages ()
+      |> check_typed_empty_completion expected;
+      Eio.Switch.fail sw Exit
+    with
+    | Exit -> ()
+  in
+  List.iter
+    (fun (expected, wire) -> run expected wire)
+    [ Types.EndTurn, "end_turn"; Types.MaxTokens, "max_tokens" ]
+;;
+
+let test_complete_stream_http_rejects_typed_empty_completion () =
+  let run expected wire_stop_reason =
+    Eio_main.run
+    @@ fun env ->
+    try
+      Eio.Switch.run
+      @@ fun sw ->
+      let url =
+        start_mock_server ~sw ~net:env#net (anthropic_empty_sse wire_stop_reason)
+      in
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~config:(make_config url)
+        ~messages
+        ~on_event:(fun _ -> ())
+        ()
+      |> check_typed_empty_completion expected;
+      Eio.Switch.fail sw Exit
+    with
+    | Exit -> ()
+  in
+  List.iter
+    (fun (expected, wire) -> run expected wire)
+    [ Types.EndTurn, "end_turn"; Types.MaxTokens, "max_tokens" ]
 ;;
 
 (* ── complete: HTTP error ────────────────────────────── *)
@@ -1763,6 +1839,10 @@ let () =
     "complete_http"
     [ ( "complete"
       , [ test_case "anthropic ok" `Quick test_complete_anthropic_ok
+        ; test_case
+            "HTTP rejects typed empty completion"
+            `Quick
+            test_complete_http_rejects_typed_empty_completion
         ; test_case "http error" `Quick test_complete_http_error
         ; test_case
             "empty http error body has context"
@@ -1828,6 +1908,10 @@ let () =
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "HTTP stream rejects typed empty completion"
+            `Quick
+            test_complete_stream_http_rejects_typed_empty_completion
         ; test_case
             "preserves thinking signature"
             `Quick

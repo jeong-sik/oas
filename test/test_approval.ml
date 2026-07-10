@@ -241,6 +241,29 @@ let test_approval_reject () =
   | _ -> fail "expected exactly one result"
 ;;
 
+let test_block_is_deterministic_failure () =
+  let hooks =
+    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Block "policy denied") }
+  in
+  let results =
+    run_execute
+      ~hooks
+      [ ToolUse { id = "t1"; name = "dangerous"; input = `String "must not run" } ]
+  in
+  match results with
+  | [ result ] ->
+    check string "id" "t1" result.tool_use_id;
+    check string "reason is verbatim" "policy denied" result.content;
+    check bool "is error" true result.is_error;
+    (match result.failure_kind with
+     | Some Agent_tools.Non_retryable_tool_error -> ()
+     | _ -> fail "expected non-retryable tool error");
+    (match result.error_class with
+     | Some Types.Deterministic -> ()
+     | _ -> fail "expected deterministic error class")
+  | _ -> fail "expected exactly one result"
+;;
+
 let test_approval_edit () =
   let hooks =
     { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
@@ -815,6 +838,10 @@ let () =
             test_approval_required_no_callback_fail_closed
         ; test_case "Approve = normal execution" `Quick test_approval_approve
         ; test_case "Reject with reason" `Quick test_approval_reject
+        ; test_case
+            "Block is a typed deterministic failure"
+            `Quick
+            test_block_is_deterministic_failure
         ; test_case "Edit modifies input" `Quick test_approval_edit
         ; test_case "selective by tool name" `Quick test_selective_approval
         ; test_case "Skip/Override unaffected" `Quick test_skip_override_unaffected

@@ -8,6 +8,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+* **hooks:** establish 0.209 as the supported compatibility floor for
+  `Hooks.Block` and `K_Block`, which were incorrectly shipped in the 0.208.21
+  patch line. Exhaustive matches must handle the new variants; see the
+  [hook decision migration guide](docs/migrations/0.209-hook-block.md).
+* **context:** remove the public `Agent_sdk.Context_intent` module. Consumers
+  must move query-intent classification to their own typed boundary; see the
+  [0.209 migration guide](docs/migrations/0.209-context-intent-removal.md).
+  The usual deprecation window is waived as a safety exception: restoring the
+  removed implementation or a compatibility shim would preserve heuristic
+  string matching and a silent model-error fallback.
+
 ### Bug Fixes
 
 * **context_offload:** emit a diagnostic warning when tool-result offload write
@@ -4652,7 +4665,7 @@ Signature: `val default_summarizer : Types.message list -> string`. No behavior 
 - `pipeline.ml` (`proactive_compact` + `emergency_compact`) threads `?summarizer:agent.options.summarizer` into `Budget_strategy.reduce_for_budget`.
 - The existing `?summarizer` optional parameter on `Budget_strategy.reduce_for_budget` is unchanged; it is simply now reachable from `Agent.options`.
 
-Motivation: consumers that embed application-specific structured markers in message bodies (e.g. `[STATE]...[/STATE]` blocks) need a way to strip or transform those markers before they are re-injected as compacted history. Previously the only path was post-hoc scrubbing via `context_reducer`, which runs **after** `reduce_for_budget` — by that point the `[Summary of N earlier messages]` string is already materialized. Exposing the summarizer on `Agent.options` closes that gap while keeping OAS agnostic of any specific marker syntax.
+Motivation: consumers may need application-specific summary semantics before messages are re-injected as compacted history. Previously the only customization path was post-hoc transformation via `context_reducer`, which runs **after** `reduce_for_budget` — by that point the `[Summary of N earlier messages]` string is already materialized. Exposing the summarizer on `Agent.options` makes that boundary explicit while keeping OAS domain-agnostic.
 
 PR #973.
 

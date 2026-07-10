@@ -9,53 +9,75 @@
 module Http_client = Llm_provider.Http_client
 module Retry = Llm_provider.Retry
 
-let retry_error_of_http_error = function
-  | Http_client.HttpError { code; body } -> Retry.classify_error ~status:code ~body
+type response_error =
+  | Retry_error of Retry.api_error
+  | Completion_error of Http_client.http_error
+
+let sdk_error_of_http_error = function
+  | Http_client.ProviderFailure { kind = Http_client.Empty_completion _; _ } as err ->
+    Http_error_sdk.of_http_error err
+  | Http_client.HttpError { code; body } ->
+    Error.Api (Retry.classify_error ~status:code ~body)
   | Http_client.NetworkError { message; kind = Http_client.Timeout } ->
-    Retry.Timeout { message; phase = None }
-  | Http_client.NetworkError { message; kind } -> Retry.NetworkError { message; kind }
+    Error.Api (Retry.Timeout { message; phase = None })
+  | Http_client.NetworkError { message; kind } ->
+    Error.Api (Retry.NetworkError { message; kind })
   | Http_client.TimeoutError { message; phase } ->
-    Retry.Timeout { message; phase = Some phase }
+    Error.Api (Retry.Timeout { message; phase = Some phase })
   | Http_client.AcceptRejected { reason } ->
-    Retry.InvalidRequest
-      { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request }
+    Error.Api
+      (Retry.InvalidRequest
+         { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request })
   | Http_client.ProviderTerminal { message; _ } ->
-    Retry.InvalidRequest { message; reason = Unknown_invalid_request }
+    Error.Api (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
   | Http_client.ProviderFailure { kind; message } ->
-    Retry.InvalidRequest
-      { message = Http_client.provider_failure_to_string ~kind ~message
-      ; reason = Unknown_invalid_request
-      }
+    Error.Api
+      (Retry.InvalidRequest
+         { message = Http_client.provider_failure_to_string ~kind ~message
+         ; reason = Unknown_invalid_request
+         })
+;;
+
+let sdk_error_of_response_error = function
+  | Retry_error err -> Error.Api err
+  | Completion_error err -> sdk_error_of_http_error err
+;;
+
+let ensure_nonempty_response resp =
+  Llm_provider.Complete_common.ensure_nonempty_completion (Ok resp)
+  |> Result.map_error (fun err -> Completion_error err)
 ;;
 
 let parse_openai_response_result body_str =
   try
     match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
-    | Ok _ as ok -> ok
+    | Ok resp -> ensure_nonempty_response resp
     | Error (Llm_provider.Backend_openai_parse.Provider_error message) ->
-      Error (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request })
-    | Error (Llm_provider.Backend_openai_parse.Empty_completion _) ->
       Error
-        (Retry.InvalidRequest
-           { message =
-               "provider returned an empty completion (no thinking, text, or tool calls)"
-           ; reason = Retry.Unknown_invalid_request
-           })
+        (Retry_error
+           (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request }))
+    | Error (Llm_provider.Backend_openai_parse.Empty_completion empty) ->
+      Error
+        (Completion_error
+           (Http_client.empty_completion_error ~stop_reason:empty.stop_reason))
   with
   | Yojson.Json_error msg ->
     Error
-      (Retry.InvalidRequest
-         { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+      (Retry_error
+         (Retry.InvalidRequest
+            { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error }))
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error
-      (Retry.InvalidRequest
-         { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+      (Retry_error
+         (Retry.InvalidRequest
+            { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error }))
   | Yojson.Safe.Util.Undefined (msg, _) ->
     Error
-      (Retry.InvalidRequest
-         { message = "JSON undefined field error: " ^ msg
-         ; reason = Retry.Json_parse_error
-         })
+      (Retry_error
+         (Retry.InvalidRequest
+            { message = "JSON undefined field error: " ^ msg
+            ; reason = Retry.Json_parse_error
+            }))
 ;;
 
 (** Synchronous provider: can send a message and get a response. *)
@@ -164,23 +186,22 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
                ()
            with
            | Ok (200, body_str) ->
-             (match kind with
-              | Provider.Anthropic_messages ->
-                Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
-              | Provider.Openai_chat_completions ->
-                (match parse_openai_response_result body_str with
-                 | Ok resp -> Ok resp
-                 | Error err -> Error (Error.Api err))
-              | Provider.Custom name ->
-                (match Provider.find_provider name with
-                 | Some impl -> Ok (impl.parse_response body_str)
-                 | None ->
-                   (match parse_openai_response_result body_str with
-                    | Ok resp -> Ok resp
-                    | Error err -> Error (Error.Api err))))
+             let result =
+               match kind with
+               | Provider.Anthropic_messages ->
+                 Api_anthropic.parse_response (Yojson.Safe.from_string body_str)
+                 |> ensure_nonempty_response
+               | Provider.Openai_chat_completions -> parse_openai_response_result body_str
+               | Provider.Custom name ->
+                 (match Provider.find_provider name with
+                  | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
+                  | None -> parse_openai_response_result body_str)
+             in
+             Result.map_error sdk_error_of_response_error result
            | Ok (code, body_str) ->
-             Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
-           | Error err -> Error (Error.Api (retry_error_of_http_error err)))
+             Error
+               (sdk_error_of_http_error (Http_client.HttpError { code; body = body_str }))
+           | Error err -> Error (sdk_error_of_http_error err))
       ;;
     end
     in

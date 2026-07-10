@@ -545,28 +545,24 @@ let%test "Block: classify_decision tags as K_Block" =
   classify_decision (Block "forbidden") = K_Block
 ;;
 
-let%test "Block: decision_kind_to_string" =
-  decision_kind_to_string K_Block = "Block"
-;;
+let%test "Block: decision_kind_to_string" = decision_kind_to_string K_Block = "Block"
 
 let%test "Block: legal only at pre_tool_use" =
   List.mem K_Block (legal_decisions_for_stage "pre_tool_use")
-  && not (List.mem K_Block (legal_decisions_for_stage "before_turn"))
-  && not (List.mem K_Block (legal_decisions_for_stage "on_idle"))
-  && not (List.mem K_Block (legal_decisions_for_stage "post_tool_use"))
+  && (not (List.mem K_Block (legal_decisions_for_stage "before_turn")))
+  && (not (List.mem K_Block (legal_decisions_for_stage "on_idle")))
+  && (not (List.mem K_Block (legal_decisions_for_stage "post_tool_use")))
   && not (List.mem K_Block (legal_decisions_for_stage "pre_compact"))
 ;;
 
 let%test "Block: validate_decision accepts at pre_tool_use" =
-  match validate_decision ~stage:"pre_tool_use" (Block "nope") with
-  | Ok (Block "nope") -> true
-  | _ -> false
+  validate_decision ~stage:"pre_tool_use" (Block "nope") = Ok (Block "nope")
 ;;
 
 let%test "Block: validate_decision rejects at on_idle" =
   match validate_decision ~stage:"on_idle" (Block "nope") with
   | Error msg -> String.length msg > 0
-  | _ -> false
+  | Ok _ -> false
 ;;
 
 let%test "Block: invoke_validated coerces illegal Block to HookFailed" =
@@ -574,6 +570,13 @@ let%test "Block: invoke_validated coerces illegal Block to HookFailed" =
   let blocking _ = Block "forbidden" in
   match invoke_validated (Some blocking) event with
   | HookFailed { stage = "on_idle"; detail } -> String.length detail > 0
-  | _ -> false
+  | HookFailed _ -> false
+  | Continue
+  | Skip
+  | Override _
+  | ApprovalRequired
+  | AdjustParams _
+  | ElicitInput _
+  | Nudge _
+  | Block _ -> false
 ;;
-

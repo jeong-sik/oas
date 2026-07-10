@@ -5,26 +5,45 @@ open Types
 
 type response_accept = Types.api_response -> (unit, string) result
 
-let retry_error_of_http_error = function
+type create_message_error =
+  | Retry_error of Retry.api_error
+  | Completion_error of Llm_provider.Http_client.http_error
+
+let create_message_error_of_http_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
-    Retry.classify_error ~status:code ~body
+    Retry_error (Retry.classify_error ~status:code ~body)
   | Llm_provider.Http_client.NetworkError
       { message; kind = Llm_provider.Http_client.Timeout } ->
-    Retry.Timeout { message; phase = None }
+    Retry_error (Retry.Timeout { message; phase = None })
   | Llm_provider.Http_client.NetworkError { message; kind } ->
-    Retry.NetworkError { message; kind }
+    Retry_error (Retry.NetworkError { message; kind })
   | Llm_provider.Http_client.TimeoutError { message; phase } ->
-    Retry.Timeout { message; phase = Some phase }
+    Retry_error (Retry.Timeout { message; phase = Some phase })
   | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Retry.InvalidRequest
-      { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request }
+    Retry_error
+      (Retry.InvalidRequest
+         { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request })
   | Llm_provider.Http_client.ProviderTerminal { message; _ } ->
-    Retry.InvalidRequest { message; reason = Unknown_invalid_request }
+    Retry_error (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
+  | Llm_provider.Http_client.ProviderFailure
+      { kind = Llm_provider.Http_client.Empty_completion _; _ } as err ->
+    Completion_error err
   | Llm_provider.Http_client.ProviderFailure { kind; message } ->
-    Retry.InvalidRequest
-      { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
-      ; reason = Unknown_invalid_request
-      }
+    Retry_error
+      (Retry.InvalidRequest
+         { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+         ; reason = Unknown_invalid_request
+         })
+;;
+
+let retry_error_of_create_message_error = function
+  | Retry_error err -> Some err
+  | Completion_error err -> Llm_provider.Retry_classify.classify_retry_error err
+;;
+
+let sdk_error_of_create_message_error = function
+  | Retry_error err -> Error.Api err
+  | Completion_error err -> Http_error_sdk.of_http_error err
 ;;
 
 (* Re-export Api_common *)
@@ -70,6 +89,24 @@ let patch_latency (resp : Types.api_response) (latency_ms : int option)
       Some { default with request_latency_ms = latency_ms }
   in
   { resp with telemetry }
+;;
+
+let ensure_nonempty_response resp =
+  Llm_provider.Complete_common.ensure_nonempty_completion (Ok resp)
+  |> Result.map_error (fun err -> Completion_error err)
+;;
+
+let parse_openai_completion body_str =
+  match parse_openai_response_result body_str with
+  | Ok resp -> ensure_nonempty_response resp
+  | Error (Llm_provider.Backend_openai_parse.Provider_error message) ->
+    Error
+      (Retry_error
+         (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request }))
+  | Error (Llm_provider.Backend_openai_parse.Empty_completion empty) ->
+    Error
+      (Completion_error
+         (Llm_provider.Http_client.empty_completion_error ~stop_reason:empty.stop_reason))
 ;;
 
 (** Send a non-streaming message to the API, dispatching by provider.
@@ -175,7 +212,7 @@ let create_message
          with
          | Ok (200, body_str) -> `Ok body_str
          | Ok (code, body_str) -> `HttpError (code, body_str)
-         | Error err -> `TransportError (retry_error_of_http_error err)
+         | Error err -> `TransportError (create_message_error_of_http_error err)
        in
        let do_request () =
          let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
@@ -194,51 +231,46 @@ let create_message
              let raw_resp_result =
                match kind with
                | Provider.Anthropic_messages ->
-                 Ok (parse_response (Yojson.Safe.from_string body_str))
+                 parse_response (Yojson.Safe.from_string body_str)
+                 |> ensure_nonempty_response
                | Provider.Openai_chat_completions ->
                  (* Reasoning stays typed as Thinking in the parsed response; it
                  is no longer promoted to a Text answer block (which caused the
                  #2236 CoT re-injection loop). Display surfacing is a read-side
                  projection concern, decoupled from parsing. *)
-                 parse_openai_response_result body_str
+                 parse_openai_completion body_str
                | Provider.Custom name ->
                  (match Provider.find_provider name with
-                  | Some impl -> Ok (impl.parse_response body_str)
-                  | None -> parse_openai_response_result body_str)
+                  | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
+                  | None -> parse_openai_completion body_str)
              in
-             (match raw_resp_result with
-              | Ok resp ->
-                Ok
-                  (Llm_provider.Pricing.annotate_response_cost resp
-                   |> fun r -> patch_latency r lat)
-              | Error parse_err ->
-                let message =
-                  match parse_err with
-                  | Llm_provider.Backend_openai_parse.Provider_error m -> m
-                  | Llm_provider.Backend_openai_parse.Empty_completion _ ->
-                    "provider returned an empty completion (no thinking, text, or tool \
-                     calls)"
-                in
-                Error
-                  (Retry.InvalidRequest
-                     { message; reason = Retry.Unknown_invalid_request }))
+             Result.map
+               (fun resp ->
+                  Llm_provider.Pricing.annotate_response_cost resp
+                  |> fun r -> patch_latency r lat)
+               raw_resp_result
            | `HttpError (code, body_str) ->
-             Error (Retry.classify_error ~status:code ~body:body_str)
+             Error (Retry_error (Retry.classify_error ~status:code ~body:body_str))
            | `TransportError err -> Error err
          with
          | Eio.Time.Timeout ->
            Error
-             (Retry.Timeout
-                { message =
-                    Printf.sprintf
-                      "HTTP request exceeded %.1fs wall-clock timeout"
-                      request_timeout_s
-                ; phase = None
-                })
+             (Retry_error
+                (Retry.Timeout
+                   { message =
+                       Printf.sprintf
+                         "HTTP request exceeded %.1fs wall-clock timeout"
+                         request_timeout_s
+                   ; phase = None
+                   }))
          | Eio.Io _ as exn ->
-           Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
+           Error
+             (Retry_error
+                (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
          | Unix.Unix_error _ as exn ->
-           Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
+           Error
+             (Retry_error
+                (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
          (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
@@ -247,31 +279,41 @@ let create_message
        exceptions cannot reach here. They are caught at their real
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
-         | Failure msg -> Error (Retry.NetworkError { message = msg; kind = Unknown })
+         | Failure msg ->
+           Error (Retry_error (Retry.NetworkError { message = msg; kind = Unknown }))
          | Yojson.Json_error msg ->
            Error
-             (Retry.InvalidRequest
-                { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+             (Retry_error
+                (Retry.InvalidRequest
+                   { message = "JSON parse error: " ^ msg
+                   ; reason = Retry.Json_parse_error
+                   }))
          | Yojson.Safe.Util.Type_error (msg, _) ->
            Error
-             (Retry.InvalidRequest
-                { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+             (Retry_error
+                (Retry.InvalidRequest
+                   { message = "JSON type error: " ^ msg
+                   ; reason = Retry.Json_parse_error
+                   }))
          | Yojson.Safe.Util.Undefined (msg, _) ->
            Error
-             (Retry.InvalidRequest
-                { message = "JSON undefined field error: " ^ msg
-                ; reason = Retry.Json_parse_error
-                })
+             (Retry_error
+                (Retry.InvalidRequest
+                   { message = "JSON undefined field error: " ^ msg
+                   ; reason = Retry.Json_parse_error
+                   }))
        in
-       (match clock with
-        | Some clock ->
-          (match Retry.with_retry ~clock ?config:retry_config do_request with
-           | Ok _ as success -> success
-           | Error err -> Error (Error.Api err))
-        | None ->
-          (match do_request () with
-           | Ok _ as success -> success
-           | Error err -> Error (Error.Api err))))
+       let result =
+         match clock with
+         | Some clock ->
+           Retry.with_retry_map_error
+             ~clock
+             ?config:retry_config
+             ~classify:retry_error_of_create_message_error
+             do_request
+         | None -> do_request ()
+       in
+       Result.map_error sdk_error_of_create_message_error result)
 ;;
 
 [@@@coverage off]

@@ -1547,7 +1547,8 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
   in
   (match no_text.stop_reason with
    | EndTurn -> ()
-   | _ -> Alcotest.fail "empty completion should preserve the stop finish_reason as EndTurn");
+   | _ ->
+     Alcotest.fail "empty completion should preserve the stop finish_reason as EndTurn");
   (* Malformed object content also parses to no blocks, but the fail-closed
      [Empty_completion] payload still surfaces stop_reason and telemetry. *)
   let telemetry =
