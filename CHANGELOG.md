@@ -44,6 +44,22 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.209.0](https://github.com/jeong-sik/oas/compare/v0.208.22...v0.209.0) (2026-07-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **release:** OAS 0.209 is the supported compatibility floor for Hooks.Block and removes Agent_sdk.Context_intent.
+* **ci:** restore Block ratchets and the 0.209 release gate ([#2495](https://github.com/jeong-sik/oas/issues/2495))
+
+### Bug Fixes
+
+* **ci:** restore Block ratchets and the 0.209 release gate ([#2495](https://github.com/jeong-sik/oas/issues/2495)) ([41eb848](https://github.com/jeong-sik/oas/commit/41eb84817823de894a289330b052d5ae40033ac9))
+* **provider:** enforce typed empty completion boundaries ([#2498](https://github.com/jeong-sik/oas/issues/2498)) ([ec17f6a](https://github.com/jeong-sik/oas/commit/ec17f6a2f00ee858e368c31592bad65c74e911c4))
+* **provider:** keep Ollama thinking default out of OpenAI requests ([#2494](https://github.com/jeong-sik/oas/issues/2494)) ([edab917](https://github.com/jeong-sik/oas/commit/edab91704a22135b06549705647ba7beb1946073))
+* **release:** declare the 0.209 public API boundary ([#2497](https://github.com/jeong-sik/oas/issues/2497)) ([9ba0962](https://github.com/jeong-sik/oas/commit/9ba096275fb6ebdfeb42754e245c0a32566b1197))
+* **streaming:** delete the thinking-only wall-clock cutoff ([#10](https://github.com/jeong-sik/oas/issues/10) campaign) ([#2501](https://github.com/jeong-sik/oas/issues/2501)) ([c2bcd8f](https://github.com/jeong-sik/oas/commit/c2bcd8f8579e671b5d0c5441e894e8b2c316c161))
+
 ## [0.208.22](https://github.com/jeong-sik/oas/compare/v0.208.21...v0.208.22) (2026-07-08)
 
 
