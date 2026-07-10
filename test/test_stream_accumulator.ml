@@ -476,6 +476,20 @@ let test_map_http_error_provider_parse_failure () =
   | _ -> Alcotest.fail "expected provider ParseError"
 ;;
 
+let test_map_http_error_empty_completion_maps_to_unavailable () =
+  List.iter
+    (fun expected ->
+       let err =
+         Streaming.map_http_error
+           (Llm_provider.Http_client.empty_completion_error ~stop_reason:expected)
+       in
+       match err with
+       | Error.Provider (Llm_provider.Error.ProviderUnavailable { detail; _ }) ->
+         Alcotest.(check bool) "nonempty detail" true (String.trim detail <> "")
+       | _ -> Alcotest.fail "expected provider unavailable")
+    [ Llm_provider.Types.EndTurn; Llm_provider.Types.MaxTokens ]
+;;
+
 (* ── Runner ───────────────────────────────────────────────── *)
 
 let () =
@@ -555,6 +569,10 @@ let () =
             "provider parse failure"
             `Quick
             test_map_http_error_provider_parse_failure
+        ; Alcotest.test_case
+            "empty completion maps to unavailable"
+            `Quick
+            test_map_http_error_empty_completion_maps_to_unavailable
         ] )
     ]
 ;;

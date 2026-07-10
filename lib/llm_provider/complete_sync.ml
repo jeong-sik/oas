@@ -242,19 +242,10 @@ let complete_http
                    | Error (Backend_openai_parse.Provider_error msg) ->
                      Error (Http_client.HttpError { code = 400; body = msg })
                    | Error (Backend_openai_parse.Empty_completion e) ->
-                     (* oas#2483: a blank-content 200 fails closed as a typed
-                        provider failure (non-retryable — retrying the same
-                        binding returns empty) instead of Ok content=[]. *)
-                     Error
-                       (Http_client.ProviderFailure
-                          { kind =
-                              Http_client.Empty_completion
-                                { stop_reason = Types.stop_reason_to_string e.stop_reason
-                                }
-                          ; message =
-                              "provider returned an empty assistant turn (no thinking, \
-                               text, or tool calls)"
-                          }))
+                     (* oas#2483: fail closed through the same typed transport
+                        fact as streaming. Policy remains downstream of the
+                        preserved [stop_reason]. *)
+                     Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason))
                 | Provider_config.Gemini ->
                   Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Glm -> Ok (Backend_glm.parse_response body)

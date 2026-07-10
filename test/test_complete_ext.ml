@@ -38,14 +38,14 @@ let make_usage ?(input_tokens = 11) ?(output_tokens = 7) () : Types.api_usage =
   }
 ;;
 
-let make_response ?(model = "") ?(content = [ Types.Text "ok" ]) ?usage () =
-  { Types.id = "resp-complete-ext"
-  ; model
-  ; stop_reason = EndTurn
-  ; content
-  ; usage
-  ; telemetry = None
-  }
+let make_response
+      ?(model = "")
+      ?(stop_reason = Types.EndTurn)
+      ?(content = [ Types.Text "ok" ])
+      ?usage
+      ()
+  =
+  { Types.id = "resp-complete-ext"; model; stop_reason; content; usage; telemetry = None }
 ;;
 
 type metric_probe =
@@ -124,6 +124,16 @@ let string_of_http_error = function
   | ProviderTerminal { message; _ } -> message
   | ProviderFailure { kind; message } ->
     Http_client.provider_failure_to_string ~kind ~message
+;;
+
+let check_typed_empty_completion expected = function
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Empty_completion { stop_reason }; _ }) ->
+    check bool "typed stop reason" true (stop_reason = expected)
+  | Ok _ -> fail "expected empty completion error, got Ok"
+  | Error err ->
+    failf "expected typed empty completion, got %s" (string_of_http_error err)
 ;;
 
 (* ── is_retryable ────────────────────────────────────── *)
@@ -403,6 +413,119 @@ let test_complete_transport_success_cache_metrics_and_trace_headers () =
   check (list int) "tool calls" [ 1 ] (List.rev probe.tool_calls)
 ;;
 
+let test_complete_injected_transport_rejects_typed_empty () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let config = make_config ~model_id:"injected-sync-empty" () in
+  List.iter
+    (fun stop_reason ->
+       let response = make_response ~stop_reason ~content:[] () in
+       let transport =
+         transport_of_sync (fun () ->
+           { Llm_transport.response = Ok response; latency_ms = Some 1 })
+       in
+       Complete.complete
+         ~sw
+         ~net:(Eio.Stdenv.net env)
+         ~transport
+         ~config
+         ~messages:[ Types.user_msg "hello" ]
+         ()
+       |> check_typed_empty_completion stop_reason)
+    [ Types.EndTurn; Types.MaxTokens ]
+;;
+
+let test_complete_stream_injected_transport_rejects_typed_empty () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let config = make_config ~model_id:"injected-stream-empty" () in
+  List.iter
+    (fun stop_reason ->
+       let response = make_response ~stop_reason ~content:[] () in
+       let transport =
+         transport_of_sync (fun () ->
+           { Llm_transport.response = Ok response; latency_ms = Some 1 })
+       in
+       Complete.complete_stream
+         ~sw
+         ~net:(Eio.Stdenv.net env)
+         ~transport
+         ~config
+         ~messages:[ Types.user_msg "hello" ]
+         ~on_event:(fun _ -> ())
+         ()
+       |> check_typed_empty_completion stop_reason)
+    [ Types.EndTurn; Types.MaxTokens ]
+;;
+
+let test_complete_cached_empty_fails_before_transport () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let response = make_response ~stop_reason:Types.MaxTokens ~content:[] () in
+  let cached_json = Cache.response_to_json response in
+  let cache : Cache.t =
+    { get = (fun ~key:_ -> Some cached_json); set = (fun ~key:_ ~ttl_sec:_ _ -> ()) }
+  in
+  let transport_calls = ref 0 in
+  let transport =
+    transport_of_sync (fun () ->
+      incr transport_calls;
+      { Llm_transport.response = Ok (make_response ()); latency_ms = Some 1 })
+  in
+  let result =
+    Complete.complete
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~config:(make_config ~model_id:"cached-empty" ())
+      ~messages:[ Types.user_msg "hello" ]
+      ~cache
+      ()
+  in
+  check int "transport not called" 0 !transport_calls;
+  check_typed_empty_completion Types.MaxTokens result
+;;
+
+let test_complete_with_retry_does_not_retry_empty_completion () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = make_response ~stop_reason:Types.MaxTokens ~content:[] () in
+  let transport =
+    transport_of_sync (fun () ->
+      incr calls;
+      { Llm_transport.response = Ok response; latency_ms = Some 1 })
+  in
+  let retry_config =
+    { Complete.max_retries = 3
+    ; initial_delay_sec = 0.0
+    ; max_delay_sec = 0.0
+    ; backoff_multiplier = 1.0
+    }
+  in
+  let result =
+    Complete.complete_with_retry
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~clock:(Eio.Stdenv.clock env)
+      ~config:(make_config ~model_id:"empty-no-retry" ())
+      ~messages:[ Types.user_msg "hello" ]
+      ~retry_config
+      ()
+  in
+  check int "single attempt" 1 !calls;
+  check_typed_empty_completion Types.MaxTokens result
+;;
+
 let test_complete_with_retry_retries_then_success () =
   Eio_main.run
   @@ fun env ->
@@ -571,6 +694,22 @@ let () =
             "retry retries then success"
             `Quick
             test_complete_with_retry_retries_then_success
+        ; test_case
+            "injected sync rejects typed empty"
+            `Quick
+            test_complete_injected_transport_rejects_typed_empty
+        ; test_case
+            "injected stream rejects typed empty"
+            `Quick
+            test_complete_stream_injected_transport_rejects_typed_empty
+        ; test_case
+            "cached empty fails before transport"
+            `Quick
+            test_complete_cached_empty_fails_before_transport
+        ; test_case
+            "empty completion is not retried"
+            `Quick
+            test_complete_with_retry_does_not_retry_empty_completion
         ; test_case
             "stream transport success metrics and telemetry"
             `Quick

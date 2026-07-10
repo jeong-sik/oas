@@ -66,7 +66,7 @@ let complete
       | _, _ -> None
     in
     (match cached with
-     | Some result -> result
+     | Some result -> ensure_nonempty_completion result
      | None ->
        m.on_request_start ~model_id;
        let { Llm_transport.response = result; latency_ms } =
@@ -112,6 +112,7 @@ let complete
              ~model_id
              ~status:code
          | Error _ -> ());
+       let result = ensure_nonempty_completion result in
        (match result with
         | Ok resp ->
           let resp = Pricing.annotate_response_cost resp in
@@ -341,7 +342,7 @@ let complete_stream
            ~model_id:config.model_id
            resp;
          resp)
-      result
+      (ensure_nonempty_completion result)
 ;;
 
 let complete_stream_with_retry

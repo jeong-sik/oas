@@ -38,7 +38,7 @@ type parse_error = Provider_error of string | Empty_completion of empty_completi
 
 파서 wrapper: `content = thinking @ text @ tool` 가 `[]`이면 `Error (Empty_completion …)`, 아니면 `Ok`. 가드는 **`content=[]`만** — blank text + tool_calls는 `content=[ToolUse ..]`(non-empty)라 Ok 유지(회귀 테스트로 고정). 반환 타입이 `(api_response, string) result` → `(api_response, parse_error) result`로 바뀌며 모든 caller가 컴파일 강제로 새 outcome을 처리(N-of-M 우회 방지).
 
-전파: `http_client.provider_failure_kind`에 `Empty_completion of { stop_reason }` 추가. `complete_sync`가 empty를 `ProviderFailure { Empty_completion }`로 매핑 → `retry_classify`의 `ProviderFailure _ -> None` 규칙으로 **non-retryable**(같은 binding 재시도는 또 empty). `error.of_provider_failure`는 이를 `ProviderUnavailable`(binding-health 성격)로 sdk_error에 투영.
+전파: `http_client.provider_failure_kind`에 `Empty_completion of { stop_reason : Types.stop_reason }`를 두고 모든 completion 경로가 공용 `Http_client.empty_completion_error`로 매핑한다. `retry_classify`의 `ProviderFailure _ -> None` 규칙으로 **non-retryable**이며, typed stop reason은 transport 경계까지 보존된다. 기존 공개 SDK 경계에서는 source compatibility를 위해 `ProviderUnavailable`로 일관되게 투영한다. 진단 문자열은 표시 전용이며 제어 흐름에서 다시 파싱하지 않는다.
 
 **문자열 분류기 아님**: string sentinel(`Error "empty_completion:…"`)은 RFC-OAS-033/RFC-0042가 금하는 substring 분류기라 채택 안 함. typed variant로 닫음.
 
@@ -48,21 +48,22 @@ type parse_error = Provider_error of string | Empty_completion of empty_completi
 
 streaming 경로도 `Ok content=[]`를 낼 수 있어 non-streaming과 대칭으로 fail-close가 필요했다. 초기 시도는 `complete_stream_acc.finalize_stream_acc`(구조 조립기)에 직접 가드를 넣는 것이었는데, 이때 **21개 단위 테스트가 깨졌다** — 이들은 empty acc를 finalize해 usage/stop_reason plumbing만 검증하는 최소 fixture다. 이 실패가 **경계 오배치의 신호**였다.
 
-**수정된 통찰**: deferral 당시 가설("empty-clean → Ok가 확립된 불변식이라 충돌")은 부정확했다. 그 불변식은 사실 **`finalize_stream_acc`가 순수 구조 조립기**라는 것이다 — 잘 닫힌 스트림을 `Ok content=[]`로 조립하는 건 구조적으로 정당하다(truncated 스트림만 이미 `stream_terminated_without_stop_reason`로 거부). "empty completion은 실행 불가"는 **의미 정책**이고, 이는 완성을 어시스턴트 턴으로 반환하는 **소비 경계**(`lib/streaming.ml` `map_stream_finalize_result`)에 속한다. non-streaming의 `parse_openai_response_result`(정책 wrapper) ↔ raw parser 분리와 정확히 대칭.
+**수정된 통찰**: deferral 당시 가설("empty-clean → Ok가 확립된 불변식이라 충돌")은 부정확했다. 그 불변식은 사실 **`finalize_stream_acc`가 순수 구조 조립기**라는 것이다 — 잘 닫힌 스트림을 `Ok content=[]`로 조립하는 건 구조적으로 정당하다(truncated 스트림만 이미 `stream_terminated_without_stop_reason`로 거부). "empty completion은 실행 불가"는 **의미 정책**이고, 실제 Agent 소비 경계는 `pipeline_stage_route`가 호출하는 `Llm_provider.Complete.complete` / `complete_stream`이다. `lib/streaming.ml`은 legacy `Provider_intf` 경로이며 Agent 경로의 SSOT가 아니다.
 
-**구현**: `map_stream_finalize_result`의 `Ok (Ok resp) when resp.content = []` arm에서 `Stream_parse_failed{reason="empty_completion:<stop_reason>"}`로 fail-close(기존 truncated 거부와 동일 class·경로). 두 production 스트리밍 경로(Anthropic/OpenAI)가 이 어댑터를 공유하므로 단일 편집으로 커버되고, `finalize_stream_acc`는 순수하게 남아 **21개 단위 테스트가 회귀 0**. Custom provider는 sync fallback이라 §2의 non-streaming Fix B로 이미 커버. inline test(`map_stream_finalize_result fails closed on empty completion`) green.
+**구현**: `Complete_common.ensure_nonempty_completion`이 `content=[]`를 typed `Http_client.empty_completion_error ~stop_reason`으로 바꾸며, `Complete.complete`(cache, HTTP, injected sync transport)와 `Complete.complete_stream`(HTTP, injected stream transport)이 이 단일 정책을 적용한다. Legacy `Api.create_message`, `Provider_intf`, `Streaming.create_message_stream`도 같은 helper를 사용하므로 custom sync→synthetic fallback까지 동일하게 fail-close한다. 구조 조립기인 `finalize_stream_acc`는 순수하게 남는다.
 
-**string 분류기 아님**: reason 문자열은 진단용이고 소비자(`http_error_of_stream_error`)는 이를 opaque하게 http_error로 매핑한다(제어분기 없음). truncated 케이스가 이미 같은 `Stream_parse_failed{reason=…}` idiom을 쓰는 선례.
+**parse-error 재사용 없음**: empty completion은 파싱 성공 뒤 의미 정책에서 거부되는 outcome이다. 따라서 `Stream_parse_failed`나 `Retry.InvalidRequest`를 만들지 않고, 모든 경로가 같은 typed `Http_client.Empty_completion`을 사용한 뒤 공개 SDK 경계에서 기존 `ProviderUnavailable`로 투영한다.
 
 ### 3.2 MASC 소비 (B-full, 별도 repo/PR)
 
-MASC는 OAS SHA를 pin하고 typed outcome을 소비한다(RFC-OAS-029 §6, 단방향). empty-completion을 runtime-binding-health 근거로 소비해 crash-count storm 대신 binding 관점 처리를 하는 것은 MASC PR의 몫이며, **본 OAS 변경이 main에 착지한 뒤** pin bump와 함께 진행한다. MASC-only cooldown을 OAS typed fix 없이 추가하면 CLAUDE.md 워크어라운드 거부 기준(cap/cooldown 증상억제)에 해당하므로, 순서는 OAS(A+B) → MASC(pin+consume)로 강제된다.
+MASC는 OAS SHA를 pin하고 기존 `Error.sdk_error`를 소비한다(RFC-OAS-029 §6, 단방향). 현재 실제 소비자는 typed stop reason을 분기하지 않으므로 새 공개 error variant를 추가하지 않는다. typed downstream 정책이 실제로 필요해질 때는 구체적 소비자와 함께 별도 API 변경으로 다룬다.
 
-**상태 업데이트 (실측)**: A+B는 oas#2488(aad819bb1)로 main 착지, MASC는 pin bump #23682으로 이를 흡수했다. 다만 MASC는 OAS 완성을 `Agent.run`+**streaming**으로 소비하고 OAS 에러 타입을 exhaustive match 없이 **opaque하게**(`provider_failure_to_string`, `sdk_error` 라우팅) 처리하므로, 원래 구상한 "typed Empty_completion을 코드로 소비"(B-full)는 **대부분 불필요**했다 — pin bump가 컴파일을 깨지 않았고, §2의 Fix B는 sync 전용이라 MASC streaming hot path엔 §3.1의 streaming fail-close가 실제 보호막이다. 즉 MASC 측 실효 = pin bump(Fix A 원인수정) + §3.1(streaming empty→provider failure→기존 failover). 별도 MASC 코드 소비는 관측 필요가 확인될 때만 추가한다.
+**상태 업데이트 (실측)**: A+B는 oas#2488(aad819bb1)로 main 착지, MASC는 pin bump #23682으로 이를 흡수했다. 이후 oas#2491은 legacy `lib/streaming.ml`에 fail-close를 추가했지만 Agent가 사용하는 canonical `Complete.complete_stream`과 injected transport는 보호하지 못했고 `Stream_parse_failed` 문자열을 경유했다. 현재 수렴 경로는 모든 completion 소비 경계에서 `Http_client.Empty_completion { stop_reason : Types.stop_reason }`, 공개 SDK 경계에서 기존 `ProviderUnavailable`이다.
 
 ## 4. 검증
 
 - `backend_openai_parse` 회귀: null-content 200 → `Empty_completion`(EndTurn), blank text + tool_calls → `Ok`(content 비어있지 않음). inline test green.
+- canonical 수렴: HTTP/injected sync·stream, cache, legacy API/Provider_intf/custom fallback의 `EndTurn`/`MaxTokens` empty가 모두 같은 typed `Http_client.Empty_completion`으로 fail-close하고 SDK에서는 `ProviderUnavailable`로 투영됨.
 - 두 backend 대칭: openai-compat + Chat_template_token + `enable_thinking=Some true` → system turn이 토큰으로 시작; 비-token 모델 → byte-identical.
 - 전 caller 컴파일 통과 + 기존 codec/api/cache 테스트 green (`Error msg` 사이트는 `parse_error_to_string`로 렌더).
 
