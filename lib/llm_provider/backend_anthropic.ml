@@ -108,8 +108,8 @@ let thinking_config_for_config mode (config : Provider_config.t) =
   | ( Some true
     , ( Capabilities.Anthropic_adaptive_default
       | Capabilities.Anthropic_adaptive_only
-      | Capabilities.Anthropic_adaptive_preferred ) )
-    -> Some (`Assoc [ "type", `String "adaptive" ])
+      | Capabilities.Anthropic_adaptive_preferred ) ) ->
+    Some (`Assoc [ "type", `String "adaptive" ])
   | Some true, Capabilities.Anthropic_manual_budget ->
     let budget =
       match config.thinking_budget with
@@ -185,8 +185,9 @@ let build_request
       ~tools_present
   in
   (match config.min_p with
-   | Some _ -> Backend_openai_request.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
-  | None -> ());
+   | Some _ ->
+     Backend_openai_request.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
+   | None -> ());
   let thinking_mode =
     match config.kind with
     | Provider_config.Kimi -> Capabilities.Anthropic_manual_budget
@@ -196,7 +197,8 @@ let build_request
        | None when config.enable_thinking = Some true ->
          invalid_arg
            (Printf.sprintf
-              "Backend_anthropic.build_request: model %S has no catalog-declared Anthropic thinking-control policy"
+              "Backend_anthropic.build_request: model %S has no catalog-declared \
+               Anthropic thinking-control policy"
               config.model_id)
        | None -> Capabilities.Anthropic_manual_budget)
     | Provider_config.OpenAI_compat
@@ -213,7 +215,8 @@ let build_request
    | Capabilities.Anthropic_always_adaptive, Some false ->
      invalid_arg
        (Printf.sprintf
-          "Backend_anthropic.build_request: model %S cannot disable always-on adaptive thinking"
+          "Backend_anthropic.build_request: model %S cannot disable always-on adaptive \
+           thinking"
           config.model_id)
    | _, _ -> ());
   let messages =
@@ -225,8 +228,7 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; ( "max_tokens"
-      , `Int (effective_max_output_tokens config) )
+    ; "max_tokens", `Int (effective_max_output_tokens config)
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]

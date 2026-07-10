@@ -202,8 +202,7 @@ type anthropic_thinking_control =
 (** Resolve Anthropic thinking control from the model catalog, then the
     capability manifest when the catalog has no matching row. [None] means
     neither source declares an Anthropic thinking policy. *)
-val anthropic_thinking_control_for_model_id
-  : string -> anthropic_thinking_control option
+val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_control option
 
 (** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code

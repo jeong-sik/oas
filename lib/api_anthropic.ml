@@ -73,7 +73,8 @@ let build_body_assoc
        | None when config.config.enable_thinking = Some true ->
          invalid_arg
            (Printf.sprintf
-              "Api_anthropic.build_body_assoc: model %S has no catalog-declared Anthropic thinking-control policy"
+              "Api_anthropic.build_body_assoc: model %S has no catalog-declared \
+               Anthropic thinking-control policy"
               model_str)
        | None -> Llm_provider.Capabilities.Anthropic_manual_budget)
     | Llm_provider.Provider_config.OpenAI_compat
@@ -90,7 +91,8 @@ let build_body_assoc
    | Llm_provider.Capabilities.Anthropic_always_adaptive, Some false ->
      invalid_arg
        (Printf.sprintf
-          "Api_anthropic.build_body_assoc: model %S cannot disable always-on adaptive thinking"
+          "Api_anthropic.build_body_assoc: model %S cannot disable always-on adaptive \
+           thinking"
           model_str)
    | _, _ -> ());
   (match config.config.min_p with
@@ -105,8 +107,8 @@ let build_body_assoc
   let body_assoc =
     [ "model", `String model_str
     ; ( "max_tokens"
-      , `Int
-          (Llm_provider.Backend_anthropic.effective_max_output_tokens provider_config) )
+      , `Int (Llm_provider.Backend_anthropic.effective_max_output_tokens provider_config)
+      )
     ; "messages", `List (List.map message_to_json messages)
     ; "stream", `Bool stream
     ]
