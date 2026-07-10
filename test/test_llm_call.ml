@@ -60,6 +60,7 @@ let run_live_test () =
        | Types.PauseTurn -> "pause_turn"
        | Types.Compaction -> "compaction"
        | Types.ContextWindowExceeded -> "model_context_window_exceeded"
+       | Types.UnmatchedToolCalls -> "unmatched_tool_calls"
        | Types.Unknown s -> s);
     List.iter
       (fun block ->

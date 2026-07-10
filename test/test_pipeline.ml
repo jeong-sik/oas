@@ -316,7 +316,7 @@ let test_pipeline_output_resets_idle_on_end_turn () =
   assert_pipeline_idle_reset agent
 ;;
 
-let test_pipeline_output_resets_idle_on_unknown () =
+let test_pipeline_output_completes_unknown_terminal () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -326,10 +326,31 @@ let test_pipeline_output_resets_idle_on_unknown () =
     make_pipeline_test_agent ~net ~response:(pipeline_response (Unknown "mystery-stop"))
   in
   (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
-   | Error (Error.Agent (UnrecognizedStopReason { reason })) ->
-     Alcotest.(check string) "unknown reason" "mystery-stop" reason
+   | Ok (Internal_pipeline.Complete response) ->
+     Alcotest.(check bool)
+       "unknown provider terminal reason is preserved"
+       true
+       (response.stop_reason = Unknown "mystery-stop")
    | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
-   | Ok _ -> Alcotest.fail "expected unrecognized stop reason");
+   | Ok Internal_pipeline.ToolsExecuted -> Alcotest.fail "unexpected tool execution"
+   | Ok Internal_pipeline.IdleSkipped -> Alcotest.fail "unexpected idle skip");
+  assert_pipeline_idle_reset agent
+;;
+
+let test_pipeline_output_rejects_unmatched_tool_stop () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let agent =
+    make_pipeline_test_agent ~net ~response:(pipeline_response UnmatchedToolCalls)
+  in
+  (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+   | Error (Error.Agent (UnrecognizedStopReason { reason })) ->
+     Alcotest.(check string) "unmatched tool stop reason" "unmatched_tool_calls" reason
+   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "expected malformed tool-stop rejection");
   assert_pipeline_idle_reset agent
 ;;
 
@@ -1262,9 +1283,13 @@ let () =
             `Quick
             test_pipeline_output_resets_idle_on_end_turn
         ; Alcotest.test_case
-            "output resets idle on unknown"
+            "output completes unknown terminal"
             `Quick
-            test_pipeline_output_resets_idle_on_unknown
+            test_pipeline_output_completes_unknown_terminal
+        ; Alcotest.test_case
+            "output rejects unmatched tool stop"
+            `Quick
+            test_pipeline_output_rejects_unmatched_tool_stop
         ; Alcotest.test_case
             "tool recovery allows glm"
             `Quick

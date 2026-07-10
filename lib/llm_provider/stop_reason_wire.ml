@@ -5,11 +5,6 @@ type wire_finish =
   | Refusal
   | Other of string
 
-(* The canonical [Unknown] payload for a tool-use finish that delivered no tool
-   block. One named value so the parse-time mapping and the streaming
-   reconciliation agree on the exact string instead of scattering the literal. *)
-let unmatched_tool_calls = "tool_calls"
-
 let wire_finish_of_string s =
   match String.lowercase_ascii s with
   | "tool_calls" -> Tool_calls
@@ -22,7 +17,7 @@ let wire_finish_of_string s =
 let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   match w with
   | Tool_calls ->
-    if has_tool_blocks then Types.StopToolUse else Types.Unknown unmatched_tool_calls
+    if has_tool_blocks then Types.StopToolUse else Types.UnmatchedToolCalls
   | Length -> Types.MaxTokens
   | Stop -> Types.EndTurn
   | Refusal -> Types.Refusal
@@ -43,7 +38,8 @@ let provisional_of_string s : Types.stop_reason =
 
 let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   match sr with
-  | Types.StopToolUse when not has_tool_blocks -> Types.Unknown unmatched_tool_calls
+  | Types.StopToolUse when not has_tool_blocks -> Types.UnmatchedToolCalls
+  | Types.UnmatchedToolCalls when has_tool_blocks -> Types.StopToolUse
   | Types.Unknown _ when has_tool_blocks -> Types.StopToolUse
   | Types.StopToolUse
   | Types.EndTurn
@@ -53,11 +49,13 @@ let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   | Types.PauseTurn
   | Types.Compaction
   | Types.ContextWindowExceeded
+  | Types.UnmatchedToolCalls
   | Types.Unknown _ -> sr
 ;;
 
 let is_unmatched_tool_calls = function
-  | Types.Unknown reason -> String.equal reason unmatched_tool_calls
+  | Types.UnmatchedToolCalls -> true
+  | Types.Unknown _ -> false
   | Types.StopToolUse
   | Types.EndTurn
   | Types.MaxTokens
@@ -78,8 +76,8 @@ let is_unmatched_tool_calls = function
    vocabulary and already guard at their own (accumulating) finish chunk; their
    coverage belongs with the pipeline no-reissue test. *)
 
-let%test "of_finish tool_calls without tools fails closed to Unknown" =
-  of_finish Tool_calls ~has_tool_blocks:false = Types.Unknown "tool_calls"
+let%test "of_finish tool_calls without tools fails closed to typed outcome" =
+  of_finish Tool_calls ~has_tool_blocks:false = Types.UnmatchedToolCalls
 ;;
 
 let%test "of_finish tool_calls with tools is StopToolUse" =
@@ -87,7 +85,7 @@ let%test "of_finish tool_calls with tools is StopToolUse" =
 ;;
 
 let%test "reconcile downgrades StopToolUse without tools" =
-  reconcile Types.StopToolUse ~has_tool_blocks:false = Types.Unknown "tool_calls"
+  reconcile Types.StopToolUse ~has_tool_blocks:false = Types.UnmatchedToolCalls
 ;;
 
 let%test "reconcile preserves StopToolUse with tools" =
@@ -95,7 +93,8 @@ let%test "reconcile preserves StopToolUse with tools" =
 ;;
 
 let%test "is_unmatched_tool_calls recognizes only canonical fail-closed value" =
-  is_unmatched_tool_calls (Types.Unknown "tool_calls")
+  is_unmatched_tool_calls Types.UnmatchedToolCalls
+  && (not (is_unmatched_tool_calls (Types.Unknown "tool_calls")))
   && (not (is_unmatched_tool_calls (Types.Unknown "other")))
   && not (is_unmatched_tool_calls Types.StopToolUse)
 ;;

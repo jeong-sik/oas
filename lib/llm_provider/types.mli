@@ -202,6 +202,7 @@ type stop_reason =
   | PauseTurn
   | Compaction
   | ContextWindowExceeded
+  | UnmatchedToolCalls
   | Unknown of string
 [@@deriving show]
 

@@ -592,10 +592,11 @@ let%test "finalize_stream_acc assembles thinking block" =
 
 (* Drift guard for the infinite-Thinking fix: a reasoning-only stream that the
    provider tagged finish_reason="tool_calls" (provisional StopToolUse) must be
-   reconciled to Unknown when no tool block was assembled, so the driver does not
+   reconciled to the typed UnmatchedToolCalls outcome when no tool block was
+   assembled, so the driver does not
    re-issue the identical Thinking turn forever. Reverting the reconcile in
    finalize_stream_acc turns this RED. *)
-let%test "finalize downgrades StopToolUse with no tool block to Unknown" =
+let%test "finalize downgrades StopToolUse with no tool block to typed outcome" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "thinking";
   let buf = Buffer.create 16 in
@@ -605,7 +606,7 @@ let%test "finalize downgrades StopToolUse with no tool block to Unknown" =
   acc.stop_reason_received := true;
   match finalize_stream_acc acc with
   | Error _ -> false
-  | Ok result -> result.stop_reason = Types.Unknown "tool_calls"
+  | Ok result -> result.stop_reason = Types.UnmatchedToolCalls
 ;;
 
 let%test "finalize keeps StopToolUse when a tool block is present" =
