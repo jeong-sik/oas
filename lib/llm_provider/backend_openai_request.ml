@@ -240,8 +240,14 @@ let build_request_assoc
        emits no JSON field for this format) and the model can return a
        blank-content 200 that parses as an empty turn. Caps-gated, so non-token
        models produce byte-identical wire bytes. *)
+    let thinking_requested =
+      Backend_openai_serialize.thinking_requested ~default:false config
+    in
     let system_prompt =
-      Backend_openai_serialize.system_prompt_with_thinking_token ~config ~caps
+      Backend_openai_serialize.system_prompt_with_thinking_token
+        ~thinking_requested
+        ~config
+        ~caps
     in
     (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->

@@ -155,15 +155,23 @@ let resolve_tool_call tool_index name input =
      | None -> name, input, None, None)
 ;;
 
-let tool_exception_result ~id ~name exn =
-  let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
+let tool_failure_result ~id ~name ~content ~error_class =
   { tool_use_id = id
   ; tool_name = name
-  ; content = msg
+  ; content
   ; is_error = true
   ; failure_kind = Some Non_retryable_tool_error
-  ; error_class = Some Types.Unknown
+  ; error_class = Some error_class
   }
+;;
+
+let blocked_tool_result ~id ~name ~content =
+  tool_failure_result ~id ~name ~content ~error_class:Types.Deterministic
+;;
+
+let tool_exception_result ~id ~name exn =
+  let content = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
+  tool_failure_result ~id ~name ~content ~error_class:Types.Unknown
 ;;
 
 let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
@@ -184,13 +192,7 @@ let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
 
 let approval_required_without_callback_result ~id ~name =
   let reason = "approval required but no approval callback is registered" in
-  { tool_use_id = id
-  ; tool_name = name
-  ; content = "Tool rejected: " ^ reason
-  ; is_error = true
-  ; failure_kind = Some Non_retryable_tool_error
-  ; error_class = Some Types.Deterministic
-  }
+  blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
@@ -771,13 +773,7 @@ let execute_scheduled_tool
                      input
                      id
                  | Hooks.Reject reason ->
-                   { tool_use_id = id
-                   ; tool_name = name
-                   ; content = "Tool rejected: " ^ reason
-                   ; is_error = true
-                   ; failure_kind = Some Non_retryable_tool_error
-                   ; error_class = Some Types.Deterministic
-                   }
+                   blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
                  | Hooks.Edit new_input ->
                    find_and_execute_tool_with_index
                      ~context
@@ -843,29 +839,20 @@ let execute_scheduled_tool
                input
                id
            | Hooks.HookFailed { stage; detail } ->
-             { tool_use_id = id
-             ; tool_name = name
-             ; content =
-                 Printf.sprintf
-                   "Tool execution blocked: hook pre_tool_use failed at %s: %s"
-                   stage
-                   detail
-             ; is_error = true
-             ; failure_kind = Some Non_retryable_tool_error
-             ; error_class = Some Types.Deterministic
-             }
+             blocked_tool_result
+               ~id
+               ~name
+               ~content:
+                 (Printf.sprintf
+                    "Tool execution blocked: hook pre_tool_use failed at %s: %s"
+                    stage
+                    detail)
            | Hooks.Block reason ->
              (* Intentional policy rejection from a PreToolUse hook. The host
                 executes no tool; the reason string becomes the tool result
                 content verbatim. Distinct from [Hooks.Override] (soft nudge,
                 is_error=false) and [Hooks.HookFailed] (infra failure). *)
-             { tool_use_id = id
-             ; tool_name = name
-             ; content = reason
-             ; is_error = true
-             ; failure_kind = Some Non_retryable_tool_error
-             ; error_class = Some Types.Deterministic
-             }
+             blocked_tool_result ~id ~name ~content:reason
          with
          | Out_of_memory -> raise Out_of_memory
          | Stack_overflow -> raise Stack_overflow

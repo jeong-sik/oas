@@ -327,6 +327,10 @@ let test_provider_failure_string_helpers () =
     ; Http_client.Cli_startup_failed { reason = "missing" }, "cli_startup_failed"
     ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
+    ; ( Http_client.Empty_completion { stop_reason = Types.EndTurn }
+      , "empty_completion:end_turn" )
+    ; ( Http_client.Empty_completion { stop_reason = Types.MaxTokens }
+      , "empty_completion:max_tokens" )
     ; ( Http_client.Unknown_provider_failure { reason = Some "exit_status" }
       , "unknown_provider_failure:exit_status" )
     ; Http_client.Unknown_provider_failure { reason = None }, "unknown_provider_failure"
@@ -351,6 +355,18 @@ let test_provider_failure_string_helpers () =
     (Http_client.provider_failure_to_string
        ~kind:(Http_client.Hard_quota { retry_after = None })
        ~message:"quota exhausted")
+;;
+
+let test_empty_completion_error_preserves_stop_reason () =
+  List.iter
+    (fun expected ->
+       match Http_client.empty_completion_error ~stop_reason:expected with
+       | Http_client.ProviderFailure
+           { kind = Http_client.Empty_completion { stop_reason }; message } ->
+         Alcotest.(check bool) "typed stop reason" true (stop_reason = expected);
+         Alcotest.(check bool) "nonempty detail" true (String.trim message <> "")
+       | _ -> Alcotest.fail "expected Empty_completion provider failure")
+    [ Types.EndTurn; Types.MaxTokens ]
 ;;
 
 let test_api_common_string_is_blank () =
@@ -542,6 +558,10 @@ let () =
         ] )
     ; ( "provider_failure"
       , [ Alcotest.test_case "string helpers" `Quick test_provider_failure_string_helpers
+        ; Alcotest.test_case
+            "empty completion preserves stop reason"
+            `Quick
+            test_empty_completion_error_preserves_stop_reason
         ] )
     ; ( "api_common"
       , [ Alcotest.test_case "string_is_blank" `Quick test_api_common_string_is_blank
