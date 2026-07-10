@@ -21,15 +21,17 @@ type wire_finish =
   | Length
   | Stop
   | Refusal
+  | Content_filter
+  | Repetition_truncation
   | Other of string
 
 (** Case-insensitive OpenAI-compatible vocabulary. ["end_turn"] maps to [Stop]. *)
 val wire_finish_of_string : string -> wire_finish
 
 (** Canonical parse-time mapping for backends that know the assembled tool-block
-    set at parse time (the non-streaming OpenAI parser). [Tool_calls] and [Other]
-    with [has_tool_blocks = false] fail closed to [UnmatchedToolCalls] rather than asserting
-    a tool-use turn that carries no tool. *)
+    set at parse time (the non-streaming OpenAI parser). [Tool_calls] without a
+    tool block fails closed to [UnmatchedToolCalls]. [Other] preserves the raw
+    terminal label as [Unknown] when no tool block exists. *)
 val of_finish : wire_finish -> has_tool_blocks:bool -> Types.stop_reason
 
 (** Faithful wire claim for the streaming chunk boundary, where the accumulated

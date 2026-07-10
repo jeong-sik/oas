@@ -7,6 +7,7 @@ let normalized_status status =
 let incomplete_stop_reason incomplete_reason =
   match incomplete_reason with
   | Some "max_output_tokens" -> Types.MaxTokens
+  | Some "content_filter" -> Types.ContentFilter
   | Some reason -> Types.Unknown reason
   | None -> Types.Unknown "incomplete"
 ;;
@@ -35,6 +36,24 @@ let%test "incomplete max output tokens wins over tool calls" =
     ~failed_message:None
     ~has_tool_calls:true
   = Types.MaxTokens
+;;
+
+let%test "incomplete content filter is typed" =
+  of_status
+    ~status:(Some "incomplete")
+    ~incomplete_reason:(Some "content_filter")
+    ~failed_message:None
+    ~has_tool_calls:true
+  = Types.ContentFilter
+;;
+
+let%test "unknown incomplete reason remains unknown" =
+  of_status
+    ~status:(Some "incomplete")
+    ~incomplete_reason:(Some "tool_use")
+    ~failed_message:None
+    ~has_tool_calls:true
+  = Types.Unknown "tool_use"
 ;;
 
 let%test "failed message wins over tool calls" =

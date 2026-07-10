@@ -1129,9 +1129,9 @@ let test_responses_stream_incomplete_content_filter_drops_tool () =
   | Error _ -> Alcotest.fail "expected Ok response for incomplete terminal"
   | Ok response ->
     Alcotest.(check bool)
-      "content_filter incomplete -> Unknown, not MaxTokens"
+      "content_filter incomplete -> ContentFilter, not MaxTokens"
       true
-      (response.stop_reason = Unknown "content_filter");
+      (response.stop_reason = ContentFilter);
     Alcotest.(check bool)
       "partial function_call dropped for non-token incomplete reason"
       false

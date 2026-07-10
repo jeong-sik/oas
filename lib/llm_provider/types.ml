@@ -336,13 +336,16 @@ type message =
 (** {1 Response Types} *)
 
 (** Stop reason from API.
-    2025-2026 extended: Refusal, PauseTurn, Compaction, ContextWindowExceeded. *)
+    2025-2026 extended: Refusal, ContentFilter, RepetitionTruncation,
+    PauseTurn, Compaction, ContextWindowExceeded. *)
 type stop_reason =
   | EndTurn
   | StopToolUse
   | MaxTokens
   | StopSequence
   | Refusal (** Policy refusal (Anthropic, OpenAI, Gemini SAFETY). *)
+  | ContentFilter (** Provider content-policy filter terminated generation. *)
+  | RepetitionTruncation (** Provider repetition guard terminated generation. *)
   | PauseTurn (** Anthropic long-running turn pause. *)
   | Compaction (** Anthropic context compaction. *)
   | ContextWindowExceeded (** Anthropic context window exceeded. *)
@@ -359,6 +362,8 @@ let stop_reason_of_string = function
   | "max_tokens" -> MaxTokens
   | "stop_sequence" -> StopSequence
   | "refusal" -> Refusal
+  | "content_filter" -> ContentFilter
+  | "repetition_truncation" -> RepetitionTruncation
   | "pause_turn" -> PauseTurn
   | "compaction" -> Compaction
   | "model_context_window_exceeded" -> ContextWindowExceeded
@@ -379,6 +384,8 @@ let stop_reason_to_string = function
   | MaxTokens -> "max_tokens"
   | StopSequence -> "stop_sequence"
   | Refusal -> "refusal"
+  | ContentFilter -> "content_filter"
+  | RepetitionTruncation -> "repetition_truncation"
   | PauseTurn -> "pause_turn"
   | Compaction -> "compaction"
   | ContextWindowExceeded -> "model_context_window_exceeded"
@@ -399,6 +406,8 @@ let stop_reason_to_metric_label = function
     | MaxTokens
     | StopSequence
     | Refusal
+    | ContentFilter
+    | RepetitionTruncation
     | PauseTurn
     | Compaction
     | ContextWindowExceeded

@@ -199,6 +199,8 @@ type stop_reason =
   | MaxTokens
   | StopSequence
   | Refusal
+  | ContentFilter
+  | RepetitionTruncation
   | PauseTurn
   | Compaction
   | ContextWindowExceeded
