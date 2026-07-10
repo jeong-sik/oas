@@ -17,6 +17,8 @@ let all_known_variants =
   ; Types.MaxTokens
   ; Types.StopSequence
   ; Types.Refusal
+  ; Types.ContentFilter
+  ; Types.RepetitionTruncation
   ; Types.PauseTurn
   ; Types.Compaction
   ; Types.ContextWindowExceeded

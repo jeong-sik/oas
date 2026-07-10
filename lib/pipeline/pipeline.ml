@@ -770,6 +770,8 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | MaxTokens
        | StopSequence
        | Refusal
+       | ContentFilter
+       | RepetitionTruncation
        | PauseTurn
        | Compaction
        | ContextWindowExceeded ->

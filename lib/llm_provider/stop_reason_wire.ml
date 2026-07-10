@@ -3,6 +3,8 @@ type wire_finish =
   | Length
   | Stop
   | Refusal
+  | Content_filter
+  | Repetition_truncation
   | Other of string
 
 let wire_finish_of_string s =
@@ -11,6 +13,8 @@ let wire_finish_of_string s =
   | "length" -> Length
   | "stop" | "end_turn" -> Stop
   | "refusal" -> Refusal
+  | "content_filter" -> Content_filter
+  | "repetition_truncation" -> Repetition_truncation
   | other -> Other other
 ;;
 
@@ -20,6 +24,8 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Length -> Types.MaxTokens
   | Stop -> Types.EndTurn
   | Refusal -> Types.Refusal
+  | Content_filter -> Types.ContentFilter
+  | Repetition_truncation -> Types.RepetitionTruncation
   (* "trust content over label": a non-tool finish that nonetheless carried tool
      blocks is a tool-use turn (mirrors the historical non-streaming guard);
      without tool blocks it is surfaced verbatim as [Unknown]. *)
@@ -32,6 +38,8 @@ let provisional_of_string s : Types.stop_reason =
   | Length -> Types.MaxTokens
   | Stop -> Types.EndTurn
   | Refusal -> Types.Refusal
+  | Content_filter -> Types.ContentFilter
+  | Repetition_truncation -> Types.RepetitionTruncation
   | Other other -> Types.Unknown other
 ;;
 
@@ -45,6 +53,8 @@ let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   | Types.MaxTokens
   | Types.StopSequence
   | Types.Refusal
+  | Types.ContentFilter
+  | Types.RepetitionTruncation
   | Types.PauseTurn
   | Types.Compaction
   | Types.ContextWindowExceeded
@@ -60,6 +70,8 @@ let is_unmatched_tool_calls = function
   | Types.MaxTokens
   | Types.StopSequence
   | Types.Refusal
+  | Types.ContentFilter
+  | Types.RepetitionTruncation
   | Types.PauseTurn
   | Types.Compaction
   | Types.ContextWindowExceeded -> false
@@ -119,9 +131,14 @@ let%test
   = of_finish (wire_finish_of_string s) ~has_tool_blocks:true
 ;;
 
-let%test "stop/length/refusal map identically on both paths" =
+let%test "known terminal reasons map identically on both paths" =
   let same s =
     provisional_of_string s = of_finish (wire_finish_of_string s) ~has_tool_blocks:false
   in
-  same "stop" && same "end_turn" && same "length" && same "refusal"
+  same "stop"
+  && same "end_turn"
+  && same "length"
+  && same "refusal"
+  && same "content_filter"
+  && same "repetition_truncation"
 ;;

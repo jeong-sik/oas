@@ -51,17 +51,7 @@ let run_live_test () =
     Printf.printf
       "Response OK: model=%s stop_reason=%s\n%!"
       resp.Types.model
-      (match resp.stop_reason with
-       | Types.EndTurn -> "end_turn"
-       | Types.StopToolUse -> "tool_use"
-       | Types.MaxTokens -> "max_tokens"
-       | Types.StopSequence -> "stop_sequence"
-       | Types.Refusal -> "refusal"
-       | Types.PauseTurn -> "pause_turn"
-       | Types.Compaction -> "compaction"
-       | Types.ContextWindowExceeded -> "model_context_window_exceeded"
-       | Types.UnmatchedToolCalls -> "unmatched_tool_calls"
-       | Types.Unknown s -> s);
+      (Types.stop_reason_to_string resp.stop_reason);
     List.iter
       (fun block ->
          match block with

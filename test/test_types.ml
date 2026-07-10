@@ -26,6 +26,14 @@ let test_known_stop_reasons () =
     "Types.Refusal"
     (Types.show_stop_reason (Types.stop_reason_of_string "refusal"));
   Alcotest.(check string)
+    "content_filter"
+    "Types.ContentFilter"
+    (Types.show_stop_reason (Types.stop_reason_of_string "content_filter"));
+  Alcotest.(check string)
+    "repetition_truncation"
+    "Types.RepetitionTruncation"
+    (Types.show_stop_reason (Types.stop_reason_of_string "repetition_truncation"));
+  Alcotest.(check string)
     "pause_turn"
     "Types.PauseTurn"
     (Types.show_stop_reason (Types.stop_reason_of_string "pause_turn"));

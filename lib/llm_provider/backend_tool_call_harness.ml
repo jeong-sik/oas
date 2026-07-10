@@ -277,6 +277,8 @@ let stop_reason_matches_tool_calls ~has_tool_calls = function
   | MaxTokens
   | StopSequence
   | Refusal
+  | ContentFilter
+  | RepetitionTruncation
   | PauseTurn
   | Compaction
   | ContextWindowExceeded -> not has_tool_calls

@@ -882,8 +882,7 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
           recorded as a provisional StopToolUse and reconciled against the
           assembled content in Complete_stream_acc.finalize_stream_acc
           (Stop_reason_wire.reconcile). SSOT: the wire vocabulary lives in
-          Stop_reason_wire, not in an unguarded chunk-level match.
-          "content_filter" stays Unknown — a moderation cutoff, not a refusal. *)
+          Stop_reason_wire, not in an unguarded chunk-level match. *)
          Stop_reason_wire.provisional_of_string reason
        in
        (* Close every block this message opened before the terminal MessageDelta,

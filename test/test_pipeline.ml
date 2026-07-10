@@ -333,6 +333,29 @@ let test_pipeline_output_rejects_unknown_terminal () =
   assert_pipeline_idle_reset agent
 ;;
 
+let test_pipeline_output_completes_repetition_truncation () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let agent =
+    make_pipeline_test_agent ~net ~response:(pipeline_response RepetitionTruncation)
+  in
+  (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+   | Ok (Internal_pipeline.Complete response) ->
+     Alcotest.(check bool)
+       "documented provider terminal reason is preserved"
+       true
+       (response.stop_reason = RepetitionTruncation)
+   | Ok Internal_pipeline.ToolsExecuted ->
+     Alcotest.fail "expected Complete, got ToolsExecuted"
+   | Ok Internal_pipeline.IdleSkipped ->
+     Alcotest.fail "expected Complete, got IdleSkipped"
+   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err));
+  assert_pipeline_idle_reset agent
+;;
+
 let test_pipeline_output_rejects_unmatched_tool_stop () =
   Eio_main.run
   @@ fun env ->
@@ -1282,6 +1305,10 @@ let () =
             "output rejects unknown terminal"
             `Quick
             test_pipeline_output_rejects_unknown_terminal
+        ; Alcotest.test_case
+            "output completes repetition truncation"
+            `Quick
+            test_pipeline_output_completes_repetition_truncation
         ; Alcotest.test_case
             "output rejects unmatched tool stop"
             `Quick

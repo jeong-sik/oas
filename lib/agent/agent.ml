@@ -202,6 +202,8 @@ let stop_reason_label : Types.stop_reason -> string = function
   | MaxTokens -> "max_tokens"
   | StopSequence -> "stop_sequence"
   | Refusal -> "refusal"
+  | ContentFilter -> "content_filter"
+  | RepetitionTruncation -> "repetition_truncation"
   | PauseTurn -> "pause_turn"
   | Compaction -> "compaction"
   | ContextWindowExceeded -> "model_context_window_exceeded"
