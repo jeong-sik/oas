@@ -345,6 +345,7 @@ let requires_non_http_transport = function
   | Provider_config.Gemini
   | Provider_config.Glm
   | Provider_config.DashScope -> false
+;;
 
 let validate_output_schema_request (config : Provider_config.t) =
   match Provider_config.validate_output_schema_request config with
@@ -398,10 +399,10 @@ let thinking_control_disable_unsatisfiable
        (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
         | Some Capabilities.Anthropic_always_adaptive -> true
         | Some
-            (Capabilities.Anthropic_manual_budget
+            ( Capabilities.Anthropic_manual_budget
             | Capabilities.Anthropic_adaptive_default
             | Capabilities.Anthropic_adaptive_preferred
-            | Capabilities.Anthropic_adaptive_only) -> false
+            | Capabilities.Anthropic_adaptive_only ) -> false
         | None -> caps.supports_reasoning)
      | Provider_config.Kimi
      | Provider_config.OpenAI_compat

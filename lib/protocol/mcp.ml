@@ -415,9 +415,7 @@ let has_shell_meta s = String.exists is_shell_meta s
 let interpreters = [ "sh"; "bash"; "zsh"; "python"; "python3"; "node"; "ruby"; "perl" ]
 
 let shell_commands_allowed () =
-  Llm_provider.Cli_common_env.bool
-    ~default:false
-    "OAS_MCP_ALLOW_SHELL_COMMANDS"
+  Llm_provider.Cli_common_env.bool ~default:false "OAS_MCP_ALLOW_SHELL_COMMANDS"
 ;;
 
 let validate_command_and_args ~command ~args =

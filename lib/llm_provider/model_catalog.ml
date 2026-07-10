@@ -598,10 +598,12 @@ let%test "parse_entry leaves task undeclared as None" =
 let%test "parse_entry parses Anthropic thinking control as typed catalog data" =
   let entry =
     Otoml.Parser.from_string
-      "id_prefix = \"claude-sonnet-4-6\"\nanthropic_thinking_control = \"adaptive_preferred\""
+      "id_prefix = \"claude-sonnet-4-6\"\n\
+       anthropic_thinking_control = \"adaptive_preferred\""
   in
   match parse_entry entry with
-  | Ok { anthropic_thinking_control = Some Capability_vocab.Adaptive_preferred; _ } -> true
+  | Ok { anthropic_thinking_control = Some Capability_vocab.Adaptive_preferred; _ } ->
+    true
   | Ok _ | Error _ -> false
 ;;
 

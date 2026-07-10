@@ -873,9 +873,7 @@ let test_constants_env_helpers () =
     (Constants.Deterministic.seed_of_env ~getenv ());
   let invalid_getenv =
     getenv_from
-      [ Constants.Env.max_tokens_default, "0"
-      ; Constants.Env.default_seed, "not-an-int"
-      ]
+      [ Constants.Env.max_tokens_default, "0"; Constants.Env.default_seed, "not-an-int" ]
   in
   Alcotest.(check int)
     "max tokens invalid env fallback"
@@ -901,7 +899,7 @@ let test_constants_env_helpers () =
       2048
       (Constants.Thinking.anthropic_budget ()));
   with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
-    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()));
+    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()))
 ;;
 
 let test_slot_cache_helpers () =

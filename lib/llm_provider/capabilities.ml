@@ -264,11 +264,10 @@ let anthropic_thinking_control_for_model_id model_id =
     match Capability_manifest.global () with
     | None -> None
     | Some manifest ->
-      Capability_manifest.lookup manifest model_id
-      |> Option.bind (fun entry ->
-           Option.map
-             anthropic_thinking_control_of_vocab_value
-             entry.anthropic_thinking_control)
+      Option.bind (Capability_manifest.lookup manifest model_id) (fun entry ->
+        Option.map
+          anthropic_thinking_control_of_vocab_value
+          entry.anthropic_thinking_control)
   in
   match Model_catalog.global () with
   | None -> manifest_value ()
@@ -1887,8 +1886,8 @@ let%test "Anthropic thinking policy resolves from the model catalog declaration"
          }
        ]);
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
-    anthropic_thinking_control_for_model_id "declared-anthropic-model" =
-    Some Anthropic_adaptive_preferred)
+    anthropic_thinking_control_for_model_id "declared-anthropic-model"
+    = Some Anthropic_adaptive_preferred)
 ;;
 
 let%test "Anthropic thinking policy falls back to manifest when catalog has no row" =
@@ -1903,8 +1902,8 @@ let%test "Anthropic thinking policy falls back to manifest when catalog has no r
       Model_catalog.clear_global ();
       Capability_manifest.clear_global ())
     (fun () ->
-      anthropic_thinking_control_for_model_id "manifest-anthropic-model" =
-      Some Anthropic_adaptive_only)
+       anthropic_thinking_control_for_model_id "manifest-anthropic-model"
+       = Some Anthropic_adaptive_only)
 ;;
 
 let%test "thinking_control_token accessor reads the token from the catalog constructor" =
