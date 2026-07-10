@@ -719,6 +719,63 @@ let test_build_openai_body_deepseek_disabled_thinking_keeps_sampling () =
       (json |> member "top_p" |> to_float_option))
 ;;
 
+(* [None_] on a non-GLM provider that supports tool_choice must serialize as
+   ["none"] with the tools list kept, so the provider enforces the caller's
+   prohibition. Regression for #2505: an unconditional-omit arm attached tools
+   with no tool_choice, letting the provider default (auto) resurrect calls
+   the caller explicitly forbade. *)
+let test_build_openai_body_tool_choice_none_serializes () =
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let provider_config =
+      declared_provider_config "api-deepseek-v4" "deepseek-v4-flash"
+    in
+    let state = make_state ~tool_choice:Types.None_ () in
+    let state =
+      { state with config = { state.config with model = provider_config.model_id } }
+    in
+    let tool_json = `Assoc [ "name", `String "calc"; "description", `String "calc" ] in
+    let json =
+      Api.build_openai_body
+        ~provider_config
+        ~config:state
+        ~messages:[]
+        ~tools:[ tool_json ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check
+      string
+      "tool_choice none serialized"
+      "none"
+      (json |> member "tool_choice" |> to_string);
+    check int "tools kept" 1 (json |> member "tools" |> to_list |> List.length))
+;;
+
+(* When the provider cannot express tool_choice at all, [None_] must drop the
+   tools list along with the field: tools with no tool_choice would default to
+   auto on the provider side, violating the prohibition (#2505). *)
+let test_build_openai_body_tool_choice_none_without_capability_drops_tools () =
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let provider_config = declared_provider_config "api-minimax-m3" "minimax-m3" in
+    let state = make_state ~tool_choice:Types.None_ () in
+    let state =
+      { state with config = { state.config with model = provider_config.model_id } }
+    in
+    let tool_json = `Assoc [ "name", `String "calc"; "description", `String "calc" ] in
+    let json =
+      Api.build_openai_body
+        ~provider_config
+        ~config:state
+        ~messages:[]
+        ~tools:[ tool_json ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    check bool "tool_choice absent" true (member_absent json "tool_choice");
+    check bool "tools absent" true (member_absent json "tools"))
+;;
+
 let test_build_openai_body_with_qwen_preserve_thinking () =
   with_declared_openai_compat_provider_catalog (fun () ->
     let provider_config = declared_provider_config "api-qwen36" "qwen36-35b-a3b-mtp" in
@@ -2464,6 +2521,14 @@ let () =
             "deepseek disabled thinking keeps sampling"
             `Quick
             test_build_openai_body_deepseek_disabled_thinking_keeps_sampling
+        ; test_case
+            "tool_choice none serializes for capable provider"
+            `Quick
+            test_build_openai_body_tool_choice_none_serializes
+        ; test_case
+            "tool_choice none drops tools without capability"
+            `Quick
+            test_build_openai_body_tool_choice_none_without_capability_drops_tools
         ; test_case
             "qwen preserve thinking"
             `Quick

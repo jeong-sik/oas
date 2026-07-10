@@ -299,13 +299,23 @@ let add_sampling_field dialect (config : agent_state) parameter value body_assoc
    the tools list; GLM only documents ["auto"] (see
    [Capabilities.glm_capabilities]), so [Auto]/[Any] serialize as ["auto"]
    ([Any] is already rejected by [validate_tool_choice_request] before
-   serialization). *)
+   serialization).
+
+   [None_] on a non-GLM provider with [supports_tool_choice] serializes as
+   ["none"] with the tools list kept, so the provider itself enforces the
+   caller's prohibition. Without [supports_tool_choice] the prohibition has no
+   wire representation, so both the field and the tools list are dropped —
+   attaching tools with no [tool_choice] would let the provider default
+   ([auto]) resurrect calls the caller explicitly forbade (#2505). *)
 let effective_tool_choice_json
       (capabilities : Provider.capabilities)
       ~is_zai_glm
       (config : agent_state)
   =
   match config.config.tool_choice with
+  | Some Types.None_ when is_zai_glm -> None
+  | Some Types.None_ when capabilities.supports_tool_choice ->
+    Some (tool_choice_to_openai_json Types.None_)
   | Some Types.None_ -> None
   | Some (Types.Auto | Types.Any) when is_zai_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
@@ -319,9 +329,13 @@ let effective_tool_choice_json
   | Some (Types.Auto | Types.Any | Types.Tool _) -> None
 ;;
 
-let should_include_tools ~is_zai_glm (config : agent_state) =
+let should_include_tools
+      ~is_zai_glm
+      (capabilities : Provider.capabilities)
+      (config : agent_state)
+  =
   match config.config.tool_choice with
-  | Some Types.None_ -> not is_zai_glm
+  | Some Types.None_ -> (not is_zai_glm) && capabilities.supports_tool_choice
   | None | Some (Types.Auto | Types.Any | Types.Tool _) -> true
 ;;
 
@@ -346,7 +360,7 @@ let build_openai_body_unchecked
     | Some entries
       when entries <> []
            && capabilities.supports_tools
-           && should_include_tools ~is_zai_glm config -> Some entries
+           && should_include_tools ~is_zai_glm capabilities config -> Some entries
     | None | Some _ -> None
   in
   let sanitized_messages =
