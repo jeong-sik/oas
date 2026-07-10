@@ -760,7 +760,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | UnmatchedToolCalls ->
          (* The wire boundary has already classified this response shape as
             malformed. Keep rejecting it; arbitrary provider terminal reasons
-            remain in the [Unknown _] terminal branch below. *)
+            remain fail-closed in their own branch below. *)
          Agent_types.reset_idle_state agent;
          Error
            (Error.Agent
@@ -772,8 +772,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | Refusal
        | PauseTurn
        | Compaction
-       | ContextWindowExceeded
-       | Unknown _ ->
+       | ContextWindowExceeded ->
          (* Invoke on_stop before resetting idle counters, so observers
             (hooks, tracers, telemetry callbacks) can read the actual
             consecutive_idle_turns value that drove this turn's behavior. *)
@@ -790,7 +789,10 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
             Error (hook_failed_sdk_error ~hook_name:"on_stop" ~stage ~detail)
           | _ ->
             Agent_types.reset_idle_state agent;
-            Ok (Complete response)))
+            Ok (Complete response))
+       | Unknown reason ->
+         Agent_types.reset_idle_state agent;
+         Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
