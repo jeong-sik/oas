@@ -4665,7 +4665,7 @@ Signature: `val default_summarizer : Types.message list -> string`. No behavior 
 - `pipeline.ml` (`proactive_compact` + `emergency_compact`) threads `?summarizer:agent.options.summarizer` into `Budget_strategy.reduce_for_budget`.
 - The existing `?summarizer` optional parameter on `Budget_strategy.reduce_for_budget` is unchanged; it is simply now reachable from `Agent.options`.
 
-Motivation: consumers that embed application-specific structured markers in message bodies (e.g. `[STATE]...[/STATE]` blocks) need a way to strip or transform those markers before they are re-injected as compacted history. Previously the only path was post-hoc scrubbing via `context_reducer`, which runs **after** `reduce_for_budget` — by that point the `[Summary of N earlier messages]` string is already materialized. Exposing the summarizer on `Agent.options` closes that gap while keeping OAS agnostic of any specific marker syntax.
+Motivation: consumers may need application-specific summary semantics before messages are re-injected as compacted history. Previously the only customization path was post-hoc transformation via `context_reducer`, which runs **after** `reduce_for_budget` — by that point the `[Summary of N earlier messages]` string is already materialized. Exposing the summarizer on `Agent.options` makes that boundary explicit while keeping OAS domain-agnostic.
 
 PR #973.
 
