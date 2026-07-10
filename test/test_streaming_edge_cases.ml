@@ -174,24 +174,6 @@ let test_deliverable_progress_classifier_edges () =
        (ContentBlockDelta { index = 0; delta = TextDelta "" }))
 ;;
 
-let test_thinking_only_timeout_exceeded () =
-  check
-    bool
-    "below timeout"
-    false
-    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:129.9);
-  check
-    bool
-    "at timeout"
-    true
-    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:130.0);
-  check
-    bool
-    "past timeout"
-    true
-    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:131.0)
-;;
-
 let test_synthetic_events_media_blocks () =
   let response : api_response =
     { id = "r1"
@@ -562,10 +544,6 @@ let () =
             "deliverable progress classifier edges"
             `Quick
             test_deliverable_progress_classifier_edges
-        ; test_case
-            "thinking-only timeout predicate"
-            `Quick
-            test_thinking_only_timeout_exceeded
         ; test_case "synthetic media events" `Quick test_synthetic_events_media_blocks
         ] )
     ; ( "openai_sse"

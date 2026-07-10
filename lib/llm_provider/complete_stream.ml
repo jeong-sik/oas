@@ -484,7 +484,6 @@ let complete_stream_http
       let first_token_at_ref : float option ref = ref None in
       let first_deliverable_at_ref : float option ref = ref None in
       let first_event_at_ref : float option ref = ref None in
-      let thinking_only_started_at_ref : float option ref = ref None in
       (* Ollama-specific side channel: prompt_eval_count / eval_count and
      the four duration fields only appear on the [done:true] line, so
      stream_acc (which only sees content/tool deltas) cannot capture
@@ -651,16 +650,6 @@ let complete_stream_http
                    including hidden reasoning. The two refs together
                    distinguish prefill from generation latency. *)
                   let elapsed_ms = latency_ms_float latency_counter in
-                  (* Thinking-only cutoff timestamps follow the injected Eio
-                   clock when one is available, so a mock clock controls the
-                   cutoff in tests. Telemetry durations use the monotonic
-                   [latency_counter] above and therefore do not depend on
-                   wall-clock adjustments. *)
-                  let cutoff_now =
-                    match clock with
-                    | Some c -> Eio.Time.now c
-                    | None -> Unix.gettimeofday ()
-                  in
                   if events <> []
                   then (
                     (match elapsed_ms with
@@ -691,26 +680,18 @@ let complete_stream_http
                        | `Skip -> ()
                        | `Thinking ->
                          stream_idle_state := Http_client.Streaming_thinking;
-                         if
-                           Option.is_none !first_deliverable_at_ref
-                           && Option.is_none !thinking_only_started_at_ref
-                         then thinking_only_started_at_ref := Some cutoff_now;
                          incr n_thinking
                        | `Answer ->
                          stream_idle_state := Http_client.Streaming_answer;
-                         thinking_only_started_at_ref := None;
                          incr n_answer
                        | `Tool_call_start ->
                          stream_idle_state := Http_client.Streaming_tool_call;
-                         thinking_only_started_at_ref := None;
                          incr n_tool_call_start
                        | `Tool_call_arg_delta ->
                          stream_idle_state := Http_client.Streaming_tool_call;
-                         thinking_only_started_at_ref := None;
                          incr n_tool_call_arg_delta
                        | `Tool_call_complete ->
                          stream_idle_state := Http_client.Streaming_tool_call;
-                         thinking_only_started_at_ref := None;
                          incr n_tool_call_complete
                        | `Substrate ->
                          stream_idle_state := Http_client.Streaming_substrate;
@@ -725,17 +706,14 @@ let complete_stream_http
                          stream_idle_state := Http_client.Streaming_unknown;
                          terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
                     events;
-                  (match
-                     ( stream_idle_timeout_s
-                     , !first_deliverable_at_ref
-                     , !thinking_only_started_at_ref )
-                   with
-                   | Some timeout_s, None, Some started_at
-                     when Streaming.thinking_only_timeout_exceeded
-                            ~timeout_s
-                            ~started_at
-                            ~now:cutoff_now -> raise Eio.Time.Timeout
-                   | Some _, _, _ | None, _, _ -> ());
+                  (* No thinking-only wall-clock cutoff: active reasoning
+                     deltas ARE stream liveness. [stream_idle_timeout_s]
+                     keeps its documented inter-event meaning (a stalled
+                     socket still times out); bounding total turn duration
+                     is the caller's contract, not the stream driver's
+                     (38-bug campaign #10: the cutoff killed models that
+                     legitimately think longer than the idle budget, and
+                     retries re-ran and re-killed the round). *)
                   if events <> []
                   then
                     if not !first_chunk_seen

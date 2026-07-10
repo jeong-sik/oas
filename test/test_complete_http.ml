@@ -1436,16 +1436,16 @@ let test_complete_stream_idle_timeout_still_fires () =
   | Exit -> ()
 ;;
 
-(* T12 audit — the thinking-only cutoff (#2011) must read the injected
-   Eio clock, not [Unix.gettimeofday]. A mock clock drives the cutoff:
-   each hidden-reasoning delta advances mock time by 6s. Every
-   inter-event gap (6s) stays under the 10s idle deadline — so the
-   line-idle timer cannot be the thing that fires — but the cumulative
-   thinking-only span crosses 10s on the third delta (mock 12s).
-   Wall-clock time elapsed here is milliseconds, so an implementation
-   still reading [Unix.gettimeofday] never reaches the 10s cutoff and
-   returns [Ok] — which this test rejects. *)
-let test_complete_stream_thinking_only_cutoff_follows_injected_clock () =
+(* Bug #10 regression (38-bug campaign): actively streaming reasoning
+   deltas are stream LIVENESS, not idleness. Each hidden-reasoning delta
+   advances the injected mock clock by 6s, so the cumulative
+   thinking-only span crosses the 10s idle budget on the third delta —
+   the exact condition the deleted thinking-only wall-clock cutoff used
+   to abort on (TimeoutError{Stream_idle Streaming_thinking}, then MASC
+   retried and re-killed the round, losing the turn). Inter-event gaps
+   (6s) stay under the 10s idle deadline, so the line-idle timer must
+   not fire either: the stream must finalize [Ok] with the answer. *)
+let test_complete_stream_long_thinking_is_not_cut_off () =
   Eio_main.run
   @@ fun env ->
   try
@@ -1463,9 +1463,6 @@ let test_complete_stream_thinking_only_cutoff_follows_injected_clock () =
     let mock_now = ref 0.0 in
     let on_event = function
       | Types.ContentBlockDelta { delta = Types.ThinkingDelta _; _ } ->
-        (* [on_data] in read_sse invokes this outside any
-           [with_timeout_exn] window, so advancing the mock here cannot
-           wake the line-idle timer fiber. *)
         mock_now := !mock_now +. 6.0;
         Eio_mock.Clock.set_time mock_clock !mock_now
       | _ -> ()
@@ -1481,66 +1478,13 @@ let test_complete_stream_thinking_only_cutoff_follows_injected_clock () =
         ~on_event
         ()
     with
-    | Error
-        (Http_client.TimeoutError
-           { phase = Http_client.Stream_idle Http_client.Streaming_thinking; message }) ->
-      let prefix = "stream_idle_timeout_s deadline exceeded" in
-      check
-        bool
-        "thinking-only cutoff message"
-        true
-        (String.length message >= String.length prefix
-         && String.equal (String.sub message 0 (String.length prefix)) prefix);
-      Eio.Switch.fail sw Exit
-    | Error (Http_client.TimeoutError { phase; _ }) ->
-      fail
-        (Printf.sprintf
-           "unexpected timeout phase %s"
-           (Http_client.timeout_phase_to_label phase))
-    | Ok _ ->
-      fail "expected thinking-only cutoff via mock clock — is the cutoff on wall time?"
-    | Error _ -> fail "expected TimeoutError{phase=Stream_idle Streaming_thinking}"
-  with
-  | Exit -> ()
-;;
-
-(* Control for the test above: same stream, same mock clock, but mock
-   time is never advanced. The cutoff comparison therefore always sees
-   elapsed = 0 and the stream finalizes [Ok] with the block-1 answer,
-   pinning that the cutoff follows ONLY the injected clock. *)
-let test_complete_stream_thinking_only_cutoff_idle_without_clock_advance () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let mock_clock = Eio_mock.Clock.make () in
-    let url =
-      start_raw_sse_server
-        ~sw
-        ~net:env#net
-        ~clock:env#clock
-        (anthropic_thinking_then_answer_frames ~frame_gap_s:0.01)
-    in
-    let config = make_config url in
-    match
-      Complete.complete_stream
-        ~sw
-        ~net:env#net
-        ~clock:mock_clock
-        ~stream_idle_timeout_s:10.0
-        ~config
-        ~messages
-        ~on_event:(fun _ -> ())
-        ()
-    with
     | Ok resp ->
       check string "text" "answer" (text_of_response resp);
       Eio.Switch.fail sw Exit
     | Error err ->
       fail
         (Printf.sprintf
-           "expected Ok without clock advance, got %s"
+           "long thinking must stream to completion, got %s"
            (match err with
             | Http_client.NetworkError { message; _ }
             | Http_client.TimeoutError { message; _ } -> message
@@ -1914,13 +1858,9 @@ let () =
             `Quick
             test_complete_stream_transport_arm_idle_timeout
         ; test_case
-            "thinking-only cutoff follows injected clock (T12)"
+            "long thinking is not cut off (bug #10 regression)"
             `Quick
-            test_complete_stream_thinking_only_cutoff_follows_injected_clock
-        ; test_case
-            "thinking-only cutoff idle without clock advance (T12 control)"
-            `Quick
-            test_complete_stream_thinking_only_cutoff_idle_without_clock_advance
+            test_complete_stream_long_thinking_is_not_cut_off
         ] )
     ]
 ;;

@@ -188,10 +188,6 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | StreamIncomplete _ -> false
 ;;
 
-let thinking_only_timeout_exceeded ~timeout_s ~started_at ~now =
-  now -. started_at >= timeout_s
-;;
-
 (** Emit synthetic SSE events from a complete [api_response].
     Used as fallback for non-Anthropic providers that don't support SSE. *)
 let emit_synthetic_events (response : api_response) on_event =
