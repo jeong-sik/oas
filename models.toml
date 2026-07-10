@@ -422,6 +422,11 @@ supports_native_streaming = true
 # Ollama Cloud Models (canonical 2026-06 seed)
 # Source: https://ollama.com/api/tags + /api/show, checked 2026-06-20 KST.
 # Provider-qualified entries preserve Ollama Cloud wire behavior when a model id overlaps another provider.
+# The official structured-output documentation currently says that Ollama Cloud
+# does not support structured outputs. JSON mode remains a separate capability;
+# keep every Ollama Cloud row schema-disabled until the official provider
+# contract changes. Source: https://docs.ollama.com/capabilities/structured-outputs,
+# checked 2026-07-10.
 
 [[models]]
 id_prefix = "ollama_cloud/deepseek-v3.1:671b"
@@ -495,7 +500,7 @@ supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/devstral-small-2:24b"
@@ -512,7 +517,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/gemini-3-flash-preview"
@@ -850,7 +855,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/mistral-large-3:675b"
@@ -956,20 +961,6 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 
-[[models]]
-id_prefix = "ollama_cloud/rnj-1:8b"
-base = "ollama_cloud"
-max_context_tokens = 32768
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = false
-supports_extended_thinking = false
-supports_reasoning_budget = false
-thinking_control_format = "none"
-supports_multimodal_inputs = false
-supports_image_input = false
-supports_native_streaming = true
-
 # Bare entries for Cloud models not already represented elsewhere by a direct-provider seed.
 # Runtime startup still checks bare model membership before OAS provider-qualified dispatch.
 
@@ -1015,7 +1006,7 @@ supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "devstral-small-2:24b"
@@ -1032,7 +1023,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "gemma3:4b"
@@ -1227,7 +1218,7 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 supports_response_format_json = true
-supports_structured_output = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "mistral-large-3:675b"
@@ -1329,20 +1320,6 @@ thinking_control_format = "ollama_think"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
-supports_native_streaming = true
-
-[[models]]
-id_prefix = "rnj-1:8b"
-base = "ollama_cloud"
-max_context_tokens = 32768
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = false
-supports_extended_thinking = false
-supports_reasoning_budget = false
-thinking_control_format = "none"
-supports_multimodal_inputs = false
-supports_image_input = false
 supports_native_streaming = true
 
 # Gemini Models
