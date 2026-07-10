@@ -25,24 +25,42 @@ let with_chat_template_thinking_token ~token = function
   | _ -> token
 ;;
 
-(* Whether the request asks the model to think. Mirrors the Ollama builder
-   exactly so the two backends decide identically: [Some] is explicit, [None]
-   consults OAS_OLLAMA_THINK_DEFAULT (off by default). *)
-let thinking_requested (config : Provider_config.t) =
+(* Resolve explicit request intent without reading backend-specific environment
+   state.  Each backend supplies its own default at the call site. *)
+let thinking_requested ~default (config : Provider_config.t) =
   match config.enable_thinking with
   | Some true -> true
   | Some false -> false
-  | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
+  | None -> default
+;;
+
+let%test "explicit thinking flag wins the backend default" =
+  let disabled =
+    Provider_config.make
+      ~kind:Provider_config.Ollama
+      ~model_id:"m"
+      ~base_url:"u"
+      ~enable_thinking:false
+      ()
+  in
+  let enabled = { disabled with enable_thinking = Some true } in
+  (not (thinking_requested ~default:true disabled))
+  && thinking_requested ~default:false enabled
+;;
+
+let%test "absent thinking flag uses only the caller default" =
+  let config =
+    Provider_config.make ~kind:Provider_config.Ollama ~model_id:"m" ~base_url:"u" ()
+  in
+  thinking_requested ~default:true config
+  && not (thinking_requested ~default:false config)
 ;;
 
 (* [true] when the resolved capabilities declare a [Chat_template_token] and
    thinking is requested — i.e. the token must be injected into the system turn.
    Ollama also uses this to omit the native [think] field for these rows. *)
-let chat_template_thinking_active
-      ~(config : Provider_config.t)
-      ~(caps : Capabilities.capabilities)
-  =
-  thinking_requested config
+let chat_template_thinking_active ~thinking_requested ~(caps : Capabilities.capabilities) =
+  thinking_requested
   && Option.is_some
        (Capability_vocab.token_of_thinking_control_format caps.thinking_control_format)
 ;;
@@ -51,13 +69,14 @@ let chat_template_thinking_active
    [chat_template_thinking_active]; otherwise unchanged. When there is no prior
    system prompt the token becomes the system turn on its own. *)
 let system_prompt_with_thinking_token
+      ~thinking_requested
       ~(config : Provider_config.t)
       ~(caps : Capabilities.capabilities)
   =
   match
     Capability_vocab.token_of_thinking_control_format caps.thinking_control_format
   with
-  | Some token when thinking_requested config ->
+  | Some token when thinking_requested ->
     Some (with_chat_template_thinking_token ~token config.system_prompt)
   | Some _ | None -> config.system_prompt
 ;;
@@ -81,7 +100,7 @@ let%test
       ~model_capabilities_override:caps
       ()
   in
-  match system_prompt_with_thinking_token ~config ~caps with
+  match system_prompt_with_thinking_token ~thinking_requested:true ~config ~caps with
   | Some s -> String.starts_with ~prefix:"<THINK>" s
   | None -> false
 ;;
@@ -97,7 +116,10 @@ let%test "oas#2483: a non-token model leaves the system prompt byte-identical" =
       ()
   in
   (* Ollama_think is not a token format, so no injection. *)
-  system_prompt_with_thinking_token ~config ~caps:Capabilities.ollama_capabilities
+  system_prompt_with_thinking_token
+    ~thinking_requested:true
+    ~config
+    ~caps:Capabilities.ollama_capabilities
   = Some "Base prompt."
 ;;
 
@@ -117,7 +139,28 @@ let%test "oas#2483: enable_thinking=false does not inject the token" =
       ~model_capabilities_override:caps
       ()
   in
-  system_prompt_with_thinking_token ~config ~caps = Some "Base prompt."
+  system_prompt_with_thinking_token ~thinking_requested:false ~config ~caps
+  = Some "Base prompt."
+;;
+
+let%test "oas#2488 follow-up: OpenAI-compatible default stays provider-local" =
+  let caps =
+    { Capabilities.ollama_capabilities with
+      thinking_control_format = Capabilities.Chat_template_token "<THINK>"
+    }
+  in
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"u"
+      ~system_prompt:"Base prompt."
+      ~model_capabilities_override:caps
+      ()
+  in
+  let requested = thinking_requested ~default:false config in
+  system_prompt_with_thinking_token ~thinking_requested:requested ~config ~caps
+  = Some "Base prompt."
 ;;
 
 let tool_calls_to_openai_json blocks =
