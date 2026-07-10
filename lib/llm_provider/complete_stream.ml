@@ -474,15 +474,12 @@ let complete_stream_http
       (* RFC-OAS-020 — TTFT (Time To First Token) capture.
          [first_token_at_ref] fires on the first chunk that carries a
          non-empty generated delta (text / reasoning / tool-call arg).
-         [first_deliverable_at_ref] fires on the first non-reasoning
-         progress signal that downstream applications can act on.
          [first_event_at_ref] fires on the very first SSE
          event of any kind — used to derive [prefill_ms] when the
          provider exposes a separable prelude marker
          (e.g. Anthropic [MessageStart] arrives before the first
          [ContentBlockDelta]). *)
       let first_token_at_ref : float option ref = ref None in
-      let first_deliverable_at_ref : float option ref = ref None in
       let first_event_at_ref : float option ref = ref None in
       (* Ollama-specific side channel: prompt_eval_count / eval_count and
      the four duration fields only appear on the [done:true] line, so
@@ -661,12 +658,6 @@ let complete_stream_http
                     Option.is_none !first_token_at_ref
                     && List.exists Streaming.sse_event_is_first_token_signal events
                   then first_token_at_ref := elapsed_ms;
-                  if
-                    Option.is_none !first_deliverable_at_ref
-                    && List.exists
-                         Streaming.sse_event_is_deliverable_progress_signal
-                         events
-                  then first_deliverable_at_ref := elapsed_ms;
                   List.iter
                     (fun evt ->
                        emit_stream_event on_event evt;
