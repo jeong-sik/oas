@@ -1127,10 +1127,12 @@ let agent_state_with_schema schema : Types.agent_state =
   { base with config = cfg }
 ;;
 
-let test_provider_config_of_agent_custom_registered_ollama_cloud_row_honors_so () =
-  (* Regression for the P1 masking issue in #2440: Custom_registered ollama_cloud
-     must not let the provider default (supports_structured_output=false) hide
-     per-model catalog rows.  devstral-2:123b is declared as schema-capable. *)
+let test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_json_mode
+      ()
+  =
+  (* Custom_registered ollama_cloud must resolve the provider-qualified model
+     row. devstral-2:123b advertises JSON mode, but #2499 correctly removed the
+     stronger native-schema guarantee from the Ollama Cloud /v1 boundary. *)
   with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
     let schema = `Assoc [ "type", `String "object" ] in
     let cfg : Provider.config =
@@ -1156,10 +1158,21 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_honors_so (
         "provider kind stays Ollama"
         true
         (pc.kind = Llm_provider.Provider_config.Ollama);
+      (match Llm_provider.Provider_config.capabilities_for_config_model pc with
+       | Some caps ->
+         Alcotest.(check bool)
+           "row advertises JSON mode"
+           true
+           caps.supports_response_format_json;
+         Alcotest.(check bool)
+           "row does not advertise native structured output"
+           false
+           caps.supports_structured_output
+       | None -> Alcotest.fail "provider-qualified catalog row was not resolved");
       Alcotest.(check bool)
-        "schema request accepted because row advertises SO"
+        "native schema rejected because JSON mode is not structured output"
         true
-        (Result.is_ok (Llm_provider.Provider_config.validate_output_schema_request pc))
+        (Result.is_error (Llm_provider.Provider_config.validate_output_schema_request pc))
     | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
 ;;
 
@@ -1526,9 +1539,9 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback
         ; Alcotest.test_case
-            "custom registered ollama_cloud row honors structured output"
+            "custom registered ollama_cloud row separates JSON mode from schema"
             `Quick
-            test_provider_config_of_agent_custom_registered_ollama_cloud_row_honors_so
+            test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_json_mode
         ; Alcotest.test_case
             "custom registered ollama_cloud row rejects structured output"
             `Quick

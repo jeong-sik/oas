@@ -368,10 +368,10 @@ let test_build_body_uses_catalog_output_cap () =
   check int "catalog max_tokens" 64_000 (json |> member "max_tokens" |> to_int)
 ;;
 
-(* The legacy OpenAI-compatible Agent SDK builder must also use the typed
-   provider/model resolver. This guards the path on a model whose catalog
-   ceiling is neither the old 4096 literal nor the unknown-model fallback. *)
-let test_build_openai_body_uses_catalog_output_cap () =
+(* A raw OpenAI-compatible endpoint is not an endpoint declaration for a bare
+   OpenAI model id. It must therefore use the unknown-model fallback instead
+   of inheriting the gpt-4.1 catalog row from a different provider boundary. *)
+let test_build_openai_body_uses_unknown_model_fallback () =
   let provider_config : Provider.config =
     { provider =
         Provider.OpenAICompat
@@ -390,7 +390,11 @@ let test_build_openai_body_uses_catalog_output_cap () =
     |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
-  check int "catalog max_tokens" 32_000 (body |> member "max_tokens" |> to_int)
+  check
+    int
+    "unknown-provider fallback max_tokens"
+    (Llm_provider.Constants.resolve_unknown_model_max_tokens_fallback ())
+    (body |> member "max_tokens" |> to_int)
 ;;
 
 let test_build_body_with_thinking_budget () =
@@ -2480,9 +2484,9 @@ let () =
             `Quick
             test_build_body_uses_catalog_output_cap
         ; test_case
-            "OpenAI catalog output cap"
+            "OpenAI unknown-provider output fallback"
             `Quick
-            test_build_openai_body_uses_catalog_output_cap
+            test_build_openai_body_uses_unknown_model_fallback
         ; test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget
         ; test_case
             "enable_thinking default budget"
