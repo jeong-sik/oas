@@ -5,7 +5,8 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** [system_prompt_with_thinking_token ~config ~caps] returns [config.system_prompt]
+(** [system_prompt_with_thinking_token ~thinking_requested ~config ~caps] returns
+    [config.system_prompt]
     with the chat-template thinking token prepended when the resolved [caps]
     declare a [Chat_template_token] and thinking is requested, else the prompt
     unchanged. SSOT for both the Ollama-native and OpenAI-compat request builders
@@ -13,23 +14,24 @@
     OpenAI-compat wire used to drop the token silently, producing blank-content
     200s / empty-turn storms). *)
 val system_prompt_with_thinking_token
-  :  config:Provider_config.t
+  :  thinking_requested:bool
+  -> config:Provider_config.t
   -> caps:Capabilities.capabilities
   -> string option
 
-(** [chat_template_thinking_active ~config ~caps] is [true] when a
+(** [chat_template_thinking_active ~thinking_requested ~caps] is [true] when a
     [Chat_template_token] is declared and thinking is requested — i.e. the token
     was injected into the system turn. Ollama uses it to omit the native [think]
     field for these rows. *)
 val chat_template_thinking_active
-  :  config:Provider_config.t
+  :  thinking_requested:bool
   -> caps:Capabilities.capabilities
   -> bool
 
-(** Whether the request asks the model to think ([Some] explicit, [None]
-    consults OAS_OLLAMA_THINK_DEFAULT, off by default). Shared so both backends
-    decide identically. *)
-val thinking_requested : Provider_config.t -> bool
+(** Resolve the explicit request flag, using [default] only when
+    [config.enable_thinking] is absent.  The caller owns the backend-specific
+    default; this shared serializer never reads provider environment variables. *)
+val thinking_requested : default:bool -> Provider_config.t -> bool
 
 val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list

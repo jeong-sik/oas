@@ -29,7 +29,11 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let think_requested = Backend_openai_serialize.thinking_requested config in
+  let think_requested =
+    Backend_openai_serialize.thinking_requested
+      ~default:(Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT")
+      config
+  in
   let caps =
     match Provider_config.capabilities_for_config_model config with
     | Some c -> c
@@ -42,10 +46,15 @@ let build_request
      catalog/manifest load), so there is no per-request token lookup that could
      be missing. *)
   let chat_template_token_thinking =
-    Backend_openai_serialize.chat_template_thinking_active ~config ~caps
+    Backend_openai_serialize.chat_template_thinking_active
+      ~thinking_requested:think_requested
+      ~caps
   in
   let system_prompt =
-    Backend_openai_serialize.system_prompt_with_thinking_token ~config ~caps
+    Backend_openai_serialize.system_prompt_with_thinking_token
+      ~thinking_requested:think_requested
+      ~config
+      ~caps
   in
   let messages = Tool_message_pairs.close_for_provider_request messages in
   let provider_messages =
