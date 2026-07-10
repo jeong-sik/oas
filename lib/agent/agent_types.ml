@@ -108,11 +108,9 @@ type options =
         {!Budget_strategy.reduce_for_budget} when the Emergency phase
         triggers [Summarize_old].  When [None], the built-in
         [Budget_strategy.default_summarizer] is used (first text block
-        of each message, truncated to 100 chars).  Consumers that embed
-        domain-specific structured markers in message bodies (for example
-        their own [STATE] blocks or other custom envelopes) can supply a
-        summarizer that strips or transforms those markers before they are
-        re-injected as compacted history.
+        of each message, truncated to 100 chars). Consumers that need
+        application-specific summary semantics can supply a summarizer that
+        transforms messages before they are re-injected as compacted history.
         @since 0.150.0 *)
   }
 
