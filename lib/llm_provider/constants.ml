@@ -13,7 +13,6 @@ module Env = struct
   let thinking_budget_default = "OAS_THINKING_BUDGET_DEFAULT"
   let anthropic_thinking_budget = "OAS_ANTHROPIC_THINKING_BUDGET"
   let gemini_thinking_budget = "OAS_GEMINI_THINKING_BUDGET"
-  let prompt_cache_min_chars = "OAS_PROMPT_CACHE_MIN_CHARS"
   let default_seed = "OAS_DEFAULT_SEED"
 end
 
@@ -255,35 +254,6 @@ module Deterministic = struct
        | None ->
          Diag.warn "constants" "%s=%S is not a valid int, ignoring" Env.default_seed s;
          None)
-  ;;
-end
-
-(* ── Anthropic ──────────────────────────────────── *)
-
-module Anthropic = struct
-  (** Minimum system prompt length (chars) to enable prompt caching.
-      Approximation: ~1024 tokens at ~3.4 chars/token.
-      Override with [OAS_PROMPT_CACHE_MIN_CHARS] env var. *)
-  let default_prompt_cache_min_chars = 3500
-
-  (** Minimum tool count to auto-enable prompt caching on the last tool
-      definition. Anthropic's cache prefix benefits grow with tool count
-      because the tool definitions are repeated verbatim in every request.
-      3+ tools means the serialized tool array typically exceeds ~1024 tokens.
-      @since 0.185.0 *)
-  let prompt_cache_min_tools = 3
-
-  (** Compatibility alias for the static default. New request-building code
-      should use {!prompt_cache_min_chars_for_env} so
-      [OAS_PROMPT_CACHE_MIN_CHARS] is resolved at call time. *)
-  let prompt_cache_min_chars = default_prompt_cache_min_chars
-
-  let prompt_cache_min_chars_for_env ?getenv () =
-    positive_int_env_or
-      ?getenv
-      ~var:Env.prompt_cache_min_chars
-      ~default:default_prompt_cache_min_chars
-      ()
   ;;
 end
 

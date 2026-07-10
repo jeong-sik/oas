@@ -467,12 +467,6 @@ val request_path_targets_responses_api : string -> bool
     Responses-specific sync serializer/parser. *)
 val validate_request_path : t -> (unit, string) result
 
-(** Validate that sampling parameters unsupported by CLI subprocess
-    transports ([min_p], [top_k]) are not set.
-    Returns [Error] with the unsupported parameter names for CLI providers.
-    @since 0.185.0 *)
-val validate_cli_sampling_params : t -> (unit, string) result
-
 (** Validate provider-specific [tool_choice] constraints before request-body
     construction. This catches unsupported runtime/provider contracts at the
     typed config boundary instead of letting serializers raise exceptions after

@@ -12,7 +12,8 @@ let make_config ?(cache = false) ?system_prompt () =
   { config; messages = []; turn_count = 0; usage = empty_usage }
 ;;
 
-(* Prompt must be >= 4096 chars to trigger cache_control (min token threshold) *)
+(* The caller's opt-in is serialized; Anthropic applies the model/platform
+   minimum-token rule server-side. *)
 let long_system_prompt = "You are helpful. " ^ String.make 4100 'x'
 
 let test_cache_system_prompt_enabled () =

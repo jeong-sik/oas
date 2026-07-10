@@ -899,21 +899,6 @@ let test_validate_anthropic_thinking_rejects_forced_tool_choice () =
           (cfg ~enable_thinking:false (Types.Tool "lookup"))))
 ;;
 
-let test_validate_cli_sampling_params_allows_min_p () =
-  let cfg =
-    Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-4"
-      ~base_url:"https://api.anthropic.com"
-      ~min_p:0.05
-      ()
-  in
-  check_bool
-    "sampling params currently accepted"
-    true
-    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
-;;
-
 let test_connect_timeout_none_by_default () =
   let cfg =
     Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
@@ -1098,21 +1083,6 @@ let test_connect_timeout_s_default_and_override () =
     "explicit override preserved"
     (Some 600.0)
     explicit_cfg.connect_timeout_s
-;;
-
-let test_validate_cli_sampling_params_anthropic_min_p_ok () =
-  let cfg =
-    Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-4"
-      ~base_url:"https://api.anthropic.com"
-      ~min_p:0.05
-      ()
-  in
-  check_bool
-    "Anthropic min_p is accepted by current validator"
-    true
-    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
 ;;
 
 let test_max_turns_hard_cap_and_clamp () =
@@ -1571,21 +1541,6 @@ let test_validate_output_schema_ollama_subdomain_rejected () =
          endpoints, got https://api.ollama.com/v1"
         msg
     | Ok () -> Alcotest.fail "expected Ollama subdomain to fail closed")
-;;
-
-let test_validate_cli_sampling_params_accepts_anthropic_min_p () =
-  let cfg =
-    Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-4"
-      ~base_url:"https://api.anthropic.com"
-      ~min_p:0.05
-      ()
-  in
-  check_bool
-    "anthropic min_p validation is currently accepted"
-    true
-    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
 ;;
 
 let test_connect_timeout_s_default_none () =
@@ -2269,10 +2224,6 @@ let () =
             `Quick
             test_connect_timeout_s_default_and_override
         ; Alcotest.test_case
-            "cli sampling params accepted"
-            `Quick
-            test_validate_cli_sampling_params_anthropic_min_p_ok
-        ; Alcotest.test_case
             "response_format_json mode"
             `Quick
             test_make_response_format_json_mode
@@ -2280,10 +2231,6 @@ let () =
             "output schema derivation"
             `Quick
             test_output_schema_of_response_format
-        ; Alcotest.test_case
-            "sampling params allow min_p"
-            `Quick
-            test_validate_cli_sampling_params_allows_min_p
         ; Alcotest.test_case
             "connect timeout none by default"
             `Quick
@@ -2477,10 +2424,6 @@ let () =
             "default attempt timeout hints"
             `Quick
             test_default_attempt_timeout_s
-        ; Alcotest.test_case
-            "cli sampling params"
-            `Quick
-            test_validate_cli_sampling_params_accepts_anthropic_min_p
         ; Alcotest.test_case
             "turn hard caps and clamp"
             `Quick

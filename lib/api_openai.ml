@@ -17,7 +17,7 @@ let system_message_json (config : agent_state) : Yojson.Safe.t list =
         ; "content", `String (Llm_provider.Utf8_sanitize.sanitize s)
         ]
     ]
-  | _ -> []
+  | None | Some _ -> []
 ;;
 
 let provider_config_kind_of_request_kind = function
@@ -85,54 +85,6 @@ let capabilities_for_request ?provider_config (config : agent_state) =
       ~model_id:(model_to_string config.config.model)
 ;;
 
-(* Typed request-boundary projection for GLM (Z.AI) dialect decisions,
-   mirroring the provider-client path's [Provider_config.t] boundary in
-   [Backend_openai_request]. Only [kind]/[base_url]/[model_id] and the
-   thinking fields feeding [PConfig.glm_should_replay_reasoning] /
-   [PConfig.zai_glm_clear_thinking_request_field] are populated; do not read
-   sampling or transport fields from it.
-
-   Enumerate every [Provider.provider] variant (the type of [cfg.provider])
-   so the compiler flags any new constructor here. ZAI detection depends on a
-   declared endpoint; [Anthropic] carries none, and [Custom_registered]
-   resolves through [custom_registered_projection] — the same typed lookup the
-   tool-choice validation context uses — so registry-declared GLM providers
-   ([glm], [glm-coding]) project to [PConfig.Glm] here exactly as they
-   validate, and unknown names fail closed with the validation path's error
-   instead of degrading to a generic config. A missing [?provider_config]
-   fails closed to an empty [base_url]: a bare "glm-…" model id without a
-   declared Z.AI endpoint never acquires GLM dialect, coercions, or
-   capabilities ([PConfig.is_zai_glm_config] is [false] for every non-ZAI
-   projection), matching the endpoint-declaration guard in
-   [Provider.capabilities_for_model]. *)
-let serialization_provider_config ?provider_config (config : agent_state)
-  : (PConfig.t, string) result
-  =
-  let projection =
-    match provider_config with
-    | Some (cfg : Provider.config) ->
-      (match cfg.provider with
-       | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
-         Ok (PConfig.OpenAI_compat, base_url, cfg.model_id)
-       | Provider.Anthropic -> Ok (PConfig.Anthropic, "", cfg.model_id)
-       | Provider.Custom_registered { name } ->
-         (match custom_registered_projection name with
-          | Ok (kind, base_url, _capabilities) -> Ok (kind, base_url, cfg.model_id)
-          | Error msg -> Error msg))
-    | None -> Ok (PConfig.OpenAI_compat, "", model_to_string config.config.model)
-  in
-  Result.map
-    (fun (kind, base_url, model_id) ->
-       PConfig.make
-         ~kind
-         ~model_id
-         ~base_url
-         ?enable_thinking:config.config.enable_thinking
-         ?preserve_thinking:config.config.preserve_thinking
-         ())
-    projection
-;;
-
 let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   : Llm_provider.Capabilities.capabilities
   =
@@ -178,6 +130,60 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; emits_usage_tokens = caps.emits_usage_tokens
   ; supported_models = caps.supported_models
   }
+;;
+
+(* Typed request-boundary projection for GLM (Z.AI) dialect decisions,
+   mirroring the provider-client path's [Provider_config.t] boundary in
+   [Backend_openai_request]. [kind]/[base_url]/[model_id], the selected
+   capability declaration, and the caller's output-token override are
+   populated; the thinking fields feed
+   [PConfig.glm_should_replay_reasoning] /
+   [PConfig.zai_glm_clear_thinking_request_field]. Sampling and transport
+   fields remain outside this projection.
+
+   Enumerate every [Provider.provider] variant (the type of [cfg.provider])
+   so the compiler flags any new constructor here. ZAI detection depends on a
+   declared endpoint; [Anthropic] carries none, and [Custom_registered]
+   resolves through [custom_registered_projection] — the same typed lookup the
+   tool-choice validation context uses — so registry-declared GLM providers
+   ([glm], [glm-coding]) project to [PConfig.Glm] here exactly as they
+   validate, and unknown names fail closed with the validation path's error
+   instead of degrading to a generic config. A missing [?provider_config]
+   fails closed to an empty [base_url]: a bare "glm-…" model id without a
+   declared Z.AI endpoint never acquires GLM dialect, coercions, or
+   capabilities ([PConfig.is_zai_glm_config] is [false] for every non-ZAI
+   projection), matching the endpoint-declaration guard in
+   [Provider.capabilities_for_model]. *)
+let serialization_provider_config ?provider_config (config : agent_state)
+  : (PConfig.t, string) result
+  =
+  let projection =
+    match provider_config with
+    | Some (cfg : Provider.config) ->
+      (match cfg.provider with
+       | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
+         Ok (PConfig.OpenAI_compat, base_url, cfg.model_id)
+       | Provider.Anthropic -> Ok (PConfig.Anthropic, "", cfg.model_id)
+       | Provider.Custom_registered { name } ->
+         (match custom_registered_projection name with
+          | Ok (kind, base_url, _capabilities) -> Ok (kind, base_url, cfg.model_id)
+          | Error msg -> Error msg))
+    | None -> Ok (PConfig.OpenAI_compat, "", model_to_string config.config.model)
+  in
+  Result.map
+    (fun (kind, base_url, model_id) ->
+       PConfig.make
+         ~kind
+         ~model_id
+         ~base_url
+         ?max_tokens:config.config.max_tokens
+         ~model_capabilities_override:
+           (llm_capabilities_of_provider_capabilities
+              (capabilities_for_request ?provider_config config))
+         ?enable_thinking:config.config.enable_thinking
+         ?preserve_thinking:config.config.preserve_thinking
+         ())
+    projection
 ;;
 
 let provider_config_kind_for_openai_compat ~base_url ~model_id =
@@ -300,20 +306,23 @@ let effective_tool_choice_json
       (config : agent_state)
   =
   match config.config.tool_choice with
-  | Some Types.None_ when is_zai_glm -> None
+  | Some Types.None_ -> None
   | Some (Types.Auto | Types.Any) when is_zai_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
-  | Some choice when capabilities.supports_tool_choice ->
+  | Some Types.Any when capabilities.supports_tool_choice ->
+    Some (tool_choice_to_openai_json Types.Any)
+  | Some (Types.Tool _ as choice) when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json choice)
-  | _ -> None
+  | None -> None
+  | Some (Types.Auto | Types.Any | Types.Tool _) -> None
 ;;
 
 let should_include_tools ~is_zai_glm (config : agent_state) =
   match config.config.tool_choice with
-  | Some Types.None_ when is_zai_glm -> false
-  | _ -> true
+  | Some Types.None_ -> not is_zai_glm
+  | None | Some (Types.Auto | Types.Any | Types.Tool _) -> true
 ;;
 
 let build_openai_body_unchecked
@@ -338,7 +347,7 @@ let build_openai_body_unchecked
       when entries <> []
            && capabilities.supports_tools
            && should_include_tools ~is_zai_glm config -> Some entries
-    | _ -> None
+    | None | Some _ -> None
   in
   let sanitized_messages =
     Llm_provider.Backend_openai_serialize.close_tool_message_pairs_for_request messages
@@ -362,7 +371,10 @@ let build_openai_body_unchecked
   let body_assoc =
     [ "model", `String model_str
     ; "messages", `List provider_messages
-    ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
+    ; ( "max_tokens"
+      , `Int
+          (Llm_provider.Backend_openai_request.effective_max_output_tokens
+             serialization_config) )
     ]
   in
   let body_assoc =

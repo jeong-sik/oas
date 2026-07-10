@@ -415,9 +415,9 @@ let has_shell_meta s = String.exists is_shell_meta s
 let interpreters = [ "sh"; "bash"; "zsh"; "python"; "python3"; "node"; "ruby"; "perl" ]
 
 let shell_commands_allowed () =
-  match Sys.getenv_opt "OAS_MCP_ALLOW_SHELL_COMMANDS" with
-  | Some ("1" | "true") -> true
-  | Some _ | None -> false
+  Llm_provider.Cli_common_env.bool
+    ~default:false
+    "OAS_MCP_ALLOW_SHELL_COMMANDS"
 ;;
 
 let validate_command_and_args ~command ~args =
@@ -606,7 +606,7 @@ let connect_all_best_effort ~sw ~mgr specs =
 
 let%test "output_token_budget returns default 25000" =
   (* Unset env var to test default *)
-  (match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
+  (match Llm_provider.Cli_common_env.get "OAS_MCP_OUTPUT_MAX_TOKENS" with
    | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" ""
    | None -> ());
   let budget = output_token_budget () in
@@ -615,7 +615,7 @@ let%test "output_token_budget returns default 25000" =
 
 let%test "truncate_output short string unchanged" =
   (* Ensure default budget *)
-  (match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
+  (match Llm_provider.Cli_common_env.get "OAS_MCP_OUTPUT_MAX_TOKENS" with
    | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" ""
    | None -> ());
   truncate_output "hello" = "hello"

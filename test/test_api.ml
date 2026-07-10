@@ -356,6 +356,43 @@ let test_build_body_basic () =
   check string "system prompt" "You are helpful." (json |> member "system" |> to_string)
 ;;
 
+(* The legacy Agent SDK builder must use the same catalog resolver as the
+   standalone Anthropic backend. A hard-coded 4096 here would truncate
+   current Sonnet requests even though the catalog declares a 64000 output
+   ceiling. *)
+let test_build_body_uses_catalog_output_cap () =
+  let config = make_state ~model:"claude-sonnet-4-6" () in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  check int "catalog max_tokens" 64_000 (json |> member "max_tokens" |> to_int)
+;;
+
+(* The legacy OpenAI-compatible Agent SDK builder must also use the typed
+   provider/model resolver. This guards the path on a model whose catalog
+   ceiling is neither the old 4096 literal nor the unknown-model fallback. *)
+let test_build_openai_body_uses_catalog_output_cap () =
+  let provider_config : Provider.config =
+    { provider =
+        Provider.OpenAICompat
+          { base_url = "http://test"
+          ; auth_header = None
+          ; path = "/v1/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "gpt-4.1"
+    ; api_key_env = "TEST_KEY"
+    }
+  in
+  let config = make_state ~model:"gpt-4.1" () in
+  let body =
+    Api.build_openai_body ~provider_config ~config ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check int "catalog max_tokens" 32_000 (body |> member "max_tokens" |> to_int)
+;;
+
 let test_build_body_with_thinking_budget () =
   (* Thinking is gated on [enable_thinking = Some true]; a budget
      without enable_thinking must NOT emit a thinking block.
@@ -1957,7 +1994,8 @@ let test_message_to_json_ignores_metadata () =
 (* ------------------------------------------------------------------ *)
 
 let test_build_body_with_cache () =
-  (* Prompt must be >= 4096 chars for cache_control (min token threshold) *)
+  (* The caller's opt-in is serialized; Anthropic applies the model/platform
+     minimum-token rule server-side. *)
   let long_prompt = "You are a cached helper. " ^ String.make 4100 'x' in
   let config =
     { Types.default_config with
@@ -2380,6 +2418,14 @@ let () =
         ] )
     ; ( "build_body_assoc"
       , [ test_case "basic" `Quick test_build_body_basic
+        ; test_case
+            "Anthropic catalog output cap"
+            `Quick
+            test_build_body_uses_catalog_output_cap
+        ; test_case
+            "OpenAI catalog output cap"
+            `Quick
+            test_build_openai_body_uses_catalog_output_cap
         ; test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget
         ; test_case
             "enable_thinking default budget"

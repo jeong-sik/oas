@@ -33,10 +33,6 @@ val intent_to_string : intent -> string
 val intent_of_string : string -> (intent, string) result
 val depth_for_intent : intent -> retrieval_depth
 
-(** Explicit zero-network classifier suitable when the caller intentionally
-    wants heuristic routing without model assistance. *)
-val heuristic_classify : string -> classification
-
 (** Strict parser for model-produced JSON. *)
 val parse_model_json : Yojson.Safe.t -> (classification, string) result
 

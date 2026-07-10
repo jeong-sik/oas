@@ -125,7 +125,7 @@ let create_message_stream
        | Ok (url, key, _headers) -> Ok (p, url, key)
        | Error e -> Error e)
     | None ->
-      (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+      (match Llm_provider.Cli_common_env.get "ANTHROPIC_API_KEY" with
        | Some key ->
          let fallback_provider : Provider.config =
            { provider = Provider.Anthropic

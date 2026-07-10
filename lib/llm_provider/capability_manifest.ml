@@ -65,6 +65,7 @@ type entry =
         example [<|think|>]) in the [Chat_template_token] constructor, so a
         tokenless declaration — or a token without that format — fails closed in
         {!parse_entry} rather than raising when a request builder needs it. *)
+  ; anthropic_thinking_control : Capability_vocab.anthropic_thinking_control option
   ; preserve_thinking_control_format : string option
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
@@ -280,6 +281,23 @@ let canonical_reasoning_streaming_format key json =
             Capability_vocab.reasoning_streaming_format_syntax))
 ;;
 
+let canonical_anthropic_thinking_control key json =
+  let open Result_syntax in
+  let* value = member_string_closed key json in
+  match value with
+  | None -> Ok None
+  | Some raw ->
+    (match Capability_vocab.anthropic_thinking_control_of_string raw with
+     | Some control -> Ok (Some control)
+     | None ->
+       Error
+         (Printf.sprintf
+            "entry field %S has unknown value %S (canonical: %s)"
+            key
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " Capability_vocab.anthropic_thinking_control_values)))
+;;
+
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -316,6 +334,7 @@ let known_entry_keys =
   ; "supports_code_execution"
   ; "thinking_control_format"
   ; "thinking_control_token"
+  ; "anthropic_thinking_control"
   ; "preserve_thinking_control_format"
   ; "reasoning_output_format"
   ; "reasoning_streaming_format"
@@ -369,6 +388,9 @@ let parse_entry json =
       ~format:thinking_control_format_raw
       ~token:thinking_control_token
     |> Result.map_error (fun msg -> Printf.sprintf "entry %S %s" id_prefix msg)
+  in
+  let* anthropic_thinking_control =
+    canonical_anthropic_thinking_control "anthropic_thinking_control" json
   in
   let* preserve_thinking_control_format =
     canonical_choice
@@ -438,6 +460,7 @@ let parse_entry json =
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format
+    ; anthropic_thinking_control
     ; preserve_thinking_control_format
     ; reasoning_output_format
     ; reasoning_streaming_format
@@ -587,6 +610,26 @@ let%test "of_json: valid manifest parses successfully" =
     && entry.max_context_tokens = Some 131072
     && entry.supports_tools = Some true
   | Ok _ | Error _ -> false
+;;
+
+let%test "of_json: parses Anthropic thinking policy as typed declaration" =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"claude-future","anthropic_thinking_control":"adaptive_only"}]}|}
+  in
+  match of_json json with
+  | Ok [ { anthropic_thinking_control = Some Capability_vocab.Adaptive_only; _ } ] -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "of_json: rejects unknown Anthropic thinking policy" =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"claude-future","anthropic_thinking_control":"guessing"}]}|}
+  in
+  match of_json json with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "of_json: wrong schema_version returns error" =

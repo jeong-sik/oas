@@ -90,11 +90,13 @@ let effort_for_config mode (config : Provider_config.t) =
     let dialect = Reasoning_dialect.for_provider_config config in
     (match mode, config.thinking_budget with
      | ( ( Capabilities.Anthropic_adaptive_only
+         | Capabilities.Anthropic_adaptive_default
          | Capabilities.Anthropic_adaptive_preferred
          | Capabilities.Anthropic_always_adaptive )
        , Some budget ) -> effort_of_budget dialect budget
      | Capabilities.Anthropic_manual_budget, _
      | ( ( Capabilities.Anthropic_adaptive_only
+         | Capabilities.Anthropic_adaptive_default
          | Capabilities.Anthropic_adaptive_preferred
          | Capabilities.Anthropic_always_adaptive )
        , None ) -> None)
@@ -104,7 +106,9 @@ let thinking_config_for_config mode (config : Provider_config.t) =
   match config.enable_thinking, mode with
   | Some true, Capabilities.Anthropic_always_adaptive -> None
   | ( Some true
-    , (Capabilities.Anthropic_adaptive_only | Capabilities.Anthropic_adaptive_preferred) )
+    , ( Capabilities.Anthropic_adaptive_default
+      | Capabilities.Anthropic_adaptive_only
+      | Capabilities.Anthropic_adaptive_preferred ) )
     -> Some (`Assoc [ "type", `String "adaptive" ])
   | Some true, Capabilities.Anthropic_manual_budget ->
     let budget =
@@ -113,6 +117,8 @@ let thinking_config_for_config mode (config : Provider_config.t) =
       | None -> Constants.Thinking.anthropic_budget ()
     in
     Some (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
+  | Some false, Capabilities.Anthropic_adaptive_default ->
+    Some (`Assoc [ "type", `String "disabled" ])
   | Some false, _ | None, _ -> None
 ;;
 
@@ -139,6 +145,13 @@ let output_config_for_config mode (config : Provider_config.t) =
   | _ :: _ -> Some (`Assoc (List.rev fields))
 ;;
 
+(* Anthropic and OpenAI-compatible request envelopes have different field
+   names, but the output-budget policy is provider-config policy: caller
+   override, catalog ceiling, then the explicit unknown-model fallback.  The
+   OpenAI request module owns that policy so the legacy Agent SDK path and the
+   standalone backend cannot drift. *)
+let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
+
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
@@ -152,9 +165,17 @@ let build_request
    | Ok () -> ()
    | Error reason -> invalid_arg ("Backend_anthropic.build_request: " ^ reason));
   let caps =
-    match Capabilities.for_model_id config.model_id with
+    match Provider_config.capabilities_for_config_model config with
     | Some caps -> caps
-    | None -> Capabilities.anthropic_capabilities
+    | None ->
+      (match config.kind with
+       | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
+       | Provider_config.Kimi -> Capabilities.kimi_capabilities
+       | Provider_config.OpenAI_compat
+       | Provider_config.Ollama
+       | Provider_config.Gemini
+       | Provider_config.Glm
+       | Provider_config.DashScope -> Capabilities.default_capabilities)
   in
   let tools_present = tools <> [] in
   let disable_parallel_tool_use =
@@ -163,7 +184,38 @@ let build_request
       ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
       ~tools_present
   in
-  let thinking_mode = Capabilities.anthropic_thinking_control_of_id config.model_id in
+  (match config.min_p with
+   | Some _ -> Backend_openai_request.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
+  | None -> ());
+  let thinking_mode =
+    match config.kind with
+    | Provider_config.Kimi -> Capabilities.Anthropic_manual_budget
+    | Provider_config.Anthropic ->
+      (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
+       | Some mode -> mode
+       | None when config.enable_thinking = Some true ->
+         invalid_arg
+           (Printf.sprintf
+              "Backend_anthropic.build_request: model %S has no catalog-declared Anthropic thinking-control policy"
+              config.model_id)
+       | None -> Capabilities.Anthropic_manual_budget)
+    | Provider_config.OpenAI_compat
+    | Provider_config.Ollama
+    | Provider_config.Gemini
+    | Provider_config.Glm
+    | Provider_config.DashScope ->
+      invalid_arg
+        (Printf.sprintf
+           "Backend_anthropic.build_request: unsupported provider kind %s"
+           (Provider_config.string_of_provider_kind config.kind))
+  in
+  (match thinking_mode, config.enable_thinking with
+   | Capabilities.Anthropic_always_adaptive, Some false ->
+     invalid_arg
+       (Printf.sprintf
+          "Backend_anthropic.build_request: model %S cannot disable always-on adaptive thinking"
+          config.model_id)
+   | _, _ -> ());
   let messages =
     messages
     |> Tool_message_pairs.close_for_provider_request
@@ -174,10 +226,7 @@ let build_request
   let body =
     [ "model", `String config.model_id
     ; ( "max_tokens"
-      , `Int
-          (Option.value
-             ~default:(Constants.resolve_unknown_model_max_tokens_fallback ())
-             config.max_tokens) )
+      , `Int (effective_max_output_tokens config) )
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]
@@ -186,14 +235,12 @@ let build_request
     match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
       let s = Utf8_sanitize.sanitize s in
-      let should_cache_system =
-        config.cache_system_prompt
-        && String.length s >= Constants.Anthropic.prompt_cache_min_chars_for_env ()
-      in
-      if should_cache_system
+      if config.cache_system_prompt
       then (
-        (* Anthropic prompt caching: requires ~1024+ tokens.
-             Send system as content block array with cache_control breakpoint. *)
+        (* The caller owns the cache opt-in. Anthropic applies the
+           model/platform-specific minimum-token rule server-side; OAS has no
+           tokenizer-independent way to turn that rule into a character
+           threshold. *)
         let block =
           `Assoc
             [ "type", `String "text"
@@ -234,11 +281,7 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      let should_cache_tools =
-        config.cache_system_prompt
-        || List.length ts >= Constants.Anthropic.prompt_cache_min_tools
-      in
-      if should_cache_tools
+      if config.cache_system_prompt
       then (
         (* Add cache_control to last tool for extended cache prefix *)
         let ts_with_cache =

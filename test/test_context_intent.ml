@@ -143,117 +143,6 @@ let test_parse_model_json_rejects_out_of_range_confidence () =
       (Util.contains_substring_ci ~haystack:detail ~needle:"confidence")
 ;;
 
-let test_heuristic_conversational () =
-  let classified = Context_intent.heuristic_classify "hello and thanks" in
-  check
-    string
-    "intent"
-    "conversational"
-    (Context_intent.intent_to_string classified.intent);
-  check bool "depth" true (classified.depth = Context_intent.Skip)
-;;
-
-let test_heuristic_task_command () =
-  let classified =
-    Context_intent.heuristic_classify "fix the failing test and open a PR"
-  in
-  check string "intent" "task_command" (Context_intent.intent_to_string classified.intent);
-  check bool "depth" true (classified.depth = Context_intent.Skip)
-;;
-
-let test_heuristic_status_check () =
-  let classified =
-    Context_intent.heuristic_classify "what is the current status of issue 415?"
-  in
-  check string "intent" "status_check" (Context_intent.intent_to_string classified.intent);
-  check bool "depth" true (classified.depth = Context_intent.Light)
-;;
-
-let test_heuristic_knowledge_query () =
-  let classified =
-    Context_intent.heuristic_classify "explain how context reduction works in the SDK"
-  in
-  check
-    string
-    "intent"
-    "knowledge_query"
-    (Context_intent.intent_to_string classified.intent);
-  check bool "depth" true (classified.depth = Context_intent.Full)
-;;
-
-let test_heuristic_coordination () =
-  let classified =
-    Context_intent.heuristic_classify
-      "route this to another actor and leave a transfer note"
-  in
-  check string "intent" "coordination" (Context_intent.intent_to_string classified.intent);
-  check bool "depth" true (classified.depth = Context_intent.Light)
-;;
-
-let test_heuristic_coordination_generic () =
-  let classified =
-    Context_intent.heuristic_classify
-      "notify the monitor group and reserve the next parallel task"
-  in
-  check string "intent" "coordination" (Context_intent.intent_to_string classified.intent)
-;;
-
-let test_heuristic_fallback_paths () =
-  let question = Context_intent.heuristic_classify "who" in
-  check
-    string
-    "question fallback intent"
-    "knowledge_query"
-    (Context_intent.intent_to_string question.intent);
-  check
-    (option string)
-    "question rationale"
-    (Some "knowledge_query: default fallback")
-    question.rationale;
-  let short = Context_intent.heuristic_classify "ok" in
-  check
-    string
-    "short fallback intent"
-    "conversational"
-    (Context_intent.intent_to_string short.intent);
-  check
-    (option string)
-    "short rationale"
-    (Some "conversational: default fallback")
-    short.rationale;
-  let imperative =
-    Context_intent.heuristic_classify
-      "proceed through the next slice until verification succeeds"
-  in
-  check
-    string
-    "imperative fallback intent"
-    "task_command"
-    (Context_intent.intent_to_string imperative.intent);
-  check
-    (option string)
-    "imperative rationale"
-    (Some "task_command: default fallback")
-    imperative.rationale
-;;
-
-let test_no_reserved_keywords_in_heuristic () =
-  (* Verify that heuristic keywords do not contain domain-specific terms
-     that would couple OAS to any particular downstream consumer. *)
-  let reserved_terms = [ "delegate"; "handoff"; "agent"; "team" ] in
-  let source =
-    {|assign route transfer notify group actor monitor coordinate sync reserve parallel|}
-  in
-  List.iter
-    (fun term ->
-       check
-         bool
-         (Printf.sprintf "no '%s' in coordination keywords" term)
-         true
-         (not (Util.contains_substring_ci ~haystack:source ~needle:term)))
-    reserved_terms
-;;
-
 let test_prompt_mentions_all_categories () =
   let prompt = Context_intent.prompt_for_query "status?" in
   List.iter
@@ -335,16 +224,6 @@ let () =
             "confidence bounds"
             `Quick
             test_parse_model_json_rejects_out_of_range_confidence
-        ] )
-    ; ( "heuristics"
-      , [ test_case "conversational" `Quick test_heuristic_conversational
-        ; test_case "task command" `Quick test_heuristic_task_command
-        ; test_case "status check" `Quick test_heuristic_status_check
-        ; test_case "knowledge query" `Quick test_heuristic_knowledge_query
-        ; test_case "coordination" `Quick test_heuristic_coordination
-        ; test_case "coordination generic" `Quick test_heuristic_coordination_generic
-        ; test_case "fallback paths" `Quick test_heuristic_fallback_paths
-        ; test_case "no reserved keywords" `Quick test_no_reserved_keywords_in_heuristic
         ] )
     ; ( "prompt"
       , [ test_case "mentions categories" `Quick test_prompt_mentions_all_categories

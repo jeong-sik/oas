@@ -864,15 +864,6 @@ let validate_output_schema_request (config : t) =
               config.base_url))
 ;;
 
-(** Validate that sampling parameters not supported by CLI subprocess
-    transports are not set.  CLI transports (Codex, Kimi,
-    Gemini, Claude_code) run external binaries and cannot relay
-    fine-grained sampling parameters like [min_p] or [top_k].
-    Detecting these at validation time avoids silent downgrading at the
-    transport layer ([warn_unsupported_once]).
-    @since 0.185.0 *)
-let validate_cli_sampling_params (_config : t) = Ok ()
-
 let has_host_prefix ~url ~prefix =
   let prefix_len = String.length prefix in
   String.length url >= prefix_len

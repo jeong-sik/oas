@@ -68,6 +68,31 @@ type task =
 
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
+(** Anthropic Messages API thinking-control policy.  This is model catalog
+    data, not a model-id classifier: an entry must declare which request
+    shape it accepts before a thinking-enabled request is built. *)
+type anthropic_thinking_control =
+  | Manual_budget
+  | Adaptive_default
+  | Adaptive_preferred
+  | Adaptive_only
+  | Always_adaptive
+
+let anthropic_thinking_control_table =
+  [ "manual_budget", Manual_budget
+  ; "adaptive_default", Adaptive_default
+  ; "adaptive_preferred", Adaptive_preferred
+  ; "adaptive_only", Adaptive_only
+  ; "always_adaptive", Always_adaptive
+  ]
+;;
+
+let anthropic_thinking_control_values = List.map fst anthropic_thinking_control_table
+
+let anthropic_thinking_control_of_string raw =
+  List.assoc_opt (normalize raw) anthropic_thinking_control_table
+;;
+
 (* The chat-template-token label needs a companion token, so unlike the data-less
    variants it cannot live in a plain [string -> t] table. The label is still
    listed in [thinking_control_format_values] for vocab-membership validation;

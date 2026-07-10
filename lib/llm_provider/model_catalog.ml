@@ -41,6 +41,7 @@ type model_entry =
        [thinking_control_format] and [thinking_control_token] keys separately;
        [parse_entry] joins them so a [chat_template_token] row without a token —
        or a token without that format — fails closed here. *)
+  ; anthropic_thinking_control : Capability_vocab.anthropic_thinking_control option
   ; preserve_thinking_control_format : string option
   ; reasoning_output_format : string option
   ; reasoning_streaming_format : string option
@@ -252,6 +253,29 @@ let task_opt ~entry_id key toml =
             (String.concat ", " Capability_vocab.task_values)))
 ;;
 
+let anthropic_thinking_control_opt ~entry_id key toml =
+  match
+    canonical_string_opt
+      ~entry_id
+      key
+      ~allowed:Capability_vocab.anthropic_thinking_control_values
+      toml
+  with
+  | Error _ as error -> error
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    (match Capability_vocab.anthropic_thinking_control_of_string raw with
+     | Some control -> Ok (Some control)
+     | None ->
+       Error
+         (Printf.sprintf
+            "model entry %S field %S has unknown value %S (canonical: %s)"
+            entry_id
+            key
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " Capability_vocab.anthropic_thinking_control_values)))
+;;
+
 (* Every field [parse_entry] reads below. A misspelled or stale key (e.g.
    [suports_tools]) would otherwise be silently ignored, leaving the capability
    at its default and hiding the misconfiguration. Enumerate the table keys and
@@ -294,6 +318,7 @@ let known_entry_keys =
   ; "supports_code_execution"
   ; "thinking_control_format"
   ; "thinking_control_token"
+  ; "anthropic_thinking_control"
   ; "preserve_thinking_control_format"
   ; "reasoning_output_format"
   ; "reasoning_streaming_format"
@@ -346,20 +371,29 @@ let parse_entry entry_toml =
         ~allowed:Reasoning_effort.all_wire_values
         entry_toml
     in
+    let anthropic_thinking_control_result =
+      anthropic_thinking_control_opt
+        ~entry_id:id_prefix
+        "anthropic_thinking_control"
+        entry_toml
+    in
     (match
        ( unknown_keys_result
        , reasoning_replay_result
        , assistant_tool_content_format_result
-       , accepted_reasoning_efforts_result )
+       , accepted_reasoning_efforts_result
+       , anthropic_thinking_control_result )
      with
-     | (Error _ as e), _, _, _
-     | _, (Error _ as e), _, _
-     | _, _, (Error _ as e), _
-     | _, _, _, (Error _ as e) -> e
+     | (Error _ as e), _, _, _, _
+     | _, (Error _ as e), _, _, _
+     | _, _, (Error _ as e), _, _
+     | _, _, _, (Error _ as e), _
+     | _, _, _, _, (Error _ as e) -> e
      | ( Ok ()
        , Ok reasoning_replay
        , Ok assistant_tool_content_format
-       , Ok accepted_reasoning_efforts ) ->
+       , Ok accepted_reasoning_efforts
+       , Ok anthropic_thinking_control ) ->
        (* [base] names a provider preset; validate it against the closed vocab at
           parse time so an unknown/misspelled label fails closed here rather than
           silently resolving to [default_capabilities] downstream in
@@ -510,6 +544,7 @@ let parse_entry entry_toml =
                ; supports_code_execution =
                    find_bool_opt entry_toml [ "supports_code_execution" ]
                ; thinking_control_format
+               ; anthropic_thinking_control
                ; preserve_thinking_control_format
                ; reasoning_output_format
                ; reasoning_streaming_format
@@ -558,6 +593,26 @@ let%test "parse_entry leaves task undeclared as None" =
   match parse_entry entry with
   | Ok { task = None; _ } -> true
   | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry parses Anthropic thinking control as typed catalog data" =
+  let entry =
+    Otoml.Parser.from_string
+      "id_prefix = \"claude-sonnet-4-6\"\nanthropic_thinking_control = \"adaptive_preferred\""
+  in
+  match parse_entry entry with
+  | Ok { anthropic_thinking_control = Some Capability_vocab.Adaptive_preferred; _ } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry rejects unknown Anthropic thinking control" =
+  let entry =
+    Otoml.Parser.from_string
+      "id_prefix = \"m\"\nanthropic_thinking_control = \"guessing\""
+  in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "parse_entry parses ignored_sampling_parameters into closed variants" =

@@ -320,19 +320,21 @@ let emit_tool_call_metrics (metrics : Metrics.t) ~provider ~model_id resp =
   | count -> metrics.on_tool_calls ~provider ~model_id ~count
 ;;
 
-(* CLI subprocess transports have been removed. All providers now use
-   HTTP directly. This predicate is kept as a constant [false] to
-   preserve call-sites without behavioural change. *)
-let requires_non_http_transport _kind = false
+(* The provider-kind sum currently contains only HTTP-backed transports. Keep
+   this exhaustive boundary predicate until the transport type itself carries
+   a non-HTTP variant; adding a provider kind then becomes a compiler-visible
+   decision instead of silently inheriting a wildcard branch. *)
+let requires_non_http_transport = function
+  | Provider_config.Anthropic
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope -> false
 
 let validate_output_schema_request (config : Provider_config.t) =
   match Provider_config.validate_output_schema_request config with
-  | Ok () -> Ok ()
-  | Error reason -> Error (Http_client.AcceptRejected { reason })
-;;
-
-let validate_cli_sampling_params (config : Provider_config.t) =
-  match Provider_config.validate_cli_sampling_params config with
   | Ok () -> Ok ()
   | Error reason -> Error (Http_client.AcceptRejected { reason })
 ;;
@@ -378,14 +380,30 @@ let thinking_control_disable_unsatisfiable
   match config.enable_thinking with
   | Some true | None -> false
   | Some false ->
-    let glm_special_case =
-      (* backend_openai_request encodes thinking for zai/GLM even under
-         No_thinking_control, so that combination IS satisfiable. *)
-      Provider_config.is_zai_glm_config config
-    in
-    caps.supports_reasoning
-    && caps.thinking_control_format = Capabilities.No_thinking_control
-    && not glm_special_case
+    (match config.kind with
+     | Provider_config.Anthropic ->
+       (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
+        | Some Capabilities.Anthropic_always_adaptive -> true
+        | Some
+            (Capabilities.Anthropic_manual_budget
+            | Capabilities.Anthropic_adaptive_default
+            | Capabilities.Anthropic_adaptive_preferred
+            | Capabilities.Anthropic_adaptive_only) -> false
+        | None -> caps.supports_reasoning)
+     | Provider_config.Kimi
+     | Provider_config.OpenAI_compat
+     | Provider_config.Ollama
+     | Provider_config.Gemini
+     | Provider_config.Glm
+     | Provider_config.DashScope ->
+       let glm_special_case =
+         (* backend_openai_request encodes thinking for zai/GLM even under
+            No_thinking_control, so that combination IS satisfiable. *)
+         Provider_config.is_zai_glm_config config
+       in
+       caps.supports_reasoning
+       && caps.thinking_control_format = Capabilities.No_thinking_control
+       && not glm_special_case)
 ;;
 
 let validate_thinking_control_request (config : Provider_config.t) =
@@ -414,12 +432,9 @@ let validate_all (config : Provider_config.t) =
     (match validate_output_schema_request config with
      | Error _ as e -> e
      | Ok () ->
-       (match validate_cli_sampling_params config with
+       (match validate_tool_choice_request config with
         | Error _ as e -> e
-        | Ok () ->
-          (match validate_tool_choice_request config with
-           | Error _ as e -> e
-           | Ok () -> validate_thinking_control_request config)))
+        | Ok () -> validate_thinking_control_request config))
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in
