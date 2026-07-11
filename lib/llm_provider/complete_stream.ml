@@ -460,15 +460,11 @@ let complete_stream_http
       let uses_responses_api =
         Provider_config.request_path_targets_responses_api config.request_path
       in
+      let build_request build = build ~stream:true ~config ~messages ~tools () in
       let request_artifact =
         match config.kind with
         | Provider_config.Anthropic ->
-          Backend_anthropic.build_request_with_receipt
-            ~stream:true
-            ~config
-            ~messages
-            ~tools
-            ()
+          build_request Backend_anthropic.build_request_with_receipt
         | Provider_config.Ollama ->
           (* Native /api/chat + NDJSON. The Backend_openai detour was a
            deferred work-around (#849) that dropped Ollama's
@@ -476,36 +472,14 @@ let complete_stream_http
            silently disabled prompt_tok_s / decode_tok_s telemetry
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
-          Backend_ollama.build_request_with_receipt
-            ~stream:true
-            ~config
-            ~messages
-            ~tools
-            ()
+          build_request Backend_ollama.build_request_with_receipt
         | Provider_config.OpenAI_compat when uses_responses_api ->
-          Backend_openai_responses.build_request_with_receipt
-            ~stream:true
-            ~config
-            ~messages
-            ~tools
-            ()
+          build_request Backend_openai_responses.build_request_with_receipt
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          ->
-          Backend_openai.build_request_with_receipt
-            ~stream:true
-            ~config
-            ~messages
-            ~tools
-            ()
+          -> build_request Backend_openai.build_request_with_receipt
         | Provider_config.Gemini ->
-          Backend_gemini.build_request_with_receipt
-            ~stream:true
-            ~config
-            ~messages
-            ~tools
-            ()
-        | Provider_config.Glm ->
-          Backend_glm.build_request_with_receipt ~stream:true ~config ~messages ~tools ()
+          build_request Backend_gemini.build_request_with_receipt
+        | Provider_config.Glm -> build_request Backend_glm.build_request_with_receipt
       in
       emit_output_token_receipt
         on_output_token_receipt
