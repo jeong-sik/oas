@@ -134,26 +134,25 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
         let body_result =
           match kind with
           | Provider.Anthropic_messages ->
+            let artifact =
+              Api_anthropic.build_body_artifact ~config ~messages ?tools ~stream:false ()
+            in
             Ok
-              (Yojson.Safe.to_string
-                 (`Assoc
-                     (Api_anthropic.build_body_assoc
-                        ~config
-                        ~messages
-                        ?tools
-                        ~stream:false
-                        ())))
+              ( Yojson.Safe.to_string (`Assoc artifact.payload)
+              , Some artifact.output_token_receipt )
           | Provider.Openai_chat_completions ->
-            Api_openai.build_openai_body_result
-              ~provider_config:provider_cfg
-              ~config
-              ~messages
-              ?tools
-              ()
+            Result.map
+              (fun artifact -> artifact.payload, Some artifact.output_token_receipt)
+              (Api_openai.build_openai_body_artifact_result
+                 ~provider_config:provider_cfg
+                 ~config
+                 ~messages
+                 ?tools
+                 ())
           | Provider.Custom name ->
             (match Provider.find_provider name with
-             | Some impl -> Ok (impl.build_body ~config ~messages ?tools ())
-             | None -> Ok (Yojson.Safe.to_string (`Assoc [])))
+             | Some impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
+             | None -> Ok (Yojson.Safe.to_string (`Assoc []), None))
         in
         match body_result with
         | Error reason ->
@@ -163,7 +162,7 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
                   { message = "Request rejected: " ^ reason
                   ; reason = Retry.Unknown_invalid_request
                   }))
-        | Ok body_str ->
+        | Ok (body_str, output_token_receipt) ->
           let url = base_url ^ path in
           (* Merge auth headers at request time so that [headers] (from
          [Provider.resolve]) never carries sensitive tokens. *)
@@ -197,7 +196,13 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
                   | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
                   | None -> parse_openai_response_result body_str)
              in
-             Result.map_error sdk_error_of_response_error result
+             result
+             |> Result.map (fun response ->
+               match output_token_receipt with
+               | Some receipt ->
+                 Llm_provider.Complete_common.attach_output_token_receipt response receipt
+               | None -> response)
+             |> Result.map_error sdk_error_of_response_error
            | Ok (code, body_str) ->
              Error
                (sdk_error_of_http_error (Http_client.HttpError { code; body = body_str }))

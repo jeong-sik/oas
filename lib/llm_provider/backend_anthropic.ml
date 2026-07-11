@@ -166,26 +166,49 @@ let effective_max_output_tokens = Backend_openai_request.effective_max_output_to
    - neither declared -> fail loudly naming the model; an invented
      constant is shared by thinking and answer and silently truncates
      long reasoning. *)
-let required_max_output_tokens (config : Provider_config.t) =
-  match effective_max_output_tokens config with
-  | Some n -> n
+let required_output_token_receipt (config : Provider_config.t) =
+  let optional_receipt =
+    Backend_openai_request.output_token_receipt
+      ~envelope:Types.Anthropic_messages_max_tokens
+      config
+  in
+  match Types.output_token_receipt_policy optional_receipt with
+  | Types.Omitted ->
+    Types.required_output_token_receipt
+      ~envelope:Types.Anthropic_messages_max_tokens
+      ~requested:config.max_tokens
+      ~ceiling:(Types.output_token_receipt_ceiling optional_receipt)
+  | Explicit | Explicit_clamped | Required_catalog_fallback -> Ok optional_receipt
+;;
+
+let required_output_token_receipt_exn (config : Provider_config.t) =
+  match required_output_token_receipt config with
+  | Ok receipt -> receipt
+  | Error Types.Required_output_token_ceiling_missing ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_anthropic.required_max_output_tokens: model %s declares no \
+          max_output_tokens and the caller passed none; the Anthropic Messages API \
+          requires max_tokens — declare max_output_tokens in the model catalog or pass \
+          ~max_tokens"
+         config.model_id)
+;;
+
+let required_output_token_value_exn receipt =
+  match Types.output_token_receipt_effective receipt with
+  | Some value -> value
   | None ->
-    let caps = Backend_openai_request.capabilities_of_config config in
-    (match caps.max_output_tokens with
-     | Some cap -> cap
-     | None ->
-       invalid_arg
-         (Printf.sprintf
-            "Backend_anthropic.required_max_output_tokens: model %s declares no \
-             max_output_tokens and the caller passed none; the Anthropic Messages API \
-             requires max_tokens — declare max_output_tokens in the model catalog or \
-             pass ~max_tokens"
-            config.model_id))
+    invalid_arg
+      "Backend_anthropic: required output-token receipt has no effective wire value"
+;;
+
+let required_max_output_tokens config =
+  required_output_token_receipt_exn config |> required_output_token_value_exn
 ;;
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
-let build_request
+let build_request_with_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -257,9 +280,11 @@ let build_request
   in
   let message_to_json = Api_common.message_to_json in
   let msgs_json = List.map message_to_json messages in
+  let output_token_receipt = required_output_token_receipt_exn config in
+  let max_tokens = required_output_token_value_exn output_token_receipt in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (required_max_output_tokens config)
+    ; "max_tokens", `Int max_tokens
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]
@@ -370,5 +395,11 @@ let build_request
         ("tool_choice", tc) :: body)
       else body
   in
-  Yojson.Safe.to_string (`Assoc body)
+  Provider_request_artifact.make
+    ~payload:(Yojson.Safe.to_string (`Assoc body))
+    ~output_token_receipt
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
 ;;

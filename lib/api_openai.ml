@@ -339,7 +339,7 @@ let should_include_tools
   | None | Some (Types.Auto | Types.Any | Types.Tool _) -> true
 ;;
 
-let build_openai_body_unchecked
+let build_openai_body_artifact_unchecked
       ~(serialization_config : PConfig.t)
       ?provider_config
       ~config
@@ -352,6 +352,11 @@ let build_openai_body_unchecked
   let capabilities = capabilities_for_request ?provider_config config in
   let is_zai_glm = PConfig.is_zai_glm_config serialization_config in
   let dialect = reasoning_dialect_for_request ~serialization_config capabilities config in
+  let output_token_receipt =
+    Llm_provider.Backend_openai_request.output_token_receipt
+      ~envelope:Llm_provider.Types.Openai_chat_max_tokens
+      serialization_config
+  in
   let assistant_tool_content_format =
     capabilities.Provider.assistant_tool_content_format
   in
@@ -384,9 +389,7 @@ let build_openai_body_unchecked
   in
   let body_assoc = [ "model", `String model_str; "messages", `List provider_messages ] in
   let body_assoc =
-    match
-      Llm_provider.Backend_openai_request.effective_max_output_tokens serialization_config
-    with
+    match Llm_provider.Types.output_token_receipt_effective output_token_receipt with
     | Some mt -> body_assoc @ [ "max_tokens", `Int mt ]
     | None -> body_assoc
   in
@@ -508,10 +511,19 @@ let build_openai_body_unchecked
     | Some id -> ("id_slot", `Int id) :: body_assoc
     | None -> body_assoc
   in
-  Yojson.Safe.to_string (`Assoc body_assoc)
+  Llm_provider.Provider_request_artifact.make
+    ~payload:(Yojson.Safe.to_string (`Assoc body_assoc))
+    ~output_token_receipt
 ;;
 
-let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =
+let build_openai_body_artifact_result
+      ?provider_config
+      ~config
+      ~messages
+      ?tools
+      ?slot_id
+      ()
+  =
   match validate_tool_choice_request ?provider_config config with
   | Error reason -> Error reason
   | Ok () ->
@@ -523,7 +535,7 @@ let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id 
      | Error reason -> Error reason
      | Ok serialization_config ->
        Ok
-         (build_openai_body_unchecked
+         (build_openai_body_artifact_unchecked
             ~serialization_config
             ?provider_config
             ~config
@@ -531,6 +543,18 @@ let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id 
             ?tools
             ?slot_id
             ()))
+;;
+
+let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =
+  Result.map
+    (fun artifact -> artifact.Llm_provider.Provider_request_artifact.payload)
+    (build_openai_body_artifact_result
+       ?provider_config
+       ~config
+       ~messages
+       ?tools
+       ?slot_id
+       ())
 ;;
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =

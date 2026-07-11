@@ -55,6 +55,14 @@ val build_request
   -> unit
   -> string
 
+val build_request_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string Provider_request_artifact.t
+
 (** Parse a Glm chat completion response.
     Handles Glm-specific string error codes and extracts
     [reasoning_content] as {!Types.Thinking} content block. *)

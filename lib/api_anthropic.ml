@@ -10,7 +10,7 @@ open Types
 let parse_response = Llm_provider.Backend_anthropic.parse_response
 
 (** Build request body assoc list shared between stream and non-stream calls *)
-let build_body_assoc
+let build_body_artifact
       ~config
       ~messages
       ?(message_to_json = Api_common.message_to_json)
@@ -104,10 +104,19 @@ let build_body_assoc
     |> Llm_provider.Tool_message_pairs.close_for_provider_request
     |> Llm_provider.Api_common.merge_tool_result_followup_user_messages
   in
+  let output_token_receipt =
+    Llm_provider.Backend_anthropic.required_output_token_receipt_exn provider_config
+  in
+  let max_tokens =
+    match Llm_provider.Types.output_token_receipt_effective output_token_receipt with
+    | Some value -> value
+    | None ->
+      invalid_arg
+        "Api_anthropic.build_body_artifact: required receipt has no effective wire value"
+  in
   let body_assoc =
     [ "model", `String model_str
-    ; ( "max_tokens"
-      , `Int (Llm_provider.Backend_anthropic.required_max_output_tokens provider_config) )
+    ; "max_tokens", `Int max_tokens
     ; "messages", `List (List.map message_to_json messages)
     ; "stream", `Bool stream
     ]
@@ -226,5 +235,17 @@ let build_body_assoc
     | Some k -> ("top_k", `Int k) :: body_assoc
     | None -> body_assoc
   in
-  body_assoc
+  Llm_provider.Provider_request_artifact.make ~payload:body_assoc ~output_token_receipt
+;;
+
+let build_body_assoc ~config ~messages ?message_to_json ?provider_kind ?tools ~stream () =
+  (build_body_artifact
+     ~config
+     ~messages
+     ?message_to_json
+     ?provider_kind
+     ?tools
+     ~stream
+     ())
+    .payload
 ;;

@@ -65,10 +65,15 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
   Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream ()
 ;;
 
+let build_body_artifact ~config ~messages ?tools ~stream () =
+  Api_anthropic.build_body_artifact ~config ~messages ?tools ~stream ()
+;;
+
 (* Re-export Api_openai *)
 let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body_result = Api_openai.build_openai_body_result
+let build_openai_body_artifact_result = Api_openai.build_openai_body_artifact_result
 let build_openai_body = Api_openai.build_openai_body
 
 let parse_openai_response_result =
@@ -160,21 +165,24 @@ let create_message
     let body_result =
       match kind with
       | Provider.Anthropic_messages ->
+        let artifact = build_body_artifact ~config ~messages ?tools ~stream:false () in
         Ok
-          (Yojson.Safe.to_string
-             (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ())))
+          ( Yojson.Safe.to_string (`Assoc artifact.payload)
+          , Some artifact.output_token_receipt )
       | Provider.Openai_chat_completions ->
-        Api_openai.build_openai_body_result
-          ~provider_config:provider_cfg
-          ~config
-          ~messages
-          ?tools
-          ?slot_id
-          ()
+        Result.map
+          (fun artifact -> artifact.payload, Some artifact.output_token_receipt)
+          (Api_openai.build_openai_body_artifact_result
+             ~provider_config:provider_cfg
+             ~config
+             ~messages
+             ?tools
+             ?slot_id
+             ())
       | Provider.Custom name ->
         (match Provider.find_provider name with
-         | Some impl -> Ok (impl.build_body ~config ~messages ?tools ())
-         | None -> Ok (Yojson.Safe.to_string (`Assoc [])))
+         | Some impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
+         | None -> Ok (Yojson.Safe.to_string (`Assoc []), None))
     in
     (match body_result with
      | Error reason ->
@@ -184,7 +192,7 @@ let create_message
                { message = "Request rejected: " ^ reason
                ; reason = Retry.Unknown_invalid_request
                }))
-     | Ok body_str ->
+     | Ok (body_str, output_token_receipt) ->
        let url = base_url ^ path in
        let provider_kind_of_request_kind = function
          | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
@@ -246,8 +254,16 @@ let create_message
              in
              Result.map
                (fun resp ->
-                  Llm_provider.Pricing.annotate_response_cost resp
-                  |> fun r -> patch_latency r lat)
+                  let response = Llm_provider.Pricing.annotate_response_cost resp in
+                  let response =
+                    match output_token_receipt with
+                    | Some receipt ->
+                      Llm_provider.Complete_common.attach_output_token_receipt
+                        response
+                        receipt
+                    | None -> response
+                  in
+                  patch_latency response lat)
                raw_resp_result
            | `HttpError (code, body_str) ->
              Error (Retry_error (Retry.classify_error ~status:code ~body:body_str))

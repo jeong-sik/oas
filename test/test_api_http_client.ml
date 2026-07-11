@@ -127,6 +127,23 @@ let test_create_message_uses_hardened_http_client () =
          | Some raw -> int_of_string_opt raw |> Option.value ~default:0 > 0
          | None -> false);
       Alcotest.(check string) "model" "mock" response.model;
+      (match response.telemetry with
+       | Some { output_token_receipt = Some receipt; _ } ->
+         Alcotest.(check (option int))
+           "legacy receipt requested"
+           (Some 16)
+           (output_token_receipt_requested receipt);
+         Alcotest.(check (option int))
+           "legacy receipt effective"
+           (Some 16)
+           (output_token_receipt_effective receipt);
+         Alcotest.(check bool)
+           "legacy receipt envelope"
+           true
+           (Yojson.Safe.Util.member "envelope" (output_token_receipt_to_yojson receipt)
+            = output_token_envelope_to_yojson Openai_chat_max_tokens)
+       | Some { output_token_receipt = None; _ } | None ->
+         Alcotest.fail "expected legacy API output-token receipt");
       Alcotest.(check int)
         "text blocks"
         1

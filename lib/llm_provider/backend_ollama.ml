@@ -22,7 +22,7 @@ let keep_alive_env_var = "OAS_OLLAMA_KEEP_ALIVE"
     - Sampling params go inside [options] object
     - [num_predict] instead of [max_tokens]
     - No [tool_choice] support *)
-let build_request
+let build_request_with_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -38,6 +38,11 @@ let build_request
     match Provider_config.capabilities_for_config_model config with
     | Some c -> c
     | None -> Capabilities.ollama_capabilities
+  in
+  let output_token_receipt =
+    Backend_openai_request.output_token_receipt
+      ~envelope:Types.Ollama_options_num_predict
+      config
   in
   (* The chat-template token injection is shared with the OpenAI-compat request
      builder ([Backend_openai_serialize]) so the same catalog row cannot be
@@ -164,7 +169,7 @@ let build_request
      omitted when both are unknown) — Ollama's [num_predict] is optional,
      and omission lets the server apply the model's own limit. Previously
      this arm bypassed the capability catalog and invented 16384. *)
-  (match Backend_openai_request.effective_max_output_tokens config with
+  (match Types.output_token_receipt_effective output_token_receipt with
    | Some mt -> options := ("num_predict", `Int mt) :: !options
    | None -> ());
   (match config.temperature with
@@ -191,7 +196,13 @@ let build_request
    | Some n when n > 0 -> options := ("num_ctx", `Int n) :: !options
    | _ -> ());
   let body = ("options", `Assoc !options) :: body in
-  Yojson.Safe.to_string (`Assoc body)
+  Provider_request_artifact.make
+    ~payload:(Yojson.Safe.to_string (`Assoc body))
+    ~output_token_receipt
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
 ;;
 
 (* ── Response parsing ────────────────────────────────── *)

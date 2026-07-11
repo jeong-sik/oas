@@ -288,7 +288,7 @@ let build_function_declaration = function
 
 (* ── Build request body ─────────────────────────────── *)
 
-let build_request
+let build_request_with_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -297,6 +297,11 @@ let build_request
   =
   ignore stream;
   (* Gemini streaming is URL-based, not body-based *)
+  let output_token_receipt =
+    Backend_openai_request.output_token_receipt
+      ~envelope:Types.Gemini_generation_config_max_output_tokens
+      config
+  in
   let contents, system_instruction = contents_of_messages messages in
   (* Prepend system_prompt from config if present *)
   let system_instruction =
@@ -327,7 +332,7 @@ let build_request
      omitted when both are unknown) — [maxOutputTokens] is optional on
      generateContent, and omission lets Gemini apply the model's own
      limit instead of an invented 16384. *)
-  (match Backend_openai_request.effective_max_output_tokens config with
+  (match Types.output_token_receipt_effective output_token_receipt with
    | Some mt -> gen_config := ("maxOutputTokens", `Int mt) :: !gen_config
    | None -> ());
   (match config.temperature with
@@ -411,7 +416,13 @@ let build_request
       :: body
     | None -> body
   in
-  Yojson.Safe.to_string (`Assoc body)
+  Provider_request_artifact.make
+    ~payload:(Yojson.Safe.to_string (`Assoc body))
+    ~output_token_receipt
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
 ;;
 
 (* ── Parse response ─────────────────────────────────── *)

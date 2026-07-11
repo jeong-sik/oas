@@ -36,14 +36,22 @@ val build_body_assoc
   -> unit
   -> (string * Yojson.Safe.t) list
 
+val build_body_artifact
+  :  config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> stream:bool
+  -> unit
+  -> (string * Yojson.Safe.t) list Llm_provider.Provider_request_artifact.t
+
 (** {1 Re-exports from Api_openai} *)
 
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 
-(** Result-returning OpenAI-compatible request body builder. Live request paths
-    should use this form so unsupported provider contracts surface as typed
-    errors before HTTP dispatch. *)
+(** Compatibility projection returning only the serialized body. Live request
+    paths use {!build_openai_body_artifact_result} so observation cannot drift
+    from serialization. *)
 val build_openai_body_result
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
@@ -52,6 +60,15 @@ val build_openai_body_result
   -> ?slot_id:int
   -> unit
   -> (string, string) result
+
+val build_openai_body_artifact_result
+  :  ?provider_config:Provider.config
+  -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (string Llm_provider.Provider_request_artifact.t, string) result
 
 val build_openai_body
   :  ?provider_config:Provider.config

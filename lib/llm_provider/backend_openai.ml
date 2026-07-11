@@ -46,6 +46,11 @@ let response_format_to_openai_json = Backend_openai_request.response_format_to_o
 let response_format_of_config = Backend_openai_request.response_format_of_config
 let build_request = Backend_openai_request.build_request
 let build_request_assoc = Backend_openai_request.build_request_assoc
+let build_request_with_receipt = Backend_openai_request.build_request_with_receipt
+
+let build_request_assoc_with_receipt =
+  Backend_openai_request.build_request_assoc_with_receipt
+;;
 
 [@@@coverage off]
 (* === Inline tests === *)

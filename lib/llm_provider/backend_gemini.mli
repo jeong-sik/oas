@@ -24,6 +24,14 @@ val build_request
   -> unit
   -> string
 
+val build_request_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string Provider_request_artifact.t
+
 (** Parse a Gemini [generateContent] response JSON into {!Types.api_response}. *)
 val parse_response : Yojson.Safe.t -> Types.api_response
 

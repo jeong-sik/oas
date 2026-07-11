@@ -18,3 +18,13 @@ val build_body_assoc
   -> stream:bool
   -> unit
   -> (string * Yojson.Safe.t) list
+
+val build_body_artifact
+  :  config:Types.agent_state
+  -> messages:Types.message list
+  -> ?message_to_json:(Types.message -> Yojson.Safe.t)
+  -> ?provider_kind:Llm_provider.Provider_config.provider_kind
+  -> ?tools:Yojson.Safe.t list
+  -> stream:bool
+  -> unit
+  -> (string * Yojson.Safe.t) list Llm_provider.Provider_request_artifact.t
