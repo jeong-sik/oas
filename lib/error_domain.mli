@@ -47,6 +47,13 @@ type tool_error =
 
 (** {1 Agent errors} *)
 
+type tool_failure_recovery_stage = Error.tool_failure_recovery_stage =
+  | Round_projection
+  | Episode_detection
+  | Judge_response
+  | Decision_persistence
+  | Resume_restore
+
 type agent_error =
   [ `Max_turns_exceeded of int * int (** turns, limit *)
   | `Idle_detected of int (** consecutive_idle_turns *)
@@ -57,6 +64,8 @@ type agent_error =
   | `Guardrail_violation of string * string (** validator, reason *)
   | `Tripwire_violation of string * string (** tripwire, reason *)
   | `Input_required of string * string (** request_id, question *)
+  | `Tool_failure_recovery_failed of tool_failure_recovery_stage * string
+  | `Tool_failure_recovery_deferred of string * string list
   | `Unrecognized_stop_reason of string
   | `Exit_condition_met of int (** turn at which exit condition triggered *)
   ]

@@ -30,6 +30,15 @@ type checkpoint_snapshot =
 
 type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
 
+type recovery_state =
+  { last_completed_round : Tool_failure_episode.completed_round option
+  ; pending_episodes : Tool_failure_episode.t list option
+  ; pending_receipt : Tool_failure_recovery.receipt option
+  ; restore_error : Error.sdk_error option
+  }
+
+val empty_recovery_state : recovery_state
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -250,6 +259,8 @@ type t =
   ; context : Context.t
   ; options : options
   ; checkpoint_sink : checkpoint_sink option
+  ; tool_failure_judge : Tool_failure_recovery.judge option
+  ; mutable recovery_state : recovery_state
   }
 
 (** {1 Defaults} *)
@@ -266,6 +277,9 @@ val options : t -> options
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
+val recovery_state : t -> recovery_state
+val set_recovery_state : t -> recovery_state -> unit
+val update_recovery_state : t -> (recovery_state -> recovery_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
 val get_consecutive_idle_turns : t -> int
 
@@ -296,6 +310,7 @@ val create
   -> ?options:options
   -> ?auto_context_overflow_retry:bool
   -> ?checkpoint_sink:checkpoint_sink
+  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> unit
   -> t
 

@@ -12,8 +12,17 @@ type completed
    OCaml's type system enforces state transitions at compile time. *)
 type _ t = T : Agent.t -> _ t
 
-let create ~net ?config ?tools ?context ?options ?checkpoint_sink () =
-  T (Agent.create ~net ?config ?tools ?context ?options ?checkpoint_sink ())
+let create ~net ?config ?tools ?context ?options ?checkpoint_sink ?tool_failure_judge () =
+  T
+    (Agent.create
+       ~net
+       ?config
+       ?tools
+       ?context
+       ?options
+       ?checkpoint_sink
+       ?tool_failure_judge
+       ())
 ;;
 
 let run ~sw ?clock (T agent) prompt =

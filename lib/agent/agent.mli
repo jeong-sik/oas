@@ -115,7 +115,11 @@ val sdk_version : string
     live agent state and emitting completion/journal transitions, then
     commits the same turn delta after the sink succeeds.  The sink is
     passed here rather than through {!options} so callers that construct
-    options records remain source-compatible. *)
+    options records remain source-compatible.
+
+    [tool_failure_judge] installs the LLM boundary used after two adjacent
+    typed failed-tool rounds. It is attached outside [options] for the same
+    record-compatibility reason and must be reattached on {!resume}. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
@@ -124,6 +128,7 @@ val create
   -> ?options:options
   -> ?auto_context_overflow_retry:bool
   -> ?checkpoint_sink:checkpoint_sink
+  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> unit
   -> t
 
@@ -240,6 +245,7 @@ val resume
   -> ?context:Context.t
   -> ?options:options
   -> ?checkpoint_sink:checkpoint_sink
+  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> ?config:Types.agent_config
   -> ?auto_context_overflow_retry:bool
   -> unit

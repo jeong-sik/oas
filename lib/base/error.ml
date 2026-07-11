@@ -26,6 +26,13 @@ type input_required =
   ; created_at : float
   }
 
+type tool_failure_recovery_stage =
+  | Round_projection
+  | Episode_detection
+  | Judge_response
+  | Decision_persistence
+  | Resume_restore
+
 (** Agent runtime errors. *)
 type agent_error =
   | MaxTurnsExceeded of
@@ -64,6 +71,14 @@ type agent_error =
       ; reason : string
       }
   | InputRequired of input_required
+  | ToolFailureRecoveryFailed of
+      { stage : tool_failure_recovery_stage
+      ; detail : string
+      }
+  | ToolFailureRecoveryDeferred of
+      { reason : string
+      ; tool_names : string list
+      }
   | ExitConditionMet of { turn : int }
 
 (** MCP client errors. *)
@@ -172,6 +187,22 @@ let agent_error_to_string = function
        | None -> "")
       r.question
       r.request_id
+  | ToolFailureRecoveryFailed r ->
+    let stage =
+      match r.stage with
+      | Round_projection -> "round_projection"
+      | Episode_detection -> "episode_detection"
+      | Judge_response -> "judge_response"
+      | Decision_persistence -> "decision_persistence"
+      | Resume_restore -> "resume_restore"
+    in
+    Printf.sprintf "Tool failure recovery failed at %s: %s" stage r.detail
+  | ToolFailureRecoveryDeferred r ->
+    let tools = String.concat ", " r.tool_names in
+    Printf.sprintf
+      "Tool failure recovery deferred%s: %s"
+      (if String.equal tools "" then "" else Printf.sprintf " for %s" tools)
+      r.reason
   | ExitConditionMet r -> Printf.sprintf "Exit condition met at turn %d" r.turn
 ;;
 

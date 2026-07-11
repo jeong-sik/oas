@@ -284,7 +284,7 @@ let%test "runtime MCP policy is narrowed by AllowList guardrails" =
   narrowed.allowed_tool_names = [ "status_tool"; "ledger_tool" ]
 ;;
 
-let stage_parse ?raw_trace_run ?clock agent =
+let stage_parse ?raw_trace_run ?clock ?recovery_context agent =
   let* turn_params =
     match agent.options.hooks.before_turn_params with
     | None -> Ok Hooks.default_turn_params
@@ -345,10 +345,20 @@ let stage_parse ?raw_trace_run ?clock agent =
          | Some _ as t -> t
          | None -> original_config.tool_choice)
     ; system_prompt =
-        (match turn_params.system_prompt_override with
-         | Some _ as s -> s
-         | None -> original_config.system_prompt)
-        |> Option.map Llm_provider.Utf8_sanitize.sanitize
+        (let base =
+           match turn_params.system_prompt_override with
+           | Some _ as prompt -> prompt
+           | None -> original_config.system_prompt
+         in
+         let base = Option.map Llm_provider.Utf8_sanitize.sanitize base in
+         match recovery_context with
+         | None -> base
+         | Some context ->
+           let context = Llm_provider.Utf8_sanitize.sanitize context in
+           Some
+             (match base with
+              | None -> context
+              | Some prompt -> prompt ^ "\n\n" ^ context))
     }
   in
   update_state agent (fun s -> { s with config = new_config });
