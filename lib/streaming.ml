@@ -99,6 +99,7 @@ let create_message_stream
       ~messages
       ?tools
       ~on_event
+      ?on_output_token_receipt
       ()
   : (api_response, Error.sdk_error) result
   =
@@ -122,147 +123,26 @@ let create_message_stream
   in
   match resolve_result with
   | Error e -> Error e
-  | Ok (provider_cfg, base_url, api_key) ->
+  | Ok (provider_cfg, base_url, _api_key) ->
     (match Provider.request_kind provider_cfg.provider with
-     | Provider.Anthropic_messages ->
-       let headers =
-         [ "Content-Type", "application/json"
-         ; "x-api-key", api_key
-         ; "anthropic-version", Api.api_version
-         ]
-       in
-       let artifact = Api.build_body_artifact ~config ~messages ?tools ~stream:true () in
-       let body =
-         Yojson.Safe.to_string
-           (`Assoc (Llm_provider.Provider_request_artifact.payload artifact))
-       in
-       let url = base_url ^ "/v1/messages" in
-       Llm_provider.Http_client.with_post_stream
-         ?clock
-         ~net
-         ~url
-         ~headers
-         ~body
-         ~f:(fun reader ->
-           let acc = create_stream_acc () in
-           Llm_provider.Http_client.read_sse
-             ?clock
-             ?idle_timeout
-             ~reader
-             ~on_data:(fun ~event_type data ->
-               if data <> "[DONE]"
-               then (
-                 match parse_sse_event event_type data with
-                 | None ->
-                   let evt =
-                     SSEParseFailed
-                       { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
-                   in
-                   on_event evt;
-                   accumulate_event acc evt
-                 | Some evt ->
-                   on_event evt;
-                   accumulate_event acc evt))
-             ();
-           if !(acc.stop_reason_received) then on_event MessageStop;
-           finalize_stream_acc acc)
-         ()
-       |> map_stream_finalize_result
-       |> Result.map (fun response ->
-         Llm_provider.Complete_common.attach_output_token_receipt
-           response
-           (Llm_provider.Provider_request_artifact.output_token_receipt artifact))
-     | Provider.Openai_chat_completions ->
-       (* OpenAI-compatible SSE streaming. *)
-       let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
-       let auth_headers =
-         Provider.auth_headers_only_for_kind ~kind:openai_compat_kind ~api_key
-       in
-       let headers =
-         match Provider.resolve provider_cfg with
-         | Ok (_, _, h) -> h @ auth_headers
-         | Error _ -> [ "Content-Type", "application/json" ] @ auth_headers
-       in
-       let stream_path = Provider.request_path provider_cfg.provider in
+     | Provider.Anthropic_messages | Provider.Openai_chat_completions ->
        (match
-          Api_openai.build_openai_body_artifact_result
-            ~provider_config:provider_cfg
-            ~config
-            ~messages
-            ?tools
-            ()
+          Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)
         with
-        | Error reason ->
-          Error
-            (Error.Api
-               (Llm_provider.Retry.InvalidRequest
-                  { message = "Request rejected: " ^ reason
-                  ; reason = Llm_provider.Retry.Unknown_invalid_request
-                  }))
-        | Ok artifact ->
-          let body =
-            Llm_provider.Provider_request_artifact.payload artifact
-            (* Streaming must request both SSE chunks and usage deltas so the
-               accumulator can surface final token/cost metrics. *)
-            |> Llm_provider.Http_client.inject_stream_and_options
-          in
-          let url = base_url ^ stream_path in
-          Llm_provider.Http_client.with_post_stream
-            ?clock
+        | Error _ as error -> error
+        | Ok wire_config ->
+          Llm_provider.Complete.complete_stream
+            ~sw
             ~net
-            ~url
-            ~headers
-            ~body
-            ~f:(fun reader ->
-              let acc = create_stream_acc () in
-              let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
-              let msg_started = ref false in
-              Llm_provider.Http_client.read_sse
-                ?clock
-                ?idle_timeout
-                ~reader
-                ~on_data:(fun ~event_type:_ data ->
-                  if data = "[DONE]"
-                  then ()
-                  else (
-                    match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                    | None ->
-                      let evt =
-                        SSEParseFailed
-                          { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                      in
-                      on_event evt;
-                      accumulate_event acc evt
-                    | Some chunk ->
-                      if not !msg_started
-                      then (
-                        msg_started := true;
-                        let evt =
-                          MessageStart
-                            { id = chunk.chunk_id
-                            ; model = chunk.chunk_model
-                            ; usage = None
-                            }
-                        in
-                        on_event evt;
-                        accumulate_event acc evt);
-                      let evs, _tel =
-                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
-                      in
-                      List.iter
-                        (fun evt ->
-                           on_event evt;
-                           accumulate_event acc evt)
-                        evs))
-                ();
-              if !(acc.stop_reason_received) then on_event MessageStop;
-              finalize_stream_acc acc)
+            ?clock
+            ?stream_idle_timeout_s:idle_timeout
+            ~config:wire_config
+            ~messages
+            ~tools:(Option.value tools ~default:[])
+            ~on_event
+            ?on_output_token_receipt
             ()
-          |> map_stream_finalize_result
-          |> Result.map (fun response ->
-            Llm_provider.Complete_common.attach_output_token_receipt
-              response
-              (Llm_provider.Provider_request_artifact.output_token_receipt artifact)))
+          |> Result.map_error map_http_error)
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match
@@ -274,6 +154,7 @@ let create_message_stream
             ~config
             ~messages
             ?tools
+            ?on_output_token_receipt
             ()
         with
         | Ok response ->

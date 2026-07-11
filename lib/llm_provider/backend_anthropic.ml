@@ -184,7 +184,7 @@ let required_output_token_receipt (config : Provider_config.t) =
 let required_output_token_receipt_exn (config : Provider_config.t) =
   match required_output_token_receipt config with
   | Ok receipt -> receipt
-  | Error Types.Required_output_token_ceiling_missing ->
+  | Error Types.Required_output_token_catalog_ceiling_missing ->
     invalid_arg
       (Printf.sprintf
          "Backend_anthropic.required_max_output_tokens: model %s declares no \

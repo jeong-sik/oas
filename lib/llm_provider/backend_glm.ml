@@ -124,31 +124,32 @@ let build_request_with_receipt
   let base_artifact =
     Backend_openai.build_request_assoc_with_receipt ~stream ~config ~messages ~tools ()
   in
-  Provider_request_artifact.map_payload
-    (function
-      | `Assoc fields ->
-        (* GLM thinking-control fields are emitted by the shared
+  let payload =
+    match Provider_request_artifact.payload base_artifact with
+    | `Assoc fields ->
+      (* GLM thinking-control fields are emitted by the shared
        [Reasoning_dialect.request_control_fields] path inside the OpenAI
        request builder. Keep Backend_glm limited to GLM-only post-processing
        that is not a thinking builder: Z.AI's [tool_choice=auto] normalization
        and [tool_stream]. *)
-        let fields =
-          normalize_tool_choice_fields ~tool_choice:config.tool_choice fields
-        in
-        let fields =
-          (* GLM streams tool-call arguments incrementally only when both
+      let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
+      let fields =
+        (* GLM streams tool-call arguments incrementally only when both
          [stream] and [tool_stream] are set; [config.tool_stream] defaults
          false, so a streaming request carrying tools would otherwise buffer
          tool args. Default [tool_stream] on when tools are present
          (RFC-OAS-023). *)
-          if stream && (config.tool_stream || tools <> [])
-          then ("tool_stream", `Bool true) :: fields
-          else fields
-        in
-        Yojson.Safe.to_string (`Assoc fields)
-      | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as other
-        -> Yojson.Safe.to_string other)
-    base_artifact
+        if stream && (config.tool_stream || tools <> [])
+        then ("tool_stream", `Bool true) :: fields
+        else fields
+      in
+      Yojson.Safe.to_string (`Assoc fields)
+    | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as other ->
+      Yojson.Safe.to_string other
+  in
+  Provider_request_artifact.make
+    ~payload
+    ~output_token_receipt:(Provider_request_artifact.output_token_receipt base_artifact)
 ;;
 
 let build_request ?stream ~config ~messages ?tools () =

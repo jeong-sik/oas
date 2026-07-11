@@ -30,8 +30,8 @@ val effective_max_output_tokens : Provider_config.t -> int option
 
 (** The Messages API requires [max_tokens] on every request, so this
     envelope carries an explicit OAS required-envelope policy: caller
-    override clamped to the catalog ceiling; caller [None] falls back to the
-    catalog-declared model maximum (this is not a provider default); raises
+    override clamped to a catalog or declared override ceiling; caller [None]
+    falls back only to the catalog-declared model maximum (this is not a provider default); raises
     [Invalid_argument] naming the model when neither the caller nor the
     catalog declares a value — no second numeric policy is invented. *)
 val required_max_output_tokens : Provider_config.t -> int

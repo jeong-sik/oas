@@ -205,15 +205,9 @@ let check_typed_empty_completion expected = function
   | Error _ -> fail "expected typed empty completion provider failure"
 ;;
 
-let check_response_output_token_receipt
-      ~requested
-      ~effective
-      ~policy
-      ~envelope
-      (response : Types.api_response)
-  =
-  match response.telemetry with
-  | Some { output_token_receipt = Some receipt; _ } ->
+let check_response_output_token_receipt ~requested ~effective ~policy ~envelope receipt =
+  match receipt with
+  | Some receipt ->
     check
       (option int)
       "receipt requested"
@@ -231,8 +225,7 @@ let check_response_output_token_receipt
       true
       (Yojson.Safe.Util.member "envelope" (Types.output_token_receipt_to_yojson receipt)
        = Types.output_token_envelope_to_yojson envelope)
-  | Some { output_token_receipt = None; _ } | None ->
-    fail "expected OAS-owned output-token receipt in response telemetry"
+  | None -> fail "expected OAS-owned output-token receipt callback"
 ;;
 
 (* ── complete: success ───────────────────────────────── *)
@@ -245,7 +238,16 @@ let test_complete_anthropic_ok () =
     @@ fun sw ->
     let url = start_mock_server ~sw ~net:env#net (anthropic_response "mock response") in
     let config = make_config url in
-    match Complete.complete ~sw ~net:env#net ~config ~messages () with
+    let output_token_receipt = ref None in
+    match
+      Complete.complete
+        ~sw
+        ~net:env#net
+        ~config
+        ~messages
+        ~on_output_token_receipt:(fun receipt -> output_token_receipt := Some receipt)
+        ()
+    with
     | Ok resp ->
       check string "model" "mock" resp.model;
       check_response_output_token_receipt
@@ -253,7 +255,7 @@ let test_complete_anthropic_ok () =
         ~effective:(Some 100)
         ~policy:Types.Explicit
         ~envelope:Types.Anthropic_messages_max_tokens
-        resp;
+        !output_token_receipt;
       let text =
         List.filter_map
           (function
@@ -553,6 +555,7 @@ let test_complete_stream_openai_responses_ok () =
         ()
     in
     let events = ref [] in
+    let output_token_receipt = ref None in
     match
       Complete.complete_stream
         ~sw
@@ -560,6 +563,7 @@ let test_complete_stream_openai_responses_ok () =
         ~config
         ~messages
         ~on_event:(fun evt -> events := evt :: !events)
+        ~on_output_token_receipt:(fun receipt -> output_token_receipt := Some receipt)
         ()
     with
     | Ok resp ->
@@ -571,7 +575,7 @@ let test_complete_stream_openai_responses_ok () =
         ~effective:(Some 100)
         ~policy:Types.Explicit
         ~envelope:Types.Openai_responses_max_output_tokens
-        resp;
+        !output_token_receipt;
       (match resp.content with
        | [ Types.RedactedThinking raw_reasoning; Types.ToolUse { id; name; input } ] ->
          let reasoning = Yojson.Safe.from_string raw_reasoning in
@@ -761,12 +765,34 @@ let test_complete_cache_store_and_hit () =
       ; set = (fun ~key ~ttl_sec:_ value -> Hashtbl.replace store key value)
       }
     in
+    let receipt_count = ref 0 in
+    let on_output_token_receipt _receipt = incr receipt_count in
     (* First call — cache miss, HTTP hit *)
-    (match Complete.complete ~sw ~net:env#net ~config ~messages ~cache () with
-     | Ok _ -> check bool "stored in cache" true (Hashtbl.length store > 0)
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~config
+         ~messages
+         ~cache
+         ~on_output_token_receipt
+         ()
+     with
+     | Ok _ ->
+       check bool "stored in cache" true (Hashtbl.length store > 0);
+       check int "wire receipt emitted once" 1 !receipt_count
      | Error _ -> fail "expected Ok first call");
     (* Second call — cache hit, no HTTP *)
-    match Complete.complete ~sw ~net:env#net ~config ~messages ~cache () with
+    match
+      Complete.complete
+        ~sw
+        ~net:env#net
+        ~config
+        ~messages
+        ~cache
+        ~on_output_token_receipt
+        ()
+    with
     | Ok resp ->
       let text =
         List.filter_map
@@ -777,6 +803,7 @@ let test_complete_cache_store_and_hit () =
         |> String.concat ""
       in
       check string "from cache" "cached" text;
+      check int "cache replay emits no wire receipt" 1 !receipt_count;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok second call"
   with
@@ -971,8 +998,24 @@ let test_complete_transport_http_metrics_ok () =
       }
     in
     let transport = make_transport (Ok (mock_transport_response "transport ok")) in
-    match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
+    let output_token_receipt = ref None in
+    match
+      Complete.complete
+        ~sw
+        ~net:env#net
+        ~transport
+        ~config
+        ~messages
+        ~metrics
+        ~on_output_token_receipt:(fun receipt -> output_token_receipt := Some receipt)
+        ()
+    with
     | Ok _ ->
+      check
+        bool
+        "injected transport emits no wire receipt"
+        true
+        (Option.is_none !output_token_receipt);
       (match !status_calls with
        | [ ("openai_compat", "gpt-4", 200) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)

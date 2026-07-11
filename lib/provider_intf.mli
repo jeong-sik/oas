@@ -41,7 +41,10 @@ type streaming_provider_module = (module STREAMING_PROVIDER)
 (** Resolve a provider config to a first-class PROVIDER module.
     Returns an error if provider configuration or credentials cannot be
     resolved (e.g. a required environment variable is missing). *)
-val of_config : Provider.config -> (provider_module, Error.sdk_error) result
+val of_config
+  :  ?on_output_token_receipt:(Llm_provider.Types.output_token_receipt -> unit)
+  -> Provider.config
+  -> (provider_module, Error.sdk_error) result
 
 (** Check if a provider config supports native streaming. *)
 val supports_streaming : Provider.config -> bool
@@ -51,5 +54,6 @@ val supports_streaming : Provider.config -> bool
     Returns an error if provider configuration or credentials cannot be
     resolved. *)
 val of_config_streaming
-  :  Provider.config
+  :  ?on_output_token_receipt:(Llm_provider.Types.output_token_receipt -> unit)
+  -> Provider.config
   -> (streaming_provider_module option, Error.sdk_error) result

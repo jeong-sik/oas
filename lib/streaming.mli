@@ -51,5 +51,6 @@ val create_message_stream
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> on_event:(Types.sse_event -> unit)
+  -> ?on_output_token_receipt:(Llm_provider.Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Error.sdk_error) result

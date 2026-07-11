@@ -6,7 +6,3 @@ type 'a t =
 let make ~payload ~output_token_receipt = { payload; output_token_receipt }
 let payload artifact = artifact.payload
 let output_token_receipt artifact = artifact.output_token_receipt
-
-let map_payload f artifact =
-  { payload = f artifact.payload; output_token_receipt = artifact.output_token_receipt }
-;;

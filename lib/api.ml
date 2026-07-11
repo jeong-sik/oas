@@ -2,6 +2,7 @@
 
 module Retry = Llm_provider.Retry
 open Types
+open Result_syntax
 
 type response_accept = Types.api_response -> (unit, string) result
 
@@ -114,6 +115,15 @@ let parse_openai_completion body_str =
          (Llm_provider.Http_client.empty_completion_error ~stop_reason:empty.stop_reason))
 ;;
 
+let parse_openai_responses_completion body_str =
+  match Llm_provider.Backend_openai_responses.parse_response_result body_str with
+  | Ok resp -> ensure_nonempty_response resp
+  | Error message ->
+    Error
+      (Retry_error
+         (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request }))
+;;
+
 (** Send a non-streaming message to the API, dispatching by provider.
     When [clock] is supplied the HTTP request is wrapped in
     [Eio.Time.with_timeout_exn] using [request_timeout_s] (default
@@ -134,6 +144,7 @@ let create_message
       ~messages
       ?tools
       ?slot_id
+      ?on_output_token_receipt
       ()
   =
   let request_timeout_s =
@@ -159,16 +170,24 @@ let create_message
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key, header_list) ->
+    let* wire_config =
+      Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)
+    in
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let kind = model_spec.request_kind in
-    let path = model_spec.request_path in
+    let path = wire_config.request_path in
     let body_result =
       match kind with
       | Provider.Anthropic_messages ->
-        let artifact = build_body_artifact ~config ~messages ?tools ~stream:false () in
+        let artifact =
+          Llm_provider.Backend_anthropic.build_request_with_receipt
+            ~config:wire_config
+            ~messages
+            ?tools
+            ()
+        in
         Ok
-          ( Yojson.Safe.to_string
-              (`Assoc (Llm_provider.Provider_request_artifact.payload artifact))
+          ( Llm_provider.Provider_request_artifact.payload artifact
           , Some (Llm_provider.Provider_request_artifact.output_token_receipt artifact) )
       | Provider.Openai_chat_completions ->
         Result.map
@@ -186,7 +205,11 @@ let create_message
       | Provider.Custom name ->
         (match Provider.find_provider name with
          | Some impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
-         | None -> Ok (Yojson.Safe.to_string (`Assoc []), None))
+         | None ->
+           Error
+             (Printf.sprintf
+                "Custom provider %S disappeared after successful resolution"
+                name))
     in
     (match body_result with
      | Error reason ->
@@ -197,18 +220,16 @@ let create_message
                ; reason = Retry.Unknown_invalid_request
                }))
      | Ok (body_str, output_token_receipt) ->
+       Option.iter
+         (Llm_provider.Complete_common.emit_output_token_receipt on_output_token_receipt)
+         output_token_receipt;
        let url = base_url ^ path in
-       let provider_kind_of_request_kind = function
-         | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
-         | Provider.Openai_chat_completions -> Llm_provider.Provider_config.OpenAI_compat
-         | Provider.Custom _ -> Llm_provider.Provider_config.OpenAI_compat
-       in
        let do_http_call () =
          (* Merge auth headers at request time via Provider_config so that
          [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
          let auth_hdrs =
            Llm_provider.Provider_config.auth_headers_for_kind_and_key
-             ~kind:(provider_kind_of_request_kind kind)
+             ~kind:wire_config.kind
              ~api_key
          in
          match
@@ -243,30 +264,36 @@ let create_message
              let raw_resp_result =
                match kind with
                | Provider.Anthropic_messages ->
-                 parse_response (Yojson.Safe.from_string body_str)
+                 Llm_provider.Backend_anthropic.parse_response
+                   (Yojson.Safe.from_string body_str)
                  |> ensure_nonempty_response
                | Provider.Openai_chat_completions ->
                  (* Reasoning stays typed as Thinking in the parsed response; it
                  is no longer promoted to a Text answer block (which caused the
                  #2236 CoT re-injection loop). Display surfacing is a read-side
                  projection concern, decoupled from parsing. *)
-                 parse_openai_completion body_str
+                 if
+                   Llm_provider.Provider_config.request_path_targets_responses_api
+                     wire_config.request_path
+                 then parse_openai_responses_completion body_str
+                 else parse_openai_completion body_str
                | Provider.Custom name ->
                  (match Provider.find_provider name with
                   | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
-                  | None -> parse_openai_completion body_str)
+                  | None ->
+                    Error
+                      (Retry_error
+                         (Retry.InvalidRequest
+                            { message =
+                                Printf.sprintf
+                                  "Custom provider %S disappeared before response parsing"
+                                  name
+                            ; reason = Retry.Unknown_invalid_request
+                            })))
              in
              Result.map
                (fun resp ->
                   let response = Llm_provider.Pricing.annotate_response_cost resp in
-                  let response =
-                    match output_token_receipt with
-                    | Some receipt ->
-                      Llm_provider.Complete_common.attach_output_token_receipt
-                        response
-                        receipt
-                    | None -> response
-                  in
                   patch_latency response lat)
                raw_resp_result
            | `HttpError (code, body_str) ->

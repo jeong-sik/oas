@@ -39,18 +39,24 @@ let provider_config_kind_of_request_kind = function
    (declared [kind = Glm]) stay GLM in every consumer. Unknown names fail
    closed with this one error in both paths. *)
 let custom_registered_projection name
-  : (PConfig.provider_kind * string * Provider.capabilities, string) result
+  : (PConfig.provider_kind * string * string * Provider.capabilities, string) result
   =
   match Provider.find_provider name with
   | Some impl ->
     Ok
       ( provider_config_kind_of_request_kind impl.Provider.request_kind
       , ""
+      , impl.Provider.request_path
       , impl.Provider.capabilities )
   | None ->
     let registry = Llm_provider.Provider_registry.default () in
     (match Llm_provider.Provider_registry.find registry name with
-     | Some entry -> Ok (entry.defaults.kind, entry.defaults.base_url, entry.capabilities)
+     | Some entry ->
+       Ok
+         ( entry.defaults.kind
+         , entry.defaults.base_url
+         , entry.defaults.request_path
+         , entry.capabilities )
      | None ->
        Error
          (Printf.sprintf
@@ -60,7 +66,7 @@ let custom_registered_projection name
 
 let capabilities_for_custom_registered name =
   match custom_registered_projection name with
-  | Ok (_kind, _base_url, capabilities) -> Some capabilities
+  | Ok (_kind, _base_url, _request_path, capabilities) -> Some capabilities
   | Error _ -> None
 ;;
 
@@ -161,27 +167,51 @@ let serialization_provider_config ?provider_config (config : agent_state)
     match provider_config with
     | Some (cfg : Provider.config) ->
       (match cfg.provider with
-       | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
-         Ok (PConfig.OpenAI_compat, base_url, cfg.model_id)
-       | Provider.Anthropic -> Ok (PConfig.Anthropic, "", cfg.model_id)
+       | Provider.OpenAICompat { base_url; path; _ } ->
+         Ok (PConfig.OpenAI_compat, base_url, cfg.model_id, path)
+       | Provider.Local { base_url } ->
+         Ok
+           ( PConfig.OpenAI_compat
+           , base_url
+           , cfg.model_id
+           , Provider.request_path cfg.provider )
+       | Provider.Anthropic ->
+         Ok (PConfig.Anthropic, "", cfg.model_id, Provider.request_path cfg.provider)
        | Provider.Custom_registered { name } ->
          (match custom_registered_projection name with
-          | Ok (kind, base_url, _capabilities) -> Ok (kind, base_url, cfg.model_id)
+          | Ok (kind, base_url, request_path, _capabilities) ->
+            Ok (kind, base_url, cfg.model_id, request_path)
           | Error msg -> Error msg))
-    | None -> Ok (PConfig.OpenAI_compat, "", model_to_string config.config.model)
+    | None ->
+      Ok
+        ( PConfig.OpenAI_compat
+        , ""
+        , model_to_string config.config.model
+        , PConfig.request_path_default_for_kind PConfig.OpenAI_compat )
   in
   Result.map
-    (fun (kind, base_url, model_id) ->
+    (fun (kind, base_url, model_id, request_path) ->
        PConfig.make
          ~kind
          ~model_id
          ~base_url
+         ~request_path
          ?max_tokens:config.config.max_tokens
+         ?temperature:config.config.temperature
+         ?top_p:config.config.top_p
+         ?top_k:config.config.top_k
+         ?min_p:config.config.min_p
+         ?system_prompt:config.config.system_prompt
          ~model_capabilities_override:
            (llm_capabilities_of_provider_capabilities
               (capabilities_for_request ?provider_config config))
          ?enable_thinking:config.config.enable_thinking
          ?preserve_thinking:config.config.preserve_thinking
+         ?thinking_budget:config.config.thinking_budget
+         ?tool_choice:config.config.tool_choice
+         ~disable_parallel_tool_use:config.config.disable_parallel_tool_use
+         ~response_format:config.config.response_format
+         ~cache_system_prompt:config.config.cache_system_prompt
          ())
     projection
 ;;
@@ -200,7 +230,7 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
       ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
         Provider.config) ->
     (match custom_registered_projection name with
-     | Ok (kind, _base_url, capabilities) ->
+     | Ok (kind, _base_url, _request_path, capabilities) ->
        Ok (kind, model_id, llm_capabilities_of_provider_capabilities capabilities)
      | Error msg -> Error msg)
   | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
@@ -534,15 +564,27 @@ let build_openai_body_artifact_result
     (match serialization_provider_config ?provider_config config with
      | Error reason -> Error reason
      | Ok serialization_config ->
-       Ok
-         (build_openai_body_artifact_unchecked
-            ~serialization_config
-            ?provider_config
-            ~config
-            ~messages
-            ?tools
-            ?slot_id
-            ()))
+       if PConfig.request_path_targets_responses_api serialization_config.request_path
+       then (
+         match slot_id with
+         | Some _ -> Error "slot_id is not supported by the OpenAI Responses API"
+         | None ->
+           Ok
+             (Llm_provider.Backend_openai_responses.build_request_with_receipt
+                ~config:serialization_config
+                ~messages
+                ~tools:(Option.value tools ~default:[])
+                ()))
+       else
+         Ok
+           (build_openai_body_artifact_unchecked
+              ~serialization_config
+              ?provider_config
+              ~config
+              ~messages
+              ?tools
+              ?slot_id
+              ()))
 ;;
 
 let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =

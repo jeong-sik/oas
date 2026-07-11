@@ -27,6 +27,7 @@ let complete
       ?(metrics : Metrics.t option)
       ?(priority : Request_priority.t option)
       ?body_timeout_s
+      ?on_output_token_receipt
       ()
   =
   match validate_all config with
@@ -87,6 +88,7 @@ let complete
                ?clock
                ~on_http_status:m.on_http_status
                ?body_timeout_s
+               ?on_output_token_receipt
                ?connection_cache
                ~config:request_config
                ~messages
@@ -195,6 +197,7 @@ let complete_with_retry
       ?metrics
       ?priority
       ?body_timeout_s
+      ?on_output_token_receipt
       ()
   =
   let m = Option.value metrics ~default:(Metrics.get_global ()) in
@@ -217,6 +220,7 @@ let complete_with_retry
       ~metrics:m
       ?priority
       ?body_timeout_s
+      ?on_output_token_receipt
       ()
   in
   let rec loop attempt =
@@ -277,6 +281,7 @@ let complete_stream
       ?(priority : Request_priority.t option)
       ?(connection_cache : Http_client.cache option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
+      ?on_output_token_receipt
       ()
   =
   match validate_all config with
@@ -319,6 +324,7 @@ let complete_stream
           ~net
           ?clock
           ?stream_idle_timeout_s
+          ?on_output_token_receipt
           ~latency_counter
           ?on_telemetry
           ~metrics
@@ -363,6 +369,7 @@ let complete_stream_with_retry
       ?connection_cache
       ?stream_idle_timeout_s
       ?on_telemetry
+      ?on_output_token_receipt
       ()
   =
   let m = Option.value metrics ~default:(Metrics.get_global ()) in
@@ -386,6 +393,7 @@ let complete_stream_with_retry
       ?connection_cache
       ?stream_idle_timeout_s
       ?on_telemetry
+      ?on_output_token_receipt
       ()
   in
   let rec loop attempt =

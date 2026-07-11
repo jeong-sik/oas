@@ -1,7 +1,30 @@
 open Agent_types
 open Result_syntax
 
+let _log = Log.create ~module_name:"pipeline_stage_route" ()
 let sdk_error_of_http_error = Http_error_sdk.of_http_error
+
+let output_token_receipt_observer agent ~model_id =
+  match agent.options.event_bus with
+  | None -> None
+  | Some bus ->
+    Some
+      (fun receipt ->
+        Pipeline_common.safe_publish
+          ~log:_log
+          bus
+          { Event_bus.meta = Pipeline_common.event_envelope agent
+          ; payload =
+              Event_bus.Custom
+                ( "oas.output_token_receipt"
+                , `Assoc
+                    [ "agent_name", `String agent.state.config.name
+                    ; "turn", `Int agent.state.turn_count
+                    ; "model_id", `String model_id
+                    ; "receipt", Llm_provider.Types.output_token_receipt_to_yojson receipt
+                    ] )
+          })
+;;
 
 let dispatch_sync
       ~sw
@@ -16,6 +39,9 @@ let dispatch_sync
       ~state:agent.state
       ~base_url:agent.options.base_url
       agent.options.provider
+  in
+  let on_output_token_receipt =
+    output_token_receipt_observer agent ~model_id:pc.model_id
   in
   let call () =
     match clock with
@@ -32,6 +58,7 @@ let dispatch_sync
         ~trace_context
         ?priority:agent.options.priority
         ?body_timeout_s:agent.options.body_timeout_s
+        ?on_output_token_receipt
         ()
     | None ->
       Llm_provider.Complete.complete
@@ -45,6 +72,7 @@ let dispatch_sync
         ~trace_context
         ?priority:agent.options.priority
         ?body_timeout_s:agent.options.body_timeout_s
+        ?on_output_token_receipt
         ()
   in
   match call () with
@@ -69,6 +97,9 @@ let dispatch_stream
       ~base_url:agent.options.base_url
       agent.options.provider
   in
+  let on_output_token_receipt =
+    output_token_receipt_observer agent ~model_id:pc.model_id
+  in
   let call () =
     match clock with
     | Some clock ->
@@ -86,6 +117,7 @@ let dispatch_stream
         ?on_telemetry
         ?priority:agent.options.priority
         ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+        ?on_output_token_receipt
         ()
     | None ->
       Llm_provider.Complete.complete_stream
@@ -101,6 +133,7 @@ let dispatch_stream
         ?on_telemetry
         ?priority:agent.options.priority
         ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+        ?on_output_token_receipt
         ()
   in
   match call () with

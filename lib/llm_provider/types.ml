@@ -455,17 +455,34 @@ type output_token_policy =
   | Required_catalog_fallback
 [@@deriving show, yojson]
 
+type output_token_ceiling_source =
+  | Catalog_model
+  | Declared_capability_override
+[@@deriving show, yojson]
+
+type output_token_ceiling =
+  { value : int
+  ; source : output_token_ceiling_source
+  }
+[@@deriving show]
+
+let output_token_ceiling ~value ~source =
+  if value <= 0
+  then invalid_arg "output_token_ceiling: value must be positive"
+  else { value; source }
+;;
+
 type output_token_resolution =
-  | Omitted_resolution of { ceiling : int option }
+  | Omitted_resolution of { ceiling : output_token_ceiling option }
   | Explicit_resolution of
       { value : int
-      ; ceiling : int option
+      ; ceiling : output_token_ceiling option
       }
   | Explicit_clamped_resolution of
       { requested : int
-      ; ceiling : int
+      ; ceiling : output_token_ceiling
       }
-  | Required_catalog_fallback_resolution of { ceiling : int }
+  | Required_catalog_fallback_resolution of { ceiling : output_token_ceiling }
 [@@deriving show]
 
 (** Construction-controlled receipt for the output-token value serialized on
@@ -478,7 +495,7 @@ type output_token_receipt =
   }
 [@@deriving show]
 
-type required_output_token_error = Required_output_token_ceiling_missing
+type required_output_token_error = Required_output_token_catalog_ceiling_missing
 [@@deriving show, eq]
 
 let output_token_receipt_requested receipt =
@@ -493,7 +510,7 @@ let output_token_receipt_effective receipt =
   | Omitted_resolution _ -> None
   | Explicit_resolution { value; _ } -> Some value
   | Explicit_clamped_resolution { ceiling; _ }
-  | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+  | Required_catalog_fallback_resolution { ceiling } -> Some ceiling.value
 ;;
 
 let output_token_receipt_policy receipt =
@@ -505,17 +522,30 @@ let output_token_receipt_policy receipt =
 ;;
 
 let output_token_receipt_ceiling receipt =
-  match receipt.resolution with
-  | Omitted_resolution { ceiling } | Explicit_resolution { ceiling; _ } -> ceiling
-  | Explicit_clamped_resolution { ceiling; _ }
-  | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+  let ceiling =
+    match receipt.resolution with
+    | Omitted_resolution { ceiling } | Explicit_resolution { ceiling; _ } -> ceiling
+    | Explicit_clamped_resolution { ceiling; _ }
+    | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+  in
+  Option.map (fun value -> value.value) ceiling
+;;
+
+let output_token_receipt_ceiling_source receipt =
+  let ceiling =
+    match receipt.resolution with
+    | Omitted_resolution { ceiling } | Explicit_resolution { ceiling; _ } -> ceiling
+    | Explicit_clamped_resolution { ceiling; _ }
+    | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+  in
+  Option.map (fun value -> value.source) ceiling
 ;;
 
 let optional_output_token_receipt ~envelope ~requested ~ceiling =
   let resolution =
     match requested, ceiling with
     | None, ceiling -> Omitted_resolution { ceiling }
-    | Some requested, Some ceiling when requested > ceiling ->
+    | Some requested, Some ceiling when requested > ceiling.value ->
       Explicit_clamped_resolution { requested; ceiling }
     | Some value, ceiling -> Explicit_resolution { value; ceiling }
   in
@@ -524,10 +554,15 @@ let optional_output_token_receipt ~envelope ~requested ~ceiling =
 
 let required_output_token_receipt ~envelope ~requested ~ceiling =
   match optional_output_token_receipt ~envelope ~requested ~ceiling with
-  | { resolution = Omitted_resolution { ceiling = Some ceiling }; _ } ->
-    Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
-  | { resolution = Omitted_resolution { ceiling = None }; _ } ->
-    Error Required_output_token_ceiling_missing
+  | { resolution =
+        Omitted_resolution { ceiling = Some ({ source = Catalog_model; _ } as ceiling) }
+    ; _
+    } -> Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
+  | { resolution =
+        Omitted_resolution
+          { ceiling = Some { source = Declared_capability_override; _ } | None }
+    ; _
+    } -> Error Required_output_token_catalog_ceiling_missing
   | receipt -> Ok receipt
 ;;
 
@@ -541,6 +576,10 @@ let output_token_receipt_to_yojson receipt =
     ; "effective", option_int_to_yojson (output_token_receipt_effective receipt)
     ; "policy", output_token_policy_to_yojson (output_token_receipt_policy receipt)
     ; "ceiling", option_int_to_yojson (output_token_receipt_ceiling receipt)
+    ; ( "ceiling_source"
+      , match output_token_receipt_ceiling_source receipt with
+        | Some source -> output_token_ceiling_source_to_yojson source
+        | None -> `Null )
     ; "envelope", output_token_envelope_to_yojson receipt.envelope
     ]
 ;;
@@ -549,7 +588,8 @@ let output_token_receipt_of_yojson json =
   let open Yojson.Safe.Util in
   let int_option = function
     | `Null -> Ok None
-    | `Int value -> Ok (Some value)
+    | `Int value when value > 0 -> Ok (Some value)
+    | `Int _ -> Error "output_token_receipt: token values must be positive"
     | _ -> Error "output_token_receipt: expected integer or null"
   in
   let ( let* ) result f = Result.bind result f in
@@ -557,6 +597,21 @@ let output_token_receipt_of_yojson json =
     let* requested = int_option (member "requested" json) in
     let* effective = int_option (member "effective" json) in
     let* ceiling = int_option (member "ceiling" json) in
+    let* ceiling_source =
+      match member "ceiling_source" json with
+      | `Null -> Ok None
+      | source_json ->
+        Result.map
+          (fun source -> Some source)
+          (output_token_ceiling_source_of_yojson source_json)
+    in
+    let* ceiling =
+      match ceiling, ceiling_source with
+      | None, None -> Ok None
+      | Some value, Some source -> Ok (Some (output_token_ceiling ~value ~source))
+      | Some _, None | None, Some _ ->
+        Error "output_token_receipt: ceiling and ceiling_source must appear together"
+    in
     let* policy = output_token_policy_of_yojson (member "policy" json) in
     let* envelope = output_token_envelope_of_yojson (member "envelope" json) in
     match policy, requested, effective, ceiling with
@@ -566,14 +621,14 @@ let output_token_receipt_of_yojson json =
       when requested = effective
            &&
            match ceiling with
-           | Some cap -> effective <= cap
+           | Some cap -> effective <= cap.value
            | None -> true ->
       Ok { envelope; resolution = Explicit_resolution { value = effective; ceiling } }
     | Explicit_clamped, Some requested, Some effective, Some ceiling
-      when effective = ceiling && requested > ceiling ->
+      when effective = ceiling.value && requested > ceiling.value ->
       Ok { envelope; resolution = Explicit_clamped_resolution { requested; ceiling } }
     | Required_catalog_fallback, None, Some effective, Some ceiling
-      when effective = ceiling ->
+      when ceiling.source = Catalog_model && effective = ceiling.value ->
       Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
     | _ -> Error "output_token_receipt: inconsistent requested/effective policy fields"
   with
@@ -581,8 +636,9 @@ let output_token_receipt_of_yojson json =
 ;;
 
 (** Per-call inference telemetry assembled from provider responses and
-    OAS-owned request/transport receipts. Downstream consumers never recompute
-    provider decisions. *)
+    transport measurements. Request-side output-token receipts are delivered
+    separately by {!Complete.complete}'s observer so a cached or injected
+    response cannot impersonate an OAS-built wire request. *)
 type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
@@ -597,7 +653,6 @@ type inference_telemetry =
   ; provider_internal_action_count : int option
   ; ttfrc_ms : float option
   ; prefill_ms : float option
-  ; output_token_receipt : output_token_receipt option [@default None]
   }
 [@@deriving show, yojson]
 
@@ -615,7 +670,6 @@ let default_inference_telemetry : inference_telemetry =
   ; provider_internal_action_count = None
   ; ttfrc_ms = None
   ; prefill_ms = None
-  ; output_token_receipt = None
   }
 ;;
 

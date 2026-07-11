@@ -105,5 +105,6 @@ val create_message
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?slot_id:int
+  -> ?on_output_token_receipt:(Llm_provider.Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Error.sdk_error) result

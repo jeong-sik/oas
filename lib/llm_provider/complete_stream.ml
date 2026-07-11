@@ -420,6 +420,7 @@ let complete_stream_http
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
+      ?on_output_token_receipt
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -506,6 +507,9 @@ let complete_stream_http
         | Provider_config.Glm ->
           Backend_glm.build_request_with_receipt ~stream:true ~config ~messages ~tools ()
       in
+      emit_output_token_receipt
+        on_output_token_receipt
+        (Provider_request_artifact.output_token_receipt request_artifact);
       let body_str = Provider_request_artifact.payload request_artifact in
       let url =
         match config.kind with
@@ -990,11 +994,6 @@ let complete_stream_http
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
          | Some _ | None -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
-        let resp =
-          attach_output_token_receipt
-            resp
-            (Provider_request_artifact.output_token_receipt request_artifact)
-        in
         Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms latency_ms)
       | Ok (Error (Http_client.TimeoutError _ as err)) ->
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();

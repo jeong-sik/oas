@@ -85,6 +85,12 @@ val make_http_transport
     connections. It has no effect when a custom [transport] is supplied.
     When [metrics] is provided, fires lifecycle callbacks.
 
+    [on_output_token_receipt] is invoked after the built-in HTTP path has
+    constructed its immutable request artifact and before it performs I/O.
+    Cache hits and injected transports never invoke it: they did not construct
+    the observed wire payload. Observer failures are logged; Eio cancellation
+    still propagates.
+
     @return [Ok api_response] on success (possibly from cache)
     @return [Error http_error] on failure. A response with no content blocks
     fails closed as [ProviderFailure { kind = Empty_completion { stop_reason } }]
@@ -104,6 +110,7 @@ val complete
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
   -> ?body_timeout_s:float
+  -> ?on_output_token_receipt:(Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 (** [body_timeout_s] caps the total HTTP round-trip time, in seconds,
@@ -155,6 +162,7 @@ val complete_with_retry
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
   -> ?body_timeout_s:float
+  -> ?on_output_token_receipt:(Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 (** [body_timeout_s] is forwarded to each underlying {!complete} call.
@@ -195,7 +203,11 @@ val complete_with_retry
     completion. Retry layers treat this as retryable while
     downstream policy can distinguish streaming/thinking idleness from
     total-call deadlines. Non-HTTP transports (CLI subprocess) ignore
-    [stream_idle_timeout_s]. *)
+    [stream_idle_timeout_s].
+
+    [on_output_token_receipt] has the same provenance contract as in
+    {!complete}: only the built-in HTTP request builder invokes it; injected
+    transports do not. *)
 val complete_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -212,6 +224,7 @@ val complete_stream
   -> ?priority:Request_priority.t
   -> ?connection_cache:Http_client.cache
   -> ?on_telemetry:(Telemetry_event.t -> unit)
+  -> ?on_output_token_receipt:(Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 
@@ -234,5 +247,6 @@ val complete_stream_with_retry
   -> ?connection_cache:Http_client.cache
   -> ?stream_idle_timeout_s:float
   -> ?on_telemetry:(Telemetry_event.t -> unit)
+  -> ?on_output_token_receipt:(Types.output_token_receipt -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
