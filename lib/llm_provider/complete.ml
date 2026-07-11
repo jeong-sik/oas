@@ -352,12 +352,17 @@ let complete_stream
    no rollback event with which to retract it.  Retrying at that point would
    splice two provider attempts into one consumer-visible stream.
 
-   Prelude-only events do not commit an attempt: [Connected], [Ping], and
-   [MessageStart] carry no assistant content and leave the content accumulator
-   empty.  Every other constructor either mutates the assistant turn, closes
-   part of it, or reports a terminal failure to the consumer. *)
+   Only [Connected] and [Ping] are rollback-safe preludes: they carry no
+   assistant-turn state.  [MessageStart] is NOT prelude-only — it commits the
+   message identity (provider message id, model, and any prelude usage) to the
+   consumer callback and to the stream accumulator ({!Complete_stream_acc}
+   sets [id]/[model]/[usage] on it).  Retrying after [MessageStart] would emit
+   a second provider message identity into the same consumer stream.  Every
+   other constructor either mutates the assistant turn, closes part of it, or
+   reports a terminal failure to the consumer. *)
 let stream_event_commits_attempt : Types.sse_event -> bool = function
-  | Types.Connected | Types.Ping | Types.MessageStart _ -> false
+  | Types.Connected | Types.Ping -> false
+  | Types.MessageStart _
   | Types.ContentBlockStart _
   | Types.ContentBlockDelta _
   | Types.ContentBlockStop _

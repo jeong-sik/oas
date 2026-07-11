@@ -261,7 +261,11 @@ let test_complete_stream_with_retry_stops_on_provider_parse_error () =
 ;;
 
 let semantic_stream_events : (string * Types.sse_event) list =
-  [ "text delta", Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "partial" }
+  [ ( "message start"
+      (* MessageStart commits the provider message identity (id/model/usage) to
+         the consumer; a retry after it would splice a second identity. *)
+    , Types.MessageStart { id = "msg-attempt-1"; model = "mock"; usage = None } )
+  ; "text delta", Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "partial" }
   ; ( "thinking delta"
     , Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "partial" } )
   ; ( "tool start"
