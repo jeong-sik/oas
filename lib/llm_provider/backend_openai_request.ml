@@ -256,10 +256,7 @@ let build_request_assoc_with_receipt
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
   let output_token_receipt =
-    output_token_receipt_with_ceiling
-      ~envelope:Types.Openai_chat_max_tokens
-      config
-      ~ceiling:caps.max_output_tokens
+    output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =

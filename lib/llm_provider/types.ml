@@ -552,12 +552,12 @@ let optional_output_token_receipt ~envelope ~requested ~ceiling =
   { envelope; resolution }
 ;;
 
-let required_output_token_receipt ~envelope ~requested ~ceiling =
-  match optional_output_token_receipt ~envelope ~requested ~ceiling with
+let required_output_token_receipt receipt =
+  match receipt with
   | { resolution =
         Omitted_resolution { ceiling = Some ({ source = Catalog_model; _ } as ceiling) }
     ; _
-    } -> Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
+    } -> Ok { receipt with resolution = Required_catalog_fallback_resolution { ceiling } }
   | { resolution =
         Omitted_resolution
           { ceiling = Some { source = Declared_capability_override; _ } | None }

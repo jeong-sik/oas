@@ -460,7 +460,9 @@ let complete_stream_http
       let uses_responses_api =
         Provider_config.request_path_targets_responses_api config.request_path
       in
-      let build_request build = build ~stream:true ~config ~messages ~tools () in
+      let build_request build =
+        build ?stream:(Some true) ~config ~messages ?tools:(Some tools) ()
+      in
       let request_artifact =
         match config.kind with
         | Provider_config.Anthropic ->
