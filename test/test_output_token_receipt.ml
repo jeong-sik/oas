@@ -453,6 +453,11 @@ let test_anthropic_missing_required_ceiling_is_typed () =
 ;;
 
 let test_anthropic_zero_is_explicit () =
+  let provider_default_ceiling =
+    match Capabilities.anthropic_capabilities.max_output_tokens with
+    | Some value -> value
+    | None -> Alcotest.fail "Anthropic provider default must declare an output ceiling"
+  in
   let config =
     PC.make
       ~kind:Anthropic
@@ -472,8 +477,8 @@ let test_anthropic_zero_is_explicit () =
     ~requested:(Some 0)
     ~effective:(Some 0)
     ~policy:Explicit
-    ~ceiling:None
-    ~ceiling_source:None
+    ~ceiling:(Some provider_default_ceiling)
+    ~ceiling_source:(Some Provider_default)
     (Anthropic.request_output_token_receipt artifact)
 ;;
 
