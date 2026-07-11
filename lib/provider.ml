@@ -726,30 +726,47 @@ let provider_config_of_agent
   | Some p ->
     (match p.provider with
      | Custom_registered { name } ->
-       (* Preserve the registry-declared provider_kind
-              (Gemini/Glm/Ollama/Claude_code/etc.) instead of flattening
-              to OpenAI_compat.
-
-              Source of truth is {!Llm_provider.Provider_registry.default},
-              which carries [entry.defaults.{kind, base_url, api_key_env,
-              request_path}] per registered name. We read api_key from
-              env directly rather than going through {!resolve}, because
-              [resolve] dispatches via a separate {!Provider.registry}
-              Hashtbl that is not guaranteed to contain the registry
-              entries defined in {!Llm_provider.Provider_registry}. *)
+       let build_runtime_only_provider impl =
+         let kind_result =
+           match impl.request_kind with
+           | Anthropic_messages -> Ok Llm_provider.Provider_config.Anthropic
+           | Openai_chat_completions -> Ok Llm_provider.Provider_config.OpenAI_compat
+           | Custom _ ->
+             Error
+               (Error.Config
+                  (InvalidConfig
+                     { field = "provider"
+                     ; detail =
+                         Printf.sprintf
+                           "Custom provider '%s' owns a custom wire contract and cannot \
+                            be projected to Provider_config"
+                           name
+                     }))
+         in
+         match kind_result with
+         | Error _ as error -> error
+         | Ok kind ->
+           (match impl.resolve p with
+            | Error _ as error -> error
+            | Ok (resolved_base_url, api_key, headers) ->
+              build
+                ~kind
+                ~resolved_base_url
+                ~api_key
+                ~headers
+                ~request_path:impl.request_path
+                ~model_id:p.model_id
+                ~supports_structured_output_override:
+                  impl.capabilities.supports_structured_output
+                ~model_capabilities_override:impl.capabilities
+                ())
+       in
+       (* A catalog descriptor owns the provider kind/capabilities when one
+          exists.  A legacy runtime implementation with the same name may own
+          transport resolution, but cannot silently flatten a catalog Kimi,
+          Gemini, GLM, or Ollama entry to its wire-family kind. *)
        let registry = Llm_provider.Provider_registry.default () in
        (match Llm_provider.Provider_registry.find registry name with
-        | None ->
-          Error
-            (Error.Config
-               (InvalidConfig
-                  { field = "provider"
-                  ; detail =
-                      Printf.sprintf
-                        "Custom_registered provider '%s' not found in \
-                         Provider_registry.default"
-                        name
-                  }))
         | Some entry ->
           (* If a provider-qualified model catalog row exists for this
              registered provider, let the row be authoritative instead of
@@ -777,7 +794,7 @@ let provider_config_of_agent
           (match find_provider name with
            | Some impl ->
              (match impl.resolve p with
-              | Error e -> Error e
+              | Error _ as error -> error
               | Ok (resolved_base_url, api_key, headers) ->
                 build
                   ~kind:entry.defaults.kind
@@ -808,7 +825,21 @@ let provider_config_of_agent
                ~model_id:p.model_id
                ?supports_structured_output_override:registry_so_override
                ?model_capabilities_override:registry_caps_override
-               ()))
+               ())
+        | None ->
+          (match find_provider name with
+           | Some impl -> build_runtime_only_provider impl
+           | None ->
+             Error
+               (Error.Config
+                  (InvalidConfig
+                     { field = "provider"
+                     ; detail =
+                         Printf.sprintf
+                           "Custom_registered provider '%s' not found in provider \
+                            registries"
+                           name
+                     }))))
      | Anthropic | Local _ | OpenAICompat _ ->
        (match resolve p with
         | Error e -> Error e

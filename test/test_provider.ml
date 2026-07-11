@@ -999,6 +999,48 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
+let test_provider_config_of_agent_runtime_only_preserves_declared_wire () =
+  let name = "provider-config-runtime-only" in
+  let capabilities =
+    { Provider.default_capabilities with supports_native_streaming = false }
+  in
+  let impl : Provider.provider_impl =
+    { name
+    ; request_kind = Provider.Openai_chat_completions
+    ; request_path = "/runtime/chat"
+    ; capabilities
+    ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
+    ; parse_response =
+        (fun _ ->
+          { id = "runtime-only"
+          ; model = "runtime-model"
+          ; stop_reason = EndTurn
+          ; content = [ Text "ok" ]
+          ; usage = None
+          ; telemetry = None
+          })
+    ; resolve =
+        (fun _ ->
+          Ok ("https://runtime-only.invalid", "", [ "Content-Type", "application/json" ]))
+    }
+  in
+  Provider.register_provider impl;
+  let cfg = Provider.custom_provider ~name ~model_id:"runtime-model" () in
+  let state = agent_state_with_params () in
+  match
+    Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+  with
+  | Ok pc ->
+    Alcotest.(check bool)
+      "runtime wire kind"
+      true
+      (pc.kind = Llm_provider.Provider_config.OpenAI_compat);
+    Alcotest.(check string) "runtime request path" "/runtime/chat" pc.request_path;
+    Alcotest.(check string) "runtime base URL" "https://runtime-only.invalid" pc.base_url
+  | Error error ->
+    Alcotest.failf "runtime-only provider projection failed: %s" (Error.to_string error)
+;;
+
 let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   let env_var = "KIMI_PROVIDER_TEST_KEY" in
   Unix.putenv env_var "kimi-provider-test-key";
@@ -1522,6 +1564,10 @@ let () =
             "custom registered preserves kind (#1003)"
             `Quick
             test_provider_config_of_agent_custom_registered_preserves_kind
+        ; Alcotest.test_case
+            "runtime-only custom preserves declared wire"
+            `Quick
+            test_provider_config_of_agent_runtime_only_preserves_declared_wire
         ; Alcotest.test_case
             "custom registered kimi preserves headers"
             `Quick
