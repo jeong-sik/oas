@@ -152,8 +152,11 @@ let () =
       (function
         | Text t -> Printf.printf "%s\n" t
         | ToolUse { id; name; _ } -> Printf.printf "[tool_use] %s (id=%s)\n" name id
-        | ToolResult { content; is_error; _ } ->
-          Printf.printf "[tool_result] %s (error=%b)\n" content is_error
+        | ToolResult { content; outcome; _ } ->
+          Printf.printf
+            "[tool_result] %s (error=%b)\n"
+            content
+            (tool_result_outcome_is_error outcome)
         | _ -> ())
       response.content
   | Error e -> Printf.eprintf "Error: %s\n" (Error.to_string e)

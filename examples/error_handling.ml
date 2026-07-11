@@ -72,8 +72,11 @@ let () =
     List.iter
       (function
         | Text t -> Printf.printf "  %s\n" t
-        | ToolResult { content; is_error; _ } ->
-          Printf.printf "  [tool_result error=%b] %s\n" is_error content
+        | ToolResult { content; outcome; _ } ->
+          Printf.printf
+            "  [tool_result error=%b] %s\n"
+            (tool_result_outcome_is_error outcome)
+            content
         | _ -> ())
       resp.content
   | Error e ->
