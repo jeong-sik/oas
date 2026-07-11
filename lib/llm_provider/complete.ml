@@ -346,6 +346,30 @@ let complete_stream
       (ensure_nonempty_completion result)
 ;;
 
+(* A streaming retry can reuse the caller's [on_event] callback only while the
+   failed attempt is still observationally empty.  Once content, a terminal
+   signal, or a typed stream failure has crossed that callback boundary, OAS has
+   no rollback event with which to retract it.  Retrying at that point would
+   splice two provider attempts into one consumer-visible stream.
+
+   Prelude-only events do not commit an attempt: [Connected], [Ping], and
+   [MessageStart] carry no assistant content and leave the content accumulator
+   empty.  Every other constructor either mutates the assistant turn, closes
+   part of it, or reports a terminal failure to the consumer. *)
+let stream_event_commits_attempt : Types.sse_event -> bool = function
+  | Types.Connected | Types.Ping | Types.MessageStart _ -> false
+  | Types.ContentBlockStart _
+  | Types.ContentBlockDelta _
+  | Types.ContentBlockStop _
+  | Types.MessageDelta _
+  | Types.MessageStop
+  | Types.SSEError _
+  | Types.SSEParseFailed _
+  | Types.SSEUnknownEventType _
+  | Types.Timeout _
+  | Types.StreamIncomplete _ -> true
+;;
+
 let complete_stream_with_retry
       ~sw
       ~net
@@ -370,31 +394,50 @@ let complete_stream_with_retry
   let provider = Provider_registry.provider_name_of_config config in
   let model_id = config.model_id in
   let f () =
-    complete_stream
-      ~sw
-      ~net
-      ~clock
-      ?transport
-      ~config
-      ~messages
-      ~tools
-      ?runtime_mcp_policy
-      ?trace_context
-      ~on_event
-      ~metrics:m
-      ?priority
-      ?connection_cache
-      ?stream_idle_timeout_s
-      ?on_telemetry
-      ()
+    let attempt_committed = Atomic.make false in
+    let on_attempt_event event =
+      if stream_event_commits_attempt event then Atomic.set attempt_committed true;
+      on_event event
+    in
+    let result =
+      complete_stream
+        ~sw
+        ~net
+        ~clock
+        ?transport
+        ~config
+        ~messages
+        ~tools
+        ?runtime_mcp_policy
+        ?trace_context
+        ~on_event:on_attempt_event
+        ~metrics:m
+        ?priority
+        ?connection_cache
+        ?stream_idle_timeout_s
+        ?on_telemetry
+        ()
+    in
+    result, Atomic.get attempt_committed
   in
   let rec loop attempt =
     match f () with
-    | Ok _ as success -> success
-    | Error err ->
+    | (Ok _ as success), _ -> success
+    | Error err, attempt_committed ->
       (match classify_retry_error err with
        | Some api_err when Retry.is_retryable api_err ->
-         if attempt >= rc.max_retries
+         if attempt_committed
+         then (
+           Diag.warn
+             "complete"
+             "not retrying stream provider %s model %s after attempt %d emitted \
+              consumer-visible events: %s"
+             provider
+             model_id
+             (attempt + 1)
+             (Retry.error_message api_err);
+           Error err)
+         else if attempt >= rc.max_retries
          then Error err
          else (
            Diag.warn

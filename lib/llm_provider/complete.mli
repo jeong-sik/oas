@@ -216,7 +216,14 @@ val complete_stream
   -> (Types.api_response, Http_client.http_error) result
 
 (** Streaming completion with exponential backoff retry.
-    Passes [transport], [connection_cache] and [metrics] through to each attempt. *)
+    Passes [transport], [connection_cache] and [metrics] through to each attempt.
+
+    Retries are permitted only while the failed attempt has emitted no
+    consumer-visible content, terminal signal, or typed stream failure. Once an
+    attempt crosses that boundary, the original typed error is returned without
+    retry because the SSE protocol exposes no attempt rollback event; appending
+    another attempt to the same [on_event] callback would corrupt the observable
+    stream. *)
 val complete_stream_with_retry
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
