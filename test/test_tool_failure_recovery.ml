@@ -237,7 +237,7 @@ let project calls results =
 ;;
 
 let failed_result id =
-  ToolResult
+  Types.ToolResult
     { tool_use_id = id
     ; content = "failed"
     ; is_error = true
