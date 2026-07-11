@@ -212,9 +212,11 @@ let heal_tool_call
                            (attempt + 1)
                            (max_retries + 1)
                            enriched_message
-                     ; is_error = true
-                     ; failure_kind = Some Validation_error
-                     ; error_class = Some Deterministic
+                     ; outcome =
+                         Tool_failed
+                           { failure_kind = Validation_error
+                           ; error_class = Some Deterministic
+                           }
                      ; json = None
                      ; content_blocks = None
                      }

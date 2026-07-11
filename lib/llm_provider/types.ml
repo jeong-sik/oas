@@ -75,6 +75,28 @@ type tool_failure_kind =
   | Non_retryable_tool_error
 [@@deriving yojson, show]
 
+type tool_failure_provenance =
+  { failure_kind : tool_failure_kind
+  ; error_class : tool_error_class option
+  }
+[@@deriving show]
+
+type tool_result_outcome =
+  | Tool_succeeded
+  | Tool_failed of tool_failure_provenance
+  | Legacy_unclassified_failure
+[@@deriving show]
+
+let tool_failure_kind_is_recoverable = function
+  | Validation_error | Recoverable_tool_error -> true
+  | Non_retryable_tool_error -> false
+;;
+
+let tool_result_outcome_is_error = function
+  | Tool_succeeded -> false
+  | Tool_failed _ | Legacy_unclassified_failure -> true
+;;
+
 type tool_error =
   { message : string
   ; recoverable : bool
@@ -82,6 +104,18 @@ type tool_error =
   }
 
 type tool_result = (tool_output, tool_error) result
+
+let tool_result_of_outcome ~content = function
+  | Tool_succeeded -> Ok { content; _meta = None }
+  | Tool_failed { failure_kind; error_class } ->
+    Error
+      { message = content
+      ; recoverable = tool_failure_kind_is_recoverable failure_kind
+      ; error_class
+      }
+  | Legacy_unclassified_failure ->
+    Error { message = content; recoverable = false; error_class = None }
+;;
 
 type tool_param =
   { name : string
@@ -281,9 +315,7 @@ type content_block =
   | ToolResult of
       { tool_use_id : string
       ; content : string
-      ; is_error : bool
-      ; failure_kind : tool_failure_kind option
-      ; error_class : tool_error_class option
+      ; outcome : tool_result_outcome
       ; json : Yojson.Safe.t option
         (** Parsed JSON payload when available. Consumers
                         should prefer [json] over [content] for structured access.
@@ -679,15 +711,7 @@ let try_parse_json (s : string) : Yojson.Safe.t option =
 (** Create a tool result message.
     When [json] is not provided, attempts to parse [content] as JSON
     so downstream consumers can access structured data without re-parsing. *)
-let tool_result_msg
-      ~tool_use_id
-      ~content
-      ?(is_error = false)
-      ?failure_kind
-      ?error_class
-      ?json
-      ()
-  =
+let tool_result_msg ~tool_use_id ~content ?(outcome = Tool_succeeded) ?json () =
   let json =
     match json with
     | Some _ -> json
@@ -696,16 +720,7 @@ let tool_result_msg
   make_message
     ~tool_call_id:tool_use_id
     ~role:Tool
-    [ ToolResult
-        { tool_use_id
-        ; content
-        ; is_error
-        ; failure_kind
-        ; error_class
-        ; json
-        ; content_blocks = None
-        }
-    ]
+    [ ToolResult { tool_use_id; content; outcome; json; content_blocks = None } ]
 ;;
 
 (** {1 Tool Result Validation}

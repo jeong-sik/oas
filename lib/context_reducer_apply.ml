@@ -11,8 +11,7 @@ let apply_prune_tool_outputs ~max_output_len messages =
          List.map
            (fun block ->
               match block with
-              | ToolResult
-                  { tool_use_id; content; is_error; failure_kind; error_class; _ }
+              | ToolResult { tool_use_id; content; outcome; _ }
                 when String.length content > max_output_len ->
                 let truncated = String.sub content 0 max_output_len in
                 let marker =
@@ -21,9 +20,7 @@ let apply_prune_tool_outputs ~max_output_len messages =
                 ToolResult
                   { tool_use_id
                   ; content = truncated ^ marker
-                  ; is_error
-                  ; failure_kind
-                  ; error_class
+                  ; outcome
                   ; json = None
                   ; content_blocks = None
                   }
@@ -138,9 +135,11 @@ let synthetic_tool_result_message id =
           ; content =
               "OAS context reducer synthesized this error result because the original \
                tool call had no matching ToolResult."
-          ; is_error = true
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome =
+              Tool_failed
+                { failure_kind = Non_retryable_tool_error
+                ; error_class = Some Deterministic
+                }
           ; json = None
           ; content_blocks = None
           }
@@ -362,11 +361,10 @@ let apply_clear_tool_results ~keep_recent messages =
                List.map
                  (fun block ->
                     match block with
-                    | ToolResult
-                        { tool_use_id; content; is_error; failure_kind; error_class; _ }
+                    | ToolResult { tool_use_id; content; outcome; _ }
                       when String.length content > 50 ->
                       let summary =
-                        if is_error
+                        if tool_result_outcome_is_error outcome
                         then "[tool error result cleared]"
                         else
                           Printf.sprintf
@@ -376,9 +374,7 @@ let apply_clear_tool_results ~keep_recent messages =
                       ToolResult
                         { tool_use_id
                         ; content = summary
-                        ; is_error
-                        ; failure_kind
-                        ; error_class
+                        ; outcome
                         ; json = None
                         ; content_blocks = None
                         }
@@ -423,8 +419,7 @@ let apply_stub_tool_results ~keep_recent messages =
                List.map
                  (fun block ->
                     match block with
-                    | ToolResult
-                        { tool_use_id; content; is_error; failure_kind; error_class; _ }
+                    | ToolResult { tool_use_id; content; outcome; _ }
                       when String.length content > 50 ->
                       let tool_name =
                         match Hashtbl.find_opt tool_names tool_use_id with
@@ -438,7 +433,9 @@ let apply_stub_tool_results ~keep_recent messages =
                             0
                             content
                       in
-                      let status = if is_error then "error" else "ok" in
+                      let status =
+                        if tool_result_outcome_is_error outcome then "error" else "ok"
+                      in
                       let stub =
                         Printf.sprintf
                           "[tool: %s, %d lines, %s]"
@@ -449,9 +446,7 @@ let apply_stub_tool_results ~keep_recent messages =
                       ToolResult
                         { tool_use_id
                         ; content = stub
-                        ; is_error
-                        ; failure_kind
-                        ; error_class
+                        ; outcome
                         ; json = None
                         ; content_blocks = None
                         }

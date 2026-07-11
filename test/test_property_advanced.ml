@@ -26,9 +26,8 @@ let content_block_gen =
            ToolResult
              { tool_use_id = id
              ; content
-             ; is_error
-             ; failure_kind = None
-             ; error_class = None
+             ; outcome =
+                 (if is_error then Legacy_unclassified_failure else Tool_succeeded)
              ; json = Types.try_parse_json content
              ; content_blocks = None
              })

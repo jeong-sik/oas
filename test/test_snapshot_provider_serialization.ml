@@ -62,9 +62,7 @@ let messages =
       [ ToolResult
           { tool_use_id = "call_1"
           ; content = "Sunny, 25C"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }
@@ -87,9 +85,7 @@ let nudged_messages =
       [ ToolResult
           { tool_use_id = "call_1"
           ; content = "Sunny, 25C"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }

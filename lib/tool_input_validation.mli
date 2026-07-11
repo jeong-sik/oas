@@ -34,7 +34,7 @@ type validation_result =
 val validate : Types.tool_schema -> Yojson.Safe.t -> validation_result
 
 (** Format field errors as a structured, LLM-readable feedback string.
-    Designed for [ToolResult] with [is_error=true]. *)
+    Designed for a failed [ToolResult] outcome. *)
 val format_errors : tool_name:string -> field_error list -> string
 
 (** Samchon-style inline error feedback: shows the LLM's original JSON

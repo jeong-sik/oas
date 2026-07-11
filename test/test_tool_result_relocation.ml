@@ -36,16 +36,9 @@ let rm_rf dir =
   | _ -> ()
 ;;
 
-let tool_result ?(is_error = false) id content : Types.content_block =
+let tool_result ?(outcome = Types.Tool_succeeded) id content : Types.content_block =
   Types.ToolResult
-    { tool_use_id = id
-    ; content
-    ; is_error
-    ; failure_kind = None
-    ; error_class = None
-    ; json = None
-    ; content_blocks = None
-    }
+    { tool_use_id = id; content; outcome; json = None; content_blocks = None }
 ;;
 
 let asst_msg text : Types.message =
@@ -219,16 +212,12 @@ let test_make_tool_results_with_relocation () =
     [ { tool_use_id = "t1"
       ; tool_name = "read"
       ; content = String.make 200 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "echo"
       ; content = "small"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -280,9 +269,7 @@ let test_make_tool_results_persist_failure_freezes_kept () =
     [ { tool_use_id = "..."
       ; tool_name = "read"
       ; content = original
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -325,16 +312,12 @@ let test_make_tool_results_publishes_content_replacement_events () =
     [ { tool_use_id = "big"
       ; tool_name = "read"
       ; content = String.make 40 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "small"
       ; tool_name = "echo"
       ; content = "ok"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -511,23 +494,17 @@ let test_aggregate_budget_persists_largest () =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
       ; content = String.make 8000 'a'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "b"
       ; content = String.make 5000 'b'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t3"
       ; tool_name = "c"
       ; content = String.make 4000 'c'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -585,9 +562,7 @@ let test_aggregate_budget_disabled () =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
       ; content = String.make 8000 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in

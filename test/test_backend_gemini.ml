@@ -239,9 +239,7 @@ let test_tool_result () =
           [ ToolResult
               { tool_use_id = "call_123"
               ; content = "Sunny, 25C"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -538,9 +536,7 @@ let test_thought_signature_roundtrip_request () =
           [ ToolResult
               { tool_use_id
               ; content = "found"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }

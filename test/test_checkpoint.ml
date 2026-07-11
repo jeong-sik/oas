@@ -57,6 +57,33 @@ let make_checkpoint
   }
 ;;
 
+let checkpoint_json_with_tool_result ?(extra_fields = []) outcome =
+  let block =
+    Types.ToolResult
+      { tool_use_id = "tool-result-outcome"
+      ; content = "result"
+      ; outcome
+      ; json = None
+      ; content_blocks = None
+      }
+    |> Api.content_block_to_json
+    |> function
+    | `Assoc fields -> `Assoc (fields @ extra_fields)
+    | json ->
+      Alcotest.failf
+        "provider ToolResult must serialize to an object, got %s"
+        (Yojson.Safe.to_string json)
+  in
+  match Checkpoint.to_json (make_checkpoint ()) with
+  | `Assoc fields ->
+    let message = `Assoc [ "role", `String "tool"; "content", `List [ block ] ] in
+    `Assoc (("messages", `List [ message ]) :: List.remove_assoc "messages" fields)
+  | json ->
+    Alcotest.failf
+      "checkpoint must serialize to an object, got %s"
+      (Yojson.Safe.to_string json)
+;;
+
 (* Helper: a sample tool_schema *)
 let sample_tool_schema : Types.tool_schema =
   { name = "get_weather"
@@ -244,9 +271,7 @@ let () =
                     [ Types.ToolResult
                         { tool_use_id = "id1"
                         ; content = "Sunny 22C"
-                        ; is_error = false
-                        ; failure_kind = None
-                        ; error_class = None
+                        ; outcome = Tool_succeeded
                         ; json = None
                         ; content_blocks = None
                         }
@@ -261,10 +286,10 @@ let () =
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check bool "tool role" true ((List.hd cp2.messages).role = Types.Tool);
             match (List.hd cp2.messages).content with
-            | [ Types.ToolResult { tool_use_id; content; is_error; _ } ] ->
+            | [ Types.ToolResult { tool_use_id; content; outcome; _ } ] ->
               check string "id" "id1" tool_use_id;
               check string "content" "Sunny 22C" content;
-              check bool "is_error" false is_error
+              check bool "is_error" false (Types.tool_result_outcome_is_error outcome)
             | _ -> fail "expected ToolResult")
         ; test_case
             "typed failed ToolResult survives execution projection and checkpoint"
@@ -274,9 +299,11 @@ let () =
                  { tool_use_id = "failed-1"
                  ; tool_name = "Execute"
                  ; content = "working directory is unavailable"
-                 ; is_error = true
-                 ; failure_kind = Some Agent_tools.Validation_error
-                 ; error_class = Some Types.Deterministic
+                 ; outcome =
+                     Tool_failed
+                       { failure_kind = Agent_tools.Validation_error
+                       ; error_class = Some Types.Deterministic
+                       }
                  }
                in
                let content = Agent_turn.make_tool_results [ execution_result ] in
@@ -323,18 +350,50 @@ let () =
                  (stored_block |> member "error_class" <> `Null);
                let restored = Result.get_ok (Checkpoint.of_json checkpoint_json) in
                match (List.hd restored.messages).content with
-               | [ Types.ToolResult { failure_kind; error_class; _ } ] ->
-                 check
-                   bool
-                   "failure_kind roundtrip"
-                   true
-                   (failure_kind = Some Types.Validation_error);
-                 check
-                   bool
-                   "error_class roundtrip"
-                   true
-                   (error_class = Some Types.Deterministic)
+               | [ Types.ToolResult
+                     { outcome =
+                         Tool_failed
+                           { failure_kind = Types.Validation_error
+                           ; error_class = Some Types.Deterministic
+                           }
+                     ; _
+                     }
+                 ] -> ()
                | _ -> fail "expected typed ToolResult")
+        ; test_case "legacy failed ToolResult remains explicit" `Quick (fun () ->
+            let checkpoint_json =
+              checkpoint_json_with_tool_result Types.Legacy_unclassified_failure
+            in
+            let restored = Result.get_ok (Checkpoint.of_json checkpoint_json) in
+            match (List.hd restored.messages).content with
+            | [ Types.ToolResult { outcome = Legacy_unclassified_failure; _ } ] -> ()
+            | _ -> fail "expected explicit legacy failure outcome")
+        ; test_case "success with failure provenance is rejected" `Quick (fun () ->
+            let checkpoint_json =
+              checkpoint_json_with_tool_result
+                ~extra_fields:
+                  [ ( "failure_kind"
+                    , Types.tool_failure_kind_to_yojson Types.Validation_error )
+                  ]
+                Types.Tool_succeeded
+            in
+            check
+              bool
+              "rejected"
+              true
+              (Result.is_error (Checkpoint.of_json checkpoint_json)))
+        ; test_case "error_class without failure_kind is rejected" `Quick (fun () ->
+            let checkpoint_json =
+              checkpoint_json_with_tool_result
+                ~extra_fields:
+                  [ "error_class", Types.tool_error_class_to_yojson Types.Deterministic ]
+                Types.Legacy_unclassified_failure
+            in
+            check
+              bool
+              "rejected"
+              true
+              (Result.is_error (Checkpoint.of_json checkpoint_json)))
         ; test_case "empty messages roundtrip" `Quick (fun () ->
             let cp = make_checkpoint ~messages:[] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -359,9 +418,7 @@ let () =
                     [ Types.ToolResult
                         { tool_use_id = "t1"
                         ; content = "found it"
-                        ; is_error = false
-                        ; failure_kind = None
-                        ; error_class = None
+                        ; outcome = Tool_succeeded
                         ; json = None
                         ; content_blocks = None
                         }

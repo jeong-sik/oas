@@ -581,9 +581,7 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
             [ ToolResult
                 { tool_use_id = "tool_1"
                 ; content = String.make 2000 'x'
-                ; is_error = false
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome = Tool_succeeded
                 ; json = None
                 ; content_blocks = None
                 }
@@ -632,9 +630,7 @@ let big_tool_history () =
         [ ToolResult
             { tool_use_id = "tool_1"
             ; content = String.make 20000 'x'
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }

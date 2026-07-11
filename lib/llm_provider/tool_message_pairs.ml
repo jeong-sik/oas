@@ -207,9 +207,11 @@ let synthetic_tool_result_message (id, _name) =
           ; content =
               "OAS synthesized this error tool result because provider request history \
                contained a tool call without an adjacent result."
-          ; is_error = true
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome =
+              Tool_failed
+                { failure_kind = Non_retryable_tool_error
+                ; error_class = Some Deterministic
+                }
           ; json = None
           ; content_blocks = None
           }

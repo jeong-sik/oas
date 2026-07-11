@@ -38,19 +38,12 @@ let tool_use_msg id name =
     }
 ;;
 
-let tool_result_msg ?(is_error = false) ?failure_kind ?error_class id content =
+let tool_result_msg ?(outcome = Types.Tool_succeeded) id content =
   Types.
     { role = User
     ; content =
         [ ToolResult
-            { tool_use_id = id
-            ; content
-            ; is_error
-            ; failure_kind
-            ; error_class
-            ; json = None
-            ; content_blocks = None
-            }
+            { tool_use_id = id; content; outcome; json = None; content_blocks = None }
         ]
     ; name = None
     ; tool_call_id = None
@@ -231,9 +224,7 @@ let test_estimate_tool_result () =
           [ ToolResult
               { tool_use_id = "id1"
               ; content = "result text"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -509,9 +500,7 @@ let test_cap_preserves_tool_result () =
     ; Types.ToolResult
         { tool_use_id = "call_keep"
         ; content = "r"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -706,20 +695,29 @@ let test_prune_preserves_failure_provenance () =
     Context_reducer.reduce
       (Context_reducer.prune_tool_outputs ~max_output_len:10)
       [ tool_result_msg
-          ~is_error:true
-          ~failure_kind:Types.Recoverable_tool_error
-          ~error_class:Types.Transient
+          ~outcome:
+            (Types.Tool_failed
+               { failure_kind = Types.Recoverable_tool_error
+               ; error_class = Some Types.Transient
+               })
           "t1"
           (String.make 100 'x')
       ]
   in
   match result with
-  | [ { Types.content = [ Types.ToolResult { failure_kind; error_class; _ } ]; _ } ] ->
-    Alcotest.(check bool)
-      "failure kind preserved"
-      true
-      (failure_kind = Some Types.Recoverable_tool_error);
-    Alcotest.(check bool) "error class preserved" true (error_class = Some Types.Transient)
+  | [ { Types.content =
+          [ Types.ToolResult
+              { outcome =
+                  Tool_failed
+                    { failure_kind = Types.Recoverable_tool_error
+                    ; error_class = Some Types.Transient
+                    }
+              ; _
+              }
+          ]
+      ; _
+      }
+    ] -> ()
   | _ -> Alcotest.fail "expected one pruned ToolResult"
 ;;
 
@@ -1253,9 +1251,7 @@ let test_clear_tool_results_error_marker () =
             [ ToolResult
                 { tool_use_id = "t1"
                 ; content = String.make 100 'E'
-                ; is_error = true
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome = Legacy_unclassified_failure
                 ; json = None
                 ; content_blocks = None
                 }
@@ -1438,11 +1434,11 @@ let test_repair_single_orphan () =
   (* The inserted message should be a Tool message with ToolResult *)
   match List.nth result 2 with
   | { Types.role = Types.Tool
-    ; content = [ Types.ToolResult { tool_use_id; is_error; _ } ]
+    ; content = [ Types.ToolResult { tool_use_id; outcome; _ } ]
     ; _
     } ->
     Alcotest.(check string) "matches id" "t1" tool_use_id;
-    Alcotest.(check bool) "is_error" true is_error
+    Alcotest.(check bool) "is_error" true (Types.tool_result_outcome_is_error outcome)
   | _ -> Alcotest.fail "expected synthetic tool result"
 ;;
 
@@ -1522,9 +1518,12 @@ let test_repair_late_result_is_not_pairing () =
   let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
   Alcotest.(check int) "late result does not satisfy adjacency" 6 (List.length result);
   match List.nth result 2 with
-  | { Types.content = [ Types.ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+  | { Types.content = [ Types.ToolResult { tool_use_id; outcome; _ } ]; _ } ->
     Alcotest.(check string) "synthetic id" "t1" tool_use_id;
-    Alcotest.(check bool) "synthetic error" true is_error
+    Alcotest.(check bool)
+      "synthetic error"
+      true
+      (Types.tool_result_outcome_is_error outcome)
   | _ -> Alcotest.fail "expected synthetic adjacent tool result"
 ;;
 
@@ -1591,18 +1590,14 @@ let test_orphaned_results_mixed () =
             [ ToolResult
                 { tool_use_id = "t1"
                 ; content = "ok"
-                ; is_error = false
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome = Tool_succeeded
                 ; json = None
                 ; content_blocks = None
                 }
             ; ToolResult
                 { tool_use_id = "t2"
                 ; content = "orphan"
-                ; is_error = false
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome = Tool_succeeded
                 ; json = None
                 ; content_blocks = None
                 }
@@ -1666,9 +1661,12 @@ let test_default_tool_contract_repairs_late_result () =
   let result = Context_reducer.reduce Defaults.default_context_reducer msgs in
   Alcotest.(check int) "synthetic inserted and late result removed" 5 (List.length result);
   (match List.nth result 2 with
-   | { Types.content = [ Types.ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+   | { Types.content = [ Types.ToolResult { tool_use_id; outcome; _ } ]; _ } ->
      Alcotest.(check string) "synthetic id" "t1" tool_use_id;
-     Alcotest.(check bool) "synthetic error" true is_error
+     Alcotest.(check bool)
+       "synthetic error"
+       true
+       (Types.tool_result_outcome_is_error outcome)
    | _ -> Alcotest.fail "expected synthetic adjacent tool result");
   match List.nth result 3 with
   | { Types.content = [ Types.Text text ]; _ } ->

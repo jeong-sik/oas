@@ -93,9 +93,7 @@ let test_b3_injection_role_validation () =
             [ ToolResult
                 { tool_use_id = "t1"
                 ; content = "42"
-                ; is_error = false
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome = Tool_succeeded
                 ; json = None
                 ; content_blocks = None
                 }

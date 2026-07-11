@@ -177,9 +177,7 @@ let test_tool_use_id_roundtrip () =
           [ Types.ToolResult
               { tool_use_id = tu_id
               ; content = "Sunny 25C"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }

@@ -305,9 +305,7 @@ let test_normalize_preserves_matched_tool_calls () =
           [ Types.ToolResult
               { tool_use_id = "t1"
               ; content = "result"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }

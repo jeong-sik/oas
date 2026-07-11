@@ -397,9 +397,7 @@ let test_api_common_content_block_roundtrip () =
       ; ToolResult
           { tool_use_id = "t1"
           ; content = "result"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }

@@ -695,17 +695,23 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       (`Assoc [])
       "tool-unknown"
   in
-  check bool "unknown call is an error" true result.is_error;
+  check
+    bool
+    "unknown call is an error"
+    true
+    (Types.tool_result_outcome_is_error result.outcome);
   check
     (option string)
     "unknown call is retryable validation"
     (Some "validation")
-    (Option.map
-       (function
-         | Agent_tools.Validation_error -> "validation"
-         | Agent_tools.Recoverable_tool_error -> "recoverable"
-         | Agent_tools.Non_retryable_tool_error -> "non_retryable")
-       result.failure_kind);
+    (match result.outcome with
+     | Types.Tool_failed { failure_kind = Agent_tools.Validation_error; _ } ->
+       Some "validation"
+     | Types.Tool_failed { failure_kind = Agent_tools.Recoverable_tool_error; _ } ->
+       Some "recoverable"
+     | Types.Tool_failed { failure_kind = Agent_tools.Non_retryable_tool_error; _ } ->
+       Some "non_retryable"
+     | Types.Tool_succeeded | Types.Legacy_unclassified_failure -> None);
   check
     bool
     "content names missing tool"
@@ -782,7 +788,11 @@ let test_registered_read_alias_dispatches_to_read_file_when_visible () =
       (`Assoc [ "path", `String "README.md" ])
       "tool-name-alias-read"
   in
-  check bool "registered read alias succeeds" false result.is_error;
+  check
+    bool
+    "registered read alias succeeds"
+    false
+    (Types.tool_result_outcome_is_error result.outcome);
   check string "result uses visible tool name" "ReadFile" result.tool_name;
   check string "read content" "read-ok" result.content;
   check bool "on_error not called" false !on_error_called;
@@ -860,7 +870,11 @@ let test_registered_search_alias_dispatches_to_search_files_when_visible () =
       (`Assoc [ "query", `String "tool_returned_error_result"; "path", `String "logs" ])
       "tool-name-alias-search"
   in
-  check bool "registered search alias succeeds" false result.is_error;
+  check
+    bool
+    "registered search alias succeeds"
+    false
+    (Types.tool_result_outcome_is_error result.outcome);
   check string "result uses visible tool name" "SearchFiles" result.tool_name;
   check string "search content" "search-ok" result.content;
   check bool "on_error not called" false !on_error_called;
@@ -923,7 +937,11 @@ let test_registered_execute_alias_preserves_input () =
       (`Assoc [ "command", `String "git status --short"; "cwd", `String "/tmp/workspace" ])
       "tool-name-alias-execute"
   in
-  check bool "registered execute alias succeeds" false result.is_error;
+  check
+    bool
+    "registered execute alias succeeds"
+    false
+    (Types.tool_result_outcome_is_error result.outcome);
   check string "result uses visible tool name" "Execute" result.tool_name;
   check string "execute content" "execute-ok" result.content;
   match !captured_input with

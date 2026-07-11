@@ -187,9 +187,7 @@ let test_roundtrip_tool_result () =
       [ ToolResult
           { tool_use_id = "tu_1"
           ; content = "result data"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }
@@ -199,10 +197,10 @@ let test_roundtrip_tool_result () =
   match Cache.response_of_json json with
   | Some r ->
     (match r.content with
-     | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
+     | [ ToolResult { tool_use_id; content; outcome; _ } ] ->
        Alcotest.(check string) "tool_use_id" "tu_1" tool_use_id;
        Alcotest.(check string) "content" "result data" content;
-       Alcotest.(check bool) "not error" false is_error
+       Alcotest.(check bool) "not error" false (tool_result_outcome_is_error outcome)
      | _ -> Alcotest.fail "expected single ToolResult block")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
@@ -213,9 +211,7 @@ let test_roundtrip_tool_result_error () =
       [ ToolResult
           { tool_use_id = "tu_2"
           ; content = "failed"
-          ; is_error = true
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Legacy_unclassified_failure
           ; json = None
           ; content_blocks = None
           }
@@ -225,7 +221,8 @@ let test_roundtrip_tool_result_error () =
   match Cache.response_of_json json with
   | Some r ->
     (match r.content with
-     | [ ToolResult { is_error; _ } ] -> Alcotest.(check bool) "is error" true is_error
+     | [ ToolResult { outcome; _ } ] ->
+       Alcotest.(check bool) "is error" true (tool_result_outcome_is_error outcome)
      | _ -> Alcotest.fail "expected ToolResult block")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
@@ -241,9 +238,7 @@ let test_roundtrip_tool_result_content_blocks () =
       [ ToolResult
           { tool_use_id = "tu_blocks"
           ; content = "preview"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = Some blocks
           }

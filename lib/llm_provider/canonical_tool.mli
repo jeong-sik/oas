@@ -95,7 +95,7 @@ type provider_tool_result =
     (** Projection of [ToolResult.json] (WP4 parsed payload), verbatim. Not a
           fresh parse, and {b not} [provider_config.output_schema] which is a
           request-level concern (RFC-OAS-024 D7). *)
-  ; is_error : bool
+  ; outcome : Types.tool_result_outcome
   }
 
 (** Project a single content block into a tool result. Returns [None] for any

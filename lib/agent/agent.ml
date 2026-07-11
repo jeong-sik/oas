@@ -1046,7 +1046,11 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                             s.messages
                             ~tool_id
                             ~content:err_msg
-                            ~is_error:true
+                            ~outcome:
+                              (Tool_failed
+                                 { failure_kind = Non_retryable_tool_error
+                                 ; error_class = Some Deterministic
+                                 })
                       });
                     loop ()
                   | Some target ->
@@ -1129,7 +1133,11 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                                s.messages
                                ~tool_id
                                ~content:err_msg
-                               ~is_error:true
+                               ~outcome:
+                                 (Tool_failed
+                                    { failure_kind = Non_retryable_tool_error
+                                    ; error_class = Some Unknown
+                                    })
                          });
                        loop ()
                      | Ok sub_response ->
@@ -1149,7 +1157,7 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                                s.messages
                                ~tool_id
                                ~content:text
-                               ~is_error:false
+                               ~outcome:Tool_succeeded
                          });
                        loop ()))
                | None -> loop ())))

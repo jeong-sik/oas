@@ -439,9 +439,7 @@ let%test "cap_message_tokens: oversized message with Text blocks is truncated" =
     @ [ ToolResult
           { tool_use_id = "keep"
           ; content = "r"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }
@@ -474,9 +472,7 @@ let%test "cap_message_tokens: truncation marker present when text dropped" =
     @ [ ToolResult
           { tool_use_id = "t0"
           ; content = "r"
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           }
@@ -520,9 +516,7 @@ let%test
       ToolResult
         { tool_use_id = Printf.sprintf "t%d" i
         ; content = String.make 400 'x'
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         })
@@ -541,9 +535,7 @@ let%test "cap_message_tokens: recent turns are not modified" =
       ToolResult
         { tool_use_id = Printf.sprintf "t%d" i
         ; content = String.make 400 'x'
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         })
@@ -565,9 +557,7 @@ let%test "cap_message_tokens: monotonicity — never increases tokens" =
         ToolResult
           { tool_use_id = Printf.sprintf "t%d" i
           ; content = String.make 500 'x'
-          ; is_error = false
-          ; failure_kind = None
-          ; error_class = None
+          ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
           })
@@ -679,9 +669,7 @@ let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
     ToolResult
       { tool_use_id = "t1"
       ; content = "\xEA\xB2\xB0\xEA\xB3\xBC\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = None
       ; content_blocks = None
       }

@@ -22,5 +22,5 @@ val replace_tool_result
   :  Types.message list
   -> tool_id:string
   -> content:string
-  -> is_error:bool
+  -> outcome:Types.tool_result_outcome
   -> Types.message list

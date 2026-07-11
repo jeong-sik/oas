@@ -383,9 +383,10 @@ let finalize_stream_acc (acc : stream_acc) =
              (Types.ToolResult
                 { tool_use_id
                 ; content = text
-                ; is_error
-                ; failure_kind = None
-                ; error_class = None
+                ; outcome =
+                    (if is_error
+                     then Types.Legacy_unclassified_failure
+                     else Types.Tool_succeeded)
                 ; json = (if is_error then None else Types.try_parse_json text)
                 ; content_blocks = None
                 }))

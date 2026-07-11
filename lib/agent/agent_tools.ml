@@ -16,9 +16,7 @@ type tool_execution_result =
   { tool_use_id : string
   ; tool_name : string
   ; content : string
-  ; is_error : bool
-  ; failure_kind : tool_failure_kind option
-  ; error_class : Types.tool_error_class option
+  ; outcome : Types.tool_result_outcome
   }
 
 type scheduled_tool_use =
@@ -98,11 +96,6 @@ let concurrency_class_of_tool tool =
   | None -> Tool.Sequential_workspace
 ;;
 
-let recoverable_of_failure_kind = function
-  | Some Validation_error | Some Recoverable_tool_error -> true
-  | Some Non_retryable_tool_error | None -> false
-;;
-
 let json_object_keys_for_log = function
   | `Assoc fields ->
     fields |> List.map fst |> List.sort_uniq String.compare |> String.concat ","
@@ -137,7 +130,7 @@ let preview_tool_names ?(limit = 12) names =
 let unknown_tool_failure ~requested ~available =
   let available_preview = preview_tool_names available in
   let failure_kind =
-    if available = [] then Some Non_retryable_tool_error else Some Validation_error
+    if available = [] then Non_retryable_tool_error else Validation_error
   in
   ( Printf.sprintf "Tool not found: %s. Available tools: %s" requested available_preview
   , failure_kind )
@@ -159,9 +152,9 @@ let tool_failure_result ~id ~name ~content ~error_class =
   { tool_use_id = id
   ; tool_name = name
   ; content
-  ; is_error = true
-  ; failure_kind = Some Non_retryable_tool_error
-  ; error_class = Some error_class
+  ; outcome =
+      Tool_failed
+        { failure_kind = Non_retryable_tool_error; error_class = Some error_class }
   }
 ;;
 
@@ -337,9 +330,11 @@ let find_and_execute_tool_with_index
           { tool_use_id = id
           ; tool_name = name
           ; content = message
-          ; is_error = true
-          ; failure_kind = Some Validation_error
-          ; error_class = None
+          ; outcome =
+              Tool_failed
+                { failure_kind = Validation_error
+                ; error_class = Some Types.Deterministic
+                }
           }
         in
         let emit_post_tool_use_failure ~input message =
@@ -507,25 +502,18 @@ let find_and_execute_tool_with_index
                       (Hooks.OnToolError { tool_name = name; error = message })
                     : Hooks.hook_decision)
                | Ok _ -> ());
-              let content, is_error, failure_kind, error_class =
+              let content, outcome =
                 match result with
-                | Ok { content; _meta = _ } -> content, false, None, None
+                | Ok { content; _meta = _ } -> content, Tool_succeeded
                 | Error { message; recoverable; error_class } ->
                   let failure_kind =
-                    Some
-                      (if recoverable
-                       then Recoverable_tool_error
-                       else Non_retryable_tool_error)
+                    if recoverable
+                    then Recoverable_tool_error
+                    else Non_retryable_tool_error
                   in
-                  message, true, failure_kind, error_class
+                  message, Tool_failed { failure_kind; error_class }
               in
-              { tool_use_id = id
-              ; tool_name = name
-              ; content
-              ; is_error
-              ; failure_kind
-              ; error_class
-              }))
+              { tool_use_id = id; tool_name = name; content; outcome }))
         (* Tool_middleware validation match *)
       | None ->
         (* Tool dispatch failure (the LLM asked for a tool that isn't
@@ -559,9 +547,7 @@ let find_and_execute_tool_with_index
         { tool_use_id = id
         ; tool_name = requested_name
         ; content = message
-        ; is_error = true
-        ; failure_kind
-        ; error_class = Some Types.Deterministic
+        ; outcome = Tool_failed { failure_kind; error_class = Some Types.Deterministic }
         }
     with
     | Out_of_memory -> raise Out_of_memory
@@ -574,17 +560,7 @@ let find_and_execute_tool_with_index
   (match event_bus with
    | Some bus ->
      let output_content = result.content in
-     let is_error = result.is_error in
-     let output : Types.tool_result =
-       if is_error
-       then
-         Error
-           { message = output_content
-           ; recoverable = recoverable_of_failure_kind result.failure_kind
-           ; error_class = result.error_class
-           }
-       else Ok { content = output_content; _meta = None }
-     in
+     let output = Types.tool_result_of_outcome ~content:output_content result.outcome in
      (try
         Event_bus.publish
           bus
@@ -712,17 +688,13 @@ let execute_scheduled_tool
              { tool_use_id = id
              ; tool_name = name
              ; content = "Tool execution skipped by hook"
-             ; is_error = false
-             ; failure_kind = None
-             ; error_class = None
+             ; outcome = Tool_succeeded
              }
            | Hooks.Override value ->
              { tool_use_id = id
              ; tool_name = name
              ; content = value
-             ; is_error = false
-             ; failure_kind = None
-             ; error_class = None
+             ; outcome = Tool_succeeded
              }
            | Hooks.ApprovalRequired ->
              (match approval with
@@ -865,9 +837,11 @@ let execute_scheduled_tool
            { tool_use_id = id
            ; tool_name = name
            ; content = msg
-           ; is_error = true
-           ; failure_kind = Some Non_retryable_tool_error
-           ; error_class = Some Types.Unknown
+           ; outcome =
+               Tool_failed
+                 { failure_kind = Non_retryable_tool_error
+                 ; error_class = Some Types.Unknown
+                 }
            })
   in
   let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
@@ -880,7 +854,7 @@ let execute_scheduled_tool
           ; tool_name = name
           ; idempotency_key = idem_key
           ; output_json = `String triple.content
-          ; is_error = triple.is_error
+          ; is_error = Types.tool_result_outcome_is_error triple.outcome
           ; duration_ms = duration_ms_tool
           ; timestamp = Unix.gettimeofday ()
           })
@@ -892,7 +866,7 @@ let execute_scheduled_tool
          ~tool_use_id:id
          ~tool_name:name
          ~content:triple.content
-         ~is_error:triple.is_error)
+         ~is_error:(Types.tool_result_outcome_is_error triple.outcome))
    | None -> ());
   index, triple
 ;;

@@ -398,9 +398,9 @@ let test_content_block_to_json_tool_result () =
       (ToolResult
          { tool_use_id = "tu1"
          ; content = "done"
-         ; is_error = true
-         ; failure_kind = Some Validation_error
-         ; error_class = Some Deterministic
+         ; outcome =
+             Tool_failed
+               { failure_kind = Validation_error; error_class = Some Deterministic }
          ; json = None
          ; content_blocks = None
          })
@@ -503,7 +503,9 @@ let test_content_block_of_json_tool_result () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = false; _ }) -> ()
+  | Some
+      (ToolResult { tool_use_id = "tu1"; content = "done"; outcome = Tool_succeeded; _ })
+    -> ()
   | _ -> Alcotest.fail "tool_result roundtrip"
 ;;
 
@@ -516,7 +518,7 @@ let test_content_block_of_json_tool_result_no_is_error () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (ToolResult { is_error = false; _ }) -> ()
+  | Some (ToolResult { outcome = Tool_succeeded; _ }) -> ()
   | _ -> Alcotest.fail "tool_result default is_error"
 ;;
 
@@ -671,9 +673,7 @@ let test_contents_of_messages_tool_use () =
           [ ToolResult
               { tool_use_id = "tu1"
               ; content = "result42"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }

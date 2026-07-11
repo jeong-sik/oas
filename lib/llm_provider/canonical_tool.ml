@@ -47,7 +47,7 @@ type provider_tool_result =
   ; structured_content : Yojson.Safe.t option
     (** Projection of [ToolResult.json] (WP4 parsed payload), verbatim — not a
         fresh parse, and not [provider_config.output_schema] (RFC-OAS-024 D7). *)
-  ; is_error : bool
+  ; outcome : Types.tool_result_outcome
   }
 
 let provider_kind_of_response (response : Types.api_response) =
@@ -158,13 +158,13 @@ let tool_calls_of_response (response : Types.api_response) : provider_tool_call 
 
 let tool_result_of_block (block : Types.content_block) : provider_tool_result option =
   match block with
-  | Types.ToolResult { tool_use_id; content; is_error; json; content_blocks; _ } ->
+  | Types.ToolResult { tool_use_id; content; outcome; json; content_blocks; _ } ->
     Some
       { call_id = tool_use_id
       ; content
       ; content_blocks
       ; structured_content = json
-      ; is_error
+      ; outcome
       }
   | Types.Text _
   | Types.Thinking _

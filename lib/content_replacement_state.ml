@@ -111,7 +111,7 @@ let apply_frozen t blocks =
       List.map
         (fun block ->
            match block with
-           | ToolResult { tool_use_id; is_error; failure_kind; error_class; json; _ } ->
+           | ToolResult { tool_use_id; outcome; json; _ } ->
              if Hashtbl.mem t.seen_ids tool_use_id
              then (
                (* Frozen: apply cached replacement or keep *)
@@ -120,9 +120,7 @@ let apply_frozen t blocks =
                  ToolResult
                    { tool_use_id
                    ; content = r.preview
-                   ; is_error
-                   ; failure_kind
-                   ; error_class
+                   ; outcome
                    ; json
                    ; content_blocks = None
                    }
@@ -271,27 +269,21 @@ let%test "apply_frozen: replaces frozen, collects fresh" =
     [ ToolResult
         { tool_use_id = "t1"
         ; content = "long content"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
     ; ToolResult
         { tool_use_id = "t2"
         ; content = "kept content"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
     ; ToolResult
         { tool_use_id = "t3"
         ; content = "new content"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -319,9 +311,7 @@ let%test "apply_frozen: idempotent" =
     [ ToolResult
         { tool_use_id = "t1"
         ; content = "original"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }

@@ -106,7 +106,7 @@ let stage_input ?raw_trace_run ?clock agent =
 ;;
 
 (* Lower a canonical tool-result projection to the [Types.tool_result] the
-   [before_turn_params] hook and disclosure resolver consume. [is_error]
+   [before_turn_params] hook and disclosure resolver consume. [outcome]
    selects the Error/Ok branch; [content] is the canonical string payload.
    [structured_content]/[content_blocks] from the projection are not needed by
    these local consumers but are surfaced by the projection for a downstream
@@ -114,9 +114,7 @@ let stage_input ?raw_trace_run ?clock agent =
 let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_result)
   : Types.tool_result
   =
-  if proj.is_error
-  then Error { Types.message = proj.content; recoverable = true; error_class = None }
-  else Ok { Types.content = proj.content; _meta = None }
+  Types.tool_result_of_outcome ~content:proj.content proj.outcome
 ;;
 
 let role_can_carry_tool_results = function
@@ -157,18 +155,14 @@ let%test "last_tool_results_from routes through canonical projection (with json)
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "ok payload"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = Some (`Assoc [ "rows", `Int 2 ])
               ; content_blocks = None
               }
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "boom"
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Legacy_unclassified_failure
               ; json = None
               ; content_blocks = None
               }

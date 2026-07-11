@@ -241,9 +241,7 @@ let test_anthropic_build_request_preserves_multiturn_thinking_tool_order () =
     ToolResult
       { tool_use_id = id
       ; content
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = Some (`Assoc [ "content", `String content ])
       ; content_blocks = None
       }
@@ -871,9 +869,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
           [ ToolResult
               { tool_use_id = "tool_1"
               ; content = "5"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = Some (`Int 5)
               ; content_blocks = None
               }
@@ -939,9 +935,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
           [ ToolResult
               { tool_use_id = "call_1"
               ; content = "{\"value\":4}"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = Some (`Assoc [ "value", `Int 4 ])
               ; content_blocks = None
               }

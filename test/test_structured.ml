@@ -337,9 +337,7 @@ let test_extract_ignores_tool_result () =
     [ ToolResult
         { tool_use_id = "old"
         ; content = "previous result"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -538,9 +536,7 @@ let test_retry_message_construction () =
           [ ToolResult
               { tool_use_id
               ; content = error_msg
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Legacy_unclassified_failure
               ; json = None
               ; content_blocks = None
               }
@@ -559,8 +555,15 @@ let test_retry_message_construction () =
     let has_error_result =
       List.exists
         (function
-          | ToolResult { is_error = true; _ } -> true
-          | _ -> false)
+          | ToolResult { outcome; _ } -> tool_result_outcome_is_error outcome
+          | Text _
+          | Thinking _
+          | ReasoningDetails _
+          | RedactedThinking _
+          | ToolUse _
+          | Image _
+          | Document _
+          | Audio _ -> false)
         retry_msg.content
     in
     Alcotest.(check bool) "has error tool_result" true has_error_result

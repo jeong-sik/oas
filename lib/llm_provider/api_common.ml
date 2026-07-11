@@ -131,7 +131,7 @@ let rec content_block_to_json_with
       ; "name", `String name
       ; "input", input
       ]
-  | ToolResult { tool_use_id; content; is_error; content_blocks; _ } ->
+  | ToolResult { tool_use_id; content; outcome; content_blocks; _ } ->
     let content_json =
       match content_blocks with
       | Some blocks ->
@@ -153,7 +153,7 @@ let rec content_block_to_json_with
       [ "type", `String "tool_result"
       ; "tool_use_id", `String tool_use_id
       ; "content", content_json
-      ; "is_error", `Bool is_error
+      ; "is_error", `Bool (tool_result_outcome_is_error outcome)
       ]
   | Image { media_type; data; source_type } ->
     `Assoc
@@ -306,18 +306,13 @@ let rec content_block_of_json_result json =
         Ok (text_blocks_to_string blocks, Some blocks)
       | other -> Ok (Yojson.Safe.to_string other, None)
     in
-    let is_error = Cli_common_json.member_bool "is_error" json in
+    let outcome =
+      if Cli_common_json.member_bool "is_error" json
+      then Legacy_unclassified_failure
+      else Tool_succeeded
+    in
     let json = Types.try_parse_json content in
-    Ok
-      (ToolResult
-         { tool_use_id
-         ; content
-         ; is_error
-         ; failure_kind = None
-         ; error_class = None
-         ; json
-         ; content_blocks
-         })
+    Ok (ToolResult { tool_use_id; content; outcome; json; content_blocks })
   | Some "image" ->
     parse_media_block
       ~block_type:"image"

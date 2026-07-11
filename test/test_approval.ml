@@ -142,7 +142,7 @@ let test_approval_required_no_callback () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "content" {|"hello"|} result.content;
-    check bool "no error" false result.is_error
+    check bool "no error" false (tool_result_outcome_is_error result.outcome)
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -171,7 +171,7 @@ let test_tool_lifecycle_callback_exceptions_are_nonfatal () =
     check int "finished callback called" 1 !finished_calls;
     check string "id" "t1" result.tool_use_id;
     check string "content" {|{"x":1}|} result.content;
-    check bool "no error" false result.is_error
+    check bool "no error" false (tool_result_outcome_is_error result.outcome)
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -193,13 +193,13 @@ let test_approval_required_no_callback_fail_closed () =
       "content"
       "Tool rejected: approval required but no approval callback is registered"
       result.content;
-    check bool "is error" true result.is_error;
-    (match result.failure_kind with
-     | Some Agent_tools.Non_retryable_tool_error -> ()
-     | _ -> fail "expected non-retryable tool error");
-    (match result.error_class with
-     | Some Types.Deterministic -> ()
-     | _ -> fail "expected deterministic error class")
+    check bool "is error" true (tool_result_outcome_is_error result.outcome);
+    (match result.outcome with
+     | Tool_failed
+         { failure_kind = Agent_tools.Non_retryable_tool_error
+         ; error_class = Some Types.Deterministic
+         } -> ()
+     | _ -> fail "expected deterministic non-retryable tool error")
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -218,7 +218,7 @@ let test_approval_approve () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "content" {|"data"|} result.content;
-    check bool "no error" false result.is_error
+    check bool "no error" false (tool_result_outcome_is_error result.outcome)
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -237,7 +237,7 @@ let test_approval_reject () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "content" "Tool rejected: too dangerous" result.content;
-    check bool "is error" true result.is_error
+    check bool "is error" true (tool_result_outcome_is_error result.outcome)
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -254,13 +254,13 @@ let test_block_is_deterministic_failure () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "reason is verbatim" "policy denied" result.content;
-    check bool "is error" true result.is_error;
-    (match result.failure_kind with
-     | Some Agent_tools.Non_retryable_tool_error -> ()
-     | _ -> fail "expected non-retryable tool error");
-    (match result.error_class with
-     | Some Types.Deterministic -> ()
-     | _ -> fail "expected deterministic error class")
+    check bool "is error" true (tool_result_outcome_is_error result.outcome);
+    (match result.outcome with
+     | Tool_failed
+         { failure_kind = Agent_tools.Non_retryable_tool_error
+         ; error_class = Some Types.Deterministic
+         } -> ()
+     | _ -> fail "expected deterministic non-retryable tool error")
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -280,7 +280,7 @@ let test_approval_edit () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "content uses edited input" {|"sanitized"|} result.content;
-    check bool "no error" false result.is_error
+    check bool "no error" false (tool_result_outcome_is_error result.outcome)
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -316,10 +316,10 @@ let test_selective_approval () =
   | [ safe; dangerous ] ->
     check string "safe id" "t1" safe.tool_use_id;
     check string "safe executed" {|"ok"|} safe.content;
-    check bool "safe no error" false safe.is_error;
+    check bool "safe no error" false (tool_result_outcome_is_error safe.outcome);
     check string "dangerous id" "t2" dangerous.tool_use_id;
     check string "dangerous rejected" "Tool rejected: blocked" dangerous.content;
-    check bool "dangerous is error" true dangerous.is_error
+    check bool "dangerous is error" true (tool_result_outcome_is_error dangerous.outcome)
   | _ -> fail "expected exactly two results"
 ;;
 
@@ -358,10 +358,10 @@ let test_skip_override_unaffected () =
   | [ skip; override ] ->
     check string "skip id" "t1" skip.tool_use_id;
     check string "skipped" "Tool execution skipped by hook" skip.content;
-    check bool "skip not error" false skip.is_error;
+    check bool "skip not error" false (tool_result_outcome_is_error skip.outcome);
     check string "override id" "t2" override.tool_use_id;
     check string "overridden" "overridden" override.content;
-    check bool "override not error" false override.is_error
+    check bool "override not error" false (tool_result_outcome_is_error override.outcome)
   | _ -> fail "expected exactly two results"
 ;;
 
@@ -436,7 +436,9 @@ let test_parallel_read_tools_share_batch () =
       ]
   in
   match results with
-  | [ first; second ] when (not first.is_error) && not second.is_error -> ()
+  | [ first; second ]
+    when (not (tool_result_outcome_is_error first.outcome))
+         && not (tool_result_outcome_is_error second.outcome) -> ()
   | _ -> fail "parallel read batch should allow both tools to start"
 ;;
 
@@ -476,9 +478,9 @@ let test_workspace_tools_run_sequentially () =
   match results with
   | [ first; second ]
     when first.content = "write_a"
-         && (not first.is_error)
+         && (not (tool_result_outcome_is_error first.outcome))
          && second.content = "write_b"
-         && not second.is_error -> ()
+         && not (tool_result_outcome_is_error second.outcome) -> ()
   | _ -> fail "workspace tools should execute sequentially"
 ;;
 
@@ -513,9 +515,9 @@ let test_undeclared_tools_default_to_sequential () =
   match results with
   | [ first; second ]
     when first.content = "implicit_a"
-         && (not first.is_error)
+         && (not (tool_result_outcome_is_error first.outcome))
          && second.content = "implicit_b"
-         && not second.is_error -> ()
+         && not (tool_result_outcome_is_error second.outcome) -> ()
   | _ -> fail "undeclared tools should stay sequential by default"
 ;;
 
@@ -579,11 +581,11 @@ let test_workspace_barrier_splits_parallel_read_batches () =
   match results with
   | [ first; second; third ]
     when first.content = "read_before"
-         && (not first.is_error)
+         && (not (tool_result_outcome_is_error first.outcome))
          && second.content = "write_mid"
-         && (not second.is_error)
+         && (not (tool_result_outcome_is_error second.outcome))
          && third.content = "read_after"
-         && not third.is_error -> ()
+         && not (tool_result_outcome_is_error third.outcome) -> ()
   | _ -> fail "workspace tool should form a sequential barrier between read batches"
 ;;
 
@@ -672,10 +674,10 @@ let test_exclusive_external_barrier_isolation () =
       ]
   in
   match results with
-  | [ { Agent_tools.tool_name = "read_first"; is_error = false; _ }
-    ; { tool_name = "write_mid"; is_error = false; _ }
-    ; { tool_name = "ext_call"; is_error = false; _ }
-    ; { tool_name = "read_last"; is_error = false; _ }
+  | [ { Agent_tools.tool_name = "read_first"; outcome = Tool_succeeded; _ }
+    ; { tool_name = "write_mid"; outcome = Tool_succeeded; _ }
+    ; { tool_name = "ext_call"; outcome = Tool_succeeded; _ }
+    ; { tool_name = "read_last"; outcome = Tool_succeeded; _ }
     ] -> ()
   | _ -> fail "exclusive external tool must run in complete isolation"
 ;;
@@ -766,7 +768,7 @@ let test_shell_descriptor_constraint_blocks_execution () =
   in
   match results with
   | [ result ] ->
-    check bool "blocked" true result.is_error;
+    check bool "blocked" true (tool_result_outcome_is_error result.outcome);
     check bool "handler not called" false !handler_called;
     check
       bool
@@ -795,7 +797,7 @@ let test_tool_exception_still_publishes_tool_completed () =
   in
   (match results with
    | [ result ] ->
-     check bool "tool result is error" true result.is_error;
+     check bool "tool result is error" true (tool_result_outcome_is_error result.outcome);
      check
        bool
        "tool result reports exception"

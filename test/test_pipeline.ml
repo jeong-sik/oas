@@ -812,16 +812,12 @@ let test_make_tool_results_ok () =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
       ; content = "result1"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "tu2"
       ; tool_name = "tool-2"
       ; content = "result2"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -830,8 +826,11 @@ let test_make_tool_results_ok () =
   List.iter
     (fun block ->
        match block with
-       | Types.ToolResult { is_error; _ } ->
-         Alcotest.(check bool) "not error" false is_error
+       | Types.ToolResult { outcome; _ } ->
+         Alcotest.(check bool)
+           "not error"
+           false
+           (Types.tool_result_outcome_is_error outcome)
        | _ -> Alcotest.fail "expected ToolResult")
     tool_results
 ;;
@@ -841,16 +840,16 @@ let test_make_tool_results_error () =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
       ; content = "failed"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error; error_class = None }
       }
     ]
   in
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "1 tool result" 1 (List.length tool_results);
   match List.hd tool_results with
-  | Types.ToolResult { is_error = true; content; _ } ->
+  | Types.ToolResult { outcome = Tool_failed _; content; _ } ->
     Alcotest.(check bool) "error content" true (String.length content > 0)
   | _ -> Alcotest.fail "expected error ToolResult"
 ;;
@@ -860,16 +859,14 @@ let test_make_tool_results_mixed () =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
       ; content = "good"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "tu2"
       ; tool_name = "tool-2"
       ; content = "bad"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error; error_class = None }
       }
     ]
   in

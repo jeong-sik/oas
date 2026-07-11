@@ -346,9 +346,7 @@ let test_show_content_block_variants () =
     ; Types.ToolResult
         { tool_use_id = "tu1"
         ; content = "ok"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -718,15 +716,22 @@ let test_tool_result_msg () =
   let m = Types.tool_result_msg ~tool_use_id:"tu1" ~content:"result" () in
   Alcotest.(check string) "role" "tool" (Types.role_to_string m.role);
   match m.content with
-  | [ Types.ToolResult { tool_use_id = "tu1"; content = "result"; is_error = false; _ } ]
-    -> ()
+  | [ Types.ToolResult
+        { tool_use_id = "tu1"; content = "result"; outcome = Tool_succeeded; _ }
+    ] -> ()
   | _ -> Alcotest.fail "expected ToolResult"
 ;;
 
 let test_tool_result_msg_error () =
-  let m = Types.tool_result_msg ~tool_use_id:"tu2" ~content:"err" ~is_error:true () in
+  let outcome =
+    Types.Tool_failed
+      { failure_kind = Types.Non_retryable_tool_error
+      ; error_class = Some Types.Deterministic
+      }
+  in
+  let m = Types.tool_result_msg ~tool_use_id:"tu2" ~content:"err" ~outcome () in
   match m.content with
-  | [ Types.ToolResult { is_error = true; _ } ] -> ()
+  | [ Types.ToolResult { outcome = Tool_failed _; _ } ] -> ()
   | _ -> Alcotest.fail "expected error ToolResult"
 ;;
 
@@ -771,9 +776,7 @@ let test_text_of_content_tool_result () =
     [ Types.ToolResult
         { tool_use_id = "tu1"
         ; content = "result text"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -794,9 +797,7 @@ let test_visible_text_of_content_excludes_non_answer_blocks () =
     ; Types.ToolResult
         { tool_use_id = "tu1"
         ; content = "tool payload"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = Some (`Assoc [ "ok", `Bool true ])
         ; content_blocks = Some [ Types.Text "structured tool payload" ]
         }
@@ -887,9 +888,7 @@ let test_text_of_response_and_usage_helpers () =
         ; Types.ToolResult
             { tool_use_id = "tu"
             ; content = "tool text"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -919,9 +918,7 @@ let test_validate_tool_result_shape () =
     Types.ToolResult
       { tool_use_id = "obj"
       ; content = {|{"ok":true}|}
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = Some (`Assoc [ "ok", `Bool true ])
       ; content_blocks = None
       }
@@ -930,9 +927,7 @@ let test_validate_tool_result_shape () =
     Types.ToolResult
       { tool_use_id = "arr"
       ; content = "[1,2]"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = Some (`List [ `Int 1; `Int 2 ])
       ; content_blocks = None
       }
@@ -941,9 +936,7 @@ let test_validate_tool_result_shape () =
     Types.ToolResult
       { tool_use_id = "bad"
       ; content = "not-json"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = None
       ; content_blocks = None
       }
@@ -952,9 +945,7 @@ let test_validate_tool_result_shape () =
     Types.ToolResult
       { tool_use_id = "empty"
       ; content = " "
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = None
       ; content_blocks = None
       }
