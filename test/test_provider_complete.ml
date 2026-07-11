@@ -181,6 +181,31 @@ let test_output_token_receipt_anthropic_required_fallback () =
     artifact.output_token_receipt
 ;;
 
+let test_output_token_receipt_ollama_envelope () =
+  let config =
+    PC.make
+      ~kind:Ollama
+      ~model_id:"receipt-ollama-envelope"
+      ~base_url:""
+      ~max_tokens:60
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  let artifact = BOL.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string artifact.payload in
+  Alcotest.(check int)
+    "Ollama num_predict"
+    60
+    Yojson.Safe.Util.(json |> member "options" |> member "num_predict" |> to_int);
+  check_receipt
+    ~requested:(Some 60)
+    ~effective:(Some 60)
+    ~policy:Explicit
+    ~ceiling:(Some 100)
+    ~envelope:Ollama_options_num_predict
+    artifact.output_token_receipt
+;;
+
 let test_output_token_receipt_anthropic_missing_required_ceiling () =
   let config =
     PC.make
@@ -1614,6 +1639,7 @@ let () =
       , [ test_case "optional omission" `Quick test_output_token_receipt_optional_omission
         ; test_case "explicit exact" `Quick test_output_token_receipt_explicit_exact
         ; test_case "explicit clamp" `Quick test_output_token_receipt_explicit_clamp
+        ; test_case "Ollama envelope" `Quick test_output_token_receipt_ollama_envelope
         ; test_case
             "Anthropic required fallback"
             `Quick
