@@ -298,6 +298,7 @@ let () =
                let execution_result : Agent_tools.tool_execution_result =
                  { tool_use_id = "failed-1"
                  ; tool_name = "Execute"
+                 ; input = `Assoc [ "cwd", `String "/missing" ]
                  ; content = "working directory is unavailable"
                  ; outcome =
                      Tool_failed

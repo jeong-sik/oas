@@ -547,16 +547,31 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                 ?relocation:agent.options.tool_result_relocation
                 results
             in
-            let completed_round =
-              match Tool_failure_episode.project ~tool_uses ~tool_results with
-              | Ok round -> Ok (Some round)
-              | Error error ->
-                Error
-                  (Error.Agent
-                     (Error.ToolFailureRecoveryFailed
-                        { stage = Error.Round_projection
-                        ; detail = Tool_failure_episode.show_error error
-                        }))
+            let* completed_round, completed_round_metadata =
+              match agent.tool_failure_judge with
+              | None -> Ok (None, [])
+              | Some _ ->
+                let executions =
+                  List.map
+                    (fun (result : Agent_tools.tool_execution_result) ->
+                       { Tool_failure_episode.tool_use_id = result.tool_use_id
+                       ; tool_name = result.tool_name
+                       ; input = result.input
+                       })
+                    results
+                in
+                (match Tool_failure_episode.project ~executions ~tool_results with
+                 | Ok round ->
+                   Ok
+                     ( Some round
+                     , [ Tool_failure_episode.completed_round_metadata executions ] )
+                 | Error error ->
+                   Error
+                     (Error.Agent
+                        (Error.ToolFailureRecoveryFailed
+                           { stage = Error.Round_projection
+                           ; detail = Tool_failure_episode.show_error error
+                           })))
             in
             (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)
@@ -569,7 +584,13 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
               let messages =
                 match tool_results with
                 | [] -> s.messages
-                | _ -> Util.snoc s.messages (make_message ~role:Tool tool_results)
+                | _ ->
+                  Util.snoc
+                    s.messages
+                    (make_message
+                       ~metadata:completed_round_metadata
+                       ~role:Tool
+                       tool_results)
               in
               let messages =
                 match !pending_nudge with
@@ -601,7 +622,6 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                User warning and canned Assistant terminal response are removed;
                typed recovery owns repeated failed-tool judgment. *)
             ignore idle_handled;
-            let* completed_round = completed_round in
             Ok (ToolsExecuted completed_round)))
 ;;
 

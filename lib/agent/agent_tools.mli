@@ -52,6 +52,11 @@ type tool_failure_kind = Types.tool_failure_kind =
 type tool_execution_result =
   { tool_use_id : string
   ; tool_name : string
+  ; input : Yojson.Safe.t
+    (** Effective input at the deepest execution boundary reached. Successful
+        dispatches record the exact handler input; validation failures retain
+        the final deterministic candidate; pre-dispatch rejections retain the
+        exact rejected request. *)
   ; content : string
   ; outcome : Types.tool_result_outcome
   }

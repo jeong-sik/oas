@@ -577,11 +577,13 @@ let test_make_tool_results () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "tool-1"
+      ; input = `Null
       ; content = "success output"
       ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "tool-2"
+      ; input = `Null
       ; content = "error msg"
       ; outcome =
           Tool_failed
@@ -832,6 +834,7 @@ let test_apply_context_injection_no_injector () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
       ; outcome = Tool_succeeded
       }
@@ -859,6 +862,7 @@ let test_apply_context_injection_with_context_update () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "found it"
       ; outcome = Tool_succeeded
       }
@@ -894,6 +898,7 @@ let test_apply_context_injection_with_extra_messages () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
       ; outcome = Tool_succeeded
       }
@@ -933,6 +938,7 @@ let test_apply_context_injection_exception_handled () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
       ; outcome = Tool_succeeded
       }
@@ -962,6 +968,7 @@ let test_apply_context_injection_preserves_non_retryable_error () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "fatal"
       ; outcome =
           Tool_failed

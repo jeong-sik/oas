@@ -37,9 +37,13 @@ type det_result =
       ; corrections : correction list
       } (** All validation errors resolved by deterministic stages. *)
   | Still_invalid of
-      { errors : Tool_input_validation.field_error list
+      { corrected : Yojson.Safe.t
+      ; errors : Tool_input_validation.field_error list
       ; attempted : correction list
-      } (** Some errors remain after all stages exhausted. *)
+      }
+  (** Some errors remain after all stages exhausted. [corrected] is the
+          exact final deterministic candidate, retained for execution
+          provenance and LLM recovery. *)
 
 (** {1 Stages} *)
 

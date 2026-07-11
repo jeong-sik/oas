@@ -303,6 +303,11 @@ val sdk_version : string
 
 (** {1 Construction} *)
 
+val config_with_tool_failure_judge
+  :  Types.agent_config
+  -> Tool_failure_recovery.judge option
+  -> Types.agent_config
+
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config

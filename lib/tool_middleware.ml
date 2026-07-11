@@ -174,7 +174,7 @@ let heal_tool_call
         ; attempts = attempt + 1
         ; healed = attempt > 0 || corrections <> []
         }
-    | Correction_pipeline.Still_invalid { errors = _; attempted = _ } ->
+    | Correction_pipeline.Still_invalid _ ->
       (match validate_and_coerce ~tool_name ~schema current_args with
        | Pass -> Ok { value = current_args; attempts = attempt + 1; healed = attempt > 0 }
        | Proceed coerced -> Ok { value = coerced; attempts = attempt + 1; healed = true }
@@ -191,7 +191,7 @@ let heal_tool_call
            (* Reuse det_result from above — no duplicate pipeline run *)
            let enriched_message =
              match det_result with
-             | Correction_pipeline.Still_invalid { errors; attempted } ->
+             | Correction_pipeline.Still_invalid { errors; attempted; _ } ->
                Correction_pipeline.build_nondet_feedback
                  ~tool_name
                  ~args:current_args

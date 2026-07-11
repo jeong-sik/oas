@@ -355,8 +355,8 @@ val with_journal : Durable_event.journal -> t -> t
 val with_checkpoint_sink : Agent.checkpoint_sink -> t -> t
 
 (** Install the LLM judge used for adjacent typed failed-tool recovery.
-    [with_yield_on_tool true] is required so the main provider lease is not held
-    while the judge completion is waiting. *)
+    This also enables tool-boundary yielding so the main provider lease is not
+    held while the judge completion is waiting. *)
 val with_tool_failure_judge : Tool_failure_recovery.judge -> t -> t
 
 (** Override the Budget_strategy Emergency-phase summarizer with a

@@ -365,10 +365,12 @@ module Conversation_metadata = struct
   type run_boundary =
     | Absent
     | Present
-    | Malformed
+    | Invalid
+    | Duplicate
 
   let run_boundary_key = "oas.agent_run_boundary.v1"
-  let run_boundary = [ run_boundary_key, `Bool true ]
+  let run_boundary_entry = run_boundary_key, `Bool true
+  let run_boundary = [ run_boundary_entry ]
 
   let classify_run_boundary metadata =
     let values =
@@ -380,7 +382,8 @@ module Conversation_metadata = struct
     match values with
     | [] -> Absent
     | [ `Bool true ] -> Present
-    | _ -> Malformed
+    | [ _ ] -> Invalid
+    | _ -> Duplicate
   ;;
 
   let is_mergeable_followup = function

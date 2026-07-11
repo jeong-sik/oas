@@ -74,6 +74,10 @@ val content_block_of_json_result
   -> (Types.content_block, content_block_decode_error) result
 
 val content_block_of_json : Yojson.Safe.t -> Types.content_block option
+
+(* Internal metadata is retained while projecting an immediate ToolResult plus
+   plain User follow-up into one provider user turn; metadata is not wire
+   content. *)
 val merge_tool_result_followup_user_messages : Types.message list -> Types.message list
 val message_to_json : Types.message -> Yojson.Safe.t
 val kimi_message_to_json : Types.message -> Yojson.Safe.t

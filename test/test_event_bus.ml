@@ -944,6 +944,11 @@ let test_registered_execute_alias_preserves_input () =
     (Types.tool_result_outcome_is_error result.outcome);
   check string "result uses visible tool name" "Execute" result.tool_name;
   check string "execute content" "execute-ok" result.content;
+  check
+    bool
+    "result preserves canonical handler input"
+    true
+    (Yojson.Safe.equal result.input !captured_input);
   match !captured_input with
   | `Assoc fields ->
     check
@@ -963,6 +968,60 @@ let test_registered_execute_alias_preserves_input () =
     check bool "executable not synthesized" false (List.mem_assoc "executable" fields);
     check bool "argv not synthesized" false (List.mem_assoc "argv" fields)
   | _ -> fail "expected object input"
+;;
+
+let test_execution_result_preserves_corrected_input () =
+  Eio_main.run
+  @@ fun _env ->
+  let context = Context.create_sync () in
+  let handler_input = ref `Null in
+  let tool =
+    Tool.create
+      ~name:"Count"
+      ~description:"Count"
+      ~parameters:
+        [ { Types.name = "count"
+          ; description = "count"
+          ; param_type = Integer
+          ; required = true
+          }
+        ]
+      (fun input ->
+         handler_input := input;
+         Ok { Types.content = "ok"; _meta = None })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; concurrency_class = "sequential_workspace"
+    ; batch_kind = "sequential"
+    }
+  in
+  let result =
+    Agent_tools.find_and_execute_tool
+      ~context
+      ~tools:[ tool ]
+      ~hooks:Hooks.empty
+      ~event_bus:None
+      ~tracer:Tracing.null
+      ~agent_name:"agent"
+      ~turn_count:0
+      ~schedule
+      "Count"
+      (`Assoc [ "count", `String "42" ])
+      "tool-corrected-input"
+  in
+  check
+    bool
+    "result equals handler input"
+    true
+    (Yojson.Safe.equal result.input !handler_input);
+  check
+    int
+    "coerced integer preserved"
+    42
+    Yojson.Safe.Util.(result.input |> member "count" |> to_int)
 ;;
 
 let test_on_error_silent_on_successful_dispatch () =
@@ -1327,6 +1386,10 @@ let () =
             "registered execute_command alias preserves input"
             `Quick
             test_registered_execute_alias_preserves_input
+        ; test_case
+            "execution result preserves corrected input"
+            `Quick
+            test_execution_result_preserves_corrected_input
         ; test_case
             "on_error silent on successful dispatch"
             `Quick

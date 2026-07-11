@@ -171,7 +171,7 @@ let with_checkpoint_sink checkpoint_sink b =
 ;;
 
 let with_tool_failure_judge tool_failure_judge b =
-  { b with tool_failure_judge = Some tool_failure_judge }
+  { b with tool_failure_judge = Some tool_failure_judge; yield_on_tool = true }
 ;;
 
 (** Override the Budget_strategy Emergency-phase summarizer with a

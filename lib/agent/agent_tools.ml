@@ -15,6 +15,7 @@ type tool_failure_kind = Types.tool_failure_kind =
 type tool_execution_result =
   { tool_use_id : string
   ; tool_name : string
+  ; input : Yojson.Safe.t
   ; content : string
   ; outcome : Types.tool_result_outcome
   }
@@ -148,9 +149,10 @@ let resolve_tool_call tool_index name input =
      | None -> name, input, None, None)
 ;;
 
-let tool_failure_result ~id ~name ~content ~error_class =
+let tool_failure_result ~id ~name ~input ~content ~error_class =
   { tool_use_id = id
   ; tool_name = name
+  ; input
   ; content
   ; outcome =
       Tool_failed
@@ -158,13 +160,13 @@ let tool_failure_result ~id ~name ~content ~error_class =
   }
 ;;
 
-let blocked_tool_result ~id ~name ~content =
-  tool_failure_result ~id ~name ~content ~error_class:Types.Deterministic
+let blocked_tool_result ~id ~name ~input ~content =
+  tool_failure_result ~id ~name ~input ~content ~error_class:Types.Deterministic
 ;;
 
-let tool_exception_result ~id ~name exn =
+let tool_exception_result ~id ~name ~input exn =
   let content = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
-  tool_failure_result ~id ~name ~content ~error_class:Types.Unknown
+  tool_failure_result ~id ~name ~input ~content ~error_class:Types.Unknown
 ;;
 
 let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
@@ -183,9 +185,9 @@ let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
       ]
 ;;
 
-let approval_required_without_callback_result ~id ~name =
+let approval_required_without_callback_result ~id ~name ~input =
   let reason = "approval required but no approval callback is registered" in
-  blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
+  blocked_tool_result ~id ~name ~input ~content:("Tool rejected: " ^ reason)
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
@@ -326,9 +328,10 @@ let find_and_execute_tool_with_index
     try
       match tool_opt with
       | Some tool ->
-        let validation_error_result message =
+        let validation_error_result ~input message =
           { tool_use_id = id
           ; tool_name = name
+          ; input
           ; content = message
           ; outcome =
               Tool_failed
@@ -406,7 +409,7 @@ let find_and_execute_tool_with_index
                 ; Log.S ("changed_fields", changed_fields)
                 ]);
             Ok corrected
-          | Correction_pipeline.Still_invalid { errors; attempted } ->
+          | Correction_pipeline.Still_invalid { corrected; errors; attempted } ->
             Log.warn
               _log
               "correction_pipeline still invalid after deterministic fixes"
@@ -419,15 +422,16 @@ let find_and_execute_tool_with_index
             let message =
               Correction_pipeline.build_nondet_feedback
                 ~tool_name:name
-                ~args:input
+                ~args:corrected
                 ~still_invalid:errors
                 ~attempted
             in
-            emit_post_tool_use_failure ~input message;
-            Error message
+            emit_post_tool_use_failure ~input:corrected message;
+            Error (corrected, message)
         in
         (match validated_input with
-         | Error msg -> validation_error_result msg
+         | Error (corrected_input, msg) ->
+           validation_error_result ~input:corrected_input msg
          | Ok coerced_input ->
            let shell_constraint_result =
              match Tool.descriptor tool with
@@ -441,7 +445,7 @@ let find_and_execute_tool_with_index
            (match shell_constraint_result with
             | Tool_middleware.Reject { message; _ } ->
               emit_post_tool_use_failure ~input:coerced_input message;
-              validation_error_result message
+              validation_error_result ~input:coerced_input message
             | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
               let t0 = Unix.gettimeofday () in
               let result = Tool.execute ~context tool coerced_input in
@@ -513,7 +517,12 @@ let find_and_execute_tool_with_index
                   in
                   message, Tool_failed { failure_kind; error_class }
               in
-              { tool_use_id = id; tool_name = name; content; outcome }))
+              { tool_use_id = id
+              ; tool_name = name
+              ; input = coerced_input
+              ; content
+              ; outcome
+              }))
         (* Tool_middleware validation match *)
       | None ->
         (* Tool dispatch failure (the LLM asked for a tool that isn't
@@ -546,6 +555,7 @@ let find_and_execute_tool_with_index
            : Hooks.hook_decision);
         { tool_use_id = id
         ; tool_name = requested_name
+        ; input
         ; content = message
         ; outcome = Tool_failed { failure_kind; error_class = Some Types.Deterministic }
         }
@@ -554,7 +564,7 @@ let find_and_execute_tool_with_index
     | Stack_overflow -> raise Stack_overflow
     | Sys.Break -> raise Sys.Break
     | Eio.Cancel.Cancelled _ as ex -> raise ex
-    | exn -> tool_exception_result ~id ~name exn
+    | exn -> tool_exception_result ~id ~name ~input exn
   in
   (* ToolCompleted event *)
   (match event_bus with
@@ -687,12 +697,14 @@ let execute_scheduled_tool
            | Hooks.Skip ->
              { tool_use_id = id
              ; tool_name = name
+             ; input
              ; content = "Tool execution skipped by hook"
              ; outcome = Tool_succeeded
              }
            | Hooks.Override value ->
              { tool_use_id = id
              ; tool_name = name
+             ; input
              ; content = value
              ; outcome = Tool_succeeded
              }
@@ -725,7 +737,7 @@ let execute_scheduled_tool
                      _log
                      "ApprovalRequired but no approval callback — rejecting"
                      [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                   approval_required_without_callback_result ~id ~name)
+                   approval_required_without_callback_result ~id ~name ~input)
               | Some approve_fn ->
                 (match approve_fn ~tool_name:name ~input with
                  | Hooks.Approve ->
@@ -745,7 +757,11 @@ let execute_scheduled_tool
                      input
                      id
                  | Hooks.Reject reason ->
-                   blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
+                   blocked_tool_result
+                     ~id
+                     ~name
+                     ~input
+                     ~content:("Tool rejected: " ^ reason)
                  | Hooks.Edit new_input ->
                    find_and_execute_tool_with_index
                      ~context
@@ -814,6 +830,7 @@ let execute_scheduled_tool
              blocked_tool_result
                ~id
                ~name
+               ~input
                ~content:
                  (Printf.sprintf
                     "Tool execution blocked: hook pre_tool_use failed at %s: %s"
@@ -824,7 +841,7 @@ let execute_scheduled_tool
                 executes no tool; the reason string becomes the tool result
                 content verbatim. Distinct from [Hooks.Override] (soft nudge,
                 is_error=false) and [Hooks.HookFailed] (infra failure). *)
-             blocked_tool_result ~id ~name ~content:reason
+             blocked_tool_result ~id ~name ~input ~content:reason
          with
          | Out_of_memory -> raise Out_of_memory
          | Stack_overflow -> raise Stack_overflow
@@ -836,6 +853,7 @@ let execute_scheduled_tool
            in
            { tool_use_id = id
            ; tool_name = name
+           ; input
            ; content = msg
            ; outcome =
                Tool_failed

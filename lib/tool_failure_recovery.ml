@@ -400,6 +400,7 @@ type receipt_error =
   | Result_message_not_found
   | Duplicate_receipt_metadata
   | Invalid_receipt_metadata of string
+  | Run_boundary_error of Tool_failure_episode.error
   | Receipt_episode_mismatch
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
@@ -493,8 +494,22 @@ let attach_receipt ~messages ~episodes ~receipt =
       let* rest = update rest in
       Ok (message :: rest)
   in
-  let* reversed = update (List.rev messages) in
-  Ok (List.rev reversed)
+  let* run_messages =
+    Tool_failure_episode.latest_run_messages messages
+    |> Result.map_error (fun error -> Run_boundary_error error)
+  in
+  let prefix_length = List.length messages - List.length run_messages in
+  let rec split_prefix remaining prefix rest =
+    if remaining = 0
+    then List.rev prefix, rest
+    else (
+      match rest with
+      | [] -> invalid_arg "attach_receipt: latest-run prefix exceeds message history"
+      | message :: tail -> split_prefix (remaining - 1) (message :: prefix) tail)
+  in
+  let prefix, _ = split_prefix prefix_length [] messages in
+  let* reversed = update (List.rev run_messages) in
+  Ok (prefix @ List.rev reversed)
 ;;
 
 let parse_int name fields =
@@ -599,7 +614,11 @@ let latest_receipt messages =
           Ok (Some receipt)
         | _ :: _ :: _ -> Error Duplicate_receipt_metadata)
   in
-  find (List.rev messages)
+  let* run_messages =
+    Tool_failure_episode.latest_run_messages messages
+    |> Result.map_error (fun error -> Run_boundary_error error)
+  in
+  find (List.rev run_messages)
 ;;
 
 let same_episode_ref left right =

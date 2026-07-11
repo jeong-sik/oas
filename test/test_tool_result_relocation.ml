@@ -211,11 +211,13 @@ let test_make_tool_results_with_relocation () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "read"
+      ; input = `Null
       ; content = String.make 200 'x'
       ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "echo"
+      ; input = `Null
       ; content = "small"
       ; outcome = Tool_succeeded
       }
@@ -268,6 +270,7 @@ let test_make_tool_results_persist_failure_freezes_kept () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "..."
       ; tool_name = "read"
+      ; input = `Null
       ; content = original
       ; outcome = Tool_succeeded
       }
@@ -311,11 +314,13 @@ let test_make_tool_results_publishes_content_replacement_events () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "big"
       ; tool_name = "read"
+      ; input = `Null
       ; content = String.make 40 'x'
       ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "small"
       ; tool_name = "echo"
+      ; input = `Null
       ; content = "ok"
       ; outcome = Tool_succeeded
       }
@@ -493,16 +498,19 @@ let test_aggregate_budget_persists_largest () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
+      ; input = `Null
       ; content = String.make 8000 'a'
       ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "b"
+      ; input = `Null
       ; content = String.make 5000 'b'
       ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t3"
       ; tool_name = "c"
+      ; input = `Null
       ; content = String.make 4000 'c'
       ; outcome = Tool_succeeded
       }
@@ -561,6 +569,7 @@ let test_aggregate_budget_disabled () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
+      ; input = `Null
       ; content = String.make 8000 'x'
       ; outcome = Tool_succeeded
       }

@@ -485,6 +485,7 @@ let test_context_injection_sets_values () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_1"
       ; tool_name = "search"
+      ; input = `Assoc []
       ; content = "result text"
       ; outcome = Tool_succeeded
       }
@@ -524,6 +525,7 @@ let test_context_injection_none () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_n"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
       ; outcome = Tool_succeeded
       }
@@ -571,6 +573,7 @@ let test_context_injection_extra_messages () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_m"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
       ; outcome = Tool_succeeded
       }
@@ -604,6 +607,7 @@ let test_context_injection_error_result () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_err"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "something went wrong"
       ; outcome =
           Tool_failed
@@ -639,6 +643,7 @@ let test_context_injection_raises () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_ex"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
       ; outcome = Tool_succeeded
       }

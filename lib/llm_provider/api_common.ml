@@ -376,7 +376,12 @@ let merge_tool_result_followup_user_messages messages =
   let rec aux acc = function
     | ({ role = Tool; _ } as tool_msg) :: (followup : message) :: rest
       when message_has_tool_result tool_msg && mergeable_followup followup ->
-      let merged = { tool_msg with content = tool_msg.content @ followup.content } in
+      let merged =
+        { tool_msg with
+          content = tool_msg.content @ followup.content
+        ; metadata = tool_msg.metadata @ followup.metadata
+        }
+      in
       aux (merged :: acc) rest
     | msg :: rest -> aux (msg :: acc) rest
     | [] -> List.rev acc

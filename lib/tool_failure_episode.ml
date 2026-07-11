@@ -16,6 +16,13 @@ type t =
   }
 [@@deriving yojson, show]
 
+type executed_call =
+  { tool_use_id : string
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+[@@deriving yojson, show]
+
 type paired_attempt =
   { tool_use_id : string
   ; tool_name : string
@@ -34,8 +41,12 @@ type error =
   | Duplicate_tool_result_id of { tool_use_id : string }
   | Missing_tool_result of { tool_use_id : string }
   | Unmatched_tool_result of { tool_use_id : string }
-  | Failure_metadata_on_success of { tool_use_id : string }
-  | Failure_kind_missing of { tool_use_id : string }
+  | Unclassified_failure of { tool_use_id : string }
+  | Missing_completed_round_metadata of { tool_use_ids : string list }
+  | Duplicate_completed_round_metadata
+  | Invalid_completed_round_metadata of string
+  | Duplicate_run_boundary_metadata
+  | Invalid_run_boundary_metadata
   | Ambiguous_failure_signature of
       { tool_name : string
       ; failure_kind : tool_failure_kind
@@ -58,26 +69,11 @@ module Failure_map = Map.Make (Failure_key)
 let ( let* ) = Result.bind
 let string_is_blank value = String.equal (String.trim value) ""
 
-let tool_uses blocks =
-  List.filter_map
-    (function
-      | ToolUse { id; name; input } -> Some (id, name, input)
-      | Text _
-      | Thinking _
-      | ReasoningDetails _
-      | RedactedThinking _
-      | ToolResult _
-      | Image _
-      | Document _
-      | Audio _ -> None)
-    blocks
-;;
-
 let tool_results blocks =
   List.filter_map
     (function
-      | ToolResult { tool_use_id; content; is_error; failure_kind; error_class; _ } ->
-        Some (tool_use_id, content, is_error, failure_kind, error_class)
+      | ToolResult { tool_use_id; content; outcome; _ } ->
+        Some (tool_use_id, content, outcome)
       | Text _
       | Thinking _
       | ReasoningDetails _
@@ -99,71 +95,151 @@ let first_duplicate project values =
   loop String_set.empty values
 ;;
 
-let failure_of_result ~tool_use_id ~content ~is_error ~failure_kind ~error_class =
-  match is_error, failure_kind, error_class with
-  | false, None, None -> Ok None
-  | false, _, _ -> Error (Failure_metadata_on_success { tool_use_id })
-  | true, None, _ -> Error (Failure_kind_missing { tool_use_id })
-  | true, Some kind, error_class -> Ok (Some (kind, error_class, content))
+let failure_of_result ~tool_use_id ~content = function
+  | Tool_succeeded -> Ok None
+  | Tool_failed { failure_kind; error_class } ->
+    Ok (Some (failure_kind, error_class, content))
+  | Legacy_unclassified_failure -> Error (Unclassified_failure { tool_use_id })
 ;;
 
-let project ~tool_uses:use_blocks ~tool_results:result_blocks =
-  let uses = tool_uses use_blocks in
+let project ~executions ~tool_results:result_blocks =
   let results = tool_results result_blocks in
-  let* () = if uses = [] then Error Empty_tool_use_round else Ok () in
+  let* () = if executions = [] then Error Empty_tool_use_round else Ok () in
   let* () =
-    match List.find_opt (fun (id, _, _) -> string_is_blank id) uses with
+    match
+      List.find_opt
+        (fun (call : executed_call) -> string_is_blank call.tool_use_id)
+        executions
+    with
     | Some _ -> Error Blank_tool_use_id
     | None -> Ok ()
   in
   let* () =
-    match List.find_opt (fun (_, name, _) -> string_is_blank name) uses with
-    | Some (tool_use_id, _, _) -> Error (Blank_tool_name { tool_use_id })
+    match
+      List.find_opt
+        (fun (call : executed_call) -> string_is_blank call.tool_name)
+        executions
+    with
+    | Some call -> Error (Blank_tool_name { tool_use_id = call.tool_use_id })
     | None -> Ok ()
   in
   let* () =
-    match List.find_opt (fun (id, _, _, _, _) -> string_is_blank id) results with
+    match List.find_opt (fun (id, _, _) -> string_is_blank id) results with
     | Some _ -> Error Blank_tool_result_id
     | None -> Ok ()
   in
   let* () =
-    match first_duplicate (fun (id, _, _) -> id) uses with
+    match first_duplicate (fun (call : executed_call) -> call.tool_use_id) executions with
     | Some tool_use_id -> Error (Duplicate_tool_use_id { tool_use_id })
     | None -> Ok ()
   in
   let* () =
-    match first_duplicate (fun (id, _, _, _, _) -> id) results with
+    match first_duplicate (fun (id, _, _) -> id) results with
     | Some tool_use_id -> Error (Duplicate_tool_result_id { tool_use_id })
     | None -> Ok ()
   in
   let result_for id =
-    List.find_opt (fun (result_id, _, _, _, _) -> String.equal result_id id) results
+    List.find_opt (fun (result_id, _, _) -> String.equal result_id id) results
   in
   let* paired =
     let rec loop acc = function
       | [] -> Ok (List.rev acc)
-      | (tool_use_id, tool_name, input) :: rest ->
-        (match result_for tool_use_id with
-         | None -> Error (Missing_tool_result { tool_use_id })
-         | Some (_, content, is_error, failure_kind, error_class) ->
+      | (call : executed_call) :: rest ->
+        (match result_for call.tool_use_id with
+         | None -> Error (Missing_tool_result { tool_use_id = call.tool_use_id })
+         | Some (_, content, outcome) ->
            let* failure =
-             failure_of_result ~tool_use_id ~content ~is_error ~failure_kind ~error_class
+             failure_of_result ~tool_use_id:call.tool_use_id ~content outcome
            in
-           loop ({ tool_use_id; tool_name; input; failure } :: acc) rest)
+           loop
+             ({ tool_use_id = call.tool_use_id
+              ; tool_name = call.tool_name
+              ; input = call.input
+              ; failure
+              }
+              :: acc)
+             rest)
     in
-    loop [] uses
+    loop [] executions
   in
   let use_ids =
     List.fold_left
-      (fun ids (tool_use_id, _, _) -> String_set.add tool_use_id ids)
+      (fun ids (call : executed_call) -> String_set.add call.tool_use_id ids)
       String_set.empty
-      uses
+      executions
   in
-  match
-    List.find_opt (fun (id, _, _, _, _) -> not (String_set.mem id use_ids)) results
-  with
-  | Some (tool_use_id, _, _, _, _) -> Error (Unmatched_tool_result { tool_use_id })
+  match List.find_opt (fun (id, _, _) -> not (String_set.mem id use_ids)) results with
+  | Some (tool_use_id, _, _) -> Error (Unmatched_tool_result { tool_use_id })
   | None -> Ok paired
+;;
+
+let metadata_key = "oas.tool_failure_episode.completed_round.v1"
+let executions_to_yojson executions = `List (List.map executed_call_to_yojson executions)
+
+let executions_of_yojson = function
+  | `List values ->
+    List.fold_right
+      (fun value result ->
+         let* executions = result in
+         let* execution = executed_call_of_yojson value in
+         Ok (execution :: executions))
+      values
+      (Ok [])
+  | _ -> Error "completed-round execution metadata must be a list"
+;;
+
+let completed_round_metadata executions = metadata_key, executions_to_yojson executions
+
+let is_run_boundary (message : message) =
+  match Conversation_metadata.classify_run_boundary message.metadata with
+  | Conversation_metadata.Absent -> Ok false
+  | Conversation_metadata.Present -> Ok true
+  | Conversation_metadata.Invalid -> Error Invalid_run_boundary_metadata
+  | Conversation_metadata.Duplicate -> Error Duplicate_run_boundary_metadata
+;;
+
+let latest_run_messages messages =
+  let rec collect acc = function
+    | [] -> Ok acc
+    | message :: rest ->
+      let* boundary = is_run_boundary message in
+      if boundary then Ok acc else collect (message :: acc) rest
+  in
+  collect [] (List.rev messages)
+;;
+
+let completed_round_of_message (message : message) =
+  match List.filter (fun (key, _) -> String.equal key metadata_key) message.metadata with
+  | [] ->
+    let tool_use_ids =
+      List.map (fun (tool_use_id, _, _) -> tool_use_id) (tool_results message.content)
+    in
+    if tool_use_ids = []
+    then Ok None
+    else Error (Missing_completed_round_metadata { tool_use_ids })
+  | [ (_, json) ] ->
+    let* executions =
+      executions_of_yojson json
+      |> Result.map_error (fun detail -> Invalid_completed_round_metadata detail)
+    in
+    let* round = project ~executions ~tool_results:message.content in
+    Ok (Some round)
+  | _ -> Error Duplicate_completed_round_metadata
+;;
+
+let latest_completed_rounds ~count messages =
+  if count < 0 then invalid_arg "latest_completed_rounds: count must be >= 0";
+  let* messages = latest_run_messages messages in
+  let rec collect remaining acc = function
+    | _ when remaining = 0 -> Ok (List.rev acc)
+    | [] -> Ok (List.rev acc)
+    | message :: rest ->
+      let* round = completed_round_of_message message in
+      (match round with
+       | None -> collect remaining acc rest
+       | Some round -> collect (remaining - 1) (round :: acc) rest)
+  in
+  collect count [] (List.rev messages)
 ;;
 
 let failed_attempt = function

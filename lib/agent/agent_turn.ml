@@ -764,6 +764,7 @@ let make_tool_results
 let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_result =
   { tool_use_id = id
   ; tool_name = "test"
+  ; input = `Null
   ; content
   ; outcome =
       (if is_error

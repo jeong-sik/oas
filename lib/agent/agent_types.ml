@@ -382,6 +382,11 @@ let set_lifecycle
               status))
 ;;
 
+let config_with_tool_failure_judge config = function
+  | None -> config
+  | Some _ -> { config with yield_on_tool = true }
+;;
+
 let create
       ~net
       ?(config = default_config)
@@ -393,6 +398,7 @@ let create
       ?tool_failure_judge
       ()
   =
+  let config = config_with_tool_failure_judge config tool_failure_judge in
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in

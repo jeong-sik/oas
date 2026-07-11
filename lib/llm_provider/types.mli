@@ -220,8 +220,10 @@ module Conversation_metadata : sig
   type run_boundary =
     | Absent
     | Present
-    | Malformed
+    | Invalid
+    | Duplicate
 
+  val run_boundary_entry : string * Yojson.Safe.t
   val run_boundary : metadata
   val classify_run_boundary : metadata -> run_boundary
 

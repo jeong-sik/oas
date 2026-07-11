@@ -110,11 +110,12 @@ type receipt_error =
   | Result_message_not_found
   | Duplicate_receipt_metadata
   | Invalid_receipt_metadata of string
+  | Run_boundary_error of Tool_failure_episode.error
   | Receipt_episode_mismatch
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
 
-(** Add a versioned receipt to the latest result message containing every
+(** Add a versioned receipt to the latest-run result message containing every
     current episode id. Existing metadata is preserved; a duplicate receipt is
     an explicit error. *)
 val attach_receipt
@@ -123,8 +124,8 @@ val attach_receipt
   -> receipt:receipt
   -> (Types.message list, receipt_error) result
 
-(** Read a receipt only from the latest message containing a [ToolResult]. An
-    older receipt is never reused after a newer tool boundary. *)
+(** Read a receipt only from the latest-run message containing a [ToolResult].
+    An older receipt is never reused after a run or tool boundary. *)
 val latest_receipt : Types.message list -> (receipt option, receipt_error) result
 
 (** Validate a restored receipt against reconstructed adjacent episodes. *)

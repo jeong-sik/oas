@@ -24,6 +24,18 @@ type t =
   }
 [@@deriving yojson, show]
 
+(** Identity and effective input emitted by the OAS execution boundary.
+    Successful dispatches and post-resolution failures use the resolved tool
+    and final deterministic candidate; pre-dispatch rejections preserve the
+    exact rejected request. It is never reconstructed from a later mutable
+    registry. *)
+type executed_call =
+  { tool_use_id : string
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+[@@deriving yojson, show]
+
 (** An immutable, fully paired execution boundary. *)
 type completed_round
 
@@ -36,8 +48,12 @@ type error =
   | Duplicate_tool_result_id of { tool_use_id : string }
   | Missing_tool_result of { tool_use_id : string }
   | Unmatched_tool_result of { tool_use_id : string }
-  | Failure_metadata_on_success of { tool_use_id : string }
-  | Failure_kind_missing of { tool_use_id : string }
+  | Unclassified_failure of { tool_use_id : string }
+  | Missing_completed_round_metadata of { tool_use_ids : string list }
+  | Duplicate_completed_round_metadata
+  | Invalid_completed_round_metadata of string
+  | Duplicate_run_boundary_metadata
+  | Invalid_run_boundary_metadata
   | Ambiguous_failure_signature of
       { tool_name : string
       ; failure_kind : Types.tool_failure_kind
@@ -47,16 +63,33 @@ type error =
       }
 [@@deriving show]
 
-(** [project ~tool_uses ~tool_results] pairs a provider response's [ToolUse]
-    blocks with the canonical [ToolResult] blocks produced by execution.
+(** [project ~executions ~tool_results] pairs canonical executed calls with
+    the bounded [ToolResult] blocks persisted in agent history.
 
-    Non-tool blocks are ignored. Missing, duplicate, unmatched, blank, or
-    incompletely typed failures are explicit [Error] values. In particular,
-    [is_error = true] always requires [failure_kind = Some _]. *)
+    Non-result blocks are ignored. Missing, duplicate, unmatched, blank, or
+    unclassified failures are explicit [Error] values. A successful outcome
+    cannot carry failure provenance by construction. *)
 val project
-  :  tool_uses:Types.content_block list
+  :  executions:executed_call list
   -> tool_results:Types.content_block list
   -> (completed_round, error) result
+
+(** Metadata entry for checkpointing only the execution identity absent from a
+    [ToolResult]. Failure outcome and content remain authoritative in the
+    [ToolResult] and are re-projected during restore. Generic provider request
+    serializers do not forward message metadata. *)
+val completed_round_metadata : executed_call list -> string * Yojson.Safe.t
+
+(** Chronological messages after the latest run boundary. Malformed or
+    duplicate boundary metadata is an explicit error. *)
+val latest_run_messages : Types.message list -> (Types.message list, error) result
+
+(** Read up to [count] newest durable rounds, newest first. Missing, duplicate,
+    malformed, or result-inconsistent round metadata is an explicit error. *)
+val latest_completed_rounds
+  :  count:int
+  -> Types.message list
+  -> (completed_round list, error) result
 
 (** [detect ~previous ~current] returns one episode for each failure signature
     that occurs exactly once in each adjacent completed round. A signature is
