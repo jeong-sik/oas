@@ -280,6 +280,8 @@ let test_agent_run_with_handoffs_blocks_rejects_internal_blocks () =
         { tool_use_id = "call-1"
         ; content = "internal result"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }
@@ -341,6 +343,8 @@ let test_tool_result_content_blocks_serialize () =
       { tool_use_id = "t1"
       ; content = "plain"
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks = None
       }
@@ -355,6 +359,8 @@ let test_tool_result_content_blocks_serialize () =
       { tool_use_id = "t2"
       ; content = "fallback"
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks =
           Some

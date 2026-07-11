@@ -74,9 +74,80 @@ let result_all items =
   |> Result.map List.rev
 ;;
 
+let checkpoint_content_block_to_json block =
+  let wire_json = Api.content_block_to_json block in
+  match block, wire_json with
+  | ToolResult { failure_kind; error_class; _ }, `Assoc fields ->
+    let provenance =
+      (match failure_kind with
+       | Some kind -> [ "failure_kind", Types.tool_failure_kind_to_yojson kind ]
+       | None -> [])
+      @
+      match error_class with
+      | Some error_class ->
+        [ "error_class", Types.tool_error_class_to_yojson error_class ]
+      | None -> []
+    in
+    `Assoc (fields @ provenance)
+  | ( ( Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | ToolUse _
+      | Image _
+      | Document _
+      | Audio _ )
+    , _ ) -> wire_json
+;;
+
+let optional_typed_field ~field ~type_name ~decode json =
+  let open Yojson.Safe.Util in
+  match json |> member field with
+  | `Null -> Ok None
+  | value ->
+    decode value
+    |> Result.map Option.some
+    |> Result.map_error (fun detail ->
+      Error.Serialization
+        (JsonParseError
+           { detail =
+               Printf.sprintf
+                 "Checkpoint ToolResult field %s has invalid %s: %s"
+                 field
+                 type_name
+                 detail
+           }))
+;;
+
 let content_block_of_json_strict json =
   try
     match Api.content_block_of_json json with
+    | Some
+        (ToolResult
+           { tool_use_id; content; is_error; json = parsed_json; content_blocks; _ }) ->
+      let* failure_kind =
+        optional_typed_field
+          ~field:"failure_kind"
+          ~type_name:"tool_failure_kind"
+          ~decode:Types.tool_failure_kind_of_yojson
+          json
+      and* error_class =
+        optional_typed_field
+          ~field:"error_class"
+          ~type_name:"tool_error_class"
+          ~decode:Types.tool_error_class_of_yojson
+          json
+      in
+      Ok
+        (ToolResult
+           { tool_use_id
+           ; content
+           ; is_error
+           ; failure_kind
+           ; error_class
+           ; json = parsed_json
+           ; content_blocks
+           })
     | Some block -> Ok block
     | None ->
       let open Yojson.Safe.Util in
@@ -121,7 +192,7 @@ let metadata_of_json json =
 let message_to_json (msg : Types.message) =
   let base_fields =
     [ "role", `String (Types.role_to_string msg.role)
-    ; "content", `List (List.map Api.content_block_to_json msg.content)
+    ; "content", `List (List.map checkpoint_content_block_to_json msg.content)
     ]
   in
   let optional_fields =
@@ -444,6 +515,7 @@ let of_json json =
     let version = json |> member "version" |> to_int in
     if
       version <> checkpoint_version
+      && version <> 5
       && version <> 4
       && version <> 3
       && version <> 2

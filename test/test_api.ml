@@ -198,6 +198,8 @@ let test_tool_result_round_trip () =
       { tool_use_id = "tu_001"
       ; content = "4"
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = Types.try_parse_json "4"
       ; content_blocks = None
       }
@@ -214,6 +216,8 @@ let test_tool_result_error_round_trip () =
       { tool_use_id = "tu_002"
       ; content = "failed"
       ; is_error = true
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks = None
       }
@@ -274,6 +278,8 @@ let test_kimi_message_to_json_tool_result_uses_text_blocks () =
             { tool_use_id = "tu_001"
             ; content = "5"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = Some (`Int 5)
             ; content_blocks = None
             }
@@ -2412,6 +2418,8 @@ let test_text_blocks_to_string () =
         { tool_use_id = "t"
         ; content = "ok"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }

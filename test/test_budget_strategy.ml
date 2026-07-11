@@ -40,6 +40,8 @@ let tool_result_msg id content =
             { tool_use_id = id
             ; content
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }

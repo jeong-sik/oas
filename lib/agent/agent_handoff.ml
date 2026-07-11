@@ -47,7 +47,14 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
       (function
         | ToolResult { tool_use_id = id; _ } when id = tool_id ->
           ToolResult
-            { tool_use_id = id; content; is_error; json = None; content_blocks = None }
+            { tool_use_id = id
+            ; content
+            ; is_error
+            ; failure_kind = None
+            ; error_class = None
+            ; json = None
+            ; content_blocks = None
+            }
         | block -> block)
       blocks
   in
@@ -63,6 +70,8 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
                 { tool_use_id = tool_id
                 ; content
                 ; is_error
+                ; failure_kind = None
+                ; error_class = None
                 ; json = None
                 ; content_blocks = None
                 }

@@ -38,7 +38,14 @@ let rm_rf dir =
 
 let tool_result ?(is_error = false) id content : Types.content_block =
   Types.ToolResult
-    { tool_use_id = id; content; is_error; json = None; content_blocks = None }
+    { tool_use_id = id
+    ; content
+    ; is_error
+    ; failure_kind = None
+    ; error_class = None
+    ; json = None
+    ; content_blocks = None
+    }
 ;;
 
 let asst_msg text : Types.message =

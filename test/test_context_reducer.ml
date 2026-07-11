@@ -38,14 +38,16 @@ let tool_use_msg id name =
     }
 ;;
 
-let tool_result_msg id content =
+let tool_result_msg ?(is_error = false) ?failure_kind ?error_class id content =
   Types.
     { role = User
     ; content =
         [ ToolResult
             { tool_use_id = id
             ; content
-            ; is_error = false
+            ; is_error
+            ; failure_kind
+            ; error_class
             ; json = None
             ; content_blocks = None
             }
@@ -230,6 +232,8 @@ let test_estimate_tool_result () =
               { tool_use_id = "id1"
               ; content = "result text"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -506,6 +510,8 @@ let test_cap_preserves_tool_result () =
         { tool_use_id = "call_keep"
         ; content = "r"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }
@@ -693,6 +699,28 @@ let test_prune_long_outputs () =
   in
   Alcotest.(check bool) "truncated" true (String.length tool_content < 200);
   Alcotest.(check bool) "has marker" true (String.length tool_content > 50)
+;;
+
+let test_prune_preserves_failure_provenance () =
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.prune_tool_outputs ~max_output_len:10)
+      [ tool_result_msg
+          ~is_error:true
+          ~failure_kind:Types.Recoverable_tool_error
+          ~error_class:Types.Transient
+          "t1"
+          (String.make 100 'x')
+      ]
+  in
+  match result with
+  | [ { Types.content = [ Types.ToolResult { failure_kind; error_class; _ } ]; _ } ] ->
+    Alcotest.(check bool)
+      "failure kind preserved"
+      true
+      (failure_kind = Some Types.Recoverable_tool_error);
+    Alcotest.(check bool) "error class preserved" true (error_class = Some Types.Transient)
+  | _ -> Alcotest.fail "expected one pruned ToolResult"
 ;;
 
 (* --- merge_contiguous --- *)
@@ -1226,6 +1254,8 @@ let test_clear_tool_results_error_marker () =
                 { tool_use_id = "t1"
                 ; content = String.make 100 'E'
                 ; is_error = true
+                ; failure_kind = None
+                ; error_class = None
                 ; json = None
                 ; content_blocks = None
                 }
@@ -1562,6 +1592,8 @@ let test_orphaned_results_mixed () =
                 { tool_use_id = "t1"
                 ; content = "ok"
                 ; is_error = false
+                ; failure_kind = None
+                ; error_class = None
                 ; json = None
                 ; content_blocks = None
                 }
@@ -1569,6 +1601,8 @@ let test_orphaned_results_mixed () =
                 { tool_use_id = "t2"
                 ; content = "orphan"
                 ; is_error = false
+                ; failure_kind = None
+                ; error_class = None
                 ; json = None
                 ; content_blocks = None
                 }
@@ -1696,6 +1730,10 @@ let () =
     ; ( "prune_tool_outputs"
       , [ Alcotest.test_case "short outputs unchanged" `Quick test_prune_short_outputs
         ; Alcotest.test_case "long outputs truncated" `Quick test_prune_long_outputs
+        ; Alcotest.test_case
+            "failure provenance preserved"
+            `Quick
+            test_prune_preserves_failure_provenance
         ] )
     ; ( "merge_contiguous"
       , [ Alcotest.test_case "same role merged" `Quick test_merge_same_role

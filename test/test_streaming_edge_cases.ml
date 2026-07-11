@@ -190,6 +190,8 @@ let test_synthetic_events_media_blocks () =
             { tool_use_id = "call-1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }

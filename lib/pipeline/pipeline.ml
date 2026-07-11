@@ -1303,6 +1303,8 @@ let%test "last_tool_results_from finds tool results in last tool message" =
               { tool_use_id = "t1"
               ; content = "result1"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1310,6 +1312,8 @@ let%test "last_tool_results_from finds tool results in last tool message" =
               { tool_use_id = "t2"
               ; content = "error msg"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1335,6 +1339,8 @@ let%test "last_tool_results_from skips non-tool user messages" =
               { tool_use_id = "t1"
               ; content = "first"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1405,6 +1411,8 @@ let%test "last_tool_results_from picks last tool-result message" =
               { tool_use_id = "t1"
               ; content = "first"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1425,6 +1433,8 @@ let%test "last_tool_results_from picks last tool-result message" =
               { tool_use_id = "t2"
               ; content = "second"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1449,6 +1459,8 @@ let%test "last_tool_results_from mixed content in user message" =
               { tool_use_id = "t1"
               ; content = "ok"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1473,6 +1485,8 @@ let%test "last_tool_results_from error tool result" =
               { tool_use_id = "t1"
               ; content = "fail msg"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1533,6 +1547,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t1"
               ; content = "r1"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1540,6 +1556,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t2"
               ; content = "r2"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1547,6 +1565,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t3"
               ; content = "r3"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

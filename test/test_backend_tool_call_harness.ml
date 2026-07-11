@@ -132,6 +132,8 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
           { tool_use_id = "call-2"
           ; content = "ok"
           ; is_error = false
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = None
           }

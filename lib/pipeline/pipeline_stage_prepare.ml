@@ -152,6 +152,8 @@ let%test "last_tool_results_from routes through canonical projection (with json)
               { tool_use_id = "t1"
               ; content = "ok payload"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = Some (`Assoc [ "rows", `Int 2 ])
               ; content_blocks = None
               }
@@ -159,6 +161,8 @@ let%test "last_tool_results_from routes through canonical projection (with json)
               { tool_use_id = "t2"
               ; content = "boom"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

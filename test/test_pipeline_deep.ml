@@ -338,6 +338,8 @@ let test_resolve_params_with_tool_results () =
               { tool_use_id = "tu_1"
               ; content = "found it"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -396,6 +398,8 @@ let test_resolve_params_error_tool_results () =
               { tool_use_id = "tu_e"
               ; content = "permission denied"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

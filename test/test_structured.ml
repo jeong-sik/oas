@@ -338,6 +338,8 @@ let test_extract_ignores_tool_result () =
         { tool_use_id = "old"
         ; content = "previous result"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }
@@ -537,6 +539,8 @@ let test_retry_message_construction () =
               { tool_use_id
               ; content = error_msg
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

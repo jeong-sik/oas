@@ -350,6 +350,8 @@ let test_extract_mixed_blocks () =
         { tool_use_id = "old"
         ; content = "old result"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }

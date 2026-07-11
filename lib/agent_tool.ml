@@ -85,7 +85,7 @@ let content_block_to_json = function
       ; "name", `String name
       ; "input", input
       ]
-  | ToolResult { tool_use_id; content; is_error; json } ->
+  | ToolResult { tool_use_id; content; is_error; json; _ } ->
     `Assoc
       [ "type", `String "tool_result"
       ; "tool_use_id", `String tool_use_id

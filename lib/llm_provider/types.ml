@@ -69,6 +69,12 @@ type tool_error_class =
   | Unknown
 [@@deriving yojson, show]
 
+type tool_failure_kind =
+  | Validation_error
+  | Recoverable_tool_error
+  | Non_retryable_tool_error
+[@@deriving yojson, show]
+
 type tool_error =
   { message : string
   ; recoverable : bool
@@ -276,6 +282,8 @@ type content_block =
       { tool_use_id : string
       ; content : string
       ; is_error : bool
+      ; failure_kind : tool_failure_kind option
+      ; error_class : tool_error_class option
       ; json : Yojson.Safe.t option
         (** Parsed JSON payload when available. Consumers
                         should prefer [json] over [content] for structured access.
@@ -643,7 +651,15 @@ let try_parse_json (s : string) : Yojson.Safe.t option =
 (** Create a tool result message.
     When [json] is not provided, attempts to parse [content] as JSON
     so downstream consumers can access structured data without re-parsing. *)
-let tool_result_msg ~tool_use_id ~content ?(is_error = false) ?json () =
+let tool_result_msg
+      ~tool_use_id
+      ~content
+      ?(is_error = false)
+      ?failure_kind
+      ?error_class
+      ?json
+      ()
+  =
   let json =
     match json with
     | Some _ -> json
@@ -652,7 +668,16 @@ let tool_result_msg ~tool_use_id ~content ?(is_error = false) ?json () =
   make_message
     ~tool_call_id:tool_use_id
     ~role:Tool
-    [ ToolResult { tool_use_id; content; is_error; json; content_blocks = None } ]
+    [ ToolResult
+        { tool_use_id
+        ; content
+        ; is_error
+        ; failure_kind
+        ; error_class
+        ; json
+        ; content_blocks = None
+        }
+    ]
 ;;
 
 (** {1 Tool Result Validation}

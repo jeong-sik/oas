@@ -98,13 +98,13 @@ let () =
   run
     "Checkpoint"
     [ ( "version"
-      , [ test_case "checkpoint_version is 5" `Quick (fun () ->
-            check int "version" 5 Checkpoint.checkpoint_version)
+      , [ test_case "checkpoint_version is 6" `Quick (fun () ->
+            check int "version" 6 Checkpoint.checkpoint_version)
         ; test_case "version field in to_json" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
             let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-            check int "version" 5 v)
+            check int "version" 6 v)
         ; test_case "wrong version returns Error" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
@@ -245,6 +245,8 @@ let () =
                         { tool_use_id = "id1"
                         ; content = "Sunny 22C"
                         ; is_error = false
+                        ; failure_kind = None
+                        ; error_class = None
                         ; json = None
                         ; content_blocks = None
                         }
@@ -264,6 +266,75 @@ let () =
               check string "content" "Sunny 22C" content;
               check bool "is_error" false is_error
             | _ -> fail "expected ToolResult")
+        ; test_case
+            "typed failed ToolResult survives execution projection and checkpoint"
+            `Quick
+            (fun () ->
+               let execution_result : Agent_tools.tool_execution_result =
+                 { tool_use_id = "failed-1"
+                 ; tool_name = "Execute"
+                 ; content = "working directory is unavailable"
+                 ; is_error = true
+                 ; failure_kind = Some Agent_tools.Validation_error
+                 ; error_class = Some Types.Deterministic
+                 }
+               in
+               let content = Agent_turn.make_tool_results [ execution_result ] in
+               let block = List.hd content in
+               let wire_json = Api.content_block_to_json block in
+               let open Yojson.Safe.Util in
+               check
+                 bool
+                 "provider wire omits failure_kind"
+                 true
+                 (wire_json |> member "failure_kind" = `Null);
+               check
+                 bool
+                 "provider wire omits error_class"
+                 true
+                 (wire_json |> member "error_class" = `Null);
+               let messages =
+                 [ { Types.role = Types.Tool
+                   ; content
+                   ; name = None
+                   ; tool_call_id = Some "failed-1"
+                   ; metadata = []
+                   }
+                 ]
+               in
+               let checkpoint = make_checkpoint ~messages () in
+               let checkpoint_json = Checkpoint.to_json checkpoint in
+               let stored_block =
+                 checkpoint_json
+                 |> member "messages"
+                 |> index 0
+                 |> member "content"
+                 |> index 0
+               in
+               check
+                 bool
+                 "checkpoint stores failure_kind"
+                 true
+                 (stored_block |> member "failure_kind" <> `Null);
+               check
+                 bool
+                 "checkpoint stores error_class"
+                 true
+                 (stored_block |> member "error_class" <> `Null);
+               let restored = Result.get_ok (Checkpoint.of_json checkpoint_json) in
+               match (List.hd restored.messages).content with
+               | [ Types.ToolResult { failure_kind; error_class; _ } ] ->
+                 check
+                   bool
+                   "failure_kind roundtrip"
+                   true
+                   (failure_kind = Some Types.Validation_error);
+                 check
+                   bool
+                   "error_class roundtrip"
+                   true
+                   (error_class = Some Types.Deterministic)
+               | _ -> fail "expected typed ToolResult")
         ; test_case "empty messages roundtrip" `Quick (fun () ->
             let cp = make_checkpoint ~messages:[] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -289,6 +360,8 @@ let () =
                         { tool_use_id = "t1"
                         ; content = "found it"
                         ; is_error = false
+                        ; failure_kind = None
+                        ; error_class = None
                         ; json = None
                         ; content_blocks = None
                         }
@@ -1083,7 +1156,11 @@ let () =
               | other -> other
             in
             let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-            check int "version upgraded to 5" 5 cp2.version;
+            check
+              int
+              "version upgraded to current"
+              Checkpoint.checkpoint_version
+              cp2.version;
             check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions))
         ; test_case "version 1 with null mcp_sessions" `Quick (fun () ->
             let cp = make_checkpoint () in

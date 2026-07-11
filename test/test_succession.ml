@@ -306,6 +306,8 @@ let test_normalize_preserves_matched_tool_calls () =
               { tool_use_id = "t1"
               ; content = "result"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

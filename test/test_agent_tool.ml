@@ -41,6 +41,8 @@ let structured_runner prompt : (Types.api_response, Error.sdk_error) result =
             { tool_use_id = "toolu-child"
             ; content = {|{"ok":true}|}
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = Some (`Assoc [ "ok", `Bool true ])
             ; content_blocks = None
             }

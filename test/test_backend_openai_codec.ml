@@ -106,6 +106,8 @@ let block_of_fixture json =
       { tool_use_id = require_string "block" "tool_use_id" json
       ; content = require_string "block" "content" json
       ; is_error = optional_bool ~default:false "block" "is_error" json
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks = None
       }
@@ -551,6 +553,8 @@ let test_openai_user_messages_text_tool_and_empty () =
           { tool_use_id = "call-1"
           ; content = "42"
           ; is_error = false
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = None
           }
@@ -587,6 +591,8 @@ let test_wire_adjacency_nudged_tool_turn () =
             { tool_use_id = "call-9"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -771,6 +777,8 @@ let test_system_and_tool_role_messages () =
              { tool_use_id = "call-2"
              ; content = "ok"
              ; is_error = false
+             ; failure_kind = None
+             ; error_class = None
              ; json = None
              ; content_blocks = None
              }
@@ -800,6 +808,8 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
             { tool_use_id = "call-1"
             ; content = "first"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -807,6 +817,8 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
             { tool_use_id = "call-1"
             ; content = "dupe"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -814,6 +826,8 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
             { tool_use_id = "orphan"
             ; content = "bad"
             ; is_error = true
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -825,6 +839,8 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
             { tool_use_id = "orphan-2"
             ; content = "drop"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -854,6 +870,8 @@ let test_close_tool_message_pairs_repairs_dangling_and_late_results () =
             { tool_use_id = "call-1"
             ; content = "late result"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -994,6 +1012,8 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
             { tool_use_id = "call-k"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -1140,6 +1160,8 @@ let ignored_blocks : content_block list =
       { tool_use_id = "call-x"
       ; content = "ignored"
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks = None
       }
@@ -1225,6 +1247,8 @@ let test_strip_helpers_cover_non_tool_variants () =
               { tool_use_id = "call"
               ; content = "ok"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1897,6 +1921,8 @@ let test_responses_preserves_encrypted_reasoning_item_for_replay () =
                   { tool_use_id = "call_weather"
                   ; content = {|{"temp_c":12}|}
                   ; is_error = false
+                  ; failure_kind = None
+                  ; error_class = None
                   ; json = Some (`Assoc [ "temp_c", `Int 12 ])
                   ; content_blocks = None
                   }
@@ -1968,6 +1994,8 @@ let test_responses_build_request_round_trips_tool_result_items () =
                 { tool_use_id = "call_weather"
                 ; content = {|{"temp_c":12}|}
                 ; is_error = false
+                ; failure_kind = None
+                ; error_class = None
                 ; json = Some (`Assoc [ "temp_c", `Int 12 ])
                 ; content_blocks = None
                 }
@@ -2035,6 +2063,8 @@ let test_responses_build_request_preserves_multiturn_reasoning_tool_order () =
       { tool_use_id = id
       ; content
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = Some (`Assoc [ "content", `String content ])
       ; content_blocks = None
       }

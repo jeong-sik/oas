@@ -502,6 +502,8 @@ let test_strip_no_orphans () =
             { tool_use_id = "t1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -524,6 +526,8 @@ let test_strip_removes_orphan () =
             { tool_use_id = "orphan-id"
             ; content = "stale"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -547,6 +551,8 @@ let test_strip_report_names_orphaned_and_duplicate_results () =
             { tool_use_id = "t1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -554,6 +560,8 @@ let test_strip_report_names_orphaned_and_duplicate_results () =
             { tool_use_id = "t1"
             ; content = "duplicate"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -561,6 +569,8 @@ let test_strip_report_names_orphaned_and_duplicate_results () =
             { tool_use_id = "orphan-id"
             ; content = "stale"
             ; is_error = true
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -590,6 +600,8 @@ let test_strip_preserves_matched () =
             { tool_use_id = "t1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -597,6 +609,8 @@ let test_strip_preserves_matched () =
             { tool_use_id = "orphan"
             ; content = "bad"
             ; is_error = true
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -604,6 +618,8 @@ let test_strip_preserves_matched () =
             { tool_use_id = "t2"
             ; content = "ok2"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -636,6 +652,8 @@ let test_strip_drops_results_after_interleaved_text () =
             { tool_use_id = "t1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -658,6 +676,8 @@ let test_strip_keeps_tool_role_results_before_nudge_text () =
             { tool_use_id = "t1"
             ; content = "ok"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -685,6 +705,8 @@ let test_close_report_names_dropped_result_and_synthetic_repair () =
             { tool_use_id = "t1"
             ; content = "late"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }

@@ -587,7 +587,7 @@ let test_make_tool_results () =
       ; content = "error msg"
       ; is_error = true
       ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; error_class = Some Types.Deterministic
       }
     ]
   in
@@ -596,7 +596,18 @@ let test_make_tool_results () =
   match List.hd blocks with
   | Types.ToolResult { tool_use_id; is_error; _ } ->
     Alcotest.(check string) "id" "t1" tool_use_id;
-    Alcotest.(check bool) "not error" false is_error
+    Alcotest.(check bool) "not error" false is_error;
+    (match List.nth blocks 1 with
+     | Types.ToolResult { failure_kind; error_class; _ } ->
+       Alcotest.(check bool)
+         "failure kind preserved"
+         true
+         (failure_kind = Some Types.Recoverable_tool_error);
+       Alcotest.(check bool)
+         "error class preserved"
+         true
+         (error_class = Some Types.Deterministic)
+     | _ -> Alcotest.fail "expected second ToolResult")
   | _ -> Alcotest.fail "expected ToolResult"
 ;;
 
