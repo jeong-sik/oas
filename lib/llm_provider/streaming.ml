@@ -1408,11 +1408,7 @@ let responses_ensure_text_block state emit ~output_index =
   state.text_block_index
 ;;
 
-let responses_tool_id_of_item item =
-  match responses_member_string_opt "call_id" item with
-  | Some id when String.trim id <> "" -> Some id
-  | Some _ | None -> responses_member_string_opt "id" item
-;;
+let responses_tool_id_of_item item = responses_member_string_opt "call_id" item
 
 let responses_ensure_tool_block state emit ~output_index ~tool_id ~tool_name =
   let resolution, start =
@@ -1551,11 +1547,10 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
                 state
                 emit
                 ~output_index
-                  (* [item_id] identifies the Responses output item, not the
-                   function call.  Routing is structural by [output_index];
-                   treating [item_id] as a call identity would conflict with
-                   the authoritative [call_id] from [output_item.added]. *)
-                ~tool_id:None
+                  (* [call_id] is the function-call identity on every official
+                   arguments event. [item_id] identifies only the output item
+                   and is never substituted for it. *)
+                ~tool_id:(responses_member_string_opt "call_id" json)
                 ~tool_name:None
             in
             (match index with

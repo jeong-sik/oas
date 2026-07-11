@@ -1113,6 +1113,49 @@ let test_responses_stream_idless_tool_identity_matches_final_response () =
   | Error _ -> Alcotest.fail "expected id-less Responses tool stream to finalize"
 ;;
 
+let test_responses_stream_item_id_is_not_tool_identity () =
+  let state = S.create_openai_stream_state () in
+  let events, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.output_item.added")
+      {|{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_item_only","type":"function_call","name":"lookup","arguments":""}}|}
+  in
+  match events with
+  | [ ContentBlockStart
+        { index = 0; content_type = "tool_use"; tool_id = Some tool_id; _ }
+    ] ->
+    Alcotest.(check bool)
+      "output item id is not reused as call identity"
+      true
+      (not (String.equal tool_id "fc_item_only"));
+    Alcotest.(check bool)
+      "id-less call receives OAS identity"
+      true
+      (String.starts_with ~prefix:"call_oas_" tool_id)
+  | _ -> Alcotest.fail "expected one identified Responses tool start"
+;;
+
+let test_responses_stream_arguments_delta_preserves_call_id () =
+  let state = S.create_openai_stream_state () in
+  let events, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.function_call_arguments.delta")
+      {|{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_item","call_id":"call_native","delta":"{}"}|}
+  in
+  match events with
+  | [ ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "call_native"
+        ; tool_name = None
+        }
+    ; ContentBlockDelta { index = 0; delta = InputJsonDelta "{}" }
+    ] -> ()
+  | _ -> Alcotest.fail "expected delta call_id to identify its tool block"
+;;
+
 let test_responses_stream_hidden_reasoning_before_tool () =
   let state =
     S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
@@ -1568,6 +1611,14 @@ let () =
             "id-less start identity equals finalized ToolUse"
             `Quick
             test_responses_stream_idless_tool_identity_matches_final_response
+        ; test_case
+            "item id is not tool identity"
+            `Quick
+            test_responses_stream_item_id_is_not_tool_identity
+        ; test_case
+            "arguments delta preserves call id"
+            `Quick
+            test_responses_stream_arguments_delta_preserves_call_id
         ; test_case
             "interleaved reasoning/tool/text finalizes"
             `Quick
