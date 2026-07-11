@@ -427,8 +427,8 @@ let classify_error ~status ~body : api_error =
 let status_of_provider_error_type = function
   | "rate_limit_exceeded" | "rate_limit_error" | "insufficient_quota" | "quota_exceeded"
     -> Some 429
-  | "authentication_error" | "invalid_api_key" | "permission_error" | "permission_denied"
-    -> Some 401
+  | "authentication_error" | "invalid_api_key" -> Some 401
+  | "permission_error" | "permission_denied" -> Some 403
   | "invalid_request_error"
   | "invalid_request"
   | "context_length_exceeded"
