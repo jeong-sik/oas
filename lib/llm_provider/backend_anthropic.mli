@@ -22,17 +22,18 @@ val output_config_for_config
   -> Provider_config.t
   -> Yojson.Safe.t option
 
-(** Resolve the output-token budget for the Anthropic wire.  The caller
-    override is clamped to the selected model capability, otherwise the
-    catalog ceiling is used; [None] when neither declares a value.  Shared
-    with the legacy Agent SDK builder so it cannot invent a separate
-    default. *)
+(** Optional-envelope resolver re-exported from
+    {!Backend_openai_request.effective_max_output_tokens}: caller override
+    clamped to the model capability (one-shot WARN), [None] on caller
+    [None] — the ceiling is never injected as a request value. *)
 val effective_max_output_tokens : Provider_config.t -> int option
 
-(** The Messages API requires [max_tokens] on every request.  Returns the
-    resolved budget, or raises [Invalid_argument] naming the model when
-    neither the caller nor the capability catalog declares one — no value
-    is invented. *)
+(** The Messages API requires [max_tokens] on every request, so this
+    envelope carries an explicit required-envelope policy: caller override
+    clamped to the catalog ceiling; caller [None] resolves to the
+    catalog-declared model maximum (the stated required-envelope default);
+    raises [Invalid_argument] naming the model when neither the caller nor
+    the catalog declares a value — no value is invented. *)
 val required_max_output_tokens : Provider_config.t -> int
 
 val build_request

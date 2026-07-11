@@ -1540,6 +1540,26 @@ let%test "max_tokens passed through when within capability cap" =
   json |> member "max_tokens" |> to_int = 2_000
 ;;
 
+let%test "max_tokens omitted on caller None even when the catalog declares a cap" =
+  (* #2517: the catalog cap is a validation ceiling, not a request
+     default. glm-4-flash declares max_output_tokens = Some 4_096, but a
+     caller that sends None wants the provider's own default policy — the
+     field must be absent from the wire, not populated with the ceiling
+     (on GLM the context window bounds input + reasoning + output jointly,
+     so ceiling injection can overflow the contract on long prompts). *)
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Glm
+      ~model_id:"glm-4-flash"
+      ~base_url:Zai_catalog.general_base_url
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "max_tokens" = `Null
+;;
+
 let%test
     "build_request emits chat_template_kwargs for declared nvidia (Chat_template_kwargs)"
   =
