@@ -1556,8 +1556,9 @@ let%test "max_tokens omitted on caller None even when the catalog declares a cap
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "max_tokens" = `Null
+  match json with
+  | `Assoc fields -> not (List.mem_assoc "max_tokens" fields)
+  | _ -> false
 ;;
 
 let%test

@@ -178,9 +178,9 @@ let capabilities_of_config (config : Provider_config.t) =
 
    Anthropic Messages REQUIRES the field on the wire; that envelope
    resolves through [Backend_anthropic.required_max_output_tokens],
-   which applies an explicit required-envelope default (the
-   catalog-declared model maximum) and fails loudly when no value is
-   declared anywhere — no invented constants. *)
+   which applies an explicit OAS required-envelope fallback (the
+   catalog-declared model maximum, not a provider default) and fails loudly
+   when no value is declared anywhere — no invented constants. *)
 let effective_max_output_tokens (config : Provider_config.t) =
   let caps = capabilities_of_config config in
   match config.max_tokens, caps.max_output_tokens with

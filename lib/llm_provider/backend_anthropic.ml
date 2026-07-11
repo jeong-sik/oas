@@ -158,12 +158,11 @@ let effective_max_output_tokens = Backend_openai_request.effective_max_output_to
    resolver above:
    - caller [Some n] -> clamped to the catalog ceiling with a one-shot
      WARN (shared clamp semantics via [effective_max_output_tokens]).
-   - caller [None] -> the catalog-declared model maximum. This is the
-     required-envelope DEFAULT, stated explicitly here rather than a
-     ceiling silently leaking through an optional-envelope path; for the
-     Anthropic family the declared maxima are small relative to the
-     context window, so the sum-of-parts context concern that forbids
-     ceiling injection on optional envelopes does not bind.
+   - caller [None] -> the catalog-declared model maximum. This is OAS's
+     explicit required-envelope fallback, not a claim that the provider
+     supplies that value as its default. Reusing the declared maximum keeps
+     known-model calls simple without inventing a second numeric policy;
+     callers that need a smaller request bound can still pass one explicitly.
    - neither declared -> fail loudly naming the model; an invented
      constant is shared by thinking and answer and silently truncates
      long reasoning. *)
