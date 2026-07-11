@@ -1,4 +1,5 @@
 open Types
+module Provider_replay = Llm_provider.Provider_replay
 
 let group_into_turns = Context_reducer_turns.group_into_turns
 let estimate_message_tokens = Context_reducer_estimate.estimate_message_tokens
@@ -126,6 +127,21 @@ let has_reasoning_block (msg : message) =
       | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
       | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
     msg.content
+;;
+
+let is_provider_replay_carrier = function
+  | RedactedThinking data ->
+    (match Provider_replay.decode data with
+     | Provider_replay.Replay _ | Provider_replay.Malformed_replay _ -> true
+     | Provider_replay.Not_replay -> false)
+  | Text _
+  | Thinking _
+  | ReasoningDetails _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> false
 ;;
 
 type dangling_repair_report = { synthesized_tool_results : int }
@@ -301,12 +317,30 @@ let apply_drop_thinking messages =
     | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> preserve_reasoning
     | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> true
   in
+  let filter_content ~preserve_reasoning content =
+    let rec loop acc = function
+      | (RedactedThinking data as carrier) :: target :: rest ->
+        (match Provider_replay.decode data with
+         | Provider_replay.Replay { retention = Provider_replay.Exact_next_block; _ }
+         | Provider_replay.Malformed_replay _ -> loop (target :: carrier :: acc) rest
+         | Provider_replay.Not_replay ->
+           let acc = if preserve_reasoning then carrier :: acc else acc in
+           loop acc (target :: rest))
+      | [ (RedactedThinking _ as carrier) ] when is_provider_replay_carrier carrier ->
+        List.rev (carrier :: acc)
+      | block :: rest ->
+        let acc =
+          if keep_after_drop_thinking ~preserve_reasoning block then block :: acc else acc
+        in
+        loop acc rest
+      | [] -> List.rev acc
+    in
+    loop [] content
+  in
   List.filter_map
     (fun (msg : message) ->
        let preserve_reasoning = preserves_tool_reasoning msg in
-       let content =
-         List.filter (keep_after_drop_thinking ~preserve_reasoning) msg.content
-       in
+       let content = filter_content ~preserve_reasoning msg.content in
        if content = [] then None else Some { msg with content })
     messages
 ;;
@@ -500,12 +534,19 @@ let apply_cap_message_tokens ?cache ~max_tokens ~keep_recent messages =
             let block_tokens = Array.map (estimate_block_tokens ?cache) blocks in
             let keep = Array.make n_blocks false in
             let mandatory_tokens = ref 0 in
+            let mark_mandatory i =
+              if not keep.(i)
+              then (
+                keep.(i) <- true;
+                mandatory_tokens := !mandatory_tokens + block_tokens.(i))
+            in
             Array.iteri
               (fun i b ->
-                 if is_pair_block b
+                 if is_pair_block b then mark_mandatory i;
+                 if is_provider_replay_carrier b
                  then (
-                   keep.(i) <- true;
-                   mandatory_tokens := !mandatory_tokens + block_tokens.(i)))
+                   mark_mandatory i;
+                   if i + 1 < n_blocks then mark_mandatory (i + 1)))
               blocks;
             if !mandatory_tokens >= max_tokens
             then msg
