@@ -371,7 +371,7 @@ type receipt_error =
 
 let metadata_key = "oas.tool_failure_recovery.v1"
 
-let revised_call_json call =
+let revised_call_json (call : revised_call) =
   `Assoc
     [ "current_tool_use_id", `String call.current_tool_use_id
     ; "tool_name", `String call.tool_name
