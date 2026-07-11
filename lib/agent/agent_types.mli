@@ -280,6 +280,7 @@ val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val recovery_state : t -> recovery_state
 val set_recovery_state : t -> recovery_state -> unit
 val update_recovery_state : t -> (recovery_state -> recovery_state) -> unit
+val recovery_run_boundary_metadata : t -> Types.metadata
 val set_consecutive_idle_turns : t -> int -> unit
 val get_consecutive_idle_turns : t -> int
 

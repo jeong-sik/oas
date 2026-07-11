@@ -7,7 +7,7 @@ relate, and the contracts downstream consumers can rely on.
 **Scope**: `agent_sdk` library (`lib/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
-**Last updated**: v0.184.0.
+**Last updated**: v0.212.0.
 
 ---
 
@@ -81,12 +81,21 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
 | `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
 | `InferenceTelemetry` | `pipeline/pipeline_collect.ml` | Per-turn provider timing/token telemetry when reported by the backend |
+| `ToolFailureEpisodeDetected` | `agent/agent.ml` | Two adjacent completed tool rounds contain the same typed failure signature; carries the exact structural episodes selected for recovery judgment |
+| `ToolFailureRecoveryDecided` | `agent/agent.ml` | The recovery judge returned a closed decision that passed episode validation and was durably checkpointed |
+| `ToolFailureRecoveryJudgeFailed` | `agent/agent.ml` | The recovery completion, JSON parse, or decision validation boundary failed explicitly |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 
 **Invariants**:
 - **I1 Provider-agnostic**: every native payload field is meaningful regardless of which provider serves the underlying LLM.
 - **I2 Stable envelope**: envelope field set is identical across providers.
 - **I6 Multi-vendor**: a native variant is only added if its semantic exists in ≥2 vendor SDKs.
+
+The three tool-failure recovery variants are OAS orchestration semantics, not
+provider wire events. They are derived only from canonical `ToolUse` and typed
+`ToolResult` records, so their shape and meaning do not vary by provider or
+model. Hidden reasoning and assistant narration are never inputs to episode
+detection.
 
 ### 2.3 Custom namespaces (reserved)
 

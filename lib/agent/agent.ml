@@ -86,7 +86,11 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
 
 let provide_input agent request response =
   set_recovery_state agent empty_recovery_state;
-  Agent_elicitation.apply_response agent request response
+  Agent_elicitation.apply_response
+    ~metadata:(recovery_run_boundary_metadata agent)
+    agent
+    request
+    response
 ;;
 
 (* ── Shared loop guard (finite max_turns + idle) ─────────── *)
@@ -186,7 +190,7 @@ let append_user_input agent user_blocks =
     ; content = sanitize_user_input_blocks user_blocks
     ; name = None
     ; tool_call_id = None
-    ; metadata = []
+    ; metadata = recovery_run_boundary_metadata agent
     }
   in
   update_state agent (fun s ->
@@ -350,7 +354,7 @@ let invoke_recovery_judge ~sw ?clock agent episodes =
             ; turn = agent.state.turn_count
             ; detail
             });
-       Error error
+       Error (recovery_failure Error.Judge_response detail)
      | Error error ->
        let detail = Tool_failure_recovery.judge_error_to_string error in
        publish_recovery_event
@@ -1164,54 +1168,88 @@ let restore_tool_failure_recovery messages =
       restore_error = Some (recovery_failure Error.Resume_restore detail)
     }
   in
-  let project exchange =
+  let project (exchange : Llm_provider.Tool_message_pairs.tool_exchange) =
     Tool_failure_episode.project
-      ~tool_uses:exchange.Llm_provider.Tool_message_pairs.tool_uses
+      ~tool_uses:exchange.tool_uses
       ~tool_results:exchange.tool_results
   in
-  let exchanges =
-    Llm_provider.Tool_message_pairs.latest_tool_exchanges ~count:2 messages
+  let rec current_run_messages suffix = function
+    | [] -> Ok (`Legacy messages)
+    | (message : Types.message) :: rest ->
+      (match Types.Conversation_metadata.classify_run_boundary message.metadata with
+       | Types.Conversation_metadata.Present -> Ok (`Marked suffix)
+       | Types.Conversation_metadata.Absent ->
+         current_run_messages (message :: suffix) rest
+       | Types.Conversation_metadata.Malformed ->
+         Error "malformed or duplicate OAS agent run-boundary metadata")
   in
-  match exchanges with
-  | [] ->
-    (match Tool_failure_recovery.latest_receipt messages with
-     | Ok None -> empty_recovery_state
-     | Ok (Some _) -> fail "recovery receipt exists without a tool exchange"
-     | Error error -> fail (Tool_failure_recovery.show_receipt_error error))
-  | current_exchange :: rest ->
-    (match project current_exchange with
-     | Error error -> fail (Tool_failure_episode.show_error error)
-     | Ok current ->
-       let episodes =
-         match rest with
-         | [] -> Ok []
-         | previous_exchange :: _ ->
-           (match project previous_exchange with
-            | Error error -> Error (Tool_failure_episode.show_error error)
-            | Ok previous ->
-              (match Tool_failure_episode.detect ~previous ~current with
-               | Ok episodes -> Ok episodes
-               | Error error -> Error (Tool_failure_episode.show_error error)))
-       in
-       (match episodes with
-        | Error detail -> fail detail
-        | Ok episodes ->
-          (match Tool_failure_recovery.latest_receipt messages with
-           | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
-           | Ok receipt ->
-             let validation =
-               match receipt with
-               | None -> Ok ()
-               | Some receipt -> Tool_failure_recovery.validate_receipt ~episodes receipt
-             in
-             (match validation with
-              | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
-              | Ok () ->
-                { last_completed_round = Some current
-                ; pending_episodes = (if episodes = [] then None else Some episodes)
-                ; pending_receipt = receipt
-                ; restore_error = None
-                }))))
+  let restore_marked run_messages =
+    let exchanges =
+      Llm_provider.Tool_message_pairs.latest_tool_exchanges ~count:2 run_messages
+    in
+    match exchanges with
+    | [] ->
+      (match Tool_failure_recovery.latest_receipt run_messages with
+       | Ok None -> empty_recovery_state
+       | Ok (Some _) -> fail "recovery receipt exists without a tool exchange"
+       | Error error -> fail (Tool_failure_recovery.show_receipt_error error))
+    | current_exchange :: rest ->
+      (match project current_exchange with
+       | Error error -> fail (Tool_failure_episode.show_error error)
+       | Ok current ->
+         let episodes =
+           match rest with
+           | [] -> Ok []
+           | previous_exchange :: _ ->
+             (match project previous_exchange with
+              | Error error -> Error (Tool_failure_episode.show_error error)
+              | Ok previous ->
+                (match Tool_failure_episode.detect ~previous ~current with
+                 | Ok episodes -> Ok episodes
+                 | Error error -> Error (Tool_failure_episode.show_error error)))
+         in
+         (match episodes with
+          | Error detail -> fail detail
+          | Ok episodes ->
+            (match Tool_failure_recovery.latest_receipt run_messages with
+             | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
+             | Ok receipt ->
+               let validation =
+                 match receipt with
+                 | None -> Ok ()
+                 | Some receipt ->
+                   Tool_failure_recovery.validate_receipt ~episodes receipt
+               in
+               (match validation with
+                | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
+                | Ok () ->
+                  { last_completed_round = Some current
+                  ; pending_episodes = (if episodes = [] then None else Some episodes)
+                  ; pending_receipt = receipt
+                  ; restore_error = None
+                  }))))
+  in
+  match current_run_messages [] (List.rev messages) with
+  | Error detail -> fail detail
+  | Ok (`Marked run_messages) -> restore_marked run_messages
+  | Ok (`Legacy legacy_messages) ->
+    (match Tool_failure_recovery.latest_receipt legacy_messages with
+     | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
+     | Ok (Some _) -> fail "recovery receipt exists without an OAS run boundary"
+     | Ok None ->
+       (* Checkpoints written before run-boundary metadata cannot prove that
+          two historical exchanges belong to the same external user run. Keep
+          only the latest completed round so the next live failure can form a
+          typed episode without correlating across a user boundary. *)
+       (match
+          Llm_provider.Tool_message_pairs.latest_tool_exchanges ~count:1 legacy_messages
+        with
+        | [] -> empty_recovery_state
+        | current_exchange :: _ ->
+          (match project current_exchange with
+           | Error error -> fail (Tool_failure_episode.show_error error)
+           | Ok current ->
+             { empty_recovery_state with last_completed_round = Some current })))
 ;;
 
 let resume

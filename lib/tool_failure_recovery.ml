@@ -47,6 +47,8 @@ type response_error =
   | Expected_object
   | Missing_field of string
   | Invalid_field of string
+  | Duplicate_field of string
+  | Unexpected_field of string
   | Unsupported_action of string
   | Invalid_decision of decision_error
 [@@deriving show]
@@ -72,6 +74,25 @@ module String_set = Set.Make (String)
 let ( let* ) = Result.bind
 let is_blank value = String.equal (String.trim value) ""
 
+let validate_unique_fields fields =
+  let rec loop seen = function
+    | [] -> Ok ()
+    | (name, _) :: rest ->
+      if String_set.mem name seen
+      then Error (Duplicate_field name)
+      else loop (String_set.add name seen) rest
+  in
+  loop String_set.empty fields
+;;
+
+let validate_fields ~allowed fields =
+  let* () = validate_unique_fields fields in
+  let allowed = List.fold_right String_set.add allowed String_set.empty in
+  match List.find_opt (fun (name, _) -> not (String_set.mem name allowed)) fields with
+  | Some (name, _) -> Error (Unexpected_field name)
+  | None -> Ok ()
+;;
+
 let required_field name fields =
   match List.assoc_opt name fields with
   | Some value -> Ok value
@@ -93,9 +114,19 @@ let optional_json name fields =
 
 let parse_revised_call = function
   | `Assoc fields ->
+    let* () =
+      validate_fields
+        ~allowed:[ "current_tool_use_id"; "tool_name"; "revised_input" ]
+        fields
+    in
     let* current_tool_use_id = required_string "current_tool_use_id" fields in
     let* tool_name = required_string "tool_name" fields in
-    let* revised_input = required_field "revised_input" fields in
+    let* revised_input_value = required_field "revised_input" fields in
+    let* revised_input =
+      match revised_input_value with
+      | `Assoc _ -> Ok revised_input_value
+      | _ -> Error (Invalid_field "revised_input")
+    in
     Ok { current_tool_use_id; tool_name; revised_input }
   | _ -> Error (Invalid_field "revised_calls")
 ;;
@@ -116,18 +147,23 @@ let parse_revised_calls fields =
 
 let parse_decision_json = function
   | `Assoc fields ->
+    let* () = validate_unique_fields fields in
     let* action = required_string "action" fields in
     (match action with
      | "retry_modified" ->
+       let* () = validate_fields ~allowed:[ "action"; "revised_calls" ] fields in
        let* calls = parse_revised_calls fields in
        Ok (Retry_modified calls)
      | "replan" ->
+       let* () = validate_fields ~allowed:[ "action"; "instruction" ] fields in
        let* instruction = required_string "instruction" fields in
        Ok (Replan { instruction })
      | "ask_user" ->
+       let* () = validate_fields ~allowed:[ "action"; "question"; "schema" ] fields in
        let* question = required_string "question" fields in
        Ok (Ask_user { question; schema = optional_json "schema" fields })
      | "defer" ->
+       let* () = validate_fields ~allowed:[ "action"; "reason" ] fields in
        let* reason = required_string "reason" fields in
        Ok (Defer { reason })
      | action -> Error (Unsupported_action action))
@@ -220,57 +256,56 @@ let episode_json (episode : Tool_failure_episode.t) =
     [ "previous", attempt_json episode.previous; "current", attempt_json episode.current ]
 ;;
 
+let non_blank_string_schema = `Assoc [ "type", `String "string"; "minLength", `Int 1 ]
+
+let closed_object_schema ~properties ~required =
+  `Assoc
+    [ "type", `String "object"
+    ; "properties", `Assoc properties
+    ; "required", `List (List.map (fun name -> `String name) required)
+    ; "additionalProperties", `Bool false
+    ]
+;;
+
+let action_schema action properties required =
+  closed_object_schema
+    ~properties:(("action", `Assoc [ "const", `String action ]) :: properties)
+    ~required:("action" :: required)
+;;
+
 let output_schema =
+  let revised_call_schema =
+    closed_object_schema
+      ~properties:
+        [ "current_tool_use_id", non_blank_string_schema
+        ; "tool_name", non_blank_string_schema
+        ; "revised_input", `Assoc [ "type", `String "object" ]
+        ]
+      ~required:[ "current_tool_use_id"; "tool_name"; "revised_input" ]
+  in
   `Assoc
     [ "type", `String "object"
     ; ( "oneOf"
       , `List
-          [ `Assoc
-              [ ( "properties"
+          [ action_schema
+              "retry_modified"
+              [ ( "revised_calls"
                 , `Assoc
-                    [ "action", `Assoc [ "const", `String "retry_modified" ]
-                    ; ( "revised_calls"
-                      , `Assoc
-                          [ "type", `String "array"
-                          ; "minItems", `Int 1
-                          ; ( "items"
-                            , `Assoc
-                                [ "type", `String "object"
-                                ; ( "required"
-                                  , `List
-                                      [ `String "current_tool_use_id"
-                                      ; `String "tool_name"
-                                      ; `String "revised_input"
-                                      ] )
-                                ] )
-                          ] )
+                    [ "type", `String "array"
+                    ; "minItems", `Int 1
+                    ; "items", revised_call_schema
                     ] )
-              ; "required", `List [ `String "action"; `String "revised_calls" ]
               ]
-          ; `Assoc
-              [ ( "properties"
-                , `Assoc
-                    [ "action", `Assoc [ "const", `String "replan" ]
-                    ; "instruction", `Assoc [ "type", `String "string" ]
-                    ] )
-              ; "required", `List [ `String "action"; `String "instruction" ]
-              ]
-          ; `Assoc
-              [ ( "properties"
-                , `Assoc
-                    [ "action", `Assoc [ "const", `String "ask_user" ]
-                    ; "question", `Assoc [ "type", `String "string" ]
-                    ] )
-              ; "required", `List [ `String "action"; `String "question" ]
-              ]
-          ; `Assoc
-              [ ( "properties"
-                , `Assoc
-                    [ "action", `Assoc [ "const", `String "defer" ]
-                    ; "reason", `Assoc [ "type", `String "string" ]
-                    ] )
-              ; "required", `List [ `String "action"; `String "reason" ]
-              ]
+              [ "revised_calls" ]
+          ; action_schema
+              "replan"
+              [ "instruction", non_blank_string_schema ]
+              [ "instruction" ]
+          ; action_schema
+              "ask_user"
+              [ "question", non_blank_string_schema; "schema", `Assoc [] ]
+              [ "question" ]
+          ; action_schema "defer" [ "reason", non_blank_string_schema ] [ "reason" ]
           ] )
     ]
 ;;

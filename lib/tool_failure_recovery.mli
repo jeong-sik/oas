@@ -66,6 +66,8 @@ type response_error =
   | Expected_object
   | Missing_field of string
   | Invalid_field of string
+  | Duplicate_field of string
+  | Unexpected_field of string
   | Unsupported_action of string
   | Invalid_decision of decision_error
 [@@deriving show]

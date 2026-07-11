@@ -256,6 +256,12 @@ let update_recovery_state t f =
   Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.recovery_state <- f t.recovery_state)
 ;;
 
+let recovery_run_boundary_metadata t =
+  if Option.is_some t.tool_failure_judge
+  then Types.Conversation_metadata.run_boundary
+  else []
+;;
+
 let set_consecutive_idle_turns t n =
   Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.consecutive_idle_turns <- n)
 ;;
