@@ -158,11 +158,15 @@ type provider_impl =
   }
 
 let registry : (string, provider_impl) Hashtbl.t = Hashtbl.create 8
-let registry_mu = Eio.Mutex.create ()
+let registry_mu = Mutex.create ()
+
+let with_registry_lock f =
+  Mutex.lock registry_mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock registry_mu)
+;;
 
 let register_provider impl =
-  Eio.Mutex.use_rw ~protect:true registry_mu (fun () ->
-    Hashtbl.replace registry impl.name impl)
+  with_registry_lock (fun () -> Hashtbl.replace registry impl.name impl)
 ;;
 
 let find_builtin_provider name = function
@@ -249,12 +253,12 @@ let builtin_provider_impls = [ kimi_provider_impl ]
 let find_provider name =
   match find_builtin_provider name builtin_provider_impls with
   | Some impl -> Some impl
-  | None -> Eio.Mutex.use_ro registry_mu (fun () -> Hashtbl.find_opt registry name)
+  | None -> with_registry_lock (fun () -> Hashtbl.find_opt registry name)
 ;;
 
 let registered_providers () =
   let dynamic =
-    Eio.Mutex.use_ro registry_mu (fun () ->
+    with_registry_lock (fun () ->
       Hashtbl.fold (fun name _ acc -> name :: acc) registry [])
   in
   builtin_provider_impls

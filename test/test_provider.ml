@@ -1082,6 +1082,7 @@ let test_provider_config_of_agent_kimi_default_is_not_output_ceiling () =
       }
     in
     let state = agent_state_with_params () in
+    let state = { state with config = { state.config with max_tokens = None } } in
     match
       Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
     with
