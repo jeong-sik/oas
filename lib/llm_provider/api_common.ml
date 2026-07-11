@@ -308,7 +308,16 @@ let rec content_block_of_json_result json =
     in
     let is_error = Cli_common_json.member_bool "is_error" json in
     let json = Types.try_parse_json content in
-    Ok (ToolResult { tool_use_id; content; is_error; json; content_blocks })
+    Ok
+      (ToolResult
+         { tool_use_id
+         ; content
+         ; is_error
+         ; failure_kind = None
+         ; error_class = None
+         ; json
+         ; content_blocks
+         })
   | Some "image" ->
     parse_media_block
       ~block_type:"image"

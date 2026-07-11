@@ -146,6 +146,8 @@ let test_replace_existing () =
               { tool_use_id = "t1"
               ; content = "old result"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -208,6 +210,8 @@ let test_replace_preserves_other_results () =
               { tool_use_id = "t1"
               ; content = "keep"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -215,6 +219,8 @@ let test_replace_preserves_other_results () =
               { tool_use_id = "t2"
               ; content = "replace me"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

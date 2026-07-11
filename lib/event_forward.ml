@@ -58,6 +58,9 @@ let event_type_name (event : Event_bus.event) : string =
   | AgentFailed _ -> "agent.failed"
   | ToolCalled _ -> "tool.called"
   | ToolCompleted _ -> "tool.completed"
+  | ToolFailureEpisodeDetected _ -> "tool_failure.episode_detected"
+  | ToolFailureRecoveryDecided _ -> "tool_failure.recovery_decided"
+  | ToolFailureRecoveryJudgeFailed _ -> "tool_failure.recovery_judge_failed"
   | TurnStarted _ -> "turn.started"
   | TurnReady _ -> "turn.ready"
   | TurnCompleted _ -> "turn.completed"
@@ -80,6 +83,9 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | AgentFailed r -> Some r.agent_name
   | ToolCalled r -> Some r.agent_name
   | ToolCompleted r -> Some r.agent_name
+  | ToolFailureEpisodeDetected r -> Some r.agent_name
+  | ToolFailureRecoveryDecided r -> Some r.agent_name
+  | ToolFailureRecoveryJudgeFailed r -> Some r.agent_name
   | TurnStarted r -> Some r.agent_name
   | TurnReady r -> Some r.agent_name
   | TurnCompleted r -> Some r.agent_name
@@ -135,6 +141,24 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ; "tool_use_id", `String r.tool_use_id
         ; "success", `Bool (Result.is_ok r.output)
         ; "turn", `Int r.turn
+        ]
+    | ToolFailureEpisodeDetected r ->
+      `Assoc
+        [ "agent_name", `String r.agent_name
+        ; "turn", `Int r.turn
+        ; "episodes", `List (List.map Tool_failure_episode.to_yojson r.episodes)
+        ]
+    | ToolFailureRecoveryDecided r ->
+      `Assoc
+        [ "agent_name", `String r.agent_name
+        ; "turn", `Int r.turn
+        ; "decision", Tool_failure_recovery.decision_to_yojson r.decision
+        ]
+    | ToolFailureRecoveryJudgeFailed r ->
+      `Assoc
+        [ "agent_name", `String r.agent_name
+        ; "turn", `Int r.turn
+        ; "detail", `String r.detail
         ]
     | TurnStarted r -> `Assoc [ "agent_name", `String r.agent_name; "turn", `Int r.turn ]
     | TurnReady r ->

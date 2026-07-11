@@ -399,13 +399,23 @@ let test_content_block_to_json_tool_result () =
          { tool_use_id = "tu1"
          ; content = "done"
          ; is_error = true
+         ; failure_kind = Some Validation_error
+         ; error_class = Some Deterministic
          ; json = None
          ; content_blocks = None
          })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "tool_result" (json |> member "type" |> to_string);
-  Alcotest.(check bool) "is_error" true (json |> member "is_error" |> to_bool)
+  Alcotest.(check bool) "is_error" true (json |> member "is_error" |> to_bool);
+  Alcotest.(check bool)
+    "failure_kind is SDK-only"
+    true
+    (json |> member "failure_kind" = `Null);
+  Alcotest.(check bool)
+    "error_class is SDK-only"
+    true
+    (json |> member "error_class" = `Null)
 ;;
 
 let test_content_block_to_json_image () =
@@ -662,6 +672,8 @@ let test_contents_of_messages_tool_use () =
               { tool_use_id = "tu1"
               ; content = "result42"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

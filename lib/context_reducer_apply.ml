@@ -11,7 +11,8 @@ let apply_prune_tool_outputs ~max_output_len messages =
          List.map
            (fun block ->
               match block with
-              | ToolResult { tool_use_id; content; is_error; _ }
+              | ToolResult
+                  { tool_use_id; content; is_error; failure_kind; error_class; _ }
                 when String.length content > max_output_len ->
                 let truncated = String.sub content 0 max_output_len in
                 let marker =
@@ -21,6 +22,8 @@ let apply_prune_tool_outputs ~max_output_len messages =
                   { tool_use_id
                   ; content = truncated ^ marker
                   ; is_error
+                  ; failure_kind
+                  ; error_class
                   ; json = None
                   ; content_blocks = None
                   }
@@ -136,6 +139,8 @@ let synthetic_tool_result_message id =
               "OAS context reducer synthesized this error result because the original \
                tool call had no matching ToolResult."
           ; is_error = true
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = None
           }
@@ -357,7 +362,8 @@ let apply_clear_tool_results ~keep_recent messages =
                List.map
                  (fun block ->
                     match block with
-                    | ToolResult { tool_use_id; content; is_error; _ }
+                    | ToolResult
+                        { tool_use_id; content; is_error; failure_kind; error_class; _ }
                       when String.length content > 50 ->
                       let summary =
                         if is_error
@@ -371,6 +377,8 @@ let apply_clear_tool_results ~keep_recent messages =
                         { tool_use_id
                         ; content = summary
                         ; is_error
+                        ; failure_kind
+                        ; error_class
                         ; json = None
                         ; content_blocks = None
                         }
@@ -415,7 +423,8 @@ let apply_stub_tool_results ~keep_recent messages =
                List.map
                  (fun block ->
                     match block with
-                    | ToolResult { tool_use_id; content; is_error; _ }
+                    | ToolResult
+                        { tool_use_id; content; is_error; failure_kind; error_class; _ }
                       when String.length content > 50 ->
                       let tool_name =
                         match Hashtbl.find_opt tool_names tool_use_id with
@@ -441,6 +450,8 @@ let apply_stub_tool_results ~keep_recent messages =
                         { tool_use_id
                         ; content = stub
                         ; is_error
+                        ; failure_kind
+                        ; error_class
                         ; json = None
                         ; content_blocks = None
                         }

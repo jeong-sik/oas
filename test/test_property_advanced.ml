@@ -27,6 +27,8 @@ let content_block_gen =
              { tool_use_id = id
              ; content
              ; is_error
+             ; failure_kind = None
+             ; error_class = None
              ; json = Types.try_parse_json content
              ; content_blocks = None
              })

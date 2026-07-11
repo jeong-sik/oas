@@ -50,6 +50,15 @@ type tool_error_class =
   | Unknown
 [@@deriving yojson, show]
 
+(** Provider-neutral classification of a failed tool execution. The class is
+    produced by the execution boundary and survives agent history/checkpoint
+    projection; provider wire serializers deliberately omit it. *)
+type tool_failure_kind =
+  | Validation_error
+  | Recoverable_tool_error
+  | Non_retryable_tool_error
+[@@deriving yojson, show]
+
 type tool_error =
   { message : string
   ; recoverable : bool
@@ -146,6 +155,10 @@ type content_block =
       { tool_use_id : string
       ; content : string
       ; is_error : bool
+      ; failure_kind : tool_failure_kind option
+        (** Execution classification, when the result originated inside OAS. *)
+      ; error_class : tool_error_class option
+        (** Provider-neutral error class supplied by the tool boundary. *)
       ; json : Yojson.Safe.t option (** Structured payload when parseable. *)
       ; content_blocks : content_block list option
         (** Structured multi-block result (e.g. text + image). When [Some],
@@ -439,6 +452,8 @@ val tool_result_msg
   :  tool_use_id:string
   -> content:string
   -> ?is_error:bool
+  -> ?failure_kind:tool_failure_kind
+  -> ?error_class:tool_error_class
   -> ?json:Yojson.Safe.t
   -> unit
   -> message

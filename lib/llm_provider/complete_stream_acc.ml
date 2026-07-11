@@ -384,6 +384,8 @@ let finalize_stream_acc (acc : stream_acc) =
                 { tool_use_id
                 ; content = text
                 ; is_error
+                ; failure_kind = None
+                ; error_class = None
                 ; json = (if is_error then None else Types.try_parse_json text)
                 ; content_blocks = None
                 }))

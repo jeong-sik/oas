@@ -92,47 +92,8 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted
+  | ToolsExecuted of Tool_failure_episode.completed_round option
   | IdleSkipped
-
-let all_validation_error_results = function
-  | [] -> false
-  | results ->
-    List.for_all
-      (fun (result : Agent_tools.tool_execution_result) ->
-         result.is_error
-         &&
-         match result.failure_kind with
-         | Some Agent_tools.Validation_error -> true
-         | Some Agent_tools.Recoverable_tool_error
-         | Some Agent_tools.Non_retryable_tool_error
-         | None -> false)
-      results
-;;
-
-let validation_loop_blocked_text ~consecutive_idle_turns results =
-  let tool_names =
-    results
-    |> List.map (fun (result : Agent_tools.tool_execution_result) -> result.tool_name)
-    |> List.sort_uniq String.compare
-    |> String.concat ", "
-  in
-  let tool_names = if tool_names = "" then "(unknown)" else tool_names in
-  let last_error =
-    results
-    |> List.find_map (fun (result : Agent_tools.tool_execution_result) ->
-      if result.is_error then Some result.content else None)
-    |> Option.value ~default:"validation error"
-    |> fun s -> Util.clip s 700
-  in
-  Printf.sprintf
-    "I stopped the tool loop because the same invalid tool call was repeated after \
-     validation feedback. Tool(s): %s. Repeated invalid turn count: %d. Last validation \
-     error: %s"
-    tool_names
-    consecutive_idle_turns
-    last_error
-;;
 
 let persist_turn_checkpoint_for_state agent stage state =
   match agent.checkpoint_sink with
@@ -570,37 +531,13 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
             update_state agent (fun s ->
               { s with messages = Util.snoc s.messages (make_message ~role:User content) });
             let* () = persist_turn_checkpoint agent After_tool_results_appended in
-            Ok ToolsExecuted
+            Ok (ToolsExecuted None)
           | false ->
             let results =
               try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
               | Raw_trace.Trace_error err -> Error err
             in
             let* results = results in
-            let uses_default_idle_policy =
-              Option.is_none agent.options.hooks.on_idle
-              && Option.is_none agent.options.hooks.on_idle_escalated
-            in
-            let repeated_validation_loop_blocked =
-              idle_result.is_idle
-              && uses_default_idle_policy
-              && all_validation_error_results results
-            in
-            let validation_loop_blocked_response =
-              if repeated_validation_loop_blocked
-              then
-                Some
-                  { response with
-                    stop_reason = EndTurn
-                  ; content =
-                      [ Text
-                          (validation_loop_blocked_text
-                             ~consecutive_idle_turns:agent.consecutive_idle_turns
-                             results)
-                      ]
-                  }
-              else None
-            in
             let tool_result_event_envelope = Pipeline_common.event_envelope agent in
             let tool_results =
               Agent_turn.make_tool_results
@@ -610,92 +547,65 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                 ?relocation:agent.options.tool_result_relocation
                 results
             in
+            let completed_round =
+              match agent.tool_failure_judge with
+              | None -> Ok None
+              | Some _ ->
+                (match Tool_failure_episode.project ~tool_uses ~tool_results with
+                 | Ok round -> Ok (Some round)
+                 | Error error ->
+                   Error
+                     (Error.Agent
+                        (Error.ToolFailureRecoveryFailed
+                           { stage = Error.Round_projection
+                           ; detail = Tool_failure_episode.show_error error
+                           })))
+            in
             (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)
             (match agent.options.tool_result_relocation with
              | Some (_, crs) ->
                Content_replacement_state.persist_to_context agent.context crs
              | None -> ());
-            (* Tool-call validation / recoverable errors usually flow back to
-              the model as is_error tool_results so it can self-correct on a
-              subsequent turn. A repeated identical validation-only tool call
-              under the default idle policy is terminalized below: it has
-              already received schema feedback and another provider round would
-              replay the same large context without executing useful work. *)
-            let tool_feedback = tool_results in
-            let followup_text =
-              match validation_loop_blocked_response, !pending_nudge with
-              | Some _, _ -> None
-              | None, Some nudge -> Some nudge
-              | None, None when idle_result.is_idle && not !idle_handled ->
-                Some
-                  (Printf.sprintf
-                     "[Idle warning: You called the same tool(s) with identical \
-                      arguments %d time(s) in a row. Try a different tool or change your \
-                      arguments to make progress.]"
-                     agent.consecutive_idle_turns)
-              | None, None -> None
-            in
-            update_state agent (fun s ->
+            let checkpoint_state =
+              let s = agent.state in
               let messages =
-                match tool_feedback with
+                match tool_results with
                 | [] -> s.messages
-                | _ -> Util.snoc s.messages (make_message ~role:Tool tool_feedback)
+                | _ -> Util.snoc s.messages (make_message ~role:Tool tool_results)
               in
               let messages =
-                match followup_text with
+                match !pending_nudge with
                 | None -> messages
                 | Some text -> Util.snoc messages (make_message ~role:User [ Text text ])
               in
-              { s with messages });
-            (match agent.options.context_injector with
-             | None -> ()
-             | Some injector ->
-               let new_messages =
-                 Agent_turn.apply_context_injection
-                   ~context:agent.context
-                   ~messages:agent.state.messages
-                   ~injector
-                   ~tool_uses
-                   ~results
-               in
-               update_state agent (fun s -> { s with messages = new_messages }));
-            (match validation_loop_blocked_response with
-             | None -> ()
-             | Some blocked_response ->
-               update_state agent (fun s ->
-                 { s with
-                   messages =
-                     Util.snoc
-                       s.messages
-                       (make_message ~role:Assistant blocked_response.content)
-                 }));
-            let* () = persist_turn_checkpoint agent After_tool_results_appended in
-            (* The idle nudge (and the fallback anti-repetition hint) is appended
-              as a separate role:User message after the role:Tool result message.
-              This keeps OpenAI-compatible serializers from placing user text
-              before the required tool replies, which strict providers reject. *)
+              let messages =
+                match agent.options.context_injector with
+                | None -> messages
+                | Some injector ->
+                  Agent_turn.apply_context_injection
+                    ~context:agent.context
+                    ~messages
+                    ~injector
+                    ~tool_uses
+                    ~results
+              in
+              { s with messages }
+            in
+            let* () =
+              persist_turn_checkpoint_for_state
+                agent
+                After_tool_results_appended
+                checkpoint_state
+            in
+            set_state agent checkpoint_state;
+            (* A caller-installed idle nudge remains an explicit policy hook and
+               is appended after ToolResult. The former default repeat-count
+               User warning and canned Assistant terminal response are removed;
+               typed recovery owns repeated failed-tool judgment. *)
             ignore idle_handled;
-            (* suppress unused warning after dedup *)
-            (match validation_loop_blocked_response with
-             | Some blocked_response ->
-               Agent_types.reset_idle_state agent;
-               Ok (Complete blocked_response)
-             | None ->
-               (* In-memory message hygiene after each tool execution round.
-            Without this, agent.state.messages grows unbounded across turns —
-            context_reducer only trims before API calls, not in the stored state.
-
-            Two-step pruning (Claude Code Tier 1 pattern):
-            1. Stub old tool results: keep 2 most recent in full, replace older
-               with short stubs. Tool results are the largest allocation source.
-            2. Hard message cap: keep last 100 messages. Prevents unbounded growth
-               in long-running agents (600+ turns). *)
-               (* Tool-result stubbing and message cap are now applied at call-time
-            in Agent_turn.prepare_messages, not here.  Keeping stored messages
-            unmodified preserves the byte-identical conversation prefix that
-            local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
-               Ok ToolsExecuted)))
+            let* completed_round = completed_round in
+            Ok (ToolsExecuted completed_round)))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -1035,7 +945,7 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
+let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
   (* Stage 1: Input *)
   let* () =
     Tracing.with_span
@@ -1060,7 +970,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent |> tag_error "parse")
+      (fun _tracer ->
+         stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse")
   in
   let context_window = proactive_context_window_tokens agent in
   let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
@@ -1148,7 +1059,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         then (
           update_state agent (fun s -> { s with config = original_config });
           let* prep', _, _ =
-            stage_parse ?raw_trace_run ?clock agent |> tag_error "parse"
+            stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse"
           in
           Ok prep')
         else Ok prep
@@ -1223,7 +1134,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         else (
           update_state agent (fun s -> { s with config = original_config });
           let* prep', _, _ =
-            stage_parse ?raw_trace_run ?clock agent |> tag_error "parse"
+            stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse"
           in
           attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
       | other -> other
@@ -1303,6 +1214,8 @@ let%test "last_tool_results_from finds tool results in last tool message" =
               { tool_use_id = "t1"
               ; content = "result1"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1310,6 +1223,8 @@ let%test "last_tool_results_from finds tool results in last tool message" =
               { tool_use_id = "t2"
               ; content = "error msg"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1335,6 +1250,8 @@ let%test "last_tool_results_from skips non-tool user messages" =
               { tool_use_id = "t1"
               ; content = "first"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1405,6 +1322,8 @@ let%test "last_tool_results_from picks last tool-result message" =
               { tool_use_id = "t1"
               ; content = "first"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1425,6 +1344,8 @@ let%test "last_tool_results_from picks last tool-result message" =
               { tool_use_id = "t2"
               ; content = "second"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1449,6 +1370,8 @@ let%test "last_tool_results_from mixed content in user message" =
               { tool_use_id = "t1"
               ; content = "ok"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1473,6 +1396,8 @@ let%test "last_tool_results_from error tool result" =
               { tool_use_id = "t1"
               ; content = "fail msg"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1533,6 +1458,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t1"
               ; content = "r1"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1540,6 +1467,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t2"
               ; content = "r2"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -1547,6 +1476,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
               { tool_use_id = "t3"
               ; content = "r3"
               ; is_error = true
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

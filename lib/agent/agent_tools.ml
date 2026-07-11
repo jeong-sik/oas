@@ -7,7 +7,7 @@ open Types
 
 let _log = Log.create ~module_name:"agent_tools" ()
 
-type tool_failure_kind =
+type tool_failure_kind = Types.tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error

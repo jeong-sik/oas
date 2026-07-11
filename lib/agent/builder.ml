@@ -71,6 +71,7 @@ type t =
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
   ; checkpoint_sink : Agent.checkpoint_sink option
+  ; tool_failure_judge : Tool_failure_recovery.judge option
   ; policy_channel : Policy_channel.t option
   ; summarizer : (Types.message list -> string) option
   ; transport : Llm_provider.Llm_transport.t option
@@ -151,6 +152,7 @@ let create ~net ~model =
   ; tool_result_relocation = None
   ; journal = None
   ; checkpoint_sink = None
+  ; tool_failure_judge = None
   ; policy_channel = None
   ; summarizer = None
   ; transport = None
@@ -166,6 +168,10 @@ let with_journal journal b = { b with journal = Some journal }
 
 let with_checkpoint_sink checkpoint_sink b =
   { b with checkpoint_sink = Some checkpoint_sink }
+;;
+
+let with_tool_failure_judge tool_failure_judge b =
+  { b with tool_failure_judge = Some tool_failure_judge }
 ;;
 
 (** Override the Budget_strategy Emergency-phase summarizer with a
@@ -471,6 +477,7 @@ let build b =
     ~options
     ~auto_context_overflow_retry:b.auto_context_overflow_retry
     ?checkpoint_sink:b.checkpoint_sink
+    ?tool_failure_judge:b.tool_failure_judge
     ()
 ;;
 

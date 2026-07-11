@@ -93,6 +93,21 @@ type payload =
         (** Same turn index as the matching [ToolCalled]. See its doc.
             @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
+  | ToolFailureEpisodeDetected of
+      { agent_name : string
+      ; turn : int
+      ; episodes : Tool_failure_episode.t list
+      }
+  | ToolFailureRecoveryDecided of
+      { agent_name : string
+      ; turn : int
+      ; decision : Tool_failure_recovery.decision
+      }
+  | ToolFailureRecoveryJudgeFailed of
+      { agent_name : string
+      ; turn : int
+      ; detail : string
+      }
   | TurnStarted of
       { agent_name : string
       ; turn : int

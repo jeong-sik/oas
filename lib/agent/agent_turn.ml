@@ -612,6 +612,8 @@ let make_tool_results
            { tool_use_id = result.tool_use_id
            ; content
            ; is_error = result.is_error
+           ; failure_kind = result.failure_kind
+           ; error_class = result.error_class
            ; json = None
            ; content_blocks = None
            })
@@ -635,7 +637,7 @@ let make_tool_results
                | Some r -> r.preview
                | None -> sanitized
              in
-             result.tool_use_id, content, result.is_error, false)
+             result, content, false)
            else if
              cfg.threshold_chars > 0 && String.length sanitized > cfg.threshold_chars
            then (
@@ -672,16 +674,16 @@ let make_tool_results
                    result.tool_use_id;
                  sanitized
              in
-             result.tool_use_id, content, result.is_error, false)
+             result, content, false)
            else
              (* Below threshold — fresh, needs aggregate budget check *)
-             result.tool_use_id, sanitized, result.is_error, true)
+             result, sanitized, true)
         results
     in
     (* Phase 2: aggregate budget enforcement for fresh results *)
     let total_fresh_chars =
       List.fold_left
-        (fun acc (_, content, _, is_fresh) ->
+        (fun acc (_, content, is_fresh) ->
            if is_fresh then acc + String.length content else acc)
         0
         phase1
@@ -692,8 +694,10 @@ let make_tool_results
         (* Collect fresh results with sizes *)
         let fresh_entries =
           List.filter_map
-            (fun (tid, content, _, is_fresh) ->
-               if is_fresh then Some (tid, String.length content, content) else None)
+            (fun ((result : Agent_tools.tool_execution_result), content, is_fresh) ->
+               if is_fresh
+               then Some (result.tool_use_id, String.length content, content)
+               else None)
             phase1
         in
         (* Sort by size descending — persist largest first *)
@@ -720,7 +724,8 @@ let make_tool_results
     in
     (* Phase 3: apply aggregate decisions, record CRS, truncate *)
     List.map
-      (fun (tid, content, is_error, is_fresh) ->
+      (fun ((result : Agent_tools.tool_execution_result), content, is_fresh) ->
+         let tid = result.tool_use_id in
          let content =
            if is_fresh
            then
@@ -765,7 +770,14 @@ let make_tool_results
            else content
          in
          ToolResult
-           { tool_use_id = tid; content; is_error; json = None; content_blocks = None })
+           { tool_use_id = tid
+           ; content
+           ; is_error = result.is_error
+           ; failure_kind = result.failure_kind
+           ; error_class = result.error_class
+           ; json = None
+           ; content_blocks = None
+           })
       phase1
 ;;
 
@@ -782,7 +794,7 @@ let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_res
 ;;
 
 let single_tool_result = function
-  | [ ToolResult { tool_use_id; content; is_error; json = _ } ] ->
+  | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
     Some (tool_use_id, content, is_error)
   | []
   | [ Text _ ]

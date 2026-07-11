@@ -27,6 +27,21 @@ type checkpoint_snapshot =
 
 type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
 
+type recovery_state =
+  { last_completed_round : Tool_failure_episode.completed_round option
+  ; pending_episodes : Tool_failure_episode.t list option
+  ; pending_receipt : Tool_failure_recovery.receipt option
+  ; restore_error : Error.sdk_error option
+  }
+
+let empty_recovery_state =
+  { last_completed_round = None
+  ; pending_episodes = None
+  ; pending_receipt = None
+  ; restore_error = None
+  }
+;;
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -206,6 +221,8 @@ type t =
   ; context : Context.t
   ; options : options
   ; checkpoint_sink : checkpoint_sink option
+  ; tool_failure_judge : Tool_failure_recovery.judge option
+  ; mutable recovery_state : recovery_state
   }
 
 (* Public accessors — .mli exposes Agent.t as abstract *)
@@ -227,6 +244,16 @@ let set_state t s = Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.state <- s)
     inside a single critical section so no concurrent update is lost. *)
 let update_state t f =
   Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.state <- f t.state)
+;;
+
+let recovery_state t = Eio.Mutex.use_ro t.mu (fun () -> t.recovery_state)
+
+let set_recovery_state t recovery_state =
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.recovery_state <- recovery_state)
+;;
+
+let update_recovery_state t f =
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.recovery_state <- f t.recovery_state)
 ;;
 
 let set_consecutive_idle_turns t n =
@@ -357,6 +384,7 @@ let create
       ?(options = default_options)
       ?(auto_context_overflow_retry = true)
       ?checkpoint_sink
+      ?tool_failure_judge
       ()
   =
   let mcp_tools =
@@ -382,6 +410,8 @@ let create
   ; context = ctx
   ; options
   ; checkpoint_sink
+  ; tool_failure_judge
+  ; recovery_state = empty_recovery_state
   }
 ;;
 
@@ -405,6 +435,8 @@ let clone ?(copy_context = false) agent =
   ; context = ctx
   ; options = agent.options
   ; checkpoint_sink = agent.checkpoint_sink
+  ; tool_failure_judge = agent.tool_failure_judge
+  ; recovery_state = agent.recovery_state
   }
 ;;
 

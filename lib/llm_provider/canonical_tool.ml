@@ -158,7 +158,7 @@ let tool_calls_of_response (response : Types.api_response) : provider_tool_call 
 
 let tool_result_of_block (block : Types.content_block) : provider_tool_result option =
   match block with
-  | Types.ToolResult { tool_use_id; content; is_error; json; content_blocks } ->
+  | Types.ToolResult { tool_use_id; content; is_error; json; content_blocks; _ } ->
     Some
       { call_id = tool_use_id
       ; content

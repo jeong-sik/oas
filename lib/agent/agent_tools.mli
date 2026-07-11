@@ -44,7 +44,7 @@ val build_index : Tool.t list -> tool_index
     context cannot be applied to a tool the caller didn't actually name. *)
 val find_in_index : tool_index -> string -> Tool.t option
 
-type tool_failure_kind =
+type tool_failure_kind = Types.tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error

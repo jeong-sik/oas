@@ -213,6 +213,8 @@ let heal_tool_call
                            (max_retries + 1)
                            enriched_message
                      ; is_error = true
+                     ; failure_kind = Some Validation_error
+                     ; error_class = Some Deterministic
                      ; json = None
                      ; content_blocks = None
                      }

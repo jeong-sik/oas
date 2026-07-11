@@ -188,6 +188,8 @@ let test_roundtrip_tool_result () =
           { tool_use_id = "tu_1"
           ; content = "result data"
           ; is_error = false
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = None
           }
@@ -212,6 +214,8 @@ let test_roundtrip_tool_result_error () =
           { tool_use_id = "tu_2"
           ; content = "failed"
           ; is_error = true
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = None
           }
@@ -238,6 +242,8 @@ let test_roundtrip_tool_result_content_blocks () =
           { tool_use_id = "tu_blocks"
           ; content = "preview"
           ; is_error = false
+          ; failure_kind = None
+          ; error_class = None
           ; json = None
           ; content_blocks = Some blocks
           }

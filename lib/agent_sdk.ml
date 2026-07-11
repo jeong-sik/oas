@@ -98,6 +98,8 @@ module Agent_lifecycle = Agent_lifecycle
 module Agent_turn = Agent_turn
 module Agent_handoff = Agent_handoff
 module Agent_tools = Agent_tools
+module Tool_failure_episode = Tool_failure_episode
+module Tool_failure_recovery = Tool_failure_recovery
 module Agent_tool_name_alias = Agent_tool_name_alias
 module Agent_checkpoint = Agent_checkpoint
 module Agent_turn_budget = Agent_turn_budget
@@ -193,6 +195,7 @@ let create_agent
       ?cache_system_prompt
       ?provider
       ?raw_trace
+      ?tool_failure_judge
       ()
   =
   let open Types in
@@ -236,7 +239,7 @@ let create_agent
     | Some p, Some trace ->
       { Agent.default_options with provider = Some p; raw_trace = Some trace }
   in
-  Agent.create ~net ~config ~options ()
+  Agent.create ~net ~config ~options ?tool_failure_judge ()
 ;;
 
 (* runtime_query/query removed — CLI Runtime purge *)

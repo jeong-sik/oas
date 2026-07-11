@@ -428,6 +428,8 @@ let%test "openai_messages_of_message user with tool_result" =
             { tool_use_id = "tc1"
             ; content = "result"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -463,6 +465,8 @@ let%test "build_request strips orphaned tool results from wire messages" =
               { tool_use_id = "orphan-id"
               ; content = "stale"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -643,6 +647,8 @@ let%test "openai_messages_of_message Tool role with ToolResult" =
             { tool_use_id = "tc1"
             ; content = "result data"
             ; is_error = false
+            ; failure_kind = None
+            ; error_class = None
             ; json = None
             ; content_blocks = None
             }
@@ -1135,6 +1141,8 @@ let%test "openai_content_parts_of_blocks tool_result filtered" =
         { tool_use_id = "t1"
         ; content = "result"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }

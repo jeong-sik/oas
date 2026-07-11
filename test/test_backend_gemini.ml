@@ -240,6 +240,8 @@ let test_tool_result () =
               { tool_use_id = "call_123"
               ; content = "Sunny, 25C"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
@@ -537,6 +539,8 @@ let test_thought_signature_roundtrip_request () =
               { tool_use_id
               ; content = "found"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }

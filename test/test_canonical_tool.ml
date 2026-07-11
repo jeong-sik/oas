@@ -245,6 +245,8 @@ let test_tool_call_none_for_non_tooluse () =
         { tool_use_id = "call_x"
         ; content = "ok"
         ; is_error = false
+        ; failure_kind = None
+        ; error_class = None
         ; json = None
         ; content_blocks = None
         }
@@ -271,6 +273,8 @@ let test_result_roundtrip_preserves_fields () =
       { tool_use_id = "call_abc"
       ; content = "3 rows"
       ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
       ; json = Some json
       ; content_blocks = Some blocks
       }
@@ -295,6 +299,8 @@ let test_result_preserves_is_error () =
       { tool_use_id = "call_err"
       ; content = "boom"
       ; is_error = true
+      ; failure_kind = None
+      ; error_class = None
       ; json = None
       ; content_blocks = None
       }

@@ -178,6 +178,8 @@ let test_tool_use_id_roundtrip () =
               { tool_use_id = tu_id
               ; content = "Sunny 25C"
               ; is_error = false
+              ; failure_kind = None
+              ; error_class = None
               ; json = None
               ; content_blocks = None
               }
