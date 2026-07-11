@@ -365,8 +365,8 @@ let test_resume_does_not_correlate_across_external_user_runs () =
       ()
   in
   let boundary = Types.Conversation_metadata.run_boundary in
-  let call id =
-    ToolUse { id; name = "Execute"; input = `Assoc [ "cmd", `String "gh pr list" ] }
+  let call id : Types.content_block =
+    Types.ToolUse { id; name = "Execute"; input = `Assoc [ "cmd", `String "gh pr list" ] }
   in
   let checkpoint =
     { (Agent.checkpoint seed) with
