@@ -44,6 +44,17 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.210.0](https://github.com/jeong-sik/oas/compare/v0.209.1...v0.210.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm_provider:** effective_max_output_tokens is int option; unknown-model requests no longer carry max_tokens.
+
+### Features
+
+* **llm_provider:** stop inventing max_tokens for catalog-silent models ([#2514](https://github.com/jeong-sik/oas/issues/2514)) ([351c962](https://github.com/jeong-sik/oas/commit/351c962606ddc0ac105efe98b43955a3cbd0054b))
+
 ## [0.209.1](https://github.com/jeong-sik/oas/compare/v0.209.0...v0.209.1) (2026-07-10)
 
 
