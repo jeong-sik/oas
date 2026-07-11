@@ -54,9 +54,15 @@ let stage_input ?raw_trace_run ?clock agent =
                   ; response
                   }))
         | None -> ());
-       (match Agent_elicitation.message_of_response ~question:req.question response with
+       (match
+          Agent_elicitation.message_of_response
+            ~metadata:(Agent_types.recovery_run_boundary_metadata agent)
+            ~question:req.question
+            response
+        with
         | Some message ->
-          update_state agent (fun s -> { s with messages = Util.snoc s.messages message })
+          update_state agent (fun s -> { s with messages = Util.snoc s.messages message });
+          Agent_types.set_recovery_state agent Agent_types.empty_recovery_state
         | None -> ());
        Ok ()
      | None ->

@@ -18,12 +18,14 @@ val runtime_input_request_of_input_required
 val runtime_response_to_hooks : Runtime.input_response -> Hooks.elicitation_response
 
 val message_of_response
-  :  question:string
+  :  ?metadata:Types.metadata
+  -> question:string
   -> Hooks.elicitation_response
   -> Types.message option
 
 val apply_response
-  :  Agent_types.t
+  :  ?metadata:Types.metadata
+  -> Agent_types.t
   -> Error.input_required
   -> Hooks.elicitation_response
   -> unit

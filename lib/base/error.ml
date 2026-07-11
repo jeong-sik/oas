@@ -33,6 +33,14 @@ type tool_failure_recovery_stage =
   | Decision_persistence
   | Resume_restore
 
+let tool_failure_recovery_stage_to_string = function
+  | Round_projection -> "round_projection"
+  | Episode_detection -> "episode_detection"
+  | Judge_response -> "judge_response"
+  | Decision_persistence -> "decision_persistence"
+  | Resume_restore -> "resume_restore"
+;;
+
 (** Agent runtime errors. *)
 type agent_error =
   | MaxTurnsExceeded of
@@ -188,15 +196,10 @@ let agent_error_to_string = function
       r.question
       r.request_id
   | ToolFailureRecoveryFailed r ->
-    let stage =
-      match r.stage with
-      | Round_projection -> "round_projection"
-      | Episode_detection -> "episode_detection"
-      | Judge_response -> "judge_response"
-      | Decision_persistence -> "decision_persistence"
-      | Resume_restore -> "resume_restore"
-    in
-    Printf.sprintf "Tool failure recovery failed at %s: %s" stage r.detail
+    Printf.sprintf
+      "Tool failure recovery failed at %s: %s"
+      (tool_failure_recovery_stage_to_string r.stage)
+      r.detail
   | ToolFailureRecoveryDeferred r ->
     let tools = String.concat ", " r.tool_names in
     Printf.sprintf

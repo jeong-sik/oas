@@ -373,7 +373,10 @@ let message_has_tool_result (msg : message) =
 
 let merge_tool_result_followup_user_messages messages =
   let mergeable_followup (msg : message) =
-    msg.role = User && msg.name = None && msg.tool_call_id = None && msg.metadata = []
+    msg.role = User
+    && msg.name = None
+    && msg.tool_call_id = None
+    && Conversation_metadata.is_mergeable_followup msg.metadata
   in
   let rec aux acc = function
     | ({ role = Tool; _ } as tool_msg) :: (followup : message) :: rest
