@@ -124,6 +124,33 @@ let parse_openai_responses_completion body_str =
          (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request }))
 ;;
 
+type request_plan =
+  | Anthropic_request of Llm_provider.Provider_config.t
+  | Openai_request of Llm_provider.Provider_config.t
+  | Custom_request of Provider.provider_impl
+
+let resolve_request_plan ~state ~base_url (provider_cfg : Provider.config) =
+  match Provider.request_kind provider_cfg.provider with
+  | Provider.Custom name ->
+    (match Provider.find_provider name with
+     | Some impl -> Ok (Custom_request impl)
+     | None ->
+       Error
+         (Error.Config
+            (InvalidConfig
+               { field = "provider"
+               ; detail = Printf.sprintf "Custom provider %S is no longer registered" name
+               })))
+  | Provider.Anthropic_messages ->
+    Result.map
+      (fun config -> Anthropic_request config)
+      (Provider.provider_config_of_agent ~state ~base_url (Some provider_cfg))
+  | Provider.Openai_chat_completions ->
+    Result.map
+      (fun config -> Openai_request config)
+      (Provider.provider_config_of_agent ~state ~base_url (Some provider_cfg))
+;;
+
 (** Send a non-streaming message to the API, dispatching by provider.
     When [clock] is supplied the HTTP request is wrapped in
     [Eio.Time.with_timeout_exn] using [request_timeout_s] (default
@@ -170,15 +197,15 @@ let create_message
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key, header_list) ->
-    let* wire_config =
-      Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)
+    let* request_plan = resolve_request_plan ~state:config ~base_url provider_cfg in
+    let path =
+      match request_plan with
+      | Anthropic_request config | Openai_request config -> config.request_path
+      | Custom_request impl -> impl.request_path
     in
-    let model_spec = Provider.model_spec_of_config provider_cfg in
-    let kind = model_spec.request_kind in
-    let path = wire_config.request_path in
     let body_result =
-      match kind with
-      | Provider.Anthropic_messages ->
+      match request_plan with
+      | Anthropic_request wire_config ->
         let artifact =
           Llm_provider.Backend_anthropic.build_request_with_receipt
             ~config:wire_config
@@ -189,7 +216,7 @@ let create_message
         Ok
           ( Llm_provider.Provider_request_artifact.payload artifact
           , Some (Llm_provider.Provider_request_artifact.output_token_receipt artifact) )
-      | Provider.Openai_chat_completions ->
+      | Openai_request _wire_config ->
         Result.map
           (fun artifact ->
              ( Llm_provider.Provider_request_artifact.payload artifact
@@ -202,14 +229,7 @@ let create_message
              ?tools
              ?slot_id
              ())
-      | Provider.Custom name ->
-        (match Provider.find_provider name with
-         | Some impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
-         | None ->
-           Error
-             (Printf.sprintf
-                "Custom provider %S disappeared after successful resolution"
-                name))
+      | Custom_request impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
     in
     (match body_result with
      | Error reason ->
@@ -228,9 +248,12 @@ let create_message
          (* Merge auth headers at request time via Provider_config so that
          [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
          let auth_hdrs =
-           Llm_provider.Provider_config.auth_headers_for_kind_and_key
-             ~kind:wire_config.kind
-             ~api_key
+           match request_plan with
+           | Anthropic_request config | Openai_request config ->
+             Llm_provider.Provider_config.auth_headers_for_kind_and_key
+               ~kind:config.kind
+               ~api_key
+           | Custom_request _ -> []
          in
          match
            Llm_provider.Http_client.post_sync
@@ -262,12 +285,12 @@ let create_message
            | `Ok body_str ->
              let lat = measured_latency_ms () in
              let raw_resp_result =
-               match kind with
-               | Provider.Anthropic_messages ->
+               match request_plan with
+               | Anthropic_request _ ->
                  Llm_provider.Backend_anthropic.parse_response
                    (Yojson.Safe.from_string body_str)
                  |> ensure_nonempty_response
-               | Provider.Openai_chat_completions ->
+               | Openai_request wire_config ->
                  (* Reasoning stays typed as Thinking in the parsed response; it
                  is no longer promoted to a Text answer block (which caused the
                  #2236 CoT re-injection loop). Display surfacing is a read-side
@@ -277,19 +300,8 @@ let create_message
                      wire_config.request_path
                  then parse_openai_responses_completion body_str
                  else parse_openai_completion body_str
-               | Provider.Custom name ->
-                 (match Provider.find_provider name with
-                  | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
-                  | None ->
-                    Error
-                      (Retry_error
-                         (Retry.InvalidRequest
-                            { message =
-                                Printf.sprintf
-                                  "Custom provider %S disappeared before response parsing"
-                                  name
-                            ; reason = Retry.Unknown_invalid_request
-                            })))
+               | Custom_request impl ->
+                 impl.parse_response body_str |> ensure_nonempty_response
              in
              Result.map
                (fun resp ->
