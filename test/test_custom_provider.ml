@@ -1,5 +1,6 @@
 (** Tests for Custom_registered provider variant and registry integration.
-    Registry uses Eio.Mutex, so all registry tests run inside Eio_main.run. *)
+    The registry itself is safe to use without an Eio runtime. Integration tests
+    that exercise provider request paths retain their Eio wrapper. *)
 
 open Agent_sdk
 
@@ -35,7 +36,7 @@ let make_test_impl ?(name = "test-provider") ?(request_path = "/v1/test") ()
   }
 ;;
 
-(* Wrap a test body in Eio_main.run to provide the Eio effect handler *)
+(* Provide the Eio effect handler for provider request-path integration tests. *)
 let with_eio f () = Eio_main.run @@ fun _env -> f ()
 
 let task_testable =
@@ -244,16 +245,13 @@ let () =
   Alcotest.run
     "Custom Provider"
     [ ( "registry"
-      , [ Alcotest.test_case "register and find" `Quick (with_eio test_register_and_find)
-        ; Alcotest.test_case "find unregistered" `Quick (with_eio test_find_unregistered)
+      , [ Alcotest.test_case "register and find" `Quick test_register_and_find
+        ; Alcotest.test_case "find unregistered" `Quick test_find_unregistered
         ; Alcotest.test_case
             "registered_providers listing"
             `Quick
-            (with_eio test_registered_providers_listing)
-        ; Alcotest.test_case
-            "register overwrites"
-            `Quick
-            (with_eio test_register_overwrites)
+            test_registered_providers_listing
+        ; Alcotest.test_case "register overwrites" `Quick test_register_overwrites
         ] )
     ; ( "config"
       , [ Alcotest.test_case "custom_provider default" `Quick test_custom_provider_config
