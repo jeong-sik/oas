@@ -5,7 +5,7 @@
 | Status | Draft — needs owner sign-off on 2 decisions (see §0) |
 | Author | jeong-sik (with Claude Opus analysis) |
 | Created | 2026-06-03 |
-| Verified against | `origin/main` head `9598bc99` (release 0.200.10, on top of `4409e194`) |
+| Verified against | `origin/main` head `0c2aef991` + issue #2528 identity invariant (2026-07-11) |
 | Target | `agent_sdk` (oas) — `lib/llm_provider` only |
 | Supersedes | None |
 | Related | RFC-OAS-005 (tool-result relocation), RFC-OAS-008 (typed tool identification), RFC-OAS-016 (mcp optional dependency), RFC-OAS-023 (capability axis reshape); WP1/WP2/WP4 (already in `origin/main`) |
@@ -19,7 +19,7 @@
 
 | # | 항목 | 상태 | 근거 / 필요한 결정 |
 |---|---|---|---|
-| **K** | **Keystone: `id_origin` 유지 vs 제거** | **SIGN-OFF** | `id_origin`은 순수 사후-파싱 projection에서 도출 불가(Ollama mixed-origin, §3.3). dedup은 origin과 무관하게 `call_id` 동등성으로 동일하게 동작 → 소비자 분기가 없으면 unconsumed. **권고: 제거.** §6 D2/D4. |
+| **K** | **Keystone: `id_origin` 유지 vs 제거** | **SIGN-OFF** | `id_origin`은 순수 사후-파싱 projection에서 도출 불가(Ollama mixed-origin, §3.3). correlation은 origin과 무관하게 occurrence-unique `call_id` 동등성으로 동작 → 소비자 분기가 없으면 unconsumed. **권고: 제거.** §6 D2/D4. |
 | **M** | **`canonical_tool.ml` 모듈을 실제로 머지할지** | **SIGN-OFF** | in-repo 소비자(handoff serializer)가 없으면 fan-in==0 dead code. **권고: 소비자 커밋 전까지 spec-level 유지.** §7. |
 | D1 | SSOT vs side projection | RESOLVED | side projection (content_block이 in-memory SSOT). Keystone 제거 시 "zero blast radius" 주장 성립. §6 D1. |
 | D3 | parallel call `order_index` | RESOLVED | tool-call들만의 인덱스(filter+mapi), `next_block_index` 아님. §3.3, §6 D3, §8.2. |
@@ -33,7 +33,7 @@
 
 ## 1. Context & Boundary
 
-OAS는 provider wire format을 하나의 in-memory 표현(`lib/llm_provider/types.ml`)으로 canonicalize 하고, provider별로 다시 serialize 한다. 오늘날 이 canonicalization의 **tool-call 차원**은 암묵적이다. tool call은 `{ id; name; input }`을 담은 `ToolUse` content block이고(`types.ml:209-213`), tool result는 `ToolResult` block이다(`types.ml:214-243`). *어느 provider가* call을 emit했는지, parallel call이 *어떤 순서로* 도착했는지, *native wire id인지 synthesized id인지*, *어떤 reasoning이* 특정 call에 붙었는지에 대한 일급 개념이 없다.
+OAS는 provider wire format을 하나의 in-memory 표현(`lib/llm_provider/types.ml`)으로 canonicalize 하고, provider별로 다시 serialize 한다. 오늘날 이 canonicalization의 **tool-call 차원**은 암묵적이다. tool call은 `{ id; name; input }`을 담은 `ToolUse` content block이고(`types.ml:209-213`), tool result는 `ToolResult` block이다(`types.ml:214-243`). *어느 provider가* call을 emit했는지, parallel call이 *어떤 순서로* 도착했는지, *native wire id인지 OAS-allocated id인지*, *어떤 reasoning이* 특정 call에 붙었는지에 대한 일급 개념이 없다.
 
 WP8은 **typed canonical tool-call contract**를 도입한다. OAS가 downstream coordinator(MASC)에게 넘기는 surface로, 그 coordinator가 call↔result를 correlate 하고, reasoning을 replay 하고, 결정론적으로 reorder/dedup 할 수 있게 한다 — **OAS가 그 call들이 어떻게 실행되는지는 전혀 모르는 상태로**.
 
@@ -48,7 +48,7 @@ MASC는 본 문서에서 **이름이 붙은 소비자(named consumer)** 로만 �
 ### Goals
 1. **typed, closed** canonical tool-call core (string/carrier blob 없음). 이것은 *provider boundary에서의 projection*이지, 두 번째 in-memory SSOT가 아니다.
 2. coordinator가 parallel call을 **stream reconstruction을 가로질러 안정적으로** correlate/order 할 수 있게 하는 일급 `order_index`.
-3. id 전략은 `synthesize_tool_use_id`(`api_common.ml:29-31`)를 **확장**하며 rebuild 하지 않는다.
+3. provider가 id를 주면 byte-for-byte 보존하고, id-less call은 name/arguments와 무관한 occurrence-unique opaque id를 block start 전에 한 번만 발급한다.
 4. *reasoning 없음* 과 *config에 의해 reasoning suppressed* 를 구분하는 reasoning 링크.
 5. tool call에서 provider identity 도달 가능 — 기존 `inference_telemetry.provider_kind` 필드를 duplicate 하지 않고.
 
@@ -56,7 +56,7 @@ MASC는 본 문서에서 **이름이 붙은 소비자(named consumer)** 로만 �
 - `output_schema`를 `tool_schema`로 relocate 하지 않음 (D7).
 - tool-name → variant migration 없음 — 그것은 RFC-OAS-008의 일이다. 본 RFC는 `tool_schema.name : string`을 유지.
 - execution, policy, effect 개념 없음.
-- OpenAI Responses-API나 MCP `tools/call` *구현* 없음 (둘 다 OAS에 오늘 존재하지 않음 — §3.4). forward-compatible spec mapping만.
+- MCP `tools/call` 구현 없음. OpenAI Responses API canonicalization은 현재 구현되어 있으므로 Chat Completions와 같은 identity 불변식을 적용한다.
 - telemetry-only 필드 없음: 추가되는 모든 필드는 이름 붙은 소비자를 가진다.
 
 ## 3. Current State (`origin/main` `9598bc99`, verified reads)
@@ -72,38 +72,43 @@ MASC는 본 문서에서 **이름이 붙은 소비자(named consumer)** 로만 �
 - `tool_schema = { name : string; description; parameters; strict : bool option }` (WP2 `strict`).
 
 ### 3.2 id 도출 (확장할 기존 인프라)
-`api_common.ml:29-31`:
+`api_common.ml`:
 ```ocaml
-let synthesize_tool_use_id ~name args =
-  Printf.sprintf "call_%s_%s" name Digest.(to_hex (string (Yojson.Safe.to_string args)))
+let fresh_tool_use_id () =
+  let sequence = Atomic.fetch_and_add tool_use_id_sequence 1 in
+  Printf.sprintf "call_oas_%s_%x_%x" process_scope (Unix.getpid ()) sequence
 ```
-name+args의 결정론적 MD5(`Digest`). native wire id가 없는 parse 지점에서 호출된다.
+프로세스 namespace와 OCaml 5 `Atomic.fetch_and_add` sequence로 발급한다. name/arguments를 읽지 않으므로 동일 입력의 반복 call도 서로 다른 occurrence로 남고, 스트림 start에서 발급한 동일 id가 final `ToolUse`까지 유지된다.
 
 ### 3.3 provider별 call 구성 (오늘 id/order가 비롯되는 곳)
 | Provider | Parse 지점 (verified) | id 출처 | 비고 |
 |---|---|---|---|
 | **Anthropic** | `api_common.ml:145-149` (`content_block_of_json`, `Some "tool_use"` arm) | native `"id"` | real wire id. parts 순서 = 등장 순서 |
 | **OpenAI Chat Completions** | `backend_openai_parse.ml:283-284` (`tc \|> member "id" \|> to_string`) | native `"id"` | array index = 등장 순서 |
-| **Gemini** | `backend_gemini.ml:333` (`synthesize_tool_use_id`) | synthesized | `functionCall`에 wire id 없음 |
-| **Ollama** | `backend_ollama.ml:198-211` | **native-first, synth fallback** | 아래 정정 참조 |
-| **Streaming (전부)** | `streaming.ml:540,548` (`synthesize_tool_use_id`) | synthesized | `next_block_index`는 아래 정정 참조 |
+| **Gemini** | `backend_gemini.ml` | native-first, OAS allocation fallback | `FunctionCall.id`는 optional |
+| **Ollama** | `backend_ollama.ml` | **native-first, OAS allocation fallback** | 아래 정정 참조 |
+| **Streaming (전부)** | `streaming.ml` | native-first, OAS allocation fallback | start와 final identity가 동일 |
 
-**정정 — Ollama는 "synthesized"가 아니다.** 실제 코드(`backend_ollama.ml:198-211`):
+Gemini request lowering은 canonical `ToolUse.id`를 `functionCall.id`로, 대응하는
+`ToolResult.tool_use_id`를 `functionResponse.id`로 그대로 내보낸다. name은 API의
+필수 필드이므로 별도로 보존하되 correlation SSOT는 id다. 이 두 optional id
+필드는 [Google Generative Language v1beta `content.proto`](https://github.com/googleapis/googleapis/blob/master/google/ai/generativelanguage/v1beta/content.proto)의
+`FunctionCall.id`/`FunctionResponse.id` 계약을 따른다(확인 2026-07-11).
+
+**정정 — Ollama는 native-only가 아니다.** 실제 코드는 provider id를 우선하고, 없으면 새 opaque id를 한 번 발급한다:
 ```ocaml
-( ToolUse
-    { id =
-        tc |> member "id" |> to_string_option
-        |> Option.value ~default:synthetic_id   (* synthetic_id = synth(...) ^ "_" ^ idx *)
-    ; name; input }
-  :: acc, dropped )
+let id =
+  match provider_id with
+  | Some id -> id
+  | None -> Api_common.fresh_tool_use_id ()
 ```
-Ollama는 native `"id"`를 먼저 읽고, 없을 때만 `synthesize_tool_use_id ~name input` 뒤에 `_idx`를 붙인 fallback을 쓴다. 따라서 Ollama는 **per-call mixed-origin** 이다. 결정적으로, fallback 문자열은 `idx`를 포함하므로 **사후-파싱 시점에 재계산 불가** 다 — 이것이 §6 Keystone의 근거다.
+따라서 Ollama는 **per-call mixed-origin** 이다. OAS-allocated id도 opaque하고 사후-파싱 시점에 origin을 재계산할 수 없다 — 이것이 §6 Keystone의 근거다.
 
 **정정 — `next_block_index`는 all-block-types 카운터다.** `streaming.ml`에서 이 카운터는 thinking(`:347,356`), text(`:383,392`), tool(`:405,414` 및 `:540,548`) 블록 모두에서 증가한다. 따라서 tool call들이 받는 인덱스는 text/thinking 블록과 interleave 되어 **non-contiguous** 하다. `order_index`를 이 카운터에 직접 묶으면 D3 stability test가 두 path의 블록-대-블록 정렬을 가정하게 된다(§6 D3, §8.2에서 정정).
 
-### 3.4 존재하지 않는 것 (verified)
+### 3.4 구현 경계 (verified)
 - `git grep 'provider_call_id\|order_index'` over `lib/` → **zero**. 두 개념 모두 신규.
-- OpenAI **Responses-API** parse path 없음. `lib/llm_provider`에서 `responses`/`output_text`/`response.output` 검색 → `discovery.ml:548`의 `/v1/models` 주석뿐. OAS는 **Chat Completions만** parse 한다.
+- OpenAI **Responses API**는 `Streaming.responses_sse_to_events`가 `call_id`를 우선 보존하고, id-less output item에는 같은 OAS allocation invariant를 적용한다. `item_id`는 output-item routing identity이며 tool `call_id`로 재해석하지 않는다.
 - `lib/llm_provider`에 **MCP `tools/call`** converter 없음. `mcp` 참조는 부수적: capability flag `supports_runtime_mcp_tools`(`capabilities.ml`), policy passthrough `runtime_mcp_policy`(`complete.ml`), HTTP header byte 주석(`http_client.ml`). MCP transport/optional-dep는 RFC-OAS-016, 소비자 측.
 
 ### 3.5 request-level structured output (D7 boundary)
@@ -144,8 +149,8 @@ type reasoning_link =
 type provider_tool_call =
   { call_id : string
       (** coordinator가 result↔call correlate에 쓰는 id.
-          native wire id가 있으면 그것, 없으면 synthesize_tool_use_id의 결과
-          (Ollama fallback의 경우 그 결과에 _idx가 붙은 값). *)
+          native wire id가 있으면 그것, 없으면 해당 call occurrence에 대해
+          block start 전에 한 번 발급된 opaque OAS id. *)
   ; provider_kind : Provider_kind.t
       (** 이 call을 emit한 provider. projection 시점에 thread됨;
           optional telemetry 필드에서 읽지 않음 (D5). *)
@@ -185,7 +190,7 @@ val tool_result_of_block : Types.content_block -> provider_tool_result option
 
 ### 4.1 의도적으로 뺀 것 (anti-pattern bar를 우리 타입에도 적용)
 - **`raw_provider_item : Yojson.Safe.t` 없음.** 연구 초안이 제안했으나 unconsumed blob carrier — telemetry-as-fix 시그니처 그 자체. round-trip 충실도는 이미 `content_block`(in-memory SSOT)이 provider별 재serialize로 제공한다. byte-exact replay가 미래에 필요하면 이름 붙은 소비자와 함께 별도 RFC로. 제거.
-- **`canonical_call_id`를 `call_id`와 별도로 두지 않음.** id 필드는 하나. native-id provider는 native id, id-less provider는 synthesized id. 두 번째 "cross-provider stable" id는 `synthesize_tool_use_id`의 일을 duplicate 한다.
+- **`canonical_call_id`를 `call_id`와 별도로 두지 않음.** id 필드는 하나. native-id provider는 native id, id-less provider는 occurrence-unique OAS allocation을 쓴다. 두 번째 "cross-provider stable" id는 correlation SSOT를 duplicate 한다.
 - **tool *선언* 에 `namespace`/`portable_name`/`stable_id` 없음.** tool-name typing은 RFC-OAS-008. 여기서 decl을 widen 하면 그것을 선점한다. WP8은 *call/result* 에 관한 것이지 *decl* 이 아니다.
 - **tool decl에 `output_schema?` 생략** (D7). MCP per-tool `outputSchema` passthrough가 필요해지면 strict passthrough로 RFC-OAS-016 뒤에 gate, `tool_schema` 변경이 아니다.
 - **`id_origin`은 Keystone(§6 K) 결정에 종속.** 권고는 제거. 유지 시 parse-site threading 필요(lane-B).
@@ -198,14 +203,14 @@ val tool_result_of_block : Types.content_block -> provider_tool_result option
 |---|---|---|---|---|
 | **Anthropic** | `api_common.ml:145-149` | native `id` | tool-call 필터 후 위치 | 같은 `content`의 인접 `Thinking`/`RedactedThinking` 블록 |
 | **OpenAI_compat (Chat Completions)** | `backend_openai_parse.ml:283-284` | native `id` | tool-call 필터 후 위치 | `reasoning_content` 필드 (있으면) |
-| **Gemini** | `backend_gemini.ml:333` | synthesized | tool-call 필터 후 위치 | `part.thought` 텍스트 블록 |
-| **Ollama** | `backend_ollama.ml:198-211` | native-first, synth fallback | tool-call 필터 후 위치 | `reasoning` 필드 |
-| **Streaming (전부)** | `streaming.ml:540,548` | synthesized | tool-call 필터 후 위치 | stream state에 누적된 thinking delta |
+| **Gemini** | `backend_gemini.ml` | native-first, OAS allocation fallback | tool-call 필터 후 위치 | `part.thought` 텍스트 블록 |
+| **Ollama** | `backend_ollama.ml` | native-first, OAS allocation fallback | tool-call 필터 후 위치 | `reasoning` 필드 |
+| **Streaming (전부)** | `streaming.ml` | native-first, OAS allocation fallback | tool-call 필터 후 위치 | stream state에 누적된 thinking delta |
 
 > D5 표기 주의: `OpenAI_compat`은 **family(계열)이지 vendor가 아니다.** `Provider_kind.t = Anthropic \| Kimi \| OpenAI_compat \| Ollama \| Gemini \| Glm \| DashScope`이며 별도의 `OpenAI` variant는 없다(`provider_kind.mli` 확인). OpenAI와 일부 compat host가 이 variant를 공유하고, `Glm`/`Kimi`/`DashScope`는 별도다.
 
-**Forward / spec-level mapping (오늘 OAS에 구현되지 않음 — §3.4):**
-- **OpenAI Responses API**: parse path 없음. *추가될 때*, `function_call` output item이 `call_id`(native)를 담고, output array 순서 → `order_index`, `reasoning` item → `Available`. forward-compatible로 라벨; **존재하지 않으므로 file:line 인용 없음.**
+**구현/forward mapping:**
+- **OpenAI Responses API**: `Streaming.responses_sse_to_events`가 `function_call.call_id`를 tool identity로 보존하고, `output_index`를 구조적 route로 사용한다. `item_id`는 call identity가 아니다. id-less item이면 block start 전에 OAS id를 발급한다.
 - **MCP `tools/call`**: `lib/llm_provider`에 converter 없음. MCP는 소비자 측(RFC-OAS-016). *spec-level*: MCP `CallToolResult`가 `provider_tool_result`로 매핑(`content`→`content`, `structuredContent`→`structured_content`, `isError`→`is_error`). MCP per-tool `outputSchema`는 decl-level passthrough로 RFC-OAS-016에 deferred. MCP call의 id correlation은 coordinator의 관심사지 OAS의 것이 아니다.
 
 이로써 N-of-M anti-pattern을 회피한다: **하나의** `tool_calls_of_response` 함수가 모든 provider의 projection을 하고, 각 backend가 canonical struct를 hand-roll 하지 않는다.
@@ -219,8 +224,8 @@ canonical 타입은 provider boundary에서 `tool_calls_of_response`로 계산�
 
 ### D2 / D4 — **SIGN-OFF (Keystone). `id_origin`은 순수 사후-파싱 projection에서 도출 불가.**
 
-**문제 (검증됨):** `tool_calls_of_response : api_response -> _`는 parse *후* 에 돈다. 그 시점에 `ToolUse`는 `{ id; name; input }`(`types.ml:209-213`)이고 native-vs-synthesized 구분은 **parse 지점에서만 알려졌다가 버려진** 상태다.
-- Ollama(`backend_ollama.ml:198-211`)는 native-id-first, synth fallback이며 fallback 문자열에 `idx`가 포함되어 **재계산 불가** — per-call mixed-origin(§3.3).
+**문제 (검증됨):** `tool_calls_of_response : api_response -> _`는 parse *후* 에 돈다. 그 시점에 `ToolUse`는 `{ id; name; input }`(`types.ml:209-213`)이고 native-vs-OAS-allocated 구분은 **parse 지점에서만 알려졌다가 버려진** 상태다.
+- Ollama는 native-id-first, OAS allocation fallback인 per-call mixed-origin이며 opaque allocation의 origin은 **재계산 불가** 다(§3.3).
 - 문자열 모양(`call_..._...`)으로 origin을 역추정하는 것은 reparse / substring-classifier anti-pattern으로 금지.
 
 따라서 `id_origin`을 채우려면 둘 중 하나다:
@@ -230,7 +235,7 @@ canonical 타입은 provider boundary에서 `tool_calls_of_response`로 계산�
 **판별 질문 (오너가 답해야 함):**
 > `id_origin`으로 분기하는, `call_id` 동등성 dedup과 *구별되는* coordinator-side 소비자가 존재하는가?
 
-추적: coordinator는 "같은 `call_id` → 같은 call"로 dedup 한다. native provider는 per-call-unique id를 주므로 동일-args call이 distinct하게 남고(정상), synthesized id는 동일 name+args에 collide 하므로 collapse(R2의 "intentional dedup"). **두 경우 모두 dedup 연산은 동일** — `id_origin`은 어떤 분기도 gate 하지 않는다. 행위를 바꾸지 않는 필드는 anti-pattern bar상 unconsumed.
+추적: coordinator는 "같은 `call_id` → 같은 call occurrence"로 correlate 한다. native provider id와 OAS allocation 모두 occurrence-unique이므로 동일 name+args의 반복 call도 distinct하게 남는다. content equality를 identity/dedup으로 사용하지 않는다. **두 origin 모두 correlation 연산은 동일** — `id_origin`은 어떤 분기도 gate 하지 않는다. 행위를 바꾸지 않는 필드는 anti-pattern bar상 unconsumed.
 
 | Lane | 내용 | 결과 | 권고 |
 |---|---|---|---|
@@ -263,15 +268,15 @@ Anthropic parallel tool use는 본질적 순서가 없으므로 등장 순서를
 
 - **Increment 1 (smallest, 가장 먼저):** `canonical_tool.ml/.mli`에 타입 + `tool_result_of_block`(result projection — 기존 `ToolResult` 필드만 읽음, provider plumbing 없음). property test: `ToolResult → provider_tool_result` round-trip이 `content`/`is_error`/`structured_content` 보존. **backend 무변경.** 5개 `ToolResult` 필드(`tool_use_id`/`content`/`is_error`/`json`/`content_blocks`)는 origin/main에 존재 확인됨 → 진짜로 blast-radius 0인 유일한 increment. projection 타입이 컴파일되고 result path가 isolation에서 옳음을 증명.
 - **Increment 2:** `tool_calls_of_response ~provider_kind ~reasoning_suppressed`. backend 하나 먼저 — OpenAI_compat Chat(native id, order = 필터 후 인덱스) — snapshot test. reasoning link = `No_reasoning`/`Available`만(config plumbing 없이는 `Suppressed` 불가; 둘 다 test). (Keystone lane-B 채택 시 여기서 parse-site threading 비용 발생.)
-- **Increment 3:** Anthropic(native id + 인접 thinking → `Available`)과 Gemini(synthesized id, `part.thought` → reasoning) wiring.
+- **Increment 3:** Anthropic(native id + 인접 thinking → `Available`)과 Gemini(native-first/OAS fallback id, `part.thought` → reasoning) wiring.
 - **Increment 4:** streaming reconstruction wiring — 같은 논리적 response에 대해 streaming-reconstructed `order_index` == non-streamed `order_index` 단언(D3 stability를 test로). 이때 `order_index`는 양쪽에서 **tool-call 필터 후 인덱스** 로 동일 계산하므로 all-block 정렬 가정이 없다.
-- **Increment 5 (optional, deferred):** Ollama; OpenAI Responses + MCP는 그 parse path가 생길 때까지 spec-only.
+- **Increment 5:** Ollama와 OpenAI Responses는 구현됨. MCP는 converter가 생길 때까지 spec-only.
 
 ## 8. Test Strategy
 
 1. **Closedness / exhaustiveness:** `reasoning_kind`, `reasoning_link`(+lane-B의 `id_origin`)는 closed variant — projection의 `match`가 compile-time coverage를 강제. variant 추가 시 컴파일 깨짐(`Provider_kind.all`의 WP8 대응물).
 2. **D3 stability (load-bearing):** 고정된 multi-tool response에 대해 batch parse path의 `order_index` == streaming-reconstructed path의 `order_index`. **양쪽 모두 ToolUse 필터 후 인덱스로 계산** — text/thinking 블록 정렬을 가정하지 않는다(§3.3 정정 반영). 1–4 call 생성 response에 대한 property test.
-3. **D4 id correctness:** native-id provider → `call_id` == wire id; Gemini → `call_id` == `synthesize_tool_use_id ~name args`(기존 함수 출력 그대로 단언 — "extend, not rebuild" 증명); Ollama → native 있으면 native, 없으면 synth+`_idx` fallback. (lane-B 채택 시에만 `id_origin` 값 단언 추가.)
+3. **D4 id correctness:** native-id provider → `call_id` == wire id; id-less provider → block start와 finalized `ToolUse`의 id가 같고 별도 stream/call occurrence끼리는 다름; 동일 name+args도 collapse하지 않음. Ollama → native가 있으면 그대로 보존. (lane-B 채택 시에만 `id_origin` 값 단언 추가.)
 4. **D6 distinguishability:** suppressed-config response → `Suppressed`, no-reasoning response → `No_reasoning`, thinking response → `Available` — 세 distinct 값 단언(`option` 기반 설계는 이 test를 통과 못 함, 그것이 핵심).
 5. **D7 non-coupling:** `structured_content`는 `ToolResult.json`이 `Some`일 때만 채워짐; projection이 `provider_config.output_schema`를 절대 읽지 않음을 단언(module boundary로 검증 — `canonical_tool`이 `Provider_config`에 의존하지 않음).
 6. **Boundary guard:** `canonical_tool.ml`의 의존 집합이 `{Types; Provider_kind; Yojson}` 임을 test/lint로 단언 — masc-mcp/policy/execution 모듈 없음. §1 boundary를 checkable invariant로 encode.
@@ -289,4 +294,4 @@ Anthropic parallel tool use는 본질적 순서가 없으므로 등장 순서를
 
 **Verified-absent (grep, zero hits):** `provider_call_id`, `order_index`, OpenAI Responses parse path, `lib/llm_provider` 내 MCP `tools/call` converter.
 
-**검증된 정정 (초안 대비):** Ollama는 native-id-first + synth fallback(`backend_ollama.ml:198-211`)이며 "synthesized" 아님; `next_block_index`는 all-block 카운터(`streaming.ml`)라 `order_index`는 tool-call 필터 후 인덱스여야 함; `Provider_kind.t`에 `OpenAI` variant 없음 — `OpenAI_compat`(family); 헤더 SHA `9598bc99`.
+**검증된 정정 (초안 대비):** Ollama는 native-id-first + OAS allocation fallback이며; `next_block_index`는 all-block 카운터(`streaming.ml`)라 `order_index`는 tool-call 필터 후 인덱스여야 함; `Provider_kind.t`에 `OpenAI` variant 없음 — `OpenAI_compat`(family); OpenAI Responses path는 현재 구현됨; 헤더 SHA `0c2aef991`.

@@ -134,9 +134,9 @@ let test_sse_function_call () =
   | None -> check "parsed chunk" false
 ;;
 
-(* ── 5. tool_use_id synthesis + roundtrip ── *)
+(* ── 5. OAS-allocated tool_use_id + roundtrip ── *)
 let test_tool_use_id_roundtrip () =
-  Printf.printf "=== tool_use_id synthesis roundtrip ===\n";
+  Printf.printf "=== allocated tool_use_id roundtrip ===\n";
   let response_json =
     Yojson.Safe.from_string
       {|{
@@ -152,11 +152,11 @@ let test_tool_use_id_roundtrip () =
     | Types.ToolUse { id; name; input } -> id, name, input
     | _ -> failwith "expected ToolUse"
   in
-  Printf.printf "  synthesized id: %s\n" tu_id;
+  Printf.printf "  allocated id: %s\n" tu_id;
   Printf.printf "  name: %s\n" tu_name;
   check "id is non-empty" (tu_id <> "");
   check "name is get_weather" (tu_name = "get_weather");
-  (* Build next turn with ToolResult using this synthesized id *)
+  (* Build next turn with ToolResult using this allocated id. *)
   let config =
     Provider_config.make
       ~kind:Gemini
@@ -197,9 +197,10 @@ let test_tool_use_id_roundtrip () =
   let parts = third |> member "parts" |> to_list in
   let fr = List.hd parts |> member "functionResponse" in
   check "functionResponse present" (fr <> `Null);
+  check "functionResponse.id preserved" (fr |> member "id" |> to_string = tu_id);
   let fr_name = fr |> member "name" |> to_string in
   check "functionResponse.name = get_weather (resolved from id)" (fr_name = "get_weather");
-  Printf.printf "  functionResponse.name: %s (resolved from synthesized id)\n" fr_name
+  Printf.printf "  functionResponse.name: %s (resolved from allocated id)\n" fr_name
 ;;
 
 let () =

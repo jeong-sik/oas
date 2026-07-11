@@ -13,8 +13,8 @@
     contiguous reasoning blocks immediately before a ToolUse are linked.
 
     Lane A (Keystone K): no [id_origin]. [call_id] is the block's id verbatim,
-    already the native wire id or a synthesized id depending on the provider
-    parse path; ids are neither re-synthesized nor re-classified here. *)
+    already the native wire id or an opaque OAS allocation depending on the
+    provider parse path; ids are neither reallocated nor reclassified here. *)
 
 type provider_reasoning_kind =
   | Visible_thinking

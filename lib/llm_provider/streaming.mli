@@ -81,27 +81,9 @@ type openai_chunk =
   ; chunk_parse_error : openai_chunk_parse_error option
   }
 
-type thinking_state =
-  | Not_thinking
-  | Thinking_started of float
-  | Thinking_done
-
-type tool_index_route =
-  | Tool_index_single of int
-  | Tool_index_ambiguous of int list
-
-type openai_stream_state =
-  { mutable thinking_block_started : bool
-  ; mutable thinking_block_index : int
-  ; mutable text_block_started : bool
-  ; mutable text_block_index : int
-  ; tool_blocks_by_id : (string, int) Hashtbl.t
-  ; tool_block_indices : (int, tool_index_route) Hashtbl.t
-  ; mutable next_block_index : int
-  ; mutable thinking_state : thinking_state
-  ; provider : string
-  ; model : string
-  }
+(** Mutable normalization state.  Its representation is private so callers
+    cannot bypass tool identity and block-routing invariants. *)
+type openai_stream_state
 
 val parse_openai_sse_chunk
   :  ?streaming_reasoning:Reasoning_dialect.streaming_reasoning

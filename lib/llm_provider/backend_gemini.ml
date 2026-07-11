@@ -183,7 +183,9 @@ let part_of_content_block id_to_name tool_signatures = function
   | Document { media_type; data; source_type } ->
     inline_data_part ~block:"document" ~media_type ~data source_type
   | ToolUse { id; name; input } ->
-    let fields = [ "functionCall", `Assoc [ "name", `String name; "args", input ] ] in
+    let fields =
+      [ "functionCall", `Assoc [ "id", `String id; "name", `String name; "args", input ] ]
+    in
     let fields =
       match Hashtbl.find_opt tool_signatures id with
       | Some signature -> ("thoughtSignature", `String signature) :: fields
@@ -209,7 +211,8 @@ let part_of_content_block id_to_name tool_signatures = function
       (`Assoc
           [ ( "functionResponse"
             , `Assoc
-                [ "name", `String name
+                [ "id", `String tool_use_id
+                ; "name", `String name
                 ; ( "response"
                   , `Assoc [ "result", `String (Utf8_sanitize.sanitize content) ] )
                 ] )
@@ -446,7 +449,11 @@ let parse_response json =
               | `Assoc _ as fc ->
                 let name = fc |> member "name" |> to_string in
                 let args = fc |> member "args" in
-                let id = Api_common.synthesize_tool_use_id ~name args in
+                let id =
+                  match string_field_opt "id" fc with
+                  | Some id -> id
+                  | None -> Api_common.fresh_tool_use_id ()
+                in
                 let tool_use = ToolUse { id; name; input = args } in
                 (match part |> member "thoughtSignature" |> to_string_option with
                  | Some thought_signature

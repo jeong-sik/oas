@@ -24,10 +24,25 @@ let max_stdio_buffer = 16 * 1024 * 1024
     [Retry.Timeout] so [Retry.with_retry] can retry or surface the failure. *)
 let default_request_timeout_s = 60.0
 
-(** Synthesize a deterministic tool_use_id from function name and args.
-    Gemini API does not return tool IDs; we generate stable ones via MD5. *)
-let synthesize_tool_use_id ~name args =
-  Printf.sprintf "call_%s_%s" name Digest.(to_hex (string (Yojson.Safe.to_string args)))
+(** Process-scoped entropy for OAS-allocated tool-use identities.
+
+    The identity must not depend on model-generated names or arguments: those
+    values are incomplete at streaming block start and repeated calls may have
+    identical payloads.  [Random.State.make_self_init] obtains an independent
+    system-seeded state, while the atomic sequence makes allocation unique
+    within this process even when several OCaml 5 domains open streams at the
+    same time.  The process id prevents a post-[fork] child from sharing the
+    parent's namespace. *)
+let tool_use_id_process_scope =
+  let state = Random.State.make_self_init () in
+  Printf.sprintf "%016Lx%016Lx" (Random.State.bits64 state) (Random.State.bits64 state)
+;;
+
+let tool_use_id_sequence = Atomic.make 0
+
+let fresh_tool_use_id () =
+  let sequence = Atomic.fetch_and_add tool_use_id_sequence 1 in
+  Printf.sprintf "call_oas_%s_%x_%x" tool_use_id_process_scope (Unix.getpid ()) sequence
 ;;
 
 let string_is_blank s = String.trim s = ""

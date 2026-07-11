@@ -246,24 +246,28 @@ let test_max_stdio_buffer () =
   Alcotest.(check int) "16 MB" (16 * 1024 * 1024) Api_common.max_stdio_buffer
 ;;
 
-let test_synthesize_tool_use_id () =
-  let id1 =
-    Api_common.synthesize_tool_use_id ~name:"my_tool" (`Assoc [ "key", `String "val" ])
-  in
-  let id2 =
-    Api_common.synthesize_tool_use_id ~name:"my_tool" (`Assoc [ "key", `String "val" ])
-  in
-  Alcotest.(check string) "deterministic" id1 id2;
+let test_fresh_tool_use_id () =
+  let id1 = Api_common.fresh_tool_use_id () in
+  let id2 = Api_common.fresh_tool_use_id () in
+  Alcotest.(check bool) "distinct allocations" true (id1 <> id2);
   Alcotest.(check bool)
-    "starts with call_"
+    "starts with OAS namespace"
     true
-    (String.length id1 > 5 && String.sub id1 0 5 = "call_")
+    (String.starts_with ~prefix:"call_oas_" id1)
 ;;
 
-let test_synthesize_tool_use_id_different_args () =
-  let id1 = Api_common.synthesize_tool_use_id ~name:"tool" (`Assoc [ "a", `Int 1 ]) in
-  let id2 = Api_common.synthesize_tool_use_id ~name:"tool" (`Assoc [ "a", `Int 2 ]) in
-  Alcotest.(check bool) "different args -> different id" true (id1 <> id2)
+let test_fresh_tool_use_id_domain_safe () =
+  let domains =
+    Array.init 4 (fun _ ->
+      Domain.spawn (fun () -> List.init 64 (fun _ -> Api_common.fresh_tool_use_id ())))
+  in
+  let ids = domains |> Array.to_list |> List.concat_map Domain.join in
+  let unique = Hashtbl.create (List.length ids) in
+  List.iter (fun id -> Hashtbl.replace unique id ()) ids;
+  Alcotest.(check int)
+    "all domain allocations unique"
+    (List.length ids)
+    (Hashtbl.length unique)
 ;;
 
 let test_string_is_blank () =
@@ -1932,11 +1936,11 @@ let () =
         ; Alcotest.test_case "max_stdio_buffer" `Quick test_max_stdio_buffer
         ] )
     ; ( "api_common.helpers"
-      , [ Alcotest.test_case "synthesize_tool_use_id" `Quick test_synthesize_tool_use_id
+      , [ Alcotest.test_case "fresh_tool_use_id" `Quick test_fresh_tool_use_id
         ; Alcotest.test_case
-            "synthesize_tool_use_id different"
+            "fresh_tool_use_id domain-safe"
             `Quick
-            test_synthesize_tool_use_id_different_args
+            test_fresh_tool_use_id_domain_safe
         ; Alcotest.test_case "string_is_blank" `Quick test_string_is_blank
         ; Alcotest.test_case "text_blocks_to_string" `Quick test_text_blocks_to_string
         ; Alcotest.test_case

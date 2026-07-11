@@ -356,18 +356,27 @@ let finalize_stream_acc (acc : stream_acc) =
                    ; raw = text
                    }))
         in
-        let id =
+        let* id =
           match Hashtbl.find_opt acc.block_tool_ids idx with
-          | Some s when not (Api_common.string_is_blank s) -> s
+          | Some s when not (Api_common.string_is_blank s) -> Ok s
           | Some _ | None ->
-            Printf.sprintf "%s_%d" (Api_common.synthesize_tool_use_id ~name input) idx
+            Error
+              (Types.Stream_parse_failed
+                 { reason = Printf.sprintf "malformed_tool_use:index:%d:missing_id" idx
+                 ; raw = ""
+                 })
         in
         Ok (Some (Types.ToolUse { id; name; input }))
       | Some (Tool_result_block { is_error }) ->
-        let tool_use_id =
+        let* tool_use_id =
           match Hashtbl.find_opt acc.block_tool_ids idx with
-          | Some s -> s
-          | None -> ""
+          | Some s when not (Api_common.string_is_blank s) -> Ok s
+          | Some _ | None ->
+            Error
+              (Types.Stream_parse_failed
+                 { reason = Printf.sprintf "malformed_tool_result:index:%d:missing_id" idx
+                 ; raw = ""
+                 })
         in
         Ok
           (Some
@@ -1294,7 +1303,7 @@ let%test "finalize_stream_acc tool_use missing name fails closed" =
     false
 ;;
 
-let%test "finalize_stream_acc tool_use missing id synthesizes stable id" =
+let%test "finalize_stream_acc tool_use missing id fails closed" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   Hashtbl.replace acc.block_tool_names 0 "get_weather";
@@ -1305,19 +1314,12 @@ let%test "finalize_stream_acc tool_use missing id synthesizes stable id" =
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error err ->
-    let (_ : Types.stream_error) = err in
-    false
-  | Ok result ->
-    (match result.content with
-     | [ Types.ToolUse { id; name = "get_weather"; input = `Assoc [] } ] ->
-       String.starts_with ~prefix:"call_get_weather_" id
-     | unexpected ->
-       let (_ : Types.content_block list) = unexpected in
-       false)
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "malformed_tool_use:index:0:missing_id" && raw = ""
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
-let%test "finalize_stream_acc tool_use blank id synthesizes stable id" =
+let%test "finalize_stream_acc tool_use blank id fails closed" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   Hashtbl.replace acc.block_tool_ids 0 " ";
@@ -1329,16 +1331,9 @@ let%test "finalize_stream_acc tool_use blank id synthesizes stable id" =
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error err ->
-    let (_ : Types.stream_error) = err in
-    false
-  | Ok result ->
-    (match result.content with
-     | [ Types.ToolUse { id; name = "get_weather"; input = `Assoc [] } ] ->
-       String.starts_with ~prefix:"call_get_weather_" id
-     | unexpected ->
-       let (_ : Types.content_block list) = unexpected in
-       false)
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "malformed_tool_use:index:0:missing_id" && raw = ""
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc assembles tool_result block" =
@@ -1363,6 +1358,21 @@ let%test "finalize_stream_acc assembles tool_result block" =
            }
        ] -> true
      | _ -> false)
+;;
+
+let%test "finalize_stream_acc tool_result missing id fails closed" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_result";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "done";
+  Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "malformed_tool_result:index:0:missing_id" && raw = ""
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc assembles a streamed image block" =

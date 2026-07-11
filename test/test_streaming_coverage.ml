@@ -436,7 +436,7 @@ let test_finalize_tool_use_missing_name () =
     Alcotest.fail "expected missing tool name to fail closed"
 ;;
 
-let test_finalize_tool_use_missing_id_synthesizes () =
+let test_finalize_tool_use_missing_id_fails_closed () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event
     acc
@@ -445,22 +445,15 @@ let test_finalize_tool_use_missing_id_synthesizes () =
   Streaming.accumulate_event
     acc
     (ContentBlockDelta { index = 0; delta = InputJsonDelta {|{"ok": true}|} });
-  let resp = finalize_ok acc in
-  match resp.content with
-  | [ ToolUse { id; name; input } ] ->
-    check_bool "synthetic id prefix" true (String.starts_with ~prefix:"call_lookup_" id);
-    check_string "tool_name" "lookup" name;
-    let input_ok =
-      match input with
-      | `Assoc [ ("ok", `Bool true) ] -> true
-      | unexpected ->
-        let (_ : Yojson.Safe.t) = unexpected in
-        false
-    in
-    check_bool "input ok" true input_ok
-  | unexpected ->
-    let (_ : content_block list) = unexpected in
-    Alcotest.fail "expected ToolUse with synthetic id"
+  Streaming.accumulate_event
+    acc
+    (MessageDelta { stop_reason = Some StopToolUse; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error (Stream_parse_failed { reason; raw }) ->
+    check_string "missing id reason" "malformed_tool_use:index:0:missing_id" reason;
+    check_string "raw omitted" "" raw
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected missing tool id to fail closed"
 ;;
 
 (* ── finalize: text block with no delta (empty text) ────────────── *)
@@ -813,12 +806,15 @@ let test_acc_partial_tool_metadata () =
   Streaming.accumulate_event
     acc
     (ContentBlockDelta { index = 0; delta = InputJsonDelta {|{}|} });
-  let resp = finalize_ok acc in
-  match resp.content with
-  | [ ToolUse { id; name; _ } ] ->
-    check_bool "synthetic id" true (String.starts_with ~prefix:"call_partial_" id);
-    check_string "partial name" "partial" name
-  | _ -> Alcotest.fail "expected ToolUse with partial metadata"
+  Streaming.accumulate_event
+    acc
+    (MessageDelta { stop_reason = Some StopToolUse; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error (Stream_parse_failed { reason; raw }) ->
+    check_string "missing id reason" "malformed_tool_use:index:0:missing_id" reason;
+    check_string "raw omitted" "" raw
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected partial tool metadata to fail closed"
 ;;
 
 (* ── finalize: block with buffer but no text (empty buffer) ─────── *)
@@ -951,9 +947,9 @@ let () =
             `Quick
             test_finalize_tool_use_missing_name
         ; Alcotest.test_case
-            "tool_use missing id synthesizes"
+            "tool_use missing id fails closed"
             `Quick
-            test_finalize_tool_use_missing_id_synthesizes
+            test_finalize_tool_use_missing_id_fails_closed
         ; Alcotest.test_case
             "text block no delta"
             `Quick

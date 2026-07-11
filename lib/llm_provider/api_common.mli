@@ -12,7 +12,13 @@ val max_stdio_buffer : int
     Used by [Api.create_message] to bound HTTP stalls. *)
 val default_request_timeout_s : float
 
-val synthesize_tool_use_id : name:string -> Yojson.Safe.t -> string
+(** Allocate an opaque, process-unique tool-use identity.
+
+    Use this only when the provider does not supply an identity.  The result is
+    independent of model-generated tool names and arguments and is safe to
+    allocate concurrently from multiple OCaml 5 domains. *)
+val fresh_tool_use_id : unit -> string
+
 val string_is_blank : string -> bool
 val text_blocks_to_string : Types.content_block list -> string
 val json_of_string_or_raw : string -> Yojson.Safe.t
