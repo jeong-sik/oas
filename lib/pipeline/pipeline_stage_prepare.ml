@@ -175,7 +175,7 @@ let%test "last_tool_results_from routes through canonical projection (with json)
   in
   match last_tool_results_from msgs with
   | [ Ok { content = "ok payload"; _meta = _ }
-    ; Error { message = "boom"; recoverable = true; error_class = None }
+    ; Error { message = "boom"; recoverable = false; error_class = None }
     ] -> true
   | _ -> false
 ;;
