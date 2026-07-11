@@ -247,6 +247,11 @@ let test_representative_provider_replay_semantics_are_explicit () =
       , false
       , true
       , "DeepSeek-style thinking object replays only assistant tool-call reasoning" )
+    ; ( "model:qwen/qwen3.6-35b-a3b"
+      , "drop_without_tool_preserve_with_tool"
+      , false
+      , true
+      , "Qwen3.6 replays tool-call reasoning while dropping plain-turn reasoning" )
     ; ( "model:kimi-k2.7-code"
       , "preserve_always"
       , true

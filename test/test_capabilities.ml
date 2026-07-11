@@ -546,7 +546,20 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
       bool
       "vllm-qwen3-mtp dot-qualified qwen3.6 uses chat_template_kwargs"
       true
-      (c.thinking_control_format = Capabilities.Chat_template_kwargs)
+      (c.thinking_control_format = Capabilities.Chat_template_kwargs);
+    let dialect = Reasoning_dialect.of_capabilities c in
+    (match dialect.streaming with
+     | Reasoning_dialect.Delta_field field ->
+       check string "vllm-qwen3-mtp reasoning delta field" "reasoning_content" field
+     | Reasoning_dialect.No_streaming_reasoning
+     | Reasoning_dialect.Delta_reasoning_details
+     | Reasoning_dialect.Template_parser ->
+       fail "vllm-qwen3-mtp should stream reasoning_content as a typed delta field");
+    check
+      string
+      "vllm-qwen3-mtp replays tool-call reasoning by default"
+      "drop_without_tool_preserve_with_tool"
+      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
   | None -> fail "should match dot-qualified qwen3.6 model id"
 ;;
 
@@ -1366,8 +1379,8 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , "qwen/qwen3.6-35b-a3b"
       , Extended_thinking
       , Response_format_json_schema
-      , Replay_not_required
-      , Template_stream )
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
     ; ( "Ollama Cloud Qwen3.5"
       , Provider_qualified "ollama_cloud"
       , "qwen3.5:397b"

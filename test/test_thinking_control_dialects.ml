@@ -129,6 +129,8 @@ let declared_qwen_openai_compat_capabilities =
   ; supports_reasoning_budget = true
   ; thinking_control_format = CAP.Chat_template_kwargs
   ; preserve_thinking_control_format = CAP.Chat_template_kwargs_preserve_thinking
+  ; reasoning_streaming_format = CAP.Delta_reasoning_field "reasoning_content"
+  ; reasoning_replay_override = CAP.Force_drop_without_tool_preserve_with_tool
   }
 ;;
 
@@ -276,7 +278,7 @@ let test_declared_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
     (sampling_parameter_names (RD.sampling_params_ignored_when_thinking dialect))
 ;;
 
-let test_qwen36_reasoning_dialect_without_preserve_drops_reasoning () =
+let test_qwen36_reasoning_dialect_without_preserve_keeps_tool_reasoning () =
   let config =
     declared_qwen_openai_compat_config
       ~enable_thinking:true
@@ -287,8 +289,18 @@ let test_qwen36_reasoning_dialect_without_preserve_drops_reasoning () =
   check
     string
     "replay policy"
-    "no_replay"
-    (RD.replay_policy_to_string dialect.replay_policy)
+    "drop_without_tool_preserve_with_tool"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    bool
+    "plain assistant reasoning is omitted"
+    false
+    (RD.should_replay_reasoning dialect ~assistant_had_tool_call:false);
+  check
+    bool
+    "assistant tool-call reasoning is retained"
+    true
+    (RD.should_replay_reasoning dialect ~assistant_had_tool_call:true)
 ;;
 
 let test_qwen36_dashscope_uses_top_level_enable_thinking () =
@@ -721,6 +733,37 @@ let test_qwen_preserve_replays_reasoning_content () =
     "reasoning_content"
     "plain thought"
     (assistant |> member "reasoning_content" |> to_string)
+;;
+
+let test_qwen_reasoning_content_streams_as_typed_thinking () =
+  let config =
+    declared_qwen_openai_compat_config
+      ~enable_thinking:true
+      ~preserve_thinking:false
+      "Qwen/Qwen3.6-35B-A3B"
+  in
+  let dialect = RD.for_provider_config config in
+  let raw =
+    {|{"id":"qwen-live-1","model":"Qwen3.6-35B-A3B","choices":[{"index":0,"delta":{"reasoning_content":"inspect repository"},"finish_reason":null}]}|}
+  in
+  let chunk =
+    match S.parse_openai_sse_chunk ~streaming_reasoning:dialect.streaming raw with
+    | Some chunk -> chunk
+    | None -> fail "expected Qwen reasoning_content SSE chunk"
+  in
+  check
+    (option string)
+    "typed reasoning delta"
+    (Some "inspect repository")
+    chunk.delta_reasoning;
+  check (option string) "reasoning is not visible content" None chunk.delta_content;
+  let state = S.create_openai_stream_state () in
+  let events, _ = S.openai_chunk_to_events state chunk in
+  match events with
+  | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+    ; ContentBlockDelta { index = 0; delta = ThinkingDelta "inspect repository" }
+    ] -> ()
+  | _ -> fail "expected Qwen reasoning_content to become a typed Thinking block"
 ;;
 
 let keep_all_axis_manifest =
@@ -1254,9 +1297,9 @@ let () =
               `Quick
               test_declared_qwen36_reasoning_dialect_uses_chat_template_kwargs
           ; test_case
-              "declared qwen3.6 dialect without preserve drops reasoning"
+              "declared qwen3.6 dialect keeps tool reasoning"
               `Quick
-              test_qwen36_reasoning_dialect_without_preserve_drops_reasoning
+              test_qwen36_reasoning_dialect_without_preserve_keeps_tool_reasoning
           ; test_case
               "qwen3.6 dashscope uses top-level enable_thinking"
               `Quick
@@ -1309,6 +1352,10 @@ let () =
               "qwen preserve replays reasoning_content"
               `Quick
               test_qwen_preserve_replays_reasoning_content
+          ; test_case
+              "qwen reasoning_content streams as typed thinking"
+              `Quick
+              test_qwen_reasoning_content_streams_as_typed_thinking
           ; test_case
               "thinking_object_keep_all axis uses thinking keep all"
               `Quick
