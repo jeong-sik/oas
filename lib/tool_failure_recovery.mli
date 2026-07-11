@@ -13,7 +13,7 @@ type revised_call =
   ; tool_name : string
   ; revised_input : Yojson.Safe.t
   }
-[@@deriving yojson, show]
+[@@deriving show]
 
 type decision = private
   | Retry_modified of revised_call list
@@ -23,7 +23,11 @@ type decision = private
       ; schema : Yojson.Safe.t option
       }
   | Defer of { reason : string }
-[@@deriving yojson, show]
+[@@deriving show]
+
+(** Observation-only JSON projection. Parsing remains private so external code
+    cannot bypass episode validation to construct a [decision]. *)
+val decision_to_yojson : decision -> Yojson.Safe.t
 
 type model_request =
   { system_prompt : string

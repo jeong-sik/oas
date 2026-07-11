@@ -3,7 +3,7 @@ type revised_call =
   ; tool_name : string
   ; revised_input : Yojson.Safe.t
   }
-[@@deriving yojson, show]
+[@@deriving show]
 
 type decision =
   | Retry_modified of revised_call list
@@ -13,7 +13,7 @@ type decision =
       ; schema : Yojson.Safe.t option
       }
   | Defer of { reason : string }
-[@@deriving yojson, show]
+[@@deriving show]
 
 type model_request =
   { system_prompt : string
@@ -396,6 +396,8 @@ let decision_json = function
        | Some schema -> [ "schema", schema ])
   | Defer { reason } -> `Assoc [ "action", `String "defer"; "reason", `String reason ]
 ;;
+
+let decision_to_yojson = decision_json
 
 let episode_ref_json episode =
   `Assoc
