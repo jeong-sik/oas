@@ -109,7 +109,8 @@ let latest_tool_exchanges ~count messages =
         let result_span, tail = split_tool_result_span rest in
         let exchange =
           { tool_uses = message.content
-          ; tool_results = List.concat_map (fun result -> result.content) result_span
+          ; tool_results =
+              List.concat_map (fun (result : message) -> result.content) result_span
           }
         in
         collect (keep_latest (exchange :: latest)) tail)

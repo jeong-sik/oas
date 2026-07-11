@@ -296,6 +296,8 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Guardrail_violation _
   | `Tripwire_violation _
   | `Input_required _
+  | `Tool_failure_recovery_failed _
+  | `Tool_failure_recovery_deferred _
   | `Unrecognized_stop_reason _
   | `Exit_condition_met _
   | `Missing_env_var _
