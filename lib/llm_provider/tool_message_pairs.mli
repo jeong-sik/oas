@@ -20,6 +20,21 @@ type repair_report =
   }
 
 val empty_repair_report : repair_report
+
+type tool_exchange =
+  { tool_uses : Types.content_block list
+  ; tool_results : Types.content_block list
+  }
+
+(** Return up to [count] latest assistant tool-use/result-span exchanges,
+    newest first. Result spans use the same immediate multi-message boundary as
+    provider pairing repair. An incomplete latest exchange is returned with an
+    empty [tool_results] list so callers can fail explicitly.
+
+    This is intended for one-time checkpoint restoration; live agent loops
+    should retain the typed completed-round projection incrementally. *)
+val latest_tool_exchanges : count:int -> Types.message list -> tool_exchange list
+
 val strip_orphaned_tool_results : Types.message list -> Types.message list
 
 val strip_orphaned_tool_results_with_report

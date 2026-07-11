@@ -39,6 +39,7 @@ val create
   -> ?context:Context.t
   -> ?options:Agent.options
   -> ?checkpoint_sink:Agent.checkpoint_sink
+  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> unit
   -> created t
 

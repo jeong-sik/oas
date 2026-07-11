@@ -26,6 +26,13 @@ type input_required =
   ; created_at : float
   }
 
+type tool_failure_recovery_stage =
+  | Round_projection
+  | Episode_detection
+  | Judge_response
+  | Decision_persistence
+  | Resume_restore
+
 type agent_error =
   | MaxTurnsExceeded of
       { turns : int
@@ -63,6 +70,14 @@ type agent_error =
       ; reason : string
       }
   | InputRequired of input_required
+  | ToolFailureRecoveryFailed of
+      { stage : tool_failure_recovery_stage
+      ; detail : string
+      }
+  | ToolFailureRecoveryDeferred of
+      { reason : string
+      ; tool_names : string list
+      }
   | ExitConditionMet of { turn : int }
 
 type mcp_error =
