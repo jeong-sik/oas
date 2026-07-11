@@ -131,6 +131,41 @@ let%test "stream auth error converges to typed AuthError" =
   | _ -> false
 ;;
 
+let%test "stream permission errors converge to typed non-retryable AuthorizationError" =
+  List.for_all
+    (fun error_type ->
+       match
+         http_error_of_stream_error
+           (Types.Stream_provider_error
+              { message = "permission refused"
+              ; error_type = Some error_type
+              ; raw =
+                  {|{"error":{"type":"permission_denied","message":"permission refused"}}|}
+              })
+       with
+       | Http_client.HttpError { code; body } ->
+         code = 403
+         &&
+           (match Retry.classify_error ~status:code ~body with
+           | Retry.AuthorizationError _ as error -> not (Retry.is_retryable error)
+           | Retry.RateLimited _
+           | Retry.Overloaded _
+           | Retry.ServerError _
+           | Retry.AuthError _
+           | Retry.PaymentRequired _
+           | Retry.InvalidRequest _
+           | Retry.NotFound _
+           | Retry.ContextOverflow _
+           | Retry.NetworkError _
+           | Retry.Timeout _ -> false)
+       | Http_client.NetworkError _
+       | Http_client.TimeoutError _
+       | Http_client.AcceptRejected _
+       | Http_client.ProviderTerminal _
+       | Http_client.ProviderFailure _ -> false)
+    [ "permission_error"; "permission_denied" ]
+;;
+
 let%test "stream unknown error type stays non-retryable provider failure" =
   match
     http_error_of_stream_error
