@@ -172,13 +172,7 @@ let required_output_token_receipt (config : Provider_config.t) =
       ~envelope:Types.Anthropic_messages_max_tokens
       config
   in
-  match Types.output_token_receipt_policy optional_receipt with
-  | Types.Omitted ->
-    Types.required_output_token_receipt
-      ~envelope:Types.Anthropic_messages_max_tokens
-      ~requested:config.max_tokens
-      ~ceiling:(Types.output_token_receipt_ceiling optional_receipt)
-  | Explicit | Explicit_clamped | Required_catalog_fallback -> Ok optional_receipt
+  Types.required_output_token_receipt optional_receipt
 ;;
 
 let required_output_token_receipt_exn (config : Provider_config.t) =

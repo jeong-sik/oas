@@ -285,9 +285,7 @@ val optional_output_token_receipt
   -> output_token_receipt
 
 val required_output_token_receipt
-  :  envelope:output_token_envelope
-  -> requested:int option
-  -> ceiling:output_token_ceiling option
+  :  output_token_receipt
   -> (output_token_receipt, required_output_token_error) result
 
 val output_token_receipt_requested : output_token_receipt -> int option
