@@ -445,6 +445,233 @@ type inference_timings =
   }
 [@@deriving show, yojson]
 
+(** The provider wire field that carries one output-token decision.  This is an
+    envelope identity, not a provider brand: providers using an
+    OpenAI-compatible endpoint share the matching OpenAI envelope. *)
+type output_token_envelope = Output_token_wire_internal.envelope =
+  | Openai_chat_max_tokens
+  | Openai_responses_max_output_tokens
+  | Anthropic_messages_max_tokens
+  | Gemini_generation_config_max_output_tokens
+  | Ollama_options_num_predict
+
+type output_token_policy = Output_token_wire_internal.policy =
+  | Omitted
+  | Explicit
+  | Explicit_clamped
+  | Required_catalog_fallback
+  | Required_capability_override_fallback
+
+type output_token_ceiling_source = Output_token_wire_internal.ceiling_source =
+  | Catalog_model
+  | Declared_capability_override
+
+let pp_output_token_envelope = Output_token_wire_internal.pp_envelope
+let show_output_token_envelope = Output_token_wire_internal.show_envelope
+let equal_output_token_envelope = Output_token_wire_internal.equal_envelope
+let pp_output_token_policy = Output_token_wire_internal.pp_policy
+let show_output_token_policy = Output_token_wire_internal.show_policy
+let equal_output_token_policy = Output_token_wire_internal.equal_policy
+let pp_output_token_ceiling_source = Output_token_wire_internal.pp_ceiling_source
+let show_output_token_ceiling_source = Output_token_wire_internal.show_ceiling_source
+let equal_output_token_ceiling_source = Output_token_wire_internal.equal_ceiling_source
+let output_token_envelope_to_yojson = Output_token_wire_internal.envelope_to_yojson
+let output_token_envelope_of_yojson = Output_token_wire_internal.envelope_of_yojson
+let output_token_policy_to_yojson = Output_token_wire_internal.policy_to_yojson
+let output_token_policy_of_yojson = Output_token_wire_internal.policy_of_yojson
+
+let output_token_ceiling_source_to_yojson =
+  Output_token_wire_internal.ceiling_source_to_yojson
+;;
+
+let output_token_ceiling_source_of_yojson =
+  Output_token_wire_internal.ceiling_source_of_yojson
+;;
+
+type output_token_ceiling =
+  { value : int
+  ; source : output_token_ceiling_source
+  }
+[@@deriving show, eq]
+
+let output_token_ceiling ~value ~source =
+  if value <= 0
+  then invalid_arg "output_token_ceiling: value must be positive"
+  else { value; source }
+;;
+
+type output_token_resolution =
+  | Omitted_resolution of { ceiling : output_token_ceiling option }
+  | Explicit_resolution of
+      { value : int
+      ; ceiling : output_token_ceiling option
+      }
+  | Explicit_clamped_resolution of
+      { requested : int
+      ; ceiling : output_token_ceiling
+      }
+  | Required_fallback_resolution of { ceiling : output_token_ceiling }
+[@@deriving show, eq]
+
+(** Invariant-checked observation of an output-token decision.  The internal
+    sum prevents impossible combinations such as a clamped policy without a
+    ceiling; opaque backend artifacts separately establish exact payload
+    provenance. *)
+type output_token_receipt =
+  { envelope : output_token_envelope
+  ; resolution : output_token_resolution
+  }
+[@@deriving show, eq]
+
+type required_output_token_error = Required_output_token_ceiling_missing
+[@@deriving show, eq]
+
+let output_token_receipt_envelope receipt = receipt.envelope
+
+let output_token_receipt_requested receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ | Required_fallback_resolution _ -> None
+  | Explicit_resolution { value; _ } -> Some value
+  | Explicit_clamped_resolution { requested; _ } -> Some requested
+;;
+
+let output_token_receipt_effective receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ -> None
+  | Explicit_resolution { value; _ } -> Some value
+  | Explicit_clamped_resolution { ceiling; _ } | Required_fallback_resolution { ceiling }
+    -> Some ceiling.value
+;;
+
+let output_token_receipt_policy receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ -> Omitted
+  | Explicit_resolution _ -> Explicit
+  | Explicit_clamped_resolution _ -> Explicit_clamped
+  | Required_fallback_resolution { ceiling = { source = Catalog_model; _ } } ->
+    Required_catalog_fallback
+  | Required_fallback_resolution
+      { ceiling = { source = Declared_capability_override; _ } } ->
+    Required_capability_override_fallback
+;;
+
+let receipt_ceiling receipt =
+  match receipt.resolution with
+  | Omitted_resolution { ceiling } | Explicit_resolution { ceiling; _ } -> ceiling
+  | Explicit_clamped_resolution { ceiling; _ } | Required_fallback_resolution { ceiling }
+    -> Some ceiling
+;;
+
+let output_token_receipt_ceiling receipt =
+  Option.map (fun ceiling -> ceiling.value) (receipt_ceiling receipt)
+;;
+
+let output_token_receipt_ceiling_source receipt =
+  Option.map (fun ceiling -> ceiling.source) (receipt_ceiling receipt)
+;;
+
+let optional_output_token_receipt ~envelope ~requested ~ceiling =
+  (match requested with
+   | Some value when value < 0 ->
+     invalid_arg "optional_output_token_receipt: requested value must be non-negative"
+   | None | Some _ -> ());
+  let resolution =
+    match requested, ceiling with
+    | None, ceiling -> Omitted_resolution { ceiling }
+    | Some requested, Some ceiling when requested > ceiling.value ->
+      Explicit_clamped_resolution { requested; ceiling }
+    | Some value, ceiling -> Explicit_resolution { value; ceiling }
+  in
+  { envelope; resolution }
+;;
+
+let required_output_token_receipt receipt =
+  match receipt.resolution with
+  | Omitted_resolution { ceiling = Some ceiling } ->
+    Ok { receipt with resolution = Required_fallback_resolution { ceiling } }
+  | Omitted_resolution { ceiling = None } -> Error Required_output_token_ceiling_missing
+  | Explicit_resolution _ | Explicit_clamped_resolution _ | Required_fallback_resolution _
+    -> Ok receipt
+;;
+
+let output_token_receipt_to_yojson receipt =
+  let option_int_to_yojson = function
+    | Some value -> `Int value
+    | None -> `Null
+  in
+  `Assoc
+    [ "requested", option_int_to_yojson (output_token_receipt_requested receipt)
+    ; "effective", option_int_to_yojson (output_token_receipt_effective receipt)
+    ; "policy", output_token_policy_to_yojson (output_token_receipt_policy receipt)
+    ; "ceiling", option_int_to_yojson (output_token_receipt_ceiling receipt)
+    ; ( "ceiling_source"
+      , match output_token_receipt_ceiling_source receipt with
+        | Some source -> output_token_ceiling_source_to_yojson source
+        | None -> `Null )
+    ; "envelope", output_token_envelope_to_yojson receipt.envelope
+    ]
+;;
+
+let output_token_receipt_of_yojson json =
+  let open Yojson.Safe.Util in
+  let token_value_option = function
+    | `Null -> Ok None
+    | `Int value when value >= 0 -> Ok (Some value)
+    | `Int _ -> Error "output_token_receipt: token values must be non-negative"
+    | _ -> Error "output_token_receipt: expected integer or null"
+  in
+  let ceiling_option = function
+    | `Null -> Ok None
+    | `Int value when value > 0 -> Ok (Some value)
+    | `Int _ -> Error "output_token_receipt: ceiling must be positive"
+    | _ -> Error "output_token_receipt: expected integer or null"
+  in
+  let ( let* ) result f = Result.bind result f in
+  try
+    let* requested = token_value_option (member "requested" json) in
+    let* effective = token_value_option (member "effective" json) in
+    let* ceiling = ceiling_option (member "ceiling" json) in
+    let* ceiling_source =
+      match member "ceiling_source" json with
+      | `Null -> Ok None
+      | source_json ->
+        Result.map
+          (fun source -> Some source)
+          (output_token_ceiling_source_of_yojson source_json)
+    in
+    let* ceiling =
+      match ceiling, ceiling_source with
+      | None, None -> Ok None
+      | Some value, Some source -> Ok (Some (output_token_ceiling ~value ~source))
+      | Some _, None | None, Some _ ->
+        Error "output_token_receipt: ceiling and ceiling_source must appear together"
+    in
+    let* policy = output_token_policy_of_yojson (member "policy" json) in
+    let* envelope = output_token_envelope_of_yojson (member "envelope" json) in
+    match policy, requested, effective, ceiling with
+    | Omitted, None, None, ceiling ->
+      Ok { envelope; resolution = Omitted_resolution { ceiling } }
+    | Explicit, Some requested, Some effective, ceiling
+      when requested = effective
+           &&
+           match ceiling with
+           | Some cap -> effective <= cap.value
+           | None -> true ->
+      Ok { envelope; resolution = Explicit_resolution { value = effective; ceiling } }
+    | Explicit_clamped, Some requested, Some effective, Some ceiling
+      when effective = ceiling.value && requested > ceiling.value ->
+      Ok { envelope; resolution = Explicit_clamped_resolution { requested; ceiling } }
+    | Required_catalog_fallback, None, Some effective, Some ceiling
+      when ceiling.source = Catalog_model && effective = ceiling.value ->
+      Ok { envelope; resolution = Required_fallback_resolution { ceiling } }
+    | Required_capability_override_fallback, None, Some effective, Some ceiling
+      when ceiling.source = Declared_capability_override && effective = ceiling.value ->
+      Ok { envelope; resolution = Required_fallback_resolution { ceiling } }
+    | _ -> Error "output_token_receipt: inconsistent requested/effective policy fields"
+  with
+  | Yojson.Safe.Util.Type_error (message, _) -> Error message
+;;
+
 (** Per-call inference telemetry.
     Parsed from the raw API response; never computed by downstream. *)
 type inference_telemetry =

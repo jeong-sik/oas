@@ -17,6 +17,19 @@ type response_phase =
 val response_phase_metadata : response_phase -> string * Yojson.Safe.t
 val responses_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t

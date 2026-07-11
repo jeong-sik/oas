@@ -7,6 +7,11 @@
 
 val parse_response : Yojson.Safe.t -> Types.api_response
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
 (** Provider-correct Claude thinking request field for a model family.
     Exposed so the legacy Agent SDK Anthropic builder can share the same
     manual-budget vs adaptive-thinking dispatch as this backend. *)
@@ -28,13 +33,29 @@ val output_config_for_config
     [None] — the ceiling is never injected as a request value. *)
 val effective_max_output_tokens : Provider_config.t -> int option
 
-(** The Messages API requires [max_tokens] on every request, so this
-    envelope carries an explicit OAS required-envelope policy: caller
-    override clamped to the catalog ceiling; caller [None] falls back to the
-    catalog-declared model maximum (this is not a provider default); raises
-    [Invalid_argument] naming the model when neither the caller nor the
-    catalog declares a value — no second numeric policy is invented. *)
+(** Resolve the Messages required [max_tokens] decision. Caller [None] falls
+    back to a model-catalog ceiling or an explicit capability-override ceiling,
+    preserving the source in the resulting receipt. *)
+val required_output_token_receipt
+  :  Provider_config.t
+  -> (Types.output_token_receipt, Types.required_output_token_error) result
+
+(** Compatibility projection of {!required_output_token_receipt}. Raises
+    [Invalid_argument] naming the model when no explicit value, catalog
+    ceiling, or capability-override ceiling exists. *)
 val required_max_output_tokens : Provider_config.t -> int
+
+(** Build one immutable Messages request artifact. Missing required
+    [max_tokens] metadata is returned as a typed error before any HTTP payload
+    can be observed. Other pre-existing request validation failures retain
+    their explicit [Invalid_argument] contract. *)
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> (request_artifact, Types.required_output_token_error) result
 
 val build_request
   :  ?stream:bool

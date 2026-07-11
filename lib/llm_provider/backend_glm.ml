@@ -12,6 +12,11 @@
 
 open Types
 
+type request_artifact = string Request_artifact_internal.t
+
+let request_payload = Request_artifact_internal.payload
+let request_output_token_receipt = Request_artifact_internal.output_token_receipt
+
 type glm_error_class =
   | Glm_quota_exceeded
   | Glm_rate_limited
@@ -110,7 +115,7 @@ let normalize_tool_choice_fields ~(tool_choice : Types.tool_choice option) field
   | Some (Tool _ | None_) | None -> without_field "tool_choice" fields
 ;;
 
-let build_request
+let build_request_artifact
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -121,30 +126,45 @@ let build_request
      serializing then parsing the whole message body back — removes one full
      [Yojson.Safe.to_string] (OpenAI) + one [Yojson.Safe.from_string] (here)
      per GLM turn. Byte-identical: [from_string (to_string assoc) = assoc]. *)
-  let base_assoc =
-    Backend_openai.build_request_assoc ~stream ~config ~messages ~tools ()
+  let base_artifact =
+    Backend_openai_request.build_request_assoc_artifact
+      ~stream
+      ~config
+      ~messages
+      ~tools
+      ()
   in
-  match base_assoc with
-  | `Assoc fields ->
-    (* GLM thinking-control fields are emitted by the shared
+  let payload =
+    match Backend_openai_request.request_assoc_payload base_artifact with
+    | `Assoc fields ->
+      (* GLM thinking-control fields are emitted by the shared
        [Reasoning_dialect.request_control_fields] path inside the OpenAI
        request builder. Keep Backend_glm limited to GLM-only post-processing
        that is not a thinking builder: Z.AI's [tool_choice=auto] normalization
        and [tool_stream]. *)
-    let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
-    let fields =
-      (* GLM streams tool-call arguments incrementally only when both
+      let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
+      let fields =
+        (* GLM streams tool-call arguments incrementally only when both
          [stream] and [tool_stream] are set; [config.tool_stream] defaults
          false, so a streaming request carrying tools would otherwise buffer
          tool args. Default [tool_stream] on when tools are present
          (RFC-OAS-023). *)
-      if stream && (config.tool_stream || tools <> [])
-      then ("tool_stream", `Bool true) :: fields
-      else fields
-    in
-    Yojson.Safe.to_string (`Assoc fields)
-  | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as other ->
-    Yojson.Safe.to_string other
+        if stream && (config.tool_stream || tools <> [])
+        then ("tool_stream", `Bool true) :: fields
+        else fields
+      in
+      Yojson.Safe.to_string (`Assoc fields)
+    | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as other ->
+      Yojson.Safe.to_string other
+  in
+  Request_artifact_internal.create
+    ~payload
+    ~output_token_receipt:
+      (Backend_openai_request.request_assoc_output_token_receipt base_artifact)
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  build_request_artifact ?stream ~config ~messages ?tools () |> request_payload
 ;;
 
 (* ── Response parsing ────────────────────────────── *)

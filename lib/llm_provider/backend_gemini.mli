@@ -13,6 +13,19 @@
 
 exception Gemini_api_error of string
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact
+
 (** Build a Gemini [generateContent] request body from {!Provider_config.t}.
     Returns a JSON string.  URL construction (including [?key=]) is handled
     by {!Complete}; this function only produces the body. *)

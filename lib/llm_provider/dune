@@ -3,7 +3,10 @@
 (library
  (name llm_provider)
  (public_name agent_sdk.llm_provider)
- (private_modules provider_http_codec)
+ (private_modules
+  provider_http_codec
+  output_token_wire_internal
+  request_artifact_internal)
  (libraries
   yojson
   otoml

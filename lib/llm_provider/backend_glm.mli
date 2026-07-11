@@ -35,6 +35,11 @@ type glm_error =
 
 exception Glm_api_error of glm_error
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
 (** Classify a Glm error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
 val classify_glm_error : code:string -> message:string -> glm_error_class * bool
@@ -54,6 +59,14 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact
 
 (** Parse a Glm chat completion response.
     Handles Glm-specific string error codes and extracts

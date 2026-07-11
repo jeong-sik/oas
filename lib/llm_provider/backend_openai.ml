@@ -44,8 +44,30 @@ let structured_schema_of_config = Backend_openai_request.structured_schema_of_co
 let openai_json_schema_payload = Backend_openai_request.openai_json_schema_payload
 let response_format_to_openai_json = Backend_openai_request.response_format_to_openai_json
 let response_format_of_config = Backend_openai_request.response_format_of_config
-let build_request = Backend_openai_request.build_request
-let build_request_assoc = Backend_openai_request.build_request_assoc
+
+type request_artifact =
+  | Openai_request_artifact of Backend_openai_request.request_artifact
+
+let request_payload (Openai_request_artifact artifact) =
+  Backend_openai_request.request_payload artifact
+;;
+
+let request_output_token_receipt (Openai_request_artifact artifact) =
+  Backend_openai_request.request_output_token_receipt artifact
+;;
+
+let build_request_assoc ?stream ~config ~messages ?tools () =
+  Backend_openai_request.build_request_assoc ?stream ~config ~messages ?tools ()
+;;
+
+let build_request_artifact ?stream ~config ~messages ?tools () =
+  Openai_request_artifact
+    (Backend_openai_request.build_request_artifact ?stream ~config ~messages ?tools ())
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  build_request_artifact ?stream ~config ~messages ?tools () |> request_payload
+;;
 
 [@@@coverage off]
 (* === Inline tests === *)

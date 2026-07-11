@@ -5,6 +5,19 @@
 
     @since 0.113.0 *)
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t

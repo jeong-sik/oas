@@ -24,6 +24,11 @@ val parse_openai_response_result
 
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
+type request_artifact
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
+
 val build_request_assoc
   :  ?stream:bool
   -> config:Provider_config.t
@@ -39,6 +44,14 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact
 
 (** Emit a one-shot stderr WARN the first time a capability-gated
     sampling field is dropped for a given [(model_id, field)] pair.
