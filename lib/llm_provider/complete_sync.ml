@@ -68,22 +68,21 @@ let complete_http
              { kind = Http_client.Provider_parse_error { parser }; message })
       in
       let config = apply_sampling_defaults config in
-      let uses_responses_api =
-        Provider_config.request_path_targets_responses_api config.request_path
-      in
+      let http_codec = Provider_http_codec.of_config config in
       let body_str =
-        match config.kind with
-        | Provider_config.Anthropic ->
+        match http_codec with
+        | Provider_http_codec.Anthropic_messages ->
           Backend_anthropic.build_request ~config ~messages ~tools ()
-        | Provider_config.Ollama ->
+        | Provider_http_codec.Ollama_chat ->
           Backend_ollama.build_request ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat when uses_responses_api ->
+        | Provider_http_codec.Openai_responses ->
           Backend_openai_responses.build_request ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_openai.build_request ~config ~messages ~tools ()
-        | Provider_config.Gemini ->
+        | Provider_http_codec.Openai_chat ->
+          Backend_openai.build_request ~config ~messages ~tools ()
+        | Provider_http_codec.Gemini_generate_content ->
           Backend_gemini.build_request ~config ~messages ~tools ()
-        | Provider_config.Glm -> Backend_glm.build_request ~config ~messages ~tools ()
+        | Provider_http_codec.Glm_chat ->
+          Backend_glm.build_request ~config ~messages ~tools ()
       in
       let url =
         match config.kind with
@@ -221,22 +220,18 @@ let complete_http
             if code >= 200 && code < 300
             then (
               try
-                match config.kind with
-                | Provider_config.Anthropic ->
+                match http_codec with
+                | Provider_http_codec.Anthropic_messages ->
                   Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Ollama ->
+                | Provider_http_codec.Ollama_chat ->
                   (match Backend_ollama.parse_ollama_response body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.OpenAI_compat
-                  when Provider_config.request_path_targets_responses_api
-                         config.request_path ->
+                | Provider_http_codec.Openai_responses ->
                   (match Backend_openai_responses.parse_response_result body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.OpenAI_compat
-                | Provider_config.DashScope
-                | Provider_config.Kimi ->
+                | Provider_http_codec.Openai_chat ->
                   (match Backend_openai_parse.parse_openai_response_result body with
                    | Ok resp -> Ok resp
                    | Error (Backend_openai_parse.Provider_error msg) ->
@@ -246,9 +241,9 @@ let complete_http
                         fact as streaming. Policy remains downstream of the
                         preserved [stop_reason]. *)
                      Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason))
-                | Provider_config.Gemini ->
+                | Provider_http_codec.Gemini_generate_content ->
                   Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Glm -> Ok (Backend_glm.parse_response body)
+                | Provider_http_codec.Glm_chat -> Ok (Backend_glm.parse_response body)
               with
               | Yojson.Json_error msg ->
                 Diag.error "complete" "JSON parse error: %s" msg;

@@ -84,14 +84,18 @@ let start_mock_server
       ?(delay_sec = 0.0)
       ?clock
       ?capture_body
+      ?capture_path
       ?on_request
       response_body
   =
   let port = fresh_port () in
-  let handler _conn _req body =
+  let handler _conn req body =
     let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     (match capture_body with
      | Some seen -> seen := Some request_body
+     | None -> ());
+    (match capture_path with
+     | Some seen -> seen := Some (Cohttp.Request.uri req |> Uri.path)
      | None -> ());
     (match on_request with
      | Some f -> f ()
@@ -160,6 +164,18 @@ let make_openai_config base_url =
     ~model_id:"gpt-4"
     ~base_url
     ~request_path:"/v1/chat/completions"
+    ~temperature:0.0
+    ~max_tokens:100
+    ()
+;;
+
+let make_kimi_config ?request_path base_url =
+  Provider_config.make
+    ~kind:Provider_config.Kimi
+    ~model_id:"kimi-for-coding"
+    ~base_url
+    ?request_path
+    ~system_prompt:"Kimi system"
     ~temperature:0.0
     ~max_tokens:100
     ()
@@ -1257,10 +1273,16 @@ let start_raw_sse_server ~sw ~net ~clock delayed_frames =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let start_sse_server ~sw ~net response_body =
+let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
   let port = fresh_port () in
-  let handler _conn _req body =
-    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+  let handler _conn req body =
+    let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    (match capture_body with
+     | Some seen -> seen := Some request_body
+     | None -> ());
+    (match capture_path with
+     | Some seen -> seen := Some (Cohttp.Request.uri req |> Uri.path)
+     | None -> ());
     let headers = Cohttp.Header.of_list [ "content-type", "text/event-stream" ] in
     Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:response_body ()
   in
@@ -1285,6 +1307,152 @@ let text_of_response (resp : Types.api_response) =
       | _ -> None)
     resp.content
   |> String.concat ""
+;;
+
+let check_kimi_anthropic_request ~expected_path ~stream ~captured_body ~captured_path =
+  (match captured_path with
+   | Some path -> check string "Kimi request path" expected_path path
+   | None -> fail "server did not capture Kimi request path");
+  match captured_body with
+  | Some body ->
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    check string "Kimi model" "kimi-for-coding" (json |> member "model" |> to_string);
+    check
+      string
+      "Anthropic top-level system"
+      "Kimi system"
+      (json |> member "system" |> to_string);
+    check bool "stream flag" stream (json |> member "stream" |> to_bool);
+    (match json |> member "stream_options" with
+     | `Null -> ()
+     | _ -> fail "Anthropic Messages request must not carry OpenAI stream_options")
+  | None -> fail "server did not capture Kimi request body"
+;;
+
+let test_complete_kimi_path_override_stays_anthropic_codec () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured_body = ref None in
+    let captured_path = ref None in
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured_body
+        ~capture_path:captured_path
+        (anthropic_response "kimi sync")
+    in
+    let request_path = "/v1/chat/completions" in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~config:(make_kimi_config ~request_path url)
+         ~messages
+         ()
+     with
+     | Ok resp -> check string "Kimi sync text" "kimi sync" (text_of_response resp)
+     | Error _ -> fail "expected Kimi sync Anthropic Messages response to parse");
+    check_kimi_anthropic_request
+      ~expected_path:request_path
+      ~stream:false
+      ~captured_body:!captured_body
+      ~captured_path:!captured_path;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_kimi_anthropic_stream_codec () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured_body = ref None in
+    let captured_path = ref None in
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured_body
+        ~capture_path:captured_path
+        (anthropic_sse_response "kimi stream")
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_kimi_config url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Ok resp -> check string "Kimi stream text" "kimi stream" (text_of_response resp)
+     | Error _ -> fail "expected Kimi Anthropic Messages SSE response to parse");
+    check_kimi_anthropic_request
+      ~expected_path:"/v1/messages"
+      ~stream:true
+      ~captured_body:!captured_body
+      ~captured_path:!captured_path;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_openai_compatible_kimi_uses_openai_codec () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured_body = ref None in
+    let captured_path = ref None in
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured_body
+        ~capture_path:captured_path
+        (openai_response "kimi openai")
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.OpenAI_compat
+        ~model_id:"kimi-for-coding"
+        ~base_url:url
+        ~request_path:"/v1/chat/completions"
+        ~system_prompt:"Kimi OpenAI system"
+        ~max_tokens:100
+        ()
+    in
+    (match Complete.complete ~sw ~net:env#net ~config ~messages () with
+     | Ok resp -> check string "Kimi OpenAI text" "kimi openai" (text_of_response resp)
+     | Error _ -> fail "expected OpenAI-compatible Kimi response to parse");
+    (match !captured_path with
+     | Some path -> check string "Kimi OpenAI path" "/v1/chat/completions" path
+     | None -> fail "server did not capture OpenAI-compatible Kimi path");
+    (match !captured_body with
+     | Some body ->
+       let json = Yojson.Safe.from_string body in
+       let open Yojson.Safe.Util in
+       check bool "no Anthropic top-level system" true (json |> member "system" = `Null);
+       (match json |> member "messages" |> to_list with
+        | first_message :: _ ->
+          check
+            string
+            "OpenAI system message"
+            "system"
+            (first_message |> member "role" |> to_string)
+        | [] -> fail "OpenAI-compatible request omitted messages")
+     | None -> fail "server did not capture OpenAI-compatible Kimi body");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
 ;;
 
 let test_complete_stream_ok () =
@@ -1840,6 +2008,14 @@ let () =
     [ ( "complete"
       , [ test_case "anthropic ok" `Quick test_complete_anthropic_ok
         ; test_case
+            "Kimi path override stays Anthropic"
+            `Quick
+            test_complete_kimi_path_override_stays_anthropic_codec
+        ; test_case
+            "OpenAI-compatible Kimi uses OpenAI codec"
+            `Quick
+            test_complete_openai_compatible_kimi_uses_openai_codec
+        ; test_case
             "HTTP rejects typed empty completion"
             `Quick
             test_complete_http_rejects_typed_empty_completion
@@ -1908,6 +2084,10 @@ let () =
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "Kimi Anthropic Messages SSE codec"
+            `Quick
+            test_complete_kimi_anthropic_stream_codec
         ; test_case
             "HTTP stream rejects typed empty completion"
             `Quick

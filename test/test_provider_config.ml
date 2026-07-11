@@ -51,7 +51,7 @@ let test_request_path_anthropic () =
 
 let test_request_path_provider_c () =
   let cfg = Provider_config.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  check_string "kimi path" "/v1/chat/completions" cfg.request_path
+  check_string "kimi path" "/v1/messages" cfg.request_path
 ;;
 
 let test_request_path_openai () =

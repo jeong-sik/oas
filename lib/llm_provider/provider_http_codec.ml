@@ -1,0 +1,53 @@
+type t =
+  | Anthropic_messages
+  | Openai_chat
+  | Openai_responses
+  | Ollama_chat
+  | Gemini_generate_content
+  | Glm_chat
+
+let of_config (config : Provider_config.t) =
+  (* [kind] owns the wire contract. In particular, Kimi remains Anthropic
+     Messages through custom proxy paths; callers targeting Kimi's OpenAI-
+     compatible endpoint must declare [OpenAI_compat]. The only path-selected
+     sub-protocol is the validated OpenAI Responses endpoint. *)
+  match config.kind with
+  | Provider_config.Anthropic | Provider_config.Kimi -> Anthropic_messages
+  | Provider_config.OpenAI_compat
+    when Provider_config.request_path_targets_responses_api config.request_path ->
+    Openai_responses
+  | Provider_config.OpenAI_compat | Provider_config.DashScope -> Openai_chat
+  | Provider_config.Ollama -> Ollama_chat
+  | Provider_config.Gemini -> Gemini_generate_content
+  | Provider_config.Glm -> Glm_chat
+;;
+
+let%test "kind owns codec; path and model strings do not infer it" =
+  let codec ?request_path ~kind ~model_id () =
+    Provider_config.make ?request_path ~kind ~model_id ~base_url:"https://example.test" ()
+    |> of_config
+  in
+  let cases =
+    [ codec ~kind:Provider_config.Anthropic ~model_id:"model" (), Anthropic_messages
+    ; ( codec
+          ~request_path:"/v1/chat/completions"
+          ~kind:Provider_config.Kimi
+          ~model_id:"kimi-for-coding"
+          ()
+      , Anthropic_messages )
+    ; ( codec ~kind:Provider_config.OpenAI_compat ~model_id:"kimi-for-coding" ()
+      , Openai_chat )
+    ; ( codec
+          ~request_path:"/v1/responses"
+          ~kind:Provider_config.OpenAI_compat
+          ~model_id:"model"
+          ()
+      , Openai_responses )
+    ; codec ~kind:Provider_config.Ollama ~model_id:"model" (), Ollama_chat
+    ; codec ~kind:Provider_config.Gemini ~model_id:"model" (), Gemini_generate_content
+    ; codec ~kind:Provider_config.Glm ~model_id:"model" (), Glm_chat
+    ; codec ~kind:Provider_config.DashScope ~model_id:"model" (), Openai_chat
+    ]
+  in
+  List.for_all (fun (actual, expected) -> actual = expected) cases
+;;
