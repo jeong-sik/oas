@@ -44,6 +44,20 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.211.2](https://github.com/jeong-sik/oas/compare/v0.211.1...v0.211.2) (2026-07-11)
+
+
+### Features
+
+* **agent:** preserve typed tool failure provenance ([#2539](https://github.com/jeong-sik/oas/issues/2539)) ([972ea29](https://github.com/jeong-sik/oas/commit/972ea29b02594d11e8b84de628425b9fcf6f3b0a))
+
+
+### Bug Fixes
+
+* **provider:** align Kimi HTTP codec ([#2540](https://github.com/jeong-sik/oas/issues/2540)) ([0ed834a](https://github.com/jeong-sik/oas/commit/0ed834abbebe95001b301c66809a330ac2e3eb34))
+* **provider:** make registry startup-safe ([#2538](https://github.com/jeong-sik/oas/issues/2538)) ([b8d8b51](https://github.com/jeong-sik/oas/commit/b8d8b516e9671fa179d7438a2b4af6671236ae94))
+* **streaming:** stabilize id-less tool identities ([#2536](https://github.com/jeong-sik/oas/issues/2536)) ([a912fe4](https://github.com/jeong-sik/oas/commit/a912fe4487336aa41bc0352c7df59cd3f05ec854))
+
 ## [0.211.1](https://github.com/jeong-sik/oas/compare/v0.211.0...v0.211.1) (2026-07-11)
 
 
