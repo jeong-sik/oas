@@ -33,6 +33,8 @@ type tool_failure_recovery_stage =
   | Decision_persistence
   | Resume_restore
 
+val tool_failure_recovery_stage_to_string : tool_failure_recovery_stage -> string
+
 type agent_error =
   | MaxTurnsExceeded of
       { turns : int

@@ -44,23 +44,18 @@ let runtime_response_to_hooks = function
   | Runtime.Input_timeout -> Hooks.Timeout
 ;;
 
-let message_of_response ~question = function
+let message_of_response ?(metadata = []) ~question = function
   | Hooks.Answer json ->
     let text =
       Printf.sprintf "[User input] %s: %s" question (Yojson.Safe.to_string json)
     in
     Some
-      { role = User
-      ; content = [ Text text ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
+      { role = User; content = [ Text text ]; name = None; tool_call_id = None; metadata }
   | Hooks.Declined | Hooks.Timeout -> None
 ;;
 
-let apply_response agent (req : Error.input_required) response =
-  match message_of_response ~question:req.question response with
+let apply_response ?metadata agent (req : Error.input_required) response =
+  match message_of_response ?metadata ~question:req.question response with
   | None -> ()
   | Some message ->
     update_state agent (fun state ->

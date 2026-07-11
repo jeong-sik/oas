@@ -53,6 +53,7 @@ type scenario =
   ; events : string list
   ; requests : Llm_provider.Llm_transport.completion_request list
   ; agent : Agent.t
+  ; decision_checkpoint : Checkpoint.t option
   }
 
 let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
@@ -60,6 +61,7 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
   @@ fun sw ->
   let events = ref [] in
   let requests = ref [] in
+  let decision_checkpoint = ref None in
   let responses =
     ref
       [ tool_response "p1" (`Assoc [ "cmd", `String "gh pr list" ])
@@ -99,6 +101,7 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
     match snapshot.stage with
     | After_retry_feedback_appended ->
       append events "decision_checkpoint";
+      decision_checkpoint := Some snapshot.checkpoint;
       if fail_recovery_checkpoint then Error "recovery checkpoint rejected" else Ok ()
     | After_assistant_collected | After_tool_results_appended -> Ok ()
   in
@@ -136,7 +139,12 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
       agent
       "review the pull request"
   in
-  { result; events = !events; requests = !requests; agent }
+  { result
+  ; events = !events
+  ; requests = !requests
+  ; agent
+  ; decision_checkpoint = !decision_checkpoint
+  }
 ;;
 
 let retry_modified_json =
@@ -248,11 +256,7 @@ let failed_result id =
     }
 ;;
 
-let test_retry_modified_requires_changed_input () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
+let sample_episodes () =
   let previous =
     project
       [ ToolUse { id = "p1"; name = "Execute"; input = `Assoc [ "cmd", `String "x" ] } ]
@@ -263,11 +267,161 @@ let test_retry_modified_requires_changed_input () =
       [ ToolUse { id = "c1"; name = "Execute"; input = `Assoc [ "cmd", `String "x" ] } ]
       [ failed_result "c1" ]
   in
-  let episodes =
-    match Tool_failure_episode.detect ~previous ~current with
-    | Ok episodes -> episodes
-    | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  match Tool_failure_episode.detect ~previous ~current with
+  | Ok episodes -> episodes
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+;;
+
+let resumed_final_run env ~checkpoint ~judge =
+  Eio.Switch.run
+  @@ fun sw ->
+  let requests = ref [] in
+  let record request =
+    requests := !requests @ [ request ];
+    final_response
   in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          { Llm_provider.Llm_transport.response = Ok (record request)
+          ; latency_ms = Some 0
+          })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ request -> Ok (record request))
+    }
+  in
+  let options =
+    { Agent.default_options with
+      transport = Some transport
+    ; provider = Some provider
+    ; guardrails = Guardrails.permissive
+    }
+  in
+  let events = ref [] in
+  let agent =
+    Agent.resume
+      ~net:env#net
+      ~checkpoint
+      ~tools:[ failing_tool events ]
+      ~options
+      ~tool_failure_judge:judge
+      ()
+  in
+  let result = Agent.run_turn_stream ~sw ~on_event:(fun _ -> ()) agent in
+  result, !requests
+;;
+
+let test_decision_checkpoint_resumes_without_rejudging () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario = run_scenario env ~judge_json:retry_modified_json () in
+  let checkpoint =
+    match scenario.decision_checkpoint with
+    | Some checkpoint -> checkpoint
+    | None -> Alcotest.fail "missing recovery decision checkpoint"
+  in
+  let judge_calls = ref 0 in
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      incr judge_calls;
+      Ok {|{"action":"replan","instruction":"must not run"}|})
+  in
+  let result, requests = resumed_final_run env ~checkpoint ~judge in
+  (match result with
+   | Ok (`Complete response) ->
+     Alcotest.(check string)
+       "resumed final text"
+       "finished"
+       (Types.text_of_response response)
+   | Ok `ToolsExecuted -> Alcotest.fail "unexpected resumed tool execution"
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check int) "persisted receipt skips judge" 0 !judge_calls;
+  Alcotest.(check int) "one resumed provider call" 1 (List.length requests);
+  let request = List.hd requests in
+  let system_prompt = Option.value request.config.system_prompt ~default:"" in
+  Alcotest.(check bool)
+    "persisted control restored"
+    true
+    (String.starts_with ~prefix:"base system\n\nOAS one-turn typed" system_prompt)
+;;
+
+let message ~role ~content ~metadata : Types.message =
+  { role; content; name = None; tool_call_id = None; metadata }
+;;
+
+let test_resume_does_not_correlate_across_external_user_runs () =
+  Eio_main.run
+  @@ fun env ->
+  let seed =
+    Agent.create
+      ~net:env#net
+      ~config:
+        { Types.default_config with
+          name = "boundary-test"
+        ; model = "mock-model"
+        ; system_prompt = Some "base system"
+        ; max_turns = 0
+        ; yield_on_tool = true
+        }
+      ()
+  in
+  let boundary = Types.Conversation_metadata.run_boundary in
+  let call id =
+    ToolUse { id; name = "Execute"; input = `Assoc [ "cmd", `String "gh pr list" ] }
+  in
+  let checkpoint =
+    { (Agent.checkpoint seed) with
+      turn_count = 2
+    ; messages =
+        [ message ~role:User ~content:[ Text "first request" ] ~metadata:boundary
+        ; message ~role:Assistant ~content:[ call "p1" ] ~metadata:[]
+        ; message ~role:Tool ~content:[ failed_result "p1" ] ~metadata:[]
+        ; message ~role:User ~content:[ Text "second request" ] ~metadata:boundary
+        ; message ~role:Assistant ~content:[ call "c1" ] ~metadata:[]
+        ; message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
+        ]
+    }
+  in
+  let judge_calls = ref 0 in
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      incr judge_calls;
+      Ok {|{"action":"replan","instruction":"must not run"}|})
+  in
+  let result, requests = resumed_final_run env ~checkpoint ~judge in
+  (match result with
+   | Ok (`Complete _) -> ()
+   | Ok `ToolsExecuted -> Alcotest.fail "unexpected resumed tool execution"
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check int) "no cross-user judge call" 0 !judge_calls;
+  Alcotest.(check int) "main provider still runs" 1 (List.length requests)
+;;
+
+let test_run_boundary_metadata_remains_provider_mergeable () =
+  let messages =
+    [ message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
+    ; message
+        ~role:User
+        ~content:[ Text "next external request" ]
+        ~metadata:Types.Conversation_metadata.run_boundary
+    ]
+  in
+  match Llm_provider.Api_common.merge_tool_result_followup_user_messages messages with
+  | [ merged ] ->
+    Alcotest.(check int)
+      "tool result and external follow-up share one provider user span"
+      2
+      (List.length merged.Types.content)
+  | merged ->
+    Alcotest.fail
+      (Printf.sprintf "expected one provider message, got %d" (List.length merged))
+;;
+
+let test_retry_modified_requires_changed_input () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let episodes = sample_episodes () in
   let judge =
     Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
       Ok
@@ -283,6 +437,56 @@ let test_retry_modified_requires_changed_input () =
   | Ok decision ->
     Alcotest.fail
       ("expected unchanged-input rejection, got "
+       ^ Tool_failure_recovery.show_decision decision)
+;;
+
+let decide_fixture sw text =
+  let judge = Tool_failure_recovery.create ~complete:(fun ~sw:_ _ -> Ok text) in
+  Tool_failure_recovery.decide
+    ~sw
+    ~agent_name:"test"
+    ~turn:2
+    ~episodes:(sample_episodes ())
+    judge
+;;
+
+let test_response_rejects_unexpected_field () =
+  Eio_main.run
+  @@ fun _env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  match
+    decide_fixture
+      sw
+      {|{"action":"replan","instruction":"use repository cwd","reason":"ignored"}|}
+  with
+  | Error
+      (Tool_failure_recovery.Invalid_response
+         (Tool_failure_recovery.Unexpected_field "reason")) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_recovery.judge_error_to_string error)
+  | Ok decision ->
+    Alcotest.fail
+      ("expected unexpected-field rejection, got "
+       ^ Tool_failure_recovery.show_decision decision)
+;;
+
+let test_response_rejects_duplicate_field () =
+  Eio_main.run
+  @@ fun _env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  match
+    decide_fixture
+      sw
+      {|{"action":"replan","action":"defer","instruction":"use cwd","reason":"wait"}|}
+  with
+  | Error
+      (Tool_failure_recovery.Invalid_response
+         (Tool_failure_recovery.Duplicate_field "action")) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_recovery.judge_error_to_string error)
+  | Ok decision ->
+    Alcotest.fail
+      ("expected duplicate-field rejection, got "
        ^ Tool_failure_recovery.show_decision decision)
 ;;
 
@@ -302,12 +506,32 @@ let () =
             "checkpoint failure is transactional"
             `Quick
             test_checkpoint_failure_does_not_commit_receipt
+        ; Alcotest.test_case
+            "decision checkpoint resumes without rejudging"
+            `Quick
+            test_decision_checkpoint_resumes_without_rejudging
+        ; Alcotest.test_case
+            "resume respects external user run boundary"
+            `Quick
+            test_resume_does_not_correlate_across_external_user_runs
+        ; Alcotest.test_case
+            "run boundary metadata is provider-mergeable"
+            `Quick
+            test_run_boundary_metadata_remains_provider_mergeable
         ] )
     ; ( "decision_validation"
       , [ Alcotest.test_case
             "retry input must change"
             `Quick
             test_retry_modified_requires_changed_input
+        ; Alcotest.test_case
+            "unexpected response field is rejected"
+            `Quick
+            test_response_rejects_unexpected_field
+        ; Alcotest.test_case
+            "duplicate response field is rejected"
+            `Quick
+            test_response_rejects_duplicate_field
         ] )
     ]
 ;;

@@ -478,21 +478,25 @@ let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
       ()
   in
   match Agent.run ~sw agent "call my_tool" with
-  | Ok response ->
+  | Error
+      (Error.Agent
+         (Error.ToolFailureRecoveryFailed { stage = Error.Judge_response; detail })) ->
     Alcotest.(check int) "provider calls" 2 !provider_calls;
     Alcotest.(check int) "tool handler not executed" 0 !executed;
-    Alcotest.(check string)
-      "blocked response mentions loop stop"
-      "I stopped the tool loop"
-      (String.sub (Types.text_of_response response) 0 23);
+    Alcotest.(check bool) "missing judge is explicit" true (String.length detail > 0);
     (match List.rev (Agent.state agent).messages with
-     | { Types.role = Assistant; content = [ Text text ]; _ } :: _ ->
-       Alcotest.(check bool)
-         "final assistant message persisted"
-         true
-         (Util.string_contains ~needle:"same invalid tool call" text)
-     | _ -> Alcotest.fail "expected persisted final assistant text")
+     | { Types.role = Tool
+       ; content =
+           [ ToolResult { is_error = true; failure_kind = Some Validation_error; _ } ]
+       ; _
+       }
+       :: _ -> ()
+     | _ -> Alcotest.fail "expected persisted typed validation result")
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+  | Ok response ->
+    Alcotest.failf
+      "expected explicit missing-judge failure, got: %s"
+      (Types.text_of_response response)
 ;;
 
 (* ── Provider_mock: additional coverage ─────────────────── *)

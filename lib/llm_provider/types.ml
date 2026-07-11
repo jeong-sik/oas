@@ -329,6 +329,34 @@ let reasoning_details_text
     Keys are caller-defined strings; values are JSON payloads. *)
 type metadata = (string * Yojson.Safe.t) list [@@deriving show]
 
+module Conversation_metadata = struct
+  type run_boundary =
+    | Absent
+    | Present
+    | Malformed
+
+  let run_boundary_key = "oas.agent_run_boundary.v1"
+  let run_boundary = [ run_boundary_key, `Bool true ]
+
+  let classify_run_boundary metadata =
+    let values =
+      List.filter_map
+        (fun (key, value) ->
+           if String.equal key run_boundary_key then Some value else None)
+        metadata
+    in
+    match values with
+    | [] -> Absent
+    | [ `Bool true ] -> Present
+    | _ -> Malformed
+  ;;
+
+  let is_mergeable_followup = function
+    | [] -> true
+    | metadata -> classify_run_boundary metadata = Present && List.length metadata = 1
+  ;;
+end
+
 (** A single message in the conversation.
     [name] identifies the speaker (e.g. tool result source).
     [tool_call_id] links a tool result back to its tool_use request. *)

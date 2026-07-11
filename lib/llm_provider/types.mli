@@ -195,6 +195,23 @@ val reasoning_details_text
 (** Message metadata: extensible typed key-value pairs attached to a message. *)
 type metadata = (string * Yojson.Safe.t) list [@@deriving show]
 
+(** Checkpoint-only conversation metadata owned by OAS. The run boundary is
+    deliberately absent from provider payloads; it lets crash recovery avoid
+    correlating tool failures across distinct external user runs. *)
+module Conversation_metadata : sig
+  type run_boundary =
+    | Absent
+    | Present
+    | Malformed
+
+  val run_boundary : metadata
+  val classify_run_boundary : metadata -> run_boundary
+
+  (** Whether a follow-up User message may be folded into the preceding Tool
+      message for providers that require a single user-role span. *)
+  val is_mergeable_followup : metadata -> bool
+end
+
 type message =
   { role : role
   ; content : content_block list
