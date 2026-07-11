@@ -98,10 +98,11 @@ let checkpoint_content_block_to_json block =
       | Document _
       | Audio _ )
     , _ ) -> wire_json
-  (* ToolResult serializes to `Assoc via Api.content_block_to_json. If a
-     non-`Assoc wire form ever appears we cannot merge provenance fields, so
-     pass the wire form through unchanged. Closes the exhaustiveness gap. *)
-  | ToolResult _, wire_json -> wire_json
+  | ToolResult _, non_object ->
+    invalid_arg
+      (Printf.sprintf
+         "Checkpoint ToolResult serializer invariant failed: expected object, got %s"
+         (Yojson.Safe.to_string non_object))
 ;;
 
 let optional_typed_field ~field ~type_name ~decode json =

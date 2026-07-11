@@ -694,7 +694,7 @@ let make_tool_results
         (* Collect fresh results with sizes *)
         let fresh_entries =
           List.filter_map
-            (fun (result, content, is_fresh) ->
+            (fun ((result : Agent_tools.tool_execution_result), content, is_fresh) ->
                if is_fresh
                then Some (result.tool_use_id, String.length content, content)
                else None)
@@ -724,7 +724,7 @@ let make_tool_results
     in
     (* Phase 3: apply aggregate decisions, record CRS, truncate *)
     List.map
-      (fun (result, content, is_fresh) ->
+      (fun ((result : Agent_tools.tool_execution_result), content, is_fresh) ->
          let tid = result.tool_use_id in
          let content =
            if is_fresh
