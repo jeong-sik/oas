@@ -159,11 +159,7 @@ type provider_impl =
 
 let registry : (string, provider_impl) Hashtbl.t = Hashtbl.create 8
 let registry_mu = Mutex.create ()
-
-let with_registry_lock f =
-  Mutex.lock registry_mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock registry_mu)
-;;
+let with_registry_lock f = Mutex.protect registry_mu f
 
 let register_provider impl =
   with_registry_lock (fun () -> Hashtbl.replace registry impl.name impl)
