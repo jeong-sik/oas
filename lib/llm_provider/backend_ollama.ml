@@ -160,12 +160,13 @@ let build_request
      or [supports_top_k = false] for a specific Ollama variant — at
      which point the one-shot WARN from Backend_openai also fires. *)
   let options = ref [] in
-  (let mt =
-     Option.value
-       ~default:(Constants.resolve_unknown_model_max_tokens_fallback ())
-       config.max_tokens
-   in
-   options := ("num_predict", `Int mt) :: !options);
+  (* Shared budget policy (caller override clamped to catalog ceiling,
+     omitted when both are unknown) — Ollama's [num_predict] is optional,
+     and omission lets the server apply the model's own limit. Previously
+     this arm bypassed the capability catalog and invented 16384. *)
+  (match Backend_openai_request.effective_max_output_tokens config with
+   | Some mt -> options := ("num_predict", `Int mt) :: !options
+   | None -> ());
   (match config.temperature with
    | Some t -> options := ("temperature", `Float t) :: !options
    | None -> ());

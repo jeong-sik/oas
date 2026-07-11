@@ -384,8 +384,15 @@ let kimi_capabilities =
 
 let openai_compat_chat_capabilities =
   { default_capabilities with
-    max_context_tokens = Some 128_000
-  ; max_output_tokens = Some 16_384
+    max_context_tokens =
+      Some 128_000
+      (* [max_output_tokens] stays [None]: this preset covers arbitrary
+       OpenAI-compatible endpoints whose real output ceiling the SDK
+       cannot know. A family-level guess here becomes the wire
+       [max_tokens] for every catalog-silent model and truncates long
+       thinking (thinking and answer share the value). Unknown means
+       unknown — request builders omit the field and the server applies
+       the model's own limit; per-model rows declare real ceilings. *)
   ; supports_tools = true
   ; supports_tool_choice = true
   ; supports_required_tool_choice = true

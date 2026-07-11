@@ -382,14 +382,13 @@ let build_openai_body_unchecked
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
+  let body_assoc = [ "model", `String model_str; "messages", `List provider_messages ] in
   let body_assoc =
-    [ "model", `String model_str
-    ; "messages", `List provider_messages
-    ; ( "max_tokens"
-      , `Int
-          (Llm_provider.Backend_openai_request.effective_max_output_tokens
-             serialization_config) )
-    ]
+    match
+      Llm_provider.Backend_openai_request.effective_max_output_tokens serialization_config
+    with
+    | Some mt -> body_assoc @ [ "max_tokens", `Int mt ]
+    | None -> body_assoc
   in
   let body_assoc =
     match config.config.temperature with

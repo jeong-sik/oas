@@ -390,11 +390,15 @@ let test_build_openai_body_uses_unknown_model_fallback () =
     |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
+  (* No caller override and no catalog ceiling: the field is omitted so the
+     provider applies the model's own limit — no invented fallback. *)
   check
-    int
-    "unknown-provider fallback max_tokens"
-    (Llm_provider.Constants.resolve_unknown_model_max_tokens_fallback ())
-    (body |> member "max_tokens" |> to_int)
+    bool
+    "unknown-model max_tokens omitted"
+    true
+    (match body |> member "max_tokens" with
+     | `Null -> true
+     | _ -> false)
 ;;
 
 let test_build_body_with_thinking_budget () =

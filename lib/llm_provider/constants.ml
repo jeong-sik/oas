@@ -9,7 +9,6 @@
 (* ── HTTP retry / handoff codes ──────────────────── *)
 
 module Env = struct
-  let max_tokens_default = "OAS_MAX_TOKENS_DEFAULT"
   let thinking_budget_default = "OAS_THINKING_BUDGET_DEFAULT"
   let anthropic_thinking_budget = "OAS_ANTHROPIC_THINKING_BUDGET"
   let gemini_thinking_budget = "OAS_GEMINI_THINKING_BUDGET"
@@ -99,27 +98,14 @@ module Inference_profile = struct
   let deterministic = { no_sampling_overrides with temperature = 0.0; max_tokens = 4096 }
 end
 
-(** Fallback [max_tokens] when both caller override and model capability
-    are absent. Emitted as a required field by OpenAI-compat and Anthropic
-    backends. Env override resolution is intentionally done by
-    {!resolve_unknown_model_max_tokens_fallback} at request-build time,
-    not during module initialization.
-
-    16384 is a last-resort ceiling for modern high-context models. Models with
-    lower caps should be declared in [Capabilities.for_model_id] so the
-    capability-gated path (not this fallback) applies.
-    @since 0.188.0
-    @since 0.185.0 — raised from 4096 to 16384
-    @since 0.208.0 — env override moved to call-time resolver *)
-let unknown_model_max_tokens_fallback = 16384
-
-let resolve_unknown_model_max_tokens_fallback ?getenv () =
-  positive_int_env_or
-    ?getenv
-    ~var:Env.max_tokens_default
-    ~default:unknown_model_max_tokens_fallback
-    ()
-;;
+(* The former unknown-model [max_tokens] fallback (16384, env
+   OAS_MAX_TOKENS_DEFAULT) was removed: when neither the caller nor the
+   capability catalog declares an output ceiling, request builders omit
+   the field and the provider applies the model's real limit. An
+   invented value is shared by thinking and answer and truncates long
+   reasoning mid-thought on catalog-silent models. Anthropic (the one
+   wire that requires the field) fails loudly via
+   [Backend_anthropic.required_max_output_tokens]. *)
 
 (* ── Cache ───────────────────────────────────────── *)
 

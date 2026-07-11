@@ -107,8 +107,7 @@ let build_body_assoc
   let body_assoc =
     [ "model", `String model_str
     ; ( "max_tokens"
-      , `Int (Llm_provider.Backend_anthropic.effective_max_output_tokens provider_config)
-      )
+      , `Int (Llm_provider.Backend_anthropic.required_max_output_tokens provider_config) )
     ; "messages", `List (List.map message_to_json messages)
     ; "stream", `Bool stream
     ]
