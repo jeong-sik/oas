@@ -542,6 +542,10 @@ let output_token_receipt_ceiling_source receipt =
 ;;
 
 let optional_output_token_receipt ~envelope ~requested ~ceiling =
+  (match requested with
+   | Some value when value < 0 ->
+     invalid_arg "optional_output_token_receipt: requested value must be non-negative"
+   | None | Some _ -> ());
   let resolution =
     match requested, ceiling with
     | None, ceiling -> Omitted_resolution { ceiling }
@@ -586,17 +590,23 @@ let output_token_receipt_to_yojson receipt =
 
 let output_token_receipt_of_yojson json =
   let open Yojson.Safe.Util in
-  let int_option = function
+  let token_value_option = function
+    | `Null -> Ok None
+    | `Int value when value >= 0 -> Ok (Some value)
+    | `Int _ -> Error "output_token_receipt: token values must be non-negative"
+    | _ -> Error "output_token_receipt: expected integer or null"
+  in
+  let ceiling_option = function
     | `Null -> Ok None
     | `Int value when value > 0 -> Ok (Some value)
-    | `Int _ -> Error "output_token_receipt: token values must be positive"
+    | `Int _ -> Error "output_token_receipt: ceiling must be positive"
     | _ -> Error "output_token_receipt: expected integer or null"
   in
   let ( let* ) result f = Result.bind result f in
   try
-    let* requested = int_option (member "requested" json) in
-    let* effective = int_option (member "effective" json) in
-    let* ceiling = int_option (member "ceiling" json) in
+    let* requested = token_value_option (member "requested" json) in
+    let* effective = token_value_option (member "effective" json) in
+    let* ceiling = ceiling_option (member "ceiling" json) in
     let* ceiling_source =
       match member "ceiling_source" json with
       | `Null -> Ok None

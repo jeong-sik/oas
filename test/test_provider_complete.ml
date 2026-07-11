@@ -190,6 +190,52 @@ let test_output_token_receipt_anthropic_required_fallback () =
     (Artifact.output_token_receipt artifact)
 ;;
 
+let test_output_token_receipt_anthropic_zero_cache_prewarm () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:""
+      ~max_tokens:0
+      ~cache_system_prompt:true
+      ~system_prompt:"cache this system prompt"
+      ()
+  in
+  let artifact =
+    BA.build_request_with_receipt ~config ~messages:[ user_msg "warmup" ] ()
+  in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
+  Alcotest.(check int)
+    "Anthropic cache prewarm max_tokens"
+    0
+    Yojson.Safe.Util.(json |> member "max_tokens" |> to_int);
+  check_receipt
+    ~requested:(Some 0)
+    ~effective:(Some 0)
+    ~policy:Explicit
+    ~ceiling:
+      (Some
+         (match (catalog_capabilities "claude-sonnet-4-6").max_output_tokens with
+          | Some value -> value
+          | None -> Alcotest.fail "catalog model must declare max_output_tokens"))
+    ~ceiling_source:(Some Catalog_model)
+    ~envelope:Anthropic_messages_max_tokens
+    (Artifact.output_token_receipt artifact)
+;;
+
+let test_output_token_receipt_rejects_negative_requested_value () =
+  Alcotest.check_raises
+    "negative requested tokens rejected at construction"
+    (Invalid_argument
+       "optional_output_token_receipt: requested value must be non-negative")
+    (fun () ->
+       ignore
+         (optional_output_token_receipt
+            ~envelope:Openai_chat_max_tokens
+            ~requested:(Some (-1))
+            ~ceiling:None))
+;;
+
 let test_output_token_receipt_ollama_envelope () =
   let config =
     PC.make
@@ -1702,6 +1748,14 @@ let () =
             "Anthropic required fallback"
             `Quick
             test_output_token_receipt_anthropic_required_fallback
+        ; test_case
+            "Anthropic zero-token cache prewarm"
+            `Quick
+            test_output_token_receipt_anthropic_zero_cache_prewarm
+        ; test_case
+            "negative requested tokens rejected"
+            `Quick
+            test_output_token_receipt_rejects_negative_requested_value
         ; test_case
             "Anthropic missing required ceiling"
             `Quick
