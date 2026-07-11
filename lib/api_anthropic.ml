@@ -239,13 +239,6 @@ let build_body_artifact
 ;;
 
 let build_body_assoc ~config ~messages ?message_to_json ?provider_kind ?tools ~stream () =
-  (build_body_artifact
-     ~config
-     ~messages
-     ?message_to_json
-     ?provider_kind
-     ?tools
-     ~stream
-     ())
-    .payload
+  build_body_artifact ~config ~messages ?message_to_json ?provider_kind ?tools ~stream ()
+  |> Llm_provider.Provider_request_artifact.payload
 ;;

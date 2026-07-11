@@ -167,11 +167,15 @@ let create_message
       | Provider.Anthropic_messages ->
         let artifact = build_body_artifact ~config ~messages ?tools ~stream:false () in
         Ok
-          ( Yojson.Safe.to_string (`Assoc artifact.payload)
-          , Some artifact.output_token_receipt )
+          ( Yojson.Safe.to_string
+              (`Assoc (Llm_provider.Provider_request_artifact.payload artifact))
+          , Some (Llm_provider.Provider_request_artifact.output_token_receipt artifact) )
       | Provider.Openai_chat_completions ->
         Result.map
-          (fun artifact -> artifact.payload, Some artifact.output_token_receipt)
+          (fun artifact ->
+             ( Llm_provider.Provider_request_artifact.payload artifact
+             , Some (Llm_provider.Provider_request_artifact.output_token_receipt artifact)
+             ))
           (Api_openai.build_openai_body_artifact_result
              ~provider_config:provider_cfg
              ~config

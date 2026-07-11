@@ -86,7 +86,7 @@ let complete_http
         | Provider_config.Glm ->
           Backend_glm.build_request_with_receipt ~config ~messages ~tools ()
       in
-      let body_str = request_artifact.payload in
+      let body_str = Provider_request_artifact.payload request_artifact in
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -352,7 +352,9 @@ let complete_http
         let result =
           Result.map
             (fun response ->
-               attach_output_token_receipt response request_artifact.output_token_receipt)
+               attach_output_token_receipt
+                 response
+                 (Provider_request_artifact.output_token_receipt request_artifact))
             result
         in
         result, latency_ms))

@@ -7,6 +7,7 @@ module BOR = Llm_provider.Backend_openai_responses
 module BGlm = Llm_provider.Backend_glm
 module BOL = Llm_provider.Backend_ollama
 module BGemini = Llm_provider.Backend_gemini
+module Artifact = Llm_provider.Provider_request_artifact
 open Llm_provider.Types
 
 let () =
@@ -90,7 +91,7 @@ let test_output_token_receipt_optional_omission () =
       ()
   in
   let artifact = BO.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string artifact.payload in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check bool)
     "optional max_tokens omitted"
     true
@@ -101,7 +102,7 @@ let test_output_token_receipt_optional_omission () =
     ~policy:Omitted
     ~ceiling:(Some 100)
     ~envelope:Openai_chat_max_tokens
-    artifact.output_token_receipt
+    (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_explicit_exact () =
@@ -115,7 +116,7 @@ let test_output_token_receipt_explicit_exact () =
       ()
   in
   let artifact = BOR.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string artifact.payload in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check int)
     "exact max_output_tokens"
     80
@@ -126,7 +127,7 @@ let test_output_token_receipt_explicit_exact () =
     ~policy:Explicit
     ~ceiling:(Some 100)
     ~envelope:Openai_responses_max_output_tokens
-    artifact.output_token_receipt
+    (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_explicit_clamp () =
@@ -142,7 +143,7 @@ let test_output_token_receipt_explicit_clamp () =
   let artifact =
     BGemini.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] ()
   in
-  let json = Yojson.Safe.from_string artifact.payload in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check int)
     "clamped maxOutputTokens"
     100
@@ -154,7 +155,7 @@ let test_output_token_receipt_explicit_clamp () =
     ~policy:Explicit_clamped
     ~ceiling:(Some 100)
     ~envelope:Gemini_generation_config_max_output_tokens
-    artifact.output_token_receipt
+    (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_anthropic_required_fallback () =
@@ -167,7 +168,7 @@ let test_output_token_receipt_anthropic_required_fallback () =
       ()
   in
   let artifact = BA.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string artifact.payload in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check int)
     "required max_tokens fallback"
     100
@@ -178,7 +179,7 @@ let test_output_token_receipt_anthropic_required_fallback () =
     ~policy:Required_catalog_fallback
     ~ceiling:(Some 100)
     ~envelope:Anthropic_messages_max_tokens
-    artifact.output_token_receipt
+    (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_ollama_envelope () =
@@ -192,7 +193,7 @@ let test_output_token_receipt_ollama_envelope () =
       ()
   in
   let artifact = BOL.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string artifact.payload in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check int)
     "Ollama num_predict"
     60
@@ -203,7 +204,7 @@ let test_output_token_receipt_ollama_envelope () =
     ~policy:Explicit
     ~ceiling:(Some 100)
     ~envelope:Ollama_options_num_predict
-    artifact.output_token_receipt
+    (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_anthropic_missing_required_ceiling () =
