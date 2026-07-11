@@ -196,6 +196,7 @@
   test_swiss_verdict_json
   test_tool
   test_tool_disclosure
+  test_tool_failure_episode
   test_tool_index
   test_tool_input_validation
   test_tool_middleware
@@ -400,6 +401,7 @@
   test_swiss_verdict_json
   test_tool
   test_tool_disclosure
+  test_tool_failure_episode
   test_tool_index
   test_tool_input_validation
   test_tool_middleware
