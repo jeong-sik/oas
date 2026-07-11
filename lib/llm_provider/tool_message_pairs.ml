@@ -14,6 +14,11 @@ type repair_report =
   ; synthesized_tool_result_ids : string list
   }
 
+type tool_exchange =
+  { tool_uses : content_block list
+  ; tool_results : content_block list
+  }
+
 let empty_repair_report = { dropped_tool_results = []; synthesized_tool_result_ids = [] }
 
 let normalize_report report =
@@ -82,6 +87,35 @@ let split_tool_result_span messages =
     | rest -> List.rev span, rest
   in
   loop [] messages
+;;
+
+let latest_tool_exchanges ~count messages =
+  if count < 0 then invalid_arg "latest_tool_exchanges: count must be >= 0";
+  let keep_latest exchanges =
+    let rec take remaining acc = function
+      | _ when remaining = 0 -> List.rev acc
+      | [] -> List.rev acc
+      | exchange :: rest -> take (remaining - 1) (exchange :: acc) rest
+    in
+    take count [] exchanges
+  in
+  let rec collect latest = function
+    | [] -> latest
+    | (message : message) :: rest ->
+      let uses = if message.role = Assistant then tool_uses message else [] in
+      if uses = []
+      then collect latest rest
+      else (
+        let result_span, tail = split_tool_result_span rest in
+        let exchange =
+          { tool_uses = message.content
+          ; tool_results =
+              List.concat_map (fun (result : message) -> result.content) result_span
+          }
+        in
+        collect (keep_latest (exchange :: latest)) tail)
+  in
+  collect [] messages
 ;;
 
 let strip_orphaned_tool_results_with_report (messages : message list)

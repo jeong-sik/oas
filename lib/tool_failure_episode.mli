@@ -16,13 +16,13 @@ type failed_attempt =
   ; error_class : Types.tool_error_class option
   ; error : string
   }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type t =
   { previous : failed_attempt
   ; current : failed_attempt
   }
-[@@deriving show]
+[@@deriving yojson, show]
 
 (** An immutable, fully paired execution boundary. *)
 type completed_round

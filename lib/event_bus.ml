@@ -58,6 +58,21 @@ type payload =
       ; output : Types.tool_result
       ; turn : int
       }
+  | ToolFailureEpisodeDetected of
+      { agent_name : string
+      ; turn : int
+      ; episodes : Tool_failure_episode.t list
+      }
+  | ToolFailureRecoveryDecided of
+      { agent_name : string
+      ; turn : int
+      ; decision : Tool_failure_recovery.decision
+      }
+  | ToolFailureRecoveryJudgeFailed of
+      { agent_name : string
+      ; turn : int
+      ; detail : string
+      }
   | TurnStarted of
       { agent_name : string
       ; turn : int
@@ -153,6 +168,9 @@ let payload_kind = function
   | AgentFailed _ -> "agent_failed"
   | ToolCalled _ -> "tool_called"
   | ToolCompleted _ -> "tool_completed"
+  | ToolFailureEpisodeDetected _ -> "tool_failure_episode_detected"
+  | ToolFailureRecoveryDecided _ -> "tool_failure_recovery_decided"
+  | ToolFailureRecoveryJudgeFailed _ -> "tool_failure_recovery_judge_failed"
   | TurnStarted _ -> "turn_started"
   | TurnReady _ -> "turn_ready"
   | TurnCompleted _ -> "turn_completed"
@@ -287,6 +305,9 @@ let filter_agent name : filter =
   | AgentFailed r -> r.agent_name = name
   | ToolCalled r -> r.agent_name = name
   | ToolCompleted r -> r.agent_name = name
+  | ToolFailureEpisodeDetected r -> r.agent_name = name
+  | ToolFailureRecoveryDecided r -> r.agent_name = name
+  | ToolFailureRecoveryJudgeFailed r -> r.agent_name = name
   | TurnStarted r -> r.agent_name = name
   | TurnReady r -> r.agent_name = name
   | TurnCompleted r -> r.agent_name = name
@@ -305,7 +326,11 @@ let filter_agent name : filter =
 let filter_tools_only : filter =
   fun event ->
   match event.payload with
-  | ToolCalled _ | ToolCompleted _ -> true
+  | ToolCalled _
+  | ToolCompleted _
+  | ToolFailureEpisodeDetected _
+  | ToolFailureRecoveryDecided _
+  | ToolFailureRecoveryJudgeFailed _ -> true
   | _ -> false
 ;;
 

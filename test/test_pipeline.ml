@@ -308,7 +308,7 @@ let test_pipeline_output_resets_idle_on_end_turn () =
   (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
    | Ok (Internal_pipeline.Complete response) ->
      Alcotest.(check bool) "completed" true (response.stop_reason = EndTurn)
-   | Ok Internal_pipeline.ToolsExecuted ->
+   | Ok (Internal_pipeline.ToolsExecuted _) ->
      Alcotest.fail "expected Complete, got ToolsExecuted"
    | Ok Internal_pipeline.IdleSkipped ->
      Alcotest.fail "expected Complete, got IdleSkipped"
@@ -348,7 +348,7 @@ let test_pipeline_output_completes_repetition_truncation () =
        "documented provider terminal reason is preserved"
        true
        (response.stop_reason = RepetitionTruncation)
-   | Ok Internal_pipeline.ToolsExecuted ->
+   | Ok (Internal_pipeline.ToolsExecuted _) ->
      Alcotest.fail "expected Complete, got ToolsExecuted"
    | Ok Internal_pipeline.IdleSkipped ->
      Alcotest.fail "expected Complete, got IdleSkipped"
@@ -387,7 +387,7 @@ let test_pipeline_tool_recovery_allows_glm_provider () =
   in
   let agent = make_tool_recovery_test_agent ~net ~provider in
   match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
-  | Ok Internal_pipeline.ToolsExecuted -> ()
+  | Ok (Internal_pipeline.ToolsExecuted _) -> ()
   | Ok (Internal_pipeline.Complete _) ->
     Alcotest.fail "expected tool recovery to execute a tool"
   | Ok Internal_pipeline.IdleSkipped -> Alcotest.fail "expected ToolsExecuted"
@@ -407,7 +407,7 @@ let test_pipeline_tool_recovery_rejects_openai_compat_provider () =
     (match response.content with
      | [ Text _ ] -> ()
      | _ -> Alcotest.fail "expected text to remain unpromoted")
-  | Ok Internal_pipeline.ToolsExecuted ->
+  | Ok (Internal_pipeline.ToolsExecuted _) ->
     Alcotest.fail "expected OpenAI-compatible text tool intent to fail closed"
   | Ok Internal_pipeline.IdleSkipped -> Alcotest.fail "expected Complete"
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
