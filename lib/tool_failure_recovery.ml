@@ -405,6 +405,7 @@ type receipt_error =
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
 
+let receipt_version = 1
 let metadata_key = "oas.tool_failure_recovery.v1"
 
 let revised_call_json (call : revised_call) =
@@ -447,7 +448,7 @@ let episode_ref_json episode =
 
 let receipt_json receipt =
   `Assoc
-    [ "version", `Int 1
+    [ "version", `Int receipt_version
     ; "resume_turn", `Int receipt.resume_turn
     ; "decided_at", `Float receipt.decided_at
     ; "episodes", `List (List.map episode_ref_json receipt.episodes)
@@ -531,6 +532,11 @@ let parse_string_receipt name fields =
   | _ -> Error (Invalid_receipt_metadata name)
 ;;
 
+let validate_receipt_fields ~allowed fields =
+  validate_fields ~allowed fields
+  |> Result.map_error (fun error -> Invalid_receipt_metadata (show_response_error error))
+;;
+
 let parse_failure_kind fields =
   match List.assoc_opt "failure_kind" fields with
   | None -> Error (Invalid_receipt_metadata "failure_kind")
@@ -542,7 +548,8 @@ let parse_failure_kind fields =
 
 let parse_error_class fields =
   match List.assoc_opt "error_class" fields with
-  | None | Some `Null -> Ok None
+  | None -> Error (Invalid_receipt_metadata "error_class")
+  | Some `Null -> Ok None
   | Some value ->
     (match Types.tool_error_class_of_yojson value with
      | Ok error_class -> Ok (Some error_class)
@@ -551,6 +558,17 @@ let parse_error_class fields =
 
 let parse_episode_ref = function
   | `Assoc fields ->
+    let* () =
+      validate_receipt_fields
+        ~allowed:
+          [ "previous_tool_use_id"
+          ; "current_tool_use_id"
+          ; "tool_name"
+          ; "failure_kind"
+          ; "error_class"
+          ]
+        fields
+    in
     let* previous_tool_use_id = parse_string_receipt "previous_tool_use_id" fields in
     let* current_tool_use_id = parse_string_receipt "current_tool_use_id" fields in
     let* tool_name = parse_string_receipt "tool_name" fields in
@@ -575,8 +593,17 @@ let parse_episode_refs fields =
 
 let parse_receipt = function
   | `Assoc fields ->
+    let* () =
+      validate_receipt_fields
+        ~allowed:[ "version"; "resume_turn"; "decided_at"; "episodes"; "decision" ]
+        fields
+    in
     let* version = parse_int "version" fields in
-    let* () = if version = 1 then Ok () else Error (Invalid_receipt_metadata "version") in
+    let* () =
+      if version = receipt_version
+      then Ok ()
+      else Error (Invalid_receipt_metadata "version")
+    in
     let* resume_turn = parse_int "resume_turn" fields in
     let* decided_at = parse_float "decided_at" fields in
     let* episodes = parse_episode_refs fields in

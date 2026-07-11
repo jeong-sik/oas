@@ -176,12 +176,31 @@ let project ~executions ~tool_results:result_blocks =
 let metadata_key = "oas.tool_failure_episode.completed_round.v1"
 let executions_to_yojson executions = `List (List.map executed_call_to_yojson executions)
 
+let execution_of_metadata_yojson = function
+  | `Assoc fields as json ->
+    let rec validate_fields seen = function
+      | [] -> Ok ()
+      | (name, _) :: rest when String_set.mem name seen ->
+        Error (Printf.sprintf "duplicate executed-call field: %s" name)
+      | (name, _) :: rest ->
+        if
+          String.equal name "tool_use_id"
+          || String.equal name "tool_name"
+          || String.equal name "input"
+        then validate_fields (String_set.add name seen) rest
+        else Error (Printf.sprintf "unexpected executed-call field: %s" name)
+    in
+    let* () = validate_fields String_set.empty fields in
+    executed_call_of_yojson json
+  | _ -> Error "completed-round execution entry must be an object"
+;;
+
 let executions_of_yojson = function
   | `List values ->
     List.fold_right
       (fun value result ->
          let* executions = result in
-         let* execution = executed_call_of_yojson value in
+         let* execution = execution_of_metadata_yojson value in
          Ok (execution :: executions))
       values
       (Ok [])

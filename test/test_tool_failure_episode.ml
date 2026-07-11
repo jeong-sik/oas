@@ -247,6 +247,49 @@ let test_invalid_completed_round_metadata_is_explicit () =
   | Ok _ -> Alcotest.fail "expected invalid completed-round metadata error"
 ;;
 
+let test_unexpected_execution_metadata_field_is_explicit () =
+  let key, json =
+    Tool_failure_episode.completed_round_metadata [ call "c1" "Execute" `Null ]
+  in
+  let json =
+    match json with
+    | `List [ `Assoc fields ] -> `List [ `Assoc (("unexpected", `Bool true) :: fields) ]
+    | _ -> Alcotest.fail "expected one executed-call metadata object"
+  in
+  let message =
+    Types.make_message
+      ~metadata:[ key, json ]
+      ~role:Types.Tool
+      [ typed_failure "c1" "failed" ]
+  in
+  match Tool_failure_episode.latest_completed_rounds ~count:1 [ message ] with
+  | Error (Tool_failure_episode.Invalid_completed_round_metadata _) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | Ok _ -> Alcotest.fail "expected unexpected executed-call field error"
+;;
+
+let test_duplicate_execution_metadata_field_is_explicit () =
+  let key, json =
+    Tool_failure_episode.completed_round_metadata [ call "c1" "Execute" `Null ]
+  in
+  let json =
+    match json with
+    | `List [ `Assoc fields ] ->
+      `List [ `Assoc (("tool_use_id", `String "duplicate") :: fields) ]
+    | _ -> Alcotest.fail "expected one executed-call metadata object"
+  in
+  let message =
+    Types.make_message
+      ~metadata:[ key, json ]
+      ~role:Types.Tool
+      [ typed_failure "c1" "failed" ]
+  in
+  match Tool_failure_episode.latest_completed_rounds ~count:1 [ message ] with
+  | Error (Tool_failure_episode.Invalid_completed_round_metadata _) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | Ok _ -> Alcotest.fail "expected duplicate executed-call field error"
+;;
+
 let test_tool_result_outcome_is_restore_ssot () =
   let execution = call "c1" "Execute" (`Assoc [ "cmd", `String "status" ]) in
   let metadata = Tool_failure_episode.completed_round_metadata [ execution ] in
@@ -398,6 +441,14 @@ let () =
             "invalid metadata"
             `Quick
             test_invalid_completed_round_metadata_is_explicit
+        ; Alcotest.test_case
+            "unexpected execution metadata field"
+            `Quick
+            test_unexpected_execution_metadata_field_is_explicit
+        ; Alcotest.test_case
+            "duplicate execution metadata field"
+            `Quick
+            test_duplicate_execution_metadata_field_is_explicit
         ; Alcotest.test_case
             "tool result outcome SSOT"
             `Quick

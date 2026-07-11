@@ -85,12 +85,13 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
 ;;
 
 let provide_input agent request response =
-  set_recovery_state agent empty_recovery_state;
-  Agent_elicitation.apply_response
-    ~metadata:(recovery_run_boundary_metadata agent)
-    agent
-    request
-    response
+  if
+    Agent_elicitation.apply_response
+      ~metadata:(recovery_run_boundary_metadata agent)
+      agent
+      request
+      response
+  then set_recovery_state agent empty_recovery_state
 ;;
 
 (* ── Shared loop guard (finite max_turns + idle) ─────────── *)

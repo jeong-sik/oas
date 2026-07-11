@@ -56,8 +56,9 @@ let message_of_response ?(metadata = []) ~question = function
 
 let apply_response ?metadata agent (req : Error.input_required) response =
   match message_of_response ?metadata ~question:req.question response with
-  | None -> ()
+  | None -> false
   | Some message ->
     update_state agent (fun state ->
-      { state with messages = Util.snoc state.messages message })
+      { state with messages = Util.snoc state.messages message });
+    true
 ;;

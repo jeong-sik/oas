@@ -344,6 +344,50 @@ let test_attach_receipt_does_not_cross_new_run_boundary () =
   | Ok _ -> Alcotest.fail "receipt crossed the new run boundary"
 ;;
 
+let mutate_receipt_fields messages mutate =
+  let changed = ref false in
+  let messages =
+    List.map
+      (fun (message : Types.message) ->
+         let metadata =
+           List.map
+             (fun (key, json) ->
+                match !changed, json with
+                | false, `Assoc fields when List.mem_assoc "version" fields ->
+                  changed := true;
+                  key, `Assoc (mutate fields)
+                | _ -> key, json)
+             message.metadata
+         in
+         { message with metadata })
+      messages
+  in
+  if not !changed then Alcotest.fail "recovery receipt metadata not found";
+  messages
+;;
+
+let test_receipt_record_is_closed () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario =
+    run_scenario
+      env
+      ~judge_json:{|{"action":"ask_user","question":"Which repository?"}|}
+      ()
+  in
+  let messages = (Agent.state scenario.agent).messages in
+  let check_invalid label mutate =
+    let messages = mutate_receipt_fields messages mutate in
+    match Tool_failure_recovery.latest_receipt messages with
+    | Error (Tool_failure_recovery.Invalid_receipt_metadata _) -> ()
+    | Error error ->
+      Alcotest.failf "%s: %s" label (Tool_failure_recovery.show_receipt_error error)
+    | Ok _ -> Alcotest.failf "%s: expected invalid receipt metadata" label
+  in
+  check_invalid "duplicate field" (fun fields -> ("version", `Int 1) :: fields);
+  check_invalid "unexpected field" (fun fields -> ("unexpected", `Null) :: fields)
+;;
+
 let project calls results =
   let executions =
     List.map
@@ -525,6 +569,56 @@ let test_resume_does_not_correlate_across_external_user_runs () =
   Alcotest.(check int) "main provider still runs" 1 (List.length requests)
 ;;
 
+let test_resume_rejects_result_without_execution_metadata () =
+  Eio_main.run
+  @@ fun env ->
+  let seed =
+    Agent.create
+      ~net:env#net
+      ~config:
+        { Types.default_config with
+          name = "missing-execution-metadata-test"
+        ; model = "mock-model"
+        ; system_prompt = Some "base system"
+        ; max_turns = 0
+        }
+      ()
+  in
+  let input = `Assoc [ "cmd", `String "gh pr list" ] in
+  let checkpoint =
+    { (Agent.checkpoint seed) with
+      turn_count = 1
+    ; messages =
+        [ message
+            ~role:User
+            ~content:[ Text "request" ]
+            ~metadata:Types.Conversation_metadata.run_boundary
+        ; message
+            ~role:Assistant
+            ~content:[ ToolUse { id = "c1"; name = "Execute"; input } ]
+            ~metadata:[]
+        ; message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
+        ]
+    }
+  in
+  let judge_calls = ref 0 in
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      incr judge_calls;
+      Ok {|{"action":"replan","instruction":"must not run"}|})
+  in
+  let result, requests = resumed_final_run env ~checkpoint ~judge in
+  (match result with
+   | Error
+       (Error.Agent
+          (Error.ToolFailureRecoveryFailed { stage = Error.Resume_restore; detail })) ->
+     Alcotest.(check bool) "explicit restore detail" true (String.length detail > 0)
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok _ -> Alcotest.fail "expected explicit recovery restore error");
+  Alcotest.(check int) "judge not called" 0 !judge_calls;
+  Alcotest.(check int) "provider not called" 0 (List.length requests)
+;;
+
 let test_run_boundary_metadata_remains_provider_mergeable () =
   let messages =
     [ message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
@@ -644,6 +738,10 @@ let () =
             `Quick
             test_resume_does_not_correlate_across_external_user_runs
         ; Alcotest.test_case
+            "resume requires execution metadata"
+            `Quick
+            test_resume_rejects_result_without_execution_metadata
+        ; Alcotest.test_case
             "run boundary metadata is provider-mergeable"
             `Quick
             test_run_boundary_metadata_remains_provider_mergeable
@@ -659,6 +757,10 @@ let () =
             "receipt attachment respects new run"
             `Quick
             test_attach_receipt_does_not_cross_new_run_boundary
+        ; Alcotest.test_case
+            "receipt record is closed"
+            `Quick
+            test_receipt_record_is_closed
         ] )
     ; ( "decision_validation"
       , [ Alcotest.test_case
