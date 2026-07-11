@@ -98,6 +98,10 @@ let checkpoint_content_block_to_json block =
       | Document _
       | Audio _ )
     , _ ) -> wire_json
+  (* ToolResult serializes to `Assoc via Api.content_block_to_json. If a
+     non-`Assoc wire form ever appears we cannot merge provenance fields, so
+     pass the wire form through unchanged. Closes the exhaustiveness gap. *)
+  | ToolResult _, wire_json -> wire_json
 ;;
 
 let optional_typed_field ~field ~type_name ~decode json =
