@@ -6,6 +6,7 @@ module Http_client = Llm_provider.Http_client
 type provider_error =
   [ `Rate_limited of float option
   | `Auth_error of string
+  | `Authorization_error of string
   | `Server_error of int * string
   | `Network_error of string
   | `Provider_timeout of Http_client.timeout_phase option * string
@@ -81,6 +82,7 @@ let of_api_error (err : Retry.api_error) : provider_error =
   match err with
   | Retry.RateLimited r -> `Rate_limited r.retry_after
   | Retry.AuthError r -> `Auth_error r.message
+  | Retry.AuthorizationError r -> `Authorization_error r.message
   | Retry.ServerError r -> `Server_error (r.status, r.message)
   | Retry.NetworkError r -> `Network_error r.message
   | Retry.Timeout r ->
@@ -100,6 +102,7 @@ let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error
   | Llm_provider.Error.RateLimit r -> `Rate_limited r.retry_after
   | Llm_provider.Error.HardQuota r -> `Rate_limited r.retry_after
   | Llm_provider.Error.AuthError r -> `Auth_error r.detail
+  | Llm_provider.Error.AuthorizationError r -> `Authorization_error r.detail
   | Llm_provider.Error.ServerError r -> `Server_error (r.code, r.detail)
   | Llm_provider.Error.NetworkError r -> `Network_error r.detail
   | Llm_provider.Error.Timeout r ->
@@ -158,6 +161,7 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Rate_limited after ->
     Error.Api (Retry.RateLimited { retry_after = after; message = "rate limited" })
   | `Auth_error msg -> Error.Api (Retry.AuthError { message = msg })
+  | `Authorization_error msg -> Error.Api (Retry.AuthorizationError { message = msg })
   | `Server_error (status, msg) -> Error.Api (Retry.ServerError { status; message = msg })
   | `Network_error msg -> Error.Api (Retry.NetworkError { message = msg; kind = Unknown })
   | `Provider_timeout (phase, msg) -> Error.Api (Retry.Timeout { message = msg; phase })
@@ -261,6 +265,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
      eliminate defensive catch-alls; this matches the exhaustive sibling
      Error.is_retryable. *)
   | `Auth_error _
+  | `Authorization_error _
   | `Invalid_request _
   | `Not_found _
   | `Context_overflow _

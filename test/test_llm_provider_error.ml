@@ -100,6 +100,15 @@ let test_auth_error () =
        (Error.AuthError { provider = "openai"; detail = "invalid API key" }))
 ;;
 
+let test_authorization_error () =
+  check
+    string
+    "AuthorizationError format"
+    "Provider 'openai' authorization error: forbidden"
+    (Error.to_string
+       (Error.AuthorizationError { provider = "openai"; detail = "forbidden" }))
+;;
+
 let test_server_error () =
   check
     string
@@ -380,6 +389,10 @@ let test_retry_remaining_variants_mapping () =
       , "auth" )
     ; ( Error.of_retry_api_error
           ~provider:"openai"
+          (Retry.AuthorizationError { message = "forbidden" })
+      , "authorization" )
+    ; ( Error.of_retry_api_error
+          ~provider:"openai"
           (Retry.InvalidRequest
              { message = "bad payload"; reason = Unknown_invalid_request })
       , "invalid" )
@@ -406,6 +419,8 @@ let test_retry_remaining_variants_mapping () =
        match expected, err with
        | "auth", Error.AuthError { detail; _ } ->
          check string "auth detail" "bad key" detail
+       | "authorization", Error.AuthorizationError { detail; _ } ->
+         check string "authorization detail" "forbidden" detail
        | "invalid", Error.InvalidRequest { reason; _ } ->
          check string "invalid reason" "bad payload" reason
        | "not_found", Error.NotFound { detail; _ } ->
@@ -588,6 +603,7 @@ let test_is_retryable_matrix () =
     (Error.HardQuota { provider = "p"; retry_after = None; detail = "billing" });
   not_retryable (Error.ProviderUnavailable { provider = "p"; detail = "missing" });
   not_retryable (Error.AuthError { provider = "p"; detail = "bad key" });
+  not_retryable (Error.AuthorizationError { provider = "p"; detail = "forbidden" });
   not_retryable (Error.NotFound { provider = "p"; detail = "model" })
 ;;
 
@@ -604,6 +620,7 @@ let () =
         ; test_case "HardQuota" `Quick test_hard_quota
         ; test_case "CapacityExhausted" `Quick test_capacity_exhausted
         ; test_case "AuthError" `Quick test_auth_error
+        ; test_case "AuthorizationError" `Quick test_authorization_error
         ; test_case "ServerError" `Quick test_server_error
         ; test_case "NetworkError" `Quick test_network_error
         ; test_case "Timeout" `Quick test_timeout

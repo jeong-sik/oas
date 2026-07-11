@@ -244,6 +244,7 @@ let complete_with_retry
              | Retry.Overloaded _
              | Retry.ServerError _
              | Retry.AuthError _
+             | Retry.AuthorizationError _
              | Retry.PaymentRequired _
              | Retry.InvalidRequest _
              | Retry.NotFound _
@@ -412,6 +413,7 @@ let complete_stream_with_retry
              | Retry.Overloaded _
              | Retry.ServerError _
              | Retry.AuthError _
+             | Retry.AuthorizationError _
              | Retry.PaymentRequired _
              | Retry.InvalidRequest _
              | Retry.NotFound _

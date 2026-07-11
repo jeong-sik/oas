@@ -110,7 +110,11 @@ let test_retryable_auth_error () =
   Alcotest.(check bool)
     "auth_error not retryable"
     false
-    (Error_domain.is_retryable (`Auth_error "bad key"))
+    (Error_domain.is_retryable (`Auth_error "bad key"));
+  Alcotest.(check bool)
+    "authorization_error not retryable"
+    false
+    (Error_domain.is_retryable (`Authorization_error "forbidden"))
 ;;
 
 let test_retryable_max_turns () =
@@ -147,6 +151,7 @@ let test_to_string_each_variant () =
     [ `Rate_limited (Some 2.0)
     ; `Rate_limited None
     ; `Auth_error "forbidden"
+    ; `Authorization_error "permission refused"
     ; `Server_error (503, "unavailable")
     ; `Network_error "connection refused"
     ; `Provider_timeout (None, "3s elapsed")
@@ -186,6 +191,7 @@ let test_all_variants_convert () =
   let all_polys : Error_domain.sdk_error_poly list =
     [ `Rate_limited None
     ; `Auth_error "x"
+    ; `Authorization_error "x"
     ; `Server_error (500, "x")
     ; `Network_error "x"
     ; `Provider_timeout (None, "x")
@@ -232,6 +238,18 @@ let test_roundtrip_api_auth_error () =
   match back with
   | Error.Api (Retry.AuthError { message = "forbidden" }) -> ()
   | _ -> Alcotest.fail "roundtrip mismatch for AuthError"
+;;
+
+let test_roundtrip_api_authorization_error () =
+  let orig = Error.Api (Retry.AuthorizationError { message = "permission refused" }) in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Authorization_error "permission refused" -> ()
+   | _ -> Alcotest.fail "expected Authorization_error");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Api (Retry.AuthorizationError { message = "permission refused" }) -> ()
+  | _ -> Alcotest.fail "roundtrip mismatch for AuthorizationError"
 ;;
 
 let test_roundtrip_api_server_error () =
@@ -763,6 +781,7 @@ let test_provider_roundtrip_all_via_to_sdk () =
     [ `Rate_limited (Some 1.0)
     ; `Rate_limited None
     ; `Auth_error "x"
+    ; `Authorization_error "x"
     ; `Server_error (500, "x")
     ; `Network_error "x"
     ; `Provider_timeout (None, "x")
@@ -793,6 +812,10 @@ let () =
     [ ( "roundtrip"
       , [ Alcotest.test_case "api rate_limited" `Quick test_roundtrip_api_rate_limited
         ; Alcotest.test_case "api auth_error" `Quick test_roundtrip_api_auth_error
+        ; Alcotest.test_case
+            "api authorization_error"
+            `Quick
+            test_roundtrip_api_authorization_error
         ; Alcotest.test_case "api server_error" `Quick test_roundtrip_api_server_error
         ; Alcotest.test_case "api network_error" `Quick test_roundtrip_api_network_error
         ; Alcotest.test_case "api timeout" `Quick test_roundtrip_api_timeout
