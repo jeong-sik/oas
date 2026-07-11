@@ -419,7 +419,7 @@ let receipt_json receipt =
     ]
 ;;
 
-let tool_result_ids message =
+let tool_result_ids (message : Types.message) =
   List.filter_map
     (function
       | Types.ToolResult { tool_use_id; _ } -> Some tool_use_id
