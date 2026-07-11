@@ -784,7 +784,7 @@ let provider_config_of_agent
                 ~model_id:p.model_id
             with
             | Some _ -> None
-            | None -> Some entry.capabilities
+            | None -> Some { entry.capabilities with max_output_tokens = None }
           in
           let registry_so_override =
             Option.map
