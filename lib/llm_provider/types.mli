@@ -241,6 +241,56 @@ type inference_timings =
   }
 [@@deriving show, yojson]
 
+type output_token_envelope =
+  | Openai_chat_max_tokens
+  | Openai_responses_max_output_tokens
+  | Anthropic_messages_max_tokens
+  | Gemini_generation_config_max_output_tokens
+  | Ollama_options_num_predict
+[@@deriving show, yojson]
+
+type output_token_policy =
+  | Omitted
+  | Explicit
+  | Explicit_clamped
+  | Required_catalog_fallback
+[@@deriving show, yojson]
+
+(** Construction-controlled receipt for the output-token value serialized on
+    the provider wire. *)
+type output_token_receipt
+
+type required_output_token_error = Required_output_token_ceiling_missing
+[@@deriving show, eq]
+
+val optional_output_token_receipt
+  :  envelope:output_token_envelope
+  -> requested:int option
+  -> ceiling:int option
+  -> output_token_receipt
+
+val required_output_token_receipt
+  :  envelope:output_token_envelope
+  -> requested:int option
+  -> ceiling:int option
+  -> (output_token_receipt, required_output_token_error) result
+
+val output_token_receipt_requested : output_token_receipt -> int option
+val output_token_receipt_effective : output_token_receipt -> int option
+val output_token_receipt_policy : output_token_receipt -> output_token_policy
+val output_token_receipt_ceiling : output_token_receipt -> int option
+val output_token_receipt_to_yojson : output_token_receipt -> Yojson.Safe.t
+
+val output_token_receipt_of_yojson
+  :  Yojson.Safe.t
+  -> (output_token_receipt, string) result
+
+val pp_output_token_receipt : Format.formatter -> output_token_receipt -> unit
+val show_output_token_receipt : output_token_receipt -> string
+
+(** Per-call inference telemetry assembled from provider responses and
+    OAS-owned request/transport receipts. Downstream consumers never recompute
+    provider decisions. *)
 type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
@@ -266,6 +316,10 @@ type inference_telemetry =
   ; ttfrc_ms : float option
     (** Time-to-first-response-chunk in milliseconds (wall-clock). *)
   ; prefill_ms : float option (** Prompt evaluation (prefill) duration in milliseconds. *)
+  ; output_token_receipt : output_token_receipt option [@default None]
+    (** Exact requested/effective output-token decision used by the OAS-owned
+        provider request builder. Absent when OAS did not build a provider wire
+        request (for example an opaque external transport or a cache replay). *)
   }
 [@@deriving show, yojson]
 

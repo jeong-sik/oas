@@ -71,20 +71,22 @@ let complete_http
       let uses_responses_api =
         Provider_config.request_path_targets_responses_api config.request_path
       in
-      let body_str =
+      let request_artifact =
         match config.kind with
         | Provider_config.Anthropic ->
-          Backend_anthropic.build_request ~config ~messages ~tools ()
+          Backend_anthropic.build_request_with_receipt ~config ~messages ~tools ()
         | Provider_config.Ollama ->
-          Backend_ollama.build_request ~config ~messages ~tools ()
+          Backend_ollama.build_request_with_receipt ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat when uses_responses_api ->
-          Backend_openai_responses.build_request ~config ~messages ~tools ()
+          Backend_openai_responses.build_request_with_receipt ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_openai.build_request ~config ~messages ~tools ()
+          -> Backend_openai.build_request_with_receipt ~config ~messages ~tools ()
         | Provider_config.Gemini ->
-          Backend_gemini.build_request ~config ~messages ~tools ()
-        | Provider_config.Glm -> Backend_glm.build_request ~config ~messages ~tools ()
+          Backend_gemini.build_request_with_receipt ~config ~messages ~tools ()
+        | Provider_config.Glm ->
+          Backend_glm.build_request_with_receipt ~config ~messages ~tools ()
       in
+      let body_str = request_artifact.payload in
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -347,6 +349,12 @@ let complete_http
               Error (Http_client.HttpError { code; body }))
         in
         let latency_ms = latency_ms_int latency_counter in
+        let result =
+          Result.map
+            (fun response ->
+               attach_output_token_receipt response request_artifact.output_token_receipt)
+            result
+        in
         result, latency_ms))
 ;;
 

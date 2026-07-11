@@ -38,6 +38,172 @@ let catalog_capabilities model_id =
   | None -> Alcotest.failf "expected catalog capabilities for %s" model_id
 ;;
 
+let capabilities_with_max_output_tokens max_output_tokens =
+  { Llm_provider.Capabilities.default_capabilities with max_output_tokens }
+;;
+
+let check_receipt
+      ~requested
+      ~effective
+      ~policy
+      ~ceiling
+      ~envelope
+      (receipt : output_token_receipt)
+  =
+  Alcotest.(check (option int))
+    "receipt requested"
+    requested
+    (output_token_receipt_requested receipt);
+  Alcotest.(check (option int))
+    "receipt effective"
+    effective
+    (output_token_receipt_effective receipt);
+  Alcotest.(check bool)
+    "receipt policy"
+    true
+    (output_token_receipt_policy receipt = policy);
+  Alcotest.(check (option int))
+    "receipt ceiling"
+    ceiling
+    (output_token_receipt_ceiling receipt);
+  let json = output_token_receipt_to_yojson receipt in
+  let decoded =
+    match output_token_receipt_of_yojson json with
+    | Ok decoded -> decoded
+    | Error message -> Alcotest.fail message
+  in
+  Alcotest.(check bool)
+    "receipt envelope"
+    true
+    (output_token_receipt_to_yojson decoded = json
+     && Yojson.Safe.Util.member "envelope" json = output_token_envelope_to_yojson envelope
+    )
+;;
+
+let test_output_token_receipt_optional_omission () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"receipt-optional-omission"
+      ~base_url:""
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  let artifact = BO.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string artifact.payload in
+  Alcotest.(check bool)
+    "optional max_tokens omitted"
+    true
+    (Yojson.Safe.Util.member "max_tokens" json = `Null);
+  check_receipt
+    ~requested:None
+    ~effective:None
+    ~policy:Omitted
+    ~ceiling:(Some 100)
+    ~envelope:Openai_chat_max_tokens
+    artifact.output_token_receipt
+;;
+
+let test_output_token_receipt_explicit_exact () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"receipt-explicit-exact"
+      ~base_url:""
+      ~max_tokens:80
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  let artifact = BOR.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string artifact.payload in
+  Alcotest.(check int)
+    "exact max_output_tokens"
+    80
+    Yojson.Safe.Util.(json |> member "max_output_tokens" |> to_int);
+  check_receipt
+    ~requested:(Some 80)
+    ~effective:(Some 80)
+    ~policy:Explicit
+    ~ceiling:(Some 100)
+    ~envelope:Openai_responses_max_output_tokens
+    artifact.output_token_receipt
+;;
+
+let test_output_token_receipt_explicit_clamp () =
+  let config =
+    PC.make
+      ~kind:Gemini
+      ~model_id:"receipt-explicit-clamp"
+      ~base_url:""
+      ~max_tokens:200
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  let artifact =
+    BGemini.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] ()
+  in
+  let json = Yojson.Safe.from_string artifact.payload in
+  Alcotest.(check int)
+    "clamped maxOutputTokens"
+    100
+    Yojson.Safe.Util.(
+      json |> member "generationConfig" |> member "maxOutputTokens" |> to_int);
+  check_receipt
+    ~requested:(Some 200)
+    ~effective:(Some 100)
+    ~policy:Explicit_clamped
+    ~ceiling:(Some 100)
+    ~envelope:Gemini_generation_config_max_output_tokens
+    artifact.output_token_receipt
+;;
+
+let test_output_token_receipt_anthropic_required_fallback () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"receipt-required-fallback"
+      ~base_url:""
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  let artifact = BA.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string artifact.payload in
+  Alcotest.(check int)
+    "required max_tokens fallback"
+    100
+    Yojson.Safe.Util.(json |> member "max_tokens" |> to_int);
+  check_receipt
+    ~requested:None
+    ~effective:(Some 100)
+    ~policy:Required_catalog_fallback
+    ~ceiling:(Some 100)
+    ~envelope:Anthropic_messages_max_tokens
+    artifact.output_token_receipt
+;;
+
+let test_output_token_receipt_anthropic_missing_required_ceiling () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"receipt-required-missing"
+      ~base_url:""
+      ~model_capabilities_override:(capabilities_with_max_output_tokens None)
+      ()
+  in
+  Alcotest.(check bool)
+    "typed missing required ceiling"
+    true
+    (BA.required_output_token_receipt config = Error Required_output_token_ceiling_missing);
+  Alcotest.check_raises
+    "builder rejects missing required ceiling"
+    (Invalid_argument
+       "Backend_anthropic.required_max_output_tokens: model receipt-required-missing \
+        declares no max_output_tokens and the caller passed none; the Anthropic Messages \
+        API requires max_tokens — declare max_output_tokens in the model catalog or pass \
+        ~max_tokens")
+    (fun () -> ignore (BA.build_request ~config ~messages:[ user_msg "hi" ] ()))
+;;
+
 (* ── Anthropic build_request ─────────────────────────── *)
 
 let test_anthropic_basic_body () =
@@ -1444,7 +1610,20 @@ let () =
   let open Alcotest in
   run
     "provider_complete"
-    [ ( "anthropic_build_request"
+    [ ( "output_token_receipt"
+      , [ test_case "optional omission" `Quick test_output_token_receipt_optional_omission
+        ; test_case "explicit exact" `Quick test_output_token_receipt_explicit_exact
+        ; test_case "explicit clamp" `Quick test_output_token_receipt_explicit_clamp
+        ; test_case
+            "Anthropic required fallback"
+            `Quick
+            test_output_token_receipt_anthropic_required_fallback
+        ; test_case
+            "Anthropic missing required ceiling"
+            `Quick
+            test_output_token_receipt_anthropic_missing_required_ceiling
+        ] )
+    ; ( "anthropic_build_request"
       , [ test_case "basic body" `Quick test_anthropic_basic_body
         ; test_case "with system" `Quick test_anthropic_with_system
         ; test_case "with thinking" `Quick test_anthropic_with_thinking

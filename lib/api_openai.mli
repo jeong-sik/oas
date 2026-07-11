@@ -7,9 +7,9 @@
 
 include module type of Llm_provider.Backend_openai
 
-(** Result-returning form of {!build_openai_body}. Live request paths should use
-    this function so unsupported provider contracts surface as typed errors
-    before HTTP dispatch rather than as serializer exceptions. *)
+(** Compatibility projection returning only the serialized body. Live request
+    paths use {!build_openai_body_artifact_result} so the exact output-token
+    decision travels with the body. *)
 val build_openai_body_result
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
@@ -18,6 +18,15 @@ val build_openai_body_result
   -> ?slot_id:int
   -> unit
   -> (string, string) result
+
+val build_openai_body_artifact_result
+  :  ?provider_config:Provider.config
+  -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (string Llm_provider.Provider_request_artifact.t, string) result
 
 (** Build OpenAI-compatible request body JSON string.
     Respects provider capabilities for tool_choice, top_k, min_p,

@@ -61,6 +61,12 @@ let test_stream_basic () =
     Printf.printf "Response id: %s\n%!" resp.Types.id;
     Printf.printf "Response model: %s\n%!" resp.Types.model;
     Printf.printf "Content blocks: %d\n%!" (List.length resp.Types.content);
+    (match resp.Types.telemetry with
+     | Some { Types.output_token_receipt = Some receipt; _ } ->
+       assert (Types.output_token_receipt_requested receipt = Some 200);
+       assert (Types.output_token_receipt_effective receipt = Some 200)
+     | Some { Types.output_token_receipt = None; _ } | None ->
+       failwith "stream response is missing the OAS output-token receipt");
     (* Verify we got events *)
     assert (event_count > 0);
     (* Verify accumulated text is non-empty *)

@@ -237,6 +237,23 @@ let%test "integer latency rounds sub-millisecond samples" =
   round_latency_ms 0.49 = 0 && round_latency_ms 0.5 = 1 && round_latency_ms 0.9 = 1
 ;;
 
+let attach_output_token_receipt
+      (resp : Types.api_response)
+      (output_token_receipt : Types.output_token_receipt)
+  =
+  let telemetry =
+    match resp.telemetry with
+    | Some telemetry ->
+      Some { telemetry with output_token_receipt = Some output_token_receipt }
+    | None ->
+      Some
+        { Types.default_inference_telemetry with
+          output_token_receipt = Some output_token_receipt
+        }
+  in
+  { resp with telemetry }
+;;
+
 (** Patch {!Types.api_response} telemetry with transport latency and provider
     metadata.
     The JSON parser sets [request_latency_ms = None] because it cannot see the

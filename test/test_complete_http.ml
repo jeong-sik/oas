@@ -205,6 +205,36 @@ let check_typed_empty_completion expected = function
   | Error _ -> fail "expected typed empty completion provider failure"
 ;;
 
+let check_response_output_token_receipt
+      ~requested
+      ~effective
+      ~policy
+      ~envelope
+      (response : Types.api_response)
+  =
+  match response.telemetry with
+  | Some { output_token_receipt = Some receipt; _ } ->
+    check
+      (option int)
+      "receipt requested"
+      requested
+      (Types.output_token_receipt_requested receipt);
+    check
+      (option int)
+      "receipt effective"
+      effective
+      (Types.output_token_receipt_effective receipt);
+    check bool "receipt policy" true (Types.output_token_receipt_policy receipt = policy);
+    check
+      bool
+      "receipt envelope"
+      true
+      (Yojson.Safe.Util.member "envelope" (Types.output_token_receipt_to_yojson receipt)
+       = Types.output_token_envelope_to_yojson envelope)
+  | Some { output_token_receipt = None; _ } | None ->
+    fail "expected OAS-owned output-token receipt in response telemetry"
+;;
+
 (* ── complete: success ───────────────────────────────── *)
 
 let test_complete_anthropic_ok () =
@@ -218,6 +248,12 @@ let test_complete_anthropic_ok () =
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
       check string "model" "mock" resp.model;
+      check_response_output_token_receipt
+        ~requested:(Some 100)
+        ~effective:(Some 100)
+        ~policy:Types.Explicit
+        ~envelope:Types.Anthropic_messages_max_tokens
+        resp;
       let text =
         List.filter_map
           (function
@@ -530,6 +566,12 @@ let test_complete_stream_openai_responses_ok () =
       check string "stream id" "resp-stream-1" resp.id;
       check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
       check bool "events emitted" true (List.length !events >= 5);
+      check_response_output_token_receipt
+        ~requested:(Some 100)
+        ~effective:(Some 100)
+        ~policy:Types.Explicit
+        ~envelope:Types.Openai_responses_max_output_tokens
+        resp;
       (match resp.content with
        | [ Types.RedactedThinking raw_reasoning; Types.ToolUse { id; name; input } ] ->
          let reasoning = Yojson.Safe.from_string raw_reasoning in

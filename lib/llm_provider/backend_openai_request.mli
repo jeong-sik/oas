@@ -27,6 +27,11 @@ val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
     [Backend_anthropic.required_max_output_tokens] instead. *)
 val effective_max_output_tokens : Provider_config.t -> int option
 
+val output_token_receipt
+  :  envelope:Types.output_token_envelope
+  -> Provider_config.t
+  -> Types.output_token_receipt
+
 (** Prepend the sampling [(field, value)] to [body] unless the reasoning
     dialect suppresses that parameter, in which case the field is dropped with a
     one-shot WARN per ([model_id], [field]). *)
@@ -60,6 +65,14 @@ val build_request_assoc
   -> unit
   -> Yojson.Safe.t
 
+val build_request_assoc_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> Yojson.Safe.t Provider_request_artifact.t
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t
@@ -67,3 +80,11 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string Provider_request_artifact.t

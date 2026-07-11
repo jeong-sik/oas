@@ -32,6 +32,14 @@ val build_request_assoc
   -> unit
   -> Yojson.Safe.t
 
+val build_request_assoc_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> Yojson.Safe.t Provider_request_artifact.t
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t
@@ -39,6 +47,14 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string Provider_request_artifact.t
 
 (** Emit a one-shot stderr WARN the first time a capability-gated
     sampling field is dropped for a given [(model_id, field)] pair.

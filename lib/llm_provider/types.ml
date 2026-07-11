@@ -437,8 +437,152 @@ type inference_timings =
   }
 [@@deriving show, yojson]
 
-(** Per-call inference telemetry.
-    Parsed from the raw API response; never computed by downstream. *)
+(** Provider request envelope that carries the output-token budget.
+    This identifies the wire contract, not the provider brand: providers
+    using an OpenAI-compatible endpoint share the corresponding envelope. *)
+type output_token_envelope =
+  | Openai_chat_max_tokens
+  | Openai_responses_max_output_tokens
+  | Anthropic_messages_max_tokens
+  | Gemini_generation_config_max_output_tokens
+  | Ollama_options_num_predict
+[@@deriving show, yojson]
+
+type output_token_policy =
+  | Omitted
+  | Explicit
+  | Explicit_clamped
+  | Required_catalog_fallback
+[@@deriving show, yojson]
+
+type output_token_resolution =
+  | Omitted_resolution of { ceiling : int option }
+  | Explicit_resolution of
+      { value : int
+      ; ceiling : int option
+      }
+  | Explicit_clamped_resolution of
+      { requested : int
+      ; ceiling : int
+      }
+  | Required_catalog_fallback_resolution of { ceiling : int }
+[@@deriving show]
+
+(** Construction-controlled receipt for the output-token value serialized on
+    the provider wire. The flat JSON projection exposes requested/effective,
+    policy, ceiling, and envelope while the internal sum type prevents invalid
+    combinations in OCaml. *)
+type output_token_receipt =
+  { envelope : output_token_envelope
+  ; resolution : output_token_resolution
+  }
+[@@deriving show]
+
+type required_output_token_error = Required_output_token_ceiling_missing
+[@@deriving show, eq]
+
+let output_token_receipt_requested receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ | Required_catalog_fallback_resolution _ -> None
+  | Explicit_resolution { value; _ } -> Some value
+  | Explicit_clamped_resolution { requested; _ } -> Some requested
+;;
+
+let output_token_receipt_effective receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ -> None
+  | Explicit_resolution { value; _ } -> Some value
+  | Explicit_clamped_resolution { ceiling; _ }
+  | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+;;
+
+let output_token_receipt_policy receipt =
+  match receipt.resolution with
+  | Omitted_resolution _ -> Omitted
+  | Explicit_resolution _ -> Explicit
+  | Explicit_clamped_resolution _ -> Explicit_clamped
+  | Required_catalog_fallback_resolution _ -> Required_catalog_fallback
+;;
+
+let output_token_receipt_ceiling receipt =
+  match receipt.resolution with
+  | Omitted_resolution { ceiling } | Explicit_resolution { ceiling; _ } -> ceiling
+  | Explicit_clamped_resolution { ceiling; _ }
+  | Required_catalog_fallback_resolution { ceiling } -> Some ceiling
+;;
+
+let optional_output_token_receipt ~envelope ~requested ~ceiling =
+  let resolution =
+    match requested, ceiling with
+    | None, ceiling -> Omitted_resolution { ceiling }
+    | Some requested, Some ceiling when requested > ceiling ->
+      Explicit_clamped_resolution { requested; ceiling }
+    | Some value, ceiling -> Explicit_resolution { value; ceiling }
+  in
+  { envelope; resolution }
+;;
+
+let required_output_token_receipt ~envelope ~requested ~ceiling =
+  match optional_output_token_receipt ~envelope ~requested ~ceiling with
+  | { resolution = Omitted_resolution { ceiling = Some ceiling }; _ } ->
+    Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
+  | { resolution = Omitted_resolution { ceiling = None }; _ } ->
+    Error Required_output_token_ceiling_missing
+  | receipt -> Ok receipt
+;;
+
+let output_token_receipt_to_yojson receipt =
+  let option_int_to_yojson = function
+    | Some value -> `Int value
+    | None -> `Null
+  in
+  `Assoc
+    [ "requested", option_int_to_yojson (output_token_receipt_requested receipt)
+    ; "effective", option_int_to_yojson (output_token_receipt_effective receipt)
+    ; "policy", output_token_policy_to_yojson (output_token_receipt_policy receipt)
+    ; "ceiling", option_int_to_yojson (output_token_receipt_ceiling receipt)
+    ; "envelope", output_token_envelope_to_yojson receipt.envelope
+    ]
+;;
+
+let output_token_receipt_of_yojson json =
+  let open Yojson.Safe.Util in
+  let int_option = function
+    | `Null -> Ok None
+    | `Int value -> Ok (Some value)
+    | _ -> Error "output_token_receipt: expected integer or null"
+  in
+  let ( let* ) result f = Result.bind result f in
+  try
+    let* requested = int_option (member "requested" json) in
+    let* effective = int_option (member "effective" json) in
+    let* ceiling = int_option (member "ceiling" json) in
+    let* policy = output_token_policy_of_yojson (member "policy" json) in
+    let* envelope = output_token_envelope_of_yojson (member "envelope" json) in
+    match policy, requested, effective, ceiling with
+    | Omitted, None, None, ceiling ->
+      Ok { envelope; resolution = Omitted_resolution { ceiling } }
+    | Explicit, Some requested, Some effective, ceiling
+      when requested = effective
+           &&
+           match ceiling with
+           | Some cap -> effective <= cap
+           | None -> true ->
+      Ok { envelope; resolution = Explicit_resolution { value = effective; ceiling } }
+    | Explicit_clamped, Some requested, Some effective, Some ceiling
+      when effective = ceiling && requested > ceiling ->
+      Ok { envelope; resolution = Explicit_clamped_resolution { requested; ceiling } }
+    | Required_catalog_fallback, None, Some effective, Some ceiling
+      when effective = ceiling ->
+      Ok { envelope; resolution = Required_catalog_fallback_resolution { ceiling } }
+    | _ -> Error "output_token_receipt: inconsistent requested/effective policy fields"
+  with
+  | Yojson.Safe.Util.Type_error (message, _) -> Error message
+;;
+
+(** Per-call inference telemetry assembled from provider responses and
+    OAS-owned request/transport receipts. Downstream consumers never recompute
+    provider decisions. *)
 type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
@@ -453,6 +597,7 @@ type inference_telemetry =
   ; provider_internal_action_count : int option
   ; ttfrc_ms : float option
   ; prefill_ms : float option
+  ; output_token_receipt : output_token_receipt option [@default None]
   }
 [@@deriving show, yojson]
 
@@ -470,6 +615,7 @@ let default_inference_telemetry : inference_telemetry =
   ; provider_internal_action_count = None
   ; ttfrc_ms = None
   ; prefill_ms = None
+  ; output_token_receipt = None
   }
 ;;
 

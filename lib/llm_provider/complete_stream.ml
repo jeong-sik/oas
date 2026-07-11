@@ -459,10 +459,15 @@ let complete_stream_http
       let uses_responses_api =
         Provider_config.request_path_targets_responses_api config.request_path
       in
-      let body_str =
+      let request_artifact =
         match config.kind with
         | Provider_config.Anthropic ->
-          Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_anthropic.build_request_with_receipt
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.Ollama ->
           (* Native /api/chat + NDJSON. The Backend_openai detour was a
            deferred work-around (#849) that dropped Ollama's
@@ -470,16 +475,38 @@ let complete_stream_http
            silently disabled prompt_tok_s / decode_tok_s telemetry
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
-          Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_ollama.build_request_with_receipt
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.OpenAI_compat when uses_responses_api ->
-          Backend_openai_responses.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_openai_responses.build_request_with_receipt
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+          ->
+          Backend_openai.build_request_with_receipt
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.Gemini ->
-          Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_gemini.build_request_with_receipt
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.Glm ->
-          Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_glm.build_request_with_receipt ~stream:true ~config ~messages ~tools ()
       in
+      let body_str = request_artifact.payload in
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:true
@@ -963,6 +990,9 @@ let complete_stream_http
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
          | Some _ | None -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
+        let resp =
+          attach_output_token_receipt resp request_artifact.output_token_receipt
+        in
         Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms latency_ms)
       | Ok (Error (Http_client.TimeoutError _ as err)) ->
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();

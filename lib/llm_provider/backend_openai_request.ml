@@ -181,14 +181,25 @@ let capabilities_of_config (config : Provider_config.t) =
    which applies an explicit OAS required-envelope fallback (the
    catalog-declared model maximum, not a provider default) and fails loudly
    when no value is declared anywhere — no invented constants. *)
-let effective_max_output_tokens (config : Provider_config.t) =
+let output_token_receipt_with_ceiling ~envelope (config : Provider_config.t) ~ceiling =
+  let receipt =
+    Types.optional_output_token_receipt ~envelope ~requested:config.max_tokens ~ceiling
+  in
+  (match Types.output_token_receipt_policy receipt with
+   | Types.Explicit_clamped ->
+     warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp"
+   | Omitted | Explicit | Required_catalog_fallback -> ());
+  receipt
+;;
+
+let output_token_receipt ~envelope (config : Provider_config.t) =
   let caps = capabilities_of_config config in
-  match config.max_tokens, caps.max_output_tokens with
-  | None, _ -> None
-  | Some n, Some cap when n > cap ->
-    warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
-    Some cap
-  | (Some _ as n), _ -> n
+  output_token_receipt_with_ceiling ~envelope config ~ceiling:caps.max_output_tokens
+;;
+
+let effective_max_output_tokens (config : Provider_config.t) =
+  output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
+  |> Types.output_token_receipt_effective
 ;;
 
 (* Shared tool_choice emission gate for the Chat and Responses envelopes.
@@ -215,7 +226,7 @@ let is_zai_glm_request = Provider_config.is_zai_glm_config
 
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
-let build_request_assoc
+let build_request_assoc_with_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -228,6 +239,12 @@ let build_request_assoc
   in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
+  let output_token_receipt =
+    output_token_receipt_with_ceiling
+      ~envelope:Types.Openai_chat_max_tokens
+      config
+      ~ceiling:caps.max_output_tokens
+  in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
     (* RFC-OAS-029 S3.1: reasoning replay is decided by the typed dialect
@@ -277,7 +294,7 @@ let build_request_assoc
      neither caller nor catalog declares a value. *)
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   let body =
-    match effective_max_output_tokens config with
+    match Types.output_token_receipt_effective output_token_receipt with
     | Some mt -> body @ [ "max_tokens", `Int mt ]
     | None -> body
   in
@@ -388,7 +405,11 @@ let build_request_assoc
       ("seed", `Int seed) :: body)
     else body
   in
-  `Assoc body
+  Provider_request_artifact.make ~payload:(`Assoc body) ~output_token_receipt
+;;
+
+let build_request_assoc ?stream ~config ~messages ?tools () =
+  (build_request_assoc_with_receipt ?stream ~config ~messages ?tools ()).payload
 ;;
 
 (** [build_request] serializes [build_request_assoc] to a JSON string.
@@ -396,12 +417,17 @@ let build_request_assoc
     {!Backend_glm}) mutate the request Assoc directly instead of parsing the
     serialized string back — one fewer full [Yojson.Safe.from_string] +
     [Yojson.Safe.to_string] of the message body per turn. *)
-let build_request
+let build_request_with_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  build_request_assoc ~stream ~config ~messages ~tools () |> Yojson.Safe.to_string
+  build_request_assoc_with_receipt ~stream ~config ~messages ~tools ()
+  |> Provider_request_artifact.map_payload Yojson.Safe.to_string
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
 ;;

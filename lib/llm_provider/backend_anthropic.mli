@@ -36,6 +36,12 @@ val effective_max_output_tokens : Provider_config.t -> int option
     catalog declares a value — no second numeric policy is invented. *)
 val required_max_output_tokens : Provider_config.t -> int
 
+val required_output_token_receipt
+  :  Provider_config.t
+  -> (Types.output_token_receipt, Types.required_output_token_error) result
+
+val required_output_token_receipt_exn : Provider_config.t -> Types.output_token_receipt
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t
@@ -43,3 +49,11 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_with_receipt
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string Provider_request_artifact.t

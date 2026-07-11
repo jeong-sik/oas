@@ -131,8 +131,8 @@ let create_message_stream
          ; "anthropic-version", Api.api_version
          ]
        in
-       let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
-       let body = Yojson.Safe.to_string (`Assoc body_assoc) in
+       let artifact = Api.build_body_artifact ~config ~messages ?tools ~stream:true () in
+       let body = Yojson.Safe.to_string (`Assoc artifact.payload) in
        let url = base_url ^ "/v1/messages" in
        Llm_provider.Http_client.with_post_stream
          ?clock
@@ -165,6 +165,10 @@ let create_message_stream
            finalize_stream_acc acc)
          ()
        |> map_stream_finalize_result
+       |> Result.map (fun response ->
+         Llm_provider.Complete_common.attach_output_token_receipt
+           response
+           artifact.output_token_receipt)
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
        let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
@@ -178,7 +182,7 @@ let create_message_stream
        in
        let stream_path = Provider.request_path provider_cfg.provider in
        (match
-          Api_openai.build_openai_body_result
+          Api_openai.build_openai_body_artifact_result
             ~provider_config:provider_cfg
             ~config
             ~messages
@@ -192,9 +196,9 @@ let create_message_stream
                   { message = "Request rejected: " ^ reason
                   ; reason = Llm_provider.Retry.Unknown_invalid_request
                   }))
-        | Ok body ->
+        | Ok artifact ->
           let body =
-            body
+            artifact.payload
             (* Streaming must request both SSE chunks and usage deltas so the
                accumulator can surface final token/cost metrics. *)
             |> Llm_provider.Http_client.inject_stream_and_options
@@ -251,7 +255,11 @@ let create_message_stream
               if !(acc.stop_reason_received) then on_event MessageStop;
               finalize_stream_acc acc)
             ()
-          |> map_stream_finalize_result)
+          |> map_stream_finalize_result
+          |> Result.map (fun response ->
+            Llm_provider.Complete_common.attach_output_token_receipt
+              response
+              artifact.output_token_receipt))
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match
