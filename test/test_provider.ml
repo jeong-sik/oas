@@ -1072,6 +1072,36 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
+let test_provider_config_of_agent_kimi_default_is_not_output_ceiling () =
+  let env_var = "KIMI_PROVIDER_CEILING_TEST_KEY" in
+  with_env env_var (Some "kimi-provider-test-key") (fun () ->
+    let cfg : Provider.config =
+      { provider = Custom_registered { name = "kimi" }
+      ; model_id = "unknown-kimi-model-with-no-catalog-row"
+      ; api_key_env = env_var
+      }
+    in
+    let state = agent_state_with_params () in
+    match
+      Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+    with
+    | Ok pc ->
+      (match pc.model_capabilities_override with
+       | Some caps ->
+         Alcotest.(check (option int))
+           "provider default is not a ceiling"
+           None
+           caps.max_output_tokens
+       | None -> Alcotest.fail "expected non-ceiling provider capability projection");
+      Alcotest.(check bool)
+        "required Messages budget still needs caller or catalog"
+        true
+        (Llm_provider.Backend_anthropic.required_output_token_receipt pc
+         = Error Llm_provider.Types.Required_output_token_catalog_ceiling_missing)
+    | Error error ->
+      Alcotest.failf "Kimi provider projection failed: %s" (Error.to_string error))
+;;
+
 let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default () =
   with_env "LLM_ENDPOINTS" (Some "") (fun () ->
     with_env
@@ -1273,6 +1303,13 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_de
         "registry default override is present when no row exists"
         true
         (Option.is_some pc.model_capabilities_override);
+      (match pc.model_capabilities_override with
+       | Some caps ->
+         Alcotest.(check (option int))
+           "provider default does not claim model output ceiling"
+           None
+           caps.max_output_tokens
+       | None -> Alcotest.fail "expected registry default capability projection");
       Alcotest.(check bool)
         "schema request rejected by provider default"
         true
@@ -1572,6 +1609,10 @@ let () =
             "custom registered kimi preserves headers"
             `Quick
             test_provider_config_of_agent_custom_registered_kimi_preserves_headers
+        ; Alcotest.test_case
+            "Kimi provider default is not an output ceiling"
+            `Quick
+            test_provider_config_of_agent_kimi_default_is_not_output_ceiling
         ; Alcotest.test_case
             "custom registered nous uses call-time default"
             `Quick

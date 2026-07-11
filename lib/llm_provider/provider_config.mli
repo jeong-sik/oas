@@ -462,6 +462,19 @@ val validate_output_schema_request : t -> (unit, string) result
     format rather than Chat Completions. *)
 val request_path_targets_responses_api : string -> bool
 
+(** Typed serializer/parser selection for one resolved HTTP config.  Kimi's
+    direct endpoint shares the Anthropic Messages codec; an OpenAI-compatible
+    endpoint selects Responses only through its validated request path. *)
+type http_codec =
+  | Anthropic_messages_codec
+  | Openai_chat_codec
+  | Openai_responses_codec
+  | Ollama_chat_codec
+  | Gemini_generate_content_codec
+  | Glm_chat_codec
+
+val http_codec : t -> http_codec
+
 (** Validate that [request_path] names a wire format implemented by this
     provider kind. OpenAI Responses API paths require [OpenAI_compat] and use a
     Responses-specific sync serializer/parser. *)

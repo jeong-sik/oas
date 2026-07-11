@@ -20,7 +20,7 @@ type provider_kind = Provider_kind.t =
     it does not dispatch over an HTTP path. *)
 let request_path_default_for_kind = function
   | Anthropic -> "/v1/messages"
-  | Kimi -> "/v1/chat/completions"
+  | Kimi -> "/v1/messages"
   | OpenAI_compat -> "/v1/chat/completions"
   | Ollama -> "/api/chat"
   | Gemini -> ""
@@ -827,6 +827,25 @@ let request_path_targets_responses_api request_path =
     | None -> lower
   in
   String.equal path "/v1/responses" || String.equal path "/responses"
+;;
+
+type http_codec =
+  | Anthropic_messages_codec
+  | Openai_chat_codec
+  | Openai_responses_codec
+  | Ollama_chat_codec
+  | Gemini_generate_content_codec
+  | Glm_chat_codec
+
+let http_codec (config : t) =
+  match config.kind with
+  | Anthropic | Kimi -> Anthropic_messages_codec
+  | OpenAI_compat when request_path_targets_responses_api config.request_path ->
+    Openai_responses_codec
+  | OpenAI_compat | DashScope -> Openai_chat_codec
+  | Ollama -> Ollama_chat_codec
+  | Gemini -> Gemini_generate_content_codec
+  | Glm -> Glm_chat_codec
 ;;
 
 let validate_request_path (config : t) =

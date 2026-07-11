@@ -51,7 +51,7 @@ let test_request_path_anthropic () =
 
 let test_request_path_provider_c () =
   let cfg = Provider_config.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  check_string "kimi path" "/v1/chat/completions" cfg.request_path
+  check_string "kimi path" "/v1/messages" cfg.request_path
 ;;
 
 let test_request_path_openai () =
@@ -89,6 +89,33 @@ let test_request_path_override () =
       ()
   in
   check_string "custom path" "/custom/path" cfg.request_path
+;;
+
+let test_http_codec_is_typed_from_kind_and_path () =
+  let codec ?request_path kind =
+    Provider_config.make ?request_path ~kind ~model_id:"m" ~base_url:"" ()
+    |> Provider_config.http_codec
+  in
+  let check label expected actual =
+    Alcotest.(check bool) label true (expected = actual)
+  in
+  check "Anthropic Messages" Provider_config.Anthropic_messages_codec (codec Anthropic);
+  check
+    "Kimi direct uses Anthropic Messages"
+    Provider_config.Anthropic_messages_codec
+    (codec Kimi);
+  check "OpenAI chat" Provider_config.Openai_chat_codec (codec OpenAI_compat);
+  check
+    "OpenAI Responses"
+    Provider_config.Openai_responses_codec
+    (codec ~request_path:"/v1/responses" OpenAI_compat);
+  check "Ollama native" Provider_config.Ollama_chat_codec (codec Ollama);
+  check
+    "Gemini generateContent"
+    Provider_config.Gemini_generate_content_codec
+    (codec Gemini);
+  check "GLM chat" Provider_config.Glm_chat_codec (codec Glm);
+  check "DashScope chat" Provider_config.Openai_chat_codec (codec DashScope)
 ;;
 
 (* ── auth headers ────────────────────────────────────── *)
@@ -2201,6 +2228,10 @@ let () =
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
         ; Alcotest.test_case "dashscope" `Quick test_request_path_dashscope
         ; Alcotest.test_case "override" `Quick test_request_path_override
+        ; Alcotest.test_case
+            "typed HTTP codec"
+            `Quick
+            test_http_codec_is_typed_from_kind_and_path
         ] )
     ; ( "auth_headers"
       , [ Alcotest.test_case
