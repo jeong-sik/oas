@@ -282,7 +282,6 @@ let test_openai_event_edge_branches () =
      check string "provider" "p" r.provider;
      check string "model" "m" r.model
    | _ -> fail "expected thinking completion telemetry");
-  state.thinking_state <- S.Thinking_done;
   let repeat_reasoning_events, _ =
     S.openai_chunk_to_events state (openai_chunk ~delta_reasoning:"again" ())
   in
@@ -363,7 +362,6 @@ let test_gemini_event_edge_branches () =
    | Some (Llm_provider.Telemetry_event.Thinking_complete r) ->
      check string "provider" "gemini" r.provider
    | _ -> fail "expected gemini thinking completion telemetry");
-  state.thinking_state <- S.Thinking_done;
   let restarted_events, _ =
     S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ())
   in
@@ -466,8 +464,11 @@ let test_ollama_event_edge_branches () =
    | Some (Llm_provider.Telemetry_event.Thinking_complete r) ->
      check string "provider" "ollama" r.provider
    | _ -> fail "expected empty-thinking telemetry");
-  state.thinking_state <- S.Thinking_started 0.0;
-  let none_thinking_events, none_tel = S.ollama_chunk_to_events state (ollama_chunk ()) in
+  let none_state = S.create_openai_stream_state ~provider:"ollama" ~model:"m" () in
+  ignore (S.ollama_chunk_to_events none_state (ollama_chunk ~delta_thinking:"start" ()));
+  let none_thinking_events, none_tel =
+    S.ollama_chunk_to_events none_state (ollama_chunk ())
+  in
   check_event_count "missing thinking closes telemetry only" 0 none_thinking_events;
   (match none_tel with
    | Some (Llm_provider.Telemetry_event.Thinking_complete _) -> ()

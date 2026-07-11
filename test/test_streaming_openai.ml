@@ -199,6 +199,138 @@ let test_events_tool_call () =
   | _ -> Alcotest.fail "expected InputJsonDelta"
 ;;
 
+let idless_openai_tool_start () =
+  let state = S.create_openai_stream_state () in
+  let events, _ =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "same-provider-chunk"
+      ; chunk_model = "model"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls =
+          [ { S.tc_index = 0
+            ; tc_id = None
+            ; tc_name = Some "lookup"
+            ; tc_arguments = Some (S.Args_fragment {|{"q":"same"}|})
+            }
+          ]
+      ; finish_reason = None
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  match events with
+  | [ ContentBlockStart { index = 0; content_type = "tool_use"; tool_id = Some id; _ }
+    ; ContentBlockDelta { index = 0; delta = InputJsonDelta _ }
+    ] -> id, state, events
+  | _ -> Alcotest.fail "expected id-less call to receive one identity at block start"
+;;
+
+let test_events_idless_tool_identity_matches_final_response () =
+  let start_id, state, events = idless_openai_tool_start () in
+  let acc = Acc.create_stream_acc () in
+  Acc.accumulate_event
+    acc
+    (MessageStart { id = "response"; model = "model"; usage = None });
+  List.iter (Acc.accumulate_event acc) events;
+  let terminal, _ =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "same-provider-chunk"
+      ; chunk_model = "model"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls = []
+      ; finish_reason = Some "tool_calls"
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  List.iter (Acc.accumulate_event acc) terminal;
+  match Acc.finalize_stream_acc acc with
+  | Ok { content = [ ToolUse { id; name = "lookup"; _ } ]; _ } ->
+    Alcotest.(check string) "start and final identity" start_id id
+  | Ok _ -> Alcotest.fail "expected one finalized ToolUse"
+  | Error _ -> Alcotest.fail "expected id-less normalized stream to finalize"
+;;
+
+let test_events_idless_tool_ids_are_unique_across_streams () =
+  let first, _, _ = idless_openai_tool_start () in
+  let second, _, _ = idless_openai_tool_start () in
+  Alcotest.(check bool) "separate streams allocate distinct ids" true (first <> second)
+;;
+
+let test_events_parallel_idless_tool_ids_are_distinct () =
+  let state = S.create_openai_stream_state () in
+  let call tc_index =
+    { S.tc_index
+    ; tc_id = None
+    ; tc_name = Some "lookup"
+    ; tc_arguments = Some (S.Args_fragment {|{"q":"same"}|})
+    }
+  in
+  let events, _ =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "chunk"
+      ; chunk_model = "model"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls = [ call 0; call 1 ]
+      ; finish_reason = None
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  let ids =
+    List.filter_map
+      (function
+        | ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ } -> Some id
+        | _ -> None)
+      events
+  in
+  match ids with
+  | [ first; second ] ->
+    Alcotest.(check bool) "parallel identical calls stay distinct" true (first <> second)
+  | _ -> Alcotest.fail "expected two identified tool starts"
+;;
+
+let test_events_late_provider_tool_id_fails_closed () =
+  let _, state, _ = idless_openai_tool_start () in
+  let events, _ =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "same-provider-chunk"
+      ; chunk_model = "model"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls =
+          [ { S.tc_index = 0
+            ; tc_id = Some "provider-late-id"
+            ; tc_name = None
+            ; tc_arguments = Some (S.Args_fragment "}")
+            }
+          ]
+      ; finish_reason = None
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  match events with
+  | [ SSEParseFailed { reason; _ } ] ->
+    Alcotest.(check string)
+      "late provider identity is explicit"
+      "late_provider_tool_call_id: provider identity arrived after an OAS identity was \
+       emitted"
+      reason
+  | _ -> Alcotest.fail "expected a typed late-provider-identity failure"
+;;
+
 let test_events_finish_reason () =
   let state = S.create_openai_stream_state () in
   let events, _tel =
@@ -715,7 +847,6 @@ let test_events_multi_tool_then_text () =
       ; chunk_parse_error = None
       }
   in
-  Alcotest.(check int) "next_block_index after 2 tools" 2 state.next_block_index;
   (* Text must get index 2 *)
   let text_events, _tel =
     S.openai_chunk_to_events
@@ -759,7 +890,6 @@ let test_events_thinking_tool_text () =
       ; chunk_parse_error = None
       }
   in
-  Alcotest.(check int) "next after thinking" 1 state.next_block_index;
   (* Tool call: gets index 1 *)
   let tc : S.openai_tool_call_delta =
     { tc_index = 0
@@ -782,7 +912,6 @@ let test_events_thinking_tool_text () =
       ; chunk_parse_error = None
       }
   in
-  Alcotest.(check int) "next after tool" 2 state.next_block_index;
   (* Text: must get index 2 *)
   let text_events, _tel =
     S.openai_chunk_to_events
@@ -939,6 +1068,49 @@ let test_responses_stream_reasoning_tool_and_terminal () =
     Alcotest.(check int) "output tokens" 8 usage.output_tokens;
     Alcotest.(check int) "cache read" 2 usage.cache_read_input_tokens
   | _ -> Alcotest.fail "expected redacted reasoning carrier and terminal StopToolUse"
+;;
+
+let test_responses_stream_idless_tool_identity_matches_final_response () =
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"responses-model" ()
+  in
+  let acc = Acc.create_stream_acc () in
+  let feed event_type data =
+    let events, _ = S.responses_sse_to_events state (Some event_type) data in
+    List.iter (Acc.accumulate_event acc) events;
+    events
+  in
+  let _ =
+    feed
+      "response.created"
+      {|{"type":"response.created","response":{"id":"resp","model":"responses-model","status":"in_progress","usage":null}}|}
+  in
+  let added =
+    feed
+      "response.output_item.added"
+      {|{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","name":"lookup","arguments":""}}|}
+  in
+  let start_id =
+    match added with
+    | [ ContentBlockStart { index = 0; content_type = "tool_use"; tool_id = Some id; _ } ]
+      -> id
+    | _ -> Alcotest.fail "expected an OAS identity on the Responses tool start"
+  in
+  let _ =
+    feed
+      "response.function_call_arguments.delta"
+      {|{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"q\":\"weather\"}"}|}
+  in
+  let _ =
+    feed
+      "response.completed"
+      {|{"type":"response.completed","response":{"id":"resp","model":"responses-model","status":"completed","output":[{"type":"function_call","name":"lookup","arguments":"{\"q\":\"weather\"}"}],"usage":{"input_tokens":1,"output_tokens":1}}}|}
+  in
+  match Acc.finalize_stream_acc acc with
+  | Ok { content = [ ToolUse { id; name = "lookup"; _ } ]; _ } ->
+    Alcotest.(check string) "Responses start and final identity" start_id id
+  | Ok _ -> Alcotest.fail "expected one Responses ToolUse"
+  | Error _ -> Alcotest.fail "expected id-less Responses tool stream to finalize"
 ;;
 
 let test_responses_stream_hidden_reasoning_before_tool () =
@@ -1273,6 +1445,28 @@ let test_ollama_native_interleaved_thinking_tool_text_finalizes () =
        Alcotest.fail "expected thinking, visible text, and tool use to stay separated")
 ;;
 
+let test_ollama_idless_tool_identity_matches_final_response () =
+  let state = S.create_openai_stream_state ~provider:"ollama" ~model:"qwen" () in
+  let chunk =
+    parse_ollama_line_exn
+      {|{"model":"qwen","message":{"role":"assistant","tool_calls":[{"function":{"name":"lookup","arguments":{"city":"Seoul"}}}]},"done":true,"done_reason":"tool_calls"}|}
+  in
+  let events, _ = S.ollama_chunk_to_events state chunk in
+  let start_id =
+    match events with
+    | ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ } :: _ -> id
+    | _ -> Alcotest.fail "expected Ollama id-less tool start to receive an identity"
+  in
+  let acc = Acc.create_stream_acc () in
+  Acc.accumulate_event acc (MessageStart { id = "ollama"; model = "qwen"; usage = None });
+  List.iter (Acc.accumulate_event acc) events;
+  match Acc.finalize_stream_acc acc with
+  | Ok { content = [ ToolUse { id; name = "lookup"; _ } ]; _ } ->
+    Alcotest.(check string) "Ollama start and final identity" start_id id
+  | Ok _ -> Alcotest.fail "expected one Ollama ToolUse"
+  | Error _ -> Alcotest.fail "expected Ollama id-less tool stream to finalize"
+;;
+
 let () =
   let open Alcotest in
   run
@@ -1324,6 +1518,22 @@ let () =
       , [ test_case "text first chunk" `Quick test_events_text_first_chunk
         ; test_case "text subsequent" `Quick test_events_text_subsequent
         ; test_case "tool_call" `Quick test_events_tool_call
+        ; test_case
+            "id-less start identity equals finalized ToolUse"
+            `Quick
+            test_events_idless_tool_identity_matches_final_response
+        ; test_case
+            "id-less identities differ across streams"
+            `Quick
+            test_events_idless_tool_ids_are_unique_across_streams
+        ; test_case
+            "parallel id-less identities stay distinct"
+            `Quick
+            test_events_parallel_idless_tool_ids_are_distinct
+        ; test_case
+            "late provider identity fails closed"
+            `Quick
+            test_events_late_provider_tool_id_fails_closed
         ; test_case "finish stop" `Quick test_events_finish_reason
         ; test_case "finish tool_calls" `Quick test_events_tool_calls_finish
         ; test_case
@@ -1354,6 +1564,10 @@ let () =
             "hidden reasoning before tool"
             `Quick
             test_responses_stream_hidden_reasoning_before_tool
+        ; test_case
+            "id-less start identity equals finalized ToolUse"
+            `Quick
+            test_responses_stream_idless_tool_identity_matches_final_response
         ; test_case
             "interleaved reasoning/tool/text finalizes"
             `Quick
@@ -1386,6 +1600,10 @@ let () =
             "native interleaved thinking/tool/text finalizes"
             `Quick
             test_ollama_native_interleaved_thinking_tool_text_finalizes
+        ; test_case
+            "id-less start identity equals finalized ToolUse"
+            `Quick
+            test_ollama_idless_tool_identity_matches_final_response
         ] )
     ]
 ;;

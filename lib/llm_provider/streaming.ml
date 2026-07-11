@@ -57,7 +57,23 @@ let parse_sse_event event_type data_str =
         | _ -> cb |> member "id" |> to_string_option
       in
       let tool_name = cb |> member "name" |> to_string_option in
-      Some (ContentBlockStart { index; content_type; tool_id; tool_name })
+      let non_blank_tool_id =
+        match tool_id with
+        | Some id when not (Api_common.string_is_blank id) -> Some id
+        | Some _ | None -> None
+      in
+      (match content_type, non_blank_tool_id with
+       | "tool_use", None ->
+         Some
+           (SSEParseFailed
+              { raw = Printf.sprintf "anthropic tool_use index %d" index
+              ; reason =
+                  Printf.sprintf "malformed_tool_use:index:%d:missing_provider_id" index
+              })
+       | "tool_use", Some tool_id ->
+         Some
+           (ContentBlockStart { index; content_type; tool_id = Some tool_id; tool_name })
+       | _, _ -> Some (ContentBlockStart { index; content_type; tool_id; tool_name }))
     | "content_block_delta" ->
       let index = json |> member "index" |> to_int in
       let delta_json = json |> member "delta" in
@@ -610,22 +626,32 @@ type tool_index_route =
   | Tool_index_single of int
   | Tool_index_ambiguous of int list
 
+type tool_identity_origin =
+  | Provider_supplied
+  | Oas_allocated
+
+type tool_block_identity =
+  { id : string
+  ; origin : tool_identity_origin
+  }
+
 type openai_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
   ; mutable text_block_index : int
   ; tool_blocks_by_id : (string, int) Hashtbl.t
-    (** tool_call id -> block index. Primary identity: a distinct id always gets
-        a distinct block, even when a provider reuses the wire index across
-        parallel calls (minimax-m3 on Ollama Cloud stamps every parallel call
-        index:0). *)
+    (** Secondary lookup index from tool identity to normalized block index.
+        [tool_block_identities] remains the identity authority. *)
   ; tool_block_indices : (int, tool_index_route) Hashtbl.t
     (** tool_call wire index -> routing state. Id-less continuation fragments
         can route only while the wire index maps to one known block. Once more
         than one id has used the same wire index, id-less fragments are
         ambiguous and must fail loud rather than silently picking the last
         writer. *)
+  ; tool_block_identities : (int, tool_block_identity) Hashtbl.t
+    (** Normalized block index -> the identity emitted at block start.  This is
+        the sole identity authority for an open tool block. *)
   ; mutable next_block_index : int
   ; mutable thinking_state : thinking_state
   ; provider : string
@@ -639,16 +665,12 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   ; text_block_index = -1
   ; tool_blocks_by_id = Hashtbl.create 4
   ; tool_block_indices = Hashtbl.create 4
+  ; tool_block_identities = Hashtbl.create 4
   ; next_block_index = 0
   ; thinking_state = Not_thinking
   ; provider
   ; model
   }
-;;
-
-let tool_index_route_indices = function
-  | Tool_index_single index -> [ index ]
-  | Tool_index_ambiguous indices -> indices
 ;;
 
 let tool_index_route_add_block route block_index =
@@ -669,10 +691,166 @@ let record_tool_index_route table tool_index block_index =
   Hashtbl.replace table tool_index route
 ;;
 
-let find_single_tool_index_route table tool_index =
-  match Hashtbl.find_opt table tool_index with
-  | Some (Tool_index_single block_index) -> Some block_index
-  | Some (Tool_index_ambiguous _) | None -> None
+type tool_block_index_policy =
+  | Next_available
+  | Next_after_carrier
+  | Wire_index
+
+type idless_tool_semantics =
+  (* Argument fragments continue the one call selected by the wire index. *)
+  | Continue_by_wire_index
+  (* Each complete provider item is a new call occurrence.  Identical
+      name/arguments must not collapse into one identity. *)
+  | Complete_occurrence
+
+type tool_route_failure =
+  | Ambiguous_idless_continuation
+  | Late_provider_identity
+  | Provider_identity_route_conflict
+  | Identity_index_conflict
+  | Block_index_collision
+  | Missing_block_identity
+
+type tool_block_resolution =
+  | Tool_block_resolved of
+      { block_index : int
+      ; identity : tool_block_identity
+      }
+  | Tool_block_rejected of sse_event
+
+let non_blank_provider_tool_id = function
+  | Some id when not (Api_common.string_is_blank id) -> Some id
+  | Some _ | None -> None
+;;
+
+let tool_route_failure_reason = function
+  | Ambiguous_idless_continuation ->
+    "ambiguous_tool_call_index: id-less continuation follows multiple tool identities"
+  | Late_provider_identity ->
+    "late_provider_tool_call_id: provider identity arrived after an OAS identity was \
+     emitted"
+  | Provider_identity_route_conflict ->
+    "provider_tool_call_id_route_conflict: one provider identity used multiple wire \
+     routes"
+  | Identity_index_conflict ->
+    "tool_identity_index_conflict: identity lookup and block authority disagree"
+  | Block_index_collision ->
+    "tool_block_index_collision: distinct tool identities require the same normalized \
+     block"
+  | Missing_block_identity ->
+    "missing_tool_block_identity: tool route references a block without identity state"
+;;
+
+let reject_tool_block ~protocol ~wire_index failure =
+  Tool_block_rejected
+    (SSEParseFailed
+       { raw = Printf.sprintf "%s tool_call index %d" protocol wire_index
+       ; reason = tool_route_failure_reason failure
+       })
+;;
+
+let register_tool_block_identity state ~block_index identity =
+  Hashtbl.replace state.tool_blocks_by_id identity.id block_index;
+  Hashtbl.replace state.tool_block_identities block_index identity
+;;
+
+let open_tool_block state ~protocol ~wire_index ~provider_tool_id ~tool_name ~index_policy
+  =
+  let block_index =
+    match index_policy with
+    | Next_available -> state.next_block_index
+    | Next_after_carrier -> state.next_block_index + 1
+    | Wire_index -> wire_index
+  in
+  if Hashtbl.mem state.tool_block_identities block_index
+  then reject_tool_block ~protocol ~wire_index Block_index_collision, None
+  else (
+    let identity =
+      match non_blank_provider_tool_id provider_tool_id with
+      | Some id -> { id; origin = Provider_supplied }
+      | None -> { id = Api_common.fresh_tool_use_id (); origin = Oas_allocated }
+    in
+    register_tool_block_identity state ~block_index identity;
+    state.next_block_index <- max state.next_block_index (block_index + 1);
+    ( Tool_block_resolved { block_index; identity }
+    , Some
+        (ContentBlockStart
+           { index = block_index
+           ; content_type = "tool_use"
+           ; tool_id = Some identity.id
+           ; tool_name
+           }) ))
+;;
+
+let resolve_tool_block
+      state
+      ~protocol
+      ~wire_index
+      ~provider_tool_id
+      ~tool_name
+      ~index_policy
+      ~idless_semantics
+  =
+  let reject failure = reject_tool_block ~protocol ~wire_index failure, None in
+  let open_and_record () =
+    let resolution, start =
+      open_tool_block
+        state
+        ~protocol
+        ~wire_index
+        ~provider_tool_id
+        ~tool_name
+        ~index_policy
+    in
+    (match resolution with
+     | Tool_block_resolved { block_index; _ } ->
+       record_tool_index_route state.tool_block_indices wire_index block_index
+     | Tool_block_rejected _ -> ());
+    resolution, start
+  in
+  let route_contains_block route block_index =
+    match route with
+    | Tool_index_single routed -> routed = block_index
+    | Tool_index_ambiguous routed -> List.mem block_index routed
+  in
+  match non_blank_provider_tool_id provider_tool_id with
+  | Some id ->
+    (match Hashtbl.find_opt state.tool_blocks_by_id id with
+     | Some block_index ->
+       (match Hashtbl.find_opt state.tool_block_indices wire_index with
+        | Some route when route_contains_block route block_index ->
+          (match Hashtbl.find_opt state.tool_block_identities block_index with
+           | Some identity when String.equal identity.id id ->
+             Tool_block_resolved { block_index; identity }, None
+           | Some _ -> reject Identity_index_conflict
+           | None -> reject Missing_block_identity)
+        | Some _ | None -> reject Provider_identity_route_conflict)
+     | None ->
+       (match Hashtbl.find_opt state.tool_block_indices wire_index with
+        | Some (Tool_index_single block_index) ->
+          (match Hashtbl.find_opt state.tool_block_identities block_index with
+           | Some { origin = Oas_allocated; _ } -> reject Late_provider_identity
+           | Some { origin = Provider_supplied; _ } ->
+             (match index_policy with
+              | Next_available | Next_after_carrier -> open_and_record ()
+              | Wire_index -> reject Block_index_collision)
+           | None -> reject Missing_block_identity)
+        | Some (Tool_index_ambiguous _) ->
+          (match index_policy with
+           | Next_available | Next_after_carrier -> open_and_record ()
+           | Wire_index -> reject Block_index_collision)
+        | None -> open_and_record ()))
+  | None ->
+    (match idless_semantics with
+     | Complete_occurrence -> open_and_record ()
+     | Continue_by_wire_index ->
+       (match Hashtbl.find_opt state.tool_block_indices wire_index with
+        | Some (Tool_index_single block_index) ->
+          (match Hashtbl.find_opt state.tool_block_identities block_index with
+           | Some identity -> Tool_block_resolved { block_index; identity }, None
+           | None -> reject Missing_block_identity)
+        | Some (Tool_index_ambiguous _) -> reject Ambiguous_idless_continuation
+        | None -> open_and_record ()))
 ;;
 
 (* OpenAI-compatible streams carry no wire [content_block_stop] event (unlike
@@ -690,12 +868,8 @@ let openai_open_block_stops (state : openai_stream_state) : sse_event list =
     (if state.thinking_block_started then [ state.thinking_block_index ] else [])
     @ (if state.text_block_started then [ state.text_block_index ] else [])
     @ Hashtbl.fold
-        (fun _tc_index route acc -> tool_index_route_indices route @ acc)
-        state.tool_block_indices
-        []
-    @ Hashtbl.fold
-        (fun _tool_id block_index acc -> block_index :: acc)
-        state.tool_blocks_by_id
+        (fun block_index _identity acc -> block_index :: acc)
+        state.tool_block_identities
         []
   in
   indices |> List.sort_uniq compare |> List.map (fun index -> ContentBlockStop { index })
@@ -806,71 +980,28 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
     (* Tool call deltas *)
     List.iter
       (fun (tc : openai_tool_call_delta) ->
-         let open_block () =
-           let idx = state.next_block_index in
+         let resolution, start =
+           resolve_tool_block
+             state
+             ~protocol:"openai"
+             ~wire_index:tc.tc_index
+             ~provider_tool_id:tc.tc_id
+             ~tool_name:tc.tc_name
+             ~index_policy:Next_available
+             ~idless_semantics:Continue_by_wire_index
+         in
+         Option.iter emit start;
+         match resolution, tc.tc_arguments with
+         | Tool_block_resolved { block_index; _ }, Some (Args_fragment args)
+           when args <> "" ->
+           emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
+         | Tool_block_resolved { block_index; _ }, Some (Args_complete args)
+           when args <> "" ->
            emit
-             (ContentBlockStart
-                { index = idx
-                ; content_type = "tool_use"
-                ; tool_id = tc.tc_id
-                ; tool_name = tc.tc_name
-                });
-           state.next_block_index <- state.next_block_index + 1;
-           idx
-         in
-         let ambiguous_idless_tool_call_error tc_index =
-           SSEParseFailed
-             { raw = Printf.sprintf "openai tool_call index %d" tc_index
-             ; reason =
-                 "ambiguous_tool_call_index: id-less tool_call continuation cannot be \
-                  routed after multiple ids used the same wire index"
-             }
-         in
-         let block_idx =
-           match tc.tc_id with
-           | Some id ->
-             (* A tool_call delta carrying an id identifies a distinct call. Key
-                its block on the stable id, not the wire index: some
-                OpenAI-compatible providers (minimax-m3 on Ollama Cloud) stamp
-                every parallel tool call index:0, so keying on tc_index alone
-                collapsed distinct calls into one block and concatenated their
-                arguments into invalid JSON ([malformed_tool_use_arguments]).
-                Record index -> block too so an id-less continuation fragment
-                (OpenAI sends id only on a call's first chunk) routes back here. *)
-             let idx =
-               match Hashtbl.find_opt state.tool_blocks_by_id id with
-               | Some idx -> idx
-               | None ->
-                 let idx = open_block () in
-                 Hashtbl.replace state.tool_blocks_by_id id idx;
-                 idx
-             in
-             record_tool_index_route state.tool_block_indices tc.tc_index idx;
-             Some idx
-           | None ->
-             (* Continuation fragment with no id: route by the wire index to the
-                call opened at that index. If none was opened (a provider that
-                never sends an id), fall back to index-keyed allocation so the
-                call is surfaced rather than dropped. *)
-             (match Hashtbl.find_opt state.tool_block_indices tc.tc_index with
-              | Some (Tool_index_single idx) -> Some idx
-              | Some (Tool_index_ambiguous _) ->
-                emit (ambiguous_idless_tool_call_error tc.tc_index);
-                None
-              | None ->
-                let idx = open_block () in
-                Hashtbl.replace
-                  state.tool_block_indices
-                  tc.tc_index
-                  (Tool_index_single idx);
-                Some idx)
-         in
-         match block_idx, tc.tc_arguments with
-         | Some block_idx, Some (Args_fragment args) when args <> "" ->
-           emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-         | Some block_idx, Some (Args_complete args) when args <> "" ->
-           emit (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
-         | Some _, Some (Args_fragment _ | Args_complete _) | Some _, None | None, _ -> ())
+             (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
+         | Tool_block_resolved _, Some (Args_fragment _ | Args_complete _)
+         | Tool_block_resolved _, None -> ()
+         | Tool_block_rejected error, _ -> emit error)
       chunk.delta_tool_calls;
     (* Finish reason -> MessageDelta *)
     (match chunk.finish_reason with
@@ -1130,8 +1261,8 @@ let%test "openai_chunk_to_events: id-less continuation on ambiguous index fails 
   | [ SSEParseFailed { raw; reason } ] ->
     raw = "openai tool_call index 0"
     && reason
-       = "ambiguous_tool_call_index: id-less tool_call continuation cannot be routed \
-          after multiple ids used the same wire index"
+       = "ambiguous_tool_call_index: id-less continuation follows multiple tool \
+          identities"
   | unexpected_events ->
     let (_ : sse_event list) = unexpected_events in
     false
@@ -1284,15 +1415,22 @@ let responses_tool_id_of_item item =
 ;;
 
 let responses_ensure_tool_block state emit ~output_index ~tool_id ~tool_name =
-  match find_single_tool_index_route state.tool_block_indices output_index with
-  | Some idx -> idx
-  | None ->
-    let idx = output_index in
-    Hashtbl.replace state.tool_block_indices output_index (Tool_index_single idx);
-    emit
-      (ContentBlockStart { index = idx; content_type = "tool_use"; tool_id; tool_name });
-    responses_advance_next_block_index state idx;
-    idx
+  let resolution, start =
+    resolve_tool_block
+      state
+      ~protocol:"openai_responses"
+      ~wire_index:output_index
+      ~provider_tool_id:tool_id
+      ~tool_name
+      ~index_policy:Wire_index
+      ~idless_semantics:Continue_by_wire_index
+  in
+  Option.iter emit start;
+  match resolution with
+  | Tool_block_resolved { block_index; _ } -> Some block_index
+  | Tool_block_rejected error ->
+    emit error;
+    None
 ;;
 
 let responses_emit_redacted_reasoning_outputs state emit response =
@@ -1394,7 +1532,7 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
          let item = json |> member "item" in
          (match responses_member_string_opt "type" item with
           | Some ("function_call" | "custom_tool_call") ->
-            let _idx =
+            let (_ : int option) =
               responses_ensure_tool_block
                 state
                 emit
@@ -1408,16 +1546,22 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
          (match responses_member_string_opt "delta" json with
           | Some delta when delta <> "" ->
             let output_index = responses_member_int_default "output_index" json in
-            let item_id = responses_member_string_opt "item_id" json in
             let index =
               responses_ensure_tool_block
                 state
                 emit
                 ~output_index
-                ~tool_id:item_id
+                  (* [item_id] identifies the Responses output item, not the
+                   function call.  Routing is structural by [output_index];
+                   treating [item_id] as a call identity would conflict with
+                   the authoritative [call_id] from [output_item.added]. *)
+                ~tool_id:None
                 ~tool_name:None
             in
-            emit (ContentBlockDelta { index; delta = InputJsonDelta delta })
+            (match index with
+             | Some index ->
+               emit (ContentBlockDelta { index; delta = InputJsonDelta delta })
+             | None -> ())
           | Some _ | None -> ())
        | "response.completed" | "response.incomplete" ->
          let response = json |> member "response" in
@@ -1537,46 +1681,60 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
           (Telemetry_event.Thinking_complete
              { provider = state.provider; model = state.model; thinking_duration_ms })
    | Not_thinking, false | Thinking_done, false | Thinking_started _, true -> ());
-  List.iter
-    (fun part ->
+  List.iteri
+    (fun part_index part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
        let emit_function_call_delta () =
          match part |> member "functionCall" with
          | `Assoc _ as fc ->
            let name = Cli_common_json.member_str "name" fc in
            let args = fc |> member "args" in
-           let id = Api_common.synthesize_tool_use_id ~name args in
-           (match part |> member "thoughtSignature" |> to_string_option with
-            | Some thought_signature
-              when not (Api_common.string_is_blank thought_signature) ->
-              let idx = state.next_block_index in
-              let payload =
-                Backend_gemini.gemini_thought_signature_payload
-                  ~tool_use_id:id
-                  ~thought_signature
-              in
+           let provider_tool_id = fc |> member "id" |> to_string_option in
+           let thought_signature =
+             match part |> member "thoughtSignature" |> to_string_option with
+             | Some signature when not (Api_common.string_is_blank signature) ->
+               Some signature
+             | Some _ | None -> None
+           in
+           let resolution, start =
+             resolve_tool_block
+               state
+               ~protocol:"gemini"
+               ~wire_index:part_index
+               ~provider_tool_id
+               ~tool_name:(Some name)
+               ~index_policy:
+                 (match thought_signature with
+                  | Some _ -> Next_after_carrier
+                  | None -> Next_available)
+               ~idless_semantics:Complete_occurrence
+           in
+           (match resolution with
+            | Tool_block_rejected error -> emit error
+            | Tool_block_resolved { block_index = idx; identity } ->
+              (match start with
+               | Some start ->
+                 (match thought_signature with
+                  | Some thought_signature ->
+                    let payload =
+                      Backend_gemini.gemini_thought_signature_payload
+                        ~tool_use_id:identity.id
+                        ~thought_signature
+                    in
+                    let carrier_index = idx - 1 in
+                    emit
+                      (ContentBlockStart
+                         { index = carrier_index
+                         ; content_type = "redacted_thinking"
+                         ; tool_id = Some payload
+                         ; tool_name = None
+                         })
+                  | None -> ());
+                 emit start
+               | None -> ());
               emit
-                (ContentBlockStart
-                   { index = idx
-                   ; content_type = "redacted_thinking"
-                   ; tool_id = Some payload
-                   ; tool_name = None
-                   });
-              state.next_block_index <- state.next_block_index + 1
-            | Some _ | None -> ());
-           let idx = state.next_block_index in
-           Hashtbl.replace state.tool_block_indices idx (Tool_index_single idx);
-           emit
-             (ContentBlockStart
-                { index = idx
-                ; content_type = "tool_use"
-                ; tool_id = Some id
-                ; tool_name = Some name
-                });
-           state.next_block_index <- state.next_block_index + 1;
-           emit
-             (ContentBlockDelta
-                { index = idx; delta = InputJsonSnapshot (Yojson.Safe.to_string args) })
+                (ContentBlockDelta
+                   { index = idx; delta = InputJsonSnapshot (Yojson.Safe.to_string args) }))
          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> ()
        in
        match part |> member "text" |> to_string_option with
@@ -1865,31 +2023,26 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
   List.iter
     (fun (tc : ollama_tool_call_delta) ->
        let block_idx =
-         match find_single_tool_index_route state.tool_block_indices tc.oll_tc_index with
-         | Some idx -> idx
-         | None ->
-           let idx = state.next_block_index in
-           Hashtbl.replace
-             state.tool_block_indices
-             tc.oll_tc_index
-             (Tool_index_single idx);
-           emit
-             (ContentBlockStart
-                { index = idx
-                ; content_type = "tool_use"
-                ; tool_id = tc.oll_tc_id
-                ; tool_name = tc.oll_tc_name
-                });
-           state.next_block_index <- state.next_block_index + 1;
-           idx
+         resolve_tool_block
+           state
+           ~protocol:"ollama"
+           ~wire_index:tc.oll_tc_index
+           ~provider_tool_id:tc.oll_tc_id
+           ~tool_name:tc.oll_tc_name
+           ~index_policy:Next_available
+           ~idless_semantics:Continue_by_wire_index
        in
-       match tc.oll_tc_arguments with
-       | Some (Args_fragment args) when args <> "" ->
-         emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-       | Some (Args_complete args) when args <> "" ->
-         emit (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
-       | Some (Args_fragment _ | Args_complete _) -> ()
-       | None -> ())
+       let resolution, start = block_idx in
+       Option.iter emit start;
+       match resolution, tc.oll_tc_arguments with
+       | Tool_block_resolved { block_index; _ }, Some (Args_fragment args) when args <> ""
+         -> emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
+       | Tool_block_resolved { block_index; _ }, Some (Args_complete args) when args <> ""
+         ->
+         emit (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
+       | Tool_block_resolved _, Some (Args_fragment _ | Args_complete _)
+       | Tool_block_resolved _, None -> ()
+       | Tool_block_rejected error, _ -> emit error)
     chunk.oll_tool_calls;
   (* Terminal chunk: emit MessageDelta with stop_reason + usage. *)
   if chunk.oll_is_done
@@ -2129,10 +2282,14 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonSnapshot" =
   let events, _tel = ollama_chunk_to_events state chunk in
   match events with
   | [ ContentBlockStart
-        { index = 0; content_type = "tool_use"; tool_name = Some "search"; _ }
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some tool_id
+        ; tool_name = Some "search"
+        }
     ; ContentBlockDelta { index = 0; delta = InputJsonSnapshot args }
     ; MessageDelta { stop_reason = Some StopToolUse; _ }
-    ] -> args = {|{"q":"hello"}|}
+    ] -> String.starts_with ~prefix:"call_oas_" tool_id && args = {|{"q":"hello"}|}
   | unexpected_events ->
     let (_ : sse_event list) = unexpected_events in
     false

@@ -239,13 +239,10 @@ let parse_ollama_tool_call ~tool_index tc =
       Error (Printf.sprintf "malformed_ollama_tool_call:index:%d:missing_name" tool_index)
   in
   let* input = parse_ollama_tool_arguments ~tool_index (fn |> member "arguments") in
-  let synthetic_id =
-    Printf.sprintf "%s_%d" (Api_common.synthesize_tool_use_id ~name input) tool_index
-  in
   let id =
     match tc |> member "id" |> to_string_option with
     | Some id when not (Api_common.string_is_blank id) -> id
-    | Some _ | None -> synthetic_id
+    | Some _ | None -> Api_common.fresh_tool_use_id ()
   in
   Ok (ToolUse { id; name; input })
 ;;

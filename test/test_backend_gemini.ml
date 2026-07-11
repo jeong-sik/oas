@@ -259,8 +259,14 @@ let test_tool_result () =
   let parts = third |> member "parts" |> to_list in
   let fr = List.hd parts |> member "functionResponse" in
   check bool "has functionResponse" true (fr <> `Null);
+  check string "function response id" "call_123" (fr |> member "id" |> to_string);
   (* Name should be resolved from tool_use_id to tool name *)
-  check string "function name" "get_weather" (fr |> member "name" |> to_string)
+  check string "function name" "get_weather" (fr |> member "name" |> to_string);
+  let assistant = List.nth contents 1 in
+  let function_call =
+    assistant |> member "parts" |> to_list |> List.hd |> member "functionCall"
+  in
+  check string "function call id" "call_123" (function_call |> member "id" |> to_string)
 ;;
 
 let test_dangling_tool_use_closed_before_request () =
@@ -433,7 +439,8 @@ let test_parse_function_call () =
   let resp = Backend_gemini.parse_response json in
   check int "one content block" 1 (List.length resp.content);
   (match List.hd resp.content with
-   | Types.ToolUse { name; input; _ } ->
+   | Types.ToolUse { id; name; input } ->
+     check bool "allocated id" true (String.starts_with ~prefix:"call_oas_" id);
      check string "name" "get_weather" name;
      check
        string
@@ -444,6 +451,17 @@ let test_parse_function_call () =
   match resp.stop_reason with
   | Types.StopToolUse -> ()
   | _ -> fail "expected StopToolUse"
+;;
+
+let test_parse_function_call_preserves_native_id () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"candidates":[{"content":{"parts":[{"functionCall":{"id":"gemini-call-1","name":"lookup","args":{}}}]},"finishReason":"STOP"}]}|}
+  in
+  match (Backend_gemini.parse_response json).content with
+  | [ Types.ToolUse { id; name = "lookup"; _ } ] ->
+    check string "native Gemini function call id" "gemini-call-1" id
+  | _ -> fail "expected one Gemini ToolUse"
 ;;
 
 let function_call_with_thought_signature_json () =
@@ -725,7 +743,7 @@ let test_gemini_stream_function_call () =
     "candidates": [{
       "content": {
         "parts": [{
-          "functionCall": {"name": "search", "args": {"q": "test"}}
+          "functionCall": {"id": "gemini-stream-call-1", "name": "search", "args": {"q": "test"}}
         }],
         "role": "model"
       }
@@ -736,15 +754,32 @@ let test_gemini_stream_function_call () =
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
-    let has_tool =
-      List.exists
-        (function
-          | Types.ContentBlockStart { content_type = "tool_use"; _ } -> true
-          | _ -> false)
-        events
-    in
-    check bool "has tool_use block" true has_tool
+    (match events with
+     | [ Types.ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ }
+       ; Types.ContentBlockDelta _
+       ] -> check string "native stream id" "gemini-stream-call-1" id
+     | _ -> fail "expected identified tool start and arguments")
   | None -> fail "expected Some chunk"
+;;
+
+let test_gemini_stream_repeated_idless_calls_stay_distinct () =
+  let chunk =
+    match
+      Streaming.parse_gemini_sse_chunk
+        {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"same"}}}]}}]}|}
+    with
+    | Some chunk -> chunk
+    | None -> fail "expected id-less Gemini chunk"
+  in
+  let state = Streaming.create_openai_stream_state () in
+  let start_id () =
+    match fst (Streaming.gemini_chunk_to_events state chunk) with
+    | ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ } :: _ -> id
+    | _ -> fail "expected identified Gemini tool start"
+  in
+  let first = start_id () in
+  let second = start_id () in
+  check bool "complete id-less occurrences stay distinct" true (first <> second)
 ;;
 
 let test_gemini_stream_finish () =
@@ -1217,6 +1252,10 @@ let () =
         ; test_case "thinking parts" `Quick test_parse_thinking_response
         ; test_case "function call" `Quick test_parse_function_call
         ; test_case
+            "function call native id"
+            `Quick
+            test_parse_function_call_preserves_native_id
+        ; test_case
             "function call thought signature"
             `Quick
             test_parse_function_call_preserves_thought_signature
@@ -1233,6 +1272,10 @@ let () =
       , [ test_case "text chunk" `Quick test_gemini_stream_text
         ; test_case "thinking chunk" `Quick test_gemini_stream_thinking
         ; test_case "function call chunk" `Quick test_gemini_stream_function_call
+        ; test_case
+            "repeated id-less calls stay distinct"
+            `Quick
+            test_gemini_stream_repeated_idless_calls_stay_distinct
         ; test_case "finish reason" `Quick test_gemini_stream_finish
         ; test_case
             "thinking delta index (#332)"
