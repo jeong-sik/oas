@@ -209,11 +209,14 @@ let test_provide_input_marks_only_appended_answers () =
   let request : Hooks.elicitation_request =
     { question = "Which environment?"; schema = None; timeout_s = None }
   in
-  let input =
-    Agent_elicitation.input_required_of_request
-      ~agent_name:"human-reviewer"
-      ~turn:0
-      request
+  let input : Error.input_required =
+    { request_id = "input-1"
+    ; participant_name = Some "human-reviewer"
+    ; question = request.question
+    ; schema = request.schema
+    ; timeout_s = request.timeout_s
+    ; created_at = 0.0
+    }
   in
   Agent.provide_input agent input Hooks.Declined;
   Alcotest.(check int)

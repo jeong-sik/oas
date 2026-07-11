@@ -658,7 +658,7 @@ let test_tool_result_followup_merge_preserves_internal_metadata () =
       true
       (List.exists
          (function
-           | ToolResult { tool_use_id = "tu1"; _ } -> true
+           | Types.ToolResult { tool_use_id = "tu1"; _ } -> true
            | _ -> false)
          merged.content);
     Alcotest.(check bool)
@@ -666,7 +666,7 @@ let test_tool_result_followup_merge_preserves_internal_metadata () =
       true
       (List.exists
          (function
-           | Text "continue" -> true
+           | Types.Text "continue" -> true
            | _ -> false)
          merged.content);
     Alcotest.(check bool)
