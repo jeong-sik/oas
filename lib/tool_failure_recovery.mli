@@ -23,6 +23,9 @@ type decision = private
       ; schema : Yojson.Safe.t option
       }
   | Defer of { reason : string }
+  (** End the current agent run and return control to the caller. [reason] is
+        observation-only model output: it is neither a wake condition nor a
+        scheduling instruction. The embedding host owns any later activity. *)
 [@@deriving show]
 
 (** Observation-only JSON projection. Parsing remains private so external code

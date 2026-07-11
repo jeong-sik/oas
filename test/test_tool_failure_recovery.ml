@@ -29,6 +29,17 @@ let final_response : Types.api_response =
 
 let append events event = events := !events @ [ event ]
 
+let recovery_judge_system_prompt =
+  "You are the tool-failure recovery judge for a long-lived agent. Choose exactly one "
+  ^ "action from the supplied JSON schema. Base the decision only on the typed adjacent "
+  ^ "failure episodes. retry_modified must provide one materially changed input for \
+     every "
+  ^ "current failed call. replan must give a concrete next-turn instruction. ask_user is "
+  ^ "for missing human-owned information. defer ends the current agent run and returns "
+  ^ "control to the caller; it does not schedule or encode a wake condition. The caller "
+  ^ "owns any later activity. Return only the JSON object."
+;;
+
 let failing_tool events =
   let parameters : Types.tool_param list =
     [ { name = "cmd"; description = "command"; param_type = String; required = true }
@@ -95,6 +106,10 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
         "judge receives structured schema"
         true
         (request.Tool_failure_recovery.output_schema <> `Null);
+      Alcotest.(check string)
+        "defer contract leaves scheduling with the caller"
+        recovery_judge_system_prompt
+        request.system_prompt;
       Ok judge_json)
   in
   let checkpoint_sink (snapshot : Agent.checkpoint_snapshot) =

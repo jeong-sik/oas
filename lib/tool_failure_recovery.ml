@@ -316,8 +316,9 @@ let system_prompt =
   ^ "failure episodes. retry_modified must provide one materially changed input for \
      every "
   ^ "current failed call. replan must give a concrete next-turn instruction. ask_user is "
-  ^ "for missing human-owned information. defer is for work that should resume after an "
-  ^ "external state change. Return only the JSON object."
+  ^ "for missing human-owned information. defer ends the current agent run and returns "
+  ^ "control to the caller; it does not schedule or encode a wake condition. The caller "
+  ^ "owns any later activity. Return only the JSON object."
 ;;
 
 let decide ~sw ~agent_name ~turn ~episodes judge =
