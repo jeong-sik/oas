@@ -52,6 +52,7 @@ original tag dates. `0.100.4` was never tagged or released.
 * **reasoning:** capture qwen3.6 streamed thinking ([#2527](https://github.com/jeong-sik/oas/issues/2527)) ([01eefcc](https://github.com/jeong-sik/oas/commit/01eefcc841d36348396ec44b9190d1518f8fe376))
 * **retry:** classify HTTP 403 as authorization failure ([#2520](https://github.com/jeong-sik/oas/issues/2520)) ([43498e9](https://github.com/jeong-sik/oas/commit/43498e93f908413a5139a4ace2c10f060747fb98))
 * **streaming:** preserve authorization error parity ([#2524](https://github.com/jeong-sik/oas/issues/2524)) ([0c2aef9](https://github.com/jeong-sik/oas/commit/0c2aef991de2049c02de4188aafde1a5256f7a9a))
+* **streaming:** stop retries after observable output ([#2529](https://github.com/jeong-sik/oas/issues/2529)) ([cf98b40](https://github.com/jeong-sik/oas/commit/cf98b409108dc9bb7f280f0a22f26c58afbec098))
 
 ## [0.211.0](https://github.com/jeong-sik/oas/compare/v0.210.0...v0.211.0) (2026-07-11)
 
