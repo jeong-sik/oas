@@ -24,6 +24,7 @@
 type provider_error =
   [ `Rate_limited of float option (** retry_after seconds *)
   | `Auth_error of string
+  | `Authorization_error of string
   | `Server_error of int * string (** status, message *)
   | `Network_error of string
   | `Provider_timeout of Llm_provider.Http_client.timeout_phase option * string

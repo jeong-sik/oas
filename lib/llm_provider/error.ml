@@ -40,6 +40,10 @@ type provider_error =
       { provider : string
       ; detail : string
       }
+  | AuthorizationError of
+      { provider : string
+      ; detail : string
+      }
   | ServerError of
       { provider : string
       ; code : int
@@ -145,6 +149,8 @@ let to_string = function
       (affected_suffix r.affected)
       (retry_after_suffix r.retry_after)
   | AuthError r -> Printf.sprintf "Provider '%s' auth error: %s" r.provider r.detail
+  | AuthorizationError r ->
+    Printf.sprintf "Provider '%s' authorization error: %s" r.provider r.detail
   | ServerError r ->
     Printf.sprintf
       "Provider '%s' server error %d (transient=%b): %s"
@@ -194,6 +200,7 @@ let of_retry_api_error ?provider err =
       ; detail = r.message
       }
   | Retry.AuthError r -> AuthError { provider; detail = r.message }
+  | Retry.AuthorizationError r -> AuthorizationError { provider; detail = r.message }
   | Retry.PaymentRequired r ->
     (* HTTP 402 is a hard billing-exhaustion signal by status code alone —
        map directly onto the existing [HardQuota] provider_error rather than
@@ -324,6 +331,7 @@ let is_retryable = function
   | ProviderUnavailable _
   | HardQuota _
   | AuthError _
+  | AuthorizationError _
   | InvalidRequest _
   | NotFound _
   | ProviderTerminal _ -> false

@@ -95,13 +95,13 @@ let test_classify_error_403_authorization_denied () =
   in
   let err = Retry.classify_error ~status:403 ~body in
   (match err with
-   | Retry.AuthError { message } ->
+   | Retry.AuthorizationError { message } ->
      check
        string
        "403 provider detail"
        "You've reached your usage limit for this billing cycle"
        message
-   | _ -> fail "expected AuthError for 403");
+   | _ -> fail "expected AuthorizationError for 403");
   check bool "403 is not retryable" false (Retry.is_retryable err);
   check
     bool
@@ -190,6 +190,7 @@ let test_error_message_all_variants () =
     ; Retry.Overloaded { message = "busy" }, "Overloaded: busy"
     ; Retry.ServerError { status = 503; message = "down" }, "Server error 503: down"
     ; Retry.AuthError { message = "bad key" }, "Auth error: bad key"
+    ; Retry.AuthorizationError { message = "forbidden" }, "Authorization error: forbidden"
     ; ( Retry.PaymentRequired { message = "Insufficient Balance" }
       , "Payment required: Insufficient Balance" )
     ; ( Retry.InvalidRequest { message = "wrong"; reason = Unknown_invalid_request }

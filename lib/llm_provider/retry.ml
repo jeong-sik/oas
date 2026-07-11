@@ -15,6 +15,7 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
+  | AuthorizationError of { message : string }
   | PaymentRequired of { message : string }
   | InvalidRequest of
       { message : string
@@ -69,6 +70,7 @@ let error_message = function
   | Overloaded r -> Printf.sprintf "Overloaded: %s" r.message
   | ServerError r -> Printf.sprintf "Server error %d: %s" r.status r.message
   | AuthError r -> Printf.sprintf "Auth error: %s" r.message
+  | AuthorizationError r -> Printf.sprintf "Authorization error: %s" r.message
   | PaymentRequired r -> Printf.sprintf "Payment required: %s" r.message
   | InvalidRequest r ->
     Printf.sprintf
@@ -213,7 +215,7 @@ let is_retryable = function
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     true
   | InvalidRequest _ -> false
-  | AuthError _ | ContextOverflow _ | NotFound _ -> false
+  | AuthError _ | AuthorizationError _ | ContextOverflow _ | NotFound _ -> false
   | PaymentRequired _ ->
     (* HTTP 402 is definitionally non-retryable: the account has zero
        balance/credit. No message-substring check needed — the status code
@@ -231,6 +233,7 @@ let is_hard_quota = function
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
@@ -369,13 +372,13 @@ let classify_error ~status ~body : api_error =
   | 401 -> AuthError { message }
   | 402 -> PaymentRequired { message }
   | 403 ->
-    (* HTTP 403 is an authorization refusal.  Providers may use it for a
-       disabled account, a missing entitlement, or an exhausted subscription
-       allowance.  The status alone does not distinguish those causes, but it
-       does establish that replaying the same request is not a transport retry.
-       Preserve the provider detail and route through the existing typed,
-       non-retryable authorization class without inspecting prose. *)
-    AuthError { message }
+    (* HTTP 403 is an authorization refusal, distinct from HTTP 401
+       authentication failure. Providers may use it for a disabled account, a
+       missing entitlement, or an exhausted subscription allowance. The status
+       alone does not distinguish those causes, but it does establish that
+       replaying the same request is not a transport retry. Preserve that exact
+       boundary without inspecting provider prose. *)
+    AuthorizationError { message }
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }
@@ -468,6 +471,7 @@ let with_retry_map_error
       | Overloaded _
       | ServerError _
       | AuthError _
+      | AuthorizationError _
       | PaymentRequired _
       | InvalidRequest _
       | NotFound _
@@ -503,9 +507,9 @@ let with_retry_map_error
 (** Retry a function with exponential backoff.
     [f] should return [Ok result] on success or [Error api_error] on failure.
     Uses Eio.Time for sleeping between retries.
-    Non-retryable errors (AuthError, ContextOverflow, and most InvalidRequest)
-    are returned immediately.  InvalidRequest caused by malformed JSON in the
-    model output is treated as retryable. *)
+    Non-retryable errors (AuthError, AuthorizationError, ContextOverflow, and
+    most InvalidRequest) are returned immediately. InvalidRequest caused by
+    malformed JSON in the model output is treated as retryable. *)
 let with_retry ~clock ?config (f : unit -> ('a, api_error) result)
   : ('a, api_error) result
   =
@@ -581,6 +585,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | PaymentRequired _
   | NotFound _
   | ContextOverflow _
@@ -608,6 +613,7 @@ let%test "classify_error returns ContextOverflow for overflow body" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | PaymentRequired _
   | InvalidRequest _
   | NotFound _
@@ -624,6 +630,7 @@ let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | PaymentRequired _
   | NotFound _
   | ContextOverflow _
@@ -873,6 +880,7 @@ let%test "is_hard_quota non-RateLimited variants are false" =
   (not (is_hard_quota (Overloaded { message = "insufficient balance" })))
   && (not (is_hard_quota (ServerError { status = 500; message = "quota exceeded" })))
   && (not (is_hard_quota (AuthError { message = "invalid key" })))
+  && (not (is_hard_quota (AuthorizationError { message = "forbidden" })))
   && (not (is_hard_quota (NetworkError { message = "connection reset"; kind = Unknown })))
   && (not (is_hard_quota (Timeout { message = "deadline exceeded"; phase = None })))
   && (not
@@ -895,6 +903,7 @@ let%test "classify_error 429 hard-quota clears retry_after" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | PaymentRequired _
   | InvalidRequest _
   | NotFound _
@@ -913,6 +922,7 @@ let%test "classify_error 429 transient preserves retry_after" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | PaymentRequired _
   | InvalidRequest _
   | NotFound _
@@ -931,6 +941,7 @@ let%test "classify_error 402 maps to PaymentRequired" =
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
@@ -948,6 +959,7 @@ let%test "classify_error 402 (DeepSeek-shaped body) is not retryable and is hard
   | Overloaded _
   | ServerError _
   | AuthError _
+  | AuthorizationError _
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _

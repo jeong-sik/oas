@@ -19,8 +19,9 @@ type api_error =
       { status : int
       ; message : string
       }
-  | AuthError of { message : string }
-  (** Authentication or authorization failed (HTTP 401/403). *)
+  | AuthError of { message : string } (** Authentication failed (HTTP 401). *)
+  | AuthorizationError of { message : string }
+  (** Authorization was refused (HTTP 403). *)
   | PaymentRequired of { message : string }
   | InvalidRequest of
       { message : string
@@ -62,7 +63,9 @@ val is_context_overflow_message : string -> bool
 
     [RateLimited] messages are inspected via substring match; [PaymentRequired]
     (HTTP 402) is always [true] by status-code semantics alone (no message
-    inspection needed). Other variants return [false].
+    inspection needed). [AuthorizationError] remains [false] because HTTP 403
+    does not distinguish quota, entitlement, and account-policy refusals. Other
+    variants return [false].
 
     Consumers (e.g. health trackers) use this to apply an immediate
     long cooldown instead of transient backoff.

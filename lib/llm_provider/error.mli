@@ -40,6 +40,10 @@ type provider_error =
       { provider : string
       ; detail : string
       }
+  | AuthorizationError of
+      { provider : string
+      ; detail : string
+      }
   | ServerError of
       { provider : string
       ; code : int
