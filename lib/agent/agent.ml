@@ -326,9 +326,10 @@ let persist_recovery_decision ?clock agent ~episodes decision =
 let invoke_recovery_judge ~sw ?clock agent episodes =
   match agent.tool_failure_judge with
   | None ->
-    update_recovery_state agent (fun state ->
-      { state with pending_episodes = None; pending_receipt = None });
-    Ok ()
+    Error
+      (recovery_failure
+         Error.Judge_response
+         "repeated typed tool failures require a configured tool_failure_judge")
   | Some judge ->
     (match
        Tool_failure_recovery.decide

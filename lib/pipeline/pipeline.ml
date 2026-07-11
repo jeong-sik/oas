@@ -548,18 +548,15 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                 results
             in
             let completed_round =
-              match agent.tool_failure_judge with
-              | None -> Ok None
-              | Some _ ->
-                (match Tool_failure_episode.project ~tool_uses ~tool_results with
-                 | Ok round -> Ok (Some round)
-                 | Error error ->
-                   Error
-                     (Error.Agent
-                        (Error.ToolFailureRecoveryFailed
-                           { stage = Error.Round_projection
-                           ; detail = Tool_failure_episode.show_error error
-                           })))
+              match Tool_failure_episode.project ~tool_uses ~tool_results with
+              | Ok round -> Ok (Some round)
+              | Error error ->
+                Error
+                  (Error.Agent
+                     (Error.ToolFailureRecoveryFailed
+                        { stage = Error.Round_projection
+                        ; detail = Tool_failure_episode.show_error error
+                        }))
             in
             (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)

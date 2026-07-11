@@ -419,7 +419,7 @@ let receipt_json receipt =
     ]
 ;;
 
-let tool_result_ids message =
+let tool_result_ids (message : Types.message) =
   List.filter_map
     (function
       | Types.ToolResult { tool_use_id; _ } -> Some tool_use_id
@@ -438,14 +438,14 @@ let attach_receipt ~messages ~episodes ~receipt =
   let expected_ids =
     List.map (fun episode -> episode.Tool_failure_episode.current.tool_use_id) episodes
   in
-  let contains_expected message =
+  let contains_expected (message : Types.message) =
     let actual_ids = tool_result_ids message in
     expected_ids <> []
     && List.for_all (fun expected -> List.mem expected actual_ids) expected_ids
   in
   let rec update = function
     | [] -> Error Result_message_not_found
-    | message :: rest when contains_expected message ->
+    | (message : Types.message) :: rest when contains_expected message ->
       if List.mem_assoc metadata_key message.Types.metadata
       then Error Duplicate_receipt_metadata
       else
@@ -454,7 +454,7 @@ let attach_receipt ~messages ~episodes ~receipt =
              metadata = (metadata_key, receipt_json receipt) :: message.metadata
            }
            :: rest)
-    | message :: rest ->
+    | (message : Types.message) :: rest ->
       let* rest = update rest in
       Ok (message :: rest)
   in
