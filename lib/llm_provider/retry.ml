@@ -368,6 +368,14 @@ let classify_error ~status ~body : api_error =
   match status with
   | 401 -> AuthError { message }
   | 402 -> PaymentRequired { message }
+  | 403 ->
+    (* HTTP 403 is an authorization refusal.  Providers may use it for a
+       disabled account, a missing entitlement, or an exhausted subscription
+       allowance.  The status alone does not distinguish those causes, but it
+       does establish that replaying the same request is not a transport retry.
+       Preserve the provider detail and route through the existing typed,
+       non-retryable authorization class without inspecting prose. *)
+    AuthError { message }
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }

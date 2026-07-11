@@ -89,6 +89,27 @@ let test_classify_error_402_payment_required () =
     (Retry.error_message err)
 ;;
 
+let test_classify_error_403_authorization_denied () =
+  let body =
+    {|{"error":{"message":"You've reached your usage limit for this billing cycle"}}|}
+  in
+  let err = Retry.classify_error ~status:403 ~body in
+  (match err with
+   | Retry.AuthError { message } ->
+     check
+       string
+       "403 provider detail"
+       "You've reached your usage limit for this billing cycle"
+       message
+   | _ -> fail "expected AuthError for 403");
+  check bool "403 is not retryable" false (Retry.is_retryable err);
+  check
+    bool
+    "403 alone does not guess a hard-quota subtype"
+    false
+    (Retry.is_hard_quota err)
+;;
+
 let test_is_retryable () =
   check
     bool
@@ -422,6 +443,10 @@ let () =
       , [ test_case "http status mapping" `Quick test_classify_error
         ; test_case "edge cases" `Quick test_classify_error_edge_cases
         ; test_case "402 payment required" `Quick test_classify_error_402_payment_required
+        ; test_case
+            "403 authorization denied"
+            `Quick
+            test_classify_error_403_authorization_denied
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable

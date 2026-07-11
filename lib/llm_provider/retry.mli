@@ -20,6 +20,7 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
+  (** Authentication or authorization failed (HTTP 401/403). *)
   | PaymentRequired of { message : string }
   | InvalidRequest of
       { message : string
