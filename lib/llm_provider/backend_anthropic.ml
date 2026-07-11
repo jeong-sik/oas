@@ -146,28 +146,41 @@ let output_config_for_config mode (config : Provider_config.t) =
 ;;
 
 (* Anthropic and OpenAI-compatible request envelopes have different field
-   names, but the output-budget policy is provider-config policy: caller
-   override, then catalog ceiling.  The OpenAI request module owns that
-   policy so the legacy Agent SDK path and the standalone backend cannot
-   drift. *)
+   names, but the optional-envelope output-budget policy (caller override
+   clamped to the ceiling, omission on [None]) is owned by the OpenAI
+   request module so the legacy Agent SDK path and the standalone backend
+   cannot drift. *)
 let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
 
 (* The Messages API requires [max_tokens] on every request, so this wire
-   cannot omit the field the way the optional-field envelopes do. When
-   neither the caller nor the capability catalog declares a value the
-   request fails loudly instead of inventing a number: an invented cap is
-   shared by thinking and answer and silently truncates long reasoning. *)
+   cannot express omission the way the optional-field envelopes do (#2517).
+   Explicit required-envelope policy, distinct from the optional-envelope
+   resolver above:
+   - caller [Some n] -> clamped to the catalog ceiling with a one-shot
+     WARN (shared clamp semantics via [effective_max_output_tokens]).
+   - caller [None] -> the catalog-declared model maximum. This is OAS's
+     explicit required-envelope fallback, not a claim that the provider
+     supplies that value as its default. Reusing the declared maximum keeps
+     known-model calls simple without inventing a second numeric policy;
+     callers that need a smaller request bound can still pass one explicitly.
+   - neither declared -> fail loudly naming the model; an invented
+     constant is shared by thinking and answer and silently truncates
+     long reasoning. *)
 let required_max_output_tokens (config : Provider_config.t) =
   match effective_max_output_tokens config with
   | Some n -> n
   | None ->
-    invalid_arg
-      (Printf.sprintf
-         "Backend_anthropic.required_max_output_tokens: model %s declares no \
-          max_output_tokens and the caller passed none; the Anthropic Messages API \
-          requires max_tokens — declare max_output_tokens in the model catalog or pass \
-          ~max_tokens"
-         config.model_id)
+    let caps = Backend_openai_request.capabilities_of_config config in
+    (match caps.max_output_tokens with
+     | Some cap -> cap
+     | None ->
+       invalid_arg
+         (Printf.sprintf
+            "Backend_anthropic.required_max_output_tokens: model %s declares no \
+             max_output_tokens and the caller passed none; the Anthropic Messages API \
+             requires max_tokens — declare max_output_tokens in the model catalog or \
+             pass ~max_tokens"
+            config.model_id))
 ;;
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.

@@ -13,14 +13,18 @@ val effective_tools : Provider_config.t -> Yojson.Safe.t list -> Yojson.Safe.t l
 val structured_schema_of_config : Provider_config.t -> Yojson.Safe.t option
 val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
 
-(** Resolve the output-token budget emitted on the wire: caller override
-    clamped to the capability ceiling (one-shot WARN on clamp), the model
-    capability when the caller sends none, [None] when both are unknown —
-    the emitters then omit the field so the provider applies the model's
-    real ceiling (no invented fallback). Chat Completions emits the value
-    as [max_tokens], the Responses envelope as [max_output_tokens] — the
-    field name is per-envelope, the resolution policy is single-sourced
-    here. *)
+(** Resolve the output-token budget for optional request envelopes.
+    [Capabilities.max_output_tokens] is a validation ceiling, not a
+    request default: caller [Some n] is clamped to it (one-shot WARN on
+    clamp); caller [None] resolves to [None] and the emitters omit the
+    field so the provider applies its own default — the ceiling is never
+    injected as a request value (#2517; on providers whose context window
+    bounds input+output jointly, ceiling injection can overflow the
+    contract). Chat Completions emits the value as [max_tokens], the
+    Responses envelope as [max_output_tokens] — the field name is
+    per-envelope, the resolution policy is single-sourced here. The
+    required Anthropic envelope uses
+    [Backend_anthropic.required_max_output_tokens] instead. *)
 val effective_max_output_tokens : Provider_config.t -> int option
 
 (** Prepend the sampling [(field, value)] to [body] unless the reasoning

@@ -153,31 +153,38 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
-(* Resolve the output-token budget from two layers of declared facts:
-   1. Caller override ([config.max_tokens = Some n]) - explicit request
-   2. Model capability ([caps.max_output_tokens]) - provider's ceiling
+(* Resolve the output-token budget for optional request envelopes (#2517).
 
-   When the caller sends [None], they want the model's own maximum.
-   When the caller sends [Some n], we clamp to the capability ceiling
-   to avoid 400 errors that corrupt partial-commit state.
+   [Capabilities.max_output_tokens] is a VALIDATION CEILING — the maximum
+   the provider accepts — not a request default. The two roles must not
+   conflate: injecting the ceiling whenever the caller sends [None] turns
+   "use the provider's default policy" into "always request the maximum
+   output", and on providers whose context window bounds
+   input + reasoning + output jointly (e.g. Z.AI GLM: 200K context,
+   default max_tokens 65536, maximum 131072) a long prompt plus a
+   ceiling-sized output request can exceed the context contract even
+   though each half is individually legal.
 
-   When BOTH are unknown, [None] is returned and the field is omitted
-   from the wire. max_tokens is optional on Chat Completions /
-   Responses / Ollama / Gemini; omission lets the provider apply the
-   model's real ceiling. The former 16384 fallback capped thinking and
-   answer jointly on catalog-silent models, truncating long reasoning
-   mid-thought (stop_reason=max_tokens, zero answer text). Anthropic
-   Messages requires the field on the wire; that path resolves through
-   [Backend_anthropic.required_max_output_tokens], which fails loudly
-   on [None] instead of inventing a number. Chat Completions emits the
-   value as [max_tokens], the Responses envelope as
-   [max_output_tokens]: the field name is per-envelope, the resolution
-   policy (clamp WARN included) is single-sourced here. *)
+   Policy, single-sourced here for Chat Completions ([max_tokens]),
+   Responses ([max_output_tokens]), Ollama ([num_predict]) and Gemini
+   ([maxOutputTokens]) — all optional fields:
+   - caller [None]  -> [None]: the field is omitted and the provider
+     applies its own default sized to the model's real limits. The
+     catalog ceiling is never injected as a request value.
+   - caller [Some n] with n above the catalog ceiling -> clamped to the
+     ceiling with a one-shot WARN (avoids 400s that corrupt
+     partial-commit state).
+   - caller [Some n] otherwise -> emitted as-is.
+
+   Anthropic Messages REQUIRES the field on the wire; that envelope
+   resolves through [Backend_anthropic.required_max_output_tokens],
+   which applies an explicit OAS required-envelope fallback (the
+   catalog-declared model maximum, not a provider default) and fails loudly
+   when no value is declared anywhere — no invented constants. *)
 let effective_max_output_tokens (config : Provider_config.t) =
   let caps = capabilities_of_config config in
   match config.max_tokens, caps.max_output_tokens with
-  | None, (Some _ as cap) -> cap
-  | None, None -> None
+  | None, _ -> None
   | Some n, Some cap when n > cap ->
     warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
     Some cap
