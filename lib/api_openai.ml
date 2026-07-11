@@ -547,7 +547,7 @@ let build_openai_body_artifact_result
 
 let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =
   Result.map
-    (fun artifact -> artifact.Llm_provider.Provider_request_artifact.payload)
+    Llm_provider.Provider_request_artifact.payload
     (build_openai_body_artifact_result
        ?provider_config
        ~config

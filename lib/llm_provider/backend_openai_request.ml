@@ -409,7 +409,8 @@ let build_request_assoc_with_receipt
 ;;
 
 let build_request_assoc ?stream ~config ~messages ?tools () =
-  (build_request_assoc_with_receipt ?stream ~config ~messages ?tools ()).payload
+  build_request_assoc_with_receipt ?stream ~config ~messages ?tools ()
+  |> Provider_request_artifact.payload
 ;;
 
 (** [build_request] serializes [build_request_assoc] to a JSON string.
@@ -429,5 +430,6 @@ let build_request_with_receipt
 ;;
 
 let build_request ?stream ~config ~messages ?tools () =
-  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
+  build_request_with_receipt ?stream ~config ~messages ?tools ()
+  |> Provider_request_artifact.payload
 ;;

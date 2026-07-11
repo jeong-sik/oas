@@ -506,7 +506,7 @@ let complete_stream_http
         | Provider_config.Glm ->
           Backend_glm.build_request_with_receipt ~stream:true ~config ~messages ~tools ()
       in
-      let body_str = request_artifact.payload in
+      let body_str = Provider_request_artifact.payload request_artifact in
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:true
@@ -991,7 +991,9 @@ let complete_stream_http
          | Some _ | None -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
         let resp =
-          attach_output_token_receipt resp request_artifact.output_token_receipt
+          attach_output_token_receipt
+            resp
+            (Provider_request_artifact.output_token_receipt request_artifact)
         in
         Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms latency_ms)
       | Ok (Error (Http_client.TimeoutError _ as err)) ->

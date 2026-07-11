@@ -202,7 +202,8 @@ let build_request_with_receipt
 ;;
 
 let build_request ?stream ~config ~messages ?tools () =
-  (build_request_with_receipt ?stream ~config ~messages ?tools ()).payload
+  build_request_with_receipt ?stream ~config ~messages ?tools ()
+  |> Provider_request_artifact.payload
 ;;
 
 (* ── Response parsing ────────────────────────────────── *)
