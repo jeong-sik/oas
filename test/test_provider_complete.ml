@@ -1018,7 +1018,7 @@ let test_config_default_paths () =
   let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "anthropic path" "/v1/messages" anth.request_path;
   let kimi = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "kimi path" "/v1/chat/completions" kimi.request_path;
+  Alcotest.(check string) "kimi path" "/v1/messages" kimi.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "openai path" "/v1/chat/completions" oai.request_path
 ;;

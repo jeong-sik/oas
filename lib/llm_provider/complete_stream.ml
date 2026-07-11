@@ -456,14 +456,12 @@ let complete_stream_http
            })
     else (
       let config = apply_sampling_defaults config in
-      let uses_responses_api =
-        Provider_config.request_path_targets_responses_api config.request_path
-      in
+      let http_codec = Provider_http_codec.of_config config in
       let body_str =
-        match config.kind with
-        | Provider_config.Anthropic ->
+        match http_codec with
+        | Provider_http_codec.Anthropic_messages ->
           Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Ollama ->
+        | Provider_http_codec.Ollama_chat ->
           (* Native /api/chat + NDJSON. The Backend_openai detour was a
            deferred work-around (#849) that dropped Ollama's
            prompt_eval_count / eval_count / *_duration fields and
@@ -471,13 +469,13 @@ let complete_stream_http
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat when uses_responses_api ->
+        | Provider_http_codec.Openai_responses ->
           Backend_openai_responses.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Gemini ->
+        | Provider_http_codec.Openai_chat ->
+          Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_http_codec.Gemini_generate_content ->
           Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Glm ->
+        | Provider_http_codec.Glm_chat ->
           Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
       in
       let url =
@@ -487,11 +485,12 @@ let complete_stream_http
           config.base_url ^ config.request_path
       in
       let body_with_stream =
-        match config.kind with
-        | Provider_config.Gemini -> body_str
-        | Anthropic | Ollama -> Http_client.inject_stream_param body_str
-        | OpenAI_compat when uses_responses_api -> body_str
-        | OpenAI_compat | Kimi | Glm | DashScope ->
+        match http_codec with
+        | Provider_http_codec.Gemini_generate_content
+        | Provider_http_codec.Openai_responses -> body_str
+        | Provider_http_codec.Anthropic_messages | Provider_http_codec.Ollama_chat ->
+          Http_client.inject_stream_param body_str
+        | Provider_http_codec.Openai_chat | Provider_http_codec.Glm_chat ->
           (* OpenAI-compatible streaming returns token usage only when the
              request also sets stream_options.include_usage. Anthropic and
              Ollama carry usage natively (message_start/message_delta and the
@@ -784,8 +783,8 @@ let complete_stream_http
                 in
                 let stream_read_result =
                   try
-                    (match config.kind with
-                     | Provider_config.Ollama ->
+                    (match http_codec with
+                     | Provider_http_codec.Ollama_chat ->
                        Http_client.read_ndjson
                          ?clock
                          ?idle_timeout:stream_idle_timeout_s
@@ -819,19 +818,17 @@ let complete_stream_http
                          ~on_data:(fun ~event_type data ->
                            wire_sink data;
                            let events =
-                             match config.kind with
-                             | Provider_config.Anthropic ->
+                             match http_codec with
+                             | Provider_http_codec.Anthropic_messages ->
                                (match Streaming.parse_sse_event event_type data with
                                 | Some evt -> [ evt ], None
                                 | None -> [], None)
-                             | Provider_config.OpenAI_compat when uses_responses_api ->
+                             | Provider_http_codec.Openai_responses ->
                                Streaming.responses_sse_to_events
                                  (get_state ())
                                  event_type
                                  data
-                             | Provider_config.OpenAI_compat
-                             | Provider_config.DashScope
-                             | Provider_config.Kimi ->
+                             | Provider_http_codec.Openai_chat ->
                                (match
                                   Streaming.parse_openai_sse_chunk
                                     ~streaming_reasoning
@@ -848,7 +845,7 @@ let complete_stream_http
                                    completion) and an error object to a typed
                                    [SSEError]; everything else yields no events. *)
                                   Streaming.openai_compat_terminal_events data, None)
-                             | Provider_config.Gemini ->
+                             | Provider_http_codec.Gemini_generate_content ->
                                (match Streaming.parse_gemini_sse_chunk data with
                                 | Some chunk ->
                                   Streaming.gemini_chunk_to_events (get_state ()) chunk
@@ -859,7 +856,7 @@ let complete_stream_http
                                         }
                                     ]
                                   , None ))
-                             | Provider_config.Glm ->
+                             | Provider_http_codec.Glm_chat ->
                                (match Backend_glm.parse_stream_chunk data with
                                 | Some chunk ->
                                   Streaming.openai_chunk_to_events (get_state ()) chunk
@@ -868,7 +865,7 @@ let complete_stream_http
                                    branch: [DONE] -> [MessageStop], error object
                                    -> [SSEError], else no events. *)
                                   Streaming.openai_compat_terminal_events data, None)
-                             | Provider_config.Ollama ->
+                             | Provider_http_codec.Ollama_chat ->
                                [], None (* unreachable: handled above *)
                            in
                            dispatch events)
