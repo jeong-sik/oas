@@ -8,13 +8,13 @@ type failed_attempt =
   ; error_class : tool_error_class option
   ; error : string
   }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type t =
   { previous : failed_attempt
   ; current : failed_attempt
   }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type paired_attempt =
   { tool_use_id : string

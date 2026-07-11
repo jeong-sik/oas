@@ -13,7 +13,7 @@ type revised_call =
   ; tool_name : string
   ; revised_input : Yojson.Safe.t
   }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type decision = private
   | Retry_modified of revised_call list
@@ -23,7 +23,7 @@ type decision = private
       ; schema : Yojson.Safe.t option
       }
   | Defer of { reason : string }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type model_request =
   { system_prompt : string
