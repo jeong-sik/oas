@@ -1679,18 +1679,38 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
   List.iteri
     (fun part_index part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
+       let part_thought_signature =
+         part |> member "thoughtSignature" |> to_string_option
+       in
+       let emit_signed_textual_part ~target ~content_type ~delta thought_signature =
+         (match target with
+          | Backend_gemini.Gemini_text_part -> state.text_block_started <- false
+          | Backend_gemini.Gemini_thought_part -> state.thinking_block_started <- false);
+         let carrier_index = state.next_block_index in
+         let carrier_payload =
+           Backend_gemini.gemini_part_thought_signature_payload ~target ~thought_signature
+         in
+         emit
+           (ContentBlockStart
+              { index = carrier_index
+              ; content_type = "redacted_thinking"
+              ; tool_id = Some carrier_payload
+              ; tool_name = None
+              });
+         let content_index = carrier_index + 1 in
+         emit
+           (ContentBlockStart
+              { index = content_index; content_type; tool_id = None; tool_name = None });
+         emit (ContentBlockDelta { index = content_index; delta });
+         state.next_block_index <- content_index + 1
+       in
        let emit_function_call_delta () =
          match part |> member "functionCall" with
          | `Assoc _ as fc ->
            let name = Cli_common_json.member_str "name" fc in
            let args = fc |> member "args" in
            let provider_tool_id = fc |> member "id" |> to_string_option in
-           let thought_signature =
-             match part |> member "thoughtSignature" |> to_string_option with
-             | Some signature when not (Api_common.string_is_blank signature) ->
-               Some signature
-             | Some _ | None -> None
-           in
+           let thought_signature = part_thought_signature in
            let resolution, start =
              resolve_tool_block
                state
@@ -1732,43 +1752,65 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
                    { index = idx; delta = InputJsonSnapshot (Yojson.Safe.to_string args) }))
          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> ()
        in
+       let emit_textual_part text =
+         match part_thought_signature with
+         | Some thought_signature ->
+           if is_thought
+           then
+             emit_signed_textual_part
+               ~target:Backend_gemini.Gemini_thought_part
+               ~content_type:"thinking"
+               ~delta:(ThinkingDelta text)
+               thought_signature
+           else
+             emit_signed_textual_part
+               ~target:Backend_gemini.Gemini_text_part
+               ~content_type:"text"
+               ~delta:(TextDelta text)
+               thought_signature
+         | None when String.equal text "" -> ()
+         | None ->
+           if is_thought
+           then (
+             if not state.thinking_block_started
+             then (
+               state.thinking_block_index <- state.next_block_index;
+               emit
+                 (ContentBlockStart
+                    { index = state.next_block_index
+                    ; content_type = "thinking"
+                    ; tool_id = None
+                    ; tool_name = None
+                    });
+               state.thinking_block_started <- true;
+               state.next_block_index <- state.next_block_index + 1);
+             emit
+               (ContentBlockDelta
+                  { index = state.thinking_block_index; delta = ThinkingDelta text }))
+           else (
+             if not state.text_block_started
+             then (
+               state.text_block_index <- state.next_block_index;
+               emit
+                 (ContentBlockStart
+                    { index = state.next_block_index
+                    ; content_type = "text"
+                    ; tool_id = None
+                    ; tool_name = None
+                    });
+               state.text_block_started <- true;
+               state.next_block_index <- state.next_block_index + 1);
+             emit
+               (ContentBlockDelta
+                  { index = state.text_block_index; delta = TextDelta text }))
+       in
        match part |> member "text" |> to_string_option with
-       | Some text when text <> "" ->
-         if is_thought
-         then (
-           if not state.thinking_block_started
-           then (
-             state.thinking_block_index <- state.next_block_index;
-             emit
-               (ContentBlockStart
-                  { index = state.next_block_index
-                  ; content_type = "thinking"
-                  ; tool_id = None
-                  ; tool_name = None
-                  });
-             state.thinking_block_started <- true;
-             state.next_block_index <- state.next_block_index + 1);
-           emit
-             (ContentBlockDelta
-                { index = state.thinking_block_index; delta = ThinkingDelta text }))
-         else (
-           if not state.text_block_started
-           then (
-             state.text_block_index <- state.next_block_index;
-             emit
-               (ContentBlockStart
-                  { index = state.next_block_index
-                  ; content_type = "text"
-                  ; tool_id = None
-                  ; tool_name = None
-                  });
-             state.text_block_started <- true;
-             state.next_block_index <- state.next_block_index + 1);
-           emit
-             (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text }))
+       | Some text when not (String.equal text "") -> emit_textual_part text
        | Some empty_text ->
-         let (_ : string) = empty_text in
-         emit_function_call_delta ()
+         (match part |> member "functionCall" with
+          | `Assoc _ -> emit_function_call_delta ()
+          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+            emit_textual_part empty_text)
        | None -> emit_function_call_delta ())
     chunk.gem_parts;
   (* Finish reason *)

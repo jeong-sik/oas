@@ -35,6 +35,20 @@ val gemini_thought_signature_payload
   -> thought_signature:string
   -> string
 
+(** Exact Gemini response-part kind targeted by an adjacent opaque
+    [thoughtSignature] carrier. The carrier and target stay adjacent through
+    history replay; a broken adjacency fails closed in the request builder. *)
+type gemini_part_signature_target =
+  | Gemini_text_part
+  | Gemini_thought_part
+
+(** Opaque carrier payload for a Gemini [thoughtSignature] attached to the
+    immediately following text or thought part. *)
+val gemini_part_thought_signature_payload
+  :  target:gemini_part_signature_target
+  -> thought_signature:string
+  -> string
+
 (** Extract [contents] list and optional [systemInstruction] from messages.
     Exposed for unit-testing the OAS-to-Gemini message mapping. *)
 val contents_of_messages : Types.message list -> Yojson.Safe.t list * Yojson.Safe.t option
