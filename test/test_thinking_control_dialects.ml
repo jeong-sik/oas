@@ -735,35 +735,51 @@ let test_qwen_preserve_replays_reasoning_content () =
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
-let test_qwen_reasoning_content_streams_as_typed_thinking () =
+let test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking () =
+  (* Real models.toml lookup (via [declared_catalog_openai_compat_config], not a
+     hand-written capability record): proves the catalog qwen3.6 row resolves to
+     the reasoning_content streaming dialect AND that multiple reasoning_content
+     deltas accumulate into one Thinking block rather than re-opening a block
+     per chunk. *)
   let config =
-    declared_qwen_openai_compat_config
+    declared_catalog_openai_compat_config
       ~enable_thinking:true
       ~preserve_thinking:false
-      "Qwen/Qwen3.6-35B-A3B"
+      "vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
   in
   let dialect = RD.for_provider_config config in
-  let raw =
-    {|{"id":"qwen-live-1","model":"Qwen3.6-35B-A3B","choices":[{"index":0,"delta":{"reasoning_content":"inspect repository"},"finish_reason":null}]}|}
-  in
-  let chunk =
+  (match dialect.streaming with
+   | RD.Delta_field "reasoning_content" -> ()
+   | RD.Delta_field other ->
+     fail ("catalog qwen3.6 row resolved unexpected reasoning delta field: " ^ other)
+   | RD.No_streaming_reasoning | RD.Delta_reasoning_details | RD.Template_parser ->
+     fail "catalog qwen3.6 row must resolve the reasoning_content streaming dialect");
+  let parse raw =
     match S.parse_openai_sse_chunk ~streaming_reasoning:dialect.streaming raw with
     | Some chunk -> chunk
     | None -> fail "expected Qwen reasoning_content SSE chunk"
   in
-  check
-    (option string)
-    "typed reasoning delta"
-    (Some "inspect repository")
-    chunk.delta_reasoning;
-  check (option string) "reasoning is not visible content" None chunk.delta_content;
+  let chunk1 =
+    parse
+      {|{"id":"qwen-live-1","model":"Qwen3.6-35B-A3B","choices":[{"index":0,"delta":{"reasoning_content":"inspect "},"finish_reason":null}]}|}
+  in
+  let chunk2 =
+    parse
+      {|{"id":"qwen-live-1","model":"Qwen3.6-35B-A3B","choices":[{"index":0,"delta":{"reasoning_content":"repository"},"finish_reason":null}]}|}
+  in
+  check (option string) "reasoning is not visible content" None chunk1.delta_content;
   let state = S.create_openai_stream_state () in
-  let events, _ = S.openai_chunk_to_events state chunk in
-  match events with
-  | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
-    ; ContentBlockDelta { index = 0; delta = ThinkingDelta "inspect repository" }
-    ] -> ()
-  | _ -> fail "expected Qwen reasoning_content to become a typed Thinking block"
+  let events1, _ = S.openai_chunk_to_events state chunk1 in
+  let events2, _ = S.openai_chunk_to_events state chunk2 in
+  match events1, events2 with
+  | ( [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+      ; ContentBlockDelta { index = 0; delta = ThinkingDelta "inspect " }
+      ]
+    , [ ContentBlockDelta { index = 0; delta = ThinkingDelta "repository" } ] ) -> ()
+  | _ ->
+    fail
+      "expected two catalog reasoning_content deltas to accumulate into one Thinking \
+       block (single ContentBlockStart at index 0)"
 ;;
 
 let keep_all_axis_manifest =
@@ -1353,9 +1369,9 @@ let () =
               `Quick
               test_qwen_preserve_replays_reasoning_content
           ; test_case
-              "qwen reasoning_content streams as typed thinking"
+              "qwen catalog reasoning_content accumulates as typed thinking"
               `Quick
-              test_qwen_reasoning_content_streams_as_typed_thinking
+              test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking
           ; test_case
               "thinking_object_keep_all axis uses thinking keep all"
               `Quick
