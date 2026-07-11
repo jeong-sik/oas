@@ -100,3 +100,8 @@ val latest_completed_rounds
     A signature occurring more than once in either round cannot be paired
     without guessing and returns [Ambiguous_failure_signature]. *)
 val detect : previous:completed_round -> current:completed_round -> (t list, error) result
+
+(** External-observability projection. Includes stable tool identities and
+    typed failure classification, but never tool inputs or error text.
+    @since 0.212.0 *)
+val observation_to_yojson : t -> Yojson.Safe.t

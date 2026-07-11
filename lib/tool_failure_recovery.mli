@@ -32,6 +32,12 @@ type decision = private
     cannot bypass episode validation to construct a [decision]. *)
 val decision_to_yojson : decision -> Yojson.Safe.t
 
+(** External-observability projection of a decision. Reports only the closed
+    action and non-sensitive cardinality/tool-name metadata; revised inputs,
+    instructions, questions, schemas, and defer reasons remain internal.
+    @since 0.212.0 *)
+val decision_observation_to_yojson : decision -> Yojson.Safe.t
+
 type model_request =
   { system_prompt : string
   ; user_prompt : string

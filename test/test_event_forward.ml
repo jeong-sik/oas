@@ -300,6 +300,74 @@ let test_tool_events_payload () =
     (p2.data |> member "tool_use_id" |> to_string)
 ;;
 
+let failed_attempt ~tool_use_id ~input ~error : Tool_failure_episode.failed_attempt =
+  { tool_use_id
+  ; tool_name = "Execute"
+  ; input
+  ; failure_kind = Recoverable_tool_error
+  ; error_class = Some Deterministic
+  ; error
+  }
+;;
+
+let test_recovery_episode_payload_omits_input_and_error () =
+  let secret = "secret-tool-argument" in
+  let error_secret = "secret-provider-error" in
+  let episode : Tool_failure_episode.t =
+    { previous =
+        failed_attempt
+          ~tool_use_id:"previous-call"
+          ~input:(`Assoc [ "token", `String secret ])
+          ~error:error_secret
+    ; current =
+        failed_attempt
+          ~tool_use_id:"current-call"
+          ~input:(`Assoc [ "token", `String secret ])
+          ~error:error_secret
+    }
+  in
+  let payload =
+    Event_forward.event_to_payload
+      (ev
+         (Event_bus.ToolFailureEpisodeDetected
+            { agent_name = "keeper"; turn = 3; episodes = [ episode ] }))
+  in
+  let rendered = Yojson.Safe.to_string payload.data in
+  Alcotest.(check bool)
+    "tool input omitted"
+    false
+    (Util.string_contains ~needle:secret rendered);
+  Alcotest.(check bool)
+    "error text omitted"
+    false
+    (Util.string_contains ~needle:error_secret rendered);
+  let open Yojson.Safe.Util in
+  let observation = payload.data |> member "episodes" |> to_list |> List.hd in
+  Alcotest.(check string)
+    "typed tool name retained"
+    "Execute"
+    (observation |> member "tool_name" |> to_string)
+;;
+
+let test_recovery_judge_failure_payload_redacts_detail () =
+  let secret = "secret-judge-error" in
+  let payload =
+    Event_forward.event_to_payload
+      (ev
+         (Event_bus.ToolFailureRecoveryJudgeFailed
+            { agent_name = "keeper"; turn = 3; detail = secret }))
+  in
+  let rendered = Yojson.Safe.to_string payload.data in
+  Alcotest.(check bool)
+    "judge detail omitted"
+    false
+    (Util.string_contains ~needle:secret rendered);
+  Alcotest.(check bool)
+    "redaction explicit"
+    true
+    Yojson.Safe.Util.(payload.data |> member "detail_redacted" |> to_bool)
+;;
+
 let test_native_telemetry_payloads () =
   let replacement =
     ev
@@ -597,6 +665,14 @@ let () =
         ; Alcotest.test_case "payload_to_json" `Quick test_payload_to_json
         ; Alcotest.test_case "agent_completed" `Quick test_agent_completed_payload
         ; Alcotest.test_case "tool events" `Quick test_tool_events_payload
+        ; Alcotest.test_case
+            "recovery episode safe projection"
+            `Quick
+            test_recovery_episode_payload_omits_input_and_error
+        ; Alcotest.test_case
+            "recovery judge failure safe projection"
+            `Quick
+            test_recovery_judge_failure_payload_redacts_detail
         ; Alcotest.test_case "native telemetry" `Quick test_native_telemetry_payloads
         ; Alcotest.test_case
             "inference_telemetry full"

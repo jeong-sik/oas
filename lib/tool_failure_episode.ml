@@ -271,6 +271,21 @@ let failure_key (attempt : failed_attempt) =
   attempt.tool_name, attempt.failure_kind, attempt.error_class
 ;;
 
+let observation_to_yojson (episode : t) =
+  let error_class =
+    match episode.current.error_class with
+    | Some value -> tool_error_class_to_yojson value
+    | None -> `Null
+  in
+  `Assoc
+    [ "previous_tool_use_id", `String episode.previous.tool_use_id
+    ; "current_tool_use_id", `String episode.current.tool_use_id
+    ; "tool_name", `String episode.current.tool_name
+    ; "failure_kind", tool_failure_kind_to_yojson episode.current.failure_kind
+    ; "error_class", error_class
+    ]
+;;
+
 let failure_groups round =
   List.fold_left
     (fun groups attempt ->

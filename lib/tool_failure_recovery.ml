@@ -437,6 +437,24 @@ let decision_json = function
 
 let decision_to_yojson = decision_json
 
+let decision_observation_to_yojson = function
+  | Retry_modified calls ->
+    let tool_names =
+      calls
+      |> List.map (fun call -> call.tool_name)
+      |> List.sort_uniq String.compare
+      |> List.map (fun tool_name -> `String tool_name)
+    in
+    `Assoc
+      [ "action", `String "retry_modified"
+      ; "call_count", `Int (List.length calls)
+      ; "tool_names", `List tool_names
+      ]
+  | Replan _ -> `Assoc [ "action", `String "replan" ]
+  | Ask_user _ -> `Assoc [ "action", `String "ask_user" ]
+  | Defer _ -> `Assoc [ "action", `String "defer" ]
+;;
+
 let episode_ref_json episode =
   `Assoc
     [ "previous_tool_use_id", `String episode.previous_tool_use_id
