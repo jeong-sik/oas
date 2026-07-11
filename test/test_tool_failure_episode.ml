@@ -14,35 +14,34 @@ let result ?failure_kind ?error_class ?(is_error = true) id error =
     }
 ;;
 
-let message role content : Types.message =
-  { role; content; name = None; tool_call_id = None; metadata = [] }
-;;
-
-let round call result =
-  [ message Types.Assistant [ call ]; message Types.Tool [ result ] ]
-;;
-
 let typed_failure ?(error_class = Some Types.Deterministic) id error =
   result ~failure_kind:Types.Validation_error ?error_class id error
 ;;
 
-let detect rounds = Tool_failure_episode.detect_latest (List.concat rounds)
+let project calls results =
+  match Tool_failure_episode.project ~tool_uses:calls ~tool_results:results with
+  | Ok round -> round
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+;;
+
+let detect previous current = Tool_failure_episode.detect ~previous ~current
 
 let test_changed_input_and_error_text_detected () =
   let previous =
-    round
-      (call "p1" "Execute" (`Assoc [ "cmd", `String "gh pr list" ]))
-      (typed_failure "p1" "working directory missing")
+    project
+      [ call "p1" "Execute" (`Assoc [ "cmd", `String "gh pr list" ]) ]
+      [ typed_failure "p1" "working directory missing" ]
   in
   let current =
-    round
-      (call
-         "c1"
-         "Execute"
-         (`Assoc [ "cmd", `String "gh pr list"; "cwd", `String "/repo" ]))
-      (typed_failure "c1" "repository was not found")
+    project
+      [ call
+          "c1"
+          "Execute"
+          (`Assoc [ "cmd", `String "gh pr list"; "cwd", `String "/repo" ])
+      ]
+      [ typed_failure "c1" "repository was not found" ]
   in
-  match detect [ previous; current ] with
+  match detect previous current with
   | Ok [ episode ] ->
     Alcotest.(check string) "previous id" "p1" episode.previous.tool_use_id;
     Alcotest.(check string) "current id" "c1" episode.current.tool_use_id;
@@ -51,114 +50,147 @@ let test_changed_input_and_error_text_detected () =
       false
       (Yojson.Safe.equal episode.previous.input episode.current.input)
   | Ok episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_history_error error)
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
 let test_different_failure_kind_not_detected () =
-  let previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
+  let previous = project [ call "p1" "Execute" `Null ] [ typed_failure "p1" "first" ] in
   let current =
-    round
-      (call "c1" "Execute" `Null)
-      (result
-         ~failure_kind:Types.Recoverable_tool_error
-         ~error_class:Types.Deterministic
-         "c1"
-         "second")
+    project
+      [ call "c1" "Execute" `Null ]
+      [ result
+          ~failure_kind:Types.Recoverable_tool_error
+          ~error_class:Types.Deterministic
+          "c1"
+          "second"
+      ]
   in
-  Alcotest.(check bool) "no episode" true (detect [ previous; current ] = Ok [])
+  Alcotest.(check bool) "no episode" true (detect previous current = Ok [])
 ;;
 
 let test_different_error_class_not_detected () =
-  let previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
+  let previous = project [ call "p1" "Execute" `Null ] [ typed_failure "p1" "first" ] in
   let current =
-    round
-      (call "c1" "Execute" `Null)
-      (typed_failure ~error_class:(Some Types.Transient) "c1" "second")
+    project
+      [ call "c1" "Execute" `Null ]
+      [ typed_failure ~error_class:(Some Types.Transient) "c1" "second" ]
   in
-  Alcotest.(check bool) "no episode" true (detect [ previous; current ] = Ok [])
+  Alcotest.(check bool) "no episode" true (detect previous current = Ok [])
 ;;
 
 let test_successful_intervening_round_breaks_adjacency () =
-  let failed_previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
-  let success = round (call "s1" "Execute" `Null) (result ~is_error:false "s1" "ok") in
-  let failed_current = round (call "c1" "Execute" `Null) (typed_failure "c1" "second") in
+  let success =
+    project [ call "s1" "Execute" `Null ] [ result ~is_error:false "s1" "ok" ]
+  in
+  let failed = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "second" ] in
   Alcotest.(check bool)
-    "only adjacent rounds compared"
+    "caller advances the adjacent boundary"
     true
-    (detect [ failed_previous; success; failed_current ] = Ok [])
-;;
-
-let test_different_tool_not_detected () =
-  let previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
-  let current = round (call "c1" "Read" `Null) (typed_failure "c1" "second") in
-  Alcotest.(check bool) "no episode" true (detect [ previous; current ] = Ok [])
+    (detect success failed = Ok [])
 ;;
 
 let test_parallel_failures_preserved () =
   let previous =
-    [ message Types.Assistant [ call "p1" "Execute" `Null; call "p2" "Read" `Null ]
-    ; message Types.Tool [ typed_failure "p1" "first-a"; typed_failure "p2" "first-b" ]
-    ]
+    project
+      [ call "p1" "Execute" `Null; call "p2" "Read" `Null ]
+      [ typed_failure "p1" "first-a"; typed_failure "p2" "first-b" ]
   in
   let current =
-    [ message
-        Types.Assistant
-        [ call "c1" "Execute" (`String "changed"); call "c2" "Read" `Null ]
-    ; message Types.Tool [ typed_failure "c1" "second-a"; typed_failure "c2" "second-b" ]
-    ]
+    project
+      [ call "c1" "Execute" (`String "changed"); call "c2" "Read" `Null ]
+      [ typed_failure "c1" "second-a"; typed_failure "c2" "second-b" ]
   in
-  match detect [ previous; current ] with
+  match detect previous current with
   | Ok episodes -> Alcotest.(check int) "both episodes" 2 (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_history_error error)
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
-let test_ambiguous_previous_name_is_explicit () =
-  let previous =
-    [ message
-        Types.Assistant
-        [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
-    ; message Types.Tool [ typed_failure "p1" "first-a"; typed_failure "p2" "first-b" ]
-    ]
+let test_same_name_distinct_signatures_are_independent () =
+  let recoverable id text =
+    result
+      ~failure_kind:Types.Recoverable_tool_error
+      ~error_class:Types.Deterministic
+      id
+      text
   in
-  let current = round (call "c1" "Execute" `Null) (typed_failure "c1" "second") in
-  match detect [ previous; current ] with
+  let previous =
+    project
+      [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
+      [ typed_failure "p1" "validation"; recoverable "p2" "recoverable" ]
+  in
+  let current =
+    project
+      [ call "c1" "Execute" `Null; call "c2" "Execute" (`String "changed") ]
+      [ typed_failure "c1" "validation changed"; recoverable "c2" "recoverable changed" ]
+  in
+  match detect previous current with
+  | Ok episodes -> Alcotest.(check int) "two signatures" 2 (List.length episodes)
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+;;
+
+let test_success_and_matching_failure_same_name_are_unambiguous () =
+  let previous =
+    project
+      [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
+      [ result ~is_error:false "p1" "ok"; typed_failure "p2" "failed" ]
+  in
+  let current = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "again" ] in
+  match detect previous current with
+  | Ok [ _ ] -> ()
+  | Ok episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+;;
+
+let test_duplicate_failure_signature_is_explicit () =
+  let previous =
+    project
+      [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
+      [ typed_failure "p1" "first-a"; typed_failure "p2" "first-b" ]
+  in
+  let current = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "second" ] in
+  match detect previous current with
   | Error
-      (Tool_failure_episode.Ambiguous_tool_name
-         { position = Tool_failure_episode.Previous; _ }) -> ()
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_history_error error)
+      (Tool_failure_episode.Ambiguous_failure_signature
+         { previous_count = 2; current_count = 1; _ }) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
   | Ok _ -> Alcotest.fail "expected typed ambiguity"
 ;;
 
-let test_incomplete_failure_metadata_is_explicit () =
-  let previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
-  let current =
-    round
-      (call "c1" "Execute" `Null)
-      (result ~error_class:Types.Deterministic "c1" "second")
-  in
-  match detect [ previous; current ] with
-  | Error (Tool_failure_episode.Failure_kind_missing { tool_use_id = "c1"; _ }) -> ()
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_history_error error)
+let test_missing_failure_kind_is_explicit () =
+  match
+    Tool_failure_episode.project
+      ~tool_uses:[ call "c1" "Execute" `Null ]
+      ~tool_results:[ result "c1" "second" ]
+  with
+  | Error (Tool_failure_episode.Failure_kind_missing { tool_use_id = "c1" }) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
   | Ok _ -> Alcotest.fail "expected incomplete metadata error"
 ;;
 
+let test_missing_result_is_explicit () =
+  match
+    Tool_failure_episode.project ~tool_uses:[ call "c1" "Execute" `Null ] ~tool_results:[]
+  with
+  | Error (Tool_failure_episode.Missing_tool_result { tool_use_id = "c1" }) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | Ok _ -> Alcotest.fail "expected missing result error"
+;;
+
 let test_unmatched_result_is_explicit () =
-  let previous = round (call "p1" "Execute" `Null) (typed_failure "p1" "first") in
-  let current =
-    [ message Types.Assistant [ call "c1" "Execute" `Null ]
-    ; message Types.Tool [ typed_failure "other" "second" ]
-    ]
-  in
-  match detect [ previous; current ] with
-  | Error (Tool_failure_episode.Missing_tool_result { tool_use_id = "c1"; _ }) -> ()
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_history_error error)
+  match
+    Tool_failure_episode.project
+      ~tool_uses:[ call "c1" "Execute" `Null ]
+      ~tool_results:[ typed_failure "c1" "matched"; typed_failure "other" "orphan" ]
+  with
+  | Error (Tool_failure_episode.Unmatched_tool_result { tool_use_id = "other" }) -> ()
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
   | Ok _ -> Alcotest.fail "expected unmatched result error"
 ;;
 
 let () =
   Alcotest.run
     "tool_failure_episode"
-    [ ( "detect_latest"
+    [ ( "completed_rounds"
       , [ Alcotest.test_case
             "changed input and error text"
             `Quick
@@ -175,19 +207,27 @@ let () =
             "successful intervening round"
             `Quick
             test_successful_intervening_round_breaks_adjacency
-        ; Alcotest.test_case "different tool" `Quick test_different_tool_not_detected
         ; Alcotest.test_case
             "parallel failures preserved"
             `Quick
             test_parallel_failures_preserved
         ; Alcotest.test_case
-            "ambiguous previous name"
+            "same name distinct signatures"
             `Quick
-            test_ambiguous_previous_name_is_explicit
+            test_same_name_distinct_signatures_are_independent
         ; Alcotest.test_case
-            "incomplete failure metadata"
+            "success plus matching failure"
             `Quick
-            test_incomplete_failure_metadata_is_explicit
+            test_success_and_matching_failure_same_name_are_unambiguous
+        ; Alcotest.test_case
+            "duplicate failure signature"
+            `Quick
+            test_duplicate_failure_signature_is_explicit
+        ; Alcotest.test_case
+            "missing failure kind"
+            `Quick
+            test_missing_failure_kind_is_explicit
+        ; Alcotest.test_case "missing result" `Quick test_missing_result_is_explicit
         ; Alcotest.test_case "unmatched result" `Quick test_unmatched_result_is_explicit
         ] )
     ]
