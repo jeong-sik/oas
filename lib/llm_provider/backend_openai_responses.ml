@@ -381,8 +381,12 @@ let build_request
   let body =
     [ "model", `String config.model_id
     ; "input", `List (List.concat_map input_items_of_message sanitized_messages)
-    ; "max_output_tokens", `Int (effective_max_output_tokens config)
     ]
+  in
+  let body =
+    match effective_max_output_tokens config with
+    | Some mt -> body @ [ "max_output_tokens", `Int mt ]
+    | None -> body
   in
   let body =
     match config.previous_response_id with

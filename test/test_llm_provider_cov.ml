@@ -844,17 +844,12 @@ let test_constants_retry_cache_sampling_and_endpoints () =
 let test_constants_env_helpers () =
   let getenv =
     getenv_from
-      [ Constants.Env.max_tokens_default, "8192"
-      ; Constants.Env.thinking_budget_default, "4096"
+      [ Constants.Env.thinking_budget_default, "4096"
       ; Constants.Env.anthropic_thinking_budget, "2048"
       ; Constants.Env.gemini_thinking_budget, "3072"
       ; Constants.Env.default_seed, "123"
       ]
   in
-  Alcotest.(check int)
-    "max tokens env override"
-    8192
-    (Constants.resolve_unknown_model_max_tokens_fallback ~getenv ());
   Alcotest.(check int)
     "default thinking env override"
     4096
@@ -871,14 +866,7 @@ let test_constants_env_helpers () =
     "seed env override"
     (Some 123)
     (Constants.Deterministic.seed_of_env ~getenv ());
-  let invalid_getenv =
-    getenv_from
-      [ Constants.Env.max_tokens_default, "0"; Constants.Env.default_seed, "not-an-int" ]
-  in
-  Alcotest.(check int)
-    "max tokens invalid env fallback"
-    Constants.unknown_model_max_tokens_fallback
-    (Constants.resolve_unknown_model_max_tokens_fallback ~getenv:invalid_getenv ());
+  let invalid_getenv = getenv_from [ Constants.Env.default_seed, "not-an-int" ] in
   Alcotest.(check (option int))
     "seed invalid"
     None

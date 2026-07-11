@@ -147,10 +147,28 @@ let output_config_for_config mode (config : Provider_config.t) =
 
 (* Anthropic and OpenAI-compatible request envelopes have different field
    names, but the output-budget policy is provider-config policy: caller
-   override, catalog ceiling, then the explicit unknown-model fallback.  The
-   OpenAI request module owns that policy so the legacy Agent SDK path and the
-   standalone backend cannot drift. *)
+   override, then catalog ceiling.  The OpenAI request module owns that
+   policy so the legacy Agent SDK path and the standalone backend cannot
+   drift. *)
 let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
+
+(* The Messages API requires [max_tokens] on every request, so this wire
+   cannot omit the field the way the optional-field envelopes do. When
+   neither the caller nor the capability catalog declares a value the
+   request fails loudly instead of inventing a number: an invented cap is
+   shared by thinking and answer and silently truncates long reasoning. *)
+let required_max_output_tokens (config : Provider_config.t) =
+  match effective_max_output_tokens config with
+  | Some n -> n
+  | None ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_anthropic.required_max_output_tokens: model %s declares no \
+          max_output_tokens and the caller passed none; the Anthropic Messages API \
+          requires max_tokens — declare max_output_tokens in the model catalog or pass \
+          ~max_tokens"
+         config.model_id)
+;;
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
@@ -228,7 +246,7 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (effective_max_output_tokens config)
+    ; "max_tokens", `Int (required_max_output_tokens config)
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]

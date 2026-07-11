@@ -15,11 +15,13 @@ val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
 
 (** Resolve the output-token budget emitted on the wire: caller override
     clamped to the capability ceiling (one-shot WARN on clamp), the model
-    capability when the caller sends none, then the unknown-model fallback.
-    Chat Completions emits the value as [max_tokens], the Responses envelope
-    as [max_output_tokens] — the field name is per-envelope, the resolution
-    policy is single-sourced here. *)
-val effective_max_output_tokens : Provider_config.t -> int
+    capability when the caller sends none, [None] when both are unknown —
+    the emitters then omit the field so the provider applies the model's
+    real ceiling (no invented fallback). Chat Completions emits the value
+    as [max_tokens], the Responses envelope as [max_output_tokens] — the
+    field name is per-envelope, the resolution policy is single-sourced
+    here. *)
+val effective_max_output_tokens : Provider_config.t -> int option
 
 (** Prepend the sampling [(field, value)] to [body] unless the reasoning
     dialect suppresses that parameter, in which case the field is dropped with a

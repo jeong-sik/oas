@@ -153,30 +153,35 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
-(* Resolve the output-token budget from three layers:
+(* Resolve the output-token budget from two layers of declared facts:
    1. Caller override ([config.max_tokens = Some n]) - explicit request
    2. Model capability ([caps.max_output_tokens]) - provider's ceiling
-   3. Fallback [Constants.resolve_unknown_model_max_tokens_fallback] -
-      last resort when both are unknown
 
    When the caller sends [None], they want the model's own maximum.
    When the caller sends [Some n], we clamp to the capability ceiling
    to avoid 400 errors that corrupt partial-commit state.
 
-   The resolved value is always emitted - Anthropic and most
-   OpenAI-compat endpoints REQUIRE the field. Chat Completions emits it
-   as [max_tokens], the Responses envelope as [max_output_tokens]: the
-   field name is per-envelope, the resolution policy (clamp WARN
-   included) is single-sourced here. *)
+   When BOTH are unknown, [None] is returned and the field is omitted
+   from the wire. max_tokens is optional on Chat Completions /
+   Responses / Ollama / Gemini; omission lets the provider apply the
+   model's real ceiling. The former 16384 fallback capped thinking and
+   answer jointly on catalog-silent models, truncating long reasoning
+   mid-thought (stop_reason=max_tokens, zero answer text). Anthropic
+   Messages requires the field on the wire; that path resolves through
+   [Backend_anthropic.required_max_output_tokens], which fails loudly
+   on [None] instead of inventing a number. Chat Completions emits the
+   value as [max_tokens], the Responses envelope as
+   [max_output_tokens]: the field name is per-envelope, the resolution
+   policy (clamp WARN included) is single-sourced here. *)
 let effective_max_output_tokens (config : Provider_config.t) =
   let caps = capabilities_of_config config in
   match config.max_tokens, caps.max_output_tokens with
-  | None, Some cap -> cap
-  | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
+  | None, (Some _ as cap) -> cap
+  | None, None -> None
   | Some n, Some cap when n > cap ->
     warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
-    cap
-  | Some n, _ -> n
+    Some cap
+  | (Some _ as n), _ -> n
 ;;
 
 (* Shared tool_choice emission gate for the Chat and Responses envelopes.
@@ -261,13 +266,13 @@ let build_request_assoc
      sampling-field gates further down; the output-token budget (clamp
      WARN included) is resolved by the shared
      [effective_max_output_tokens] policy and emitted here under the
-     Chat Completions [max_tokens] field name. *)
-  let effective_max_tokens = effective_max_output_tokens config in
+     Chat Completions [max_tokens] field name — omitted entirely when
+     neither caller nor catalog declares a value. *)
+  let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   let body =
-    [ "model", `String config.model_id
-    ; "messages", `List provider_messages
-    ; "max_tokens", `Int effective_max_tokens
-    ]
+    match effective_max_output_tokens config with
+    | Some mt -> body @ [ "max_tokens", `Int mt ]
+    | None -> body
   in
   let body =
     match config.temperature with

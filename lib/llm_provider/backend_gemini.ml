@@ -323,12 +323,13 @@ let build_request
   in
   (* generationConfig *)
   let gen_config = ref [] in
-  (let mt =
-     Option.value
-       ~default:(Constants.resolve_unknown_model_max_tokens_fallback ())
-       config.max_tokens
-   in
-   gen_config := ("maxOutputTokens", `Int mt) :: !gen_config);
+  (* Shared budget policy (caller override clamped to catalog ceiling,
+     omitted when both are unknown) — [maxOutputTokens] is optional on
+     generateContent, and omission lets Gemini apply the model's own
+     limit instead of an invented 16384. *)
+  (match Backend_openai_request.effective_max_output_tokens config with
+   | Some mt -> gen_config := ("maxOutputTokens", `Int mt) :: !gen_config
+   | None -> ());
   (match config.temperature with
    | Some t -> gen_config := ("temperature", `Float t) :: !gen_config
    | None -> ());
