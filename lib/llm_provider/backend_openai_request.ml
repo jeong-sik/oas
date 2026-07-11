@@ -202,10 +202,14 @@ let output_token_ceiling (config : Provider_config.t) =
          Types.output_token_ceiling ~value ~source:Types.Declared_capability_override)
       caps.max_output_tokens
   | None ->
-    Option.bind (Provider_config.capabilities_for_config_model config) (fun caps ->
-      Option.map
-        (fun value -> Types.output_token_ceiling ~value ~source:Types.Catalog_model)
-        caps.max_output_tokens)
+    let caps, source =
+      match Provider_config.capabilities_for_config_model config with
+      | Some caps -> caps, Types.Catalog_model
+      | None -> capabilities_of_config config, Types.Provider_default
+    in
+    Option.map
+      (fun value -> Types.output_token_ceiling ~value ~source)
+      caps.max_output_tokens
 ;;
 
 let output_token_receipt ~envelope (config : Provider_config.t) =

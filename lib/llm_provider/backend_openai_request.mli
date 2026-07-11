@@ -39,7 +39,8 @@ val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
 val effective_max_output_tokens : Provider_config.t -> int option
 
 (** Resolve the optional output-token decision once, preserving whether its
-    ceiling came from the model catalog or an explicit capability override. *)
+    ceiling came from the model catalog, an explicit capability override, or
+    the typed provider default used by {!capabilities_of_config}. *)
 val output_token_receipt
   :  envelope:Types.output_token_envelope
   -> Provider_config.t

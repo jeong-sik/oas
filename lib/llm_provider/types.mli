@@ -307,9 +307,14 @@ type output_token_policy =
 val output_token_policy_to_yojson : output_token_policy -> Yojson.Safe.t
 val output_token_policy_of_yojson : Yojson.Safe.t -> (output_token_policy, string) result
 
+(** Typed provenance of the validation ceiling consulted for the receipt.
+    [Provider_default] is the provider-config fallback used only when neither a
+    capability override nor a model-catalog entry resolves.  Required request
+    envelopes do not inject that validation fallback as a request value. *)
 type output_token_ceiling_source =
   | Catalog_model
   | Declared_capability_override
+  | Provider_default
 [@@deriving show, eq]
 
 val output_token_ceiling_source_to_yojson : output_token_ceiling_source -> Yojson.Safe.t

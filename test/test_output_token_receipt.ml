@@ -102,6 +102,7 @@ let test_stable_scalar_wire_vocabulary () =
     output_token_ceiling_source_to_yojson
     [ Catalog_model, {|"catalog_model"|}
     ; Declared_capability_override, {|"declared_capability_override"|}
+    ; Provider_default, {|"provider_default"|}
     ];
   Alcotest.(check bool)
     "legacy ppx array encoding is rejected"
@@ -302,6 +303,55 @@ let test_glm_and_dashscope_chat_envelopes () =
     ~receipt:(Openai.request_output_token_receipt dashscope_artifact)
 ;;
 
+let test_glm_provider_default_clamp () =
+  let model_id = "receipt-uncatalogued-glm-provider-default" in
+  let provider_default_ceiling =
+    match Capabilities.glm_capabilities.max_output_tokens with
+    | Some value -> value
+    | None -> Alcotest.fail "GLM provider default must declare max_output_tokens"
+  in
+  let requested = provider_default_ceiling + 1 in
+  let config = PC.make ~kind:Glm ~model_id ~base_url:"" ~max_tokens:requested () in
+  Alcotest.(check bool)
+    "regression precondition: no model-catalog capabilities"
+    true
+    (Option.is_none (PC.capabilities_for_config_model config));
+  let drops = ref [] in
+  let previous_metrics = Metrics.get_global () in
+  let artifact =
+    Fun.protect
+      ~finally:(fun () -> Metrics.set_global previous_metrics)
+      (fun () ->
+         Metrics.set_global
+           { Metrics.noop with
+             on_capability_drop =
+               (fun ~model_id ~field -> drops := (model_id, field) :: !drops)
+           };
+         Glm.build_request_artifact ~config ~messages:[] ())
+  in
+  let payload = Glm.request_payload artifact in
+  Alcotest.(check int)
+    "GLM provider-default ceiling clamps the wire value"
+    provider_default_ceiling
+    (wire_int payload [ "max_tokens" ]);
+  check_receipt
+    ~envelope:Openai_chat_max_tokens
+    ~requested:(Some requested)
+    ~effective:(Some provider_default_ceiling)
+    ~policy:Explicit_clamped
+    ~ceiling:(Some provider_default_ceiling)
+    ~ceiling_source:(Some Provider_default)
+    (Glm.request_output_token_receipt artifact);
+  match !drops with
+  | [ (dropped_model_id, field) ] ->
+    Alcotest.(check string) "clamp warning model" model_id dropped_model_id;
+    Alcotest.(check string) "clamp warning field" "max_tokens:clamp" field
+  | drops ->
+    Alcotest.failf
+      "expected one provider-default clamp warning, received %d"
+      (List.length drops)
+;;
+
 let require_anthropic_artifact = function
   | Ok artifact -> artifact
   | Error Required_output_token_ceiling_missing ->
@@ -446,6 +496,10 @@ let () =
             "GLM and DashScope Chat envelopes"
             `Quick
             test_glm_and_dashscope_chat_envelopes
+        ; Alcotest.test_case
+            "GLM provider-default clamp"
+            `Quick
+            test_glm_provider_default_clamp
         ] )
     ; ( "required_messages_envelope"
       , [ Alcotest.test_case
