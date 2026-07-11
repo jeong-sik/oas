@@ -181,6 +181,20 @@ let capabilities_of_config (config : Provider_config.t) =
    which applies an explicit OAS required-envelope fallback (the
    catalog-declared model maximum, not a provider default) and fails loudly
    when no value is declared anywhere — no invented constants. *)
+let output_token_ceiling (config : Provider_config.t) =
+  match config.model_capabilities_override with
+  | Some caps ->
+    Option.map
+      (fun value ->
+         Types.output_token_ceiling ~value ~source:Types.Declared_capability_override)
+      caps.max_output_tokens
+  | None ->
+    Option.bind (Provider_config.capabilities_for_config_model config) (fun caps ->
+      Option.map
+        (fun value -> Types.output_token_ceiling ~value ~source:Types.Catalog_model)
+        caps.max_output_tokens)
+;;
+
 let output_token_receipt_with_ceiling ~envelope (config : Provider_config.t) ~ceiling =
   let receipt =
     Types.optional_output_token_receipt ~envelope ~requested:config.max_tokens ~ceiling
@@ -193,8 +207,10 @@ let output_token_receipt_with_ceiling ~envelope (config : Provider_config.t) ~ce
 ;;
 
 let output_token_receipt ~envelope (config : Provider_config.t) =
-  let caps = capabilities_of_config config in
-  output_token_receipt_with_ceiling ~envelope config ~ceiling:caps.max_output_tokens
+  output_token_receipt_with_ceiling
+    ~envelope
+    config
+    ~ceiling:(output_token_ceiling config)
 ;;
 
 let effective_max_output_tokens (config : Provider_config.t) =
@@ -425,8 +441,10 @@ let build_request_with_receipt
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  build_request_assoc_with_receipt ~stream ~config ~messages ~tools ()
-  |> Provider_request_artifact.map_payload Yojson.Safe.to_string
+  let artifact = build_request_assoc_with_receipt ~stream ~config ~messages ~tools () in
+  Provider_request_artifact.make
+    ~payload:(Yojson.Safe.to_string (Provider_request_artifact.payload artifact))
+    ~output_token_receipt:(Provider_request_artifact.output_token_receipt artifact)
 ;;
 
 let build_request ?stream ~config ~messages ?tools () =

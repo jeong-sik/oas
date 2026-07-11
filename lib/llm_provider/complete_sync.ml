@@ -36,6 +36,7 @@ let complete_http
          (provider:string -> model_id:string -> status:int -> unit) option)
       ?body_timeout_s
       ?(connection_cache : Http_client.cache option)
+      ?on_output_token_receipt
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -86,6 +87,9 @@ let complete_http
         | Provider_config.Glm ->
           Backend_glm.build_request_with_receipt ~config ~messages ~tools ()
       in
+      emit_output_token_receipt
+        on_output_token_receipt
+        (Provider_request_artifact.output_token_receipt request_artifact);
       let body_str = Provider_request_artifact.payload request_artifact in
       let url =
         match config.kind with
@@ -349,14 +353,6 @@ let complete_http
               Error (Http_client.HttpError { code; body }))
         in
         let latency_ms = latency_ms_int latency_counter in
-        let result =
-          Result.map
-            (fun response ->
-               attach_output_token_receipt
-                 response
-                 (Provider_request_artifact.output_token_receipt request_artifact))
-            result
-        in
         result, latency_ms))
 ;;
 

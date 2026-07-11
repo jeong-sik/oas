@@ -119,101 +119,25 @@ type streaming_provider_module = (module STREAMING_PROVIDER)
 (** Runtime dispatch: resolve a provider config to a first-class module.
     Returns an error if provider configuration or credentials cannot be
     resolved. *)
-let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_error) result
+let of_config ?on_output_token_receipt (provider_cfg : Provider.config)
+  : (provider_module, Error.sdk_error) result
   =
   match Provider.resolve provider_cfg with
   | Error err -> Error err
-  | Ok (base_url, api_key, headers) ->
-    let spec = Provider.model_spec_of_config provider_cfg in
+  | Ok _ ->
     let module P = struct
       type t = unit
 
       let create_message ~sw ~net ~config ~messages ?tools () =
-        let kind = spec.request_kind in
-        let path = spec.request_path in
-        let body_result =
-          match kind with
-          | Provider.Anthropic_messages ->
-            let artifact =
-              Api_anthropic.build_body_artifact ~config ~messages ?tools ~stream:false ()
-            in
-            Ok
-              ( Yojson.Safe.to_string
-                  (`Assoc (Llm_provider.Provider_request_artifact.payload artifact))
-              , Some
-                  (Llm_provider.Provider_request_artifact.output_token_receipt artifact)
-              )
-          | Provider.Openai_chat_completions ->
-            Result.map
-              (fun artifact ->
-                 ( Llm_provider.Provider_request_artifact.payload artifact
-                 , Some
-                     (Llm_provider.Provider_request_artifact.output_token_receipt
-                        artifact) ))
-              (Api_openai.build_openai_body_artifact_result
-                 ~provider_config:provider_cfg
-                 ~config
-                 ~messages
-                 ?tools
-                 ())
-          | Provider.Custom name ->
-            (match Provider.find_provider name with
-             | Some impl -> Ok (impl.build_body ~config ~messages ?tools (), None)
-             | None -> Ok (Yojson.Safe.to_string (`Assoc []), None))
-        in
-        match body_result with
-        | Error reason ->
-          Error
-            (Error.Api
-               (Retry.InvalidRequest
-                  { message = "Request rejected: " ^ reason
-                  ; reason = Retry.Unknown_invalid_request
-                  }))
-        | Ok (body_str, output_token_receipt) ->
-          let url = base_url ^ path in
-          (* Merge auth headers at request time so that [headers] (from
-         [Provider.resolve]) never carries sensitive tokens. *)
-          let auth_hdrs =
-            if api_key = ""
-            then []
-            else (
-              match kind with
-              | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
-              | Provider.Openai_chat_completions | Provider.Custom _ ->
-                [ "Authorization", "Bearer " ^ api_key ])
-          in
-          (match
-             Http_client.post_sync
-               ~sw
-               ~net
-               ~url
-               ~headers:(headers @ auth_hdrs)
-               ~body:body_str
-               ()
-           with
-           | Ok (200, body_str) ->
-             let result =
-               match kind with
-               | Provider.Anthropic_messages ->
-                 Api_anthropic.parse_response (Yojson.Safe.from_string body_str)
-                 |> ensure_nonempty_response
-               | Provider.Openai_chat_completions -> parse_openai_response_result body_str
-               | Provider.Custom name ->
-                 (match Provider.find_provider name with
-                  | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
-                  | None -> parse_openai_response_result body_str)
-             in
-             result
-             |> Result.map (fun response ->
-               match output_token_receipt with
-               | Some receipt ->
-                 Llm_provider.Complete_common.attach_output_token_receipt response receipt
-               | None -> response)
-             |> Result.map_error sdk_error_of_response_error
-           | Ok (code, body_str) ->
-             Error
-               (sdk_error_of_http_error (Http_client.HttpError { code; body = body_str }))
-           | Error err -> Error (sdk_error_of_http_error err))
+        Api.create_message
+          ~sw
+          ~net
+          ~provider:provider_cfg
+          ~config
+          ~messages
+          ?tools
+          ?on_output_token_receipt
+          ()
       ;;
     end
     in
@@ -230,13 +154,13 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
     Returns [Ok (Some _)] when native streaming is supported, [Ok None]
     otherwise (caller should fall back to sync + synthetic). Returns an
     error if provider configuration or credentials cannot be resolved. *)
-let of_config_streaming (provider_cfg : Provider.config)
+let of_config_streaming ?on_output_token_receipt (provider_cfg : Provider.config)
   : (streaming_provider_module option, Error.sdk_error) result
   =
   if not (supports_streaming provider_cfg)
   then Ok None
   else (
-    match of_config provider_cfg with
+    match of_config ?on_output_token_receipt provider_cfg with
     | Error err -> Error err
     | Ok base_module ->
       let module Base = (val base_module : PROVIDER) in
@@ -270,6 +194,7 @@ let of_config_streaming (provider_cfg : Provider.config)
             ~messages
             ?tools
             ~on_event
+            ?on_output_token_receipt
             ()
         ;;
       end

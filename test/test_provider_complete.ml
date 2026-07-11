@@ -48,6 +48,7 @@ let check_receipt
       ~effective
       ~policy
       ~ceiling
+      ~ceiling_source
       ~envelope
       (receipt : output_token_receipt)
   =
@@ -67,6 +68,10 @@ let check_receipt
     "receipt ceiling"
     ceiling
     (output_token_receipt_ceiling receipt);
+  Alcotest.(check bool)
+    "receipt ceiling source"
+    true
+    (output_token_receipt_ceiling_source receipt = ceiling_source);
   let json = output_token_receipt_to_yojson receipt in
   let decoded =
     match output_token_receipt_of_yojson json with
@@ -101,6 +106,7 @@ let test_output_token_receipt_optional_omission () =
     ~effective:None
     ~policy:Omitted
     ~ceiling:(Some 100)
+    ~ceiling_source:(Some Declared_capability_override)
     ~envelope:Openai_chat_max_tokens
     (Artifact.output_token_receipt artifact)
 ;;
@@ -126,6 +132,7 @@ let test_output_token_receipt_explicit_exact () =
     ~effective:(Some 80)
     ~policy:Explicit
     ~ceiling:(Some 100)
+    ~ceiling_source:(Some Declared_capability_override)
     ~envelope:Openai_responses_max_output_tokens
     (Artifact.output_token_receipt artifact)
 ;;
@@ -154,30 +161,31 @@ let test_output_token_receipt_explicit_clamp () =
     ~effective:(Some 100)
     ~policy:Explicit_clamped
     ~ceiling:(Some 100)
+    ~ceiling_source:(Some Declared_capability_override)
     ~envelope:Gemini_generation_config_max_output_tokens
     (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_anthropic_required_fallback () =
-  let config =
-    PC.make
-      ~kind:Anthropic
-      ~model_id:"receipt-required-fallback"
-      ~base_url:""
-      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
-      ()
+  let model_id = "claude-sonnet-4-6" in
+  let ceiling =
+    match (catalog_capabilities model_id).max_output_tokens with
+    | Some value -> value
+    | None -> Alcotest.fail "catalog model must declare max_output_tokens"
   in
+  let config = PC.make ~kind:Anthropic ~model_id ~base_url:"" () in
   let artifact = BA.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string (Artifact.payload artifact) in
   Alcotest.(check int)
     "required max_tokens fallback"
-    100
+    ceiling
     Yojson.Safe.Util.(json |> member "max_tokens" |> to_int);
   check_receipt
     ~requested:None
-    ~effective:(Some 100)
+    ~effective:(Some ceiling)
     ~policy:Required_catalog_fallback
-    ~ceiling:(Some 100)
+    ~ceiling:(Some ceiling)
+    ~ceiling_source:(Some Catalog_model)
     ~envelope:Anthropic_messages_max_tokens
     (Artifact.output_token_receipt artifact)
 ;;
@@ -203,23 +211,20 @@ let test_output_token_receipt_ollama_envelope () =
     ~effective:(Some 60)
     ~policy:Explicit
     ~ceiling:(Some 100)
+    ~ceiling_source:(Some Declared_capability_override)
     ~envelope:Ollama_options_num_predict
     (Artifact.output_token_receipt artifact)
 ;;
 
 let test_output_token_receipt_anthropic_missing_required_ceiling () =
   let config =
-    PC.make
-      ~kind:Anthropic
-      ~model_id:"receipt-required-missing"
-      ~base_url:""
-      ~model_capabilities_override:(capabilities_with_max_output_tokens None)
-      ()
+    PC.make ~kind:Anthropic ~model_id:"receipt-required-missing" ~base_url:"" ()
   in
   Alcotest.(check bool)
     "typed missing required ceiling"
     true
-    (BA.required_output_token_receipt config = Error Required_output_token_ceiling_missing);
+    (BA.required_output_token_receipt config
+     = Error Required_output_token_catalog_ceiling_missing);
   Alcotest.check_raises
     "builder rejects missing required ceiling"
     (Invalid_argument
@@ -228,6 +233,50 @@ let test_output_token_receipt_anthropic_missing_required_ceiling () =
         API requires max_tokens — declare max_output_tokens in the model catalog or pass \
         ~max_tokens")
     (fun () -> ignore (BA.build_request ~config ~messages:[ user_msg "hi" ] ()))
+;;
+
+let test_provider_default_ceiling_does_not_clamp_unknown_model () =
+  let config =
+    PC.make
+      ~kind:Gemini
+      ~model_id:"receipt-unknown-gemini"
+      ~base_url:""
+      ~max_tokens:70_000
+      ()
+  in
+  let artifact =
+    BGemini.build_request_with_receipt ~config ~messages:[ user_msg "hi" ] ()
+  in
+  let json = Yojson.Safe.from_string (Artifact.payload artifact) in
+  Alcotest.(check int)
+    "unknown model keeps explicit caller value"
+    70_000
+    Yojson.Safe.Util.(
+      json |> member "generationConfig" |> member "maxOutputTokens" |> to_int);
+  check_receipt
+    ~requested:(Some 70_000)
+    ~effective:(Some 70_000)
+    ~policy:Explicit
+    ~ceiling:None
+    ~ceiling_source:None
+    ~envelope:Gemini_generation_config_max_output_tokens
+    (Artifact.output_token_receipt artifact)
+;;
+
+let test_declared_override_is_not_anthropic_catalog_fallback () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"receipt-declared-override-no-fallback"
+      ~base_url:""
+      ~model_capabilities_override:(capabilities_with_max_output_tokens (Some 100))
+      ()
+  in
+  Alcotest.(check bool)
+    "declared override cannot impersonate catalog fallback"
+    true
+    (BA.required_output_token_receipt config
+     = Error Required_output_token_catalog_ceiling_missing)
 ;;
 
 (* ── Anthropic build_request ─────────────────────────── *)
@@ -362,7 +411,7 @@ let test_anthropic_thinking_forced_tool_choice_rejected_before_request () =
 ;;
 
 let test_anthropic_stream_flag () =
-  let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
+  let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" ~max_tokens:128 () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -1562,6 +1611,7 @@ let test_cache_short_prompt_preserves_opt_in () =
       ~kind:Anthropic
       ~model_id:"m"
       ~base_url:""
+      ~max_tokens:128
       ~system_prompt:"Short."
       ~cache_system_prompt:true
       ()
@@ -1585,6 +1635,7 @@ let test_cache_no_system_no_cache () =
       ~kind:Anthropic
       ~model_id:"m"
       ~base_url:""
+      ~max_tokens:128
       ~system_prompt:"Hello."
       ~cache_system_prompt:false
       ()
@@ -1601,7 +1652,13 @@ let test_cache_no_system_no_cache () =
 
 let test_cache_tools () =
   let config =
-    PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" ~cache_system_prompt:true ()
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"m"
+      ~base_url:""
+      ~max_tokens:128
+      ~cache_system_prompt:true
+      ()
   in
   let tool1 = `Assoc [ "name", `String "a"; "description", `String "tool a" ] in
   let tool2 = `Assoc [ "name", `String "b"; "description", `String "tool b" ] in
@@ -1649,6 +1706,14 @@ let () =
             "Anthropic missing required ceiling"
             `Quick
             test_output_token_receipt_anthropic_missing_required_ceiling
+        ; test_case
+            "provider default does not clamp unknown model"
+            `Quick
+            test_provider_default_ceiling_does_not_clamp_unknown_model
+        ; test_case
+            "declared override is not catalog fallback"
+            `Quick
+            test_declared_override_is_not_anthropic_catalog_fallback
         ] )
     ; ( "anthropic_build_request"
       , [ test_case "basic body" `Quick test_anthropic_basic_body

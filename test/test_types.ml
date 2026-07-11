@@ -592,7 +592,6 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
     ; provider_internal_action_count = Some 2
     ; ttfrc_ms = Some 10.0
     ; prefill_ms = Some 11.0
-    ; output_token_receipt = None
     }
   in
   match
@@ -631,10 +630,6 @@ let test_default_inference_telemetry () =
     None
     telemetry.peak_memory_gb;
   Alcotest.(check bool)
-    "default output-token receipt unknown"
-    true
-    (Option.is_none telemetry.output_token_receipt);
-  Alcotest.(check bool)
     "default provider kind unknown"
     true
     (Option.is_none telemetry.provider_kind);
@@ -659,22 +654,6 @@ let test_default_inference_telemetry () =
     "default prefill unknown"
     None
     telemetry.prefill_ms
-;;
-
-let test_inference_telemetry_missing_output_receipt_defaults_to_none () =
-  let json =
-    match Types.inference_telemetry_to_yojson Types.default_inference_telemetry with
-    | `Assoc fields -> `Assoc (List.remove_assoc "output_token_receipt" fields)
-    | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as
-      unexpected -> unexpected
-  in
-  match Types.inference_telemetry_of_yojson json with
-  | Ok telemetry ->
-    Alcotest.(check bool)
-      "missing receipt is backward-compatible None"
-      true
-      (Option.is_none telemetry.output_token_receipt)
-  | Error message -> Alcotest.fail message
 ;;
 
 (* ── role_of_string ──────────────────────────────────────── *)
@@ -1254,10 +1233,6 @@ let () =
             "default inference telemetry"
             `Quick
             test_default_inference_telemetry
-        ; Alcotest.test_case
-            "missing output receipt defaults to none"
-            `Quick
-            test_inference_telemetry_missing_output_receipt_defaults_to_none
         ] )
     ; ( "config"
       , [ Alcotest.test_case "default_config" `Quick test_default_config

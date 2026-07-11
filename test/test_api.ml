@@ -877,6 +877,43 @@ let test_build_openai_body_kimi_latest_replays_reasoning () =
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
+let test_build_openai_body_responses_path_uses_responses_envelope () =
+  let provider_config : Provider.config =
+    { provider =
+        Provider.OpenAICompat
+          { base_url = "https://api.openai.com"
+          ; auth_header = None
+          ; path = "/v1/responses"
+          ; static_token = None
+          }
+    ; model_id = "gpt-5.5"
+    ; api_key_env = "OPENAI_API_KEY"
+    }
+  in
+  let state = make_state ~model:provider_config.model_id () in
+  let state = { state with config = { state.config with max_tokens = Some 123 } } in
+  match
+    Api.build_openai_body_artifact_result ~provider_config ~config:state ~messages:[] ()
+  with
+  | Error reason -> fail reason
+  | Ok artifact ->
+    let json =
+      Llm_provider.Provider_request_artifact.payload artifact |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check bool "chat messages absent" true (member_absent json "messages");
+    check bool "responses input present" false (member_absent json "input");
+    check int "responses output cap" 123 (json |> member "max_output_tokens" |> to_int);
+    let receipt = Llm_provider.Provider_request_artifact.output_token_receipt artifact in
+    check
+      bool
+      "responses receipt envelope"
+      true
+      (member "envelope" (Llm_provider.Types.output_token_receipt_to_yojson receipt)
+       = Llm_provider.Types.output_token_envelope_to_yojson
+           Llm_provider.Types.Openai_responses_max_output_tokens)
+;;
+
 let deepseek_provider_config : Provider.config =
   declared_provider_config "api-deepseek-v4" "deepseek-v4-pro"
 ;;
@@ -2553,6 +2590,10 @@ let () =
             "kimi latest replays reasoning"
             `Quick
             test_build_openai_body_kimi_latest_replays_reasoning
+        ; test_case
+            "responses path uses Responses envelope"
+            `Quick
+            test_build_openai_body_responses_path_uses_responses_envelope
         ; test_case
             "deepseek dialect controls"
             `Quick

@@ -112,7 +112,18 @@ let test_create_message_uses_hardened_http_client () =
         }
       ]
     in
-    match Api.create_message ~sw ~net ~clock ~provider ~config:state ~messages () with
+    let output_token_receipt = ref None in
+    match
+      Api.create_message
+        ~sw
+        ~net
+        ~clock
+        ~provider
+        ~config:state
+        ~messages
+        ~on_output_token_receipt:(fun receipt -> output_token_receipt := Some receipt)
+        ()
+    with
     | Error err -> Alcotest.failf "expected Ok, got %s" (Error.to_string err)
     | Ok response ->
       Alcotest.(check (option string))
@@ -127,8 +138,8 @@ let test_create_message_uses_hardened_http_client () =
          | Some raw -> int_of_string_opt raw |> Option.value ~default:0 > 0
          | None -> false);
       Alcotest.(check string) "model" "mock" response.model;
-      (match response.telemetry with
-       | Some { output_token_receipt = Some receipt; _ } ->
+      (match !output_token_receipt with
+       | Some receipt ->
          Alcotest.(check (option int))
            "legacy receipt requested"
            (Some 16)
@@ -142,8 +153,7 @@ let test_create_message_uses_hardened_http_client () =
            true
            (Yojson.Safe.Util.member "envelope" (output_token_receipt_to_yojson receipt)
             = output_token_envelope_to_yojson Openai_chat_max_tokens)
-       | Some { output_token_receipt = None; _ } | None ->
-         Alcotest.fail "expected legacy API output-token receipt");
+       | None -> Alcotest.fail "expected legacy API output-token receipt");
       Alcotest.(check int)
         "text blocks"
         1
