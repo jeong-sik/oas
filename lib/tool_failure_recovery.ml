@@ -441,7 +441,7 @@ let decision_observation_to_yojson = function
   | Retry_modified calls ->
     let tool_names =
       calls
-      |> List.map (fun call -> call.tool_name)
+      |> List.map (fun (call : revised_call) -> call.tool_name)
       |> List.sort_uniq String.compare
       |> List.map (fun tool_name -> `String tool_name)
     in
