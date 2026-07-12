@@ -58,6 +58,23 @@ type judge_error =
   | Completion_raised of string
   | Invalid_response of response_error
 
+type judge_error_kind =
+  | Provider_call_failed
+  | Callback_raised
+  | Invalid_judge_response
+
+let judge_error_kind = function
+  | Completion_failed _ -> Provider_call_failed
+  | Completion_raised _ -> Callback_raised
+  | Invalid_response _ -> Invalid_judge_response
+;;
+
+let judge_error_kind_to_string = function
+  | Provider_call_failed -> "provider_call_failed"
+  | Callback_raised -> "callback_raised"
+  | Invalid_judge_response -> "invalid_judge_response"
+;;
+
 let judge_error_to_string = function
   | Completion_failed error ->
     Printf.sprintf "tool failure recovery LLM call failed: %s" (Error.to_string error)
@@ -436,6 +453,24 @@ let decision_json = function
 ;;
 
 let decision_to_yojson = decision_json
+
+let decision_observation_to_yojson = function
+  | Retry_modified calls ->
+    let tool_names =
+      calls
+      |> List.map (fun (call : revised_call) -> call.tool_name)
+      |> List.sort_uniq String.compare
+      |> List.map (fun tool_name -> `String tool_name)
+    in
+    `Assoc
+      [ "action", `String "retry_modified"
+      ; "call_count", `Int (List.length calls)
+      ; "tool_names", `List tool_names
+      ]
+  | Replan _ -> `Assoc [ "action", `String "replan" ]
+  | Ask_user _ -> `Assoc [ "action", `String "ask_user" ]
+  | Defer _ -> `Assoc [ "action", `String "defer" ]
+;;
 
 let episode_ref_json episode =
   `Assoc

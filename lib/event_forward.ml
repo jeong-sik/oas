@@ -146,19 +146,22 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc
         [ "agent_name", `String r.agent_name
         ; "turn", `Int r.turn
-        ; "episodes", `List (List.map Tool_failure_episode.to_yojson r.episodes)
+        ; ( "episodes"
+          , `List (List.map Tool_failure_episode.observation_to_yojson r.episodes) )
         ]
     | ToolFailureRecoveryDecided r ->
       `Assoc
         [ "agent_name", `String r.agent_name
         ; "turn", `Int r.turn
-        ; "decision", Tool_failure_recovery.decision_to_yojson r.decision
+        ; "decision", Tool_failure_recovery.decision_observation_to_yojson r.decision
         ]
     | ToolFailureRecoveryJudgeFailed r ->
       `Assoc
         [ "agent_name", `String r.agent_name
         ; "turn", `Int r.turn
-        ; "detail", `String r.detail
+        ; ( "failure_kind"
+          , `String (Tool_failure_recovery.judge_error_kind_to_string r.kind) )
+        ; "detail_redacted", `Bool true
         ]
     | TurnStarted r -> `Assoc [ "agent_name", `String r.agent_name; "turn", `Int r.turn ]
     | TurnReady r ->

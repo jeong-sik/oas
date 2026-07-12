@@ -106,6 +106,7 @@ type payload =
   | ToolFailureRecoveryJudgeFailed of
       { agent_name : string
       ; turn : int
+      ; kind : Tool_failure_recovery.judge_error_kind
       ; detail : string
       }
   | TurnStarted of

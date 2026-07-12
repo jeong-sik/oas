@@ -713,6 +713,37 @@ let test_response_rejects_duplicate_field () =
        ^ Tool_failure_recovery.show_decision decision)
 ;;
 
+let test_decision_observation_omits_revised_input () =
+  Eio_main.run
+  @@ fun _env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  match
+    decide_fixture
+      sw
+      {|{"action":"retry_modified","revised_calls":[{"current_tool_use_id":"c1","tool_name":"Execute","revised_input":{"cmd":"private"}}]}|}
+  with
+  | Error error -> Alcotest.fail (Tool_failure_recovery.judge_error_to_string error)
+  | Ok decision ->
+    let observation = Tool_failure_recovery.decision_observation_to_yojson decision in
+    let open Yojson.Safe.Util in
+    let field_names =
+      observation |> to_assoc |> List.map fst |> List.sort String.compare
+    in
+    Alcotest.(check (list string))
+      "only the closed decision observation fields are emitted"
+      [ "action"; "call_count"; "tool_names" ]
+      field_names;
+    Alcotest.(check string)
+      "action retained"
+      "retry_modified"
+      (observation |> member "action" |> to_string);
+    Alcotest.(check int)
+      "call count retained"
+      1
+      (observation |> member "call_count" |> to_int)
+;;
+
 let () =
   Alcotest.run
     "tool_failure_recovery"
@@ -775,6 +806,10 @@ let () =
             "duplicate response field is rejected"
             `Quick
             test_response_rejects_duplicate_field
+        ; Alcotest.test_case
+            "decision observation omits revised input"
+            `Quick
+            test_decision_observation_omits_revised_input
         ] )
     ]
 ;;
