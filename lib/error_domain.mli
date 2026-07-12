@@ -49,7 +49,6 @@ type tool_error =
 
 type tool_failure_recovery_stage = Error.tool_failure_recovery_stage =
   | Round_projection
-  | Episode_detection
   | Judge_response
   | Decision_persistence
   | Resume_restore

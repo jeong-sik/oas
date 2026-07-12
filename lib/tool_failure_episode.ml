@@ -302,14 +302,11 @@ let failure_groups round =
 
 let detect ~previous ~current =
   let previous_groups = failure_groups previous in
-  let episodes =
-    current
-    |> List.filter_map failed_attempt
-    |> List.filter_map (fun current_failure ->
-      match Failure_map.find_opt (failure_key current_failure) previous_groups with
-      | Some (_ :: _ as previous_failures) ->
-        Some { previous = List.rev previous_failures; current = current_failure }
-      | None | Some [] -> None)
-  in
-  Ok episodes
+  current
+  |> List.filter_map failed_attempt
+  |> List.filter_map (fun current_failure ->
+    match Failure_map.find_opt (failure_key current_failure) previous_groups with
+    | Some (_ :: _ as previous_failures) ->
+      Some { previous = List.rev previous_failures; current = current_failure }
+    | None | Some [] -> None)
 ;;

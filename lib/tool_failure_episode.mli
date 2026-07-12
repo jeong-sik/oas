@@ -91,8 +91,14 @@ val latest_completed_rounds
     not prevent detection. [previous] retains the complete matching group in
     execution order, so repeated parallel calls are represented without
     guessing an individual pair. Multiple signatures for one tool remain
-    independent. *)
-val detect : previous:completed_round -> current:completed_round -> (t list, error) result
+    independent.
+
+    Detection is total: both inputs are already-validated [completed_round]
+    values, so pairing cannot fail. Round-integrity violations are rejected
+    earlier, by {!project} and {!latest_completed_rounds}.
+    @since 0.212.0 total (returned [result] before; the error channel was
+    unreachable once grouped pairing landed) *)
+val detect : previous:completed_round -> current:completed_round -> t list
 
 (** External-observability projection. Includes stable tool identities and
     typed failure classification, but never tool inputs or error text.

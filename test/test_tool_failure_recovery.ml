@@ -256,7 +256,7 @@ let test_checkpoint_roundtrip_preserves_canonical_rounds () =
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
   | Ok [ current; previous ] ->
     (match Tool_failure_episode.detect ~previous ~current with
-     | Ok [ episode ] ->
+     | [ episode ] ->
        Alcotest.(check string) "canonical tool" "Execute" episode.current.tool_name;
        Alcotest.(check bool)
          "failure kind"
@@ -272,9 +272,8 @@ let test_checkpoint_roundtrip_preserves_canonical_rounds () =
          (Yojson.Safe.equal
             episode.current.input
             (`Assoc [ "cmd", `String "gh pr list" ]))
-     | Ok episodes ->
-       Alcotest.failf "expected one restored episode, got %d" (List.length episodes)
-     | Error error -> Alcotest.fail (Tool_failure_episode.show_error error))
+     | episodes ->
+       Alcotest.failf "expected one restored episode, got %d" (List.length episodes))
   | Ok rounds ->
     Alcotest.failf "expected two restored rounds, got %d" (List.length rounds)
 ;;
@@ -313,10 +312,7 @@ let test_attach_receipt_does_not_cross_new_run_boundary () =
   let messages = (Agent.state scenario.agent).messages in
   let episodes =
     match Tool_failure_episode.latest_completed_rounds ~count:2 messages with
-    | Ok [ current; previous ] ->
-      (match Tool_failure_episode.detect ~previous ~current with
-       | Ok episodes -> episodes
-       | Error error -> Alcotest.fail (Tool_failure_episode.show_error error))
+    | Ok [ current; previous ] -> Tool_failure_episode.detect ~previous ~current
     | Ok rounds ->
       Alcotest.failf "expected two completed rounds, got %d" (List.length rounds)
     | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
@@ -428,9 +424,7 @@ let sample_episodes () =
       [ ToolUse { id = "c1"; name = "Execute"; input = `Assoc [ "cmd", `String "x" ] } ]
       [ failed_result "c1" ]
   in
-  match Tool_failure_episode.detect ~previous ~current with
-  | Ok episodes -> episodes
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  Tool_failure_episode.detect ~previous ~current
 ;;
 
 let resumed_final_run env ~checkpoint ~judge =

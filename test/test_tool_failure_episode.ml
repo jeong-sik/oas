@@ -44,7 +44,7 @@ let test_changed_input_and_error_text_detected () =
       [ typed_failure "c1" "repository was not found" ]
   in
   match detect previous current with
-  | Ok [ episode ] ->
+  | [ episode ] ->
     Alcotest.(check (list string))
       "previous ids"
       [ "p1" ]
@@ -58,8 +58,7 @@ let test_changed_input_and_error_text_detected () =
       (match episode.previous with
        | [ previous ] -> Yojson.Safe.equal previous.input episode.current.input
        | _ -> true)
-  | Ok episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
 ;;
 
 let test_different_failure_kind_not_detected () =
@@ -69,7 +68,7 @@ let test_different_failure_kind_not_detected () =
       [ call "c1" "Execute" `Null ]
       [ typed_failure ~failure_kind:Types.Recoverable_tool_error "c1" "second" ]
   in
-  Alcotest.(check bool) "no episode" true (detect previous current = Ok [])
+  Alcotest.(check bool) "no episode" true (detect previous current = [])
 ;;
 
 let test_different_error_class_not_detected () =
@@ -79,7 +78,7 @@ let test_different_error_class_not_detected () =
       [ call "c1" "Execute" `Null ]
       [ typed_failure ~error_class:(Some Types.Transient) "c1" "second" ]
   in
-  Alcotest.(check bool) "no episode" true (detect previous current = Ok [])
+  Alcotest.(check bool) "no episode" true (detect previous current = [])
 ;;
 
 let test_successful_intervening_round_breaks_adjacency () =
@@ -88,7 +87,7 @@ let test_successful_intervening_round_breaks_adjacency () =
   Alcotest.(check bool)
     "caller advances the adjacent boundary"
     true
-    (detect success failed = Ok [])
+    (detect success failed = [])
 ;;
 
 let test_parallel_failures_preserved () =
@@ -102,9 +101,7 @@ let test_parallel_failures_preserved () =
       [ call "c1" "Execute" (`String "changed"); call "c2" "Read" `Null ]
       [ typed_failure "c1" "second-a"; typed_failure "c2" "second-b" ]
   in
-  match detect previous current with
-  | Ok episodes -> Alcotest.(check int) "both episodes" 2 (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  Alcotest.(check int) "both episodes" 2 (List.length (detect previous current))
 ;;
 
 let test_same_name_distinct_signatures_are_independent () =
@@ -121,9 +118,7 @@ let test_same_name_distinct_signatures_are_independent () =
       [ call "c1" "Execute" `Null; call "c2" "Execute" (`String "changed") ]
       [ typed_failure "c1" "validation changed"; recoverable "c2" "recoverable changed" ]
   in
-  match detect previous current with
-  | Ok episodes -> Alcotest.(check int) "two signatures" 2 (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  Alcotest.(check int) "two signatures" 2 (List.length (detect previous current))
 ;;
 
 let test_success_and_matching_failure_same_name_are_unambiguous () =
@@ -134,9 +129,8 @@ let test_success_and_matching_failure_same_name_are_unambiguous () =
   in
   let current = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "again" ] in
   match detect previous current with
-  | Ok [ _ ] -> ()
-  | Ok episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | [ _ ] -> ()
+  | episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
 ;;
 
 let test_repeated_failure_signature_preserves_previous_group () =
@@ -147,7 +141,7 @@ let test_repeated_failure_signature_preserves_previous_group () =
   in
   let current = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "second" ] in
   match detect previous current with
-  | Ok [ episode ] ->
+  | [ episode ] ->
     Alcotest.(check (list string))
       "complete previous group"
       [ "p1"; "p2" ]
@@ -155,9 +149,8 @@ let test_repeated_failure_signature_preserves_previous_group () =
          (fun (attempt : Tool_failure_episode.failed_attempt) -> attempt.tool_use_id)
          episode.previous);
     Alcotest.(check string) "current id" "c1" episode.current.tool_use_id
-  | Ok episodes ->
+  | episodes ->
     Alcotest.failf "expected one grouped episode, got %d" (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
 let test_repeated_current_calls_each_receive_the_group () =
@@ -171,22 +164,60 @@ let test_repeated_current_calls_each_receive_the_group () =
       [ call "c1" "Execute" `Null; call "c2" "Execute" (`String "changed") ]
       [ typed_failure "c1" "second-a"; typed_failure "c2" "second-b" ]
   in
-  match detect previous current with
-  | Ok episodes ->
-    Alcotest.(check (list string))
-      "every current failed call remains independently addressable"
-      [ "c1"; "c2" ]
-      (List.map
-         (fun (episode : Tool_failure_episode.t) -> episode.current.tool_use_id)
-         episodes);
-    List.iter
-      (fun (episode : Tool_failure_episode.t) ->
-         Alcotest.(check int)
-           "complete previous group on each episode"
-           2
-           (List.length episode.previous))
-      episodes
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  let episodes = detect previous current in
+  Alcotest.(check (list string))
+    "every current failed call remains independently addressable"
+    [ "c1"; "c2" ]
+    (List.map
+       (fun (episode : Tool_failure_episode.t) -> episode.current.tool_use_id)
+       episodes);
+  List.iter
+    (fun (episode : Tool_failure_episode.t) ->
+       Alcotest.(check int)
+         "complete previous group on each episode"
+         2
+         (List.length episode.previous))
+    episodes
+;;
+
+(* Incident replay (masc keeper "sangsu", 2026-07-12): one failed Execute in
+   the previous round and three parallel same-signature Execute failures in
+   the current round. Pre-#2582 pairing rejected this shape as ambiguous and
+   the totality change must keep it a plain fan-out. *)
+let test_single_previous_failure_fans_out_to_parallel_current_calls () =
+  let previous =
+    project
+      [ call "p1" "Execute" (`Assoc [ "executable", `String "find" ]) ]
+      [ typed_failure "p1" "find: 'find': No such file or directory" ]
+  in
+  let current =
+    project
+      [ call "c1" "Execute" (`Assoc [ "argv", `String "lib" ])
+      ; call "c2" "Execute" (`Assoc [ "argv", `String "bin" ])
+      ; call "c3" "Execute" (`Assoc [ "argv", `String "sidecars" ])
+      ]
+      [ typed_failure "c1" "ls: cannot access 'ls': No such file or directory"
+      ; typed_failure "c2" "ls: cannot access 'ls': No such file or directory"
+      ; typed_failure "c3" "ls: cannot access 'ls': No such file or directory"
+      ]
+  in
+  let episodes = detect previous current in
+  Alcotest.(check (list string))
+    "one episode per parallel current failure, in round order"
+    [ "c1"; "c2"; "c3" ]
+    (List.map
+       (fun (episode : Tool_failure_episode.t) -> episode.current.tool_use_id)
+       episodes);
+  List.iter
+    (fun (episode : Tool_failure_episode.t) ->
+       Alcotest.(check (list string))
+         "single previous failure shared by every episode"
+         [ "p1" ]
+         (List.map
+            (fun (attempt : Tool_failure_episode.failed_attempt) ->
+               attempt.tool_use_id)
+            episode.previous))
+    episodes
 ;;
 
 let test_unclassified_failure_is_explicit () =
@@ -236,15 +267,14 @@ let test_completed_round_metadata_preserves_canonical_execution () =
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
   | Ok [ restored ] ->
     (match detect restored restored with
-     | Ok [ episode ] ->
+     | [ episode ] ->
        Alcotest.(check string) "canonical tool" "Execute" episode.current.tool_name;
        Alcotest.(check bool)
          "canonical input"
          true
          (Yojson.Safe.equal input episode.current.input)
-     | Ok episodes ->
-       Alcotest.failf "expected one restored episode, got %d" (List.length episodes)
-     | Error error -> Alcotest.fail (Tool_failure_episode.show_error error))
+     | episodes ->
+       Alcotest.failf "expected one restored episode, got %d" (List.length episodes))
   | Ok rounds -> Alcotest.failf "expected one restored round, got %d" (List.length rounds)
 ;;
 
@@ -346,17 +376,15 @@ let test_tool_result_outcome_is_restore_ssot () =
   let failed = restored_with (typed_failure "c1" "failed") in
   let succeeded = restored_with (successful_result "c1" "ok") in
   (match detect failed failed with
-   | Ok [ _ ] -> ()
-   | Ok episodes ->
-     Alcotest.failf "expected one failed episode, got %d" (List.length episodes)
-   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error));
+   | [ _ ] -> ()
+   | episodes ->
+     Alcotest.failf "expected one failed episode, got %d" (List.length episodes));
   match detect succeeded succeeded with
-  | Ok [] -> ()
-  | Ok episodes ->
+  | [] -> ()
+  | episodes ->
     Alcotest.failf
       "metadata overrode successful outcome (%d episodes)"
       (List.length episodes)
-  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
 let test_invalid_run_boundary_is_explicit () =
@@ -463,6 +491,10 @@ let () =
             "repeated current calls each receive the group"
             `Quick
             test_repeated_current_calls_each_receive_the_group
+        ; Alcotest.test_case
+            "single previous failure fans out to parallel current calls"
+            `Quick
+            test_single_previous_failure_fans_out_to_parallel_current_calls
         ; Alcotest.test_case
             "unclassified failure"
             `Quick

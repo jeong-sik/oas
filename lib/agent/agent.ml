@@ -456,34 +456,26 @@ let resolve_pending_recovery ~sw ?clock agent =
 
 let register_completed_tool_round agent current =
   let state = recovery_state agent in
-  let detection =
+  let episodes =
     match state.last_completed_round with
-    | None -> Ok []
+    | None -> []
     | Some previous -> Tool_failure_episode.detect ~previous ~current
   in
-  match detection with
-  | Error error ->
-    update_recovery_state agent (fun state ->
-      { state with last_completed_round = Some current });
-    Error
-      (recovery_failure Error.Episode_detection (Tool_failure_episode.show_error error))
-  | Ok episodes ->
-    update_recovery_state agent (fun state ->
-      { state with
-        last_completed_round = Some current
-      ; pending_episodes = (if episodes = [] then None else Some episodes)
-      ; pending_receipt = None
-      });
-    if episodes <> []
-    then
-      publish_recovery_event
-        agent
-        (Event_bus.ToolFailureEpisodeDetected
-           { agent_name = agent.state.config.name
-           ; turn = agent.state.turn_count
-           ; episodes
-           });
-    Ok ()
+  update_recovery_state agent (fun state ->
+    { state with
+      last_completed_round = Some current
+    ; pending_episodes = (if episodes = [] then None else Some episodes)
+    ; pending_receipt = None
+    });
+  if episodes <> []
+  then
+    publish_recovery_event
+      agent
+      (Event_bus.ToolFailureEpisodeDetected
+         { agent_name = agent.state.config.name
+         ; turn = agent.state.turn_count
+         ; episodes
+         })
 ;;
 
 let recovery_context_for_turn agent =
@@ -642,14 +634,10 @@ let run_loop_detailed
                  ~max_turns
                  ~model:agent.state.config.model
                  ~stop:"tools_executed";
-               let registered =
-                 match completed_round with
-                 | None -> Ok ()
-                 | Some current -> register_completed_tool_round agent current
-               in
-               (match registered with
-                | Error error -> Error (detailed_error_of_sdk_error error)
-                | Ok () -> loop (release_lease lease)))))
+               (match completed_round with
+                | None -> ()
+                | Some current -> register_completed_tool_round agent current);
+               loop (release_lease lease))))
   in
   loop Held
 ;;
@@ -1115,13 +1103,10 @@ let run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks =
             | Error e -> Error e
             | Ok (`Complete response) -> Ok response
             | Ok (`ToolsExecuted completed_round) ->
-              let* () =
-                match completed_round with
-                | None -> Ok ()
-                | Some current ->
-                  register_completed_tool_round agent_with_handoffs current
-                  |> lift_sdk_result
-              in
+              (match completed_round with
+               | None -> ()
+               | Some current ->
+                 register_completed_tool_round agent_with_handoffs current);
               (match find_handoff_in_messages agent_with_handoffs.state.messages with
                | Some (tool_id, target_name, prompt) ->
                  let target_opt =
@@ -1292,28 +1277,25 @@ let restore_tool_failure_recovery messages =
   | Ok (current :: rest) ->
     let episodes =
       match rest with
-      | [] -> Ok []
+      | [] -> []
       | previous :: _ -> Tool_failure_episode.detect ~previous ~current
     in
-    (match episodes with
-     | Error error -> fail (Tool_failure_episode.show_error error)
-     | Ok episodes ->
-       (match Tool_failure_recovery.latest_receipt messages with
+    (match Tool_failure_recovery.latest_receipt messages with
+     | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
+     | Ok receipt ->
+       let validation =
+         match receipt with
+         | None -> Ok ()
+         | Some receipt -> Tool_failure_recovery.validate_receipt ~episodes receipt
+       in
+       (match validation with
         | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
-        | Ok receipt ->
-          let validation =
-            match receipt with
-            | None -> Ok ()
-            | Some receipt -> Tool_failure_recovery.validate_receipt ~episodes receipt
-          in
-          (match validation with
-           | Error error -> fail (Tool_failure_recovery.show_receipt_error error)
-           | Ok () ->
-             { last_completed_round = Some current
-             ; pending_episodes = (if episodes = [] then None else Some episodes)
-             ; pending_receipt = receipt
-             ; restore_error = None
-             })))
+        | Ok () ->
+          { last_completed_round = Some current
+          ; pending_episodes = (if episodes = [] then None else Some episodes)
+          ; pending_receipt = receipt
+          ; restore_error = None
+          }))
 ;;
 
 let resume
@@ -1413,12 +1395,9 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent =
        | Ok (`Complete response) -> Ok (`Complete response)
        | Error error -> Error error
        | Ok (`ToolsExecuted completed_round) ->
-         let* () =
-           match completed_round with
-           | None -> Ok ()
-           | Some current ->
-             register_completed_tool_round agent current |> lift_sdk_result
-         in
+         (match completed_round with
+          | None -> ()
+          | Some current -> register_completed_tool_round agent current);
          Ok `ToolsExecuted)
 ;;
 
