@@ -138,8 +138,7 @@ let check_loop_guard agent =
            (Error.MaxTurnsExceeded
               { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else if
-      Option.is_none agent.tool_failure_judge
-      && agent.consecutive_idle_turns >= agent.options.max_idle_turns
+      agent.consecutive_idle_turns >= agent.options.max_idle_turns
       && agent.options.max_idle_turns > 0
     then
       Some
