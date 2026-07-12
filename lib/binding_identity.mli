@@ -4,7 +4,7 @@
     OAS-owned catalog facts.  Embedding runtimes may compare/hash it, but cannot
     reconstruct it from display strings or inspect credential material.
 
-    @since 0.212.0 *)
+    @since 0.211.7 *)
 
 type transport =
   | Http

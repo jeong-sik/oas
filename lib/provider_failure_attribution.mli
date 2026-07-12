@@ -5,7 +5,7 @@
     projection and whose optional attribution is constructed before typed
     transport evidence is discarded.
 
-    @since 0.212.0 *)
+    @since 0.211.7 *)
 
 type failure_ownership =
   | Attempt_local

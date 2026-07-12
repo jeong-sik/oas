@@ -282,6 +282,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
       - name: Verify version strings match
         run: |
           # Tolerant of trailing release-please annotations:
@@ -299,6 +302,13 @@ jobs:
           fi
 
           echo "Version consistency check passed: $DUNE_VER"
+
+      - name: Test release availability gate
+        run: bash scripts/test-check-since-version.sh
+
+      - name: Reject future API availability claims in release candidates
+        if: ${{ startsWith(github.head_ref, 'release-please--branches--') || startsWith(github.ref_name, 'release-please--branches--') }}
+        run: bash scripts/check-since-version.sh
 
   transport-drift:
     name: Transport Drift Gate

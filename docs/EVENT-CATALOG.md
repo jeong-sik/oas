@@ -7,7 +7,7 @@ relate, and the contracts downstream consumers can rely on.
 **Scope**: `agent_sdk` library (`lib/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
-**Last updated**: v0.212.0.
+**Last updated**: v0.211.3.
 
 ---
 

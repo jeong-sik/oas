@@ -21,7 +21,7 @@
 
 (** Canonical envelope type for adapters that project durable journal events
     across runtimes. Journal variants remain unchanged for compatibility.
-    @since truth-layer-evidence *)
+    @since 0.170.5 *)
 type envelope_v2 = Event_envelope.t
 
 val mk_envelope_v2

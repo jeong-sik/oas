@@ -30,7 +30,7 @@ type envelope =
 (** Richer, cross-runtime envelope with explicit event IDs, observation time,
     and sequence/parent metadata. Existing {!envelope} remains the event bus
     compatibility shape; new adapters should prefer [envelope_v2].
-    @since truth-layer-evidence *)
+    @since 0.170.5 *)
 type envelope_v2 = Event_envelope.t
 
 (** {2 Payload types} *)

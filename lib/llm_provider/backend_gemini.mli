@@ -51,7 +51,7 @@ val gemini_thought_signature_payload
 (** Exact Gemini response-part kind targeted by an adjacent opaque
     [thoughtSignature] carrier. The carrier and target stay adjacent through
     history replay; a broken adjacency fails closed in the request builder.
-    @since 0.212.0 *)
+    @since 0.211.3 *)
 type gemini_part_signature_target =
   | Gemini_text_part
   | Gemini_thought_part
@@ -61,7 +61,7 @@ type gemini_part_signature_target =
 
 (** Opaque carrier payload for a Gemini [thoughtSignature] attached to the
     immediately following text or thought part.
-    @since 0.212.0 *)
+    @since 0.211.3 *)
 val gemini_part_thought_signature_payload
   :  target:gemini_part_signature_target
   -> thought_signature:string
@@ -70,13 +70,13 @@ val gemini_part_thought_signature_payload
 (** Decode an optional Gemini wire [thoughtSignature]. Missing/null returns
     [None]; blank or non-string values fail closed with {!Gemini_api_error}.
     Shared by synchronous and streaming response paths.
-    @since 0.212.0 *)
+    @since 0.211.4 *)
 val thought_signature_of_part : Yojson.Safe.t -> string option
 
 (** Decode a Gemini [inlineData] object to its closed replay target and OAS
     media block. Missing/blank fields and malformed MIME types fail closed.
     Shared by synchronous and streaming response paths.
-    @since 0.212.0 *)
+    @since 0.211.4 *)
 val media_content_block_of_inline_data
   :  Yojson.Safe.t
   -> gemini_part_signature_target * Types.content_block
