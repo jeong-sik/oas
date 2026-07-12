@@ -44,6 +44,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.211.8](https://github.com/jeong-sik/oas/compare/v0.211.7...v0.211.8) (2026-07-12)
+
+
+### Bug Fixes
+
+* **agent:** preserve idle guard with recovery judge ([#2579](https://github.com/jeong-sik/oas/issues/2579)) ([33535c4](https://github.com/jeong-sik/oas/commit/33535c4c879f384d9d6dcfaaca7a3f945d56cb6b))
+* **api:** preserve legacy error projections with typed evidence ([#2576](https://github.com/jeong-sik/oas/issues/2576)) ([85f69a1](https://github.com/jeong-sik/oas/commit/85f69a12d1e57da681a764ae3b2540b0cb5f7e31))
+* **release:** reconcile API availability versions ([#2580](https://github.com/jeong-sik/oas/issues/2580)) ([0bdfee0](https://github.com/jeong-sik/oas/commit/0bdfee01cc9fb98e5855c29b99f0ba430f4db65a))
+
 ## [0.211.7](https://github.com/jeong-sik/oas/compare/v0.211.6...v0.211.7) (2026-07-12)
 
 
