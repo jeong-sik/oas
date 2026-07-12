@@ -6,6 +6,11 @@
 
 open Types
 
+type request_artifact = string Request_artifact_internal.t
+
+let request_payload = Request_artifact_internal.payload
+let request_output_token_receipt = Request_artifact_internal.output_token_receipt
+
 (** Parse Anthropic API response JSON into {!api_response}. *)
 let parse_response json =
   let open Yojson.Safe.Util in
@@ -158,34 +163,49 @@ let effective_max_output_tokens = Backend_openai_request.effective_max_output_to
    resolver above:
    - caller [Some n] -> clamped to the catalog ceiling with a one-shot
      WARN (shared clamp semantics via [effective_max_output_tokens]).
-   - caller [None] -> the catalog-declared model maximum. This is OAS's
-     explicit required-envelope fallback, not a claim that the provider
-     supplies that value as its default. Reusing the declared maximum keeps
-     known-model calls simple without inventing a second numeric policy;
+   - caller [None] -> the model-catalog maximum or the caller's declared
+     capability-override maximum. This is OAS's explicit required-envelope
+     fallback, not a claim that the provider supplies that value as its
+     default. The receipt preserves which declaration supplied the value;
      callers that need a smaller request bound can still pass one explicitly.
    - neither declared -> fail loudly naming the model; an invented
      constant is shared by thinking and answer and silently truncates
      long reasoning. *)
-let required_max_output_tokens (config : Provider_config.t) =
-  match effective_max_output_tokens config with
-  | Some n -> n
+let required_output_token_receipt (config : Provider_config.t) =
+  Backend_openai_request.output_token_receipt
+    ~envelope:Types.Anthropic_messages_max_tokens
+    config
+  |> Types.required_output_token_receipt
+;;
+
+let required_output_token_error_message (config : Provider_config.t) = function
+  | Types.Required_output_token_ceiling_missing ->
+    Printf.sprintf
+      "Backend_anthropic.required_max_output_tokens: model %s declares no \
+       max_output_tokens and the caller passed none; the Anthropic Messages API requires \
+       max_tokens — declare max_output_tokens in the model catalog, provide an explicit \
+       capability override, or pass ~max_tokens"
+      config.model_id
+;;
+
+let required_output_token_value receipt =
+  match Types.output_token_receipt_effective receipt with
+  | Some value -> value
   | None ->
-    let caps = Backend_openai_request.capabilities_of_config config in
-    (match caps.max_output_tokens with
-     | Some cap -> cap
-     | None ->
-       invalid_arg
-         (Printf.sprintf
-            "Backend_anthropic.required_max_output_tokens: model %s declares no \
-             max_output_tokens and the caller passed none; the Anthropic Messages API \
-             requires max_tokens — declare max_output_tokens in the model catalog or \
-             pass ~max_tokens"
-            config.model_id))
+    invalid_arg
+      "Backend_anthropic: required output-token receipt has no effective wire value"
+;;
+
+let required_max_output_tokens config =
+  match required_output_token_receipt config with
+  | Ok receipt -> required_output_token_value receipt
+  | Error error -> invalid_arg (required_output_token_error_message config error)
 ;;
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
-let build_request
+let build_request_artifact_from_receipt
+      ~output_token_receipt
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -259,7 +279,7 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (required_max_output_tokens config)
+    ; "max_tokens", `Int (required_output_token_value output_token_receipt)
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]
@@ -370,5 +390,27 @@ let build_request
         ("tool_choice", tc) :: body)
       else body
   in
-  Yojson.Safe.to_string (`Assoc body)
+  Request_artifact_internal.create
+    ~payload:(Yojson.Safe.to_string (`Assoc body))
+    ~output_token_receipt
+;;
+
+let build_request_artifact ?stream ~config ~messages ?tools () =
+  match required_output_token_receipt config with
+  | Error _ as error -> error
+  | Ok output_token_receipt ->
+    Ok
+      (build_request_artifact_from_receipt
+         ~output_token_receipt
+         ?stream
+         ~config
+         ~messages
+         ?tools
+         ())
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  match build_request_artifact ?stream ~config ~messages ?tools () with
+  | Ok artifact -> request_payload artifact
+  | Error error -> invalid_arg (required_output_token_error_message config error)
 ;;

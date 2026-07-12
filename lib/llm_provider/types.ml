@@ -473,6 +473,82 @@ type inference_timings =
   }
 [@@deriving show, yojson]
 
+(** The provider wire field that carries one output-token decision.  This is an
+    envelope identity, not a provider brand: providers using an
+    OpenAI-compatible endpoint share the matching OpenAI envelope. *)
+type output_token_envelope = Output_token_wire_internal.envelope =
+  | Openai_chat_max_tokens
+  | Openai_responses_max_output_tokens
+  | Anthropic_messages_max_tokens
+  | Gemini_generation_config_max_output_tokens
+  | Ollama_options_num_predict
+
+type output_token_policy = Output_token_wire_internal.policy =
+  | Omitted
+  | Explicit
+  | Explicit_clamped
+  | Required_catalog_fallback
+  | Required_capability_override_fallback
+
+type output_token_ceiling_source = Output_token_wire_internal.ceiling_source =
+  | Catalog_model
+  | Declared_capability_override
+  | Provider_default
+
+let pp_output_token_envelope = Output_token_wire_internal.pp_envelope
+let show_output_token_envelope = Output_token_wire_internal.show_envelope
+let equal_output_token_envelope = Output_token_wire_internal.equal_envelope
+let pp_output_token_policy = Output_token_wire_internal.pp_policy
+let show_output_token_policy = Output_token_wire_internal.show_policy
+let equal_output_token_policy = Output_token_wire_internal.equal_policy
+let pp_output_token_ceiling_source = Output_token_wire_internal.pp_ceiling_source
+let show_output_token_ceiling_source = Output_token_wire_internal.show_ceiling_source
+let equal_output_token_ceiling_source = Output_token_wire_internal.equal_ceiling_source
+let output_token_envelope_to_yojson = Output_token_wire_internal.envelope_to_yojson
+let output_token_envelope_of_yojson = Output_token_wire_internal.envelope_of_yojson
+let output_token_policy_to_yojson = Output_token_wire_internal.policy_to_yojson
+let output_token_policy_of_yojson = Output_token_wire_internal.policy_of_yojson
+
+let output_token_ceiling_source_to_yojson =
+  Output_token_wire_internal.ceiling_source_to_yojson
+;;
+
+let output_token_ceiling_source_of_yojson =
+  Output_token_wire_internal.ceiling_source_of_yojson
+;;
+
+type output_token_ceiling = Output_token_wire_internal.ceiling =
+  { value : int
+  ; source : output_token_ceiling_source
+  }
+[@@deriving show, eq]
+
+let output_token_ceiling = Output_token_wire_internal.ceiling
+
+type output_token_receipt = Output_token_wire_internal.receipt
+
+type required_output_token_error = Output_token_wire_internal.required_error =
+  | Required_output_token_ceiling_missing
+[@@deriving show, eq]
+
+let optional_output_token_receipt = Output_token_wire_internal.optional_receipt
+let required_output_token_receipt = Output_token_wire_internal.required_receipt
+let output_token_receipt_envelope = Output_token_wire_internal.receipt_envelope
+let output_token_receipt_requested = Output_token_wire_internal.receipt_requested
+let output_token_receipt_effective = Output_token_wire_internal.receipt_effective
+let output_token_receipt_policy = Output_token_wire_internal.receipt_policy
+let output_token_receipt_ceiling = Output_token_wire_internal.receipt_ceiling
+
+let output_token_receipt_ceiling_source =
+  Output_token_wire_internal.receipt_ceiling_source
+;;
+
+let output_token_receipt_to_yojson = Output_token_wire_internal.receipt_to_yojson
+let output_token_receipt_of_yojson = Output_token_wire_internal.receipt_of_yojson
+let equal_output_token_receipt = Output_token_wire_internal.equal_receipt
+let pp_output_token_receipt = Output_token_wire_internal.pp_receipt
+let show_output_token_receipt = Output_token_wire_internal.show_receipt
+
 (** Per-call inference telemetry.
     Parsed from the raw API response; never computed by downstream. *)
 type inference_telemetry =

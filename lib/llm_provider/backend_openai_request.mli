@@ -7,6 +7,17 @@
 
     @stability Internal *)
 
+type request_assoc_artifact
+type request_artifact
+
+val request_assoc_payload : request_assoc_artifact -> Yojson.Safe.t
+
+val request_assoc_output_token_receipt
+  :  request_assoc_artifact
+  -> Types.output_token_receipt
+
+val request_payload : request_artifact -> string
+val request_output_token_receipt : request_artifact -> Types.output_token_receipt
 val warn_capability_drop : model_id:string -> field:string -> unit
 val effective_tool_choice : Provider_config.t -> Yojson.Safe.t option
 val effective_tools : Provider_config.t -> Yojson.Safe.t list -> Yojson.Safe.t list
@@ -26,6 +37,14 @@ val capabilities_of_config : Provider_config.t -> Capabilities.capabilities
     required Anthropic envelope uses
     [Backend_anthropic.required_max_output_tokens] instead. *)
 val effective_max_output_tokens : Provider_config.t -> int option
+
+(** Resolve the optional output-token decision once, preserving whether its
+    ceiling came from the model catalog, an explicit capability override, or
+    the typed provider default used by {!capabilities_of_config}. *)
+val output_token_receipt
+  :  envelope:Types.output_token_envelope
+  -> Provider_config.t
+  -> Types.output_token_receipt
 
 (** Prepend the sampling [(field, value)] to [body] unless the reasoning
     dialect suppresses that parameter, in which case the field is dropped with a
@@ -60,6 +79,14 @@ val build_request_assoc
   -> unit
   -> Yojson.Safe.t
 
+val build_request_assoc_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_assoc_artifact
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t
@@ -67,3 +94,11 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+val build_request_artifact
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> request_artifact

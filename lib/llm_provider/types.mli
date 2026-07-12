@@ -299,6 +299,96 @@ type inference_telemetry =
   }
 [@@deriving show, yojson]
 
+type output_token_envelope =
+  | Openai_chat_max_tokens
+  | Openai_responses_max_output_tokens
+  | Anthropic_messages_max_tokens
+  | Gemini_generation_config_max_output_tokens
+  | Ollama_options_num_predict
+[@@deriving show, eq]
+
+val output_token_envelope_to_yojson : output_token_envelope -> Yojson.Safe.t
+
+val output_token_envelope_of_yojson
+  :  Yojson.Safe.t
+  -> (output_token_envelope, string) result
+
+type output_token_policy =
+  | Omitted
+  | Explicit
+  | Explicit_clamped
+  | Required_catalog_fallback
+  | Required_capability_override_fallback
+[@@deriving show, eq]
+
+val output_token_policy_to_yojson : output_token_policy -> Yojson.Safe.t
+val output_token_policy_of_yojson : Yojson.Safe.t -> (output_token_policy, string) result
+
+(** Typed provenance of the validation ceiling consulted for the receipt.
+    [Provider_default] is the provider-config fallback used only when neither a
+    capability override nor a model-catalog entry resolves.  Required request
+    envelopes do not inject that validation fallback as a request value. *)
+type output_token_ceiling_source =
+  | Catalog_model
+  | Declared_capability_override
+  | Provider_default
+[@@deriving show, eq]
+
+val output_token_ceiling_source_to_yojson : output_token_ceiling_source -> Yojson.Safe.t
+
+val output_token_ceiling_source_of_yojson
+  :  Yojson.Safe.t
+  -> (output_token_ceiling_source, string) result
+
+type output_token_ceiling = private
+  { value : int
+  ; source : output_token_ceiling_source
+  }
+
+val output_token_ceiling
+  :  value:int
+  -> source:output_token_ceiling_source
+  -> output_token_ceiling
+
+(** An invariant-checked observation of one output-token decision.  Exact
+    payload/receipt provenance is established only by the opaque request
+    artifact returned by a backend; a receipt value by itself is a read
+    projection, not proof that a particular payload was built or sent. *)
+type output_token_receipt
+
+type required_output_token_error = Required_output_token_ceiling_missing
+[@@deriving show, eq]
+
+val optional_output_token_receipt
+  :  envelope:output_token_envelope
+  -> requested:int option
+  -> ceiling:output_token_ceiling option
+  -> output_token_receipt
+
+val required_output_token_receipt
+  :  output_token_receipt
+  -> (output_token_receipt, required_output_token_error) result
+
+val output_token_receipt_envelope : output_token_receipt -> output_token_envelope
+val output_token_receipt_requested : output_token_receipt -> int option
+val output_token_receipt_effective : output_token_receipt -> int option
+val output_token_receipt_policy : output_token_receipt -> output_token_policy
+val output_token_receipt_ceiling : output_token_receipt -> int option
+
+val output_token_receipt_ceiling_source
+  :  output_token_receipt
+  -> output_token_ceiling_source option
+
+val output_token_receipt_to_yojson : output_token_receipt -> Yojson.Safe.t
+
+val output_token_receipt_of_yojson
+  :  Yojson.Safe.t
+  -> (output_token_receipt, string) result
+
+val equal_output_token_receipt : output_token_receipt -> output_token_receipt -> bool
+val pp_output_token_receipt : Format.formatter -> output_token_receipt -> unit
+val show_output_token_receipt : output_token_receipt -> string
+
 (** Default/zero inference telemetry value owned by the telemetry type module.
     Callers should record-update this value instead of duplicating every field. *)
 val default_inference_telemetry : inference_telemetry

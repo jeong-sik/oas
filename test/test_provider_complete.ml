@@ -170,7 +170,7 @@ let test_anthropic_thinking_forced_tool_choice_rejected_before_request () =
 ;;
 
 let test_anthropic_stream_flag () =
-  let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
+  let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" ~max_tokens:128 () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -1376,6 +1376,7 @@ let test_cache_short_prompt_preserves_opt_in () =
       ~kind:Anthropic
       ~model_id:"m"
       ~base_url:""
+      ~max_tokens:128
       ~system_prompt:"Short."
       ~cache_system_prompt:true
       ()
@@ -1399,6 +1400,7 @@ let test_cache_no_system_no_cache () =
       ~kind:Anthropic
       ~model_id:"m"
       ~base_url:""
+      ~max_tokens:128
       ~system_prompt:"Hello."
       ~cache_system_prompt:false
       ()
@@ -1415,7 +1417,13 @@ let test_cache_no_system_no_cache () =
 
 let test_cache_tools () =
   let config =
-    PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" ~cache_system_prompt:true ()
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"m"
+      ~base_url:""
+      ~max_tokens:128
+      ~cache_system_prompt:true
+      ()
   in
   let tool1 = `Assoc [ "name", `String "a"; "description", `String "tool a" ] in
   let tool2 = `Assoc [ "name", `String "b"; "description", `String "tool b" ] in

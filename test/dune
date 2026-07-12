@@ -468,6 +468,12 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_output_token_receipt)
+ (modules test_output_token_receipt)
+ (deps ../models.toml)
+ (libraries llm_provider alcotest))
+
+(test
  (name test_complete_http)
  (modules test_complete_http)
  (libraries agent_sdk llm_provider alcotest eio_main eio.mock))

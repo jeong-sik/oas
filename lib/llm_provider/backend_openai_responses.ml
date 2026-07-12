@@ -7,6 +7,10 @@
 
 open Types
 
+type request_artifact = string Request_artifact_internal.t
+
+let request_payload = Request_artifact_internal.payload
+let request_output_token_receipt = Request_artifact_internal.output_token_receipt
 let ( let* ) = Result.bind
 
 let json_assoc_opt key = function
@@ -350,10 +354,9 @@ let capabilities_of_config = Backend_openai_request.capabilities_of_config
    (dialect WARN included) are single-sourced with the Chat Completions
    builder; Responses only renames the budget wire field to
    [max_output_tokens]. *)
-let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
 let add_sampling_field = Backend_openai_request.add_sampling_field
 
-let build_request
+let build_request_artifact
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -365,6 +368,11 @@ let build_request
     Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
   let dialect = Reasoning_dialect.for_provider_config config in
+  let output_token_receipt =
+    Backend_openai_request.output_token_receipt
+      ~envelope:Types.Openai_responses_max_output_tokens
+      config
+  in
   let reasoning_effort =
     (match Provider_config.validate_reasoning_effort_request config with
      | Ok () -> ()
@@ -384,7 +392,7 @@ let build_request
     ]
   in
   let body =
-    match effective_max_output_tokens config with
+    match Types.output_token_receipt_effective output_token_receipt with
     | Some mt -> body @ [ "max_output_tokens", `Int mt ]
     | None -> body
   in
@@ -460,7 +468,13 @@ let build_request
     @ body
   in
   let body = if stream then ("stream", `Bool true) :: body else body in
-  Yojson.Safe.to_string (`Assoc body)
+  Request_artifact_internal.create
+    ~payload:(Yojson.Safe.to_string (`Assoc body))
+    ~output_token_receipt
+;;
+
+let build_request ?stream ~config ~messages ?tools () =
+  build_request_artifact ?stream ~config ~messages ?tools () |> request_payload
 ;;
 
 let output_text_of_content = function
