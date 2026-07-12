@@ -406,21 +406,27 @@ let () =
                   ]
                 Types.Legacy_unclassified_failure
             in
-            check bool "rejected" true (Result.is_error (Checkpoint.of_json checkpoint_json)))
+            check
+              bool
+              "rejected"
+              true
+              (Result.is_error (Checkpoint.of_json checkpoint_json)))
         ; test_case "duplicate error_class is rejected" `Quick (fun () ->
             let checkpoint_json =
               checkpoint_json_with_tool_result
                 ~extra_fields:
                   [ ( "failure_kind"
                     , Types.tool_failure_kind_to_yojson Types.Validation_error )
-                  ; ( "error_class"
-                    , Types.tool_error_class_to_yojson Types.Deterministic )
-                  ; ( "error_class"
-                    , Types.tool_error_class_to_yojson Types.Transient )
+                  ; "error_class", Types.tool_error_class_to_yojson Types.Deterministic
+                  ; "error_class", Types.tool_error_class_to_yojson Types.Transient
                   ]
                 Types.Legacy_unclassified_failure
             in
-            check bool "rejected" true (Result.is_error (Checkpoint.of_json checkpoint_json)))
+            check
+              bool
+              "rejected"
+              true
+              (Result.is_error (Checkpoint.of_json checkpoint_json)))
         ; test_case "empty messages roundtrip" `Quick (fun () ->
             let cp = make_checkpoint ~messages:[] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
