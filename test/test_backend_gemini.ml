@@ -513,6 +513,124 @@ let test_parse_function_call_preserves_thought_signature () =
   | _ -> fail "expected StopToolUse"
 ;;
 
+let textual_parts_with_thought_signatures_json () =
+  Yojson.Safe.from_string
+    {|{
+    "candidates": [{
+      "content": {
+        "parts": [
+          {"text": "visible", "thoughtSignature": "sig-text-123"},
+          {"thought": true, "text": "plan", "thoughtSignature": "sig-thought-456"}
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }],
+    "modelVersion": "gemini-3.1-pro-preview"
+  }|}
+;;
+
+let check_part_signature_carrier ~target ~signature raw =
+  let carrier =
+    match Provider_replay.decode raw with
+    | Provider_replay.Replay { retention = Provider_replay.Exact_next_block; payload } ->
+      payload
+    | Provider_replay.Not_replay | Provider_replay.Malformed_replay _ ->
+      fail "expected an exact-next-block provider replay envelope"
+  in
+  check string "carrier provider" "gemini" (carrier |> member "provider" |> to_string);
+  check
+    string
+    "carrier kind"
+    "gemini_part_thought_signature"
+    (carrier |> member "kind" |> to_string);
+  check string "carrier target" target (carrier |> member "target" |> to_string);
+  check
+    string
+    "carrier thoughtSignature"
+    signature
+    (carrier |> member "thoughtSignature" |> to_string)
+;;
+
+let test_textual_part_thought_signatures_roundtrip () =
+  let parsed =
+    Backend_gemini.parse_response (textual_parts_with_thought_signatures_json ())
+  in
+  (match parsed.content with
+   | [ Types.RedactedThinking text_carrier
+     ; Types.Text "visible"
+     ; Types.RedactedThinking thought_carrier
+     ; Types.Thinking { content = "plan"; signature = None }
+     ] ->
+     check_part_signature_carrier ~target:"text" ~signature:"sig-text-123" text_carrier;
+     check_part_signature_carrier
+       ~target:"thought"
+       ~signature:"sig-thought-456"
+       thought_carrier
+   | _ -> fail "expected exact carriers adjacent to text and thought parts");
+  let messages =
+    [ Types.user_msg "Continue."
+    ; { Types.role = Assistant
+      ; content = parsed.content
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = Backend_gemini.build_request ~config:(gemini_config ()) ~messages () in
+  let parts =
+    parse_body body
+    |> member "contents"
+    |> to_list
+    |> List.nth 1
+    |> member "parts"
+    |> to_list
+  in
+  match parts with
+  | [ text_part; thought_part ] ->
+    check string "text" "visible" (text_part |> member "text" |> to_string);
+    check
+      string
+      "text thoughtSignature"
+      "sig-text-123"
+      (text_part |> member "thoughtSignature" |> to_string);
+    check bool "thought marker" true (thought_part |> member "thought" |> to_bool);
+    check string "thought text" "plan" (thought_part |> member "text" |> to_string);
+    check
+      string
+      "thought thoughtSignature"
+      "sig-thought-456"
+      (thought_part |> member "thoughtSignature" |> to_string)
+  | _ -> fail "expected two replayed Gemini parts"
+;;
+
+let test_textual_part_signature_broken_adjacency_fails_closed () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-text-broken"
+  in
+  let messages =
+    [ { Types.role = Assistant
+      ; content =
+          [ Types.RedactedThinking carrier
+          ; Types.Thinking { content = "wrong target"; signature = None }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  check_raises
+    "broken carrier adjacency"
+    (Backend_gemini.Gemini_api_error
+       "Gemini thoughtSignature carrier targets text but its adjacent content block is \
+        thought")
+    (fun () -> ignore (Backend_gemini.contents_of_messages messages))
+;;
+
 let test_thought_signature_roundtrip_request () =
   let parsed =
     Backend_gemini.parse_response (function_call_with_thought_signature_json ())
@@ -1106,6 +1224,76 @@ let test_gemini_stream_function_call_preserves_thought_signature () =
      | _ -> fail "expected redacted carrier, tool_use, delta, and terminal event")
 ;;
 
+let test_gemini_stream_textual_parts_preserve_thought_signatures () =
+  let state = Streaming.create_openai_stream_state () in
+  let data =
+    {|{
+    "candidates": [{
+      "content": {
+        "parts": [
+          {"text": "visible", "thoughtSignature": "sig-stream-text"},
+          {"thought": true, "text": "plan", "thoughtSignature": "sig-stream-thought"}
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }]
+  }|}
+  in
+  match Streaming.parse_gemini_sse_chunk data with
+  | None -> fail "expected Some chunk"
+  | Some chunk ->
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    (match events with
+     | [ ContentBlockStart
+           { index = 0
+           ; content_type = "redacted_thinking"
+           ; tool_id = Some text_carrier
+           ; _
+           }
+       ; ContentBlockStart { index = 1; content_type = "text"; _ }
+       ; ContentBlockDelta { index = 1; delta = TextDelta "visible" }
+       ; ContentBlockStart
+           { index = 2
+           ; content_type = "redacted_thinking"
+           ; tool_id = Some thought_carrier
+           ; _
+           }
+       ; ContentBlockStart { index = 3; content_type = "thinking"; _ }
+       ; ContentBlockDelta { index = 3; delta = ThinkingDelta "plan" }
+       ; MessageDelta { stop_reason = Some EndTurn; _ }
+       ] ->
+       check_part_signature_carrier
+         ~target:"text"
+         ~signature:"sig-stream-text"
+         text_carrier;
+       check_part_signature_carrier
+         ~target:"thought"
+         ~signature:"sig-stream-thought"
+         thought_carrier
+     | _ -> fail "expected signed text and thought event pairs");
+    let acc = Complete_stream_acc.create_stream_acc () in
+    List.iter (Complete_stream_acc.accumulate_event acc) events;
+    (match Complete_stream_acc.finalize_stream_acc acc with
+     | Error _ -> fail "expected finalized signed textual response"
+     | Ok response ->
+       (match response.content with
+        | [ RedactedThinking text_carrier
+          ; Text "visible"
+          ; RedactedThinking thought_carrier
+          ; Thinking { content = "plan"; signature = None }
+          ] ->
+          check_part_signature_carrier
+            ~target:"text"
+            ~signature:"sig-stream-text"
+            text_carrier;
+          check_part_signature_carrier
+            ~target:"thought"
+            ~signature:"sig-stream-thought"
+            thought_carrier
+        | _ -> fail "expected finalized signed text and thought blocks"))
+;;
+
 let parse_gemini_chunk_exn data =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk -> chunk
@@ -1246,6 +1434,14 @@ let () =
             "thought signature roundtrip"
             `Quick
             test_thought_signature_roundtrip_request
+        ; test_case
+            "textual part thought signatures roundtrip"
+            `Quick
+            test_textual_part_thought_signatures_roundtrip
+        ; test_case
+            "textual part signature broken adjacency"
+            `Quick
+            test_textual_part_signature_broken_adjacency_fails_closed
         ] )
     ; ( "parse_response"
       , [ test_case "text" `Quick test_parse_text_response
@@ -1289,6 +1485,10 @@ let () =
             "function call thought signature"
             `Quick
             test_gemini_stream_function_call_preserves_thought_signature
+        ; test_case
+            "textual part thought signatures"
+            `Quick
+            test_gemini_stream_textual_parts_preserve_thought_signatures
         ; test_case
             "interleaved thinking/tool/text finalizes"
             `Quick

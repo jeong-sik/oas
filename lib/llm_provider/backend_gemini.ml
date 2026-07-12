@@ -89,6 +89,22 @@ let gemini_role_of_oas = function
 ;;
 
 let gemini_thought_signature_kind = "gemini_thought_signature"
+let gemini_part_thought_signature_kind = "gemini_part_thought_signature"
+
+type gemini_part_signature_target =
+  | Gemini_text_part
+  | Gemini_thought_part
+
+let gemini_part_signature_target_to_string = function
+  | Gemini_text_part -> "text"
+  | Gemini_thought_part -> "thought"
+;;
+
+let gemini_part_signature_target_of_string = function
+  | "text" -> Some Gemini_text_part
+  | "thought" -> Some Gemini_thought_part
+  | _ -> None
+;;
 
 let string_field_opt key = function
   | `Assoc fields ->
@@ -112,6 +128,29 @@ let gemini_thought_signature_carrier ~tool_use_id ~thought_signature =
   RedactedThinking (gemini_thought_signature_payload ~tool_use_id ~thought_signature)
 ;;
 
+let gemini_part_thought_signature_payload ~target ~thought_signature =
+  Provider_replay.encode_exact_next_block
+    ~payload:
+      (`Assoc
+          [ "provider", `String "gemini"
+          ; "kind", `String gemini_part_thought_signature_kind
+          ; "target", `String (gemini_part_signature_target_to_string target)
+          ; "thoughtSignature", `String thought_signature
+          ])
+;;
+
+let gemini_part_thought_signature_carrier ~target ~thought_signature =
+  RedactedThinking (gemini_part_thought_signature_payload ~target ~thought_signature)
+;;
+
+let exact_string_field_opt key = function
+  | `Assoc fields ->
+    (match List.assoc_opt key fields with
+     | Some (`String s) -> Some s
+     | Some _ | None -> None)
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
 let gemini_thought_signature_of_redacted data =
   try
     let json = Yojson.Safe.from_string data in
@@ -119,15 +158,41 @@ let gemini_thought_signature_of_redacted data =
     | Some "gemini", Some kind when String.equal kind gemini_thought_signature_kind ->
       (match
          ( string_field_opt "tool_use_id" json
-         , match string_field_opt "thoughtSignature" json with
+         , match exact_string_field_opt "thoughtSignature" json with
            | Some s -> Some s
-           | None -> string_field_opt "thought_signature" json )
+           | None -> exact_string_field_opt "thought_signature" json )
        with
        | Some tool_use_id, Some thought_signature -> Some (tool_use_id, thought_signature)
        | _ -> None)
     | _ -> None
   with
   | Yojson.Json_error _ -> None
+;;
+
+type gemini_part_signature_decode =
+  | Not_gemini_part_signature
+  | Decoded_gemini_part_signature of gemini_part_signature_target * string
+  | Malformed_gemini_part_signature
+
+let decode_gemini_part_thought_signature data =
+  match Provider_replay.decode data with
+  | Provider_replay.Not_replay -> Not_gemini_part_signature
+  | Provider_replay.Malformed_replay _ -> Malformed_gemini_part_signature
+  | Provider_replay.Replay
+      { retention = Provider_replay.Exact_next_block; payload = json } ->
+    (match string_field_opt "provider" json, string_field_opt "kind" json with
+     | Some "gemini", Some kind when String.equal kind gemini_part_thought_signature_kind
+       ->
+       (match
+          ( Option.bind
+              (string_field_opt "target" json)
+              gemini_part_signature_target_of_string
+          , exact_string_field_opt "thoughtSignature" json )
+        with
+        | Some target, Some thought_signature ->
+          Decoded_gemini_part_signature (target, thought_signature)
+        | _ -> Malformed_gemini_part_signature)
+     | _ -> Malformed_gemini_part_signature)
 ;;
 
 let gemini_tool_signatures_of_blocks blocks =
@@ -225,6 +290,90 @@ let part_of_content_block id_to_name tool_signatures = function
   | RedactedThinking _ -> None
 ;;
 
+let signature_target_of_content_block = function
+  | Text _ -> Some Gemini_text_part
+  | Thinking _ -> Some Gemini_thought_part
+  | ReasoningDetails _
+  | RedactedThinking _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> None
+;;
+
+let same_signature_target left right =
+  match left, right with
+  | Gemini_text_part, Gemini_text_part | Gemini_thought_part, Gemini_thought_part -> true
+  | Gemini_text_part, Gemini_thought_part | Gemini_thought_part, Gemini_text_part -> false
+;;
+
+let attach_thought_signature thought_signature = function
+  | `Assoc fields -> `Assoc (("thoughtSignature", `String thought_signature) :: fields)
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    raise
+      (Gemini_api_error
+         "Gemini part serializer produced a non-object for a thoughtSignature target")
+;;
+
+let parts_of_content_blocks id_to_name tool_signatures blocks =
+  (* Gemini requires an opaque [thoughtSignature] to be replayed on the exact
+     model part that carried it. OAS represents that otherwise-unmodeled field
+     as a [RedactedThinking] block immediately before its target. Adjacency is
+     the structural identity: if a reducer breaks it, fail the request rather
+     than attaching the signature to a different part or silently dropping it. *)
+  let malformed_carrier expected actual =
+    let actual =
+      match actual with
+      | Some target -> gemini_part_signature_target_to_string target
+      | None -> "unsupported"
+    in
+    raise
+      (Gemini_api_error
+         (Printf.sprintf
+            "Gemini thoughtSignature carrier targets %s but its adjacent content block \
+             is %s"
+            (gemini_part_signature_target_to_string expected)
+            actual))
+  in
+  let rec loop acc = function
+    | RedactedThinking data :: target_block :: rest ->
+      (match decode_gemini_part_thought_signature data with
+       | Not_gemini_part_signature -> loop acc (target_block :: rest)
+       | Malformed_gemini_part_signature ->
+         raise
+           (Gemini_api_error
+              "Malformed Gemini thoughtSignature carrier in conversation history")
+       | Decoded_gemini_part_signature (expected_target, thought_signature) ->
+         let actual_target = signature_target_of_content_block target_block in
+         (match actual_target with
+          | Some actual_target when same_signature_target expected_target actual_target ->
+            (match part_of_content_block id_to_name tool_signatures target_block with
+             | Some part ->
+               loop (attach_thought_signature thought_signature part :: acc) rest
+             | None -> malformed_carrier expected_target (Some actual_target))
+          | Some _ | None -> malformed_carrier expected_target actual_target))
+    | [ RedactedThinking data ] ->
+      (match decode_gemini_part_thought_signature data with
+       | Decoded_gemini_part_signature (expected_target, _) ->
+         malformed_carrier expected_target None
+       | Malformed_gemini_part_signature ->
+         raise
+           (Gemini_api_error
+              "Malformed Gemini thoughtSignature carrier in conversation history")
+       | Not_gemini_part_signature -> List.rev acc)
+    | block :: rest ->
+      let acc =
+        match part_of_content_block id_to_name tool_signatures block with
+        | Some part -> part :: acc
+        | None -> acc
+      in
+      loop acc rest
+    | [] -> List.rev acc
+  in
+  loop [] blocks
+;;
+
 (* ── Message list -> (contents, systemInstruction option) ── *)
 
 let contents_of_messages (messages : message list) =
@@ -241,14 +390,10 @@ let contents_of_messages (messages : message list) =
        let tool_signatures = gemini_tool_signatures_of_blocks msg.content in
        match msg.role with
        | System ->
-         let parts =
-           List.filter_map (part_of_content_block id_to_name tool_signatures) msg.content
-         in
+         let parts = parts_of_content_blocks id_to_name tool_signatures msg.content in
          system_parts := !system_parts @ parts
        | User | Assistant | Tool ->
-         let parts =
-           List.filter_map (part_of_content_block id_to_name tool_signatures) msg.content
-         in
+         let parts = parts_of_content_blocks id_to_name tool_signatures msg.content in
          if parts <> []
          then
            contents
@@ -454,12 +599,23 @@ let parse_response json =
     let content =
       List.concat_map
         (fun part ->
+           let part_thought_signature =
+             part |> member "thoughtSignature" |> to_string_option
+           in
            match part |> member "text" with
            | `String s ->
              let is_thought = Cli_common_json.member_bool "thought" part in
-             if is_thought
-             then [ Thinking { signature = None; content = s } ]
-             else [ Text s ]
+             let target, block =
+               if is_thought
+               then Gemini_thought_part, Thinking { signature = None; content = s }
+               else Gemini_text_part, Text s
+             in
+             (match part_thought_signature with
+              | Some thought_signature ->
+                [ gemini_part_thought_signature_carrier ~target ~thought_signature
+                ; block
+                ]
+              | None -> [ block ])
            | _ ->
              (match part |> member "functionCall" with
               | `Assoc _ as fc ->

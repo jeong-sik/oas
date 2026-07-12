@@ -436,6 +436,10 @@ let test_importance_scored_boost_preserves_message () =
 
 (* --- cap_message_tokens pair preservation --- *)
 
+let replay_carrier payload =
+  Types.RedactedThinking (Llm_provider.Provider_replay.encode_exact_next_block ~payload)
+;;
+
 (* Build an assistant message with mixed Text/ToolUse blocks.
    Text blocks are each ~4*len characters to force truncation. *)
 let big_text_block () = Types.Text (String.make 1000 'x')
@@ -611,6 +615,36 @@ let test_cap_mandatory_overflow_returns_as_is () =
   in
   let asst = List.nth result 1 in
   Alcotest.(check int) "untouched when mandatory overflows" 1 (List.length asst.content)
+;;
+
+let test_cap_preserves_exact_replay_pair () =
+  let carrier = replay_carrier (`Assoc [ "provider_state", `String "opaque" ]) in
+  let msgs =
+    [ user_msg "q"
+    ; Types.
+        { role = Assistant
+        ; content =
+            [ big_text_block (); carrier; Text "signed target"; big_text_block () ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ; user_msg "recent"
+    ; asst_msg "answer"
+    ]
+  in
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.cap_message_tokens ~max_tokens:100 ~keep_recent:1)
+      msgs
+  in
+  let capped = List.nth result 1 in
+  let rec has_exact_pair = function
+    | replayed_carrier :: Types.Text "signed target" :: _ -> replayed_carrier = carrier
+    | _ :: rest -> has_exact_pair rest
+    | [] -> false
+  in
+  Alcotest.(check bool) "exact replay pair preserved" true (has_exact_pair capped.content)
 ;;
 
 (* --- from_context_config cache path --- *)
@@ -877,6 +911,40 @@ let test_drop_thinking_preserves_signed_tool_use_thinking () =
     in
     Alcotest.(check bool) "signed thinking preserved" true has_signed_thinking;
     Alcotest.(check bool) "tool use preserved" true has_tool_use
+;;
+
+let test_drop_thinking_preserves_exact_replay_pair () =
+  let carrier = replay_carrier (`Assoc [ "provider_state", `String "opaque" ]) in
+  let msgs =
+    [ user_msg "q"
+    ; Types.
+        { role = Assistant
+        ; content =
+            [ Thinking { signature = None; content = "drop me" }
+            ; carrier
+            ; Thinking { signature = None; content = "signed target" }
+            ; Text "answer"
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ]
+  in
+  let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
+  match List.nth result 1 with
+  | { Types.content =
+        [ replayed_carrier
+        ; Types.Thinking { signature = None; content = "signed target" }
+        ; Types.Text "answer"
+        ]
+    ; _
+    } ->
+    Alcotest.(check bool)
+      "exact replay carrier preserved"
+      true
+      (replayed_carrier = carrier)
+  | _ -> Alcotest.fail "expected only the exact replay pair and visible answer"
 ;;
 
 let test_preserve_thinking_removes_summarize_old () =
@@ -1755,6 +1823,10 @@ let () =
             `Quick
             test_drop_thinking_preserves_signed_tool_use_thinking
         ; Alcotest.test_case
+            "preserves exact provider replay pair"
+            `Quick
+            test_drop_thinking_preserves_exact_replay_pair
+        ; Alcotest.test_case
             "preserve_thinking removes summarize_old"
             `Quick
             test_preserve_thinking_removes_summarize_old
@@ -1879,6 +1951,10 @@ let () =
             "mandatory exceeds budget returns as-is"
             `Quick
             test_cap_mandatory_overflow_returns_as_is
+        ; Alcotest.test_case
+            "exact provider replay pair never splits"
+            `Quick
+            test_cap_preserves_exact_replay_pair
         ] )
     ; ( "edge_cases"
       , [ Alcotest.test_case "empty messages" `Quick test_empty
