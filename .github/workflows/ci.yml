@@ -218,6 +218,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Test PR tree identity gate
+        run: bash scripts/test-check-pr-tree-identity.sh
+
+      - name: Reject same-tree no-op PRs
+        if: github.event_name == 'pull_request'
+        env:
+          OAS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OAS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OAS_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$OAS_PR_BASE_SHA" \
+            "+refs/pull/${OAS_PR_NUMBER}/head:refs/remotes/pull/${OAS_PR_NUMBER}/head"
+          bash scripts/check-pr-tree-identity.sh "$OAS_PR_BASE_SHA" "$OAS_PR_HEAD_SHA"
+
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
         with:

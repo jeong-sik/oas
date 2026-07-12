@@ -22,6 +22,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-tree-identity:
+    name: PR Tree Identity Gate
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.state != 'closed' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted base workflow tree
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+
+      - name: Fetch exact PR commits
+        env:
+          OAS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OAS_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$OAS_PR_BASE_SHA" \
+            "+refs/pull/${OAS_PR_NUMBER}/head:refs/remotes/pull/${OAS_PR_NUMBER}/head"
+
+      - name: Reject same-tree no-op PRs
+        env:
+          OAS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OAS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-pr-tree-identity.sh "$OAS_PR_BASE_SHA" "$OAS_PR_HEAD_SHA"
+
   draft-automerge-guard:
     name: Draft Auto-Merge Guard
     runs-on: ubuntu-latest
