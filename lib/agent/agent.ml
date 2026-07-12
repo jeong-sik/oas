@@ -472,10 +472,7 @@ let register_completed_tool_round agent current =
     publish_recovery_event
       agent
       (Event_bus.ToolFailureEpisodeDetected
-         { agent_name = agent.state.config.name
-         ; turn = agent.state.turn_count
-         ; episodes
-         })
+         { agent_name = agent.state.config.name; turn = agent.state.turn_count; episodes })
 ;;
 
 let recovery_context_for_turn agent =
@@ -1105,8 +1102,7 @@ let run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks =
             | Ok (`ToolsExecuted completed_round) ->
               (match completed_round with
                | None -> ()
-               | Some current ->
-                 register_completed_tool_round agent_with_handoffs current);
+               | Some current -> register_completed_tool_round agent_with_handoffs current);
               (match find_handoff_in_messages agent_with_handoffs.state.messages with
                | Some (tool_id, target_name, prompt) ->
                  let target_opt =

@@ -214,8 +214,7 @@ let test_single_previous_failure_fans_out_to_parallel_current_calls () =
          "single previous failure shared by every episode"
          [ "p1" ]
          (List.map
-            (fun (attempt : Tool_failure_episode.failed_attempt) ->
-               attempt.tool_use_id)
+            (fun (attempt : Tool_failure_episode.failed_attempt) -> attempt.tool_use_id)
             episode.previous))
     episodes
 ;;
