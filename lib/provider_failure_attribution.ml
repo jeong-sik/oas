@@ -129,7 +129,7 @@ let ownership_of_http_status ~binding code =
   (* A generic server status does not identify whether the fault belongs to
      this binding, endpoint, region, or provider.  Only richer typed provider
      evidence may widen it beyond [Unclassified]. *)
-  | 403 | 429 | _ -> Unclassified
+  | _ -> Unclassified
 ;;
 
 let ownership_of_network = function
