@@ -44,6 +44,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.211.4](https://github.com/jeong-sik/oas/compare/v0.211.3...v0.211.4) (2026-07-12)
+
+
+### Bug Fixes
+
+* **checkpoint:** reject duplicate recovery provenance ([#2558](https://github.com/jeong-sik/oas/issues/2558)) ([2432663](https://github.com/jeong-sik/oas/commit/2432663b3f544153ce9ed1c1e61ededcf2b27a69))
+* **gemini:** harden thought-signature replay boundaries ([#2559](https://github.com/jeong-sik/oas/issues/2559)) ([b716f0c](https://github.com/jeong-sik/oas/commit/b716f0c5e3a710ee02da1baab9da0bba374e0686))
+* **test:** correct List.nth argument order in gemini part assertion ([#2556](https://github.com/jeong-sik/oas/issues/2556)) ([a317895](https://github.com/jeong-sik/oas/commit/a317895d5112ed7d5bc1066a91c7424ca7989294))
+
 ## [0.211.3](https://github.com/jeong-sik/oas/compare/v0.211.2...v0.211.3) (2026-07-12)
 
 
