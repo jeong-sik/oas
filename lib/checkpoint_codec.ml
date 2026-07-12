@@ -106,11 +106,22 @@ let checkpoint_content_block_to_json block =
          (Yojson.Safe.to_string non_object))
 ;;
 
-let optional_typed_field ~field ~type_name ~decode json =
-  let open Yojson.Safe.Util in
-  match json |> member field with
-  | `Null -> Ok None
-  | value ->
+let unique_optional_field ~field fields =
+  match List.filter_map (fun (name, value) -> if String.equal name field then Some value else None) fields with
+  | [] -> Ok None
+  | [ value ] -> Ok (Some value)
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "Checkpoint ToolResult duplicates field %s" field }))
+;;
+
+let optional_typed_field ~field ~type_name ~decode fields =
+  let* value = unique_optional_field ~field fields in
+  match value with
+  | None -> Ok None
+  | Some value ->
     decode value
     |> Result.map Option.some
     |> Result.map_error (fun detail ->
@@ -125,6 +136,20 @@ let optional_typed_field ~field ~type_name ~decode json =
            }))
 ;;
 
+let tool_result_fields json =
+  match json with
+  | `Assoc fields -> Ok fields
+  | non_object ->
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail =
+                Printf.sprintf
+                  "Checkpoint ToolResult must be an object, got %s"
+                  (Yojson.Safe.to_string non_object)
+            }))
+;;
+
 let content_block_of_json_strict json =
   try
     match Api.content_block_of_json json with
@@ -136,18 +161,19 @@ let content_block_of_json_strict json =
            ; json = parsed_json
            ; content_blocks
            }) ->
+      let* fields = tool_result_fields json in
       let* failure_kind =
         optional_typed_field
           ~field:"failure_kind"
           ~type_name:"tool_failure_kind"
           ~decode:Types.tool_failure_kind_of_yojson
-          json
+          fields
       and* error_class =
         optional_typed_field
           ~field:"error_class"
           ~type_name:"tool_error_class"
           ~decode:Types.tool_error_class_of_yojson
-          json
+          fields
       in
       let* outcome =
         match wire_outcome, failure_kind, error_class with
