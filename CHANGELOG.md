@@ -44,6 +44,22 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.211.3](https://github.com/jeong-sik/oas/compare/v0.211.2...v0.211.3) (2026-07-12)
+
+
+### Features
+
+* **llm_provider:** bind output-token receipts to request artifacts ([#2543](https://github.com/jeong-sik/oas/issues/2543)) ([da3cee6](https://github.com/jeong-sik/oas/commit/da3cee60dcbe5e79ce51bb97dc7b5d33ed23c38b))
+
+
+### Bug Fixes
+
+* **agent:** harden typed failure recovery resume ([#2547](https://github.com/jeong-sik/oas/issues/2547)) ([69647a3](https://github.com/jeong-sik/oas/commit/69647a30655cf550953ee535ef5e1b0f6e9b729a))
+* **agent:** make typed recovery opt-in and authoritative ([#2551](https://github.com/jeong-sik/oas/issues/2551)) ([8738d1d](https://github.com/jeong-sik/oas/commit/8738d1d4d423b0588bc4fed3e51153f64cba4a9a))
+* **agent:** type recovery receipt messages ([#2546](https://github.com/jeong-sik/oas/issues/2546)) ([d152464](https://github.com/jeong-sik/oas/commit/d15246468184736af3bb4885e4530b321f71ca6f))
+* **gemini:** preserve textual thought signatures ([#2554](https://github.com/jeong-sik/oas/issues/2554)) ([0c6dabc](https://github.com/jeong-sik/oas/commit/0c6dabcfc80254e5a09fac314ea56c9fed765183))
+* **test:** type recovery boundary fixture ([#2550](https://github.com/jeong-sik/oas/issues/2550)) ([fc40510](https://github.com/jeong-sik/oas/commit/fc405106e62dce43b57d08870ea6fbbff8422c93))
+
 ## [0.211.2](https://github.com/jeong-sik/oas/compare/v0.211.1...v0.211.2) (2026-07-11)
 
 
