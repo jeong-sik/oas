@@ -705,6 +705,47 @@ let test_blank_part_thought_signature_fails_closed () =
     (fun () -> ignore (Backend_gemini.parse_response response))
 ;;
 
+let test_signed_inline_image_roundtrip () =
+  let response =
+    Yojson.Safe.from_string
+      {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-image"}]},"finishReason":"STOP"}]}|}
+  in
+  let parsed = Backend_gemini.parse_response response in
+  (match parsed.content with
+   | [ RedactedThinking carrier
+     ; Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = Base64 }
+     ] -> check_part_signature_carrier ~target:"image" ~signature:"sig-image" carrier
+   | _ -> fail "expected signed inline image response pair");
+  let body =
+    Backend_gemini.build_request
+      ~config:(gemini_config ())
+      ~messages:
+        [ Types.user_msg "Continue editing."
+        ; message_with_blocks Assistant parsed.content
+        ]
+      ()
+  in
+  let parts =
+    parse_body body
+    |> member "contents"
+    |> to_list
+    |> fun contents -> List.nth contents 1 |> member "parts" |> to_list
+  in
+  match parts with
+  | [ part ] ->
+    check
+      string
+      "image signature"
+      "sig-image"
+      (part |> member "thoughtSignature" |> to_string);
+    check
+      string
+      "image MIME"
+      "image/png"
+      (part |> member "inlineData" |> member "mimeType" |> to_string)
+  | _ -> fail "expected one replayed image part"
+;;
+
 let test_thought_signature_roundtrip_request () =
   let parsed =
     Backend_gemini.parse_response (function_call_with_thought_signature_json ())
@@ -1368,6 +1409,44 @@ let test_gemini_stream_textual_parts_preserve_thought_signatures () =
         | _ -> fail "expected finalized signed text and thought blocks"))
 ;;
 
+let test_gemini_stream_signed_inline_image () =
+  let state = Streaming.create_openai_stream_state () in
+  let data =
+    {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-stream-image"}]},"finishReason":"STOP"}]}|}
+  in
+  match Streaming.parse_gemini_sse_chunk data with
+  | None -> fail "expected signed image chunk"
+  | Some chunk ->
+    let events, _ = Streaming.gemini_chunk_to_events state chunk in
+    (match events with
+     | [ ContentBlockStart
+           { index = 0; content_type = "redacted_thinking"; tool_id = Some carrier; _ }
+       ; ContentBlockStart { index = 1; content_type = "image"; _ }
+       ; ContentBlockDelta
+           { index = 1
+           ; delta =
+               MediaDelta
+                 { media_type = "image/png"; source_type = Base64; data = "iVBORw0KGgo=" }
+           }
+       ; MessageDelta { stop_reason = Some EndTurn; _ }
+       ] ->
+       check_part_signature_carrier ~target:"image" ~signature:"sig-stream-image" carrier
+     | _ -> fail "expected signed image carrier and media delta");
+    let acc = Complete_stream_acc.create_stream_acc () in
+    List.iter (Complete_stream_acc.accumulate_event acc) events;
+    (match Complete_stream_acc.finalize_stream_acc acc with
+     | Ok
+         { content =
+             [ RedactedThinking carrier
+             ; Image
+                 { media_type = "image/png"; source_type = Base64; data = "iVBORw0KGgo=" }
+             ]
+         ; _
+         } ->
+       check_part_signature_carrier ~target:"image" ~signature:"sig-stream-image" carrier
+     | Ok _ | Error _ -> fail "expected finalized signed image response")
+;;
+
 let parse_gemini_chunk_exn data =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk -> chunk
@@ -1545,6 +1624,10 @@ let () =
             "blank part thought signature"
             `Quick
             test_blank_part_thought_signature_fails_closed
+        ; test_case
+            "signed inline image roundtrip"
+            `Quick
+            test_signed_inline_image_roundtrip
         ; test_case "usage" `Quick test_parse_usage
         ; test_case "stop reasons" `Quick test_parse_stop_reasons
         ; test_case "error" `Quick test_parse_error
@@ -1579,6 +1662,7 @@ let () =
             "textual part thought signatures"
             `Quick
             test_gemini_stream_textual_parts_preserve_thought_signatures
+        ; test_case "signed inline image" `Quick test_gemini_stream_signed_inline_image
         ; test_case
             "interleaved thinking/tool/text finalizes"
             `Quick

@@ -1680,10 +1680,13 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
     (fun part_index part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
        let part_thought_signature = Backend_gemini.thought_signature_of_part part in
-       let emit_signed_textual_part ~target ~content_type ~delta thought_signature =
+       let emit_signed_part ~target ~content_type ~delta thought_signature =
          (match target with
           | Backend_gemini.Gemini_text_part -> state.text_block_started <- false
-          | Backend_gemini.Gemini_thought_part -> state.thinking_block_started <- false);
+          | Backend_gemini.Gemini_thought_part -> state.thinking_block_started <- false
+          | Backend_gemini.Gemini_image_part
+          | Backend_gemini.Gemini_audio_part
+          | Backend_gemini.Gemini_document_part -> ());
          let carrier_index = state.next_block_index in
          let carrier_payload =
            Backend_gemini.gemini_part_thought_signature_payload ~target ~thought_signature
@@ -1755,13 +1758,13 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
          | Some thought_signature ->
            if is_thought
            then
-             emit_signed_textual_part
+             emit_signed_part
                ~target:Backend_gemini.Gemini_thought_part
                ~content_type:"thinking"
                ~delta:(ThinkingDelta text)
                thought_signature
            else
-             emit_signed_textual_part
+             emit_signed_part
                ~target:Backend_gemini.Gemini_text_part
                ~content_type:"text"
                ~delta:(TextDelta text)
@@ -1802,14 +1805,68 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
                (ContentBlockDelta
                   { index = state.text_block_index; delta = TextDelta text }))
        in
+       let emit_media_part inline_data =
+         let target, block =
+           Backend_gemini.media_content_block_of_inline_data inline_data
+         in
+         let content_type, delta =
+           match block with
+           | Image { media_type; source_type; data } ->
+             "image", MediaDelta { media_type; source_type; data }
+           | Audio { media_type; source_type; data } ->
+             "audio", MediaDelta { media_type; source_type; data }
+           | Document { media_type; source_type; data } ->
+             "document", MediaDelta { media_type; source_type; data }
+           | Text _
+           | Thinking _
+           | ReasoningDetails _
+           | RedactedThinking _
+           | ToolUse _
+           | ToolResult _ ->
+             raise
+               (Backend_gemini.Gemini_api_error
+                  "Gemini inlineData decoder produced a non-media content block")
+         in
+         match part_thought_signature with
+         | Some thought_signature ->
+           emit_signed_part ~target ~content_type ~delta thought_signature
+         | None ->
+           let index = state.next_block_index in
+           emit
+             (ContentBlockStart { index; content_type; tool_id = None; tool_name = None });
+           emit (ContentBlockDelta { index; delta });
+           state.next_block_index <- index + 1
+       in
+       let emit_non_text_part () =
+         match part |> member "functionCall" with
+         | `Assoc _ -> emit_function_call_delta ()
+         | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+           (match part |> member "inlineData" with
+            | `Assoc _ as inline_data -> emit_media_part inline_data
+            | `Null ->
+              (match part_thought_signature with
+               | Some _ ->
+                 raise
+                   (Backend_gemini.Gemini_api_error
+                      "Gemini thoughtSignature is attached to an unsupported Part")
+               | None -> ())
+            | _ ->
+              raise
+                (Backend_gemini.Gemini_api_error "Gemini inlineData must be an object"))
+       in
        match part |> member "text" |> to_string_option with
        | Some text when not (String.equal text "") -> emit_textual_part text
        | Some empty_text ->
          (match part |> member "functionCall" with
           | `Assoc _ -> emit_function_call_delta ()
           | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
-            emit_textual_part empty_text)
-       | None -> emit_function_call_delta ())
+            (match part |> member "inlineData" with
+             | `Assoc _ as inline_data -> emit_media_part inline_data
+             | `Null -> emit_textual_part empty_text
+             | _ ->
+               raise
+                 (Backend_gemini.Gemini_api_error "Gemini inlineData must be an object")))
+       | None -> emit_non_text_part ())
     chunk.gem_parts;
   (* Finish reason *)
   (match chunk.gem_finish_reason with

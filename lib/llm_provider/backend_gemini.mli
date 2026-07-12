@@ -55,6 +55,9 @@ val gemini_thought_signature_payload
 type gemini_part_signature_target =
   | Gemini_text_part
   | Gemini_thought_part
+  | Gemini_image_part
+  | Gemini_audio_part
+  | Gemini_document_part
 
 (** Opaque carrier payload for a Gemini [thoughtSignature] attached to the
     immediately following text or thought part.
@@ -69,6 +72,14 @@ val gemini_part_thought_signature_payload
     Shared by synchronous and streaming response paths.
     @since 0.212.0 *)
 val thought_signature_of_part : Yojson.Safe.t -> string option
+
+(** Decode a Gemini [inlineData] object to its closed replay target and OAS
+    media block. Missing/blank fields and malformed MIME types fail closed.
+    Shared by synchronous and streaming response paths.
+    @since 0.212.0 *)
+val media_content_block_of_inline_data
+  :  Yojson.Safe.t
+  -> gemini_part_signature_target * Types.content_block
 
 (** Extract [contents] list and optional [systemInstruction] from messages.
     Exposed for unit-testing the OAS-to-Gemini message mapping. *)
