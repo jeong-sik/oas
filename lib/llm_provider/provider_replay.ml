@@ -32,10 +32,21 @@ let first_duplicate fields =
   loop [] fields
 ;;
 
-let first_unexpected fields =
-  let allowed = [ "schema"; "version"; "retention"; "payload" ] in
+let first_unexpected ~allowed fields =
   fields
   |> List.find_map (fun (name, _) -> if List.mem name allowed then None else Some name)
+;;
+
+let exact_object_fields ~allowed = function
+  | `Assoc fields ->
+    (match first_duplicate fields with
+     | Some name -> Error (Duplicate_field name)
+     | None ->
+       (match first_unexpected ~allowed fields with
+        | Some name -> Error (Unexpected_field name)
+        | None -> Ok fields))
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    Error Expected_object
 ;;
 
 let encode_exact_next_block ~payload =
@@ -60,28 +71,24 @@ let decode data =
         (String.length data - String.length wire_prefix)
     in
     try
-      match Yojson.Safe.from_string encoded with
-      | `Assoc fields ->
-        (match first_duplicate fields with
-         | Some name -> Malformed_replay (Duplicate_field name)
-         | None ->
-           (match first_unexpected fields with
-            | Some name -> Malformed_replay (Unexpected_field name)
-            | None ->
-              (match List.assoc_opt "schema" fields with
-               | Some (`String value) when String.equal value schema ->
-                 (match List.assoc_opt "version" fields with
-                  | Some (`Int 1) ->
-                    (match List.assoc_opt "retention" fields with
-                     | Some (`String "exact_next_block") ->
-                       (match List.assoc_opt "payload" fields with
-                        | Some payload -> Replay { retention = Exact_next_block; payload }
-                        | None -> Malformed_replay Missing_payload)
-                     | Some _ | None -> Malformed_replay Unsupported_retention)
-                  | Some _ | None -> Malformed_replay Unsupported_version)
-               | Some _ | None -> Malformed_replay Unsupported_schema)))
-      | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-        Malformed_replay Expected_object
+      match
+        Yojson.Safe.from_string encoded
+        |> exact_object_fields ~allowed:[ "schema"; "version"; "retention"; "payload" ]
+      with
+      | Error reason -> Malformed_replay reason
+      | Ok fields ->
+        (match List.assoc_opt "schema" fields with
+         | Some (`String value) when String.equal value schema ->
+           (match List.assoc_opt "version" fields with
+            | Some (`Int 1) ->
+              (match List.assoc_opt "retention" fields with
+               | Some (`String "exact_next_block") ->
+                 (match List.assoc_opt "payload" fields with
+                  | Some payload -> Replay { retention = Exact_next_block; payload }
+                  | None -> Malformed_replay Missing_payload)
+               | Some _ | None -> Malformed_replay Unsupported_retention)
+            | Some _ | None -> Malformed_replay Unsupported_version)
+         | Some _ | None -> Malformed_replay Unsupported_schema)
     with
     | Yojson.Json_error _ -> Malformed_replay Invalid_json)
 ;;

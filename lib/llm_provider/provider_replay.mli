@@ -29,6 +29,15 @@ type decoded =
   | Malformed_replay of malformed_reason
   | Replay of t
 
+(** Validate one exact JSON object schema before any field lookup. Duplicate
+    and unexpected keys retain their typed malformed reason so provider-owned
+    payload decoders can share the envelope's cardinality contract.
+    @since 0.212.0 *)
+val exact_object_fields
+  :  allowed:string list
+  -> Yojson.Safe.t
+  -> ((string * Yojson.Safe.t) list, malformed_reason) result
+
 (** Wrap provider-owned JSON that must stay adjacent to the following content
     block.
     @since 0.212.0 *)
