@@ -8,13 +8,13 @@ open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────── *)
 
-let make_agent env =
+let make_agent ?tool_failure_judge env =
   let tools =
     [ Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun input ->
         Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
     ]
   in
-  Agent.create ~net:(Eio.Stdenv.net env) ~tools ()
+  Agent.create ~net:(Eio.Stdenv.net env) ~tools ?tool_failure_judge ()
 ;;
 
 let with_log_capture f =
@@ -145,6 +145,22 @@ let test_set_consecutive_idle_protected () =
   | _ -> Alcotest.fail "expected IdleDetected after setting consecutive_idle_turns=5"
 ;;
 
+let test_tool_failure_judge_preserves_idle_guard () =
+  Eio_main.run
+  @@ fun env ->
+  let tool_failure_judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _request ->
+      Error (Error.Internal "judge must not run from the loop guard"))
+  in
+  let agent = make_agent ~tool_failure_judge env in
+  Agent.set_consecutive_idle_turns agent 5;
+  match Agent.check_loop_guard agent with
+  | Some (Error.Agent (Error.IdleDetected { consecutive_idle_turns = 5 })) -> ()
+  | Some error -> Alcotest.failf "expected IdleDetected, got %s" (Error.to_string error)
+  | None ->
+    Alcotest.fail "tool-failure judge disabled the generic repeated-tool idle guard"
+;;
+
 (* ── Test: lifecycle transitions are ordered ────────────── *)
 
 let test_lifecycle_transition_order () =
@@ -219,6 +235,10 @@ let () =
             "set_consecutive_idle protected"
             `Quick
             test_set_consecutive_idle_protected
+        ; Alcotest.test_case
+            "tool-failure judge preserves idle guard"
+            `Quick
+            test_tool_failure_judge_preserves_idle_guard
         ; Alcotest.test_case
             "lifecycle transition order"
             `Quick
