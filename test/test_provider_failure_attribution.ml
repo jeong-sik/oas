@@ -118,6 +118,13 @@ let check_ownership label expected binding error =
   Alcotest.check ownership_testable label expected (ownership binding error)
 ;;
 
+let check_detailed_ownership label expected detailed =
+  match detailed.Attribution.provider_failure with
+  | Some attribution ->
+    Alcotest.check ownership_testable label expected attribution.ownership
+  | None -> Alcotest.fail (label ^ ": missing provider attribution")
+;;
+
 let check_retains_binding label expected_binding error =
   match Attribution.of_http_error ~binding:expected_binding error with
   | { provider_failure = Some { binding = Some actual_binding; _ }; _ } ->
@@ -139,6 +146,16 @@ let test_closed_ownership_matrix () =
     Attribution.Unclassified
     without_credential
     (Http.HttpError { code = 401; body = "auth" });
+  check_ownership
+    "402 with identity is credential pool"
+    Attribution.Credential_pool
+    with_credential
+    (Http.HttpError { code = 402; body = "payment" });
+  check_ownership
+    "402 without identity fails local"
+    Attribution.Unclassified
+    without_credential
+    (Http.HttpError { code = 402; body = "payment" });
   List.iter
     (fun code ->
        check_ownership
@@ -167,7 +184,23 @@ let test_closed_ownership_matrix () =
          Attribution.Endpoint
          with_credential
          (Http.NetworkError { message = "network detail"; kind }))
-    [ Http.Connection_refused; Http.Dns_failure; Http.Tls_error ];
+    [ Http.Connection_refused; Http.Dns_failure; Http.Tls_error; Http.End_of_file ];
+  check_ownership
+    "local resource exhaustion is attempt local"
+    Attribution.Attempt_local
+    with_credential
+    (Http.NetworkError
+       { message = "local resource detail"; kind = Http.Local_resource_exhaustion });
+  check_ownership
+    "caller budget timeout is attempt local"
+    Attribution.Attempt_local
+    with_credential
+    (Http.TimeoutError { message = "caller budget"; phase = Http.Caller_budget });
+  check_ownership
+    "provider first-token timeout is not widened"
+    Attribution.Unclassified
+    with_credential
+    (Http.TimeoutError { message = "first token"; phase = Http.First_token });
   let capacity scope =
     Http.ProviderFailure
       { kind = Http.Capacity_exhausted { scope; retry_after = None; model = None }
@@ -183,6 +216,11 @@ let test_closed_ownership_matrix () =
     "account capacity"
     Attribution.Credential_pool
     with_credential
+    (capacity Http.Failure_scope_account);
+  check_ownership
+    "account capacity without identity fails local"
+    Attribution.Unclassified
+    without_credential
     (capacity Http.Failure_scope_account);
   check_ownership
     "region capacity"
@@ -215,6 +253,22 @@ let test_closed_ownership_matrix () =
        { kind = Http.Cli_startup_failed { reason = Http.Authentication_unavailable }
        ; message = "startup detail"
        });
+  check_detailed_ownership
+    "request validation is attempt local"
+    Attribution.Attempt_local
+    (Attribution.of_request_validation_error
+       ~binding:with_credential
+       (Error.Api
+          (Llm_provider.Retry.InvalidRequest
+             { message = "invalid request"
+             ; reason = Llm_provider.Retry.Unknown_invalid_request
+             })));
+  check_detailed_ownership
+    "response parse is attempt local"
+    Attribution.Attempt_local
+    (Attribution.of_response_parse_error
+       ~binding:with_credential
+       (Error.Provider (Llm_provider.Error.ParseError { detail = "parse detail" })));
   check_retains_binding
     "session conflict retains attempted binding"
     with_credential
