@@ -139,52 +139,15 @@ let of_config_streaming_detailed (provider_cfg : Provider.config)
       , Provider_failure_attribution.detailed_error )
       result
   =
-  if not (supports_streaming provider_cfg)
-  then Ok None
-  else (
-    match of_config_detailed provider_cfg with
-    | Error detailed -> Error detailed
-    | Ok base_module ->
-      let module Base = (val base_module : DETAILED_PROVIDER) in
-      let module SP = struct
-        include Base
+  match of_config_detailed provider_cfg with
+  | Error detailed -> Error detailed
+  | Ok _ when not (supports_streaming provider_cfg) -> Ok None
+  | Ok base_module ->
+    let module Base = (val base_module : DETAILED_PROVIDER) in
+    let module SP = struct
+      include Base
 
-        let create_message_stream_detailed
-              ~sw
-              ~net
-              ?clock
-              ?idle_timeout
-              ~config
-              ~messages
-              ?tools
-              ~on_event
-              ()
-          =
-          Streaming.create_message_stream_detailed
-            ~sw
-            ~net
-            ?clock
-            ?idle_timeout
-            ~provider:provider_cfg
-            ~config
-            ~messages
-            ?tools
-            ~on_event
-            ()
-        ;;
-
-        let create_message_stream
-              ~sw
-              ~net
-              ?clock
-              ?idle_timeout
-              ~config
-              ~messages
-              ?tools
-              ~on_event
-              ()
-          =
-          create_message_stream_detailed
+      let create_message_stream_detailed
             ~sw
             ~net
             ?clock
@@ -194,12 +157,46 @@ let of_config_streaming_detailed (provider_cfg : Provider.config)
             ?tools
             ~on_event
             ()
-          |> Result.map_error (fun detailed ->
-            detailed.Provider_failure_attribution.error)
-        ;;
-      end
-      in
-      Ok (Some (module SP : DETAILED_STREAMING_PROVIDER)))
+        =
+        Streaming.create_message_stream_detailed
+          ~sw
+          ~net
+          ?clock
+          ?idle_timeout
+          ~provider:provider_cfg
+          ~config
+          ~messages
+          ?tools
+          ~on_event
+          ()
+      ;;
+
+      let create_message_stream
+            ~sw
+            ~net
+            ?clock
+            ?idle_timeout
+            ~config
+            ~messages
+            ?tools
+            ~on_event
+            ()
+        =
+        create_message_stream_detailed
+          ~sw
+          ~net
+          ?clock
+          ?idle_timeout
+          ~config
+          ~messages
+          ?tools
+          ~on_event
+          ()
+        |> Result.map_error (fun detailed -> detailed.Provider_failure_attribution.error)
+      ;;
+    end
+    in
+    Ok (Some (module SP : DETAILED_STREAMING_PROVIDER))
 ;;
 
 let of_config_streaming (provider_cfg : Provider.config)

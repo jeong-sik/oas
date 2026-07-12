@@ -68,6 +68,27 @@ let test_of_config_propagates_resolve_error () =
     Alcotest.failf "Expected MissingEnvVar error, got: %s" (Error.to_string err)
 ;;
 
+let test_streaming_resolves_before_capability_projection () =
+  let config : Provider.config =
+    { provider = Provider.Custom_registered { name = "unregistered-provider" }
+    ; model_id = "model-a"
+    ; api_key_env = ""
+    }
+  in
+  match Provider_intf.of_config_streaming_detailed config with
+  | Error
+      { error = Error.Config (InvalidConfig { field = "provider"; _ })
+      ; provider_failure =
+          Some { ownership = Provider_failure_attribution.Unclassified; _ }
+      } -> ()
+  | Error detailed ->
+    Alcotest.failf
+      "Expected explicit unregistered-provider error, got: %s"
+      (Error.to_string detailed.error)
+  | Ok None -> Alcotest.fail "Unregistered non-streaming provider was silently accepted"
+  | Ok (Some _) -> Alcotest.fail "Unregistered provider resolved to a streaming module"
+;;
+
 (* ── supports_streaming ──────────────────────────────────── *)
 
 let test_anthropic_supports_streaming () =
@@ -555,6 +576,10 @@ let () =
             `Quick
             test_anthropic_supports_streaming
         ; Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some
+        ; Alcotest.test_case
+            "resolve before capability projection"
+            `Quick
+            test_streaming_resolves_before_capability_projection
         ] )
     ; ( "http_dispatch"
       , [ Alcotest.test_case
