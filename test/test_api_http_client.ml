@@ -79,8 +79,7 @@ let register_failing_custom_provider ~name ~base_url parse_response =
     ; capabilities = Provider.default_capabilities
     ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
     ; parse_response
-    ; resolve =
-        (fun _ -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
+    ; resolve = (fun _ -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
     }
   in
   Provider.register_provider impl;
@@ -255,8 +254,8 @@ let test_custom_parser_failure_preserves_legacy_error_and_parse_evidence () =
     (match detailed.Provider_failure_attribution.error with
      | Error.Api
          (Llm_provider.Retry.NetworkError
-            { message = "custom parser failed"; kind = Llm_provider.Http_client.Unknown }) ->
-       ()
+            { message = "custom parser failed"; kind = Llm_provider.Http_client.Unknown })
+       -> ()
      | error ->
        Alcotest.failf
          "expected legacy parser NetworkError, got %s"

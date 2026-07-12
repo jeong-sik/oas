@@ -331,9 +331,7 @@ let create_message_detailed
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
             | Failure msg ->
-              Error
-                (Retry_error
-                   (Retry.NetworkError { message = msg; kind = Unknown }))
+              Error (Retry_error (Retry.NetworkError { message = msg; kind = Unknown }))
             | Yojson.Json_error msg ->
               Error
                 (Retry_error
