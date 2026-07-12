@@ -38,8 +38,10 @@ jobs:
       - name: Fetch exact PR commits
         env:
           OAS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          OAS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git fetch --no-tags --depth=1 origin "$OAS_PR_BASE_SHA" "$OAS_PR_HEAD_SHA"
+          OAS_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$OAS_PR_BASE_SHA" \
+            "+refs/pull/${OAS_PR_NUMBER}/head:refs/remotes/pull/${OAS_PR_NUMBER}/head"
 
       - name: Reject same-tree no-op PRs
         env:
