@@ -579,14 +579,8 @@ let test_textual_part_thought_signatures_roundtrip () =
     ]
   in
   let body = Backend_gemini.build_request ~config:(gemini_config ()) ~messages () in
-  let parts =
-    parse_body body
-    |> member "contents"
-    |> to_list
-    |> List.nth 1
-    |> member "parts"
-    |> to_list
-  in
+  let contents = parse_body body |> member "contents" |> to_list in
+  let parts = List.nth contents 1 |> member "parts" |> to_list in
   match parts with
   | [ text_part; thought_part ] ->
     check string "text" "visible" (text_part |> member "text" |> to_string);
