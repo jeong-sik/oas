@@ -71,6 +71,32 @@ let state_and_messages (provider : Provider.config) =
   state, messages
 ;;
 
+let register_failing_custom_provider ~name ~base_url parse_response =
+  let impl : Provider.provider_impl =
+    { name
+    ; request_kind = Provider.Custom name
+    ; request_path = "/v1/custom"
+    ; capabilities = Provider.default_capabilities
+    ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
+    ; parse_response
+    ; resolve = (fun _ -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
+    }
+  in
+  Provider.register_provider impl;
+  Provider.custom_provider ~name ~model_id:"mock" ()
+;;
+
+let require_detailed_error = function
+  | Error detailed -> detailed
+  | Ok _ -> Alcotest.fail "expected detailed error, got Ok"
+;;
+
+let require_attribution detailed =
+  match detailed.Provider_failure_attribution.provider_failure with
+  | Some attribution -> attribution
+  | None -> Alcotest.fail "expected provider failure attribution"
+;;
+
 let expect_provider_unavailable = function
   | Error (Error.Provider (Llm_provider.Error.ProviderUnavailable _)) -> ()
   | Error err ->
@@ -208,6 +234,67 @@ let test_custom_stream_fallback_empty_maps_to_provider_unavailable () =
     [ Llm_provider.Types.EndTurn; Llm_provider.Types.MaxTokens ]
 ;;
 
+let test_custom_parser_failure_preserves_legacy_error_and_parse_evidence () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"malformed" ()
+  in
+  with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
+    let provider =
+      register_failing_custom_provider
+        ~name:"api-custom-parser-failure"
+        ~base_url
+        (fun _ -> failwith "custom parser failed")
+    in
+    let config, messages = state_and_messages provider in
+    let detailed =
+      Api.create_message_detailed ~sw ~net ~provider ~config ~messages ()
+      |> require_detailed_error
+    in
+    (match detailed.Provider_failure_attribution.error with
+     | Error.Api
+         (Llm_provider.Retry.NetworkError
+            { message = "custom parser failed"; kind = Llm_provider.Http_client.Unknown })
+       -> ()
+     | error ->
+       Alcotest.failf
+         "expected legacy parser NetworkError, got %s"
+         (Error.to_string error));
+    let attribution = require_attribution detailed in
+    match attribution.Provider_failure_attribution.evidence with
+    | Provider_failure_attribution.Response_parse -> ()
+    | _ -> Alcotest.fail "expected typed response-parse evidence")
+;;
+
+let test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"slow" ()
+  in
+  with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
+    let provider =
+      register_failing_custom_provider
+        ~name:"api-custom-wall-clock-timeout"
+        ~base_url
+        (fun _ -> raise Eio.Time.Timeout)
+    in
+    let config, messages = state_and_messages provider in
+    let detailed =
+      Api.create_message_detailed ~sw ~net ~provider ~config ~messages ()
+      |> require_detailed_error
+    in
+    (match detailed.Provider_failure_attribution.error with
+     | Error.Api (Llm_provider.Retry.Timeout { phase = None; _ }) -> ()
+     | error ->
+       Alcotest.failf
+         "expected legacy timeout with no phase, got %s"
+         (Error.to_string error));
+    let attribution = require_attribution detailed in
+    match attribution.Provider_failure_attribution.evidence with
+    | Provider_failure_attribution.Timeout Llm_provider.Http_client.Wall_clock -> ()
+    | _ -> Alcotest.fail "expected typed wall-clock timeout evidence")
+;;
+
 let () =
   Alcotest.run
     "Api_http_client"
@@ -224,6 +311,14 @@ let () =
             "custom stream fallback maps empty to provider unavailable"
             `Quick
             test_custom_stream_fallback_empty_maps_to_provider_unavailable
+        ; Alcotest.test_case
+            "custom parser failure preserves legacy error and parse evidence"
+            `Quick
+            test_custom_parser_failure_preserves_legacy_error_and_parse_evidence
+        ; Alcotest.test_case
+            "wall-clock timeout preserves legacy error and typed evidence"
+            `Quick
+            test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence
         ] )
     ]
 ;;

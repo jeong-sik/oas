@@ -7,18 +7,60 @@ type response_accept = Types.api_response -> (unit, string) result
 
 type create_message_error =
   | Retry_error of Retry.api_error
+  | Attributed_retry_error of
+      { retry_error : Retry.api_error
+      ; http_error : Llm_provider.Http_client.http_error
+      }
   | Completion_error of Llm_provider.Http_client.http_error
 
-let create_message_error_of_http_error err = Completion_error err
+let attributed_retry_error http_error retry_error =
+  Attributed_retry_error { retry_error; http_error }
+;;
+
+let create_message_error_of_http_error = function
+  | Llm_provider.Http_client.HttpError { code; body } as http_error ->
+    attributed_retry_error http_error (Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.NetworkError
+      { message; kind = Llm_provider.Http_client.Timeout } as http_error ->
+    attributed_retry_error http_error (Retry.Timeout { message; phase = None })
+  | Llm_provider.Http_client.NetworkError { message; kind } as http_error ->
+    attributed_retry_error http_error (Retry.NetworkError { message; kind })
+  | Llm_provider.Http_client.TimeoutError { message; phase } as http_error ->
+    attributed_retry_error http_error (Retry.Timeout { message; phase = Some phase })
+  | Llm_provider.Http_client.AcceptRejected { reason } as http_error ->
+    attributed_retry_error
+      http_error
+      (Retry.InvalidRequest
+         { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request })
+  | Llm_provider.Http_client.ProviderTerminal { message; _ } as http_error ->
+    attributed_retry_error
+      http_error
+      (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
+  | Llm_provider.Http_client.ProviderFailure
+      { kind = Llm_provider.Http_client.Empty_completion _; _ } as http_error ->
+    Completion_error http_error
+  | Llm_provider.Http_client.ProviderFailure { kind; message } as http_error ->
+    attributed_retry_error
+      http_error
+      (Retry.InvalidRequest
+         { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+         ; reason = Unknown_invalid_request
+         })
+;;
 
 let retry_error_of_create_message_error = function
   | Retry_error err -> Some err
+  | Attributed_retry_error { retry_error; _ } -> Some retry_error
   | Completion_error err -> Llm_provider.Retry_classify.classify_retry_error err
 ;;
 
 let detailed_error_of_create_message_error ~binding = function
   | Retry_error err ->
     Provider_failure_attribution.of_response_parse_error ~binding (Error.Api err)
+  | Attributed_retry_error { retry_error; http_error } ->
+    { (Provider_failure_attribution.of_http_error ~binding http_error) with
+      error = Error.Api retry_error
+    }
   | Completion_error err -> Provider_failure_attribution.of_http_error ~binding err
 ;;
 
@@ -252,28 +294,32 @@ let create_message_detailed
                   raw_resp_result
               | `HttpError (code, body_str) ->
                 Error
-                  (Completion_error
+                  (create_message_error_of_http_error
                      (Llm_provider.Http_client.HttpError { code; body = body_str }))
               | `TransportError err -> Error err
             with
             | Eio.Time.Timeout ->
+              let message =
+                Printf.sprintf
+                  "HTTP request exceeded %.1fs wall-clock timeout"
+                  request_timeout_s
+              in
+              let http_error =
+                Llm_provider.Http_client.TimeoutError
+                  { message; phase = Llm_provider.Http_client.Wall_clock }
+              in
               Error
-                (Completion_error
-                   (Llm_provider.Http_client.TimeoutError
-                      { message =
-                          Printf.sprintf
-                            "HTTP request exceeded %.1fs wall-clock timeout"
-                            request_timeout_s
-                      ; phase = Llm_provider.Http_client.Wall_clock
-                      }))
+                (attributed_retry_error
+                   http_error
+                   (Retry.Timeout { message; phase = None }))
             | Eio.Io _ as exn ->
               Error
-                (Completion_error
+                (create_message_error_of_http_error
                    (Llm_provider.Http_client.NetworkError
                       { message = Printexc.to_string exn; kind = Unknown }))
             | Unix.Unix_error _ as exn ->
               Error
-                (Completion_error
+                (create_message_error_of_http_error
                    (Llm_provider.Http_client.NetworkError
                       { message = Printexc.to_string exn; kind = Unknown }))
             (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
@@ -285,12 +331,7 @@ let create_message_detailed
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
             | Failure msg ->
-              Error
-                (Retry_error
-                   (Retry.InvalidRequest
-                      { message = "Response parser failure: " ^ msg
-                      ; reason = Retry.Json_parse_error
-                      }))
+              Error (Retry_error (Retry.NetworkError { message = msg; kind = Unknown }))
             | Yojson.Json_error msg ->
               Error
                 (Retry_error
