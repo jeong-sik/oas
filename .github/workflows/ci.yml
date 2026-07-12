@@ -300,6 +300,13 @@ jobs:
 
           echo "Version consistency check passed: $DUNE_VER"
 
+      - name: Test release availability gate
+        run: bash scripts/test-check-since-version.sh
+
+      - name: Reject future API availability claims in release candidates
+        if: ${{ startsWith(github.head_ref, 'release-please--branches--') || startsWith(github.ref_name, 'release-please--branches--') }}
+        run: bash scripts/check-since-version.sh
+
   transport-drift:
     name: Transport Drift Gate
     # Run on drafts: catching drift at draft time prevents main from going

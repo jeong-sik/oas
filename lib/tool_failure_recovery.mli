@@ -6,7 +6,7 @@
     episodes before it can affect execution.
 
     @stability Evolving
-    @since 0.212.0 *)
+    @since 0.211.2 *)
 
 type revised_call =
   { current_tool_use_id : string
@@ -35,7 +35,7 @@ val decision_to_yojson : decision -> Yojson.Safe.t
 (** External-observability projection of a decision. Reports only the closed
     action and non-sensitive cardinality/tool-name metadata; revised inputs,
     instructions, questions, schemas, and defer reasons remain internal.
-    @since 0.212.0 *)
+    @since 0.211.4 *)
 val decision_observation_to_yojson : decision -> Yojson.Safe.t
 
 type model_request =

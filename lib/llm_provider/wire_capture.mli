@@ -21,7 +21,7 @@
     JSON line larger than the cap is skipped with a warning instead of exceeding
     the bound.
 
-    @since introduced for the agent output repetition investigation (Phase O). *)
+    @since 0.208.13 *)
 
 (** A per-chunk capture function. Call with each raw pre-parse chunk. *)
 type sink = string -> unit

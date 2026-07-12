@@ -6,7 +6,7 @@
     inspect error prose and tool arguments.
 
     @stability Evolving
-    @since 0.212.0 *)
+    @since 0.211.2 *)
 
 type failed_attempt =
   { tool_use_id : string
@@ -103,5 +103,5 @@ val detect : previous:completed_round -> current:completed_round -> (t list, err
 
 (** External-observability projection. Includes stable tool identities and
     typed failure classification, but never tool inputs or error text.
-    @since 0.212.0 *)
+    @since 0.211.4 *)
 val observation_to_yojson : t -> Yojson.Safe.t
