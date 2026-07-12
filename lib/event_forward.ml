@@ -159,6 +159,8 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc
         [ "agent_name", `String r.agent_name
         ; "turn", `Int r.turn
+        ; ( "failure_kind"
+          , `String (Tool_failure_recovery.judge_error_kind_to_string r.kind) )
         ; "detail_redacted", `Bool true
         ]
     | TurnStarted r -> `Assoc [ "agent_name", `String r.agent_name; "turn", `Int r.turn ]

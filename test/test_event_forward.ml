@@ -332,17 +332,18 @@ let test_recovery_episode_payload_omits_input_and_error () =
          (Event_bus.ToolFailureEpisodeDetected
             { agent_name = "keeper"; turn = 3; episodes = [ episode ] }))
   in
-  let rendered = Yojson.Safe.to_string payload.data in
-  Alcotest.(check bool)
-    "tool input omitted"
-    false
-    (Util.string_contains ~needle:secret rendered);
-  Alcotest.(check bool)
-    "error text omitted"
-    false
-    (Util.string_contains ~needle:error_secret rendered);
   let open Yojson.Safe.Util in
   let observation = payload.data |> member "episodes" |> to_list |> List.hd in
+  let field_names = observation |> to_assoc |> List.map fst |> List.sort String.compare in
+  Alcotest.(check (list string))
+    "only the closed observation fields are forwarded"
+    [ "current_tool_use_id"
+    ; "error_class"
+    ; "failure_kind"
+    ; "previous_tool_use_id"
+    ; "tool_name"
+    ]
+    field_names;
   Alcotest.(check string)
     "typed tool name retained"
     "Execute"
@@ -355,13 +356,24 @@ let test_recovery_judge_failure_payload_redacts_detail () =
     Event_forward.event_to_payload
       (ev
          (Event_bus.ToolFailureRecoveryJudgeFailed
-            { agent_name = "keeper"; turn = 3; detail = secret }))
+            { agent_name = "keeper"
+            ; turn = 3
+            ; kind = Tool_failure_recovery.Callback_raised
+            ; detail = secret
+            }))
   in
-  let rendered = Yojson.Safe.to_string payload.data in
-  Alcotest.(check bool)
-    "judge detail omitted"
-    false
-    (Util.string_contains ~needle:secret rendered);
+  let open Yojson.Safe.Util in
+  let field_names =
+    payload.data |> to_assoc |> List.map fst |> List.sort String.compare
+  in
+  Alcotest.(check (list string))
+    "judge detail is absent while typed classification remains"
+    [ "agent_name"; "detail_redacted"; "failure_kind"; "turn" ]
+    field_names;
+  Alcotest.(check string)
+    "typed failure kind"
+    "callback_raised"
+    (payload.data |> member "failure_kind" |> to_string);
   Alcotest.(check bool)
     "redaction explicit"
     true

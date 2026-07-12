@@ -86,6 +86,13 @@ type judge_error =
   | Completion_raised of string
   | Invalid_response of response_error
 
+type judge_error_kind =
+  | Provider_call_failed
+  | Callback_raised
+  | Invalid_judge_response
+
+val judge_error_kind : judge_error -> judge_error_kind
+val judge_error_kind_to_string : judge_error_kind -> string
 val judge_error_to_string : judge_error -> string
 
 (** Invoke the configured LLM once, parse its exact JSON object, and validate

@@ -58,6 +58,23 @@ type judge_error =
   | Completion_raised of string
   | Invalid_response of response_error
 
+type judge_error_kind =
+  | Provider_call_failed
+  | Callback_raised
+  | Invalid_judge_response
+
+let judge_error_kind = function
+  | Completion_failed _ -> Provider_call_failed
+  | Completion_raised _ -> Callback_raised
+  | Invalid_response _ -> Invalid_judge_response
+;;
+
+let judge_error_kind_to_string = function
+  | Provider_call_failed -> "provider_call_failed"
+  | Callback_raised -> "callback_raised"
+  | Invalid_judge_response -> "invalid_judge_response"
+;;
+
 let judge_error_to_string = function
   | Completion_failed error ->
     Printf.sprintf "tool failure recovery LLM call failed: %s" (Error.to_string error)

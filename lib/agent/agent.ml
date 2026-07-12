@@ -354,6 +354,9 @@ let invoke_recovery_judge ~sw ?clock agent episodes =
          (Event_bus.ToolFailureRecoveryJudgeFailed
             { agent_name = agent.state.config.name
             ; turn = agent.state.turn_count
+            ; kind =
+                Tool_failure_recovery.judge_error_kind
+                  (Tool_failure_recovery.Completion_failed error)
             ; detail
             });
        Error (recovery_failure Error.Judge_response detail)
@@ -364,6 +367,7 @@ let invoke_recovery_judge ~sw ?clock agent episodes =
          (Event_bus.ToolFailureRecoveryJudgeFailed
             { agent_name = agent.state.config.name
             ; turn = agent.state.turn_count
+            ; kind = Tool_failure_recovery.judge_error_kind error
             ; detail
             });
        Error (recovery_failure Error.Judge_response detail)

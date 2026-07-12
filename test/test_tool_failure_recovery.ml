@@ -718,23 +718,22 @@ let test_decision_observation_omits_revised_input () =
   @@ fun _env ->
   Eio.Switch.run
   @@ fun sw ->
-  let secret = "secret-revised-input" in
   match
     decide_fixture
       sw
-      (Printf.sprintf
-         {|{"action":"retry_modified","revised_calls":[{"current_tool_use_id":"c1","tool_name":"Execute","revised_input":{"cmd":"%s"}}]}|}
-         secret)
+      {|{"action":"retry_modified","revised_calls":[{"current_tool_use_id":"c1","tool_name":"Execute","revised_input":{"cmd":"private"}}]}|}
   with
   | Error error -> Alcotest.fail (Tool_failure_recovery.judge_error_to_string error)
   | Ok decision ->
     let observation = Tool_failure_recovery.decision_observation_to_yojson decision in
-    let rendered = Yojson.Safe.to_string observation in
-    Alcotest.(check bool)
-      "revised input omitted"
-      false
-      (Util.string_contains ~needle:secret rendered);
     let open Yojson.Safe.Util in
+    let field_names =
+      observation |> to_assoc |> List.map fst |> List.sort String.compare
+    in
+    Alcotest.(check (list string))
+      "only the closed decision observation fields are emitted"
+      [ "action"; "call_count"; "tool_names" ]
+      field_names;
     Alcotest.(check string)
       "action retained"
       "retry_modified"
