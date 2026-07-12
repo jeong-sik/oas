@@ -126,7 +126,9 @@ let ownership_of_http_status ~binding code =
   | 400 | 413 | 422 -> Attempt_local
   | 401 | 402 -> credential_owned binding
   | 404 -> Runtime_binding
-  | code when code >= 500 && code <= 599 -> Runtime_binding
+  (* A generic server status does not identify whether the fault belongs to
+     this binding, endpoint, region, or provider.  Only richer typed provider
+     evidence may widen it beyond [Unclassified]. *)
   | 403 | 429 | _ -> Unclassified
 ;;
 

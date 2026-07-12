@@ -509,7 +509,7 @@ let test_detailed_api_provider_intf_and_streaming_share_boundary () =
            (name ^ " ownership")
            true
            (attribution.Provider_failure_attribution.ownership
-            = Provider_failure_attribution.Runtime_binding))
+            = Provider_failure_attribution.Unclassified))
       [ "api", api_detailed, api_attribution
       ; "provider_intf", provider_detailed, provider_attribution
       ; "streaming", stream_detailed, stream_attribution

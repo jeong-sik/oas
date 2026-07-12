@@ -147,14 +147,19 @@ let test_closed_ownership_matrix () =
          with_credential
          (Http.HttpError { code; body = "ambiguous" }))
     [ 403; 429 ];
+  check_ownership
+    "binding HTTP 404"
+    Attribution.Runtime_binding
+    with_credential
+    (Http.HttpError { code = 404; body = "binding" });
   List.iter
     (fun code ->
        check_ownership
-         (Printf.sprintf "binding HTTP %d" code)
-         Attribution.Runtime_binding
+         (Printf.sprintf "ambiguous server HTTP %d" code)
+         Attribution.Unclassified
          with_credential
-         (Http.HttpError { code; body = "binding" }))
-    [ 404; 500; 503 ];
+         (Http.HttpError { code; body = "ambiguous server failure" }))
+    [ 500; 503 ];
   List.iter
     (fun kind ->
        check_ownership
