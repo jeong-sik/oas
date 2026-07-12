@@ -295,6 +295,104 @@ let test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence () =
     | _ -> Alcotest.fail "expected typed wall-clock timeout evidence")
 ;;
 
+(* Forward-looking invariant lock for the legacy [.error] projection of non-2xx
+   HTTP responses. [.error] is a public contract consumers read; on an HTTP error
+   it must stay exactly [Retry.classify_error ~status ~body], keeping its
+   per-status discrimination rather than collapsing, with the typed attribution
+   carried alongside.
+
+   Scope, negative-tested against pre-#2576 [lib/api.ml]: this path was NOT part
+   of the #2572 regression — it passes on both baselines because [of_http_error]
+   already carried the classified projection for HTTP-status errors. The #2572
+   regression was confined to the parser-failure and wall-clock-timeout paths,
+   which #2576 guards directly. This adds coverage for the highest-traffic
+   transport path, which #2576 left untested, so future projection drift here is
+   caught. *)
+let http_error_statuses =
+  [ `Bad_request, 400
+  ; `Unauthorized, 401
+  ; `Forbidden, 403
+  ; `Not_found, 404
+  ; `Too_many_requests, 429
+  ; `Internal_server_error, 500
+  ; `Service_unavailable, 503
+  ]
+;;
+
+let test_http_error_preserves_legacy_classified_projection () =
+  List.iter
+    (fun (status_code, status) ->
+       let body = Printf.sprintf {|{"error":{"message":"upstream %d"}}|} status in
+       let handler _conn _req req_body =
+         ignore
+           (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) req_body |> take_all) : string);
+         Cohttp_eio.Server.respond_string ~status:status_code ~body ()
+       in
+       with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
+         let provider =
+           register_failing_custom_provider
+             ~name:(Printf.sprintf "api-custom-http-%d" status)
+             ~base_url
+             (fun _ -> Alcotest.failf "parser must not run on HTTP %d" status)
+         in
+         let config, messages = state_and_messages provider in
+         let detailed =
+           Api.create_message_detailed ~sw ~net ~provider ~config ~messages ()
+           |> require_detailed_error
+         in
+         let expected = Error.Api (Llm_provider.Retry.classify_error ~status ~body) in
+         let actual = detailed.Provider_failure_attribution.error in
+         if actual <> expected
+         then
+           Alcotest.failf
+             "HTTP %d: legacy .error drifted from classify_error; got %s, expected %s"
+             status
+             (Error.to_string actual)
+             (Error.to_string expected);
+         (* typed provider attribution is still carried alongside the legacy
+           projection *)
+         ignore (require_attribution detailed : Provider_failure_attribution.t)))
+    http_error_statuses
+;;
+
+(* Forward-looking invariant lock for the legacy [.error] projection of a
+   transport-level failure (connection refused): it must surface the legacy
+   [Retry.NetworkError] projection with the typed attribution carried alongside.
+
+   Scope, negative-tested against pre-#2576 [lib/api.ml]: like the HTTP-status
+   path, this was NOT part of the #2572 regression (it passes on both baselines).
+   It locks the transport-failure projection, previously untested, against future
+   drift. *)
+let test_network_failure_preserves_legacy_network_projection () =
+  let dead_port = fresh_port () in
+  let handler _conn _req req_body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) req_body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"" ()
+  in
+  (* [with_mock_server] only supplies the Eio context here; the provider targets
+     [dead_port], where nothing listens, so [post_sync] fails to connect. *)
+  with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url:_ ->
+    let dead_url = Printf.sprintf "http://127.0.0.1:%d" dead_port in
+    let provider =
+      register_failing_custom_provider
+        ~name:"api-custom-network-failure"
+        ~base_url:dead_url
+        (fun _ -> Alcotest.fail "parser must not run on a transport failure")
+    in
+    let config, messages = state_and_messages provider in
+    let detailed =
+      Api.create_message_detailed ~sw ~net ~provider ~config ~messages ()
+      |> require_detailed_error
+    in
+    (match detailed.Provider_failure_attribution.error with
+     | Error.Api (Llm_provider.Retry.NetworkError _) -> ()
+     | error ->
+       Alcotest.failf
+         "expected legacy NetworkError projection, got %s"
+         (Error.to_string error));
+    ignore (require_attribution detailed : Provider_failure_attribution.t))
+;;
+
 let () =
   Alcotest.run
     "Api_http_client"
@@ -319,6 +417,14 @@ let () =
             "wall-clock timeout preserves legacy error and typed evidence"
             `Quick
             test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence
+        ; Alcotest.test_case
+            "http error preserves legacy classified projection across statuses"
+            `Quick
+            test_http_error_preserves_legacy_classified_projection
+        ; Alcotest.test_case
+            "transport failure preserves legacy network projection"
+            `Quick
+            test_network_failure_preserves_legacy_network_projection
         ] )
     ]
 ;;
