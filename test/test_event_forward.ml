@@ -315,10 +315,11 @@ let test_recovery_episode_payload_omits_input_and_error () =
   let error_secret = "secret-provider-error" in
   let episode : Tool_failure_episode.t =
     { previous =
-        failed_attempt
-          ~tool_use_id:"previous-call"
-          ~input:(`Assoc [ "token", `String secret ])
-          ~error:error_secret
+        [ failed_attempt
+            ~tool_use_id:"previous-call"
+            ~input:(`Assoc [ "token", `String secret ])
+            ~error:error_secret
+        ]
     ; current =
         failed_attempt
           ~tool_use_id:"current-call"
@@ -340,7 +341,8 @@ let test_recovery_episode_payload_omits_input_and_error () =
     [ "current_tool_use_id"
     ; "error_class"
     ; "failure_kind"
-    ; "previous_tool_use_id"
+    ; "previous_count"
+    ; "previous_tool_use_ids"
     ; "tool_name"
     ]
     field_names;
