@@ -428,8 +428,19 @@ type receipt_error =
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
 
-let receipt_version = 2
-let metadata_key = "oas.tool_failure_recovery.v2"
+type receipt_wire_version =
+  | Legacy_v1
+  | Current_v2
+
+let receipt_wire_version_number = function
+  | Legacy_v1 -> 1
+  | Current_v2 -> 2
+;;
+
+let receipt_metadata_key = function
+  | Legacy_v1 -> "oas.tool_failure_recovery.v1"
+  | Current_v2 -> "oas.tool_failure_recovery.v2"
+;;
 
 let revised_call_json (call : revised_call) =
   `Assoc
@@ -490,12 +501,24 @@ let episode_ref_json episode =
 
 let receipt_json receipt =
   `Assoc
-    [ "version", `Int receipt_version
+    [ "version", `Int (receipt_wire_version_number Current_v2)
     ; "resume_turn", `Int receipt.resume_turn
     ; "decided_at", `Float receipt.decided_at
     ; "episodes", `List (List.map episode_ref_json receipt.episodes)
     ; "decision", decision_json receipt.decision
     ]
+;;
+
+let receipt_metadata_values metadata =
+  List.fold_left
+    (fun (v1_values, v2_values) (key, value) ->
+       if String.equal key (receipt_metadata_key Legacy_v1)
+       then value :: v1_values, v2_values
+       else if String.equal key (receipt_metadata_key Current_v2)
+       then v1_values, value :: v2_values
+       else v1_values, v2_values)
+    ([], [])
+    metadata
 ;;
 
 let tool_result_ids (message : Types.message) =
@@ -525,14 +548,16 @@ let attach_receipt ~messages ~episodes ~receipt =
   let rec update = function
     | [] -> Error Result_message_not_found
     | (message : Types.message) :: rest when contains_expected message ->
-      if List.mem_assoc metadata_key message.Types.metadata
-      then Error Duplicate_receipt_metadata
-      else
-        Ok
-          ({ message with
-             metadata = (metadata_key, receipt_json receipt) :: message.metadata
-           }
-           :: rest)
+      (match receipt_metadata_values message.Types.metadata with
+       | _ :: _, _ | _, _ :: _ -> Error Duplicate_receipt_metadata
+       | [], [] ->
+         Ok
+           ({ message with
+              metadata =
+                (receipt_metadata_key Current_v2, receipt_json receipt)
+                :: message.metadata
+            }
+            :: rest))
     | (message : Types.message) :: rest ->
       let* rest = update rest in
       Ok (message :: rest)
@@ -611,50 +636,66 @@ let parse_error_class fields =
      | Error detail -> Error (Invalid_receipt_metadata detail))
 ;;
 
-let parse_episode_ref = function
+let parse_episode_ref_fields ~previous_field ~parse_previous_tool_use_ids fields =
+  let* () =
+    validate_receipt_fields
+      ~allowed:
+        [ previous_field
+        ; "current_tool_use_id"
+        ; "tool_name"
+        ; "failure_kind"
+        ; "error_class"
+        ]
+      fields
+  in
+  let* previous_tool_use_ids = parse_previous_tool_use_ids fields in
+  let* current_tool_use_id = parse_string_receipt "current_tool_use_id" fields in
+  let* tool_name = parse_string_receipt "tool_name" fields in
+  let* failure_kind = parse_failure_kind fields in
+  let* error_class = parse_error_class fields in
+  Ok { previous_tool_use_ids; current_tool_use_id; tool_name; failure_kind; error_class }
+;;
+
+let parse_episode_ref ~wire_version = function
   | `Assoc fields ->
-    let* () =
-      validate_receipt_fields
-        ~allowed:
-          [ "previous_tool_use_ids"
-          ; "current_tool_use_id"
-          ; "tool_name"
-          ; "failure_kind"
-          ; "error_class"
-          ]
-        fields
-    in
-    let* previous_tool_use_ids =
-      parse_string_list_receipt "previous_tool_use_ids" fields
-    in
-    let* () =
-      if previous_tool_use_ids = []
-      then Error (Invalid_receipt_metadata "previous_tool_use_ids")
-      else Ok ()
-    in
-    let* current_tool_use_id = parse_string_receipt "current_tool_use_id" fields in
-    let* tool_name = parse_string_receipt "tool_name" fields in
-    let* failure_kind = parse_failure_kind fields in
-    let* error_class = parse_error_class fields in
-    Ok
-      { previous_tool_use_ids; current_tool_use_id; tool_name; failure_kind; error_class }
+    (match wire_version with
+     | Legacy_v1 ->
+       parse_episode_ref_fields
+         ~previous_field:"previous_tool_use_id"
+         ~parse_previous_tool_use_ids:(fun fields ->
+           let* previous_tool_use_id =
+             parse_string_receipt "previous_tool_use_id" fields
+           in
+           Ok [ previous_tool_use_id ])
+         fields
+     | Current_v2 ->
+       parse_episode_ref_fields
+         ~previous_field:"previous_tool_use_ids"
+         ~parse_previous_tool_use_ids:(fun fields ->
+           let* previous_tool_use_ids =
+             parse_string_list_receipt "previous_tool_use_ids" fields
+           in
+           if previous_tool_use_ids = []
+           then Error (Invalid_receipt_metadata "previous_tool_use_ids")
+           else Ok previous_tool_use_ids)
+         fields)
   | _ -> Error (Invalid_receipt_metadata "episodes")
 ;;
 
-let parse_episode_refs fields =
+let parse_episode_refs ~wire_version fields =
   match List.assoc_opt "episodes" fields with
   | Some (`List values) ->
     List.fold_right
       (fun value result ->
          let* refs = result in
-         let* episode = parse_episode_ref value in
+         let* episode = parse_episode_ref ~wire_version value in
          Ok (episode :: refs))
       values
       (Ok [])
   | _ -> Error (Invalid_receipt_metadata "episodes")
 ;;
 
-let parse_receipt = function
+let parse_receipt ~wire_version = function
   | `Assoc fields ->
     let* () =
       validate_receipt_fields
@@ -663,13 +704,13 @@ let parse_receipt = function
     in
     let* version = parse_int "version" fields in
     let* () =
-      if version = receipt_version
+      if version = receipt_wire_version_number wire_version
       then Ok ()
       else Error (Invalid_receipt_metadata "version")
     in
     let* resume_turn = parse_int "resume_turn" fields in
     let* decided_at = parse_float "decided_at" fields in
-    let* episodes = parse_episode_refs fields in
+    let* episodes = parse_episode_refs ~wire_version fields in
     let* decision_json =
       match List.assoc_opt "decision" fields with
       | Some value -> Ok value
@@ -681,7 +722,20 @@ let parse_receipt = function
       | Error error -> Error (Invalid_receipt_metadata (show_response_error error))
     in
     Ok { resume_turn; decided_at; episodes; decision }
-  | _ -> Error (Invalid_receipt_metadata metadata_key)
+  | _ -> Error (Invalid_receipt_metadata (receipt_metadata_key wire_version))
+;;
+
+type selected_receipt_metadata =
+  | Selected_v1 of Yojson.Safe.t
+  | Selected_v2 of Yojson.Safe.t
+
+let select_receipt_metadata metadata =
+  let v1_values, v2_values = receipt_metadata_values metadata in
+  match v1_values, v2_values with
+  | [], [] -> Ok None
+  | [ value ], [] -> Ok (Some (Selected_v1 value))
+  | [], [ value ] -> Ok (Some (Selected_v2 value))
+  | _ -> Error Duplicate_receipt_metadata
 ;;
 
 let latest_receipt messages =
@@ -690,19 +744,16 @@ let latest_receipt messages =
     | message :: rest ->
       if tool_result_ids message = []
       then find rest
-      else (
-        let values =
-          List.filter_map
-            (fun (key, value) ->
-               if String.equal key metadata_key then Some value else None)
-            message.Types.metadata
-        in
-        match values with
-        | [] -> Ok None
-        | [ value ] ->
-          let* receipt = parse_receipt value in
-          Ok (Some receipt)
-        | _ :: _ :: _ -> Error Duplicate_receipt_metadata)
+      else
+        let* selected = select_receipt_metadata message.Types.metadata in
+        (match selected with
+         | None -> Ok None
+         | Some (Selected_v1 value) ->
+           let* receipt = parse_receipt ~wire_version:Legacy_v1 value in
+           Ok (Some receipt)
+         | Some (Selected_v2 value) ->
+           let* receipt = parse_receipt ~wire_version:Current_v2 value in
+           Ok (Some receipt))
   in
   let* run_messages =
     Tool_failure_episode.latest_run_messages messages
