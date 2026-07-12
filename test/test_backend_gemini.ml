@@ -625,6 +625,86 @@ let test_textual_part_signature_broken_adjacency_fails_closed () =
     (fun () -> ignore (Backend_gemini.contents_of_messages messages))
 ;;
 
+let message_with_blocks role content : Types.message =
+  { role; content; name = None; tool_call_id = None; metadata = [] }
+;;
+
+let test_textual_part_signature_non_assistant_fails_closed () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-user-injection"
+  in
+  let messages = [ message_with_blocks User [ RedactedThinking carrier; Text "user" ] ] in
+  check_raises
+    "model signature on user role"
+    (Backend_gemini.Gemini_api_error
+       "Gemini thoughtSignature carrier is only valid on an assistant/model message")
+    (fun () -> ignore (Backend_gemini.contents_of_messages messages))
+;;
+
+let test_other_provider_replay_is_not_a_gemini_signature () =
+  let carrier =
+    Provider_replay.encode_exact_next_block
+      ~payload:
+        (`Assoc
+            [ "provider", `String "another-provider"
+            ; "kind", `String "opaque-state"
+            ; "value", `String "opaque"
+            ])
+  in
+  let contents, _ =
+    Backend_gemini.contents_of_messages
+      [ message_with_blocks Assistant [ RedactedThinking carrier; Text "visible" ] ]
+  in
+  match contents with
+  | [ content ] ->
+    (match content |> member "parts" |> to_list with
+     | [ part ] ->
+       check string "target survives" "visible" (part |> member "text" |> to_string);
+       check
+         bool
+         "foreign signature omitted"
+         true
+         (part |> member "thoughtSignature" = `Null)
+     | _ -> fail "expected one visible Gemini part")
+  | _ -> fail "expected one assistant content"
+;;
+
+let test_malformed_provider_replay_fails_closed () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-truncated"
+  in
+  let carrier = String.sub carrier 0 (String.length carrier - 1) in
+  (match Provider_replay.decode carrier with
+   | Provider_replay.Malformed_replay Provider_replay.Invalid_json -> ()
+   | Provider_replay.Not_replay
+   | Provider_replay.Replay _
+   | Provider_replay.Malformed_replay _ ->
+     fail "expected truncated OAS replay envelope to remain recognizably malformed");
+  check_raises
+    "malformed replay carrier"
+    (Backend_gemini.Gemini_api_error
+       "Malformed Gemini thoughtSignature carrier in conversation history")
+    (fun () ->
+       ignore
+         (Backend_gemini.contents_of_messages
+            [ message_with_blocks Assistant [ RedactedThinking carrier; Text "visible" ] ]))
+;;
+
+let test_blank_part_thought_signature_fails_closed () =
+  let response =
+    Yojson.Safe.from_string
+      {|{"candidates":[{"content":{"parts":[{"text":"visible","thoughtSignature":" "}]},"finishReason":"STOP"}]}|}
+  in
+  check_raises
+    "blank response signature"
+    (Backend_gemini.Gemini_api_error "Gemini response contains a blank thoughtSignature")
+    (fun () -> ignore (Backend_gemini.parse_response response))
+;;
+
 let test_thought_signature_roundtrip_request () =
   let parsed =
     Backend_gemini.parse_response (function_call_with_thought_signature_json ())
@@ -1436,6 +1516,18 @@ let () =
             "textual part signature broken adjacency"
             `Quick
             test_textual_part_signature_broken_adjacency_fails_closed
+        ; test_case
+            "textual part signature requires assistant role"
+            `Quick
+            test_textual_part_signature_non_assistant_fails_closed
+        ; test_case
+            "foreign replay is not a Gemini signature"
+            `Quick
+            test_other_provider_replay_is_not_a_gemini_signature
+        ; test_case
+            "malformed replay fails closed"
+            `Quick
+            test_malformed_provider_replay_fails_closed
         ] )
     ; ( "parse_response"
       , [ test_case "text" `Quick test_parse_text_response
@@ -1449,6 +1541,10 @@ let () =
             "function call thought signature"
             `Quick
             test_parse_function_call_preserves_thought_signature
+        ; test_case
+            "blank part thought signature"
+            `Quick
+            test_blank_part_thought_signature_fails_closed
         ; test_case "usage" `Quick test_parse_usage
         ; test_case "stop reasons" `Quick test_parse_stop_reasons
         ; test_case "error" `Quick test_parse_error

@@ -1679,9 +1679,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
   List.iteri
     (fun part_index part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
-       let part_thought_signature =
-         part |> member "thoughtSignature" |> to_string_option
-       in
+       let part_thought_signature = Backend_gemini.thought_signature_of_part part in
        let emit_signed_textual_part ~target ~content_type ~delta thought_signature =
          (match target with
           | Backend_gemini.Gemini_text_part -> state.text_block_started <- false

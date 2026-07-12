@@ -151,6 +151,18 @@ let exact_string_field_opt key = function
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
+let thought_signature_of_part = function
+  | `Assoc fields ->
+    (match List.assoc_opt "thoughtSignature" fields with
+     | None | Some `Null -> None
+     | Some (`String value) when not (Api_common.string_is_blank value) -> Some value
+     | Some (`String _) ->
+       raise (Gemini_api_error "Gemini response contains a blank thoughtSignature")
+     | Some _ ->
+       raise (Gemini_api_error "Gemini response contains a non-string thoughtSignature"))
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
 let gemini_thought_signature_of_redacted data =
   try
     let json = Yojson.Safe.from_string data in
@@ -189,10 +201,14 @@ let decode_gemini_part_thought_signature data =
               gemini_part_signature_target_of_string
           , exact_string_field_opt "thoughtSignature" json )
         with
-        | Some target, Some thought_signature ->
+        | Some target, Some thought_signature
+          when not (Api_common.string_is_blank thought_signature) ->
           Decoded_gemini_part_signature (target, thought_signature)
         | _ -> Malformed_gemini_part_signature)
-     | _ -> Malformed_gemini_part_signature)
+     | Some "gemini", _ -> Malformed_gemini_part_signature
+     | _, Some kind when String.equal kind gemini_part_thought_signature_kind ->
+       Malformed_gemini_part_signature
+     | _ -> Not_gemini_part_signature)
 ;;
 
 let gemini_tool_signatures_of_blocks blocks =
@@ -316,7 +332,7 @@ let attach_thought_signature thought_signature = function
          "Gemini part serializer produced a non-object for a thoughtSignature target")
 ;;
 
-let parts_of_content_blocks id_to_name tool_signatures blocks =
+let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
   (* Gemini requires an opaque [thoughtSignature] to be replayed on the exact
      model part that carried it. OAS represents that otherwise-unmodeled field
      as a [RedactedThinking] block immediately before its target. Adjacency is
@@ -345,6 +361,13 @@ let parts_of_content_blocks id_to_name tool_signatures blocks =
            (Gemini_api_error
               "Malformed Gemini thoughtSignature carrier in conversation history")
        | Decoded_gemini_part_signature (expected_target, thought_signature) ->
+         (match role with
+          | Assistant -> ()
+          | User | System | Tool ->
+            raise
+              (Gemini_api_error
+                 "Gemini thoughtSignature carrier is only valid on an assistant/model \
+                  +                  message"));
          let actual_target = signature_target_of_content_block target_block in
          (match actual_target with
           | Some actual_target when same_signature_target expected_target actual_target ->
@@ -390,10 +413,14 @@ let contents_of_messages (messages : message list) =
        let tool_signatures = gemini_tool_signatures_of_blocks msg.content in
        match msg.role with
        | System ->
-         let parts = parts_of_content_blocks id_to_name tool_signatures msg.content in
+         let parts =
+           parts_of_content_blocks ~role:msg.role id_to_name tool_signatures msg.content
+         in
          system_parts := !system_parts @ parts
        | User | Assistant | Tool ->
-         let parts = parts_of_content_blocks id_to_name tool_signatures msg.content in
+         let parts =
+           parts_of_content_blocks ~role:msg.role id_to_name tool_signatures msg.content
+         in
          if parts <> []
          then
            contents
@@ -599,9 +626,7 @@ let parse_response json =
     let content =
       List.concat_map
         (fun part ->
-           let part_thought_signature =
-             part |> member "thoughtSignature" |> to_string_option
-           in
+           let part_thought_signature = thought_signature_of_part part in
            match part |> member "text" with
            | `String s ->
              let is_thought = Cli_common_json.member_bool "thought" part in
@@ -627,13 +652,12 @@ let parse_response json =
                   | None -> Api_common.fresh_tool_use_id ()
                 in
                 let tool_use = ToolUse { id; name; input = args } in
-                (match part |> member "thoughtSignature" |> to_string_option with
-                 | Some thought_signature
-                   when not (Api_common.string_is_blank thought_signature) ->
+                (match part_thought_signature with
+                 | Some thought_signature ->
                    [ gemini_thought_signature_carrier ~tool_use_id:id ~thought_signature
                    ; tool_use
                    ]
-                 | Some _ | None -> [ tool_use ])
+                 | None -> [ tool_use ])
               | _ -> []))
         parts
     in

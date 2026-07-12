@@ -64,6 +64,12 @@ val gemini_part_thought_signature_payload
   -> thought_signature:string
   -> string
 
+(** Decode an optional Gemini wire [thoughtSignature]. Missing/null returns
+    [None]; blank or non-string values fail closed with {!Gemini_api_error}.
+    Shared by synchronous and streaming response paths.
+    @since 0.212.0 *)
+val thought_signature_of_part : Yojson.Safe.t -> string option
+
 (** Extract [contents] list and optional [systemInstruction] from messages.
     Exposed for unit-testing the OAS-to-Gemini message mapping. *)
 val contents_of_messages : Types.message list -> Yojson.Safe.t list * Yojson.Safe.t option
