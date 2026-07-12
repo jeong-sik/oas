@@ -64,3 +64,14 @@ val with_raw_trace_run
   -> string
   -> (Raw_trace.active_run option -> (Types.api_response, Error.sdk_error) result)
   -> (Types.api_response, Error.sdk_error) result
+
+(** Error-polymorphic form of {!with_raw_trace_run}.  [of_sdk_error] lifts
+    trace-infrastructure failures into the caller's carrier, while
+    [error_to_string] is used only for lifecycle/raw-trace diagnostics. *)
+val with_raw_trace_run_result
+  :  of_sdk_error:(Error.sdk_error -> 'error)
+  -> error_to_string:('error -> string)
+  -> t
+  -> string
+  -> (Raw_trace.active_run option -> (Types.api_response, 'error) result)
+  -> (Types.api_response, 'error) result

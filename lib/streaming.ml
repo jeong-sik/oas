@@ -55,6 +55,18 @@ let map_stream_finalize_result = function
      | Error err -> Error (map_http_error err))
 ;;
 
+let map_stream_finalize_result_detailed ~binding = function
+  | Error error -> Error (Provider_failure_attribution.of_http_error ~binding error)
+  | Ok result ->
+    let result =
+      Result.map_error Llm_provider.Complete_stream.http_error_of_stream_error result
+      |> Llm_provider.Complete_common.ensure_nonempty_completion
+    in
+    (match result with
+     | Ok response -> Ok (Llm_provider.Pricing.annotate_response_cost response)
+     | Error error -> Error (Provider_failure_attribution.of_http_error ~binding error))
+;;
+
 let%test "map_stream_finalize_result maps typed empty to provider unavailable (oas#2483)" =
   let empty_resp : api_response =
     { id = "m"
@@ -88,7 +100,7 @@ let%test "map_stream_finalize_result maps typed empty to provider unavailable (o
 
     Does not accept retry_config: SSE streams deliver partial results
     incrementally; retrying mid-stream would discard data. *)
-let create_message_stream
+let create_message_stream_detailed
       ~sw
       ~net
       ?clock
@@ -100,13 +112,13 @@ let create_message_stream
       ?tools
       ~on_event
       ()
-  : (api_response, Error.sdk_error) result
+  : (api_response, Provider_failure_attribution.detailed_error) result
   =
   let resolve_result =
     match provider with
     | Some p ->
       (match Provider.resolve p with
-       | Ok (url, key, _headers) -> Ok (p, url, key)
+       | Ok (url, key, headers) -> Ok (p, url, key, headers)
        | Error e -> Error e)
     | None ->
       (match Llm_provider.Cli_common_env.get "ANTHROPIC_API_KEY" with
@@ -117,13 +129,23 @@ let create_message_stream
            ; api_key_env = "ANTHROPIC_API_KEY"
            }
          in
-         Ok (fallback_provider, base_url, key)
+         Ok (fallback_provider, base_url, key, [])
        | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
   in
   match resolve_result with
-  | Error e -> Error e
-  | Ok (provider_cfg, base_url, api_key) ->
-    (match Provider.request_kind provider_cfg.provider with
+  | Error error ->
+    Error (Provider_failure_attribution.of_provider_configuration_error error)
+  | Ok (provider_cfg, base_url, api_key, resolved_headers) ->
+    let model_spec = Provider.model_spec_of_config provider_cfg in
+    let binding =
+      Binding_identity.of_resolved_provider
+        ~transport:Binding_identity.Http
+        ~provider:provider_cfg
+        ~base_url
+        ~request_path:model_spec.request_path
+        ~api_key
+    in
+    (match model_spec.request_kind with
      | Provider.Anthropic_messages ->
        let headers =
          [ "Content-Type", "application/json"
@@ -133,7 +155,7 @@ let create_message_stream
        in
        let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
        let body = Yojson.Safe.to_string (`Assoc body_assoc) in
-       let url = base_url ^ "/v1/messages" in
+       let url = base_url ^ model_spec.request_path in
        Llm_provider.Http_client.with_post_stream
          ?clock
          ~net
@@ -164,19 +186,15 @@ let create_message_stream
            if !(acc.stop_reason_received) then on_event MessageStop;
            finalize_stream_acc acc)
          ()
-       |> map_stream_finalize_result
+       |> map_stream_finalize_result_detailed ~binding
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
        let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
        let auth_headers =
          Provider.auth_headers_only_for_kind ~kind:openai_compat_kind ~api_key
        in
-       let headers =
-         match Provider.resolve provider_cfg with
-         | Ok (_, _, h) -> h @ auth_headers
-         | Error _ -> [ "Content-Type", "application/json" ] @ auth_headers
-       in
-       let stream_path = Provider.request_path provider_cfg.provider in
+       let headers = resolved_headers @ auth_headers in
+       let stream_path = model_spec.request_path in
        (match
           Api_openai.build_openai_body_result
             ~provider_config:provider_cfg
@@ -186,12 +204,14 @@ let create_message_stream
             ()
         with
         | Error reason ->
-          Error
-            (Error.Api
-               (Llm_provider.Retry.InvalidRequest
-                  { message = "Request rejected: " ^ reason
-                  ; reason = Llm_provider.Retry.Unknown_invalid_request
-                  }))
+          let error =
+            Error.Api
+              (Llm_provider.Retry.InvalidRequest
+                 { message = "Request rejected: " ^ reason
+                 ; reason = Llm_provider.Retry.Unknown_invalid_request
+                 })
+          in
+          Error (Provider_failure_attribution.of_request_validation_error ~binding error)
         | Ok body ->
           let body =
             body
@@ -251,11 +271,11 @@ let create_message_stream
               if !(acc.stop_reason_received) then on_event MessageStop;
               finalize_stream_acc acc)
             ()
-          |> map_stream_finalize_result)
+          |> map_stream_finalize_result_detailed ~binding)
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match
-          Api.create_message
+          Api.create_message_detailed
             ~sw
             ~net
             ~base_url
@@ -268,5 +288,33 @@ let create_message_stream
         | Ok response ->
           emit_synthetic_events response on_event;
           Ok response
-        | Error _ as e -> e))
+        | Error _ as error -> error))
+;;
+
+let create_message_stream
+      ~sw
+      ~net
+      ?clock
+      ?idle_timeout
+      ?base_url
+      ?provider
+      ~config
+      ~messages
+      ?tools
+      ~on_event
+      ()
+  =
+  create_message_stream_detailed
+    ~sw
+    ~net
+    ?clock
+    ?idle_timeout
+    ?base_url
+    ?provider
+    ~config
+    ~messages
+    ?tools
+    ~on_event
+    ()
+  |> Result.map_error (fun detailed -> detailed.Provider_failure_attribution.error)
 ;;

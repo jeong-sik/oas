@@ -38,5 +38,6 @@ val run_turn
   -> api_strategy:api_strategy
   -> ?raw_trace_run:Raw_trace.active_run
   -> ?recovery_context:string
+  -> ?on_provider_failure:(Provider_failure_attribution.t option -> unit)
   -> Agent_types.t
   -> (turn_outcome, Error.sdk_error) result

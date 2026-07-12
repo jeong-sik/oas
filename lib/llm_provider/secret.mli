@@ -9,6 +9,13 @@
 
 type t = private string
 
+(** Opaque, stable SHA-256 identity for a resolved secret.  The digest is
+    intentionally not serializable or convertible to a string: callers may
+    compare/hash identities and render only the short observation fingerprint.
+    This keeps raw credentials and full credential digests out of logs while
+    allowing binding identity to distinguish credential pools structurally. *)
+type identity
+
 val of_string : string -> t
 
 (** [of_env ?getenv var] reads [var] through the canonical environment
@@ -25,6 +32,17 @@ val is_empty : t -> bool
 val header_value : t -> string
 
 val length : t -> int
+
+(** [identity secret] is [None] for an empty secret and a stable opaque
+    identity otherwise. *)
+val identity : t -> identity option
+
+val equal_identity : identity -> identity -> bool
+val hash_identity : identity -> int
+
+(** Redacted observation label for an opaque identity.  This is diagnostic
+    only and must never be used as an equality key. *)
+val identity_fingerprint : identity -> string
 
 (** SHA-256 digest of the secret rendered as the first 8 hex characters.
     Suitable for distinguishing different keys in telemetry without leaking

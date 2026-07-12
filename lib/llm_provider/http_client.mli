@@ -96,6 +96,10 @@ type provider_terminal_kind =
           claude_code 0.x the [limit] equals the CLI default
           [--max-turns] (currently 31) when the caller does not
           override it. *)
+  | Session_conflict
+  (** The managed provider reported that this session cannot continue because
+      another owner/process has the same session lease.  This is deliberately
+      typed so downstream policy never parses CLI prose. *)
   | Other of string
   (** Forward-compatible bucket for unrecognized subtypes
           (e.g. [error_during_execution], [error_max_thinking_tokens]).
@@ -112,6 +116,18 @@ type provider_failure_scope =
   | Failure_scope_region
   | Failure_scope_provider
   | Failure_scope_unknown
+
+(** Typed managed-CLI startup failure.  Human diagnostics stay in the enclosing
+    [ProviderFailure.message]; control flow branches only on this closed type. *)
+type cli_startup_failure_reason =
+  | Executable_unavailable
+  | Authentication_unavailable
+  | Session_conflict_at_startup
+  | Configuration_invalid
+  | Unknown_cli_startup_failure
+[@@deriving yojson, show]
+
+val cli_startup_failure_reason_to_string : cli_startup_failure_reason -> string
 
 (** Provider/runtime failure surfaced by a transport after it has parsed
     provider-specific HTTP/CLI details at the edge.
@@ -130,7 +146,7 @@ type provider_failure_kind =
       { tool_name : string option
       ; rule : int option
       }
-  | Cli_startup_failed of { reason : string }
+  | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
   (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
       The typed stop reason is preserved so downstream policy can distinguish,

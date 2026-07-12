@@ -8,6 +8,7 @@
     @since 0.207.0 *)
 
 type t = string
+type identity = Identity of string
 
 let of_string s = s
 
@@ -21,9 +22,17 @@ let empty = ""
 let is_empty s = String.trim s = ""
 let header_value s = s
 let length = String.length
+let digest s = Digestif.SHA256.(to_hex (digest_string s))
+let identity s = if is_empty s then None else Some (Identity (digest s))
+let equal_identity (Identity left) (Identity right) = String.equal left right
+let hash_identity (Identity digest) = Hashtbl.hash digest
+
+let identity_fingerprint (Identity digest) =
+  if String.length digest >= 8 then String.sub digest 0 8 else digest
+;;
 
 let fingerprint s =
-  let hex = Digestif.SHA256.(to_hex (digest_string s)) in
+  let hex = digest s in
   if String.length hex >= 8 then String.sub hex 0 8 else hex
 ;;
 
@@ -36,6 +45,16 @@ let%test "fingerprint differs for different secrets" =
 ;;
 
 let%test "empty secret is empty" = is_empty empty
+let%test "empty secret has no identity" = Option.is_none (identity empty)
+
+let%test "secret identity is stable and opaque" =
+  match identity (of_string "my-secret-key"), identity (of_string "my-secret-key") with
+  | Some left, Some right ->
+    equal_identity left right
+    && hash_identity left = hash_identity right
+    && String.equal (identity_fingerprint left) (fingerprint (of_string "my-secret-key"))
+  | None, _ | _, None -> false
+;;
 
 let%test "secret of string round-trips through header_value" =
   header_value (of_string "k") = "k"

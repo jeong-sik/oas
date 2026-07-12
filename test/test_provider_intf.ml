@@ -18,6 +18,25 @@ let require_streaming_provider config =
     Alcotest.failf "Expected streaming provider, got error: %s" (Error.to_string err)
 ;;
 
+let require_detailed_provider config =
+  match Provider_intf.of_config_detailed config with
+  | Ok provider -> provider
+  | Error detailed ->
+    Alcotest.failf
+      "Expected detailed provider, got error: %s"
+      (Error.to_string detailed.error)
+;;
+
+let require_detailed_streaming_provider config =
+  match Provider_intf.of_config_streaming_detailed config with
+  | Ok (Some provider) -> provider
+  | Ok None -> Alcotest.fail "Expected a detailed streaming provider, got None"
+  | Error detailed ->
+    Alcotest.failf
+      "Expected detailed streaming provider, got error: %s"
+      (Error.to_string detailed.error)
+;;
+
 (* ── Module type satisfaction ────────────────────────────── *)
 
 let test_of_config_local () =
@@ -47,6 +66,27 @@ let test_of_config_propagates_resolve_error () =
   | Ok _ -> Alcotest.fail "Expected resolve error for missing env var"
   | Error err ->
     Alcotest.failf "Expected MissingEnvVar error, got: %s" (Error.to_string err)
+;;
+
+let test_streaming_resolves_before_capability_projection () =
+  let config : Provider.config =
+    { provider = Provider.Custom_registered { name = "unregistered-provider" }
+    ; model_id = "model-a"
+    ; api_key_env = ""
+    }
+  in
+  match Provider_intf.of_config_streaming_detailed config with
+  | Error
+      { error = Error.Config (InvalidConfig { field = "provider"; _ })
+      ; provider_failure =
+          Some { ownership = Provider_failure_attribution.Unclassified; _ }
+      } -> ()
+  | Error detailed ->
+    Alcotest.failf
+      "Expected explicit unregistered-provider error, got: %s"
+      (Error.to_string detailed.error)
+  | Ok None -> Alcotest.fail "Unregistered non-streaming provider was silently accepted"
+  | Ok (Some _) -> Alcotest.fail "Unregistered provider resolved to a streaming module"
 ;;
 
 (* ── supports_streaming ──────────────────────────────────── *)
@@ -405,6 +445,91 @@ let test_custom_provider_dispatch_uses_registered_impl () =
          | _ -> Alcotest.fail "expected text response"))
 ;;
 
+let require_attribution
+      (result : (Types.api_response, Provider_failure_attribution.detailed_error) result)
+  =
+  match result with
+  | Ok _ -> Alcotest.fail "expected detailed provider failure"
+  | Error detailed ->
+    (match detailed.provider_failure with
+     | Some attribution -> detailed, attribution
+     | None -> Alcotest.fail "expected provider attribution")
+;;
+
+let test_detailed_api_provider_intf_and_streaming_share_boundary () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string
+      ~status:`Service_unavailable
+      ~body:"binding unavailable"
+      ()
+  in
+  with_mock_server handler (fun ~sw ~net ~base_url ->
+    let provider : Provider.config =
+      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
+    in
+    let state = state_for_provider provider in
+    let api_detailed, api_attribution =
+      Api.create_message_detailed
+        ~sw
+        ~net
+        ~provider
+        ~config:state
+        ~messages:user_messages
+        ()
+      |> require_attribution
+    in
+    let (module P : Provider_intf.DETAILED_PROVIDER) =
+      require_detailed_provider provider
+    in
+    let provider_detailed, provider_attribution =
+      P.create_message_detailed ~sw ~net ~config:state ~messages:user_messages ()
+      |> require_attribution
+    in
+    let (module SP : Provider_intf.DETAILED_STREAMING_PROVIDER) =
+      require_detailed_streaming_provider provider
+    in
+    let stream_detailed, stream_attribution =
+      SP.create_message_stream_detailed
+        ~sw
+        ~net
+        ~config:state
+        ~messages:user_messages
+        ~on_event:(fun _ -> ())
+        ()
+      |> require_attribution
+    in
+    List.iter
+      (fun (name, detailed, attribution) ->
+         (match detailed.Provider_failure_attribution.error with
+          | Error.Api (Retry.ServerError { status = 503; _ }) -> ()
+          | error ->
+            Alcotest.failf "%s: expected HTTP 503, got %s" name (Error.to_string error));
+         Alcotest.(check bool)
+           (name ^ " ownership")
+           true
+           (attribution.Provider_failure_attribution.ownership
+            = Provider_failure_attribution.Unclassified))
+      [ "api", api_detailed, api_attribution
+      ; "provider_intf", provider_detailed, provider_attribution
+      ; "streaming", stream_detailed, stream_attribution
+      ];
+    let binding name attribution =
+      match attribution.Provider_failure_attribution.binding with
+      | Some binding -> binding
+      | None -> Alcotest.failf "%s: missing binding identity" name
+    in
+    let api_binding = binding "api" api_attribution in
+    Alcotest.(check bool)
+      "API and Provider_intf identity"
+      true
+      (Binding_identity.equal api_binding (binding "provider_intf" provider_attribution));
+    Alcotest.(check bool)
+      "API and streaming identity"
+      true
+      (Binding_identity.equal api_binding (binding "streaming" stream_attribution)))
+;;
+
 (* ── capabilities type identity ──────────────────────────── *)
 
 (* Compile-time proof that [Provider.capabilities] is the SAME type as
@@ -451,6 +576,10 @@ let () =
             `Quick
             test_anthropic_supports_streaming
         ; Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some
+        ; Alcotest.test_case
+            "resolve before capability projection"
+            `Quick
+            test_streaming_resolves_before_capability_projection
         ] )
     ; ( "http_dispatch"
       , [ Alcotest.test_case
@@ -489,6 +618,10 @@ let () =
             "custom provider dispatch"
             `Quick
             test_custom_provider_dispatch_uses_registered_impl
+        ; Alcotest.test_case
+            "detailed API/provider/stream boundary"
+            `Quick
+            test_detailed_api_provider_intf_and_streaming_share_boundary
         ] )
     ; ( "capabilities_identity"
       , [ Alcotest.test_case

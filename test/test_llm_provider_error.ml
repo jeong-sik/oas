@@ -495,12 +495,12 @@ let test_provider_failure_remaining_variants_mapping () =
   let startup =
     provider_failure
       ~provider:"codex"
-      (Http_client.Cli_startup_failed { reason = "not executable" })
+      (Http_client.Cli_startup_failed { reason = Http_client.Executable_unavailable })
       "permission denied"
   in
   (match startup with
    | Error.ProviderUnavailable { detail; _ } ->
-     check string "startup detail" "not executable: permission denied" detail
+     check string "startup detail" "executable_unavailable: permission denied" detail
    | _ -> fail "expected ProviderUnavailable startup failure");
   let parse =
     provider_failure (Http_client.Provider_parse_error { parser = None }) "bad JSON"

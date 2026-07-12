@@ -189,7 +189,7 @@ let dispatch_sync = Pipeline_stage_route.dispatch_sync
 let dispatch_stream = Pipeline_stage_route.dispatch_stream
 
 (** Dispatch the API call via the chosen strategy (sync or stream). *)
-let stage_route ~sw ?clock ~api_strategy agent prep =
+let stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep =
   match api_strategy with
   | Sync ->
     Tracing.with_span
@@ -203,7 +203,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       }
       (fun tracer ->
          let trace_context = Tracing.trace_context_headers tracer in
-         dispatch_sync ~sw ?clock ~trace_context agent prep)
+         dispatch_sync ~sw ?clock ~trace_context ?on_provider_failure agent prep)
   | Stream { on_event; on_telemetry } ->
     Tracing.with_span
       agent.options.tracer
@@ -216,7 +216,16 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       }
       (fun tracer ->
          let trace_context = Tracing.trace_context_headers tracer in
-         dispatch_stream ~sw ?clock ~trace_context agent prep ~on_event ?on_telemetry ())
+         dispatch_stream
+           ~sw
+           ?clock
+           ~trace_context
+           agent
+           prep
+           ~on_event
+           ?on_telemetry
+           ?on_provider_failure
+           ())
 ;;
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)
@@ -962,7 +971,18 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
+let run_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?recovery_context
+      ?on_provider_failure
+      agent
+  =
+  let clear_provider_failure () =
+    Option.iter (fun notify -> notify None) on_provider_failure
+  in
   (* Stage 1: Input *)
   let* () =
     Tracing.with_span
@@ -1103,7 +1123,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
        | None -> ());
       let t0 = Pipeline_common.timestamp_now ?clock () in
       let api_result =
-        stage_route ~sw ?clock ~api_strategy agent prep |> tag_error "route"
+        stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep
+        |> tag_error "route"
       in
       let duration_ms = (Pipeline_common.timestamp_now ?clock () -. t0) *. 1000.0 in
       (match agent.options.journal, api_result with
@@ -1145,15 +1166,24 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
                    { agent_name = agent.state.config.name; trigger = "emergency" }
              }
          | None -> ());
-        let* compacted = emergency_compact ?raw_trace_run ?clock agent ?limit () in
-        if not compacted
-        then api_result
-        else (
-          update_state agent (fun s -> { s with config = original_config });
-          let* prep', _, _ =
-            stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse"
-          in
-          attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
+        (match emergency_compact ?raw_trace_run ?clock agent ?limit () with
+         | Error error ->
+           clear_provider_failure ();
+           Error error
+         | Ok compacted ->
+           if not compacted
+           then api_result
+           else (
+             update_state agent (fun s -> { s with config = original_config });
+             match
+               stage_parse ?raw_trace_run ?clock ?recovery_context agent
+               |> tag_error "parse"
+             with
+             | Error error ->
+               clear_provider_failure ();
+               Error error
+             | Ok (prep', _, _) ->
+               attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1)))
       | other -> other
     in
     let api_result = attempt_route ~prep ~compact_attempts:0 in

@@ -76,6 +76,21 @@ val parse_openai_response_result
     [request_timeout_s] (default [Api_common.default_request_timeout_s]).
     A timed-out request is classified as [Retry.Timeout] which is
     retryable by default. Without a clock no timeout is applied. *)
+val create_message_detailed
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> ?clock:_ Eio.Time.clock
+  -> ?retry_config:Retry.retry_config
+  -> ?request_timeout_s:float
+  -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+
 val create_message
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
