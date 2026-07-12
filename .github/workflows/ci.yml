@@ -282,6 +282,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
       - name: Verify version strings match
         run: |
           # Tolerant of trailing release-please annotations:
