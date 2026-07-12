@@ -107,7 +107,11 @@ let checkpoint_content_block_to_json block =
 ;;
 
 let unique_optional_field ~field fields =
-  match List.filter_map (fun (name, value) -> if String.equal name field then Some value else None) fields with
+  match
+    List.filter_map
+      (fun (name, value) -> if String.equal name field then Some value else None)
+      fields
+  with
   | [] -> Ok None
   | [ value ] -> Ok (Some value)
   | _ ->
