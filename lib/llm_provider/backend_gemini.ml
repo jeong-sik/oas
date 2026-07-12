@@ -438,7 +438,7 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
             raise
               (Gemini_api_error
                  "Gemini thoughtSignature carrier is only valid on an assistant/model \
-                  +                  message"));
+                  message"));
          let actual_target = signature_target_of_content_block target_block in
          (match actual_target with
           | Some actual_target when same_signature_target expected_target actual_target ->
