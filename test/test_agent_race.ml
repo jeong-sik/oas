@@ -156,11 +156,9 @@ let test_tool_failure_judge_preserves_idle_guard () =
   Agent.set_consecutive_idle_turns agent 5;
   match Agent.check_loop_guard agent with
   | Some (Error.Agent (Error.IdleDetected { consecutive_idle_turns = 5 })) -> ()
-  | Some error ->
-    Alcotest.failf "expected IdleDetected, got %s" (Error.to_string error)
+  | Some error -> Alcotest.failf "expected IdleDetected, got %s" (Error.to_string error)
   | None ->
-    Alcotest.fail
-      "tool-failure judge disabled the generic repeated-tool idle guard"
+    Alcotest.fail "tool-failure judge disabled the generic repeated-tool idle guard"
 ;;
 
 (* ── Test: lifecycle transitions are ordered ────────────── *)
