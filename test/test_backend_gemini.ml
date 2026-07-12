@@ -625,6 +625,127 @@ let test_textual_part_signature_broken_adjacency_fails_closed () =
     (fun () -> ignore (Backend_gemini.contents_of_messages messages))
 ;;
 
+let message_with_blocks role content : Types.message =
+  { role; content; name = None; tool_call_id = None; metadata = [] }
+;;
+
+let test_textual_part_signature_non_assistant_fails_closed () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-user-injection"
+  in
+  let messages = [ message_with_blocks User [ RedactedThinking carrier; Text "user" ] ] in
+  check_raises
+    "model signature on user role"
+    (Backend_gemini.Gemini_api_error
+       "Gemini thoughtSignature carrier is only valid on an assistant/model message")
+    (fun () -> ignore (Backend_gemini.contents_of_messages messages))
+;;
+
+let test_other_provider_replay_is_not_a_gemini_signature () =
+  let carrier =
+    Provider_replay.encode_exact_next_block
+      ~payload:
+        (`Assoc
+            [ "provider", `String "another-provider"
+            ; "kind", `String "opaque-state"
+            ; "value", `String "opaque"
+            ])
+  in
+  let contents, _ =
+    Backend_gemini.contents_of_messages
+      [ message_with_blocks Assistant [ RedactedThinking carrier; Text "visible" ] ]
+  in
+  match contents with
+  | [ content ] ->
+    (match content |> member "parts" |> to_list with
+     | [ part ] ->
+       check string "target survives" "visible" (part |> member "text" |> to_string);
+       check
+         bool
+         "foreign signature omitted"
+         true
+         (part |> member "thoughtSignature" = `Null)
+     | _ -> fail "expected one visible Gemini part")
+  | _ -> fail "expected one assistant content"
+;;
+
+let test_malformed_provider_replay_fails_closed () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-truncated"
+  in
+  let carrier = String.sub carrier 0 (String.length carrier - 1) in
+  (match Provider_replay.decode carrier with
+   | Provider_replay.Malformed_replay Provider_replay.Invalid_json -> ()
+   | Provider_replay.Not_replay
+   | Provider_replay.Replay _
+   | Provider_replay.Malformed_replay _ ->
+     fail "expected truncated OAS replay envelope to remain recognizably malformed");
+  check_raises
+    "malformed replay carrier"
+    (Backend_gemini.Gemini_api_error
+       "Malformed Gemini thoughtSignature carrier in conversation history")
+    (fun () ->
+       ignore
+         (Backend_gemini.contents_of_messages
+            [ message_with_blocks Assistant [ RedactedThinking carrier; Text "visible" ] ]))
+;;
+
+let test_blank_part_thought_signature_fails_closed () =
+  let response =
+    Yojson.Safe.from_string
+      {|{"candidates":[{"content":{"parts":[{"text":"visible","thoughtSignature":" "}]},"finishReason":"STOP"}]}|}
+  in
+  check_raises
+    "blank response signature"
+    (Backend_gemini.Gemini_api_error "Gemini response contains a blank thoughtSignature")
+    (fun () -> ignore (Backend_gemini.parse_response response))
+;;
+
+let test_signed_inline_image_roundtrip () =
+  let response =
+    Yojson.Safe.from_string
+      {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-image"}]},"finishReason":"STOP"}]}|}
+  in
+  let parsed = Backend_gemini.parse_response response in
+  (match parsed.content with
+   | [ RedactedThinking carrier
+     ; Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = Base64 }
+     ] -> check_part_signature_carrier ~target:"image" ~signature:"sig-image" carrier
+   | _ -> fail "expected signed inline image response pair");
+  let body =
+    Backend_gemini.build_request
+      ~config:(gemini_config ())
+      ~messages:
+        [ Types.user_msg "Continue editing."
+        ; message_with_blocks Assistant parsed.content
+        ]
+      ()
+  in
+  let parts =
+    parse_body body
+    |> member "contents"
+    |> to_list
+    |> fun contents -> List.nth contents 1 |> member "parts" |> to_list
+  in
+  match parts with
+  | [ part ] ->
+    check
+      string
+      "image signature"
+      "sig-image"
+      (part |> member "thoughtSignature" |> to_string);
+    check
+      string
+      "image MIME"
+      "image/png"
+      (part |> member "inlineData" |> member "mimeType" |> to_string)
+  | _ -> fail "expected one replayed image part"
+;;
+
 let test_thought_signature_roundtrip_request () =
   let parsed =
     Backend_gemini.parse_response (function_call_with_thought_signature_json ())
@@ -1288,6 +1409,44 @@ let test_gemini_stream_textual_parts_preserve_thought_signatures () =
         | _ -> fail "expected finalized signed text and thought blocks"))
 ;;
 
+let test_gemini_stream_signed_inline_image () =
+  let state = Streaming.create_openai_stream_state () in
+  let data =
+    {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-stream-image"}]},"finishReason":"STOP"}]}|}
+  in
+  match Streaming.parse_gemini_sse_chunk data with
+  | None -> fail "expected signed image chunk"
+  | Some chunk ->
+    let events, _ = Streaming.gemini_chunk_to_events state chunk in
+    (match events with
+     | [ ContentBlockStart
+           { index = 0; content_type = "redacted_thinking"; tool_id = Some carrier; _ }
+       ; ContentBlockStart { index = 1; content_type = "image"; _ }
+       ; ContentBlockDelta
+           { index = 1
+           ; delta =
+               MediaDelta
+                 { media_type = "image/png"; source_type = Base64; data = "iVBORw0KGgo=" }
+           }
+       ; MessageDelta { stop_reason = Some EndTurn; _ }
+       ] ->
+       check_part_signature_carrier ~target:"image" ~signature:"sig-stream-image" carrier
+     | _ -> fail "expected signed image carrier and media delta");
+    let acc = Complete_stream_acc.create_stream_acc () in
+    List.iter (Complete_stream_acc.accumulate_event acc) events;
+    (match Complete_stream_acc.finalize_stream_acc acc with
+     | Ok
+         { content =
+             [ RedactedThinking carrier
+             ; Image
+                 { media_type = "image/png"; source_type = Base64; data = "iVBORw0KGgo=" }
+             ]
+         ; _
+         } ->
+       check_part_signature_carrier ~target:"image" ~signature:"sig-stream-image" carrier
+     | Ok _ | Error _ -> fail "expected finalized signed image response")
+;;
+
 let parse_gemini_chunk_exn data =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk -> chunk
@@ -1436,6 +1595,18 @@ let () =
             "textual part signature broken adjacency"
             `Quick
             test_textual_part_signature_broken_adjacency_fails_closed
+        ; test_case
+            "textual part signature requires assistant role"
+            `Quick
+            test_textual_part_signature_non_assistant_fails_closed
+        ; test_case
+            "foreign replay is not a Gemini signature"
+            `Quick
+            test_other_provider_replay_is_not_a_gemini_signature
+        ; test_case
+            "malformed replay fails closed"
+            `Quick
+            test_malformed_provider_replay_fails_closed
         ] )
     ; ( "parse_response"
       , [ test_case "text" `Quick test_parse_text_response
@@ -1449,6 +1620,14 @@ let () =
             "function call thought signature"
             `Quick
             test_parse_function_call_preserves_thought_signature
+        ; test_case
+            "blank part thought signature"
+            `Quick
+            test_blank_part_thought_signature_fails_closed
+        ; test_case
+            "signed inline image roundtrip"
+            `Quick
+            test_signed_inline_image_roundtrip
         ; test_case "usage" `Quick test_parse_usage
         ; test_case "stop reasons" `Quick test_parse_stop_reasons
         ; test_case "error" `Quick test_parse_error
@@ -1483,6 +1662,7 @@ let () =
             "textual part thought signatures"
             `Quick
             test_gemini_stream_textual_parts_preserve_thought_signatures
+        ; test_case "signed inline image" `Quick test_gemini_stream_signed_inline_image
         ; test_case
             "interleaved thinking/tool/text finalizes"
             `Quick

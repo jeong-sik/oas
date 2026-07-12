@@ -15,6 +15,11 @@ type t =
   }
 
 type malformed_reason =
+  | Invalid_json
+  | Expected_object
+  | Duplicate_field of string
+  | Unexpected_field of string
+  | Unsupported_schema
   | Unsupported_version
   | Unsupported_retention
   | Missing_payload
