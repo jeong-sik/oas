@@ -157,13 +157,13 @@ let invoke_on_run_complete agent ~ok =
          [ Log.S ("error", Printexc.to_string exn) ])
 ;;
 
-let set_terminal_lifecycle agent = function
+let set_terminal_lifecycle ~error_to_string agent = function
   | Ok _ -> set_lifecycle agent ~finished_at:(Unix.gettimeofday ()) Completed
   | Error err ->
     set_lifecycle
       agent
       ~finished_at:(Unix.gettimeofday ())
-      ~last_error:(Error.to_string err)
+      ~last_error:(error_to_string err)
       Failed
 ;;
 
@@ -201,7 +201,7 @@ let%test "raw trace final_text is absent for thinking-only responses" =
   final_text_of_response response = None
 ;;
 
-let with_raw_trace_run agent user_prompt f =
+let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f =
   (* Reset lifecycle so each run() starts fresh — allows agent reuse
      after Completed/Failed without hitting invalid transition. *)
   Eio.Mutex.use_rw ~protect:true agent.mu (fun () -> agent.lifecycle <- None);
@@ -216,76 +216,87 @@ let with_raw_trace_run agent user_prompt f =
        terminal lifecycle transition must not be skipped. *)
     (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
      | exn ->
-       set_terminal_lifecycle agent result;
+       set_terminal_lifecycle ~error_to_string agent result;
        raise exn);
-    set_terminal_lifecycle agent result;
+    set_terminal_lifecycle ~error_to_string agent result;
     result
   | Some sink ->
-    let* active =
-      Raw_trace.start_run
-        sink
-        ~agent_name:agent.state.config.name
-        ~prompt:user_prompt
-        ~model:agent.state.config.model
-        ?tool_choice:agent.state.config.tool_choice
-        ?enable_thinking:agent.state.config.enable_thinking
-        ?preserve_thinking:agent.state.config.preserve_thinking
-        ?thinking_budget:agent.state.config.thinking_budget
-        ()
-    in
-    let ts = Unix.gettimeofday () in
-    set_lifecycle
-      agent
-      ~current_run_id:(Raw_trace.active_run_id active)
-      ~accepted_at:ts
-      ~started_at:ts
-      Accepted;
-    let finalize result =
-      let final_text, stop_reason, error =
-        match result with
-        | Ok response ->
-          ( final_text_of_response response
-          , Some (Types.show_stop_reason response.stop_reason)
-          , None )
-        | Error err -> None, None, Some (Error.to_string err)
-      in
-      (* Raw trace is finished first (so a reserved exception re-raised from the
-         callback cannot leave the trace open), then on_run_complete runs before
-         the lifecycle transition per the agent_types.mli contract. *)
-      match Raw_trace.finish_run active ~final_text ~stop_reason ~error with
-      | Ok _ ->
-        (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
-         | exn ->
-           set_terminal_lifecycle agent result;
-           raise exn);
-        set_terminal_lifecycle agent result;
-        result
-      | Error err ->
-        let trace_error = Error err in
-        (try invoke_on_run_complete agent ~ok:false with
-         | exn ->
-           set_terminal_lifecycle agent trace_error;
-           raise exn);
-        set_terminal_lifecycle agent trace_error;
-        trace_error
-    in
-    (match f (Some active) with
-     | result -> finalize result
-     | exception exn ->
-       let error_msg =
-         Printf.sprintf "Unhandled exception: %s" (Printexc.to_string exn)
-       in
-       let _ =
-         Raw_trace.finish_run
-           active
-           ~final_text:None
-           ~stop_reason:None
-           ~error:(Some error_msg)
-       in
+    (match
+       Raw_trace.start_run
+         sink
+         ~agent_name:agent.state.config.name
+         ~prompt:user_prompt
+         ~model:agent.state.config.model
+         ?tool_choice:agent.state.config.tool_choice
+         ?enable_thinking:agent.state.config.enable_thinking
+         ?preserve_thinking:agent.state.config.preserve_thinking
+         ?thinking_budget:agent.state.config.thinking_budget
+         ()
+     with
+     | Error error -> Error (of_sdk_error error)
+     | Ok active ->
+       let ts = Unix.gettimeofday () in
        set_lifecycle
          agent
-         ~finished_at:(Unix.gettimeofday ())
-         ~last_error:error_msg
-         Failed;
-       raise exn)
+         ~current_run_id:(Raw_trace.active_run_id active)
+         ~accepted_at:ts
+         ~started_at:ts
+         Accepted;
+       let finalize result =
+         let final_text, stop_reason, error =
+           match result with
+           | Ok response ->
+             ( final_text_of_response response
+             , Some (Types.show_stop_reason response.stop_reason)
+             , None )
+           | Error err -> None, None, Some (error_to_string err)
+         in
+         (* Raw trace is finished first (so a reserved exception re-raised from the
+         callback cannot leave the trace open), then on_run_complete runs before
+         the lifecycle transition per the agent_types.mli contract. *)
+         match Raw_trace.finish_run active ~final_text ~stop_reason ~error with
+         | Ok _ ->
+           (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
+            | exn ->
+              set_terminal_lifecycle ~error_to_string agent result;
+              raise exn);
+           set_terminal_lifecycle ~error_to_string agent result;
+           result
+         | Error err ->
+           let trace_error = Error (of_sdk_error err) in
+           (try invoke_on_run_complete agent ~ok:false with
+            | exn ->
+              set_terminal_lifecycle ~error_to_string agent trace_error;
+              raise exn);
+           set_terminal_lifecycle ~error_to_string agent trace_error;
+           trace_error
+       in
+       (match f (Some active) with
+        | result -> finalize result
+        | exception exn ->
+          let error_msg =
+            Printf.sprintf "Unhandled exception: %s" (Printexc.to_string exn)
+          in
+          let _ =
+            Raw_trace.finish_run
+              active
+              ~final_text:None
+              ~stop_reason:None
+              ~error:(Some error_msg)
+          in
+          set_lifecycle
+            agent
+            ~finished_at:(Unix.gettimeofday ())
+            ~last_error:error_msg
+            Failed;
+          raise exn))
+;;
+
+let with_raw_trace_run agent user_prompt f =
+  with_raw_trace_run_result
+    ~of_sdk_error:Fun.id
+    ~error_to_string:Error.to_string
+    agent
+    user_prompt
+    f
 ;;

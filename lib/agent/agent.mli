@@ -148,6 +148,23 @@ type api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
+(** Additive provider-failure carrier.  Existing execution entry points are
+    exact projections of this record's [error] field. *)
+type detailed_error = Provider_failure_attribution.detailed_error =
+  { error : Error.sdk_error
+  ; provider_failure : Provider_failure_attribution.t option
+  }
+
+(** Detailed counterpart of {!run}. *)
+val run_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> string
+  -> (Types.api_response, detailed_error) result
+
 (** Run agent to completion. [on_yield] is called when the agent enters
     tool execution and [on_resume] before the next LLM turn, allowing
     callers to release/re-acquire provider capacity.
@@ -175,6 +192,16 @@ val run_blocks
   -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
 
+(** Detailed counterpart of {!run_blocks}. *)
+val run_blocks_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> Types.content_block list
+  -> (Types.api_response, detailed_error) result
+
 (** Stream a full agent run. Non-fatal exceptions raised by [on_event] are
     logged and do not abort the run. *)
 val run_stream
@@ -186,6 +213,17 @@ val run_stream
   -> t
   -> string
   -> (Types.api_response, Error.sdk_error) result
+
+(** Detailed counterpart of {!run_stream}. *)
+val run_stream_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> on_event:(Types.sse_event -> unit)
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> string
+  -> (Types.api_response, detailed_error) result
 
 (** Stream a full agent run with a user-authored content block list.
     See {!run_blocks}. *)
@@ -199,6 +237,17 @@ val run_stream_blocks
   -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
 
+(** Detailed counterpart of {!run_stream_blocks}. *)
+val run_stream_blocks_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> on_event:(Types.sse_event -> unit)
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> Types.content_block list
+  -> (Types.api_response, detailed_error) result
+
 (** Stream one agent turn. Non-fatal exceptions raised by [on_event] are
     logged and do not abort the turn. *)
 val run_turn_stream
@@ -208,6 +257,15 @@ val run_turn_stream
   -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
   -> t
   -> ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
+
+(** Detailed counterpart of {!run_turn_stream}. *)
+val run_turn_stream_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> on_event:(Types.sse_event -> unit)
+  -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
+  -> t
+  -> ([ `Complete of Types.api_response | `ToolsExecuted ], detailed_error) result
 
 (** Append an elicitation response to the agent conversation so callers that
     received {!Error.InputRequired} can resume with {!run_turn_stream} or an
@@ -225,6 +283,15 @@ val run_with_handoffs
   -> string
   -> (Types.api_response, Error.sdk_error) result
 
+(** Detailed counterpart of {!run_with_handoffs}. *)
+val run_with_handoffs_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> t
+  -> targets:Handoff.handoff_target list
+  -> string
+  -> (Types.api_response, detailed_error) result
+
 val run_with_handoffs_blocks
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
@@ -232,6 +299,15 @@ val run_with_handoffs_blocks
   -> targets:Handoff.handoff_target list
   -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
+
+(** Detailed counterpart of {!run_with_handoffs_blocks}. *)
+val run_with_handoffs_blocks_detailed
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> t
+  -> targets:Handoff.handoff_target list
+  -> Types.content_block list
+  -> (Types.api_response, detailed_error) result
 
 (** {1 Checkpoint / Resume} *)
 

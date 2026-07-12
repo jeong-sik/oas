@@ -324,7 +324,8 @@ let test_provider_failure_string_helpers () =
       , "cli_policy_invalid:rule_7" )
     ; ( Http_client.Cli_policy_invalid { tool_name = None; rule = None }
       , "cli_policy_invalid" )
-    ; Http_client.Cli_startup_failed { reason = "missing" }, "cli_startup_failed"
+    ; ( Http_client.Cli_startup_failed { reason = Http_client.Executable_unavailable }
+      , "cli_startup_failed:executable_unavailable" )
     ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
     ; ( Http_client.Empty_completion { stop_reason = Types.EndTurn }

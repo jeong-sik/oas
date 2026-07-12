@@ -40,6 +40,20 @@ val map_http_error
 
     Does not accept [retry_config]: SSE streams deliver partial results
     incrementally; retrying mid-stream would discard data. *)
+val create_message_stream_detailed
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?idle_timeout:float
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> on_event:(Types.sse_event -> unit)
+  -> unit
+  -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+
 val create_message_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t

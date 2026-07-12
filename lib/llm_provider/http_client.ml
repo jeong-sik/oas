@@ -58,6 +58,7 @@ type provider_terminal_kind =
       { turns : int
       ; limit : int
       }
+  | Session_conflict
   | Other of string
 
 type provider_failure_scope =
@@ -66,6 +67,22 @@ type provider_failure_scope =
   | Failure_scope_region
   | Failure_scope_provider
   | Failure_scope_unknown
+
+type cli_startup_failure_reason =
+  | Executable_unavailable
+  | Authentication_unavailable
+  | Session_conflict_at_startup
+  | Configuration_invalid
+  | Unknown_cli_startup_failure
+[@@deriving yojson, show]
+
+let cli_startup_failure_reason_to_string = function
+  | Executable_unavailable -> "executable_unavailable"
+  | Authentication_unavailable -> "authentication_unavailable"
+  | Session_conflict_at_startup -> "session_conflict"
+  | Configuration_invalid -> "configuration_invalid"
+  | Unknown_cli_startup_failure -> "unknown"
+;;
 
 type provider_failure_kind =
   | Capacity_exhausted of
@@ -79,7 +96,7 @@ type provider_failure_kind =
       { tool_name : string option
       ; rule : int option
       }
-  | Cli_startup_failed of { reason : string }
+  | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
   (* oas#2483: the provider returned a 200 with no deliverable content (no
      thinking, text, or tool_calls). Distinct from a parse error. Preserve the
@@ -141,7 +158,8 @@ let provider_failure_kind_to_string = function
   | Cli_policy_invalid { tool_name = None; rule = Some rule } ->
     Printf.sprintf "cli_policy_invalid:rule_%d" rule
   | Cli_policy_invalid { tool_name = None; rule = None } -> "cli_policy_invalid"
-  | Cli_startup_failed _ -> "cli_startup_failed"
+  | Cli_startup_failed { reason } ->
+    Printf.sprintf "cli_startup_failed:%s" (cli_startup_failure_reason_to_string reason)
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"

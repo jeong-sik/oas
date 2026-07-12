@@ -9,41 +9,17 @@ type create_message_error =
   | Retry_error of Retry.api_error
   | Completion_error of Llm_provider.Http_client.http_error
 
-let create_message_error_of_http_error = function
-  | Llm_provider.Http_client.HttpError { code; body } ->
-    Retry_error (Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.NetworkError
-      { message; kind = Llm_provider.Http_client.Timeout } ->
-    Retry_error (Retry.Timeout { message; phase = None })
-  | Llm_provider.Http_client.NetworkError { message; kind } ->
-    Retry_error (Retry.NetworkError { message; kind })
-  | Llm_provider.Http_client.TimeoutError { message; phase } ->
-    Retry_error (Retry.Timeout { message; phase = Some phase })
-  | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Retry_error
-      (Retry.InvalidRequest
-         { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request })
-  | Llm_provider.Http_client.ProviderTerminal { message; _ } ->
-    Retry_error (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
-  | Llm_provider.Http_client.ProviderFailure
-      { kind = Llm_provider.Http_client.Empty_completion _; _ } as err ->
-    Completion_error err
-  | Llm_provider.Http_client.ProviderFailure { kind; message } ->
-    Retry_error
-      (Retry.InvalidRequest
-         { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
-         ; reason = Unknown_invalid_request
-         })
-;;
+let create_message_error_of_http_error err = Completion_error err
 
 let retry_error_of_create_message_error = function
   | Retry_error err -> Some err
   | Completion_error err -> Llm_provider.Retry_classify.classify_retry_error err
 ;;
 
-let sdk_error_of_create_message_error = function
-  | Retry_error err -> Error.Api err
-  | Completion_error err -> Http_error_sdk.of_http_error err
+let detailed_error_of_create_message_error ~binding = function
+  | Retry_error err ->
+    Provider_failure_attribution.of_response_parse_error ~binding (Error.Api err)
+  | Completion_error err -> Provider_failure_attribution.of_http_error ~binding err
 ;;
 
 (* Re-export Api_common *)
@@ -117,7 +93,7 @@ let parse_openai_completion body_str =
     can retry or surface the failure. Without a clock no timeout is
     applied (preserves backward-compatible call sites that run outside
     an Eio domain). *)
-let create_message
+let create_message_detailed
       ~sw
       ~net
       ?(base_url = default_base_url)
@@ -152,126 +128,155 @@ let create_message
               }))
   in
   match resolve_result with
-  | Error e -> Error e
+  | Error error ->
+    Error (Provider_failure_attribution.of_provider_configuration_error error)
   | Ok (provider_cfg, base_url, api_key, header_list) ->
     let model_spec = Provider.model_spec_of_config provider_cfg in
+    let binding =
+      Binding_identity.of_resolved_provider
+        ~transport:Binding_identity.Http
+        ~provider:provider_cfg
+        ~base_url
+        ~request_path:model_spec.request_path
+        ~api_key
+    in
     let kind = model_spec.request_kind in
     let path = model_spec.request_path in
-    let body_result =
+    let request_handler_result =
       match kind with
-      | Provider.Anthropic_messages ->
-        Ok
-          (Yojson.Safe.to_string
-             (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ())))
-      | Provider.Openai_chat_completions ->
-        Api_openai.build_openai_body_result
-          ~provider_config:provider_cfg
-          ~config
-          ~messages
-          ?tools
-          ?slot_id
-          ()
+      | Provider.Anthropic_messages -> Ok `Anthropic
+      | Provider.Openai_chat_completions -> Ok `Openai
       | Provider.Custom name ->
         (match Provider.find_provider name with
-         | Some impl -> Ok (impl.build_body ~config ~messages ?tools ())
-         | None -> Ok (Yojson.Safe.to_string (`Assoc [])))
+         | Some impl -> Ok (`Custom impl)
+         | None ->
+           Error
+             (Error.Config
+                (Error.InvalidConfig
+                   { field = "provider"
+                   ; detail = Printf.sprintf "Custom provider '%s' is not registered" name
+                   })))
     in
-    (match body_result with
-     | Error reason ->
-       Error
-         (Error.Api
-            (Retry.InvalidRequest
-               { message = "Request rejected: " ^ reason
-               ; reason = Retry.Unknown_invalid_request
-               }))
-     | Ok body_str ->
-       let url = base_url ^ path in
-       let provider_kind_of_request_kind = function
-         | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
-         | Provider.Openai_chat_completions -> Llm_provider.Provider_config.OpenAI_compat
-         | Provider.Custom _ -> Llm_provider.Provider_config.OpenAI_compat
-       in
-       let do_http_call () =
-         (* Merge auth headers at request time via Provider_config so that
-         [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
-         let auth_hdrs =
-           Llm_provider.Provider_config.auth_headers_for_kind_and_key
-             ~kind:(provider_kind_of_request_kind kind)
-             ~api_key
-         in
-         match
-           Llm_provider.Http_client.post_sync
-             ?clock
-             ~timeout_s:request_timeout_s
-             ~sw
-             ~net
-             ~url
-             ~headers:(header_list @ auth_hdrs)
-             ~body:body_str
+    (match request_handler_result with
+     | Error error ->
+       Error (Provider_failure_attribution.of_runtime_binding_error ~binding error)
+     | Ok request_handler ->
+       let body_result =
+         match request_handler with
+         | `Anthropic ->
+           Ok
+             (Yojson.Safe.to_string
+                (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ())))
+         | `Openai ->
+           Api_openai.build_openai_body_result
+             ~provider_config:provider_cfg
+             ~config
+             ~messages
+             ?tools
+             ?slot_id
              ()
-         with
-         | Ok (200, body_str) -> `Ok body_str
-         | Ok (code, body_str) -> `HttpError (code, body_str)
-         | Error err -> `TransportError (create_message_error_of_http_error err)
+         | `Custom impl -> Ok (impl.build_body ~config ~messages ?tools ())
        in
-       let do_request () =
-         let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
-         let measured_latency_ms () =
-           Llm_provider.Complete_common.latency_ms_int latency_counter
-         in
-         try
-           let call_result =
-             match clock with
-             | Some clk -> Eio.Time.with_timeout_exn clk request_timeout_s do_http_call
-             | None -> do_http_call ()
-           in
-           match call_result with
-           | `Ok body_str ->
-             let lat = measured_latency_ms () in
-             let raw_resp_result =
-               match kind with
-               | Provider.Anthropic_messages ->
-                 parse_response (Yojson.Safe.from_string body_str)
-                 |> ensure_nonempty_response
-               | Provider.Openai_chat_completions ->
-                 (* Reasoning stays typed as Thinking in the parsed response; it
+       (match body_result with
+        | Error reason ->
+          let error =
+            Error.Api
+              (Retry.InvalidRequest
+                 { message = "Request rejected: " ^ reason
+                 ; reason = Retry.Unknown_invalid_request
+                 })
+          in
+          Error (Provider_failure_attribution.of_request_validation_error ~binding error)
+        | Ok body_str ->
+          let url = base_url ^ path in
+          let provider_kind =
+            match request_handler with
+            | `Anthropic -> Llm_provider.Provider_config.Anthropic
+            | `Openai | `Custom _ -> Llm_provider.Provider_config.OpenAI_compat
+          in
+          let do_http_call () =
+            (* Merge auth headers at request time via Provider_config so that
+         [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
+            let auth_hdrs =
+              Llm_provider.Provider_config.auth_headers_for_kind_and_key
+                ~kind:provider_kind
+                ~api_key
+            in
+            match
+              Llm_provider.Http_client.post_sync
+                ?clock
+                ~timeout_s:request_timeout_s
+                ~sw
+                ~net
+                ~url
+                ~headers:(header_list @ auth_hdrs)
+                ~body:body_str
+                ()
+            with
+            | Ok (200, body_str) -> `Ok body_str
+            | Ok (code, body_str) -> `HttpError (code, body_str)
+            | Error err -> `TransportError (create_message_error_of_http_error err)
+          in
+          let do_request () =
+            let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
+            let measured_latency_ms () =
+              Llm_provider.Complete_common.latency_ms_int latency_counter
+            in
+            try
+              let call_result =
+                match clock with
+                | Some clk -> Eio.Time.with_timeout_exn clk request_timeout_s do_http_call
+                | None -> do_http_call ()
+              in
+              match call_result with
+              | `Ok body_str ->
+                let lat = measured_latency_ms () in
+                let raw_resp_result =
+                  match request_handler with
+                  | `Anthropic ->
+                    parse_response (Yojson.Safe.from_string body_str)
+                    |> ensure_nonempty_response
+                  | `Openai ->
+                    (* Reasoning stays typed as Thinking in the parsed response; it
                  is no longer promoted to a Text answer block (which caused the
                  #2236 CoT re-injection loop). Display surfacing is a read-side
                  projection concern, decoupled from parsing. *)
-                 parse_openai_completion body_str
-               | Provider.Custom name ->
-                 (match Provider.find_provider name with
-                  | Some impl -> impl.parse_response body_str |> ensure_nonempty_response
-                  | None -> parse_openai_completion body_str)
-             in
-             Result.map
-               (fun resp ->
-                  Llm_provider.Pricing.annotate_response_cost resp
-                  |> fun r -> patch_latency r lat)
-               raw_resp_result
-           | `HttpError (code, body_str) ->
-             Error (Retry_error (Retry.classify_error ~status:code ~body:body_str))
-           | `TransportError err -> Error err
-         with
-         | Eio.Time.Timeout ->
-           Error
-             (Retry_error
-                (Retry.Timeout
-                   { message =
-                       Printf.sprintf
-                         "HTTP request exceeded %.1fs wall-clock timeout"
-                         request_timeout_s
-                   ; phase = None
-                   }))
-         | Eio.Io _ as exn ->
-           Error
-             (Retry_error
-                (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
-         | Unix.Unix_error _ as exn ->
-           Error
-             (Retry_error
-                (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
-         (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
+                    parse_openai_completion body_str
+                  | `Custom impl ->
+                    impl.parse_response body_str |> ensure_nonempty_response
+                in
+                Result.map
+                  (fun resp ->
+                     Llm_provider.Pricing.annotate_response_cost resp
+                     |> fun r -> patch_latency r lat)
+                  raw_resp_result
+              | `HttpError (code, body_str) ->
+                Error
+                  (Completion_error
+                     (Llm_provider.Http_client.HttpError { code; body = body_str }))
+              | `TransportError err -> Error err
+            with
+            | Eio.Time.Timeout ->
+              Error
+                (Completion_error
+                   (Llm_provider.Http_client.TimeoutError
+                      { message =
+                          Printf.sprintf
+                            "HTTP request exceeded %.1fs wall-clock timeout"
+                            request_timeout_s
+                      ; phase = Llm_provider.Http_client.Wall_clock
+                      }))
+            | Eio.Io _ as exn ->
+              Error
+                (Completion_error
+                   (Llm_provider.Http_client.NetworkError
+                      { message = Printexc.to_string exn; kind = Unknown }))
+            | Unix.Unix_error _ as exn ->
+              Error
+                (Completion_error
+                   (Llm_provider.Http_client.NetworkError
+                      { message = Printexc.to_string exn; kind = Unknown }))
+            (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
        Custom] (see the match on [kind] above), so the Gemini/Glm
@@ -279,41 +284,76 @@ let create_message
        exceptions cannot reach here. They are caught at their real
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
-         | Failure msg ->
-           Error (Retry_error (Retry.NetworkError { message = msg; kind = Unknown }))
-         | Yojson.Json_error msg ->
-           Error
-             (Retry_error
-                (Retry.InvalidRequest
-                   { message = "JSON parse error: " ^ msg
-                   ; reason = Retry.Json_parse_error
-                   }))
-         | Yojson.Safe.Util.Type_error (msg, _) ->
-           Error
-             (Retry_error
-                (Retry.InvalidRequest
-                   { message = "JSON type error: " ^ msg
-                   ; reason = Retry.Json_parse_error
-                   }))
-         | Yojson.Safe.Util.Undefined (msg, _) ->
-           Error
-             (Retry_error
-                (Retry.InvalidRequest
-                   { message = "JSON undefined field error: " ^ msg
-                   ; reason = Retry.Json_parse_error
-                   }))
-       in
-       let result =
-         match clock with
-         | Some clock ->
-           Retry.with_retry_map_error
-             ~clock
-             ?config:retry_config
-             ~classify:retry_error_of_create_message_error
-             do_request
-         | None -> do_request ()
-       in
-       Result.map_error sdk_error_of_create_message_error result)
+            | Failure msg ->
+              Error
+                (Retry_error
+                   (Retry.InvalidRequest
+                      { message = "Response parser failure: " ^ msg
+                      ; reason = Retry.Json_parse_error
+                      }))
+            | Yojson.Json_error msg ->
+              Error
+                (Retry_error
+                   (Retry.InvalidRequest
+                      { message = "JSON parse error: " ^ msg
+                      ; reason = Retry.Json_parse_error
+                      }))
+            | Yojson.Safe.Util.Type_error (msg, _) ->
+              Error
+                (Retry_error
+                   (Retry.InvalidRequest
+                      { message = "JSON type error: " ^ msg
+                      ; reason = Retry.Json_parse_error
+                      }))
+            | Yojson.Safe.Util.Undefined (msg, _) ->
+              Error
+                (Retry_error
+                   (Retry.InvalidRequest
+                      { message = "JSON undefined field error: " ^ msg
+                      ; reason = Retry.Json_parse_error
+                      }))
+          in
+          let result =
+            match clock with
+            | Some clock ->
+              Retry.with_retry_map_error
+                ~clock
+                ?config:retry_config
+                ~classify:retry_error_of_create_message_error
+                do_request
+            | None -> do_request ()
+          in
+          Result.map_error (detailed_error_of_create_message_error ~binding) result))
+;;
+
+let create_message
+      ~sw
+      ~net
+      ?base_url
+      ?provider
+      ?clock
+      ?retry_config
+      ?request_timeout_s
+      ~config
+      ~messages
+      ?tools
+      ?slot_id
+      ()
+  =
+  create_message_detailed
+    ~sw
+    ~net
+    ?base_url
+    ?provider
+    ?clock
+    ?retry_config
+    ?request_timeout_s
+    ~config
+    ~messages
+    ?tools
+    ?slot_id
+    ()
+  |> Result.map_error (fun detailed -> detailed.Provider_failure_attribution.error)
 ;;
 
 [@@@coverage off]

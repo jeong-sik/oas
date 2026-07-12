@@ -262,7 +262,14 @@ let of_provider_failure ?provider kind message =
     in
     InvalidRequest { provider; reason = reason ^ ": " ^ message }
   | Http_client.Cli_startup_failed { reason } ->
-    ProviderUnavailable { provider; detail = Printf.sprintf "%s: %s" reason message }
+    ProviderUnavailable
+      { provider
+      ; detail =
+          Printf.sprintf
+            "%s: %s"
+            (Http_client.cli_startup_failure_reason_to_string reason)
+            message
+      }
   | Http_client.Provider_parse_error { parser } ->
     let parser =
       match parser with
@@ -310,6 +317,9 @@ let of_http_error ?provider = function
       ; reason = Printf.sprintf "max_turns:%d/%d" r.turns r.limit
       ; detail = message
       }
+  | Http_client.ProviderTerminal { kind = Http_client.Session_conflict; message } ->
+    ProviderTerminal
+      { provider = provider_name provider; reason = "session_conflict"; detail = message }
   | Http_client.ProviderTerminal { kind = Http_client.Other reason; message } ->
     ProviderTerminal { provider = provider_name provider; reason; detail = message }
   | Http_client.ProviderFailure { kind; message } ->

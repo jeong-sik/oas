@@ -19,6 +19,19 @@ module type PROVIDER = sig
     -> (Types.api_response, Error.sdk_error) result
 end
 
+module type DETAILED_PROVIDER = sig
+  include PROVIDER
+
+  val create_message_detailed
+    :  sw:Eio.Switch.t
+    -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> config:Types.agent_state
+    -> messages:Types.message list
+    -> ?tools:Yojson.Safe.t list
+    -> unit
+    -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+end
+
 module type STREAMING_PROVIDER = sig
   include PROVIDER
 
@@ -35,13 +48,44 @@ module type STREAMING_PROVIDER = sig
     -> (Types.api_response, Error.sdk_error) result
 end
 
+module type DETAILED_STREAMING_PROVIDER = sig
+  include STREAMING_PROVIDER
+
+  val create_message_detailed
+    :  sw:Eio.Switch.t
+    -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> config:Types.agent_state
+    -> messages:Types.message list
+    -> ?tools:Yojson.Safe.t list
+    -> unit
+    -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+
+  val create_message_stream_detailed
+    :  sw:Eio.Switch.t
+    -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> ?clock:_ Eio.Time.clock
+    -> ?idle_timeout:float
+    -> config:Types.agent_state
+    -> messages:Types.message list
+    -> ?tools:Yojson.Safe.t list
+    -> on_event:(Types.sse_event -> unit)
+    -> unit
+    -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+end
+
 type provider_module = (module PROVIDER)
+type detailed_provider_module = (module DETAILED_PROVIDER)
 type streaming_provider_module = (module STREAMING_PROVIDER)
+type detailed_streaming_provider_module = (module DETAILED_STREAMING_PROVIDER)
 
 (** Resolve a provider config to a first-class PROVIDER module.
     Returns an error if provider configuration or credentials cannot be
     resolved (e.g. a required environment variable is missing). *)
 val of_config : Provider.config -> (provider_module, Error.sdk_error) result
+
+val of_config_detailed
+  :  Provider.config
+  -> (detailed_provider_module, Provider_failure_attribution.detailed_error) result
 
 (** Check if a provider config supports native streaming. *)
 val supports_streaming : Provider.config -> bool
@@ -53,3 +97,9 @@ val supports_streaming : Provider.config -> bool
 val of_config_streaming
   :  Provider.config
   -> (streaming_provider_module option, Error.sdk_error) result
+
+val of_config_streaming_detailed
+  :  Provider.config
+  -> ( detailed_streaming_provider_module option
+       , Provider_failure_attribution.detailed_error )
+       result

@@ -29,10 +29,29 @@ type api_strategy = Pipeline.api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
+type detailed_error = Provider_failure_attribution.detailed_error =
+  { error : Error.sdk_error
+  ; provider_failure : Provider_failure_attribution.t option
+  }
+
+let detailed_error_of_sdk_error = Provider_failure_attribution.of_sdk_error
+
+let replace_projected_error error detailed =
+  { detailed with Provider_failure_attribution.error }
+;;
+
+let project_detailed_error result =
+  Result.map_error (fun detailed -> detailed.error) result
+;;
+
+let lift_sdk_result result = Result.map_error detailed_error_of_sdk_error result
+
 (** Run a single turn via the 6-stage pipeline.
     Converts Pipeline.turn_outcome to the polymorphic variant interface
     expected by run_loop and the public API. *)
-let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
+let run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent
+  =
+  let provider_failure = ref None in
   Tracing.with_span
     agent.options.tracer
     { kind = Agent_run
@@ -58,6 +77,7 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agen
            ~api_strategy:api_strat
            ?raw_trace_run
            ?recovery_context
+           ~on_provider_failure:(fun attribution -> provider_failure := attribution)
            agent
        with
        | Ok (Pipeline.Complete response) -> Ok (`Complete response)
@@ -73,7 +93,12 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agen
                ; usage = None
                ; telemetry = None
                })
-       | Error e -> Error e)
+       | Error error -> Error { error; provider_failure = !provider_failure })
+;;
+
+let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent =
+  run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run ?recovery_context agent
+  |> project_detailed_error
 ;;
 
 (* Original run_turn_core implementation removed — now in Pipeline.run_turn.
@@ -489,7 +514,16 @@ type provider_lease =
   | Held
   | Released
 
-let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent user_blocks =
+let run_loop_detailed
+      ~sw
+      ?clock
+      ~api_strategy
+      ?on_yield
+      ?on_resume
+      ?on_activity
+      agent
+      user_blocks
+  =
   let bump_activity () =
     match on_activity with
     | Some f -> f ()
@@ -497,7 +531,11 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
   in
   let user_blocks = append_user_input agent user_blocks in
   let trace_prompt = trace_prompt_of_blocks user_blocks in
-  with_raw_trace_run agent trace_prompt
+  with_raw_trace_run_result
+    ~of_sdk_error:detailed_error_of_sdk_error
+    ~error_to_string:(fun detailed -> Error.to_string detailed.error)
+    agent
+    trace_prompt
   @@ fun raw_trace_run ->
   let yield_enabled = agent.state.config.yield_on_tool in
   let release_lease = function
@@ -522,7 +560,7 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
     let max_turns = agent.state.config.max_turns in
     let turn_start = Unix.gettimeofday () in
     let result =
-      run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run tool_withheld_agent
+      run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run tool_withheld_agent
     in
     log_turn
       ~run_start
@@ -542,25 +580,26 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
       | None -> lease
     in
     match resolve_pending_recovery ~sw ?clock agent with
-    | Error error -> Error error
+    | Error error -> Error (detailed_error_of_sdk_error error)
     | Ok () ->
       (match check_loop_guard agent with
        | Some (Error.Agent (Error.MaxTurnsExceeded _) as err)
          when agent.state.config.ensure_final_text ->
          (match run_final_answer_turn lease with
           | Ok (`Complete final_response) -> Ok final_response
-          | Ok (`ToolsExecuted _) | Error _ -> Error err)
-       | Some err -> Error err
+          | Ok (`ToolsExecuted _) -> Error (detailed_error_of_sdk_error err)
+          | Error detailed -> Error (replace_projected_error err detailed))
+       | Some err -> Error (detailed_error_of_sdk_error err)
        | None ->
          (match recovery_context_for_turn agent with
-          | Error error -> Error error
+          | Error error -> Error (detailed_error_of_sdk_error error)
           | Ok recovery_context ->
             let lease = acquire_lease lease in
             let turn_index = agent.state.turn_count + 1 in
             let max_turns = agent.state.config.max_turns in
             let turn_start = Unix.gettimeofday () in
             let result =
-              run_turn_core
+              run_turn_core_detailed
                 ~sw
                 ?clock
                 ~api_strategy
@@ -577,7 +616,7 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
                  ~turn_index
                  ~max_turns
                  ~model:agent.state.config.model
-                 ~stop:("error:" ^ Error.to_string e);
+                 ~stop:("error:" ^ Error.to_string e.error);
                Error e
              | Ok (`Complete response) ->
                log_turn
@@ -610,10 +649,23 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
                  | Some current -> register_completed_tool_round agent current
                in
                (match registered with
-                | Error error -> Error error
+                | Error error -> Error (detailed_error_of_sdk_error error)
                 | Ok () -> loop (release_lease lease)))))
   in
   loop Held
+;;
+
+let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent user_blocks =
+  run_loop_detailed
+    ~sw
+    ?clock
+    ~api_strategy
+    ?on_yield
+    ?on_resume
+    ?on_activity
+    agent
+    user_blocks
+  |> project_detailed_error
 ;;
 
 (* Start periodic callback fibers, return a stop function *)
@@ -776,27 +828,29 @@ let%test "race_idle_watchdog: returns f's result immediately on fast completion"
    Both require a clock; with neither set (or no clock) behaviour matches
    earlier versions. When both are set, the ceiling wraps the idle
    watchdog so either guard can fire. *)
-let with_optional_timeout ?clock ~last_activity agent f =
+let with_optional_timeout ?clock ~last_activity ~of_sdk_error agent f =
   let execution_timeout_error ~started_at ~timeout_sec =
     let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
     Error
-      (Error.Agent
-         (Error.AgentExecutionTimeout
-            { elapsed_sec
-            ; timeout_sec
-            ; turn_count = agent.state.turn_count
-            ; max_turns = agent.state.config.max_turns
-            }))
+      (of_sdk_error
+         (Error.Agent
+            (Error.AgentExecutionTimeout
+               { elapsed_sec
+               ; timeout_sec
+               ; turn_count = agent.state.turn_count
+               ; max_turns = agent.state.config.max_turns
+               })))
   in
   let execution_idle_timeout_error ~idle_timeout_s ~idle_for =
     Error
-      (Error.Agent
-         (Error.AgentExecutionIdleTimeout
-            { idle_sec = idle_for
-            ; idle_timeout_sec = idle_timeout_s
-            ; turn_count = agent.state.turn_count
-            ; max_turns = agent.state.config.max_turns
-            }))
+      (of_sdk_error
+         (Error.Agent
+            (Error.AgentExecutionIdleTimeout
+               { idle_sec = idle_for
+               ; idle_timeout_sec = idle_timeout_s
+               ; turn_count = agent.state.turn_count
+               ; max_turns = agent.state.config.max_turns
+               })))
   in
   match clock with
   | None -> Eio.Switch.run (fun execution_sw -> f ~sw:execution_sw)
@@ -847,7 +901,7 @@ let%test "with_optional_timeout cancels owned execution switch" =
   let released = Atomic.make false in
   let last_activity = ref (Eio.Time.now clock) in
   let result =
-    with_optional_timeout ~clock ~last_activity agent (fun ~sw ->
+    with_optional_timeout ~clock ~last_activity ~of_sdk_error:Fun.id agent (fun ~sw ->
       Eio.Switch.on_release sw (fun () -> Atomic.set released true);
       Eio.Time.sleep clock 1.0;
       Ok ())
@@ -870,7 +924,7 @@ let%test "execution idle timeout cancels owned execution switch" =
   let released = Atomic.make false in
   let last_activity = ref (Eio.Time.now clock) in
   let result =
-    with_optional_timeout ~clock ~last_activity agent (fun ~sw ->
+    with_optional_timeout ~clock ~last_activity ~of_sdk_error:Fun.id agent (fun ~sw ->
       Eio.Switch.on_release sw (fun () -> Atomic.set released true);
       Eio.Time.sleep clock 1.0;
       Ok ())
@@ -885,11 +939,11 @@ let stop_once stop =
   fun () -> if Atomic.compare_and_set stopped false true then stop ()
 ;;
 
-let with_periodic_callbacks ~sw:_ ?clock ~last_activity agent f =
+let with_periodic_callbacks ~sw:_ ?clock ~last_activity ~of_sdk_error agent f =
   match agent.options.periodic_callbacks with
-  | [] -> with_optional_timeout ?clock ~last_activity agent f
+  | [] -> with_optional_timeout ?clock ~last_activity ~of_sdk_error agent f
   | callbacks ->
-    with_optional_timeout ?clock ~last_activity agent (fun ~sw ->
+    with_optional_timeout ?clock ~last_activity ~of_sdk_error agent (fun ~sw ->
       Eio.Switch.run
       @@ fun callback_sw ->
       let stop = start_periodic_callbacks ~sw:callback_sw ?clock callbacks |> stop_once in
@@ -914,37 +968,53 @@ let validate_run_callbacks ~on_yield ~on_resume =
   | Some _, Some _ | None, None -> Ok ()
 ;;
 
-let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
+let run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent user_blocks =
   match validate_user_input_blocks user_blocks with
-  | Error _ as err -> err
+  | Error error -> Error (detailed_error_of_sdk_error error)
   | Ok () ->
     (match validate_run_callbacks ~on_yield ~on_resume with
-     | Error _ as error -> error
+     | Error error -> Error (detailed_error_of_sdk_error error)
      | Ok () ->
        let last_activity = ref (now_or_zero clock) in
        let on_activity () = last_activity := now_or_zero clock in
-       with_periodic_callbacks ~sw ?clock ~last_activity agent (fun ~sw ->
-         run_loop
-           ~sw
-           ?clock
-           ~api_strategy:Sync
-           ?on_yield
-           ?on_resume
-           ~on_activity
-           agent
-           user_blocks))
+       with_periodic_callbacks
+         ~sw
+         ?clock
+         ~last_activity
+         ~of_sdk_error:detailed_error_of_sdk_error
+         agent
+         (fun ~sw ->
+            run_loop_detailed
+              ~sw
+              ?clock
+              ~api_strategy:Sync
+              ?on_yield
+              ?on_resume
+              ~on_activity
+              agent
+              user_blocks))
+;;
+
+let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
+  run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent user_blocks
+  |> project_detailed_error
+;;
+
+let run_detailed ~sw ?clock ?on_yield ?on_resume agent user_prompt =
+  run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent [ Text user_prompt ]
 ;;
 
 let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  run_blocks ~sw ?clock ?on_yield ?on_resume agent [ Text user_prompt ]
+  run_detailed ~sw ?clock ?on_yield ?on_resume agent user_prompt |> project_detailed_error
 ;;
 
-let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks =
+let run_stream_blocks_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks
+  =
   match validate_user_input_blocks user_blocks with
-  | Error _ as err -> err
+  | Error error -> Error (detailed_error_of_sdk_error error)
   | Ok () ->
     (match validate_run_callbacks ~on_yield ~on_resume with
-     | Error _ as error -> error
+     | Error error -> Error (detailed_error_of_sdk_error error)
      | Ok () ->
        let on_telemetry =
          Option.map
@@ -965,20 +1035,43 @@ let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_block
          on_activity ();
          protect_stream_callback caller_on_event ev
        in
-       with_periodic_callbacks ~sw ?clock ~last_activity agent (fun ~sw ->
-         run_loop
-           ~sw
-           ?clock
-           ~api_strategy:(Stream { on_event; on_telemetry })
-           ?on_yield
-           ?on_resume
-           ~on_activity
-           agent
-           user_blocks))
+       with_periodic_callbacks
+         ~sw
+         ?clock
+         ~last_activity
+         ~of_sdk_error:detailed_error_of_sdk_error
+         agent
+         (fun ~sw ->
+            run_loop_detailed
+              ~sw
+              ?clock
+              ~api_strategy:(Stream { on_event; on_telemetry })
+              ?on_yield
+              ?on_resume
+              ~on_activity
+              agent
+              user_blocks))
+;;
+
+let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks =
+  run_stream_blocks_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks
+  |> project_detailed_error
+;;
+
+let run_stream_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
+  run_stream_blocks_detailed
+    ~sw
+    ?clock
+    ~on_event
+    ?on_yield
+    ?on_resume
+    agent
+    [ Text user_prompt ]
 ;;
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
-  run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent [ Text user_prompt ]
+  run_stream_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt
+  |> project_detailed_error
 ;;
 
 (* ── Handoff support ─────────────────────────────────────────── *)
@@ -986,27 +1079,33 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
 let find_handoff_in_messages = Agent_handoff.find_handoff_in_messages
 let replace_tool_result = Agent_handoff.replace_tool_result
 
-let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
+let run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks =
   match validate_user_input_blocks user_blocks with
-  | Error _ as err -> err
+  | Error error -> Error (detailed_error_of_sdk_error error)
   | Ok () ->
     let handoff_tools = List.map Handoff.make_handoff_tool targets in
     let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
     let agent_with_handoffs = { agent with tools = all_tools } in
     let user_blocks = append_user_input agent_with_handoffs user_blocks in
     let trace_prompt = trace_prompt_of_blocks user_blocks in
-    with_raw_trace_run agent_with_handoffs trace_prompt
+    with_raw_trace_run_result
+      ~of_sdk_error:detailed_error_of_sdk_error
+      ~error_to_string:(fun detailed -> Error.to_string detailed.error)
+      agent_with_handoffs
+      trace_prompt
     @@ fun raw_trace_run ->
     let rec loop () =
       match resolve_pending_recovery ~sw ?clock agent_with_handoffs with
-      | Error error -> Error error
+      | Error error -> Error (detailed_error_of_sdk_error error)
       | Ok () ->
         (match check_loop_guard agent_with_handoffs with
-         | Some err -> Error err
+         | Some err -> Error (detailed_error_of_sdk_error err)
          | None ->
-           let* recovery_context = recovery_context_for_turn agent_with_handoffs in
+           let* recovery_context =
+             recovery_context_for_turn agent_with_handoffs |> lift_sdk_result
+           in
            (match
-              run_turn_core
+              run_turn_core_detailed
                 ~sw
                 ?clock
                 ~api_strategy:Sync
@@ -1022,6 +1121,7 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                 | None -> Ok ()
                 | Some current ->
                   register_completed_tool_round agent_with_handoffs current
+                  |> lift_sdk_result
               in
               (match find_handoff_in_messages agent_with_handoffs.state.messages with
                | Some (tool_id, target_name, prompt) ->
@@ -1161,8 +1261,18 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
     loop ()
 ;;
 
+let run_with_handoffs_detailed ~sw ?clock agent ~targets user_prompt =
+  run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets [ Text user_prompt ]
+;;
+
 let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
-  run_with_handoffs_blocks ~sw ?clock agent ~targets [ Text user_prompt ]
+  run_with_handoffs_detailed ~sw ?clock agent ~targets user_prompt
+  |> project_detailed_error
+;;
+
+let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
+  run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks
+  |> project_detailed_error
 ;;
 
 (* ── Checkpoint / Resume ─────────────────────────────────────── *)
@@ -1274,7 +1384,7 @@ let checkpoint ?(session_id = "") ?working_context agent =
     ()
 ;;
 
-let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
+let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent =
   let last_activity = ref (now_or_zero clock) in
   (* Single-turn streaming: only token-level [on_event] bumps activity
      (no run_loop, so no turn-boundary signal). [caller_on_event] is the
@@ -1285,26 +1395,37 @@ let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
     last_activity := now_or_zero clock;
     protect_stream_callback caller_on_event ev
   in
-  with_optional_timeout ?clock ~last_activity agent (fun ~sw ->
-    let* () = resolve_pending_recovery ~sw ?clock agent in
-    let* recovery_context = recovery_context_for_turn agent in
-    match
-      run_turn_core
-        ~sw
-        ?clock
-        ~api_strategy:(Stream { on_event; on_telemetry })
-        ?recovery_context
-        agent
-    with
-    | Ok (`Complete response) -> Ok (`Complete response)
-    | Error error -> Error error
-    | Ok (`ToolsExecuted completed_round) ->
-      let* () =
-        match completed_round with
-        | None -> Ok ()
-        | Some current -> register_completed_tool_round agent current
-      in
-      Ok `ToolsExecuted)
+  with_optional_timeout
+    ?clock
+    ~last_activity
+    ~of_sdk_error:detailed_error_of_sdk_error
+    agent
+    (fun ~sw ->
+       let* () = resolve_pending_recovery ~sw ?clock agent |> lift_sdk_result in
+       let* recovery_context = recovery_context_for_turn agent |> lift_sdk_result in
+       match
+         run_turn_core_detailed
+           ~sw
+           ?clock
+           ~api_strategy:(Stream { on_event; on_telemetry })
+           ?recovery_context
+           agent
+       with
+       | Ok (`Complete response) -> Ok (`Complete response)
+       | Error error -> Error error
+       | Ok (`ToolsExecuted completed_round) ->
+         let* () =
+           match completed_round with
+           | None -> Ok ()
+           | Some current ->
+             register_completed_tool_round agent current |> lift_sdk_result
+         in
+         Ok `ToolsExecuted)
+;;
+
+let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
+  run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent
+  |> project_detailed_error
 ;;
 
 let save_journal agent path =
