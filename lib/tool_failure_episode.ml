@@ -11,7 +11,7 @@ type failed_attempt =
 [@@deriving yojson, show]
 
 type t =
-  { previous : failed_attempt
+  { previous : failed_attempt list
   ; current : failed_attempt
   }
 [@@deriving yojson, show]
@@ -47,13 +47,6 @@ type error =
   | Invalid_completed_round_metadata of string
   | Duplicate_run_boundary_metadata
   | Invalid_run_boundary_metadata
-  | Ambiguous_failure_signature of
-      { tool_name : string
-      ; failure_kind : tool_failure_kind
-      ; error_class : tool_error_class option
-      ; previous_count : int
-      ; current_count : int
-      }
 [@@deriving show]
 
 module String_set = Set.Make (String)
@@ -278,7 +271,12 @@ let observation_to_yojson (episode : t) =
     | None -> `Null
   in
   `Assoc
-    [ "previous_tool_use_id", `String episode.previous.tool_use_id
+    [ ( "previous_tool_use_ids"
+      , `List
+          (List.map
+             (fun (attempt : failed_attempt) -> `String attempt.tool_use_id)
+             episode.previous) )
+    ; "previous_count", `Int (List.length episode.previous)
     ; "current_tool_use_id", `String episode.current.tool_use_id
     ; "tool_name", `String episode.current.tool_name
     ; "failure_kind", tool_failure_kind_to_yojson episode.current.failure_kind
@@ -304,33 +302,14 @@ let failure_groups round =
 
 let detect ~previous ~current =
   let previous_groups = failure_groups previous in
-  let current_groups = failure_groups current in
-  let* () =
-    Failure_map.fold
-      (fun ((tool_name, failure_kind, error_class) as key) current_attempts result ->
-         let* () = result in
-         match Failure_map.find_opt key previous_groups with
-         | None -> Ok ()
-         | Some previous_attempts ->
-           let previous_count = List.length previous_attempts in
-           let current_count = List.length current_attempts in
-           if previous_count = 1 && current_count = 1
-           then Ok ()
-           else
-             Error
-               (Ambiguous_failure_signature
-                  { tool_name; failure_kind; error_class; previous_count; current_count }))
-      current_groups
-      (Ok ())
-  in
   let episodes =
     current
     |> List.filter_map failed_attempt
     |> List.filter_map (fun current_failure ->
       match Failure_map.find_opt (failure_key current_failure) previous_groups with
-      | Some [ previous_failure ] ->
-        Some { previous = previous_failure; current = current_failure }
-      | None | Some [] | Some (_ :: _ :: _) -> None)
+      | Some (_ :: _ as previous_failures) ->
+        Some { previous = List.rev previous_failures; current = current_failure }
+      | None | Some [] -> None)
   in
   Ok episodes
 ;;
