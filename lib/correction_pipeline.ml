@@ -17,7 +17,8 @@ type det_result =
       ; corrections : correction list
       }
   | Still_invalid of
-      { errors : Tool_input_validation.field_error list
+      { corrected : Yojson.Safe.t
+      ; errors : Tool_input_validation.field_error list
       ; attempted : correction list
       }
 
@@ -186,7 +187,7 @@ let run ~schema ?(stages = default_stages) input =
   | Tool_input_validation.Valid final ->
     Fixed { corrected = final; corrections = all_corrections }
   | Tool_input_validation.Invalid errors ->
-    Still_invalid { errors; attempted = all_corrections }
+    Still_invalid { corrected; errors; attempted = all_corrections }
 ;;
 
 (* ── Det/NonDet boundary ────────────────────────────────── *)

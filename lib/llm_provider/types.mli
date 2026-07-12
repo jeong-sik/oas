@@ -59,6 +59,24 @@ type tool_failure_kind =
   | Non_retryable_tool_error
 [@@deriving yojson, show]
 
+type tool_failure_provenance =
+  { failure_kind : tool_failure_kind
+  ; error_class : tool_error_class option
+  }
+[@@deriving show]
+
+(** A tool result has one authoritative outcome. Provider serializers derive
+    their wire-level [is_error] flag from this value. The legacy case exists
+    only for failed provider/checkpoint rows that predate typed provenance. *)
+type tool_result_outcome =
+  | Tool_succeeded
+  | Tool_failed of tool_failure_provenance
+  | Legacy_unclassified_failure
+[@@deriving show]
+
+val tool_failure_kind_is_recoverable : tool_failure_kind -> bool
+val tool_result_outcome_is_error : tool_result_outcome -> bool
+
 type tool_error =
   { message : string
   ; recoverable : bool
@@ -66,6 +84,10 @@ type tool_error =
   }
 
 type tool_result = (tool_output, tool_error) result
+
+(** Lower an authoritative outcome to the hook/event-facing tool result.
+    Unclassified legacy failures are conservatively non-recoverable. *)
+val tool_result_of_outcome : content:string -> tool_result_outcome -> tool_result
 
 type tool_param =
   { name : string
@@ -154,11 +176,7 @@ type content_block =
   | ToolResult of
       { tool_use_id : string
       ; content : string
-      ; is_error : bool
-      ; failure_kind : tool_failure_kind option
-        (** Execution classification, when the result originated inside OAS. *)
-      ; error_class : tool_error_class option
-        (** Provider-neutral error class supplied by the tool boundary. *)
+      ; outcome : tool_result_outcome
       ; json : Yojson.Safe.t option (** Structured payload when parseable. *)
       ; content_blocks : content_block list option
         (** Structured multi-block result (e.g. text + image). When [Some],
@@ -202,8 +220,10 @@ module Conversation_metadata : sig
   type run_boundary =
     | Absent
     | Present
-    | Malformed
+    | Invalid
+    | Duplicate
 
+  val run_boundary_entry : string * Yojson.Safe.t
   val run_boundary : metadata
   val classify_run_boundary : metadata -> run_boundary
 
@@ -558,9 +578,7 @@ val try_parse_json : string -> Yojson.Safe.t option
 val tool_result_msg
   :  tool_use_id:string
   -> content:string
-  -> ?is_error:bool
-  -> ?failure_kind:tool_failure_kind
-  -> ?error_class:tool_error_class
+  -> ?outcome:tool_result_outcome
   -> ?json:Yojson.Safe.t
   -> unit
   -> message

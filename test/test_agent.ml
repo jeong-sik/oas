@@ -145,9 +145,7 @@ let test_replace_existing () =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "old result"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -163,15 +161,15 @@ let test_replace_existing () =
       msgs
       ~tool_id:"t1"
       ~content:"new result"
-      ~is_error:false
+      ~outcome:Tool_succeeded
   in
   let last = List.nth updated (List.length updated - 1) in
   Alcotest.(check bool) "legacy role preserved" true (last.role = User);
   match last.content with
-  | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
+  | [ ToolResult { tool_use_id; content; outcome; _ } ] ->
     Alcotest.(check string) "id preserved" "t1" tool_use_id;
     Alcotest.(check string) "content replaced" "new result" content;
-    Alcotest.(check bool) "not error" false is_error
+    Alcotest.(check bool) "not error" false (tool_result_outcome_is_error outcome)
   | _ -> Alcotest.fail "expected single ToolResult"
 ;;
 
@@ -190,15 +188,17 @@ let test_replace_missing_appends () =
       msgs
       ~tool_id:"t99"
       ~content:"injected"
-      ~is_error:true
+      ~outcome:
+        (Tool_failed
+           { failure_kind = Non_retryable_tool_error; error_class = Some Unknown })
   in
   let last = List.nth updated (List.length updated - 1) in
   Alcotest.(check bool) "fallback role" true (last.role = Tool);
   match last.content with
-  | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
+  | [ ToolResult { tool_use_id; content; outcome; _ } ] ->
     Alcotest.(check string) "id" "t99" tool_use_id;
     Alcotest.(check string) "content" "injected" content;
-    Alcotest.(check bool) "is error" true is_error
+    Alcotest.(check bool) "is error" true (tool_result_outcome_is_error outcome)
   | _ -> Alcotest.fail "expected appended ToolResult"
 ;;
 
@@ -209,18 +209,14 @@ let test_replace_preserves_other_results () =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "keep"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "replace me"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -236,17 +232,19 @@ let test_replace_preserves_other_results () =
       msgs
       ~tool_id:"t2"
       ~content:"replaced"
-      ~is_error:true
+      ~outcome:
+        (Tool_failed
+           { failure_kind = Non_retryable_tool_error; error_class = Some Unknown })
   in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ ToolResult { tool_use_id = "t1"; content = c1; is_error = e1; _ }
-    ; ToolResult { tool_use_id = "t2"; content = c2; is_error = e2; _ }
+  | [ ToolResult { tool_use_id = "t1"; content = c1; outcome = o1; _ }
+    ; ToolResult { tool_use_id = "t2"; content = c2; outcome = o2; _ }
     ] ->
     Alcotest.(check string) "t1 unchanged" "keep" c1;
-    Alcotest.(check bool) "t1 no error" false e1;
+    Alcotest.(check bool) "t1 no error" false (tool_result_outcome_is_error o1);
     Alcotest.(check string) "t2 replaced" "replaced" c2;
-    Alcotest.(check bool) "t2 error" true e2
+    Alcotest.(check bool) "t2 error" true (tool_result_outcome_is_error o2)
   | other ->
     Alcotest.fail (Printf.sprintf "unexpected content: %d blocks" (List.length other))
 ;;

@@ -23,9 +23,10 @@ val message_of_response
   -> Hooks.elicitation_response
   -> Types.message option
 
+(** [true] only when an external User message was appended. *)
 val apply_response
   :  ?metadata:Types.metadata
   -> Agent_types.t
   -> Error.input_required
   -> Hooks.elicitation_response
-  -> unit
+  -> bool

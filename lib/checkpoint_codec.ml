@@ -77,16 +77,17 @@ let result_all items =
 let checkpoint_content_block_to_json block =
   let wire_json = Api.content_block_to_json block in
   match block, wire_json with
-  | ToolResult { failure_kind; error_class; _ }, `Assoc fields ->
+  | ToolResult { outcome; _ }, `Assoc fields ->
     let provenance =
-      (match failure_kind with
-       | Some kind -> [ "failure_kind", Types.tool_failure_kind_to_yojson kind ]
-       | None -> [])
-      @
-      match error_class with
-      | Some error_class ->
-        [ "error_class", Types.tool_error_class_to_yojson error_class ]
-      | None -> []
+      match outcome with
+      | Tool_succeeded | Legacy_unclassified_failure -> []
+      | Tool_failed { failure_kind; error_class } ->
+        [ "failure_kind", Types.tool_failure_kind_to_yojson failure_kind ]
+        @
+          (match error_class with
+          | Some error_class ->
+            [ "error_class", Types.tool_error_class_to_yojson error_class ]
+          | None -> [])
     in
     `Assoc (fields @ provenance)
   | ( ( Text _
@@ -129,7 +130,12 @@ let content_block_of_json_strict json =
     match Api.content_block_of_json json with
     | Some
         (ToolResult
-           { tool_use_id; content; is_error; json = parsed_json; content_blocks; _ }) ->
+           { tool_use_id
+           ; content
+           ; outcome = wire_outcome
+           ; json = parsed_json
+           ; content_blocks
+           }) ->
       let* failure_kind =
         optional_typed_field
           ~field:"failure_kind"
@@ -143,16 +149,30 @@ let content_block_of_json_strict json =
           ~decode:Types.tool_error_class_of_yojson
           json
       in
+      let* outcome =
+        match wire_outcome, failure_kind, error_class with
+        | Tool_succeeded, None, None -> Ok Tool_succeeded
+        | Tool_succeeded, _, _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail =
+                      "Checkpoint ToolResult marks success but contains failure \
+                       provenance"
+                  }))
+        | (Legacy_unclassified_failure | Tool_failed _), Some failure_kind, error_class ->
+          Ok (Tool_failed { failure_kind; error_class })
+        | (Legacy_unclassified_failure | Tool_failed _), None, None ->
+          Ok Legacy_unclassified_failure
+        | (Legacy_unclassified_failure | Tool_failed _), None, Some _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint ToolResult has error_class without failure_kind"
+                  }))
+      in
       Ok
-        (ToolResult
-           { tool_use_id
-           ; content
-           ; is_error
-           ; failure_kind
-           ; error_class
-           ; json = parsed_json
-           ; content_blocks
-           })
+        (ToolResult { tool_use_id; content; outcome; json = parsed_json; content_blocks })
     | Some block -> Ok block
     | None ->
       let open Yojson.Safe.Util in

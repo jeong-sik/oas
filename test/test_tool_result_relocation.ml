@@ -36,16 +36,9 @@ let rm_rf dir =
   | _ -> ()
 ;;
 
-let tool_result ?(is_error = false) id content : Types.content_block =
+let tool_result ?(outcome = Types.Tool_succeeded) id content : Types.content_block =
   Types.ToolResult
-    { tool_use_id = id
-    ; content
-    ; is_error
-    ; failure_kind = None
-    ; error_class = None
-    ; json = None
-    ; content_blocks = None
-    }
+    { tool_use_id = id; content; outcome; json = None; content_blocks = None }
 ;;
 
 let asst_msg text : Types.message =
@@ -218,17 +211,15 @@ let test_make_tool_results_with_relocation () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "read"
+      ; input = `Null
       ; content = String.make 200 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "echo"
+      ; input = `Null
       ; content = "small"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -279,10 +270,9 @@ let test_make_tool_results_persist_failure_freezes_kept () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "..."
       ; tool_name = "read"
+      ; input = `Null
       ; content = original
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -324,17 +314,15 @@ let test_make_tool_results_publishes_content_replacement_events () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "big"
       ; tool_name = "read"
+      ; input = `Null
       ; content = String.make 40 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "small"
       ; tool_name = "echo"
+      ; input = `Null
       ; content = "ok"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -510,24 +498,21 @@ let test_aggregate_budget_persists_largest () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
+      ; input = `Null
       ; content = String.make 8000 'a'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "b"
+      ; input = `Null
       ; content = String.make 5000 'b'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t3"
       ; tool_name = "c"
+      ; input = `Null
       ; content = String.make 4000 'c'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -584,10 +569,9 @@ let test_aggregate_budget_disabled () =
   let mock_results : Agent_tools.tool_execution_result list =
     [ { tool_use_id = "t1"
       ; tool_name = "a"
+      ; input = `Null
       ; content = String.make 8000 'x'
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in

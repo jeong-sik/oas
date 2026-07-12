@@ -273,9 +273,11 @@ let normalize_for_model (msgs : message list) ~(target_model : string) : message
                        { tool_use_id = id
                        ; content =
                            Printf.sprintf "[truncated: %s result unavailable]" name
-                       ; is_error = true
-                       ; failure_kind = None
-                       ; error_class = None
+                       ; outcome =
+                           Tool_failed
+                             { failure_kind = Non_retryable_tool_error
+                             ; error_class = Some Deterministic
+                             }
                        ; json = None
                        ; content_blocks = None
                        }

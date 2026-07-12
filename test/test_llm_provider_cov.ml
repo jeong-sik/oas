@@ -398,9 +398,9 @@ let test_content_block_to_json_tool_result () =
       (ToolResult
          { tool_use_id = "tu1"
          ; content = "done"
-         ; is_error = true
-         ; failure_kind = Some Validation_error
-         ; error_class = Some Deterministic
+         ; outcome =
+             Tool_failed
+               { failure_kind = Validation_error; error_class = Some Deterministic }
          ; json = None
          ; content_blocks = None
          })
@@ -503,7 +503,9 @@ let test_content_block_of_json_tool_result () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = false; _ }) -> ()
+  | Some
+      (ToolResult { tool_use_id = "tu1"; content = "done"; outcome = Tool_succeeded; _ })
+    -> ()
   | _ -> Alcotest.fail "tool_result roundtrip"
 ;;
 
@@ -516,7 +518,7 @@ let test_content_block_of_json_tool_result_no_is_error () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (ToolResult { is_error = false; _ }) -> ()
+  | Some (ToolResult { outcome = Tool_succeeded; _ }) -> ()
   | _ -> Alcotest.fail "tool_result default is_error"
 ;;
 
@@ -628,6 +630,53 @@ let test_message_to_json_tool () =
   Alcotest.(check string) "tool -> user" "user" (json |> member "role" |> to_string)
 ;;
 
+let test_tool_result_followup_merge_preserves_internal_metadata () =
+  let tool_result =
+    Types.make_message
+      ~role:Tool
+      [ ToolResult
+          { tool_use_id = "tu1"
+          ; content = "failed"
+          ; outcome =
+              Tool_failed
+                { failure_kind = Recoverable_tool_error
+                ; error_class = Some Deterministic
+                }
+          ; json = None
+          ; content_blocks = None
+          }
+      ]
+  in
+  let boundary = Types.Conversation_metadata.run_boundary_entry in
+  let followup =
+    Types.make_message ~metadata:[ boundary ] ~role:User [ Text "continue" ]
+  in
+  match Api_common.merge_tool_result_followup_user_messages [ tool_result; followup ] with
+  | [ merged ] ->
+    Alcotest.(check bool)
+      "tool result retained"
+      true
+      (List.exists
+         (function
+           | Types.ToolResult { tool_use_id = "tu1"; _ } -> true
+           | _ -> false)
+         merged.content);
+    Alcotest.(check bool)
+      "follow-up retained"
+      true
+      (List.exists
+         (function
+           | Types.Text "continue" -> true
+           | _ -> false)
+         merged.content);
+    Alcotest.(check bool)
+      "internal metadata retained"
+      true
+      (List.mem boundary merged.metadata)
+  | messages ->
+    Alcotest.failf "expected one merged provider message, got %d" (List.length messages)
+;;
+
 (* ═══════════════════════════════════════════════════
    4. Backend_gemini — build_request, parse_response,
       contents_of_messages
@@ -671,9 +720,7 @@ let test_contents_of_messages_tool_use () =
           [ ToolResult
               { tool_use_id = "tu1"
               ; content = "result42"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -2012,6 +2059,10 @@ let () =
         ; Alcotest.test_case "assistant" `Quick test_message_to_json_assistant
         ; Alcotest.test_case "system" `Quick test_message_to_json_system
         ; Alcotest.test_case "tool" `Quick test_message_to_json_tool
+        ; Alcotest.test_case
+            "tool follow-up internal metadata"
+            `Quick
+            test_tool_result_followup_merge_preserves_internal_metadata
         ] )
     ; ( "backend_gemini.contents_of_messages"
       , [ Alcotest.test_case "user" `Quick test_contents_of_messages_user

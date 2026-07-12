@@ -337,9 +337,7 @@ let test_resolve_params_with_tool_results () =
           [ ToolResult
               { tool_use_id = "tu_1"
               ; content = "found it"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -397,9 +395,11 @@ let test_resolve_params_error_tool_results () =
           [ ToolResult
               { tool_use_id = "tu_e"
               ; content = "permission denied"
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome =
+                  Tool_failed
+                    { failure_kind = Recoverable_tool_error
+                    ; error_class = Some Deterministic
+                    }
               ; json = None
               ; content_blocks = None
               }
@@ -420,9 +420,10 @@ let test_resolve_params_error_tool_results () =
   in
   Alcotest.(check int) "1 error result" 1 (List.length !captured_results);
   match List.hd !captured_results with
-  | Error { message; recoverable; _ } ->
+  | Error { message; recoverable; error_class } ->
     Alcotest.(check string) "error message" "permission denied" message;
-    Alcotest.(check bool) "recoverable" true recoverable
+    Alcotest.(check bool) "recoverable" true recoverable;
+    Alcotest.(check bool) "error class" true (error_class = Some Types.Deterministic)
   | Ok _ -> Alcotest.fail "expected Error result"
 ;;
 
@@ -484,10 +485,9 @@ let test_context_injection_sets_values () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_1"
       ; tool_name = "search"
+      ; input = `Assoc []
       ; content = "result text"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -525,10 +525,9 @@ let test_context_injection_none () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_n"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -574,10 +573,9 @@ let test_context_injection_extra_messages () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_m"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -609,10 +607,11 @@ let test_context_injection_error_result () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_err"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "something went wrong"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error; error_class = None }
       }
     ]
   in
@@ -644,10 +643,9 @@ let test_context_injection_raises () =
   let results =
     [ { Agent_tools.tool_use_id = "tu_ex"
       ; tool_name = "tool"
+      ; input = `Assoc []
       ; content = "ok"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in

@@ -15,10 +15,9 @@ type tool_failure_kind = Types.tool_failure_kind =
 type tool_execution_result =
   { tool_use_id : string
   ; tool_name : string
+  ; input : Yojson.Safe.t
   ; content : string
-  ; is_error : bool
-  ; failure_kind : tool_failure_kind option
-  ; error_class : Types.tool_error_class option
+  ; outcome : Types.tool_result_outcome
   }
 
 type scheduled_tool_use =
@@ -98,11 +97,6 @@ let concurrency_class_of_tool tool =
   | None -> Tool.Sequential_workspace
 ;;
 
-let recoverable_of_failure_kind = function
-  | Some Validation_error | Some Recoverable_tool_error -> true
-  | Some Non_retryable_tool_error | None -> false
-;;
-
 let json_object_keys_for_log = function
   | `Assoc fields ->
     fields |> List.map fst |> List.sort_uniq String.compare |> String.concat ","
@@ -137,7 +131,7 @@ let preview_tool_names ?(limit = 12) names =
 let unknown_tool_failure ~requested ~available =
   let available_preview = preview_tool_names available in
   let failure_kind =
-    if available = [] then Some Non_retryable_tool_error else Some Validation_error
+    if available = [] then Non_retryable_tool_error else Validation_error
   in
   ( Printf.sprintf "Tool not found: %s. Available tools: %s" requested available_preview
   , failure_kind )
@@ -155,23 +149,24 @@ let resolve_tool_call tool_index name input =
      | None -> name, input, None, None)
 ;;
 
-let tool_failure_result ~id ~name ~content ~error_class =
+let tool_failure_result ~id ~name ~input ~content ~error_class =
   { tool_use_id = id
   ; tool_name = name
+  ; input
   ; content
-  ; is_error = true
-  ; failure_kind = Some Non_retryable_tool_error
-  ; error_class = Some error_class
+  ; outcome =
+      Tool_failed
+        { failure_kind = Non_retryable_tool_error; error_class = Some error_class }
   }
 ;;
 
-let blocked_tool_result ~id ~name ~content =
-  tool_failure_result ~id ~name ~content ~error_class:Types.Deterministic
+let blocked_tool_result ~id ~name ~input ~content =
+  tool_failure_result ~id ~name ~input ~content ~error_class:Types.Deterministic
 ;;
 
-let tool_exception_result ~id ~name exn =
+let tool_exception_result ~id ~name ~input exn =
   let content = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
-  tool_failure_result ~id ~name ~content ~error_class:Types.Unknown
+  tool_failure_result ~id ~name ~input ~content ~error_class:Types.Unknown
 ;;
 
 let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
@@ -190,9 +185,9 @@ let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
       ]
 ;;
 
-let approval_required_without_callback_result ~id ~name =
+let approval_required_without_callback_result ~id ~name ~input =
   let reason = "approval required but no approval callback is registered" in
-  blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
+  blocked_tool_result ~id ~name ~input ~content:("Tool rejected: " ^ reason)
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
@@ -333,13 +328,16 @@ let find_and_execute_tool_with_index
     try
       match tool_opt with
       | Some tool ->
-        let validation_error_result message =
+        let validation_error_result ~input message =
           { tool_use_id = id
           ; tool_name = name
+          ; input
           ; content = message
-          ; is_error = true
-          ; failure_kind = Some Validation_error
-          ; error_class = None
+          ; outcome =
+              Tool_failed
+                { failure_kind = Validation_error
+                ; error_class = Some Types.Deterministic
+                }
           }
         in
         let emit_post_tool_use_failure ~input message =
@@ -411,7 +409,7 @@ let find_and_execute_tool_with_index
                 ; Log.S ("changed_fields", changed_fields)
                 ]);
             Ok corrected
-          | Correction_pipeline.Still_invalid { errors; attempted } ->
+          | Correction_pipeline.Still_invalid { corrected; errors; attempted } ->
             Log.warn
               _log
               "correction_pipeline still invalid after deterministic fixes"
@@ -424,15 +422,16 @@ let find_and_execute_tool_with_index
             let message =
               Correction_pipeline.build_nondet_feedback
                 ~tool_name:name
-                ~args:input
+                ~args:corrected
                 ~still_invalid:errors
                 ~attempted
             in
-            emit_post_tool_use_failure ~input message;
-            Error message
+            emit_post_tool_use_failure ~input:corrected message;
+            Error (corrected, message)
         in
         (match validated_input with
-         | Error msg -> validation_error_result msg
+         | Error (corrected_input, msg) ->
+           validation_error_result ~input:corrected_input msg
          | Ok coerced_input ->
            let shell_constraint_result =
              match Tool.descriptor tool with
@@ -446,7 +445,7 @@ let find_and_execute_tool_with_index
            (match shell_constraint_result with
             | Tool_middleware.Reject { message; _ } ->
               emit_post_tool_use_failure ~input:coerced_input message;
-              validation_error_result message
+              validation_error_result ~input:coerced_input message
             | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
               let t0 = Unix.gettimeofday () in
               let result = Tool.execute ~context tool coerced_input in
@@ -507,24 +506,22 @@ let find_and_execute_tool_with_index
                       (Hooks.OnToolError { tool_name = name; error = message })
                     : Hooks.hook_decision)
                | Ok _ -> ());
-              let content, is_error, failure_kind, error_class =
+              let content, outcome =
                 match result with
-                | Ok { content; _meta = _ } -> content, false, None, None
+                | Ok { content; _meta = _ } -> content, Tool_succeeded
                 | Error { message; recoverable; error_class } ->
                   let failure_kind =
-                    Some
-                      (if recoverable
-                       then Recoverable_tool_error
-                       else Non_retryable_tool_error)
+                    if recoverable
+                    then Recoverable_tool_error
+                    else Non_retryable_tool_error
                   in
-                  message, true, failure_kind, error_class
+                  message, Tool_failed { failure_kind; error_class }
               in
               { tool_use_id = id
               ; tool_name = name
+              ; input = coerced_input
               ; content
-              ; is_error
-              ; failure_kind
-              ; error_class
+              ; outcome
               }))
         (* Tool_middleware validation match *)
       | None ->
@@ -558,33 +555,22 @@ let find_and_execute_tool_with_index
            : Hooks.hook_decision);
         { tool_use_id = id
         ; tool_name = requested_name
+        ; input
         ; content = message
-        ; is_error = true
-        ; failure_kind
-        ; error_class = Some Types.Deterministic
+        ; outcome = Tool_failed { failure_kind; error_class = Some Types.Deterministic }
         }
     with
     | Out_of_memory -> raise Out_of_memory
     | Stack_overflow -> raise Stack_overflow
     | Sys.Break -> raise Sys.Break
     | Eio.Cancel.Cancelled _ as ex -> raise ex
-    | exn -> tool_exception_result ~id ~name exn
+    | exn -> tool_exception_result ~id ~name ~input exn
   in
   (* ToolCompleted event *)
   (match event_bus with
    | Some bus ->
      let output_content = result.content in
-     let is_error = result.is_error in
-     let output : Types.tool_result =
-       if is_error
-       then
-         Error
-           { message = output_content
-           ; recoverable = recoverable_of_failure_kind result.failure_kind
-           ; error_class = result.error_class
-           }
-       else Ok { content = output_content; _meta = None }
-     in
+     let output = Types.tool_result_of_outcome ~content:output_content result.outcome in
      (try
         Event_bus.publish
           bus
@@ -711,18 +697,16 @@ let execute_scheduled_tool
            | Hooks.Skip ->
              { tool_use_id = id
              ; tool_name = name
+             ; input
              ; content = "Tool execution skipped by hook"
-             ; is_error = false
-             ; failure_kind = None
-             ; error_class = None
+             ; outcome = Tool_succeeded
              }
            | Hooks.Override value ->
              { tool_use_id = id
              ; tool_name = name
+             ; input
              ; content = value
-             ; is_error = false
-             ; failure_kind = None
-             ; error_class = None
+             ; outcome = Tool_succeeded
              }
            | Hooks.ApprovalRequired ->
              (match approval with
@@ -753,7 +737,7 @@ let execute_scheduled_tool
                      _log
                      "ApprovalRequired but no approval callback — rejecting"
                      [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                   approval_required_without_callback_result ~id ~name)
+                   approval_required_without_callback_result ~id ~name ~input)
               | Some approve_fn ->
                 (match approve_fn ~tool_name:name ~input with
                  | Hooks.Approve ->
@@ -773,7 +757,11 @@ let execute_scheduled_tool
                      input
                      id
                  | Hooks.Reject reason ->
-                   blocked_tool_result ~id ~name ~content:("Tool rejected: " ^ reason)
+                   blocked_tool_result
+                     ~id
+                     ~name
+                     ~input
+                     ~content:("Tool rejected: " ^ reason)
                  | Hooks.Edit new_input ->
                    find_and_execute_tool_with_index
                      ~context
@@ -842,6 +830,7 @@ let execute_scheduled_tool
              blocked_tool_result
                ~id
                ~name
+               ~input
                ~content:
                  (Printf.sprintf
                     "Tool execution blocked: hook pre_tool_use failed at %s: %s"
@@ -852,7 +841,7 @@ let execute_scheduled_tool
                 executes no tool; the reason string becomes the tool result
                 content verbatim. Distinct from [Hooks.Override] (soft nudge,
                 is_error=false) and [Hooks.HookFailed] (infra failure). *)
-             blocked_tool_result ~id ~name ~content:reason
+             blocked_tool_result ~id ~name ~input ~content:reason
          with
          | Out_of_memory -> raise Out_of_memory
          | Stack_overflow -> raise Stack_overflow
@@ -864,10 +853,13 @@ let execute_scheduled_tool
            in
            { tool_use_id = id
            ; tool_name = name
+           ; input
            ; content = msg
-           ; is_error = true
-           ; failure_kind = Some Non_retryable_tool_error
-           ; error_class = Some Types.Unknown
+           ; outcome =
+               Tool_failed
+                 { failure_kind = Non_retryable_tool_error
+                 ; error_class = Some Types.Unknown
+                 }
            })
   in
   let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
@@ -880,7 +872,7 @@ let execute_scheduled_tool
           ; tool_name = name
           ; idempotency_key = idem_key
           ; output_json = `String triple.content
-          ; is_error = triple.is_error
+          ; is_error = Types.tool_result_outcome_is_error triple.outcome
           ; duration_ms = duration_ms_tool
           ; timestamp = Unix.gettimeofday ()
           })
@@ -892,7 +884,7 @@ let execute_scheduled_tool
          ~tool_use_id:id
          ~tool_name:name
          ~content:triple.content
-         ~is_error:triple.is_error)
+         ~is_error:(Types.tool_result_outcome_is_error triple.outcome))
    | None -> ());
   index, triple
 ;;

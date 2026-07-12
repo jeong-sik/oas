@@ -67,6 +67,22 @@ let test_coercion_impossible () =
     Alcotest.(check bool) "has errors" true (List.length errors > 0)
 ;;
 
+let test_partial_correction_is_retained_on_failure () =
+  let schema = make_schema [ int_param "count" true; str_param "name" true ] in
+  let input = `Assoc [ "count", `String "42" ] in
+  match Correction_pipeline.run ~schema input with
+  | Fixed _ -> Alcotest.fail "expected missing name to remain invalid"
+  | Still_invalid { corrected; errors; _ } ->
+    Alcotest.(check int)
+      "coerced candidate"
+      42
+      Yojson.Safe.Util.(corrected |> member "count" |> to_int);
+    Alcotest.(check bool)
+      "missing field retained"
+      true
+      (List.exists (fun error -> error.Tool_input_validation.path = "/name") errors)
+;;
+
 (* ── Stage 2: Default Injection ─────────────────────────── *)
 
 let test_default_missing_optional () =
@@ -259,6 +275,10 @@ let () =
       , [ Alcotest.test_case "string to int" `Quick test_coercion_string_to_int
         ; Alcotest.test_case "string to bool" `Quick test_coercion_string_to_bool
         ; Alcotest.test_case "impossible coercion" `Quick test_coercion_impossible
+        ; Alcotest.test_case
+            "partial correction retained"
+            `Quick
+            test_partial_correction_is_retained_on_failure
         ] )
     ; ( "default_injection"
       , [ Alcotest.test_case "missing optional" `Quick test_default_missing_optional

@@ -547,16 +547,31 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                 ?relocation:agent.options.tool_result_relocation
                 results
             in
-            let completed_round =
-              match Tool_failure_episode.project ~tool_uses ~tool_results with
-              | Ok round -> Ok (Some round)
-              | Error error ->
-                Error
-                  (Error.Agent
-                     (Error.ToolFailureRecoveryFailed
-                        { stage = Error.Round_projection
-                        ; detail = Tool_failure_episode.show_error error
-                        }))
+            let* completed_round, completed_round_metadata =
+              match agent.tool_failure_judge with
+              | None -> Ok (None, [])
+              | Some _ ->
+                let executions =
+                  List.map
+                    (fun (result : Agent_tools.tool_execution_result) ->
+                       { Tool_failure_episode.tool_use_id = result.tool_use_id
+                       ; tool_name = result.tool_name
+                       ; input = result.input
+                       })
+                    results
+                in
+                (match Tool_failure_episode.project ~executions ~tool_results with
+                 | Ok round ->
+                   Ok
+                     ( Some round
+                     , [ Tool_failure_episode.completed_round_metadata executions ] )
+                 | Error error ->
+                   Error
+                     (Error.Agent
+                        (Error.ToolFailureRecoveryFailed
+                           { stage = Error.Round_projection
+                           ; detail = Tool_failure_episode.show_error error
+                           })))
             in
             (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)
@@ -569,7 +584,13 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
               let messages =
                 match tool_results with
                 | [] -> s.messages
-                | _ -> Util.snoc s.messages (make_message ~role:Tool tool_results)
+                | _ ->
+                  Util.snoc
+                    s.messages
+                    (make_message
+                       ~metadata:completed_round_metadata
+                       ~role:Tool
+                       tool_results)
               in
               let messages =
                 match !pending_nudge with
@@ -601,7 +622,6 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
                User warning and canned Assistant terminal response are removed;
                typed recovery owns repeated failed-tool judgment. *)
             ignore idle_handled;
-            let* completed_round = completed_round in
             Ok (ToolsExecuted completed_round)))
 ;;
 
@@ -1210,18 +1230,14 @@ let%test "last_tool_results_from finds tool results in last tool message" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "result1"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "error msg"
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Legacy_unclassified_failure
               ; json = None
               ; content_blocks = None
               }
@@ -1234,7 +1250,7 @@ let%test "last_tool_results_from finds tool results in last tool message" =
   in
   match last_tool_results_from msgs with
   | [ Ok { content = "result1"; _meta = _ }
-    ; Error { message = "error msg"; recoverable = true; error_class = None }
+    ; Error { message = "error msg"; recoverable = false; error_class = None }
     ] -> true
   | _ -> false
 ;;
@@ -1246,9 +1262,7 @@ let%test "last_tool_results_from skips non-tool user messages" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "first"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -1318,9 +1332,7 @@ let%test "last_tool_results_from picks last tool-result message" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "first"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -1340,9 +1352,7 @@ let%test "last_tool_results_from picks last tool-result message" =
           [ ToolResult
               { tool_use_id = "t2"
               ; content = "second"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -1366,9 +1376,7 @@ let%test "last_tool_results_from mixed content in user message" =
           ; ToolResult
               { tool_use_id = "t1"
               ; content = "ok"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
@@ -1392,9 +1400,7 @@ let%test "last_tool_results_from error tool result" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "fail msg"
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Legacy_unclassified_failure
               ; json = None
               ; content_blocks = None
               }
@@ -1406,7 +1412,7 @@ let%test "last_tool_results_from error tool result" =
     ]
   in
   match last_tool_results_from msgs with
-  | [ Error { message = "fail msg"; recoverable = true; error_class = None } ] -> true
+  | [ Error { message = "fail msg"; recoverable = false; error_class = None } ] -> true
   | _ -> false
 ;;
 
@@ -1454,27 +1460,21 @@ let%test "last_tool_results_from multiple tool results in one message" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "r1"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "r2"
-              ; is_error = false
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Tool_succeeded
               ; json = None
               ; content_blocks = None
               }
           ; ToolResult
               { tool_use_id = "t3"
               ; content = "r3"
-              ; is_error = true
-              ; failure_kind = None
-              ; error_class = None
+              ; outcome = Legacy_unclassified_failure
               ; json = None
               ; content_blocks = None
               }

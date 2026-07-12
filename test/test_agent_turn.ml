@@ -577,36 +577,37 @@ let test_make_tool_results () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "tool-1"
+      ; input = `Null
       ; content = "success output"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "t2"
       ; tool_name = "tool-2"
+      ; input = `Null
       ; content = "error msg"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = Some Types.Deterministic
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error
+            ; error_class = Some Types.Deterministic
+            }
       }
     ]
   in
   let blocks = Agent_turn.make_tool_results results in
   Alcotest.(check int) "2 results" 2 (List.length blocks);
   match List.hd blocks with
-  | Types.ToolResult { tool_use_id; is_error; _ } ->
+  | Types.ToolResult { tool_use_id; outcome; _ } ->
     Alcotest.(check string) "id" "t1" tool_use_id;
-    Alcotest.(check bool) "not error" false is_error;
+    Alcotest.(check bool) "not error" false (Types.tool_result_outcome_is_error outcome);
     (match List.nth blocks 1 with
-     | Types.ToolResult { failure_kind; error_class; _ } ->
-       Alcotest.(check bool)
-         "failure kind preserved"
-         true
-         (failure_kind = Some Types.Recoverable_tool_error);
-       Alcotest.(check bool)
-         "error class preserved"
-         true
-         (error_class = Some Types.Deterministic)
+     | Types.ToolResult
+         { outcome =
+             Tool_failed
+               { failure_kind = Types.Recoverable_tool_error
+               ; error_class = Some Types.Deterministic
+               }
+         ; _
+         } -> ()
      | _ -> Alcotest.fail "expected second ToolResult")
   | _ -> Alcotest.fail "expected ToolResult"
 ;;
@@ -833,10 +834,9 @@ let test_apply_context_injection_no_injector () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -862,10 +862,9 @@ let test_apply_context_injection_with_context_update () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "found it"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -899,10 +898,9 @@ let test_apply_context_injection_with_extra_messages () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -940,10 +938,9 @@ let test_apply_context_injection_exception_handled () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -971,10 +968,13 @@ let test_apply_context_injection_preserves_non_retryable_error () =
   let results =
     [ { Agent_tools.tool_use_id = "t1"
       ; tool_name = "search"
+      ; input = `Assoc [ "q", `String "test" ]
       ; content = "fatal"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Non_retryable_tool_error
-      ; error_class = Some Types.Deterministic
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Non_retryable_tool_error
+            ; error_class = Some Types.Deterministic
+            }
       }
     ]
   in

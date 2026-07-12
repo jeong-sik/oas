@@ -198,6 +198,42 @@ let test_agent_elicit_input_without_callback_pauses () =
   | Ok _ -> Alcotest.fail "expected InputRequired"
 ;;
 
+let test_provide_input_marks_only_appended_answers () =
+  Eio_main.run
+  @@ fun env ->
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      Ok {|{"action":"defer","reason":"unused"}|})
+  in
+  let agent = Agent.create ~net:env#net ~tool_failure_judge:judge () in
+  let request : Hooks.elicitation_request =
+    { question = "Which environment?"; schema = None; timeout_s = None }
+  in
+  let input : Error.input_required =
+    { request_id = "input-1"
+    ; participant_name = Some "human-reviewer"
+    ; question = request.question
+    ; schema = request.schema
+    ; timeout_s = request.timeout_s
+    ; created_at = 0.0
+    }
+  in
+  Agent.provide_input agent input Hooks.Declined;
+  Alcotest.(check int)
+    "decline appends nothing"
+    0
+    (List.length (Agent.state agent).messages);
+  Agent.provide_input agent input (Hooks.Answer (`String "prod"));
+  match List.rev (Agent.state agent).messages with
+  | message :: _ ->
+    Alcotest.(check bool)
+      "answer starts a durable recovery run"
+      true
+      (Types.Conversation_metadata.classify_run_boundary message.metadata
+       = Types.Conversation_metadata.Present)
+  | [] -> Alcotest.fail "expected appended answer"
+;;
+
 let () =
   let open Alcotest in
   run
@@ -228,6 +264,10 @@ let () =
             "ElicitInput without callback returns InputRequired"
             `Quick
             test_agent_elicit_input_without_callback_pauses
+        ; test_case
+            "provide_input marks appended answers"
+            `Quick
+            test_provide_input_marks_only_appended_answers
         ] )
     ]
 ;;

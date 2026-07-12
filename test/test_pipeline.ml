@@ -423,7 +423,7 @@ let repeated_invalid_tool_response id : Types.api_response =
   }
 ;;
 
-let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
+let test_repeated_validation_error_without_judge_continues_to_provider () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -435,7 +435,15 @@ let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
     match !provider_calls with
     | 1 | 2 ->
       repeated_invalid_tool_response (Printf.sprintf "invalid-%d" !provider_calls)
-    | _ -> Alcotest.fail "unexpected third provider call"
+    | 3 ->
+      { Types.id = "validation-replanned"
+      ; model = "mock-model"
+      ; stop_reason = EndTurn
+      ; content = [ Text "provider replanned" ]
+      ; usage = None
+      ; telemetry = None
+      }
+    | _ -> Alcotest.fail "unexpected fourth provider call"
   in
   let transport : Llm_provider.Llm_transport.t =
     { complete_sync =
@@ -478,25 +486,18 @@ let test_repeated_validation_error_loop_blocks_without_third_provider_call () =
       ()
   in
   match Agent.run ~sw agent "call my_tool" with
-  | Error
-      (Error.Agent
-         (Error.ToolFailureRecoveryFailed { stage = Error.Judge_response; detail })) ->
-    Alcotest.(check int) "provider calls" 2 !provider_calls;
-    Alcotest.(check int) "tool handler not executed" 0 !executed;
-    Alcotest.(check bool) "missing judge is explicit" true (String.length detail > 0);
-    (match List.rev (Agent.state agent).messages with
-     | { Types.role = Tool
-       ; content =
-           [ ToolResult { is_error = true; failure_kind = Some Validation_error; _ } ]
-       ; _
-       }
-       :: _ -> ()
-     | _ -> Alcotest.fail "expected persisted typed validation result")
-  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
   | Ok response ->
-    Alcotest.failf
-      "expected explicit missing-judge failure, got: %s"
+    Alcotest.(check int) "provider calls" 3 !provider_calls;
+    Alcotest.(check int) "tool handler not executed" 0 !executed;
+    Alcotest.(check string)
+      "provider controls terminal response"
+      "validation-replanned"
+      response.id;
+    Alcotest.(check string)
+      "provider final text"
+      "provider replanned"
       (Types.text_of_response response)
+  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
 
 (* ── Provider_mock: additional coverage ─────────────────── *)
@@ -811,17 +812,15 @@ let test_make_tool_results_ok () =
   let results =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
+      ; input = `Null
       ; content = "result1"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "tu2"
       ; tool_name = "tool-2"
+      ; input = `Null
       ; content = "result2"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ]
   in
@@ -830,8 +829,11 @@ let test_make_tool_results_ok () =
   List.iter
     (fun block ->
        match block with
-       | Types.ToolResult { is_error; _ } ->
-         Alcotest.(check bool) "not error" false is_error
+       | Types.ToolResult { outcome; _ } ->
+         Alcotest.(check bool)
+           "not error"
+           false
+           (Types.tool_result_outcome_is_error outcome)
        | _ -> Alcotest.fail "expected ToolResult")
     tool_results
 ;;
@@ -840,17 +842,18 @@ let test_make_tool_results_error () =
   let results =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
+      ; input = `Null
       ; content = "failed"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error; error_class = None }
       }
     ]
   in
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "1 tool result" 1 (List.length tool_results);
   match List.hd tool_results with
-  | Types.ToolResult { is_error = true; content; _ } ->
+  | Types.ToolResult { outcome = Tool_failed _; content; _ } ->
     Alcotest.(check bool) "error content" true (String.length content > 0)
   | _ -> Alcotest.fail "expected error ToolResult"
 ;;
@@ -859,17 +862,17 @@ let test_make_tool_results_mixed () =
   let results =
     [ { Agent_tools.tool_use_id = "tu1"
       ; tool_name = "tool-1"
+      ; input = `Null
       ; content = "good"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       }
     ; { tool_use_id = "tu2"
       ; tool_name = "tool-2"
+      ; input = `Null
       ; content = "bad"
-      ; is_error = true
-      ; failure_kind = Some Agent_tools.Recoverable_tool_error
-      ; error_class = None
+      ; outcome =
+          Tool_failed
+            { failure_kind = Agent_tools.Recoverable_tool_error; error_class = None }
       }
     ]
   in
@@ -1326,9 +1329,9 @@ let () =
             `Quick
             test_pipeline_tool_recovery_rejects_openai_compat_provider
         ; Alcotest.test_case
-            "repeated validation error loop blocks"
+            "repeated validation error without judge continues"
             `Quick
-            test_repeated_validation_error_loop_blocks_without_third_provider_call
+            test_repeated_validation_error_without_judge_continues_to_provider
         ; Alcotest.test_case "extra system context" `Quick test_prepare_turn_extra_context
         ; Alcotest.test_case
             "tool filter override"

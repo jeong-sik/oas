@@ -118,7 +118,6 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
     ; model = "mock-model"
     ; system_prompt = Some "base system"
     ; max_turns = 0
-    ; yield_on_tool = true
     }
   in
   let agent =
@@ -131,6 +130,10 @@ let run_scenario env ~judge_json ?(fail_recovery_checkpoint = false) () =
       ~tool_failure_judge:judge
       ()
   in
+  Alcotest.(check bool)
+    "judge enables tool yielding"
+    true
+    (Agent.state agent).config.yield_on_tool;
   let result =
     Agent.run
       ~sw
@@ -238,19 +241,177 @@ let test_checkpoint_failure_does_not_commit_receipt () =
   Alcotest.(check int) "no third main call" 2 (List.length scenario.requests)
 ;;
 
+let test_checkpoint_roundtrip_preserves_canonical_rounds () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario =
+    run_scenario
+      env
+      ~judge_json:{|{"action":"ask_user","question":"Which repository?"}|}
+      ()
+  in
+  let checkpoint = Agent.checkpoint ~session_id:"typed-recovery" scenario.agent in
+  let restored = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json checkpoint)) in
+  match Tool_failure_episode.latest_completed_rounds ~count:2 restored.messages with
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  | Ok [ current; previous ] ->
+    (match Tool_failure_episode.detect ~previous ~current with
+     | Ok [ episode ] ->
+       Alcotest.(check string) "canonical tool" "Execute" episode.current.tool_name;
+       Alcotest.(check bool)
+         "failure kind"
+         true
+         (episode.current.failure_kind = Types.Recoverable_tool_error);
+       Alcotest.(check bool)
+         "error class"
+         true
+         (episode.current.error_class = Some Types.Deterministic);
+       Alcotest.(check bool)
+         "executed input"
+         true
+         (Yojson.Safe.equal
+            episode.current.input
+            (`Assoc [ "cmd", `String "gh pr list" ]))
+     | Ok episodes ->
+       Alcotest.failf "expected one restored episode, got %d" (List.length episodes)
+     | Error error -> Alcotest.fail (Tool_failure_episode.show_error error))
+  | Ok rounds ->
+    Alcotest.failf "expected two restored rounds, got %d" (List.length rounds)
+;;
+
+let test_new_run_boundary_hides_old_receipt () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario =
+    run_scenario
+      env
+      ~judge_json:{|{"action":"ask_user","question":"Which repository?"}|}
+      ()
+  in
+  let boundary =
+    Types.make_message
+      ~metadata:Types.Conversation_metadata.run_boundary
+      ~role:Types.User
+      [ Types.Text "new request" ]
+  in
+  let messages = (Agent.state scenario.agent).messages @ [ boundary ] in
+  match Tool_failure_recovery.latest_receipt messages with
+  | Ok None -> ()
+  | Ok (Some _) -> Alcotest.fail "receipt crossed the new run boundary"
+  | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+;;
+
+let test_attach_receipt_does_not_cross_new_run_boundary () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario =
+    run_scenario
+      env
+      ~judge_json:{|{"action":"ask_user","question":"Which repository?"}|}
+      ()
+  in
+  let messages = (Agent.state scenario.agent).messages in
+  let episodes =
+    match Tool_failure_episode.latest_completed_rounds ~count:2 messages with
+    | Ok [ current; previous ] ->
+      (match Tool_failure_episode.detect ~previous ~current with
+       | Ok episodes -> episodes
+       | Error error -> Alcotest.fail (Tool_failure_episode.show_error error))
+    | Ok rounds ->
+      Alcotest.failf "expected two completed rounds, got %d" (List.length rounds)
+    | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
+  in
+  let receipt =
+    match Tool_failure_recovery.latest_receipt messages with
+    | Ok (Some receipt) -> receipt
+    | Ok None -> Alcotest.fail "expected recovery receipt"
+    | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+  in
+  let boundary =
+    Types.make_message
+      ~metadata:Types.Conversation_metadata.run_boundary
+      ~role:Types.User
+      [ Types.Text "new request" ]
+  in
+  match
+    Tool_failure_recovery.attach_receipt
+      ~messages:(messages @ [ boundary ])
+      ~episodes
+      ~receipt
+  with
+  | Error Tool_failure_recovery.Result_message_not_found -> ()
+  | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+  | Ok _ -> Alcotest.fail "receipt crossed the new run boundary"
+;;
+
+let mutate_receipt_fields messages mutate =
+  let changed = ref false in
+  let messages =
+    List.map
+      (fun (message : Types.message) ->
+         let metadata =
+           List.map
+             (fun (key, json) ->
+                match !changed, json with
+                | false, `Assoc fields when List.mem_assoc "version" fields ->
+                  changed := true;
+                  key, `Assoc (mutate fields)
+                | _ -> key, json)
+             message.metadata
+         in
+         { message with metadata })
+      messages
+  in
+  if not !changed then Alcotest.fail "recovery receipt metadata not found";
+  messages
+;;
+
+let test_receipt_record_is_closed () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario =
+    run_scenario
+      env
+      ~judge_json:{|{"action":"ask_user","question":"Which repository?"}|}
+      ()
+  in
+  let messages = (Agent.state scenario.agent).messages in
+  let check_invalid label mutate =
+    let messages = mutate_receipt_fields messages mutate in
+    match Tool_failure_recovery.latest_receipt messages with
+    | Error (Tool_failure_recovery.Invalid_receipt_metadata _) -> ()
+    | Error error ->
+      Alcotest.failf "%s: %s" label (Tool_failure_recovery.show_receipt_error error)
+    | Ok _ -> Alcotest.failf "%s: expected invalid receipt metadata" label
+  in
+  check_invalid "duplicate field" (fun fields -> ("version", `Int 1) :: fields);
+  check_invalid "unexpected field" (fun fields -> ("unexpected", `Null) :: fields)
+;;
+
 let project calls results =
-  match Tool_failure_episode.project ~tool_uses:calls ~tool_results:results with
+  let executions =
+    List.map
+      (function
+        | Types.ToolUse { id; name; input } ->
+          ({ tool_use_id = id; tool_name = name; input }
+           : Tool_failure_episode.executed_call)
+        | _ -> Alcotest.fail "expected ToolUse fixture")
+      calls
+  in
+  match Tool_failure_episode.project ~executions ~tool_results:results with
   | Ok round -> round
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
-let failed_result id =
+let failed_result id : Types.content_block =
   Types.ToolResult
     { tool_use_id = id
     ; content = "failed"
-    ; is_error = true
-    ; failure_kind = Some Recoverable_tool_error
-    ; error_class = Some Deterministic
+    ; outcome =
+        Types.Tool_failed
+          { failure_kind = Types.Recoverable_tool_error
+          ; error_class = Some Types.Deterministic
+          }
     ; json = None
     ; content_blocks = None
     }
@@ -365,8 +526,14 @@ let test_resume_does_not_correlate_across_external_user_runs () =
       ()
   in
   let boundary = Types.Conversation_metadata.run_boundary in
-  let call id : Types.content_block =
-    Types.ToolUse { id; name = "Execute"; input = `Assoc [ "cmd", `String "gh pr list" ] }
+  let input = `Assoc [ "cmd", `String "gh pr list" ] in
+  let call id : Types.content_block = Types.ToolUse { id; name = "Execute"; input } in
+  let round_metadata id =
+    [ Tool_failure_episode.completed_round_metadata
+        [ ({ tool_use_id = id; tool_name = "Execute"; input }
+           : Tool_failure_episode.executed_call)
+        ]
+    ]
   in
   let checkpoint =
     { (Agent.checkpoint seed) with
@@ -374,10 +541,16 @@ let test_resume_does_not_correlate_across_external_user_runs () =
     ; messages =
         [ message ~role:User ~content:[ Text "first request" ] ~metadata:boundary
         ; message ~role:Assistant ~content:[ call "p1" ] ~metadata:[]
-        ; message ~role:Tool ~content:[ failed_result "p1" ] ~metadata:[]
+        ; message
+            ~role:Tool
+            ~content:[ failed_result "p1" ]
+            ~metadata:(round_metadata "p1")
         ; message ~role:User ~content:[ Text "second request" ] ~metadata:boundary
         ; message ~role:Assistant ~content:[ call "c1" ] ~metadata:[]
-        ; message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
+        ; message
+            ~role:Tool
+            ~content:[ failed_result "c1" ]
+            ~metadata:(round_metadata "c1")
         ]
     }
   in
@@ -394,6 +567,56 @@ let test_resume_does_not_correlate_across_external_user_runs () =
    | Error error -> Alcotest.fail (Error.to_string error));
   Alcotest.(check int) "no cross-user judge call" 0 !judge_calls;
   Alcotest.(check int) "main provider still runs" 1 (List.length requests)
+;;
+
+let test_resume_rejects_result_without_execution_metadata () =
+  Eio_main.run
+  @@ fun env ->
+  let seed =
+    Agent.create
+      ~net:env#net
+      ~config:
+        { Types.default_config with
+          name = "missing-execution-metadata-test"
+        ; model = "mock-model"
+        ; system_prompt = Some "base system"
+        ; max_turns = 0
+        }
+      ()
+  in
+  let input = `Assoc [ "cmd", `String "gh pr list" ] in
+  let checkpoint =
+    { (Agent.checkpoint seed) with
+      turn_count = 1
+    ; messages =
+        [ message
+            ~role:User
+            ~content:[ Text "request" ]
+            ~metadata:Types.Conversation_metadata.run_boundary
+        ; message
+            ~role:Assistant
+            ~content:[ ToolUse { id = "c1"; name = "Execute"; input } ]
+            ~metadata:[]
+        ; message ~role:Tool ~content:[ failed_result "c1" ] ~metadata:[]
+        ]
+    }
+  in
+  let judge_calls = ref 0 in
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      incr judge_calls;
+      Ok {|{"action":"replan","instruction":"must not run"}|})
+  in
+  let result, requests = resumed_final_run env ~checkpoint ~judge in
+  (match result with
+   | Error
+       (Error.Agent
+          (Error.ToolFailureRecoveryFailed { stage = Error.Resume_restore; detail })) ->
+     Alcotest.(check bool) "explicit restore detail" true (String.length detail > 0)
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok _ -> Alcotest.fail "expected explicit recovery restore error");
+  Alcotest.(check int) "judge not called" 0 !judge_calls;
+  Alcotest.(check int) "provider not called" 0 (List.length requests)
 ;;
 
 let test_run_boundary_metadata_remains_provider_mergeable () =
@@ -515,9 +738,29 @@ let () =
             `Quick
             test_resume_does_not_correlate_across_external_user_runs
         ; Alcotest.test_case
+            "resume requires execution metadata"
+            `Quick
+            test_resume_rejects_result_without_execution_metadata
+        ; Alcotest.test_case
             "run boundary metadata is provider-mergeable"
             `Quick
             test_run_boundary_metadata_remains_provider_mergeable
+        ; Alcotest.test_case
+            "checkpoint preserves canonical rounds"
+            `Quick
+            test_checkpoint_roundtrip_preserves_canonical_rounds
+        ; Alcotest.test_case
+            "new run hides old receipt"
+            `Quick
+            test_new_run_boundary_hides_old_receipt
+        ; Alcotest.test_case
+            "receipt attachment respects new run"
+            `Quick
+            test_attach_receipt_does_not_cross_new_run_boundary
+        ; Alcotest.test_case
+            "receipt record is closed"
+            `Quick
+            test_receipt_record_is_closed
         ] )
     ; ( "decision_validation"
       , [ Alcotest.test_case

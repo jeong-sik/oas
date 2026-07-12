@@ -501,9 +501,7 @@ let test_strip_no_orphans () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -525,9 +523,7 @@ let test_strip_removes_orphan () =
         ; ToolResult
             { tool_use_id = "orphan-id"
             ; content = "stale"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -550,27 +546,21 @@ let test_strip_report_names_orphaned_and_duplicate_results () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
         ; ToolResult
             { tool_use_id = "t1"
             ; content = "duplicate"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
         ; ToolResult
             { tool_use_id = "orphan-id"
             ; content = "stale"
-            ; is_error = true
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Legacy_unclassified_failure
             ; json = None
             ; content_blocks = None
             }
@@ -599,27 +589,21 @@ let test_strip_preserves_matched () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
         ; ToolResult
             { tool_use_id = "orphan"
             ; content = "bad"
-            ; is_error = true
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Legacy_unclassified_failure
             ; json = None
             ; content_blocks = None
             }
         ; ToolResult
             { tool_use_id = "t2"
             ; content = "ok2"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -651,9 +635,7 @@ let test_strip_drops_results_after_interleaved_text () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -675,9 +657,7 @@ let test_strip_keeps_tool_role_results_before_nudge_text () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -704,9 +684,7 @@ let test_close_report_names_dropped_result_and_synthetic_repair () =
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "late"
-            ; is_error = false
-            ; failure_kind = None
-            ; error_class = None
+            ; outcome = Tool_succeeded
             ; json = None
             ; content_blocks = None
             }
@@ -716,9 +694,12 @@ let test_close_report_names_dropped_result_and_synthetic_repair () =
   let result, report = Serialize.close_tool_message_pairs_for_request_with_report msgs in
   Alcotest.(check int) "closed length" 3 (List.length result);
   (match List.nth result 1 with
-   | { Types.metadata; content = [ ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+   | { Types.metadata; content = [ ToolResult { tool_use_id; outcome; _ } ]; _ } ->
      Alcotest.(check string) "synthetic id" "t1" tool_use_id;
-     Alcotest.(check bool) "synthetic error" true is_error;
+     Alcotest.(check bool)
+       "synthetic error"
+       true
+       (Types.tool_result_outcome_is_error outcome);
      Alcotest.(check (option bool))
        "synthetic metadata"
        (Some true)

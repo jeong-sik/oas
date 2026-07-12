@@ -355,14 +355,8 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
             let results =
               List.filter_map
                 (function
-                  | ToolResult { content; is_error; _ } ->
-                    if is_error
-                    then
-                      Some
-                        (Error
-                           { message = content; recoverable = true; error_class = None }
-                         : tool_result)
-                    else Some (Ok { content; _meta = None } : tool_result)
+                  | ToolResult { content; outcome; _ } ->
+                    Some (Types.tool_result_of_outcome ~content outcome)
                   | Text _
                   | Thinking _
                   | ReasoningDetails _
@@ -426,26 +420,14 @@ let filter_valid_messages ~messages extra_messages =
     filter_valid last_role extra_messages
 ;;
 
-let recoverable_of_failure_kind = function
-  | Some Agent_tools.Validation_error | Some Agent_tools.Recoverable_tool_error -> true
-  | Some Agent_tools.Non_retryable_tool_error | None -> false
-;;
-
 let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
   let current_messages = ref messages in
   List.iter2
     (fun block (result : Agent_tools.tool_execution_result) ->
        match block with
        | ToolUse { name; input; _ } ->
-         let output : tool_result =
-           if result.is_error
-           then
-             Error
-               { message = result.content
-               ; recoverable = recoverable_of_failure_kind result.failure_kind
-               ; error_class = result.error_class
-               }
-           else Ok { content = result.content; _meta = None }
+         let output =
+           Types.tool_result_of_outcome ~content:result.content result.outcome
          in
          (try
             match injector ~tool_name:name ~input ~output with
@@ -611,9 +593,7 @@ let make_tool_results
          ToolResult
            { tool_use_id = result.tool_use_id
            ; content
-           ; is_error = result.is_error
-           ; failure_kind = result.failure_kind
-           ; error_class = result.error_class
+           ; outcome = result.outcome
            ; json = None
            ; content_blocks = None
            })
@@ -772,9 +752,7 @@ let make_tool_results
          ToolResult
            { tool_use_id = tid
            ; content
-           ; is_error = result.is_error
-           ; failure_kind = result.failure_kind
-           ; error_class = result.error_class
+           ; outcome = result.outcome
            ; json = None
            ; content_blocks = None
            })
@@ -786,16 +764,22 @@ let make_tool_results
 let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_result =
   { tool_use_id = id
   ; tool_name = "test"
+  ; input = `Null
   ; content
-  ; is_error
-  ; failure_kind = None
-  ; error_class = None
+  ; outcome =
+      (if is_error
+       then
+         Tool_failed
+           { failure_kind = Agent_tools.Non_retryable_tool_error
+           ; error_class = Some Types.Unknown
+           }
+       else Tool_succeeded)
   }
 ;;
 
 let single_tool_result = function
-  | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
-    Some (tool_use_id, content, is_error)
+  | [ ToolResult { tool_use_id; content; outcome; _ } ] ->
+    Some (tool_use_id, content, Types.tool_result_outcome_is_error outcome)
   | []
   | [ Text _ ]
   | [ Thinking _ ]

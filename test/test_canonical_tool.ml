@@ -244,9 +244,7 @@ let test_tool_call_none_for_non_tooluse () =
     ; Types.ToolResult
         { tool_use_id = "call_x"
         ; content = "ok"
-        ; is_error = false
-        ; failure_kind = None
-        ; error_class = None
+        ; outcome = Tool_succeeded
         ; json = None
         ; content_blocks = None
         }
@@ -272,9 +270,7 @@ let test_result_roundtrip_preserves_fields () =
     Types.ToolResult
       { tool_use_id = "call_abc"
       ; content = "3 rows"
-      ; is_error = false
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Tool_succeeded
       ; json = Some json
       ; content_blocks = Some blocks
       }
@@ -284,7 +280,7 @@ let test_result_roundtrip_preserves_fields () =
   | Some proj ->
     Alcotest.(check string) "call_id" "call_abc" proj.call_id;
     Alcotest.(check string) "content" "3 rows" proj.content;
-    Alcotest.(check bool) "is_error" false proj.is_error;
+    Alcotest.(check bool) "succeeded" true (proj.outcome = Types.Tool_succeeded);
     (match proj.structured_content with
      | Some j -> Alcotest.check json_eq "structured_content == json" json j
      | None -> Alcotest.fail "structured_content dropped");
@@ -293,21 +289,22 @@ let test_result_roundtrip_preserves_fields () =
      | None -> Alcotest.fail "content_blocks dropped")
 ;;
 
-let test_result_preserves_is_error () =
+let test_result_preserves_failure_outcome () =
   let block =
     Types.ToolResult
       { tool_use_id = "call_err"
       ; content = "boom"
-      ; is_error = true
-      ; failure_kind = None
-      ; error_class = None
+      ; outcome = Legacy_unclassified_failure
       ; json = None
       ; content_blocks = None
       }
   in
   match Ct.tool_result_of_block block with
   | Some proj ->
-    Alcotest.(check bool) "is_error preserved" true proj.is_error;
+    Alcotest.(check bool)
+      "failure outcome preserved"
+      true
+      (proj.outcome = Types.Legacy_unclassified_failure);
     Alcotest.(check (option json_eq))
       "structured_content None when json None"
       None
@@ -379,9 +376,9 @@ let () =
             `Quick
             test_result_roundtrip_preserves_fields
         ; Alcotest.test_case
-            "preserves is_error / None json"
+            "preserves failure outcome / None json"
             `Quick
-            test_result_preserves_is_error
+            test_result_preserves_failure_outcome
         ; Alcotest.test_case
             "None for non-ToolResult"
             `Quick

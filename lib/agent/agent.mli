@@ -118,10 +118,9 @@ val sdk_version : string
     options records remain source-compatible.
 
     [tool_failure_judge] installs the LLM boundary used after two adjacent
-    typed failed-tool rounds. Without one, the run fails explicitly with
-    [ToolFailureRecoveryFailed] before another provider call. It is attached
-    outside [options] for the same record-compatibility reason and must be
-    reattached on {!resume}. *)
+    typed failed-tool rounds. It is attached outside [options] for the same
+    record-compatibility reason and must be reattached on {!resume}. Installing
+    it enables tool-boundary yielding automatically. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
