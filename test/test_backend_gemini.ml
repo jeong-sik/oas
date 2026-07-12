@@ -671,6 +671,54 @@ let test_other_provider_replay_is_not_a_gemini_signature () =
   | _ -> fail "expected one assistant content"
 ;;
 
+let check_gemini_replay_payload_rejected label payload =
+  let carrier = Provider_replay.encode_exact_next_block ~payload in
+  check_raises
+    label
+    (Backend_gemini.Gemini_api_error
+       "Malformed Gemini thoughtSignature carrier in conversation history")
+    (fun () ->
+       ignore
+         (Backend_gemini.contents_of_messages
+            [ message_with_blocks Assistant [ RedactedThinking carrier; Text "visible" ] ]))
+;;
+
+let canonical_gemini_replay_payload_fields () =
+  let carrier =
+    Backend_gemini.gemini_part_thought_signature_payload
+      ~target:Backend_gemini.Gemini_text_part
+      ~thought_signature:"sig-a"
+  in
+  match Provider_replay.decode carrier with
+  | Provider_replay.Replay
+      { retention = Provider_replay.Exact_next_block; payload = `Assoc fields } -> fields
+  | Provider_replay.Not_replay | Provider_replay.Malformed_replay _
+  | Provider_replay.Replay
+      { payload = `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null
+      ; _
+      } -> fail "canonical Gemini replay encoder did not produce an object payload"
+;;
+
+let test_duplicate_gemini_replay_payload_fields_fail_closed () =
+  let fields = canonical_gemini_replay_payload_fields () in
+  [ "provider", `String "another-provider"
+  ; "kind", `String "opaque-state"
+  ; "target", `String "thought"
+  ; "thoughtSignature", `String "sig-b"
+  ]
+  |> List.iter (fun (field, conflicting_value) ->
+    check_gemini_replay_payload_rejected
+      ("duplicate " ^ field)
+      (`Assoc (fields @ [ field, conflicting_value ])))
+;;
+
+let test_unexpected_gemini_replay_payload_field_fails_closed () =
+  let fields = canonical_gemini_replay_payload_fields () in
+  check_gemini_replay_payload_rejected
+    "unexpected Gemini replay field"
+    (`Assoc (fields @ [ "unexpected", `Bool true ]))
+;;
+
 let test_malformed_provider_replay_fails_closed () =
   let carrier =
     Backend_gemini.gemini_part_thought_signature_payload
@@ -1603,6 +1651,14 @@ let () =
             "foreign replay is not a Gemini signature"
             `Quick
             test_other_provider_replay_is_not_a_gemini_signature
+        ; test_case
+            "duplicate Gemini replay fields fail closed"
+            `Quick
+            test_duplicate_gemini_replay_payload_fields_fail_closed
+        ; test_case
+            "unexpected Gemini replay field fails closed"
+            `Quick
+            test_unexpected_gemini_replay_payload_field_fails_closed
         ; test_case
             "malformed replay fails closed"
             `Quick

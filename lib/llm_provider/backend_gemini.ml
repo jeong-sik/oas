@@ -195,29 +195,51 @@ type gemini_part_signature_decode =
   | Decoded_gemini_part_signature of gemini_part_signature_target * string
   | Malformed_gemini_part_signature
 
+let gemini_part_signature_payload_mentions_gemini = function
+  | `Assoc fields ->
+    List.exists
+      (function
+        | "provider", `String "gemini" -> true
+        | "kind", `String kind -> String.equal kind gemini_part_thought_signature_kind
+        | _ -> false)
+      fields
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> false
+;;
+
 let decode_gemini_part_thought_signature data =
   match Provider_replay.decode data with
   | Provider_replay.Not_replay -> Not_gemini_part_signature
   | Provider_replay.Malformed_replay _ -> Malformed_gemini_part_signature
   | Provider_replay.Replay
       { retention = Provider_replay.Exact_next_block; payload = json } ->
-    (match string_field_opt "provider" json, string_field_opt "kind" json with
-     | Some "gemini", Some kind when String.equal kind gemini_part_thought_signature_kind
-       ->
-       (match
-          ( Option.bind
-              (string_field_opt "target" json)
-              gemini_part_signature_target_of_string
-          , exact_string_field_opt "thoughtSignature" json )
-        with
-        | Some target, Some thought_signature
-          when not (Api_common.string_is_blank thought_signature) ->
-          Decoded_gemini_part_signature (target, thought_signature)
-        | _ -> Malformed_gemini_part_signature)
-     | Some "gemini", _ -> Malformed_gemini_part_signature
-     | _, Some kind when String.equal kind gemini_part_thought_signature_kind ->
-       Malformed_gemini_part_signature
-     | _ -> Not_gemini_part_signature)
+    if not (gemini_part_signature_payload_mentions_gemini json)
+    then Not_gemini_part_signature
+    else (
+      match
+        Provider_replay.exact_object_fields
+          ~allowed:[ "provider"; "kind"; "target"; "thoughtSignature" ]
+          json
+      with
+      | Error _ -> Malformed_gemini_part_signature
+      | Ok fields ->
+        let json = `Assoc fields in
+        (match string_field_opt "provider" json, string_field_opt "kind" json with
+         | Some "gemini", Some kind
+           when String.equal kind gemini_part_thought_signature_kind ->
+           (match
+              ( Option.bind
+                  (string_field_opt "target" json)
+                  gemini_part_signature_target_of_string
+              , exact_string_field_opt "thoughtSignature" json )
+            with
+            | Some target, Some thought_signature
+              when not (Api_common.string_is_blank thought_signature) ->
+              Decoded_gemini_part_signature (target, thought_signature)
+            | _ -> Malformed_gemini_part_signature)
+         | Some "gemini", _ -> Malformed_gemini_part_signature
+         | _, Some kind when String.equal kind gemini_part_thought_signature_kind ->
+           Malformed_gemini_part_signature
+         | _ -> Not_gemini_part_signature))
 ;;
 
 let gemini_tool_signatures_of_blocks blocks =
