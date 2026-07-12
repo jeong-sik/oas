@@ -270,7 +270,9 @@ let attempt_json (attempt : Tool_failure_episode.failed_attempt) =
 
 let episode_json (episode : Tool_failure_episode.t) =
   `Assoc
-    [ "previous", attempt_json episode.previous; "current", attempt_json episode.current ]
+    [ "previous", `List (List.map attempt_json episode.previous)
+    ; "current", attempt_json episode.current
+    ]
 ;;
 
 let non_blank_string_schema = `Assoc [ "type", `String "string"; "minLength", `Int 1 ]
@@ -377,7 +379,7 @@ let decide ~sw ~agent_name ~turn ~episodes judge =
 ;;
 
 type episode_ref =
-  { previous_tool_use_id : string
+  { previous_tool_use_ids : string list
   ; current_tool_use_id : string
   ; tool_name : string
   ; failure_kind : Types.tool_failure_kind
@@ -392,7 +394,10 @@ type receipt =
   }
 
 let episode_ref (episode : Tool_failure_episode.t) =
-  { previous_tool_use_id = episode.previous.tool_use_id
+  { previous_tool_use_ids =
+      List.map
+        (fun (attempt : Tool_failure_episode.failed_attempt) -> attempt.tool_use_id)
+        episode.previous
   ; current_tool_use_id = episode.current.tool_use_id
   ; tool_name = episode.current.tool_name
   ; failure_kind = episode.current.failure_kind
@@ -423,8 +428,8 @@ type receipt_error =
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
 
-let receipt_version = 1
-let metadata_key = "oas.tool_failure_recovery.v1"
+let receipt_version = 2
+let metadata_key = "oas.tool_failure_recovery.v2"
 
 let revised_call_json (call : revised_call) =
   `Assoc
@@ -474,7 +479,8 @@ let decision_observation_to_yojson = function
 
 let episode_ref_json episode =
   `Assoc
-    [ "previous_tool_use_id", `String episode.previous_tool_use_id
+    [ ( "previous_tool_use_ids"
+      , `List (List.map (fun id -> `String id) episode.previous_tool_use_ids) )
     ; "current_tool_use_id", `String episode.current_tool_use_id
     ; "tool_name", `String episode.tool_name
     ; "failure_kind", failure_kind_json episode.failure_kind
@@ -568,6 +574,19 @@ let parse_string_receipt name fields =
   | _ -> Error (Invalid_receipt_metadata name)
 ;;
 
+let parse_string_list_receipt name fields =
+  match List.assoc_opt name fields with
+  | Some (`List values) ->
+    let rec loop acc = function
+      | [] -> Ok (List.rev acc)
+      | `String value :: rest when not (String.equal (String.trim value) "") ->
+        loop (value :: acc) rest
+      | `String _ :: _ | _ :: _ -> Error (Invalid_receipt_metadata name)
+    in
+    loop [] values
+  | _ -> Error (Invalid_receipt_metadata name)
+;;
+
 let validate_receipt_fields ~allowed fields =
   validate_fields ~allowed fields
   |> Result.map_error (fun error -> Invalid_receipt_metadata (show_response_error error))
@@ -597,7 +616,7 @@ let parse_episode_ref = function
     let* () =
       validate_receipt_fields
         ~allowed:
-          [ "previous_tool_use_id"
+          [ "previous_tool_use_ids"
           ; "current_tool_use_id"
           ; "tool_name"
           ; "failure_kind"
@@ -605,12 +624,20 @@ let parse_episode_ref = function
           ]
         fields
     in
-    let* previous_tool_use_id = parse_string_receipt "previous_tool_use_id" fields in
+    let* previous_tool_use_ids =
+      parse_string_list_receipt "previous_tool_use_ids" fields
+    in
+    let* () =
+      if previous_tool_use_ids = []
+      then Error (Invalid_receipt_metadata "previous_tool_use_ids")
+      else Ok ()
+    in
     let* current_tool_use_id = parse_string_receipt "current_tool_use_id" fields in
     let* tool_name = parse_string_receipt "tool_name" fields in
     let* failure_kind = parse_failure_kind fields in
     let* error_class = parse_error_class fields in
-    Ok { previous_tool_use_id; current_tool_use_id; tool_name; failure_kind; error_class }
+    Ok
+      { previous_tool_use_ids; current_tool_use_id; tool_name; failure_kind; error_class }
   | _ -> Error (Invalid_receipt_metadata "episodes")
 ;;
 
@@ -685,7 +712,7 @@ let latest_receipt messages =
 ;;
 
 let same_episode_ref left right =
-  String.equal left.previous_tool_use_id right.previous_tool_use_id
+  left.previous_tool_use_ids = right.previous_tool_use_ids
   && String.equal left.current_tool_use_id right.current_tool_use_id
   && String.equal left.tool_name right.tool_name
   && left.failure_kind = right.failure_kind

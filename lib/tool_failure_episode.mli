@@ -19,7 +19,7 @@ type failed_attempt =
 [@@deriving yojson, show]
 
 type t =
-  { previous : failed_attempt
+  { previous : failed_attempt list
   ; current : failed_attempt
   }
 [@@deriving yojson, show]
@@ -54,13 +54,6 @@ type error =
   | Invalid_completed_round_metadata of string
   | Duplicate_run_boundary_metadata
   | Invalid_run_boundary_metadata
-  | Ambiguous_failure_signature of
-      { tool_name : string
-      ; failure_kind : Types.tool_failure_kind
-      ; error_class : Types.tool_error_class option
-      ; previous_count : int
-      ; current_count : int
-      }
 [@@deriving show]
 
 (** [project ~executions ~tool_results] pairs canonical executed calls with
@@ -91,14 +84,14 @@ val latest_completed_rounds
   -> Types.message list
   -> (completed_round list, error) result
 
-(** [detect ~previous ~current] returns one episode for each failure signature
-    that occurs exactly once in each adjacent completed round. A signature is
+(** [detect ~previous ~current] returns one episode for every current failed
+    call whose typed signature also occurred in the immediately preceding
+    completed round. A signature is
     [(tool_name, failure_kind, error_class)]; argument and error-text changes do
-    not prevent detection.
-
-    Multiple different signatures for the same tool name remain independent.
-    A signature occurring more than once in either round cannot be paired
-    without guessing and returns [Ambiguous_failure_signature]. *)
+    not prevent detection. [previous] retains the complete matching group in
+    execution order, so repeated parallel calls are represented without
+    guessing an individual pair. Multiple signatures for one tool remain
+    independent. *)
 val detect : previous:completed_round -> current:completed_round -> (t list, error) result
 
 (** External-observability projection. Includes stable tool identities and

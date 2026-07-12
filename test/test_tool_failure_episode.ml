@@ -45,12 +45,19 @@ let test_changed_input_and_error_text_detected () =
   in
   match detect previous current with
   | Ok [ episode ] ->
-    Alcotest.(check string) "previous id" "p1" episode.previous.tool_use_id;
+    Alcotest.(check (list string))
+      "previous ids"
+      [ "p1" ]
+      (List.map
+         (fun (attempt : Tool_failure_episode.failed_attempt) -> attempt.tool_use_id)
+         episode.previous);
     Alcotest.(check string) "current id" "c1" episode.current.tool_use_id;
     Alcotest.(check bool)
       "input changed"
       false
-      (Yojson.Safe.equal episode.previous.input episode.current.input)
+      (match episode.previous with
+       | [ previous ] -> Yojson.Safe.equal previous.input episode.current.input
+       | _ -> true)
   | Ok episodes -> Alcotest.failf "expected one episode, got %d" (List.length episodes)
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
@@ -132,7 +139,7 @@ let test_success_and_matching_failure_same_name_are_unambiguous () =
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
-let test_duplicate_failure_signature_is_explicit () =
+let test_repeated_failure_signature_preserves_previous_group () =
   let previous =
     project
       [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
@@ -140,11 +147,46 @@ let test_duplicate_failure_signature_is_explicit () =
   in
   let current = project [ call "c1" "Execute" `Null ] [ typed_failure "c1" "second" ] in
   match detect previous current with
-  | Error
-      (Tool_failure_episode.Ambiguous_failure_signature
-         { previous_count = 2; current_count = 1; _ }) -> ()
+  | Ok [ episode ] ->
+    Alcotest.(check (list string))
+      "complete previous group"
+      [ "p1"; "p2" ]
+      (List.map
+         (fun (attempt : Tool_failure_episode.failed_attempt) -> attempt.tool_use_id)
+         episode.previous);
+    Alcotest.(check string) "current id" "c1" episode.current.tool_use_id
+  | Ok episodes ->
+    Alcotest.failf "expected one grouped episode, got %d" (List.length episodes)
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
-  | Ok _ -> Alcotest.fail "expected typed ambiguity"
+;;
+
+let test_repeated_current_calls_each_receive_the_group () =
+  let previous =
+    project
+      [ call "p1" "Execute" `Null; call "p2" "Execute" (`String "other") ]
+      [ typed_failure "p1" "first-a"; typed_failure "p2" "first-b" ]
+  in
+  let current =
+    project
+      [ call "c1" "Execute" `Null; call "c2" "Execute" (`String "changed") ]
+      [ typed_failure "c1" "second-a"; typed_failure "c2" "second-b" ]
+  in
+  match detect previous current with
+  | Ok episodes ->
+    Alcotest.(check (list string))
+      "every current failed call remains independently addressable"
+      [ "c1"; "c2" ]
+      (List.map
+         (fun (episode : Tool_failure_episode.t) -> episode.current.tool_use_id)
+         episodes);
+    List.iter
+      (fun (episode : Tool_failure_episode.t) ->
+         Alcotest.(check int)
+           "complete previous group on each episode"
+           2
+           (List.length episode.previous))
+      episodes
+  | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
 let test_unclassified_failure_is_explicit () =
@@ -414,9 +456,13 @@ let () =
             `Quick
             test_success_and_matching_failure_same_name_are_unambiguous
         ; Alcotest.test_case
-            "duplicate failure signature"
+            "repeated failure signature preserves previous group"
             `Quick
-            test_duplicate_failure_signature_is_explicit
+            test_repeated_failure_signature_preserves_previous_group
+        ; Alcotest.test_case
+            "repeated current calls each receive the group"
+            `Quick
+            test_repeated_current_calls_each_receive_the_group
         ; Alcotest.test_case
             "unclassified failure"
             `Quick
