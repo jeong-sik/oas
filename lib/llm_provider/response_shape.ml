@@ -95,11 +95,24 @@ let summarize_blocks (content : Types.content_block list) =
 ;;
 
 let summarize (response : Types.api_response) = summarize_blocks response.content
-let has_deliverable_content shape = shape.text_chars > 0 || shape.tool_use_count > 0
+let has_deliverable_content shape =
+  shape.text_chars > 0
+  || shape.tool_use_count > 0
+  || shape.image_count > 0
+  || shape.document_count > 0
+  || shape.audio_count > 0
+;;
 
 let content_shape (response : Types.api_response) shape =
   match response.content with
   | [] -> Empty
+  | _
+    when shape.image_count + shape.document_count + shape.audio_count > 0
+         && shape.text_chars = 0
+         && shape.tool_use_count = 0
+         && shape.tool_result_count = 0
+         && shape.thinking_blocks = 0
+         && shape.redacted_thinking_blocks = 0 -> Media_only
   | _ when has_deliverable_content shape -> Has_deliverable_content
   | _
     when shape.thinking_blocks + shape.redacted_thinking_blocks > 0
@@ -128,13 +141,6 @@ let content_shape (response : Types.api_response) shape =
          && shape.image_count = 0
          && shape.document_count = 0
          && shape.audio_count = 0 -> Tool_result_only
-  | _
-    when shape.image_count + shape.document_count + shape.audio_count > 0
-         && shape.text_chars = 0
-         && shape.tool_use_count = 0
-         && shape.tool_result_count = 0
-         && shape.thinking_blocks = 0
-         && shape.redacted_thinking_blocks = 0 -> Media_only
   | _ -> Mixed_without_deliverable_content
 ;;
 
