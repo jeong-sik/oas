@@ -433,6 +433,231 @@ let sample_episodes () =
   | Error error -> Alcotest.fail (Tool_failure_episode.show_error error)
 ;;
 
+let legacy_receipt_key = "oas.tool_failure_recovery.v1"
+let current_receipt_key = "oas.tool_failure_recovery.v2"
+
+(* Frozen from agent_sdk v0.211.8 (677a7eed6) rather than derived from the
+   current v2 serializer. *)
+let legacy_receipt_v02118_golden =
+  Yojson.Safe.from_string
+    {|{"version":1,"resume_turn":2,"decided_at":42.5,"episodes":[{"previous_tool_use_id":"p1","current_tool_use_id":"c1","tool_name":"Execute","failure_kind":["Recoverable_tool_error"],"error_class":["Deterministic"]}],"decision":{"action":"retry_modified","revised_calls":[{"current_tool_use_id":"c1","tool_name":"Execute","revised_input":{"cmd":"gh pr list","cwd":"/repo"}}]}}|}
+;;
+
+let replace_current_receipt ~key ~value messages =
+  let replacements = ref 0 in
+  let messages =
+    List.map
+      (fun (message : Types.message) ->
+         let metadata =
+           List.map
+             (fun ((existing_key, _) as entry) ->
+                if String.equal existing_key current_receipt_key
+                then (
+                  incr replacements;
+                  key, value)
+                else entry)
+             message.metadata
+         in
+         { message with metadata })
+      messages
+  in
+  Alcotest.(check int) "one current receipt replaced" 1 !replacements;
+  messages
+;;
+
+let rewrite_current_receipt_as_legacy messages =
+  replace_current_receipt
+    ~key:legacy_receipt_key
+    ~value:legacy_receipt_v02118_golden
+    messages
+;;
+
+let add_legacy_receipt_beside_current messages =
+  let added = ref 0 in
+  let messages =
+    List.map
+      (fun (message : Types.message) ->
+         let metadata =
+           List.fold_right
+             (fun ((key, _) as entry) acc ->
+                if String.equal key current_receipt_key
+                then (
+                  incr added;
+                  (legacy_receipt_key, legacy_receipt_v02118_golden) :: entry :: acc)
+                else entry :: acc)
+             message.metadata
+             []
+         in
+         { message with metadata })
+      messages
+  in
+  Alcotest.(check int) "one legacy receipt added" 1 !added;
+  messages
+;;
+
+let duplicate_receipt_metadata ~key messages =
+  let duplicated = ref 0 in
+  let messages =
+    List.map
+      (fun (message : Types.message) ->
+         let metadata =
+           List.fold_right
+             (fun ((existing_key, _) as entry) acc ->
+                if String.equal existing_key key
+                then (
+                  incr duplicated;
+                  entry :: entry :: acc)
+                else entry :: acc)
+             message.metadata
+             []
+         in
+         { message with metadata })
+      messages
+  in
+  Alcotest.(check int) "one receipt duplicated" 1 !duplicated;
+  messages
+;;
+
+let map_receipt_fields map = function
+  | `Assoc fields -> `Assoc (map fields)
+  | _ -> Alcotest.fail "frozen receipt fixture is not an object"
+;;
+
+let replace_receipt_version version =
+  map_receipt_fields
+    (List.map (fun (name, value) ->
+       if String.equal name "version" then name, `Int version else name, value))
+;;
+
+let pluralize_legacy_previous_id =
+  map_receipt_fields
+    (List.map (fun (name, value) ->
+       if String.equal name "episodes"
+       then
+         ( name
+         , match value with
+           | `List episodes ->
+             `List
+               (List.map
+                  (function
+                    | `Assoc fields ->
+                      `Assoc
+                        (List.map
+                           (fun (field, value) ->
+                              if String.equal field "previous_tool_use_id"
+                              then "previous_tool_use_ids", `List [ value ]
+                              else field, value)
+                           fields)
+                    | _ -> Alcotest.fail "frozen episode fixture is not an object")
+                  episodes)
+           | _ -> Alcotest.fail "frozen receipt episodes are not a list" )
+       else name, value))
+;;
+
+let test_legacy_receipt_reads_as_singleton_group () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario = run_scenario env ~judge_json:retry_modified_json () in
+  let messages =
+    rewrite_current_receipt_as_legacy (Agent.state scenario.agent).messages
+  in
+  match Tool_failure_recovery.latest_receipt messages with
+  | Ok (Some receipt) ->
+    (match
+       Tool_failure_recovery.validate_receipt ~episodes:(sample_episodes ()) receipt
+     with
+     | Ok () -> ()
+     | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error));
+    Alcotest.(check string)
+      "legacy decision preserved"
+      retry_modified_json
+      (Tool_failure_recovery.receipt_decision receipt
+       |> Tool_failure_recovery.decision_to_yojson
+       |> Yojson.Safe.to_string)
+  | Ok None -> Alcotest.fail "expected legacy recovery receipt"
+  | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+;;
+
+let test_duplicate_receipt_metadata_is_explicit () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario = run_scenario env ~judge_json:retry_modified_json () in
+  let current_messages = (Agent.state scenario.agent).messages in
+  let receipt =
+    match Tool_failure_recovery.latest_receipt current_messages with
+    | Ok (Some receipt) -> receipt
+    | Ok None -> Alcotest.fail "expected current recovery receipt"
+    | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+  in
+  let assert_duplicate label messages =
+    match Tool_failure_recovery.latest_receipt messages with
+    | Error Tool_failure_recovery.Duplicate_receipt_metadata -> ()
+    | Error error ->
+      Alcotest.failf "%s: %s" label (Tool_failure_recovery.show_receipt_error error)
+    | Ok _ -> Alcotest.failf "%s: expected duplicate receipt metadata" label
+  in
+  let mixed_versions = add_legacy_receipt_beside_current current_messages in
+  let duplicate_current =
+    duplicate_receipt_metadata ~key:current_receipt_key current_messages
+  in
+  let duplicate_legacy =
+    current_messages
+    |> rewrite_current_receipt_as_legacy
+    |> duplicate_receipt_metadata ~key:legacy_receipt_key
+  in
+  assert_duplicate "mixed v1/v2" mixed_versions;
+  assert_duplicate "duplicate v2" duplicate_current;
+  assert_duplicate "duplicate v1" duplicate_legacy;
+  match
+    Tool_failure_recovery.attach_receipt
+      ~messages:mixed_versions
+      ~episodes:(sample_episodes ())
+      ~receipt
+  with
+  | Error Tool_failure_recovery.Duplicate_receipt_metadata -> ()
+  | Error error -> Alcotest.fail (Tool_failure_recovery.show_receipt_error error)
+  | Ok _ -> Alcotest.fail "writer accepted duplicate receipt metadata"
+;;
+
+let test_legacy_receipt_schema_mismatches_are_rejected () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario = run_scenario env ~judge_json:retry_modified_json () in
+  let current_messages = (Agent.state scenario.agent).messages in
+  let assert_version_mismatch label ~key value =
+    let messages = replace_current_receipt ~key ~value current_messages in
+    match Tool_failure_recovery.latest_receipt messages with
+    | Error (Tool_failure_recovery.Invalid_receipt_metadata "version") -> ()
+    | Error error ->
+      Alcotest.failf "%s: %s" label (Tool_failure_recovery.show_receipt_error error)
+    | Ok _ -> Alcotest.failf "%s: expected key/version mismatch" label
+  in
+  let assert_schema_mismatch label ~key value =
+    let messages = replace_current_receipt ~key ~value current_messages in
+    match Tool_failure_recovery.latest_receipt messages with
+    | Error (Tool_failure_recovery.Invalid_receipt_metadata _) -> ()
+    | Error error ->
+      Alcotest.failf "%s: %s" label (Tool_failure_recovery.show_receipt_error error)
+    | Ok _ -> Alcotest.failf "%s: expected receipt schema mismatch" label
+  in
+  assert_version_mismatch
+    "v1 key with v2 version"
+    ~key:legacy_receipt_key
+    (replace_receipt_version 2 legacy_receipt_v02118_golden);
+  assert_version_mismatch
+    "v2 key with v1 version"
+    ~key:current_receipt_key
+    legacy_receipt_v02118_golden;
+  assert_schema_mismatch
+    "v1 key with plural previous ids"
+    ~key:legacy_receipt_key
+    (pluralize_legacy_previous_id legacy_receipt_v02118_golden);
+  assert_schema_mismatch
+    "v2 key with singular previous id"
+    ~key:current_receipt_key
+    (replace_receipt_version 2 legacy_receipt_v02118_golden)
+;;
+
 let resumed_final_run env ~checkpoint ~judge =
   Eio.Switch.run
   @@ fun sw ->
@@ -501,6 +726,42 @@ let test_decision_checkpoint_resumes_without_rejudging () =
   let system_prompt = Option.value request.config.system_prompt ~default:"" in
   Alcotest.(check bool)
     "persisted control restored"
+    true
+    (String.starts_with ~prefix:"base system\n\nOAS one-turn typed" system_prompt)
+;;
+
+let test_legacy_decision_checkpoint_resumes_without_rejudging () =
+  Eio_main.run
+  @@ fun env ->
+  let scenario = run_scenario env ~judge_json:retry_modified_json () in
+  let checkpoint =
+    match scenario.decision_checkpoint with
+    | Some checkpoint ->
+      { checkpoint with messages = rewrite_current_receipt_as_legacy checkpoint.messages }
+    | None -> Alcotest.fail "missing recovery decision checkpoint"
+  in
+  let checkpoint = Checkpoint.to_json checkpoint |> Checkpoint.of_json |> Result.get_ok in
+  let judge_calls = ref 0 in
+  let judge =
+    Tool_failure_recovery.create ~complete:(fun ~sw:_ _ ->
+      incr judge_calls;
+      Ok {|{"action":"replan","instruction":"must not run"}|})
+  in
+  let result, requests = resumed_final_run env ~checkpoint ~judge in
+  (match result with
+   | Ok (`Complete response) ->
+     Alcotest.(check string)
+       "legacy resumed final text"
+       "finished"
+       (Types.text_of_response response)
+   | Ok `ToolsExecuted -> Alcotest.fail "unexpected resumed tool execution"
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check int) "legacy receipt skips judge" 0 !judge_calls;
+  Alcotest.(check int) "one resumed provider call" 1 (List.length requests);
+  let request = List.hd requests in
+  let system_prompt = Option.value request.config.system_prompt ~default:"" in
+  Alcotest.(check bool)
+    "legacy control restored"
     true
     (String.starts_with ~prefix:"base system\n\nOAS one-turn typed" system_prompt)
 ;;
@@ -765,6 +1026,10 @@ let () =
             `Quick
             test_decision_checkpoint_resumes_without_rejudging
         ; Alcotest.test_case
+            "legacy decision checkpoint resumes without rejudging"
+            `Quick
+            test_legacy_decision_checkpoint_resumes_without_rejudging
+        ; Alcotest.test_case
             "resume respects external user run boundary"
             `Quick
             test_resume_does_not_correlate_across_external_user_runs
@@ -792,6 +1057,18 @@ let () =
             "receipt record is closed"
             `Quick
             test_receipt_record_is_closed
+        ; Alcotest.test_case
+            "legacy receipt reads as singleton group"
+            `Quick
+            test_legacy_receipt_reads_as_singleton_group
+        ; Alcotest.test_case
+            "duplicate receipt metadata is explicit"
+            `Quick
+            test_duplicate_receipt_metadata_is_explicit
+        ; Alcotest.test_case
+            "legacy receipt schema mismatches are rejected"
+            `Quick
+            test_legacy_receipt_schema_mismatches_are_rejected
         ] )
     ; ( "decision_validation"
       , [ Alcotest.test_case
