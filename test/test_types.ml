@@ -1163,10 +1163,7 @@ let test_response_shape_media_only_is_deliverable () =
       , response
           ~content:
             [ Types.Image
-                { media_type = "image/png"
-                ; data = "AAAA"
-                ; source_type = Types.Base64
-                }
+                { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
             ]
           () )
     ; ( "document"
@@ -1183,10 +1180,7 @@ let test_response_shape_media_only_is_deliverable () =
       , response
           ~content:
             [ Types.Audio
-                { media_type = "audio/wav"
-                ; data = "AAAA"
-                ; source_type = Types.Base64
-                }
+                { media_type = "audio/wav"; data = "AAAA"; source_type = Types.Base64 }
             ]
           () )
     ]

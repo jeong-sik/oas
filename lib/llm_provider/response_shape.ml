@@ -95,6 +95,7 @@ let summarize_blocks (content : Types.content_block list) =
 ;;
 
 let summarize (response : Types.api_response) = summarize_blocks response.content
+
 let has_deliverable_content shape =
   shape.text_chars > 0
   || shape.tool_use_count > 0
