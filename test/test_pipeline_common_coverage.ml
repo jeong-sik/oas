@@ -154,14 +154,16 @@ let test_agent_type_create_merges_mcp_tools () =
     }
   in
   let options = { Internal_agent.default_options with mcp_clients = [ managed ] } in
-  let agent = Internal_agent.create ~net:env#net ~options () in
+  let config = Types.default_config ~model:"test-model" in
+  let agent = Internal_agent.create ~net:env#net ~config ~options () in
   check_bool "mcp tool merged" true (Tool_set.mem "echo" (Internal_agent.tools agent))
 ;;
 
 let test_agent_type_lifecycle_rejects_invalid_transition () =
   Eio_main.run
   @@ fun env ->
-  let agent = Internal_agent.create ~net:env#net () in
+  let config = Types.default_config ~model:"test-model" in
+  let agent = Internal_agent.create ~net:env#net ~config () in
   Internal_agent.set_lifecycle agent ~accepted_at:1.0 Accepted;
   Internal_agent.set_lifecycle agent ~ready_at:2.0 Ready;
   Internal_agent.set_lifecycle agent ~current_run_id:"run-1" ~started_at:3.0 Running;

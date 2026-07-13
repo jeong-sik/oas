@@ -45,9 +45,7 @@ let test_save_journal_writes_jsonl () =
   @@ fun env ->
   let journal = Durable_event.create () in
   Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
-    journal
-    (Llm_request { turn = 1; model = "m"; input_tokens = 10; timestamp = ts });
+  Durable_event.append journal (Llm_request { turn = 1; model = "m"; timestamp = ts });
   let path = Filename.temp_file "auto_dump" ".jsonl" in
   Fun.protect
     ~finally:(fun () ->
