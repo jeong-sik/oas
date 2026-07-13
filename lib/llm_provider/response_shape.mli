@@ -38,8 +38,8 @@ val content_shape : Types.api_response -> t -> content_shape
 val content_shape_to_string : content_shape -> string
 
 (** [true] when the response carries downstream-visible progress: non-blank
-    text or a tool call. Hidden thinking, tool results, and media-only blocks
-    are not deliverable progress by themselves. *)
+    text, a tool call, or an image/document/audio block. Hidden thinking and
+    tool results are not deliverable progress by themselves. *)
 val has_deliverable_content : t -> bool
 
 (** [true] when the provider response ended normally without downstream-visible

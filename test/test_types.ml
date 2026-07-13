@@ -1157,6 +1157,53 @@ let test_response_shape_thinking_plus_text_is_deliverable () =
     (Response_shape.content_shape_to_string (Response_shape.content_shape response shape))
 ;;
 
+let test_response_shape_media_only_is_deliverable () =
+  let responses =
+    [ ( "image"
+      , response
+          ~content:
+            [ Types.Image
+                { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
+            ]
+          () )
+    ; ( "document"
+      , response
+          ~content:
+            [ Types.Document
+                { media_type = "application/pdf"
+                ; data = "AAAA"
+                ; source_type = Types.Base64
+                }
+            ]
+          () )
+    ; ( "audio"
+      , response
+          ~content:
+            [ Types.Audio
+                { media_type = "audio/wav"; data = "AAAA"; source_type = Types.Base64 }
+            ]
+          () )
+    ]
+  in
+  List.iter
+    (fun (label, response) ->
+       let shape = Response_shape.summarize response in
+       Alcotest.(check bool)
+         (label ^ " is deliverable")
+         true
+         (Response_shape.has_deliverable_content shape);
+       Alcotest.(check bool)
+         (label ^ " is not an empty completion")
+         false
+         (Response_shape.ended_without_deliverable_content response);
+       Alcotest.(check string)
+         (label ^ " retains the typed media-only diagnostic")
+         "media_only"
+         (Response_shape.content_shape_to_string
+            (Response_shape.content_shape response shape)))
+    responses
+;;
+
 let test_response_shape_thinking_plus_tool_use_is_deliverable () =
   let response =
     response
@@ -1224,6 +1271,10 @@ let () =
             "thinking plus text is deliverable"
             `Quick
             test_response_shape_thinking_plus_text_is_deliverable
+        ; Alcotest.test_case
+            "media-only is deliverable"
+            `Quick
+            test_response_shape_media_only_is_deliverable
         ; Alcotest.test_case
             "thinking plus tool use is deliverable"
             `Quick
