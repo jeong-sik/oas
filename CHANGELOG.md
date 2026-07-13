@@ -44,6 +44,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.211.10](https://github.com/jeong-sik/oas/compare/v0.211.9...v0.211.10) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** migrate legacy recovery receipts ([#2584](https://github.com/jeong-sik/oas/issues/2584)) ([51481ef](https://github.com/jeong-sik/oas/commit/51481ef624960e6f501c39ac220e2973ffa2dfc5))
+* treat typed media responses as deliverable ([#2588](https://github.com/jeong-sik/oas/issues/2588)) ([902c45d](https://github.com/jeong-sik/oas/commit/902c45d2f2a99bdef919b0afc3b0a13f1a494324))
+
 ## [0.211.9](https://github.com/jeong-sik/oas/compare/v0.211.8...v0.211.9) (2026-07-12)
 
 
