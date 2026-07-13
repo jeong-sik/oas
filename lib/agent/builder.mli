@@ -19,6 +19,11 @@ val with_max_tokens : int -> t -> t
 (* [with_max_turns 0] disables the turn-count limit; positive values enforce
     a finite limit. *)
 val with_max_turns : int -> t -> t
+
+(** Remove the turn-count limit. This is the named alternative to passing the
+    representation of {!Types.unbounded_max_turns} to {!with_max_turns}. *)
+val without_turn_limit : t -> t
+
 val with_temperature : float -> t -> t
 val with_top_p : float -> t -> t
 val with_top_k : int -> t -> t

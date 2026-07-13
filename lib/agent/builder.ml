@@ -209,6 +209,7 @@ let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
 let with_max_tokens n b = { b with max_tokens = Some n }
 let with_max_turns n b = { b with max_turns = n }
+let without_turn_limit b = { b with max_turns = Types.unbounded_max_turns }
 let with_temperature t b = { b with temperature = Some t }
 let with_top_p p b = { b with top_p = Some p }
 let with_top_k k b = { b with top_k = Some k }

@@ -64,7 +64,6 @@ type latency_counter = Complete_common.latency_counter
     @since 0.78.0 *)
 val make_http_transport
   :  ?clock:_ Eio.Time.clock
-  -> ?stream_idle_timeout_s:float
   -> ?body_timeout_s:float
   -> ?connection_cache:Http_client.cache
   -> ?latency_counter:latency_counter
@@ -176,18 +175,18 @@ val complete_with_retry
     [ProviderFailure { kind = Empty_completion { stop_reason } }] for built-in
     HTTP and injected transports alike.
 
-    [clock] and [stream_idle_timeout_s] together bound two streaming
-    stalls on every HTTP streaming path: inter-line idle, and
-    thinking-only generation before the first deliverable text/tool
-    signal. The line-idle deadline covers Ollama native NDJSON
-    (see {!Http_client.read_ndjson}) and the SSE format used by
-    Anthropic, OpenAI-compatible, Gemini, and Glm
-    (see {!Http_client.read_sse}). The deadline resets after each
-    successful line. The thinking-only guard does not reset on hidden
-    reasoning deltas; it is cleared by text or tool-call progress.
-    Together these do not cap total stream duration after answer/tool
-    progress has started.
-    SSE keepalive comments reset the deadline like any other line.
+    When explicitly supplied, [clock] and [stream_idle_timeout_s] bound
+    inter-line idle on direct/built-in HTTP and transports returned by
+    {!make_http_transport}. Omitting
+    [stream_idle_timeout_s] leaves the stream without an idle deadline;
+    OAS does not infer one from the provider kind. The deadline covers
+    Ollama native NDJSON (see {!Http_client.read_ndjson}) and the SSE formats
+    used by Anthropic, Kimi, OpenAI-compatible, DashScope, Gemini, and Glm
+    (see {!Http_client.read_sse}). The deadline resets after each successful
+    NDJSON line or non-comment SSE protocol line; data lines may carry
+    reasoning, tool, or typed heartbeat events. It never caps total stream
+    duration. SSE keepalive comments carry no progress and do not reset the
+    deadline.
     A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], where [state]
     records whether the stream was waiting for the first event, answer

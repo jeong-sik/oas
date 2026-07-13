@@ -82,6 +82,11 @@ type agent_config =
   }
 [@@deriving show]
 
+(** The canonical [agent_config.max_turns] value for an unbounded run.
+    Consumers must use this value instead of copying its integer
+    representation or reading it from a default configuration snapshot. *)
+val unbounded_max_turns : int
+
 val has_finite_max_turns : int -> bool
 
 (** Build a fresh default configuration.

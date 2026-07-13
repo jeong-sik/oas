@@ -39,15 +39,6 @@ let default_connect_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
 ;;
 
-(** Default inter-chunk idle timeout (seconds) for a provider kind. For
-    Ollama the same generous bound also covers the first-token (prefill)
-    wait on large local models, which routinely exceeds the 60s cloud
-    default. Cloud providers keep 60s as a generation-stall detector. *)
-let default_stream_idle_timeout_s = function
-  | Ollama -> 600.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
-;;
-
 (** [output_schema] derived from [response_format] when no explicit
     schema is supplied. Centralised so [make] and direct record-literal
     callers stay aligned: a config that carries
@@ -375,20 +366,6 @@ let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   : (string * string) list
   =
   auth_headers_for_kind_and_secret ~kind ~api_key:(Secret.of_string api_key)
-;;
-
-let max_turns_hard_cap = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
-;;
-
-let clamp_max_turns kind requested =
-  match max_turns_hard_cap kind with
-  | Some cap -> min requested cap
-  | None -> requested
-;;
-
-let default_attempt_timeout_s = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
 type reasoning_effort = Reasoning_effort.t =

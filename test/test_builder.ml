@@ -107,6 +107,22 @@ let test_with_max_turns () =
   Alcotest.(check int) "max_turns" 25 (Agent.state agent).config.max_turns
 ;;
 
+let test_without_turn_limit () =
+  with_net
+  @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_max_turns 25
+    |> Builder.without_turn_limit
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check int)
+    "max_turns"
+    Types.unbounded_max_turns
+    (Agent.state agent).config.max_turns
+;;
+
 (* --- 6. with_temperature --- *)
 
 let test_with_temperature () =
@@ -905,6 +921,7 @@ let () =
         ; Alcotest.test_case "name" `Quick test_with_name
         ; Alcotest.test_case "max_tokens" `Quick test_with_max_tokens
         ; Alcotest.test_case "max_turns" `Quick test_with_max_turns
+        ; Alcotest.test_case "without turn limit" `Quick test_without_turn_limit
         ; Alcotest.test_case "temperature" `Quick test_with_temperature
         ; Alcotest.test_case "dashscope sampling" `Quick test_with_provider_m_sampling
         ; Alcotest.test_case "tools replaces" `Quick test_with_tools_replaces

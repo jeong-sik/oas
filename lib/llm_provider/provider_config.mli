@@ -31,7 +31,6 @@ type provider_kind = Provider_kind.t =
 val request_path_default_for_kind : provider_kind -> string
 
 val default_connect_timeout_s : provider_kind -> float
-val default_stream_idle_timeout_s : provider_kind -> float
 
 (** Derive [output_schema] from a [response_format].
     Returns [Some schema] when [response_format = JsonSchema schema]
@@ -290,21 +289,6 @@ val provider_kind_to_yojson : provider_kind -> Yojson.Safe.t
 val provider_kind_of_yojson
   :  Yojson.Safe.t
   -> provider_kind Ppx_deriving_yojson_runtime.error_or
-
-(** Provider-internal hard cap for subprocess/native turn budgets.
-    Returns [None] when OAS has no provider-specific hard ceiling. *)
-val max_turns_hard_cap : provider_kind -> int option
-
-(** Clamp a requested per-provider turn budget to the provider's hard cap.
-    Providers without a hard cap return the requested value unchanged. *)
-val clamp_max_turns : provider_kind -> int -> int
-
-(** Provider-specific wall-clock budget hint for one provider attempt.
-    This is advisory metadata for orchestration layers; transports
-    still apply their own lower-level connect/body/idle timeouts. Ollama has
-    no default hard attempt timeout because local model load/generation can
-    legitimately exceed fixed cloud-style budgets. *)
-val default_attempt_timeout_s : provider_kind -> float option
 
 (** OpenAI-compatible reasoning effort levels accepted on the wire.
     [reasoning_effort_to_string] is the only string serialization surface for

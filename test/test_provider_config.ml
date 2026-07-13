@@ -1052,17 +1052,6 @@ let test_is_local_localhost_query_true () =
   check_bool "localhost query is local" true (Provider_config.is_local cfg)
 ;;
 
-let test_default_attempt_timeout_s () =
-  let check_timeout label expected kind =
-    Alcotest.(check (option (float 0.001)))
-      label
-      expected
-      (Provider_config.default_attempt_timeout_s kind)
-  in
-  check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
-;;
-
 let test_connect_timeout_s_default_and_override () =
   let default_cfg =
     Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
@@ -1083,17 +1072,6 @@ let test_connect_timeout_s_default_and_override () =
     "explicit override preserved"
     (Some 600.0)
     explicit_cfg.connect_timeout_s
-;;
-
-let test_max_turns_hard_cap_and_clamp () =
-  Alcotest.(check (option int))
-    "anthropic no hard cap"
-    None
-    (Provider_config.max_turns_hard_cap Anthropic);
-  check_int
-    "anthropic preserves request"
-    99
-    (Provider_config.clamp_max_turns Anthropic 99)
 ;;
 
 let test_reasoning_effort_of_thinking_config () =
@@ -2420,14 +2398,6 @@ let () =
             "localhost query true"
             `Quick
             test_is_local_localhost_query_true
-        ; Alcotest.test_case
-            "default attempt timeout hints"
-            `Quick
-            test_default_attempt_timeout_s
-        ; Alcotest.test_case
-            "turn hard caps and clamp"
-            `Quick
-            test_max_turns_hard_cap_and_clamp
         ; Alcotest.test_case
             "reasoning effort typed roundtrip"
             `Quick

@@ -251,7 +251,14 @@ let test_default_config () =
 ;;
 
 let test_has_finite_max_turns () =
-  Alcotest.(check bool) "0 is the unbounded sentinel" false (Types.has_finite_max_turns 0);
+  Alcotest.(check int)
+    "default uses named unbounded sentinel"
+    Types.unbounded_max_turns
+    Types.default_config.max_turns;
+  Alcotest.(check bool)
+    "named sentinel is unbounded"
+    false
+    (Types.has_finite_max_turns Types.unbounded_max_turns);
   Alcotest.(check bool) "positive is finite" true (Types.has_finite_max_turns 10);
   Alcotest.(check bool)
     "negative is out-of-contract but must still be treated as finite (fails closed \

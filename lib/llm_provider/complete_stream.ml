@@ -426,21 +426,6 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
-  let stream_idle_timeout_s =
-    (* Default the idle deadline only when it can actually arm: read_sse
-       now rejects idle-without-clock loudly instead of silently
-       disarming, so manufacturing [Some 60.0] for a clock-less caller
-       would turn every such stream into an [Invalid_argument]. An
-       EXPLICIT [stream_idle_timeout_s] without a clock still reaches
-       that loud rejection — that combination is a caller bug, not a
-       default we created. Clock-less callers get what they always
-       effectively had (no idle protection), now visible in the
-       signature instead of buried in a silent disarm. *)
-    match stream_idle_timeout_s, clock with
-    | (Some _ as v), _ -> v
-    | None, Some _ -> Some (Provider_config.default_stream_idle_timeout_s config.kind)
-    | None, None -> None
-  in
   match validate_all config with
   | Error err -> Error err
   | Ok () ->

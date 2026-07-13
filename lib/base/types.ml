@@ -163,20 +163,21 @@ type agent_config =
   }
 [@@deriving show]
 
-(* [max_turns = 0] is the documented "unbounded" sentinel. Any other value
+(* [unbounded_max_turns] is the documented "unbounded" sentinel. Any other value
    (including negative, which is out of contract and never produced by a
    correct caller) is treated as finite: [check_loop_guard]'s
    [turn_count >= max_turns] then fires immediately for a negative bound
    (turn_count is always >= 0), matching this project's fail-closed-on-invalid
    policy instead of silently reinterpreting a malformed budget as unbounded. *)
-let has_finite_max_turns max_turns = max_turns <> 0
+let unbounded_max_turns = 0
+let has_finite_max_turns max_turns = max_turns <> unbounded_max_turns
 
 let default_config_value ?getenv () =
   { name = "agent"
   ; model = Model_registry.default_model_id_value ?getenv ()
   ; system_prompt = None
   ; max_tokens = None
-  ; max_turns = 0
+  ; max_turns = unbounded_max_turns
   ; temperature = None
   ; top_p = None
   ; top_k = None
