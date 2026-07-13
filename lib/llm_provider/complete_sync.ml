@@ -8,26 +8,6 @@
 include Complete_common
 include Complete_sampling
 
-type request_body_debug_mode =
-  | Request_body_debug_off
-  | Request_body_debug_summary
-  | Request_body_debug_full_disabled
-  | Request_body_debug_invalid of string
-
-let request_body_debug_mode_of_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "" -> Request_body_debug_off
-  | "summary" -> Request_body_debug_summary
-  | "full" -> Request_body_debug_full_disabled
-  | other -> Request_body_debug_invalid other
-;;
-
-let request_body_debug_mode ?(getenv = Cli_common_env.default_getenv) () =
-  match Cli_common_env.get ~getenv "OAS_DEBUG_REQUEST_BODY" with
-  | None -> Request_body_debug_off
-  | Some raw -> request_body_debug_mode_of_string raw
-;;
-
 let complete_http
       ~sw
       ~net
@@ -67,7 +47,6 @@ let complete_http
           (Http_client.ProviderFailure
              { kind = Http_client.Provider_parse_error { parser }; message })
       in
-      let config = apply_sampling_defaults config in
       let http_codec = Provider_http_codec.of_config config in
       let body_str =
         match http_codec with
@@ -124,35 +103,14 @@ let complete_http
                })
         , None ))
       else (
-        (* Request body diagnostic summary.  Controlled by OAS_DEBUG_REQUEST_BODY:
-       "summary" — stderr one-liner: provider, model, url, byte count
-       unset/""  — silent (default, zero overhead)
-     The previous "full" mode dumped the complete request body (including
-     API keys, prompts, and tool context) to /tmp without scrubbing and has
-     been removed as a secret-leak risk. *)
         let provider_label = provider_name in
-        (match request_body_debug_mode () with
-         | Request_body_debug_summary ->
-           Diag.debug
-             "complete"
-             "%s %s → %s (%d bytes)"
-             provider_label
-             config.model_id
-             url
-             body_len
-         | Request_body_debug_full_disabled ->
-           Diag.warn
-             "complete"
-             "OAS_DEBUG_REQUEST_BODY=full is disabled: full request-body dumps to /tmp \
-              have been removed because they leak API keys and prompts. Use 'summary' or \
-              a scrubbing-aware logger instead."
-         | Request_body_debug_invalid mode ->
-           Diag.warn
-             "complete"
-             "OAS_DEBUG_REQUEST_BODY=%S is invalid; expected 'summary' or 'full'; \
-              request body diagnostics disabled"
-             mode
-         | Request_body_debug_off -> ());
+        Diag.debug
+          "complete"
+          "%s %s → %s (%d bytes)"
+          provider_label
+          config.model_id
+          url
+          body_len;
         let latency_counter = start_latency_counter ?clock () in
         let post_sync_call () =
           Http_client.post_sync
@@ -163,20 +121,7 @@ let complete_http
             ~url
             ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
             ~body:body_str
-              (* Connect/headers bound (RFC-OAS-026 I2): a cold local Ollama
-               model load or an admission-queued request holds the response
-               headers well past the 60s that suits cloud providers. Resolve the
-               per-config override first (oas#2163), else the kind default
-               (default_connect_timeout_s: 600s Ollama, 60s cloud) — the same
-               resolution the streaming path passes as connect_timeout_s
-               (complete_stream.ml). Without this post_sync fell back to the
-               constant default_http_timeout_s = 60.0 for every kind, which
-               truncated local model loads on the connect/headers phase as a
-               phase=Http_operation timeout. *)
-            ~timeout_s:
-              (Option.value
-                 config.connect_timeout_s
-                 ~default:(Provider_config.default_connect_timeout_s config.kind))
+            ?timeout_s:config.connect_timeout_s
             ()
         in
         (* Body-level deadline (since 0.195.0): wraps the entire
@@ -265,22 +210,34 @@ let complete_http
                 Error
                   (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
               | Backend_glm.Glm_api_error err ->
-                if String.equal err.code "parse"
-                then (
-                  Diag.error "complete" "Glm parse error: %s" err.message;
-                  provider_parse_failure ~parser:"glm" err.message)
-                else (
-                  let semantic_code =
-                    Backend_glm.http_code_of_glm_error_class err.error_class
-                  in
-                  let body = Printf.sprintf "Glm error %s: %s" err.code err.message in
-                  Diag.error
-                    "complete"
-                    "Glm API error (code=%s class=%d): %s"
-                    err.code
-                    semantic_code
-                    err.message;
-                  Error (Http_client.HttpError { code = semantic_code; body }))
+                (match err.origin with
+                 | Backend_glm.Response_parse ->
+                   Diag.error "complete" "Glm parse error: %s" err.message;
+                   provider_parse_failure ~parser:"glm" err.message
+                 | Backend_glm.Provider_response ->
+                   let semantic_code =
+                     Backend_glm.http_code_of_glm_error_class err.error_class
+                   in
+                   let body =
+                     match err.code with
+                     | Some code -> Printf.sprintf "Glm error %s: %s" code err.message
+                     | None -> Printf.sprintf "Glm error without code: %s" err.message
+                   in
+                   (match err.code with
+                    | Some code ->
+                      Diag.error
+                        "complete"
+                        "Glm API error (code=%s class=%d): %s"
+                        code
+                        semantic_code
+                        err.message
+                    | None ->
+                      Diag.error
+                        "complete"
+                        "Glm API error (code absent class=%d): %s"
+                        semantic_code
+                        err.message);
+                   Error (Http_client.HttpError { code = semantic_code; body }))
               | exn ->
                 let exn_str = Printexc.to_string exn in
                 Diag.error "complete" "Unexpected parsing exception: %s" exn_str;
@@ -343,21 +300,6 @@ let complete_http
         in
         let latency_ms = latency_ms_int latency_counter in
         result, latency_ms))
-;;
-
-let%test "request_body_debug_mode_of_string: summary is trimmed and case-insensitive" =
-  request_body_debug_mode_of_string " Summary " = Request_body_debug_summary
-;;
-
-let%test "request_body_debug_mode_of_string: invalid mode is explicit" =
-  request_body_debug_mode_of_string " verbose " = Request_body_debug_invalid "verbose"
-;;
-
-let%test "request_body_debug_mode: honors injected env boundary" =
-  let getenv name =
-    if String.equal name "OAS_DEBUG_REQUEST_BODY" then Some "full" else None
-  in
-  request_body_debug_mode ~getenv () = Request_body_debug_full_disabled
 ;;
 
 (* body_balanced else-branch *)

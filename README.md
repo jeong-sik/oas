@@ -64,9 +64,9 @@ This assumes a local LLM server (llama-server) on port 8085. For Anthropic API, 
 ```ocaml
 let agent =
   Agent.create ~net
-    ~config:{ Types.default_config with name = "hello" }
+    ~config:{ (Types.default_config ~model:"claude-sonnet-4-6") with name = "hello" }
     ~options:{ Agent.default_options with
-      provider = Some (Provider.anthropic_sonnet ());
+      provider = Some (Provider.anthropic ~model_id:"claude-sonnet-4-6" ());
     }
     ~tools:[] ()
 ```
@@ -80,9 +80,9 @@ The provider variants actually wired in `lib/provider.ml` are:
 
 | Variant | Constructor | Endpoint |
 |---------|-------------|----------|
-| `Local` (llama-server) | `Provider.Local { base_url }` / helper `Provider.local_llm ()` | `http://127.0.0.1:8085` (default) |
-| `Anthropic` | `Provider.Anthropic` / helpers `anthropic_sonnet/haiku/opus ()` | `https://api.anthropic.com` |
-| `OpenAICompat` | `Provider.OpenAICompat { base_url; ... }` / helper `Provider.openrouter ()` | Any `/chat/completions` host (OpenRouter, hosted gateways, local servers) |
+| `Local` (llama-server) | `Provider.Local { base_url }` / `Provider.local_llm ~base_url ~model_id ()` | Caller-selected endpoint |
+| `Anthropic` | `Provider.Anthropic` / `Provider.anthropic ~model_id ()` | `https://api.anthropic.com` |
+| `OpenAICompat` | `Provider.OpenAICompat { base_url; ... }` / `Provider.openrouter ~model_id ()` | Any `/chat/completions` host |
 
 There is no separate `Gemini` variant in the wired provider type — Gemini is reached through an OpenAI-compatible endpoint when one is available. If you need first-class Gemini support, that is currently a planned item, not a shipped one.
 
@@ -100,7 +100,7 @@ Layer 1: agent_sdk  (lib/)
             +-- lib/pipeline/      6-stage turn pipeline
             +-- lib/protocol/      A2A, MCP, Agent Card, Agent Registry
             +-- lib/llm_provider/  Shared LLM types, HTTP client, streaming
-            +-- lib/*.ml           Context, Hooks, Guardrails, Runtime, etc.
+            +-- lib/*.ml           Context, Hooks, Runtime, etc.
 ```
 
 Anything outside this repository — multi-process coordination, repo-wide task queues, dashboards, persistent shared state — is the responsibility of an external coordinator, not of OAS. OAS deliberately knows nothing about any specific coordinator.
@@ -115,19 +115,17 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
-| `Hooks` | Lifecycle hooks: BeforeTurn, AfterTurn, PreToolUse, PostToolUse, OnStop |
+| `Hooks` | Lifecycle hooks plus typed HITL approval callbacks; missing callbacks fail explicitly |
+| `Guardrail_llm` | Adapts caller-injected typed judge closures; no fixed risk taxonomy or string parser |
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
-| `Guardrails` | Tool filtering (AllowList/DenyList/Custom) + per-turn call limits |
 | `Error` / `Error_domain` | 2-level structured errors: 7 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |
 | `Mcp` | MCP client (NDJSON-over-stdio, server lifecycle, paginated tool listing) |
 | `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
 | `Pipeline` | 6-stage turn pipeline with Provider_intf routing |
-| `Contract` | Runtime contracts: instruction layers, triggers, tool grants |
+| `Contract` | Prompt/context composition: instruction layers, triggers, skills |
 | `Memory` | 5-tier memory: Scratchpad, Working, Episodic, Procedural, Long_term |
 | `Memory_access` | Deny-by-default agent-scoped memory permissions |
-| `Policy` | Priority-ordered rule evaluation at decision points |
-| `Durable` | Typed step chains with execution journal for crash recovery |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
 
 ## Module stability tiers
@@ -138,11 +136,11 @@ For the current classification policy, see `docs/api-stability.md`.
 
 **Stable** -- safe to depend on, breaking changes only on minor version bumps:
 
-`Types`, `Error`, `Agent`, `Builder`, `Tool`, `Tool_set`, `Hooks`, `Provider`, `Guardrails`, `Raw_trace`, `Checkpoint`, `Checkpoint_store`, `Context`, `Context_reducer`
+`Types`, `Error`, `Agent`, `Builder`, `Tool`, `Tool_set`, `Hooks`, `Provider`, `Raw_trace`, `Checkpoint`, `Checkpoint_store`, `Context`
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Runtime`, `Memory`, `Policy`
+`Streaming`, `Structured`, `Runtime`, `Memory`
 
 CDAL proof artifacts are no longer exposed as public OCaml modules from OAS.
 Use the versioned JSON schema catalog for downstream proof-bundle artifacts.
@@ -181,7 +179,7 @@ let counter_tool =
       Ok (string_of_int n))
 ```
 
-## Hooks and guardrails
+## Hooks and HITL
 
 ```ocaml
 let my_hooks = { Hooks.empty with
@@ -191,12 +189,12 @@ let my_hooks = { Hooks.empty with
         Hooks.Continue
     | _ -> Hooks.Continue);
 }
-
-let guardrails = {
-  Guardrails.tool_filter = Guardrails.AllowList ["calculator"];
-  max_tool_calls_per_turn = Some 5;
-}
 ```
+
+OAS sends the caller-supplied `Tool_set` to the provider unchanged. A product
+that needs tool exposure policy applies its own typed gate before constructing
+the agent; per-call HITL remains available through `PreToolUse` and the typed
+approval callback.
 
 ## Build and test
 
@@ -235,7 +233,7 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 
 - HTTP response body limit: 10MB.
 - SSE streaming uses real-time event callbacks. Retry wraps outside the stream.
-- tool_use loop returns the last response and stops when max_turns is exceeded.
+- The tool-use loop continues until the provider returns a terminal response or the caller cancels the fiber.
 - Runs on a single Eio domain. No multi-core parallelism.
 - Prompt caching tracks `cache_creation_input_tokens` and `cache_read_input_tokens` in both streaming and non-streaming modes (since v0.4.0).
 

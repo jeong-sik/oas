@@ -3,33 +3,14 @@
     Focuses on:
     - merge_env with actual overrides
     - mcp_tool_of_json edge cases (missing description, numeric name)
-    - truncate_output with various budget sizes
-    - output_token_budget with valid custom values
-    - text_of_tool_result with EmbeddedResource content
+    - exact text_of_tool_result extraction with EmbeddedResource content
     - close_managed and close_all with Http transport
-    - Mcp_http.default_config field verification
+    - MCP HTTP explicit config type verification
     - Mcp_http.parse/SSE body parsing (internal but covered via connect path) *)
 
 open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────── *)
-
-let with_env key value f =
-  let original = Sys.getenv_opt key in
-  (match value with
-   | Some v -> Unix.putenv key v
-   | None ->
-     (try Unix.putenv key "" with
-      | _ -> ()));
-  Fun.protect
-    ~finally:(fun () ->
-      match original with
-      | Some v -> Unix.putenv key v
-      | None ->
-        (try Unix.putenv key "" with
-         | _ -> ()))
-    f
-;;
 
 let make_tool_result ?is_error ?structured_content content =
   let fields =
@@ -48,19 +29,6 @@ let make_tool_result ?is_error ?structured_content content =
   match Mcp_protocol.Mcp_types.tool_result_of_yojson (`Assoc fields) with
   | Ok result -> result
   | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
-;;
-
-let contains_substring ~sub text =
-  let sub_len = String.length sub in
-  let text_len = String.length text in
-  let rec loop index =
-    if index + sub_len > text_len
-    then false
-    else if String.sub text index sub_len = sub
-    then true
-    else loop (index + 1)
-  in
-  if sub_len = 0 then true else loop 0
 ;;
 
 (* ── merge_env tests ──────────────────────────────────────── *)
@@ -119,53 +87,6 @@ let test_mcp_tool_of_json_list () =
   match Mcp.mcp_tool_of_json (`List [ `String "a" ]) with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for list"
-;;
-
-(* ── truncate_output extended ─────────────────────────────── *)
-
-let test_truncate_output_large () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "2") (fun () ->
-    let text = String.make 100 'a' in
-    (* 100 chars > 2*4=8 max *)
-    let result = Mcp.truncate_output text in
-    Alcotest.(check bool)
-      "truncated"
-      true
-      (contains_substring ~sub:"...[oas mcp output truncated]" result);
-    (* Should have max_chars prefix = 8 chars *)
-    Alcotest.(check int) "prefix length" 8 (String.length (String.sub result 0 8)))
-;;
-
-let test_truncate_output_empty () =
-  let result = Mcp.truncate_output "" in
-  Alcotest.(check string) "empty stays empty" "" result
-;;
-
-(* ── output_token_budget extended ─────────────────────────── *)
-
-let test_output_token_budget_valid () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "100") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "custom budget" 100 budget)
-;;
-
-let test_output_token_budget_zero () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "zero is accepted" 0 budget)
-;;
-
-let test_output_token_budget_non_numeric () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "abc") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "non-numeric -> default" 25_000 budget)
-;;
-
-let test_truncate_output_zero_budget_unlimited () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
-    let text = String.make 1000 'x' in
-    let result = Mcp.truncate_output text in
-    Alcotest.(check string) "zero budget means no truncation" text result)
 ;;
 
 (* ── text_of_tool_result extended ─────────────────────────── *)
@@ -312,13 +233,7 @@ let test_mcp_tool_to_sdk_tool_empty_schema () =
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
-(* ── Mcp_http.default_config ──────────────────────────────── *)
-
-let test_mcp_http_default_config_values () =
-  let cfg = Mcp_http.default_config in
-  Alcotest.(check string) "default base_url" "http://localhost:8080/mcp" cfg.base_url;
-  Alcotest.(check (list (pair string string))) "no headers" [] cfg.headers
-;;
+(* MCP HTTP explicit config *)
 
 (* ── Server spec construction ─────────────────────────────── *)
 
@@ -327,7 +242,6 @@ let test_server_spec_construction () =
     { command = "node"
     ; args = [ "server.js"; "--port"; "3000" ]
     ; env = [ "NODE_ENV", "production" ]
-    ; env_policy = Minimal
     ; name = "test-server"
     }
   in
@@ -353,19 +267,6 @@ let () =
         ; Alcotest.test_case "null input" `Quick test_mcp_tool_of_json_null
         ; Alcotest.test_case "list input" `Quick test_mcp_tool_of_json_list
         ] )
-    ; ( "truncate_output"
-      , [ Alcotest.test_case "large text" `Quick test_truncate_output_large
-        ; Alcotest.test_case "empty text" `Quick test_truncate_output_empty
-        ; Alcotest.test_case
-            "zero budget unlimited"
-            `Quick
-            test_truncate_output_zero_budget_unlimited
-        ] )
-    ; ( "output_token_budget"
-      , [ Alcotest.test_case "valid custom" `Quick test_output_token_budget_valid
-        ; Alcotest.test_case "zero" `Quick test_output_token_budget_zero
-        ; Alcotest.test_case "non-numeric" `Quick test_output_token_budget_non_numeric
-        ] )
     ; ( "text_of_tool_result"
       , [ Alcotest.test_case
             "resource content"
@@ -382,12 +283,6 @@ let () =
     ; "type_mapping", [ Alcotest.test_case "all types" `Quick test_type_mapping_all ]
     ; ( "tool_bridge"
       , [ Alcotest.test_case "empty schema" `Quick test_mcp_tool_to_sdk_tool_empty_schema
-        ] )
-    ; ( "mcp_http"
-      , [ Alcotest.test_case
-            "default config values"
-            `Quick
-            test_mcp_http_default_config_values
         ] )
     ; ( "server_spec"
       , [ Alcotest.test_case "construction" `Quick test_server_spec_construction ] )

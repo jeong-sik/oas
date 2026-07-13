@@ -77,49 +77,18 @@ let test_empty_stop_reason () =
 
 let test_model_to_string () =
   Alcotest.(check string)
-    "opus 4.6"
-    "claude-opus-4-6-20250514"
+    "exact opus"
+    "claude-opus-4-6"
     (Types.model_to_string "claude-opus-4-6");
   Alcotest.(check string)
-    "sonnet 4.6"
-    "claude-sonnet-4-6-20250514"
+    "exact sonnet"
+    "claude-sonnet-4-6"
     (Types.model_to_string "claude-sonnet-4-6");
   Alcotest.(check string)
-    "haiku 4.5"
-    "claude-haiku-4-5-20251001"
+    "exact haiku"
+    "claude-haiku-4-5"
     (Types.model_to_string "claude-haiku-4-5");
   Alcotest.(check string) "custom" "my-model" (Types.model_to_string "my-model")
-;;
-
-let test_context_compact_ratio_defaults () =
-  Alcotest.(check (float 0.0))
-    "default context compact ratio"
-    0.9
-    Types.default_context_compact_ratio;
-  Alcotest.(check bool)
-    "default context compact ratio is valid"
-    true
-    (Types.valid_context_ratio Types.default_context_compact_ratio);
-  Alcotest.(check bool) "valid override accepted" true (Types.valid_context_ratio 0.5);
-  Alcotest.(check bool) "zero rejected" false (Types.valid_context_ratio 0.0);
-  Alcotest.(check bool) "one rejected" false (Types.valid_context_ratio 1.0);
-  Alcotest.(check bool) "negative rejected" false (Types.valid_context_ratio (-0.1));
-  Alcotest.(check (option (float 0.0)))
-    "default_config leaves per-agent override unset"
-    None
-    Types.default_config.context_compact_ratio;
-  Alcotest.(check (float 0.0))
-    "default context compact budget ratio"
-    0.8
-    Types.default_context_compact_budget_ratio;
-  Alcotest.(check (float 0.0))
-    "require_context_ratio accepts valid ratio"
-    0.5
-    (Types.require_context_ratio ~name:"test" 0.5);
-  Alcotest.check_raises
-    "require_context_ratio rejects zero"
-    (Invalid_argument "test must be > 0.0 and < 1.0")
-    (fun () -> ignore (Types.require_context_ratio ~name:"test" 0.0))
 ;;
 
 let test_role_to_string () =
@@ -237,27 +206,17 @@ let test_add_usage_accumulates () =
 ;;
 
 let test_default_config () =
-  let c = Types.default_config in
+  let c = Types.default_config ~model:"test-model" in
   Alcotest.(check string) "name" "agent" c.name;
   Alcotest.(check (option int)) "max_tokens" None c.max_tokens;
-  Alcotest.(check int) "max_turns" 0 c.max_turns;
   Alcotest.(check bool) "no system prompt" true (c.system_prompt = None);
   Alcotest.(check bool) "no top_p" true (c.top_p = None);
   Alcotest.(check bool) "no top_k" true (c.top_k = None);
   Alcotest.(check bool) "no min_p" true (c.min_p = None);
   Alcotest.(check bool) "no enable_thinking" true (c.enable_thinking = None);
   Alcotest.(check bool) "no thinking_budget" true (c.thinking_budget = None);
+  Alcotest.(check bool) "no reasoning_effort" true (c.reasoning_effort = None);
   Alcotest.(check bool) "cache off" false c.cache_system_prompt
-;;
-
-let test_has_finite_max_turns () =
-  Alcotest.(check bool) "0 is the unbounded sentinel" false (Types.has_finite_max_turns 0);
-  Alcotest.(check bool) "positive is finite" true (Types.has_finite_max_turns 10);
-  Alcotest.(check bool)
-    "negative is out-of-contract but must still be treated as finite (fails closed \
-     instead of silently becoming unbounded)"
-    true
-    (Types.has_finite_max_turns (-1))
 ;;
 
 (* ── yojson roundtrips (Phase 3) ──────────────────────────────── *)
@@ -376,13 +335,13 @@ let test_show_message () =
 ;;
 
 let test_show_agent_config () =
-  let s = Types.show_agent_config Types.default_config in
+  let s = Types.show_agent_config (Types.default_config ~model:"test-model") in
   Alcotest.(check bool) "show_agent_config non-empty" true (String.length s > 0)
 ;;
 
 let test_show_agent_state () =
   let state : Types.agent_state =
-    { config = Types.default_config
+    { config = Types.default_config ~model:"test-model"
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -582,7 +541,6 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
     { system_fingerprint = Some "fp"
     ; timings = Some timings
     ; reasoning_tokens = Some 12
-    ; reasoning_tokens_estimated = false
     ; request_latency_ms = Some 123
     ; peak_memory_gb = Some 4.5
     ; provider_kind = Some Llm_provider.Provider_config.OpenAI_compat
@@ -617,10 +575,6 @@ let test_default_inference_telemetry () =
     "default reasoning tokens unknown"
     None
     telemetry.reasoning_tokens;
-  Alcotest.(check bool)
-    "default reasoning tokens are not estimated"
-    false
-    telemetry.reasoning_tokens_estimated;
   Alcotest.(check (option int))
     "default latency unknown"
     None
@@ -1233,12 +1187,6 @@ let () =
         ; Alcotest.test_case "empty stop reason" `Quick test_empty_stop_reason
         ] )
     ; "model", [ Alcotest.test_case "model_to_string" `Quick test_model_to_string ]
-    ; ( "context"
-      , [ Alcotest.test_case
-            "compact ratio defaults"
-            `Quick
-            test_context_compact_ratio_defaults
-        ] )
     ; ( "role"
       , [ Alcotest.test_case "role_to_string" `Quick test_role_to_string
         ; Alcotest.test_case "role_of_string" `Quick test_role_of_string
@@ -1292,10 +1240,7 @@ let () =
             `Quick
             test_default_inference_telemetry
         ] )
-    ; ( "config"
-      , [ Alcotest.test_case "default_config" `Quick test_default_config
-        ; Alcotest.test_case "has_finite_max_turns" `Quick test_has_finite_max_turns
-        ] )
+    ; "config", [ Alcotest.test_case "default_config" `Quick test_default_config ]
     ; ( "yojson_roundtrip"
       , [ Alcotest.test_case "model" `Quick test_model_yojson_roundtrip
         ; Alcotest.test_case "role" `Quick test_role_yojson_roundtrip

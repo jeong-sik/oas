@@ -39,9 +39,8 @@ let () =
     }
   in
   let config =
-    { default_config with
-      model = provider.model_id
-    ; system_prompt = Some "You are a helpful assistant."
+    { (default_config ~model:provider.model_id) with
+      system_prompt = Some "You are a helpful assistant."
     ; max_tokens = Some 1024
     }
   in

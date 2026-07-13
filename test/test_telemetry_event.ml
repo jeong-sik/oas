@@ -3,7 +3,7 @@
 
     Every Telemetry_event.t variant is exercised through yojson
     serialization to ensure the closed variant stays wire-compatible.
-    Telemetry_bus overflow is verified with Drop_oldest policy. *)
+    Telemetry_bus delivery is verified without a capacity policy. *)
 
 open Alcotest
 open Agent_sdk
@@ -139,23 +139,23 @@ let test_prefill_complete () =
   | _ -> fail "variant mismatch"
 ;;
 
-let test_context_window_usage () =
-  let ev =
-    Telemetry_event.Context_window_usage
-      { agent_name = "alpha"
-      ; turn = 2
-      ; estimated_tokens = 64000
-      ; limit_tokens = 128000
-      ; usage_ratio = 0.5
-      }
+let test_wire_capture_failure () =
+  let failure : Wire_capture.failure =
+    { stage = Append
+    ; capture_id = Some "run-1"
+    ; provider = "openai"
+    ; model = "gpt"
+    ; location = "segment.jsonl"
+    ; message = "storage unavailable"
+    }
   in
-  match roundtrip ev with
-  | Telemetry_event.Context_window_usage r ->
-    check string "agent_name" "alpha" r.agent_name;
-    check int "turn" 2 r.turn;
-    check int "estimated_tokens" 64000 r.estimated_tokens;
-    check int "limit_tokens" 128000 r.limit_tokens;
-    check_float "usage_ratio" 0.5 r.usage_ratio
+  match roundtrip (Telemetry_event.Wire_capture_failure failure) with
+  | Telemetry_event.Wire_capture_failure decoded ->
+    check
+      string
+      "typed failure"
+      (Wire_capture.show_failure failure)
+      (Wire_capture.show_failure decoded)
   | _ -> fail "variant mismatch"
 ;;
 
@@ -200,14 +200,15 @@ let test_event_type_name () =
           ; cache_hit = false
           }
       , "prefill_complete" )
-    ; ( Context_window_usage
-          { agent_name = ""
-          ; turn = 0
-          ; estimated_tokens = 0
-          ; limit_tokens = 0
-          ; usage_ratio = 0.0
+    ; ( Wire_capture_failure
+          { stage = Append
+          ; capture_id = Some ""
+          ; provider = ""
+          ; model = ""
+          ; location = ""
+          ; message = ""
           }
-      , "context_window_usage" )
+      , "wire_capture_failure" )
     ]
   in
   List.iter
@@ -216,12 +217,12 @@ let test_event_type_name () =
     cases
 ;;
 
-(* ── Telemetry_bus overflow ───────────────────────────────────────── *)
+(* ── Telemetry_bus delivery ───────────────────────────────────────── *)
 
-let test_telemetry_bus_drop_oldest () =
+let test_telemetry_bus_preserves_fifo () =
   Eio_main.run
   @@ fun _env ->
-  let bus = Telemetry_bus.create ~buffer_size:2 ~policy:Event_bus.Drop_oldest () in
+  let bus = Telemetry_bus.create () in
   let sub = Telemetry_bus.subscribe bus in
   Telemetry_bus.publish
     bus
@@ -236,18 +237,22 @@ let test_telemetry_bus_drop_oldest () =
     (Telemetry_event.Streaming_first_chunk
        { provider = "p"; model = "m"; ttfrc_ms = Some 3.0; requested_at = 0.0 });
   let events = Telemetry_bus.drain sub in
-  check int "drained 2 events (one dropped)" 2 (List.length events);
+  check int "drained every event" 3 (List.length events);
   match events with
-  | [ e1; e2 ] ->
+  | [ e1; e2; e3 ] ->
     (match e1 with
      | Telemetry_event.Streaming_first_chunk r ->
-       check (option (float 0.001)) "first ttfrc (oldest evicted)" (Some 2.0) r.ttfrc_ms
+       check (option (float 0.001)) "first ttfrc" (Some 1.0) r.ttfrc_ms
      | _ -> fail "expected Streaming_first_chunk");
     (match e2 with
      | Telemetry_event.Streaming_first_chunk r ->
-       check (option (float 0.001)) "second ttfrc" (Some 3.0) r.ttfrc_ms
+       check (option (float 0.001)) "second ttfrc" (Some 2.0) r.ttfrc_ms
+     | _ -> fail "expected Streaming_first_chunk");
+    (match e3 with
+     | Telemetry_event.Streaming_first_chunk r ->
+       check (option (float 0.001)) "third ttfrc" (Some 3.0) r.ttfrc_ms
      | _ -> fail "expected Streaming_first_chunk")
-  | _ -> fail "expected exactly 2 events"
+  | _ -> fail "expected exactly 3 events"
 ;;
 
 (* ── Suite ────────────────────────────────────────────────────────── *)
@@ -262,14 +267,14 @@ let () =
         ; test_case "Timeout No_response roundtrip" `Quick test_timeout_no_response
         ; test_case "Timeout Ttft_exceeded roundtrip" `Quick test_timeout_ttft_exceeded
         ; test_case "Prefill_complete roundtrip" `Quick test_prefill_complete
-        ; test_case "Context_window_usage roundtrip" `Quick test_context_window_usage
+        ; test_case "Wire_capture_failure roundtrip" `Quick test_wire_capture_failure
         ] )
     ; "event_type_name", [ test_case "all variants" `Quick test_event_type_name ]
     ; ( "telemetry_bus"
       , [ test_case
-            "Drop_oldest evicts queue head when full"
+            "preserves FIFO without subscriber drain"
             `Quick
-            test_telemetry_bus_drop_oldest
+            test_telemetry_bus_preserves_fifo
         ] )
     ]
 ;;

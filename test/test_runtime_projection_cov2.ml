@@ -23,9 +23,7 @@ let mk_start_request ?(goal = "test") ?(participants = []) () : Runtime.start_re
   ; participants
   ; provider = Some "anthropic"
   ; model = Some "sonnet-4-6"
-  ; permission_mode = None
   ; system_prompt = Some "sys prompt"
-  ; max_turns = Some 5
   ; workdir = Some "/tmp"
   }
 ;;
@@ -47,14 +45,12 @@ let mk_session
   ; goal
   ; title = None
   ; tag = None
-  ; permission_mode = None
   ; phase
   ; created_at = 100.0
   ; updated_at = 200.0
   ; provider = Some "anthropic"
   ; model = Some "sonnet-4-6"
   ; system_prompt = Some "sys"
-  ; max_turns = 10
   ; workdir = Some "/tmp"
   ; planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants
   ; participants
@@ -76,7 +72,6 @@ let mk_participant ?(name = "alice") ?(state = Runtime.Planned) ?(started_at = N
   ; runtime_actor = None
   ; requested_provider = None
   ; requested_model = None
-  ; requested_policy = None
   ; provider = None
   ; model = None
   ; resolved_provider = None
@@ -107,7 +102,6 @@ let test_initial_session_basic () =
   Alcotest.(check string) "goal" "deploy" session.goal;
   Alcotest.(check int) "2 participants" 2 (List.length session.participants);
   Alcotest.(check bool) "phase Bootstrapping" true (session.phase = Runtime.Bootstrapping);
-  Alcotest.(check int) "max_turns" 5 session.max_turns;
   Alcotest.(check (option string)) "provider" (Some "anthropic") session.provider;
   Alcotest.(check int) "turn_count 0" 0 session.turn_count;
   Alcotest.(check int) "last_seq 0" 0 session.last_seq
@@ -120,14 +114,11 @@ let test_initial_session_defaults () =
     ; participants = []
     ; provider = None
     ; model = None
-    ; permission_mode = None
     ; system_prompt = None
-    ; max_turns = None
     ; workdir = None
     }
   in
   let session = Runtime_projection.initial_session req in
-  Alcotest.(check int) "default max_turns=0" 0 session.max_turns;
   Alcotest.(check bool) "session_id non-empty" true (String.length session.session_id > 0)
 ;;
 
@@ -217,15 +208,9 @@ let test_apply_session_started () =
 
 let test_apply_settings_updated () =
   let session = mk_session () in
-  let event =
-    mk_event
-      (Session_settings_updated
-         { model = Some "new-model"; permission_mode = Some "auto" })
-  in
+  let event = mk_event (Session_settings_updated { model = Some "new-model" }) in
   match Runtime_projection.apply_event session event with
-  | Ok s ->
-    Alcotest.(check (option string)) "model" (Some "new-model") s.model;
-    Alcotest.(check (option string)) "perm" (Some "auto") s.permission_mode
+  | Ok s -> Alcotest.(check (option string)) "model" (Some "new-model") s.model
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -349,7 +334,6 @@ let test_apply_agent_spawn () =
          ; prompt = "review"
          ; provider = Some "openai"
          ; model = Some "gpt-4"
-         ; permission_mode = None
          })
   in
   match Runtime_projection.apply_event session event with
@@ -548,7 +532,6 @@ let test_update_participant_new () =
          ; prompt = "do stuff"
          ; provider = None
          ; model = None
-         ; permission_mode = None
          })
   in
   match Runtime_projection.apply_event session event with
@@ -727,7 +710,6 @@ let test_apply_event_sequence () =
            ; prompt = "go"
            ; provider = None
            ; model = None
-           ; permission_mode = None
            })
     ; mk_event
         ~seq:4

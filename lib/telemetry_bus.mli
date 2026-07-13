@@ -11,11 +11,8 @@
 
 type t
 
-(** Create a telemetry bus.
-
-    - [?buffer_size] — per-subscriber stream capacity (default 256).
-    - [?policy] — backpressure policy (default [Drop_oldest]). *)
-val create : ?buffer_size:int -> ?policy:Event_bus.backpressure_policy -> unit -> t
+(** Create a telemetry bus backed by lossless per-subscriber FIFOs. *)
+val create : unit -> t
 
 (** Wrap an existing {!Event_bus.t} as a telemetry bus.
 
@@ -35,13 +32,8 @@ type subscription
 
 (** Subscribe to telemetry events.
 
-    - [?filter] — event predicate (default: accept all).
     - [?purpose] — free-form label surfaced in stats. *)
-val subscribe
-  :  ?filter:(Llm_provider.Telemetry_event.t -> bool)
-  -> ?purpose:string
-  -> t
-  -> subscription
+val subscribe : ?purpose:string -> t -> subscription
 
 val unsubscribe : t -> subscription -> unit
 

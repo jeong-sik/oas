@@ -1,8 +1,8 @@
 (** Agent Event Bus — typed publish/subscribe for agent lifecycle events.
 
-    Each subscriber gets its own bounded {!Eio.Stream.t}; [publish] copies
-    each event to every matching subscriber.  Filters allow subscribers to
-    receive only the events they care about (e.g. one agent, tools only).
+    Each subscriber gets its own unbounded FIFO; [publish] copies each event to
+    every matching subscriber. Filters are data, not caller callbacks, so a
+    faulty subscriber cannot raise or yield inside another producer's publish.
 
     All state is internal to [t] — no globals.  GC collects everything
     when the bus goes out of scope. *)
@@ -58,22 +58,6 @@ type payload =
       ; output : Types.tool_result
       ; turn : int
       }
-  | ToolFailureEpisodeDetected of
-      { agent_name : string
-      ; turn : int
-      ; episodes : Tool_failure_episode.t list
-      }
-  | ToolFailureRecoveryDecided of
-      { agent_name : string
-      ; turn : int
-      ; decision : Tool_failure_recovery.decision
-      }
-  | ToolFailureRecoveryJudgeFailed of
-      { agent_name : string
-      ; turn : int
-      ; kind : Tool_failure_recovery.judge_error_kind
-      ; detail : string
-      }
   | TurnStarted of
       { agent_name : string
       ; turn : int
@@ -101,32 +85,6 @@ type payload =
       { agent_name : string
       ; question : string
       ; response : Hooks.elicitation_response
-      }
-  | ContextCompacted of
-      { agent_name : string
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
-      }
-  | ContextOverflowImminent of
-      { agent_name : string
-      ; estimated_tokens : int
-      ; limit_tokens : int
-      ; ratio : float
-      }
-  | ContextCompactStarted of
-      { agent_name : string
-      ; trigger : string
-      }
-  | ContentReplacementReplaced of
-      { tool_use_id : string
-      ; preview : string
-      ; original_chars : int
-      ; seen_count_after : int
-      }
-  | ContentReplacementKept of
-      { tool_use_id : string
-      ; seen_count_after : int
       }
   | SlotSchedulerObserved of
       { max_slots : int
@@ -169,20 +127,12 @@ let payload_kind = function
   | AgentFailed _ -> "agent_failed"
   | ToolCalled _ -> "tool_called"
   | ToolCompleted _ -> "tool_completed"
-  | ToolFailureEpisodeDetected _ -> "tool_failure_episode_detected"
-  | ToolFailureRecoveryDecided _ -> "tool_failure_recovery_decided"
-  | ToolFailureRecoveryJudgeFailed _ -> "tool_failure_recovery_judge_failed"
   | TurnStarted _ -> "turn_started"
   | TurnReady _ -> "turn_ready"
   | TurnCompleted _ -> "turn_completed"
   | HandoffRequested _ -> "handoff_requested"
   | HandoffCompleted _ -> "handoff_completed"
   | ElicitationCompleted _ -> "elicitation_completed"
-  | ContextCompacted _ -> "context_compacted"
-  | ContextOverflowImminent _ -> "context_overflow_imminent"
-  | ContextCompactStarted _ -> "context_compact_started"
-  | ContentReplacementReplaced _ -> "content_replacement_replaced"
-  | ContentReplacementKept _ -> "content_replacement_kept"
   | SlotSchedulerObserved _ -> "slot_scheduler_observed"
   | InferenceTelemetry _ -> "inference_telemetry"
   | Custom (name, _) -> Printf.sprintf "custom:%s" name
@@ -234,37 +184,26 @@ let mk_event ?correlation_id ?run_id ?caused_by payload =
 
 (* ── Subscription ─────────────────────────────────────────────────── *)
 
-type filter = event -> bool
-
-(** Internal filter representation. The [Accept_all] constructor lets the
-    publish fast path skip filter evaluation without relying on physical
-    equality of function values at delivery time. *)
-type internal_filter =
+type filter =
   | Accept_all
-  | Predicate of filter
-
-type backpressure_policy =
-  | Block
-  | Drop_oldest
-  | Drop_newest
+  | Agent of string
+  | Tools_only
+  | Topic of string
+  | Correlation of string
+  | Run of string
+  | Any of filter list
+  | All of filter list
 
 type subscription =
   { id : int
-  ; stream : event Eio.Stream.t
-  ; filter : internal_filter
-  ; accepts_all : bool
+  ; mutable pending_rev : event list
+  ; pending_mu : Eio.Mutex.t
+  ; filter : filter
   ; purpose : string option
   ; published_total : int Atomic.t
   ; drained_total : int Atomic.t
-  ; dropped_total : int Atomic.t
-  ; (* Serializes Drop_* delivery so (length-check, evict, add) is atomic
-     w.r.t. other publishers. Drain is not blocked — [take_nonblocking]
-     on an empty stream simply returns None. Unused under [Block]. *)
-    deliver_mu : Eio.Mutex.t
-  ; (* Set atomically by [unsubscribe] so a publisher that is still
-     holding a snapshot of this subscription can drop the event instead
-     of blocking on a stream that will never be drained again. *)
-    cancelled : bool Atomic.t
+  ; pending_count : int Atomic.t
+  ; cancelled : bool Atomic.t
   }
 
 (* ── Bus ──────────────────────────────────────────────────────────── *)
@@ -273,109 +212,77 @@ type t =
   { mutable subscribers : subscription list
   ; mutable next_id : int
   ; mu : Eio.Mutex.t
-  ; buffer_size : int
-  ; policy : backpressure_policy
-  ; (* Nanosecond accumulator (monotonic int add); exposed as float seconds
-     via [stats] to avoid float accumulation drift across publishers. *)
-    block_nanos_total : int Atomic.t
   ; (* Cached subscriber count for O(1) queries. Publish still snapshots the
      subscriber list under [mu] to avoid racing concurrent subscribers. *)
     subscriber_count : int Atomic.t
   }
 
-let create ?(buffer_size = 256) ?(policy = Block) () =
+let create () =
   { subscribers = []
   ; next_id = 0
   ; mu = Eio.Mutex.create ()
-  ; buffer_size
-  ; policy
-  ; block_nanos_total = Atomic.make 0
   ; subscriber_count = Atomic.make 0
   }
 ;;
 
 (* ── Filters ──────────────────────────────────────────────────────── *)
 
-let accept_all : filter = fun _ -> true
+let accept_all = Accept_all
+let filter_agent name = Agent name
+let filter_tools_only = Tools_only
+let filter_topic topic = Topic topic
+let filter_correlation id = Correlation id
+let filter_run id = Run id
+let filter_any filters = Any filters
+let filter_all filters = All filters
 
-let filter_agent name : filter =
-  fun event ->
-  match event.payload with
-  | AgentStarted r -> r.agent_name = name
-  | AgentCompleted r -> r.agent_name = name
-  | AgentFailed r -> r.agent_name = name
-  | ToolCalled r -> r.agent_name = name
-  | ToolCompleted r -> r.agent_name = name
-  | ToolFailureEpisodeDetected r -> r.agent_name = name
-  | ToolFailureRecoveryDecided r -> r.agent_name = name
-  | ToolFailureRecoveryJudgeFailed r -> r.agent_name = name
-  | TurnStarted r -> r.agent_name = name
-  | TurnReady r -> r.agent_name = name
-  | TurnCompleted r -> r.agent_name = name
-  | HandoffRequested r -> r.from_agent = name || r.to_agent = name
-  | HandoffCompleted r -> r.from_agent = name || r.to_agent = name
-  | ElicitationCompleted r -> r.agent_name = name
-  | ContextCompacted r -> r.agent_name = name
-  | ContextOverflowImminent r -> r.agent_name = name
-  | ContextCompactStarted r -> r.agent_name = name
-  | ContentReplacementReplaced _ | ContentReplacementKept _ | SlotSchedulerObserved _ ->
-    true
-  | InferenceTelemetry r -> r.agent_name = name
-  | Custom _ -> true (* Custom events are not agent-scoped; always pass *)
-;;
-
-let filter_tools_only : filter =
-  fun event ->
-  match event.payload with
-  | ToolCalled _
-  | ToolCompleted _
-  | ToolFailureEpisodeDetected _
-  | ToolFailureRecoveryDecided _
-  | ToolFailureRecoveryJudgeFailed _ -> true
-  | _ -> false
-;;
-
-(** Filter by Custom event topic name. *)
-let filter_topic topic : filter =
-  fun event ->
-  match event.payload with
-  | Custom (t, _) -> t = topic
-  | _ -> false
-;;
-
-(** Filter by correlation_id (replaces session_id filtering). *)
-let filter_correlation id : filter = fun event -> event.meta.correlation_id = id
-
-(** Filter by run_id (replaces worker_run_id filtering). *)
-let filter_run id : filter = fun event -> event.meta.run_id = id
-
-(** Combine filters: event passes if any filter accepts. *)
-let filter_any (filters : filter list) : filter =
-  fun event -> List.exists (fun f -> f event) filters
-;;
-
-(** Combine filters: event passes only if all filters accept. *)
-let filter_all (filters : filter list) : filter =
-  fun event -> List.for_all (fun f -> f event) filters
+let rec matches filter event =
+  match filter with
+  | Accept_all -> true
+  | Agent name ->
+    (match event.payload with
+     | AgentStarted r -> r.agent_name = name
+     | AgentCompleted r -> r.agent_name = name
+     | AgentFailed r -> r.agent_name = name
+     | ToolCalled r -> r.agent_name = name
+     | ToolCompleted r -> r.agent_name = name
+     | TurnStarted r -> r.agent_name = name
+     | TurnReady r -> r.agent_name = name
+     | TurnCompleted r -> r.agent_name = name
+     | HandoffRequested r -> r.from_agent = name || r.to_agent = name
+     | HandoffCompleted r -> r.from_agent = name || r.to_agent = name
+     | ElicitationCompleted r -> r.agent_name = name
+     | SlotSchedulerObserved _ -> true
+     | InferenceTelemetry r -> r.agent_name = name
+     | Custom _ -> true)
+  | Tools_only ->
+    (match event.payload with
+     | ToolCalled _ | ToolCompleted _ -> true
+     | _ -> false)
+  | Topic topic ->
+    (match event.payload with
+     | Custom (actual, _) -> String.equal actual topic
+     | _ -> false)
+  | Correlation id -> String.equal event.meta.correlation_id id
+  | Run id -> String.equal event.meta.run_id id
+  | Any filters -> List.exists (fun filter -> matches filter event) filters
+  | All filters -> List.for_all (fun filter -> matches filter event) filters
 ;;
 
 (* ── Subscribe / unsubscribe ──────────────────────────────────────── *)
 
 let subscribe ?(filter = accept_all) ?purpose bus =
-  let stream = Eio.Stream.create bus.buffer_size in
-  let internal_filter = if filter == accept_all then Accept_all else Predicate filter in
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let id = bus.next_id in
     let sub =
       { id
-      ; stream
-      ; filter = internal_filter
-      ; accepts_all = internal_filter = Accept_all
+      ; pending_rev = []
+      ; pending_mu = Eio.Mutex.create ()
+      ; filter
       ; purpose
       ; published_total = Atomic.make 0
       ; drained_total = Atomic.make 0
-      ; dropped_total = Atomic.make 0
-      ; deliver_mu = Eio.Mutex.create ()
+      ; pending_count = Atomic.make 0
       ; cancelled = Atomic.make false
       }
     in
@@ -386,108 +293,46 @@ let subscribe ?(filter = accept_all) ?purpose bus =
 ;;
 
 let unsubscribe bus sub =
-  (* Mark the subscription as cancelled before removing it from the bus.
-     Publishers holding a stale snapshot will see the flag and skip the
-     stream instead of blocking on a stream that is no longer drained. *)
   Atomic.set sub.cancelled true;
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let before = List.length bus.subscribers in
     bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
     let after = List.length bus.subscribers in
-    if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ())
+    if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ());
+  Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
+    sub.pending_rev <- [];
+    Atomic.set sub.pending_count 0)
 ;;
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
 
-(* Deliver one event to one subscriber under the configured policy.
-
-   [Eio.Stream] does not expose a non-blocking add. We emulate one by
-   serializing Drop_* delivery per-subscriber with [deliver_mu] and
-   using [Stream.length] as the fullness gate. Drain still uses
-   [take_nonblocking] without taking the mutex — it only widens the
-   gap, never narrows it. *)
-let unless_cancelled sub f = if Atomic.get sub.cancelled then () else f ()
-
-let deliver_to_sub bus sub event =
-  (* A concurrent [unsubscribe] may have cancelled this subscription
-     after [publish] took its snapshot. Skip it entirely to avoid
-     blocking on a stream that will never be drained again. *)
-  let add_unless_cancelled () =
-    unless_cancelled sub (fun () -> Eio.Stream.add sub.stream event)
-  in
-  unless_cancelled sub (fun () ->
-    Atomic.incr sub.published_total;
-    match bus.policy with
-    | Block ->
-      (* Measure time spent blocked only if the stream is actually full.
-         [Eio.Stream.add] is non-blocking when space is available, so the
-         common case skips the clock read entirely. *)
-      if Eio.Stream.length sub.stream >= bus.buffer_size
-      then
-        unless_cancelled sub (fun () ->
-          let t0 = Unix.gettimeofday () in
-          Eio.Stream.add sub.stream event;
-          let dt = Unix.gettimeofday () -. t0 in
-          let ns = Int.of_float (dt *. 1e9) in
-          if ns > 0 then ignore (Atomic.fetch_and_add bus.block_nanos_total ns))
-      else add_unless_cancelled ()
-    | Drop_oldest ->
-      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
-        unless_cancelled sub (fun () ->
-          if Eio.Stream.length sub.stream >= bus.buffer_size
-          then (
-            (* Evict one oldest. take_nonblocking can race with an external
-             drainer; tolerate [None] by dropping the new event instead. *)
-            match Eio.Stream.take_nonblocking sub.stream with
-            | Some _ ->
-              Atomic.incr sub.dropped_total;
-              (* Add is safe now: we hold deliver_mu, no other publisher can
-                 refill this sub's slot concurrently, and length decreased. *)
-              add_unless_cancelled ()
-            | None ->
-              (* Rare: drainer emptied the queue. Just add. *)
-              add_unless_cancelled ())
-          else add_unless_cancelled ()))
-    | Drop_newest ->
-      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
-        unless_cancelled sub (fun () ->
-          if Eio.Stream.length sub.stream >= bus.buffer_size
-          then Atomic.incr sub.dropped_total
-          else add_unless_cancelled ())))
+let deliver_to_sub sub event =
+  Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
+    if not (Atomic.get sub.cancelled)
+    then (
+      sub.pending_rev <- event :: sub.pending_rev;
+      Atomic.incr sub.pending_count;
+      Atomic.incr sub.published_total))
 ;;
 
 let publish bus event =
-  (* Always take the lock and snapshot the actual subscriber list. The
-     old lock-free fast path based on [subscriber_count] raced with
-     concurrent [subscribe] calls: a subscriber added after the count
-     check would miss the event even though it was active at publish
-     time. Stream.add can block on a full stream, so delivery happens
-     outside the lock to avoid deadlocking concurrent subscribers. *)
   let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
-  List.iter
-    (fun sub ->
-       let matches =
-         sub.accepts_all
-         ||
-         match sub.filter with
-         | Accept_all -> true
-         | Predicate f -> f event
-       in
-       if matches then deliver_to_sub bus sub event)
-    subs
+  List.iter (fun sub -> if matches sub.filter event then deliver_to_sub sub event) subs
 ;;
 
 (* ── Drain ────────────────────────────────────────────────────────── *)
 
 let drain sub =
-  let rec collect acc =
-    match Eio.Stream.take_nonblocking sub.stream with
-    | Some event ->
-      Atomic.incr sub.drained_total;
-      collect (event :: acc)
-    | None -> List.rev acc
+  let pending_rev, count =
+    Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
+      let pending_rev = sub.pending_rev in
+      let count = Atomic.get sub.pending_count in
+      sub.pending_rev <- [];
+      Atomic.set sub.pending_count 0;
+      pending_rev, count)
   in
-  collect []
+  ignore (Atomic.fetch_and_add sub.drained_total count);
+  List.rev pending_rev
 ;;
 
 (* ── Queries ──────────────────────────────────────────────────────── *)
@@ -499,13 +344,11 @@ type subscription_stats =
   ; depth : int
   ; published_total : int
   ; drained_total : int
-  ; dropped_total : int
   }
 
 type bus_stats =
   { subscriber_count : int
   ; subscriptions : subscription_stats list
-  ; total_publish_blocked_seconds : float
   }
 
 let stats bus =
@@ -514,18 +357,12 @@ let stats bus =
     List.map
       (fun (sub : subscription) ->
          ({ purpose = sub.purpose
-          ; depth = Eio.Stream.length sub.stream
+          ; depth = Atomic.get sub.pending_count
           ; published_total = Atomic.get sub.published_total
           ; drained_total = Atomic.get sub.drained_total
-          ; dropped_total = Atomic.get sub.dropped_total
           }
           : subscription_stats))
       subs
   in
-  let ns = Atomic.get bus.block_nanos_total in
-  ({ subscriber_count = List.length subs
-   ; subscriptions
-   ; total_publish_blocked_seconds = Float.of_int ns /. 1e9
-   }
-   : bus_stats)
+  ({ subscriber_count = List.length subs; subscriptions } : bus_stats)
 ;;

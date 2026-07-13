@@ -24,36 +24,6 @@ let test_roundtrip_api_rate_limited () =
      | _ -> false)
 ;;
 
-let test_roundtrip_agent_max_turns () =
-  let orig = Error.Agent (MaxTurnsExceeded { turns = 10; limit = 5 }) in
-  let poly = Error_domain.of_sdk_error orig in
-  (match poly with
-   | `Max_turns_exceeded (10, 5) -> ()
-   | _ -> Alcotest.fail "expected Max_turns_exceeded (10, 5)");
-  let back = Error_domain.to_sdk_error poly in
-  match back with
-  | Error.Agent (MaxTurnsExceeded { turns = 10; limit = 5 }) -> ()
-  | _ -> Alcotest.fail "roundtrip mismatch for MaxTurnsExceeded"
-;;
-
-let test_roundtrip_agent_execution_timeout () =
-  let orig =
-    Error.Agent
-      (AgentExecutionTimeout
-         { elapsed_sec = 12.0; timeout_sec = 10.0; turn_count = 4; max_turns = 8 })
-  in
-  let poly = Error_domain.of_sdk_error orig in
-  (match poly with
-   | `Agent_execution_timeout (12.0, 10.0, 4, 8) -> ()
-   | _ -> Alcotest.fail "expected Agent_execution_timeout");
-  let back = Error_domain.to_sdk_error poly in
-  match back with
-  | Error.Agent
-      (AgentExecutionTimeout
-         { elapsed_sec = 12.0; timeout_sec = 10.0; turn_count = 4; max_turns = 8 }) -> ()
-  | _ -> Alcotest.fail "roundtrip mismatch for AgentExecutionTimeout"
-;;
-
 let test_roundtrip_config_missing_env () =
   let orig = Error.Config (MissingEnvVar { var_name = "API_KEY" }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -117,13 +87,6 @@ let test_retryable_auth_error () =
     (Error_domain.is_retryable (`Authorization_error "forbidden"))
 ;;
 
-let test_retryable_max_turns () =
-  Alcotest.(check bool)
-    "max_turns not retryable"
-    false
-    (Error_domain.is_retryable (`Max_turns_exceeded (10, 5)))
-;;
-
 let test_retryable_mcp_tool_call () =
   Alcotest.(check bool)
     "mcp_tool_call retryable"
@@ -160,9 +123,7 @@ let test_to_string_each_variant () =
     ; `Invalid_request "bad body"
     ; `Tool_exec_failed ("search", "crash")
     ; `Tool_timeout ("calc", 30.0)
-    ; `Max_turns_exceeded (20, 10)
-    ; `Idle_detected 5
-    ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
+    ; `Guardrail_violation ("typed-input", "rejected")
     ; `Unrecognized_stop_reason "weird"
     ; `Missing_env_var "SECRET"
     ; `Unsupported_provider "unknown_llm"
@@ -200,9 +161,7 @@ let test_all_variants_convert () =
     ; `Invalid_request "x"
     ; `Tool_exec_failed ("t", "d")
     ; `Tool_timeout ("t", 1.0)
-    ; `Max_turns_exceeded (1, 2)
-    ; `Idle_detected 3
-    ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
+    ; `Guardrail_violation ("typed-input", "rejected")
     ; `Unrecognized_stop_reason "x"
     ; `Missing_env_var "X"
     ; `Unsupported_provider "x"
@@ -454,18 +413,6 @@ let test_retryable_payment_required () =
     (Error_domain.is_retryable (`Payment_required "Insufficient Balance"))
 ;;
 
-let test_roundtrip_agent_idle_detected () =
-  let orig = Error.Agent (IdleDetected { consecutive_idle_turns = 3 }) in
-  let poly = Error_domain.of_sdk_error orig in
-  (match poly with
-   | `Idle_detected 3 -> ()
-   | _ -> Alcotest.fail "expected Idle_detected");
-  let back = Error_domain.to_sdk_error poly in
-  match back with
-  | Error.Agent (IdleDetected { consecutive_idle_turns = 3 }) -> ()
-  | _ -> Alcotest.fail "roundtrip mismatch for IdleDetected"
-;;
-
 let test_roundtrip_agent_unrecognized_stop () =
   let orig = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -659,13 +606,6 @@ let test_retryable_tool_timeout () =
     (Error_domain.is_retryable (`Tool_timeout ("t", 1.0)))
 ;;
 
-let test_retryable_idle_detected () =
-  Alcotest.(check bool)
-    "idle_detected not retryable"
-    false
-    (Error_domain.is_retryable (`Idle_detected 3))
-;;
-
 let test_retryable_unrecognized_stop () =
   Alcotest.(check bool)
     "unrecognized_stop not retryable"
@@ -852,15 +792,6 @@ let () =
             "api payment_required"
             `Quick
             test_roundtrip_api_payment_required
-        ; Alcotest.test_case "agent max_turns" `Quick test_roundtrip_agent_max_turns
-        ; Alcotest.test_case
-            "agent execution_timeout"
-            `Quick
-            test_roundtrip_agent_execution_timeout
-        ; Alcotest.test_case
-            "agent idle_detected"
-            `Quick
-            test_roundtrip_agent_idle_detected
         ; Alcotest.test_case
             "agent unrecognized_stop"
             `Quick
@@ -904,8 +835,6 @@ let () =
         ; Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request
         ; Alcotest.test_case "context_overflow" `Quick test_retryable_context_overflow
         ; Alcotest.test_case "payment_required" `Quick test_retryable_payment_required
-        ; Alcotest.test_case "max_turns" `Quick test_retryable_max_turns
-        ; Alcotest.test_case "idle_detected" `Quick test_retryable_idle_detected
         ; Alcotest.test_case "unrecognized_stop" `Quick test_retryable_unrecognized_stop
         ; Alcotest.test_case "missing_env_var" `Quick test_retryable_missing_env_var
         ; Alcotest.test_case

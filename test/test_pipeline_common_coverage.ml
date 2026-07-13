@@ -42,7 +42,7 @@ let text_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =
 ;;
 
 let with_agent
-      ?(config = Types.default_config)
+      ?(config = Types.default_config ~model:"test-model")
       ?(options = Internal_agent.default_options)
       f
   =
@@ -70,12 +70,9 @@ let test_strategy_and_outcome_constructors () =
   (match complete with
    | Pipeline_common.Complete response -> check_string "response id" "resp-1" response.id
    | _ -> Alcotest.fail "expected complete outcome");
-  (match Pipeline_common.ToolsExecuted with
-   | Pipeline_common.ToolsExecuted -> ()
-   | _ -> Alcotest.fail "expected tools outcome");
-  match Pipeline_common.IdleSkipped with
-  | Pipeline_common.IdleSkipped -> ()
-  | _ -> Alcotest.fail "expected idle outcome"
+  match Pipeline_common.ToolsExecuted with
+  | Pipeline_common.ToolsExecuted -> ()
+  | _ -> Alcotest.fail "expected tools outcome"
 ;;
 
 let test_agent_type_checkpoint_stage_labels () =
@@ -86,16 +83,15 @@ let test_agent_type_checkpoint_stage_labels () =
   check_string
     "tool results appended"
     "after_tool_results_appended"
-    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended);
-  check_string
-    "retry feedback appended"
-    "after_retry_feedback_appended"
-    (Internal_agent.checkpoint_stage_to_string After_retry_feedback_appended)
+    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended)
 ;;
 
 let test_agent_type_accessors_card_and_state_mutators () =
   let config =
-    { Types.default_config with name = "coverage-agent"; model = "openai_chat" }
+    { (Types.default_config ~model:"test-model") with
+      name = "coverage-agent"
+    ; model = "openai_chat"
+    }
   in
   let options =
     { Internal_agent.default_options with
@@ -133,9 +129,7 @@ let test_agent_type_accessors_card_and_state_mutators () =
   check_int "set_state" 2 (Internal_agent.state agent).turn_count;
   Internal_agent.update_state agent (fun state ->
     { state with turn_count = state.turn_count + 3 });
-  check_int "update_state" 5 (Internal_agent.state agent).turn_count;
-  Internal_agent.set_consecutive_idle_turns agent 4;
-  check_int "idle turns" 4 agent.consecutive_idle_turns
+  check_int "update_state" 5 (Internal_agent.state agent).turn_count
 ;;
 
 let test_agent_type_lifecycle_status_show () =
@@ -185,19 +179,15 @@ let test_agent_type_lifecycle_rejects_invalid_transition () =
 ;;
 
 let test_agent_type_clone_variants () =
-  let config = { Types.default_config with name = "clone-source"; max_turns = 5 } in
+  let config =
+    { (Types.default_config ~model:"test-model") with name = "clone-source" }
+  in
   Eio_main.run
   @@ fun env ->
   let context = Context.create_sync () in
   Context.set context "marker" (`String "copied");
   let agent =
-    Internal_agent.create
-      ~net:env#net
-      ~config
-      ~context
-      ~tools:[ echo_tool ]
-      ~auto_context_overflow_retry:false
-      ()
+    Internal_agent.create ~net:env#net ~config ~context ~tools:[ echo_tool ] ()
   in
   Internal_agent.set_state
     agent
@@ -206,12 +196,10 @@ let test_agent_type_clone_variants () =
     ; messages = [ Types.user_msg "hello" ]
     };
   Internal_agent.set_lifecycle agent Accepted;
-  Internal_agent.set_consecutive_idle_turns agent 9;
   let fresh = Internal_agent.clone agent in
   check_int "fresh state copied" 7 (Internal_agent.state fresh).turn_count;
   check_int "fresh messages copied" 1 (List.length (Internal_agent.state fresh).messages);
   check_bool "fresh context empty" true (Context.keys (Internal_agent.context fresh) = []);
-  check_int "fresh idle reset" 0 fresh.consecutive_idle_turns;
   check_bool "tools shared" true (Tool_set.mem "echo" (Internal_agent.tools fresh));
   let copied = Internal_agent.clone ~copy_context:true agent in
   check_bool

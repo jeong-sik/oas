@@ -6,22 +6,6 @@ type config =
   ; headers : (string * string) list
   }
 
-let default_endpoint_env_var = "OAS_MCP_HTTP_URL"
-
-let make_default_config () =
-  { base_url =
-      Util.env_or "http://localhost:8080/mcp" default_endpoint_env_var
-      (* Set OAS_MCP_HTTP_URL to override the MCP server endpoint.
-         Default assumes local dev server on port 8080. *)
-  ; headers = []
-  }
-;;
-
-(** Default MCP HTTP configuration captured at module init. Callers that need
-    to re-read [OAS_MCP_HTTP_URL] at use time should call {!make_default_config}
-    instead. *)
-let default_config = make_default_config ()
-
 type t = { client : Sdk_http_client.t }
 
 let http_transport_error ~url exn =

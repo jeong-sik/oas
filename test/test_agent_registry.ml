@@ -7,7 +7,7 @@ let make_agent () =
   Eio_main.run
   @@ fun env ->
   let net = Eio.Stdenv.net env in
-  Agent.create ~net ()
+  Agent.create ~config:(Types.default_config ~model:"test-model") ~net ()
 ;;
 
 let fresh_port () =

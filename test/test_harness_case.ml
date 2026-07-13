@@ -12,6 +12,7 @@ let mk_record
       ?tool_use_id
       ?tool_name
       ?tool_input
+      ?tool_execution_mode
       ?tool_result
       ?tool_error
       ?final_text
@@ -19,7 +20,7 @@ let mk_record
       ()
   : Raw_trace.record
   =
-  { trace_version = 1
+  { trace_version = Raw_trace.trace_version
   ; worker_run_id = "wr-hcase"
   ; seq
   ; ts
@@ -32,6 +33,7 @@ let mk_record
   ; enable_thinking = None
   ; preserve_thinking = None
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; block_index = None
   ; block_kind = None
   ; assistant_block = None
@@ -41,8 +43,7 @@ let mk_record
   ; tool_planned_index = None
   ; tool_batch_index = None
   ; tool_batch_size = None
-  ; tool_concurrency_class = None
-  ; evidence_role = None
+  ; tool_execution_mode
   ; tool_result
   ; tool_error
   ; hook_name = None
@@ -124,7 +125,6 @@ let test_json_roundtrip_all_assertions () =
         ; Trace (Tool_called "lookup")
         ; Trace (Tool_sequence [ "lookup"; "summarize" ])
         ; Trace (Tool_call_count 2)
-        ; Trace (Max_turns 3)
         ; Metric
             { name = "accuracy"
             ; goal = Eval.Higher
@@ -279,6 +279,7 @@ let test_trace_replay_extracts_tool_assertions () =
         ~tool_use_id:"tu-1"
         ~tool_name:"lookup"
         ~tool_input:(`Assoc [ "q", `String "oas" ])
+        ~tool_execution_mode:Tool.Concurrent
         ()
     ; mk_record
         ~seq:3

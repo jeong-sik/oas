@@ -6,68 +6,6 @@
 
 open Result_syntax
 
-let record_has_evidence_role role (record : Raw_trace.record) =
-  match Raw_trace.record_evidence_role record with
-  | Some actual -> actual = role
-  | None -> false
-;;
-
-let successful_finished_evidence role (record : Raw_trace.record) =
-  record.record_type = Raw_trace.Tool_execution_finished
-  && record.tool_error = Some false
-  && record_has_evidence_role role record
-;;
-
-let evidence_role_summaries records =
-  let table : (Raw_trace.evidence_role, Raw_trace.evidence_role_summary) Hashtbl.t =
-    Hashtbl.create 4
-  in
-  List.iter
-    (fun (record : Raw_trace.record) ->
-       match Raw_trace.record_evidence_role record with
-       | None -> ()
-       | Some evidence_role ->
-         let successful =
-           record.record_type = Raw_trace.Tool_execution_finished
-           && record.tool_error = Some false
-         in
-         let current =
-           match Hashtbl.find_opt table evidence_role with
-           | Some summary -> summary
-           | None ->
-             { Raw_trace.evidence_role
-             ; record_count = 0
-             ; successful_finished_count = 0
-             ; last_success_seq = None
-             }
-         in
-         let last_success_seq =
-           if successful
-           then
-             Some
-               (max
-                  (Option.value ~default:record.seq current.last_success_seq)
-                  record.seq)
-           else current.last_success_seq
-         in
-         Hashtbl.replace
-           table
-           evidence_role
-           { current with
-             record_count = current.record_count + 1
-           ; successful_finished_count =
-               (current.successful_finished_count + if successful then 1 else 0)
-           ; last_success_seq
-           })
-    records;
-  Hashtbl.to_seq_values table
-  |> List.of_seq
-  |> List.sort (fun (a : Raw_trace.evidence_role_summary) b ->
-    String.compare
-      (Raw_trace.evidence_role_to_string a.evidence_role)
-      (Raw_trace.evidence_role_to_string b.evidence_role))
-;;
-
 (* ── Run discovery ──────────────────────────────────────────── *)
 
 let run_refs_of_records ~path records : Raw_trace.run_ref list =
@@ -218,6 +156,7 @@ let summarize_run run_ref =
     ; preserve_thinking =
         Option.bind start_record (fun record -> record.preserve_thinking)
     ; thinking_budget = Option.bind start_record (fun record -> record.thinking_budget)
+    ; reasoning_effort = Option.bind start_record (fun record -> record.reasoning_effort)
     ; thinking_block_count
     ; text_block_count
     ; tool_use_block_count
@@ -301,28 +240,6 @@ let validate_run run_ref =
     List.for_all (fun (check : Raw_trace.validation_check) -> check.passed) checks
   in
   let* summary = summarize_run run_ref in
-  let has_file_write =
-    List.exists (record_has_evidence_role Raw_trace.File_write) records
-  in
-  let evidence_roles = evidence_role_summaries records in
-  let last_file_write_seq =
-    records
-    |> List.fold_left
-         (fun acc (record : Raw_trace.record) ->
-            if successful_finished_evidence Raw_trace.File_write record
-            then Some (max (Option.value ~default:record.seq acc) record.seq)
-            else acc)
-         None
-  in
-  let verification_pass_after_file_write =
-    match last_file_write_seq with
-    | None -> false
-    | Some seq ->
-      List.exists
-        (fun (record : Raw_trace.record) ->
-           record.seq > seq && successful_finished_evidence Raw_trace.Verification record)
-        records
-  in
   let failure_reason =
     match summary.error with
     | Some _ as err -> err
@@ -362,6 +279,9 @@ let validate_run run_ref =
         (match summary.thinking_budget with
          | Some value -> string_of_int value
          | None -> "")
+    ; Printf.sprintf
+        "reasoning_effort=%s"
+        (Option.value summary.reasoning_effort ~default:"")
     ; Printf.sprintf "thinking_blocks=%d" summary.thinking_block_count
     ; Printf.sprintf "text_blocks=%d" summary.text_block_count
     ; Printf.sprintf "tool_use_blocks=%d" summary.tool_use_block_count
@@ -376,20 +296,6 @@ let validate_run run_ref =
     ; Printf.sprintf "stop_reason=%s" (Option.value summary.stop_reason ~default:"")
     ; Printf.sprintf "error=%s" (Option.value summary.error ~default:"")
     ; Printf.sprintf "paired_tool_result_count=%d" paired_tool_result_count
-    ; Printf.sprintf
-        "evidence_roles=%s"
-        (evidence_roles
-         |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
-           Printf.sprintf
-             "%s:%d:%d"
-             (Raw_trace.evidence_role_to_string summary.evidence_role)
-             summary.record_count
-             summary.successful_finished_count)
-         |> String.concat ",")
-    ; Printf.sprintf "has_file_write=%b" has_file_write
-    ; Printf.sprintf
-        "verification_pass_after_file_write=%b"
-        verification_pass_after_file_write
     ]
   in
   Ok
@@ -398,9 +304,6 @@ let validate_run run_ref =
     ; checks
     ; evidence
     ; paired_tool_result_count
-    ; evidence_roles
-    ; has_file_write
-    ; verification_pass_after_file_write
     ; final_text = summary.final_text
     ; tool_names = summary.tool_names
     ; stop_reason = summary.stop_reason

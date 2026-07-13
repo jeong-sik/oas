@@ -31,10 +31,6 @@ let test_event_type_name () =
              })
       , "tool.called" )
     ; ( ev
-          (Event_bus.ContentReplacementKept
-             { tool_use_id = "toolu_1"; seen_count_after = 1 })
-      , "content_replacement.kept" )
-    ; ( ev
           (Event_bus.SlotSchedulerObserved
              { max_slots = 4
              ; active = 2
@@ -57,16 +53,6 @@ let test_event_type_name () =
              })
       , "inference.telemetry" )
     ; ev (Event_bus.Custom ("foo", `Null)), "foo"
-    ; ( ev
-          (Event_bus.ContextOverflowImminent
-             { agent_name = "a"
-             ; estimated_tokens = 95000
-             ; limit_tokens = 100000
-             ; ratio = 0.95
-             })
-      , "context.overflow_imminent" )
-    ; ( ev (Event_bus.ContextCompactStarted { agent_name = "a"; trigger = "proactive" })
-      , "context.compact_started" )
     ]
   in
   List.iter
@@ -300,98 +286,7 @@ let test_tool_events_payload () =
     (p2.data |> member "tool_use_id" |> to_string)
 ;;
 
-let failed_attempt ~tool_use_id ~input ~error : Tool_failure_episode.failed_attempt =
-  { tool_use_id
-  ; tool_name = "Execute"
-  ; input
-  ; failure_kind = Recoverable_tool_error
-  ; error_class = Some Deterministic
-  ; error
-  }
-;;
-
-let test_recovery_episode_payload_omits_input_and_error () =
-  let secret = "secret-tool-argument" in
-  let error_secret = "secret-provider-error" in
-  let episode : Tool_failure_episode.t =
-    { previous =
-        [ failed_attempt
-            ~tool_use_id:"previous-call"
-            ~input:(`Assoc [ "token", `String secret ])
-            ~error:error_secret
-        ]
-    ; current =
-        failed_attempt
-          ~tool_use_id:"current-call"
-          ~input:(`Assoc [ "token", `String secret ])
-          ~error:error_secret
-    }
-  in
-  let payload =
-    Event_forward.event_to_payload
-      (ev
-         (Event_bus.ToolFailureEpisodeDetected
-            { agent_name = "keeper"; turn = 3; episodes = [ episode ] }))
-  in
-  let open Yojson.Safe.Util in
-  let observation = payload.data |> member "episodes" |> to_list |> List.hd in
-  let field_names = observation |> to_assoc |> List.map fst |> List.sort String.compare in
-  Alcotest.(check (list string))
-    "only the closed observation fields are forwarded"
-    [ "current_tool_use_id"
-    ; "error_class"
-    ; "failure_kind"
-    ; "previous_count"
-    ; "previous_tool_use_ids"
-    ; "tool_name"
-    ]
-    field_names;
-  Alcotest.(check string)
-    "typed tool name retained"
-    "Execute"
-    (observation |> member "tool_name" |> to_string)
-;;
-
-let test_recovery_judge_failure_payload_redacts_detail () =
-  let secret = "secret-judge-error" in
-  let payload =
-    Event_forward.event_to_payload
-      (ev
-         (Event_bus.ToolFailureRecoveryJudgeFailed
-            { agent_name = "keeper"
-            ; turn = 3
-            ; kind = Tool_failure_recovery.Callback_raised
-            ; detail = secret
-            }))
-  in
-  let open Yojson.Safe.Util in
-  let field_names =
-    payload.data |> to_assoc |> List.map fst |> List.sort String.compare
-  in
-  Alcotest.(check (list string))
-    "judge detail is absent while typed classification remains"
-    [ "agent_name"; "detail_redacted"; "failure_kind"; "turn" ]
-    field_names;
-  Alcotest.(check string)
-    "typed failure kind"
-    "callback_raised"
-    (payload.data |> member "failure_kind" |> to_string);
-  Alcotest.(check bool)
-    "redaction explicit"
-    true
-    Yojson.Safe.Util.(payload.data |> member "detail_redacted" |> to_bool)
-;;
-
 let test_native_telemetry_payloads () =
-  let replacement =
-    ev
-      (Event_bus.ContentReplacementReplaced
-         { tool_use_id = "toolu_1"
-         ; preview = "short"
-         ; original_chars = 99
-         ; seen_count_after = 2
-         })
-  in
   let queue =
     ev
       (Event_bus.SlotSchedulerObserved
@@ -402,17 +297,8 @@ let test_native_telemetry_payloads () =
          ; state = Event_bus.Saturated
          })
   in
-  let replacement_payload = Event_forward.event_to_payload replacement in
   let queue_payload = Event_forward.event_to_payload queue in
   let open Yojson.Safe.Util in
-  Alcotest.(check string)
-    "replacement type"
-    "content_replacement.replaced"
-    replacement_payload.event_type;
-  Alcotest.(check string)
-    "replacement decision"
-    "replaced"
-    (replacement_payload.data |> member "decision" |> to_string);
   Alcotest.(check string) "queue type" "slot_scheduler.observed" queue_payload.event_type;
   Alcotest.(check string)
     "queue state"
@@ -679,14 +565,6 @@ let () =
         ; Alcotest.test_case "payload_to_json" `Quick test_payload_to_json
         ; Alcotest.test_case "agent_completed" `Quick test_agent_completed_payload
         ; Alcotest.test_case "tool events" `Quick test_tool_events_payload
-        ; Alcotest.test_case
-            "recovery episode safe projection"
-            `Quick
-            test_recovery_episode_payload_omits_input_and_error
-        ; Alcotest.test_case
-            "recovery judge failure safe projection"
-            `Quick
-            test_recovery_judge_failure_payload_redacts_detail
         ; Alcotest.test_case "native telemetry" `Quick test_native_telemetry_payloads
         ; Alcotest.test_case
             "inference_telemetry full"

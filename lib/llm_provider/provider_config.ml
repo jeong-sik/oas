@@ -28,26 +28,6 @@ let request_path_default_for_kind = function
   | DashScope -> "/chat/completions"
 ;;
 
-(** Default connect + initial-response-headers wall-clock timeout (seconds)
-    for a provider kind. Ollama is local: a cold model load or a queued
-    request waiting for admission can hold the response headers well past
-    the 60s bound that is reasonable for cloud providers, so it gets a
-    generous default. See RFC-OAS-026 — this bounds the connect/headers
-    phase only, not total stream duration. *)
-let default_connect_timeout_s = function
-  | Ollama -> 600.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
-;;
-
-(** Default inter-chunk idle timeout (seconds) for a provider kind. For
-    Ollama the same generous bound also covers the first-token (prefill)
-    wait on large local models, which routinely exceeds the 60s cloud
-    default. Cloud providers keep 60s as a generation-stall detector. *)
-let default_stream_idle_timeout_s = function
-  | Ollama -> 600.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
-;;
-
 (** [output_schema] derived from [response_format] when no explicit
     schema is supplied. Centralised so [make] and direct record-literal
     callers stay aligned: a config that carries
@@ -80,6 +60,7 @@ type t =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Reasoning_effort.t option
   ; clear_thinking : bool option
   ; tool_stream : bool
   ; tool_choice : Types.tool_choice option
@@ -115,6 +96,7 @@ let make
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
+      ?reasoning_effort
       ?clear_thinking
       ?(tool_stream = false)
       ?tool_choice
@@ -164,6 +146,7 @@ let make
   ; enable_thinking
   ; preserve_thinking
   ; thinking_budget
+  ; reasoning_effort
   ; clear_thinking
   ; tool_stream
   ; tool_choice
@@ -216,8 +199,6 @@ let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) 
   || caps.supports_required_tool_choice
   || caps.supports_named_tool_choice
   || caps.supports_parallel_tool_calls
-  || caps.supports_runtime_mcp_tools
-  || caps.supports_runtime_tool_events
   || (match caps.assistant_tool_content_format with
       | Assistant_tool_content_null -> false
       | Assistant_tool_content_empty_string -> true)
@@ -377,20 +358,6 @@ let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   auth_headers_for_kind_and_secret ~kind ~api_key:(Secret.of_string api_key)
 ;;
 
-let max_turns_hard_cap = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
-;;
-
-let clamp_max_turns kind requested =
-  match max_turns_hard_cap kind with
-  | Some cap -> min requested cap
-  | None -> requested
-;;
-
-let default_attempt_timeout_s = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
-;;
-
 type reasoning_effort = Reasoning_effort.t =
   | None_
   | Minimal
@@ -398,77 +365,11 @@ type reasoning_effort = Reasoning_effort.t =
   | Medium
   | High
   | XHigh
+  | Max
 
 let all_reasoning_efforts = Reasoning_effort.all
 let reasoning_effort_to_string = Reasoning_effort.to_string
 let reasoning_effort_of_string = Reasoning_effort.of_string
-let default_reasoning_effort_env = "OAS_DEFAULT_REASONING_EFFORT"
-let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
-
-(** Default reasoning effort level when thinking is enabled but no budget
-    is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
-    Accepted values: "none", "minimal", "low", "medium", "high", "xhigh". Invalid
-    values fall back to "medium".
-    @since 0.185.0 *)
-let default_reasoning_effort_value ?(getenv = fun name -> Cli_common_env.get name) () =
-  match getenv default_reasoning_effort_env with
-  | Some v ->
-    (match reasoning_effort_of_string v with
-     | Some effort -> effort
-     | None ->
-       Diag.warn
-         "provider_config"
-         "%s=%S invalid (expected %s), using medium"
-         default_reasoning_effort_env
-         v
-         reasoning_effort_values_for_log;
-       Medium)
-  | None -> Medium
-;;
-
-let effort_of_thinking_config_value
-      ?getenv
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-      ()
-  : reasoning_effort option
-  =
-  match enable_thinking with
-  | Some false | None -> None
-  | Some true ->
-    (match thinking_budget with
-     | Some n -> Reasoning_effort.of_budget n
-     | None -> Some (default_reasoning_effort_value ?getenv ()))
-;;
-
-(** Compatibility wrapper for callers that still consume wire strings. *)
-let effort_of_thinking_config
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : string
-  =
-  match effort_of_thinking_config_value ~enable_thinking ~thinking_budget () with
-  | None -> "none"
-  | Some effort -> reasoning_effort_to_string effort
-;;
-
-let reasoning_effort_request_value_typed
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : reasoning_effort option
-  =
-  effort_of_thinking_config_value ~enable_thinking ~thinking_budget ()
-;;
-
-let reasoning_effort_request_value
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : string option
-  =
-  Option.map
-    reasoning_effort_to_string
-    (reasoning_effort_request_value_typed ~enable_thinking ~thinking_budget)
-;;
 
 (* GLM (Z.AI) Preserved-Thinking gate (SSOT).
 
@@ -534,10 +435,7 @@ let glm_should_replay_reasoning (config : t) =
 let is_zai_glm_config (config : t) =
   match config.kind with
   | Glm -> true
-  | OpenAI_compat ->
-    Zai_catalog.is_zai_base_url config.base_url
-    && Zai_catalog.is_glm_model_id config.model_id
-  | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
+  | OpenAI_compat | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
 ;;
 
 type tool_choice_request_rejection =
@@ -684,6 +582,11 @@ type reasoning_effort_request_rejection =
       ; effort : reasoning_effort
       ; accepted : reasoning_effort list
       }
+  | Undeclared_reasoning_effort_capability of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      }
 
 let reasoning_effort_list_to_message values =
   values |> List.map reasoning_effort_to_string |> String.concat "/"
@@ -691,20 +594,29 @@ let reasoning_effort_list_to_message values =
 
 let reasoning_effort_request_rejection_to_message = function
   | Unsupported_reasoning_effort { provider_kind; model_id; effort; accepted } ->
+    if accepted = []
+    then
+      Printf.sprintf
+        "%s model %S does not accept categorical reasoning effort"
+        (string_of_provider_kind provider_kind)
+        model_id
+    else
+      Printf.sprintf
+        "%s model %S does not accept reasoning effort %S; accepted values: %s"
+        (string_of_provider_kind provider_kind)
+        model_id
+        (reasoning_effort_to_string effort)
+        (reasoning_effort_list_to_message accepted)
+  | Undeclared_reasoning_effort_capability { provider_kind; model_id; effort } ->
     Printf.sprintf
-      "%s model %S does not accept reasoning effort %S; accepted values: %s"
+      "%s model %S has no declared categorical reasoning-effort contract; cannot send %S"
       (string_of_provider_kind provider_kind)
       model_id
       (reasoning_effort_to_string effort)
-      (reasoning_effort_list_to_message accepted)
 ;;
 
 let validate_reasoning_effort_request_typed (config : t) =
-  match
-    reasoning_effort_request_value_typed
-      ~enable_thinking:config.enable_thinking
-      ~thinking_budget:config.thinking_budget
-  with
+  match config.reasoning_effort with
   | None -> Ok ()
   | Some effort ->
     let caps = request_capabilities_for_config config in
@@ -713,26 +625,17 @@ let validate_reasoning_effort_request_typed (config : t) =
        Error
          (Unsupported_reasoning_effort
             { provider_kind = config.kind; model_id = config.model_id; effort; accepted })
-     | Some _ | None -> Ok ())
+     | Some _ -> Ok ()
+     | None ->
+       Error
+         (Undeclared_reasoning_effort_capability
+            { provider_kind = config.kind; model_id = config.model_id; effort }))
 ;;
 
 let validate_reasoning_effort_request config =
   Result.map_error
     reasoning_effort_request_rejection_to_message
     (validate_reasoning_effort_request_typed config)
-;;
-
-(** Compute reasoning_effort for a provider config.
-    Returns [None] for non-Ollama providers.
-    @since 0.114.0 *)
-let reasoning_effort_of_config (config : t) : string option =
-  match config.kind with
-  | Ollama ->
-    Some
-      (effort_of_thinking_config
-         ~enable_thinking:config.enable_thinking
-         ~thinking_budget:config.thinking_budget)
-  | _ -> None
 ;;
 
 let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =

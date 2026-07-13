@@ -17,8 +17,7 @@
 
 open Types
 
-(** Semantic classification of a Glm API error.
-    Determined by error code (structured) with message fallback. *)
+(** Semantic classification of a Glm API error from its documented code. *)
 type glm_error_class =
   | Glm_quota_exceeded
   | Glm_rate_limited
@@ -26,11 +25,16 @@ type glm_error_class =
   | Glm_server_error
   | Glm_invalid_request
 
+type glm_error_origin =
+  | Provider_response
+  | Response_parse
+
 type glm_error =
-  { code : string
+  { code : string option
   ; message : string
   ; error_class : glm_error_class
   ; is_retryable : bool
+  ; origin : glm_error_origin
   }
 
 exception Glm_api_error of glm_error
@@ -42,7 +46,7 @@ val request_output_token_receipt : request_artifact -> Types.output_token_receip
 
 (** Classify a Glm error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
-val classify_glm_error : code:string -> message:string -> glm_error_class * bool
+val classify_glm_error : code:string -> glm_error_class * bool
 
 (** Map a Glm error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes

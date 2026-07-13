@@ -34,8 +34,8 @@ let glm_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
 
 let check_class label expected actual = check bool label true (actual = expected)
 
-let check_classification label code message expected retryable =
-  let actual, retry = K.classify_glm_error ~code ~message in
+let check_classification label code expected retryable =
+  let actual, retry = K.classify_glm_error ~code in
   check_class (label ^ " class") expected actual;
   check bool (label ^ " retryable") retryable retry
 ;;
@@ -67,29 +67,12 @@ let response_json ?(reasoning = Some "step by step") ?(content = "answer") () =
 ;;
 
 let test_classification_matrix () =
-  check_classification "auth" "1001" "bad api key" K.Glm_auth_error false;
-  check_classification "rate" "1305" "service overloaded" K.Glm_rate_limited true;
-  check_classification "quota" "1308" "quota exhausted" K.Glm_quota_exceeded false;
-  check_classification "server" "1234" "backend timeout" K.Glm_server_error true;
-  check_classification "invalid" "1210" "bad parameter" K.Glm_invalid_request false;
-  check_classification
-    "message quota fallback"
-    "unknown"
-    "usage limit exceeded"
-    K.Glm_quota_exceeded
-    false;
-  check_classification
-    "message rate fallback"
-    "unknown"
-    "rate limit hit"
-    K.Glm_rate_limited
-    true;
-  check_classification
-    "unknown fallback"
-    "9999"
-    "unclassified"
-    K.Glm_invalid_request
-    false
+  check_classification "auth" "1001" K.Glm_auth_error false;
+  check_classification "rate" "1305" K.Glm_rate_limited true;
+  check_classification "quota" "1308" K.Glm_quota_exceeded false;
+  check_classification "server" "1234" K.Glm_server_error true;
+  check_classification "invalid" "1210" K.Glm_invalid_request false;
+  check_classification "unknown" "9999" K.Glm_invalid_request false
 ;;
 
 let test_http_status_mapping () =
@@ -166,25 +149,25 @@ let test_parse_response_extracts_reasoning_and_usage () =
 let test_parse_response_classifies_glm_errors () =
   let cases =
     [ ( {|{"error":{"code":"1305","message":"service overloaded"}}|}
-      , "1305"
+      , Some "1305"
       , K.Glm_rate_limited
       , true )
     ; ( {|{"error":{"code":1234,"message":"server unavailable"}}|}
-      , "1234"
+      , Some "1234"
       , K.Glm_server_error
       , true )
     ; ( {|{"error":{"code":{"nested":true},"message":"quota exceeded"}}|}
-      , "unknown"
-      , K.Glm_quota_exceeded
+      , None
+      , K.Glm_invalid_request
       , false )
-    ; {|{"error":{"code":1200}}|}, "1200", K.Glm_invalid_request, false
+    ; {|{"error":{"code":1200}}|}, Some "1200", K.Glm_invalid_request, false
     ]
   in
   List.iter
     (fun (body, code, expected_class, expected_retryable) ->
        match K.parse_response body with
        | exception K.Glm_api_error err ->
-         check string "error code" code err.code;
+         check (option string) "error code" code err.code;
          check_class "error class" expected_class err.error_class;
          check bool "retryable" expected_retryable err.is_retryable
        | _ -> fail "expected Glm_api_error")
@@ -194,7 +177,8 @@ let test_parse_response_classifies_glm_errors () =
 let test_parse_response_wraps_openai_parse_errors () =
   match K.parse_response {|{"choices":"not-a-list"}|} with
   | exception K.Glm_api_error err ->
-    check string "parse code" "parse" err.code;
+    check (option string) "parse code absent" None err.code;
+    check bool "parse origin" true (err.origin = K.Response_parse);
     check_class "parse class" K.Glm_invalid_request err.error_class;
     check bool "parse is not retryable" false err.is_retryable;
     check bool "parse message surfaced" true (String.length err.message > 0)

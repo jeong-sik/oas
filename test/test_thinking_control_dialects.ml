@@ -42,7 +42,8 @@ let with_manifest json f =
 ;;
 
 let install_repository_catalog () =
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"thinking-control dialect"
+  Model_catalog_test_support.install_packaged_model_catalog
+    ~suite:"thinking-control dialect"
 ;;
 
 let without_ambient_manifest f =
@@ -192,7 +193,13 @@ let ollama_cloud_config ?system_prompt ?enable_thinking model_id =
     ()
 ;;
 
-let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
+let anthropic_config
+      ?enable_thinking
+      ?thinking_budget
+      ?reasoning_effort
+      ?output_schema
+      model_id
+  =
   PC.make
     ~kind:Anthropic
     ~model_id
@@ -200,6 +207,7 @@ let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
     ~max_tokens:16_000
     ?enable_thinking
     ?thinking_budget
+    ?reasoning_effort
     ?output_schema
     ()
 ;;
@@ -401,25 +409,29 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     (option string)
-    "preserve minimal"
+    "typed preserve minimal"
     (Some "minimal")
-    (RD.normalize_effort dialect "minimal");
-  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high");
+    (RD.normalize_effort_value dialect RE.Minimal);
   check
     (option string)
-    "preserve xhigh"
-    (Some "xhigh")
-    (RD.normalize_effort dialect "xhigh");
+    "typed preserve high"
+    (Some "high")
+    (RD.normalize_effort_value dialect RE.High);
   check
     (option string)
     "typed preserve xhigh"
     (Some "xhigh")
-    (RD.normalize_effort_value dialect RE.XHigh)
+    (RD.normalize_effort_value dialect RE.XHigh);
+  check
+    (option string)
+    "typed preserve max"
+    (Some "max")
+    (RD.normalize_effort_value dialect RE.Max)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
   with_manifest
-    {|{"schema_version":1,"models":[{"id_prefix":"openai-reasoning-test-9fx","base":"openai_chat_extended","thinking_control_format":"reasoning_effort"}]}|}
+    {|{"schema_version":1,"models":[{"id_prefix":"openai-reasoning-test-9fx","base":"openai_chat_extended","thinking_control_format":"reasoning_effort","accepted_reasoning_efforts":["low","medium","high"]}]}|}
     (fun () ->
        let config =
          PC.make
@@ -427,7 +439,7 @@ let test_openai_reasoning_request_uses_reasoning_effort () =
            ~model_id:"openai-reasoning-test-9fx"
            ~base_url:"https://api.openai.com/v1"
            ~enable_thinking:true
-           ~thinking_budget:4096
+           ~reasoning_effort:RE.Medium
            ()
        in
        let json =
@@ -448,7 +460,6 @@ let test_deepseek_openai_compat_uses_thinking_object () =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
       ~enable_thinking:false
-      ~thinking_budget:4096
       "deepseek-v4-flash"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -627,21 +638,20 @@ let test_deepseek_reasoning_dialect_semantics () =
     "requires tool-call replay"
     true
     (RD.requires_reasoning_replay_on_tool_call dialect);
-  check (option string) "low maps high" (Some "high") (RD.normalize_effort dialect "low");
   check
     (option string)
-    "medium maps high"
+    "typed high stays high"
     (Some "high")
-    (RD.normalize_effort dialect "medium");
+    (RD.normalize_effort_value dialect RE.High);
   check
     (option string)
-    "xhigh maps max"
+    "typed max stays max"
     (Some "max")
-    (RD.normalize_effort dialect "xhigh");
+    (RD.normalize_effort_value dialect RE.Max);
   check
     (option string)
-    "typed low maps high"
-    (Some "high")
+    "typed low is unsupported"
+    None
     (RD.normalize_effort_value dialect RE.Low);
   check
     (option string)
@@ -1180,14 +1190,14 @@ let test_anthropic_reasoning_dialect_preserves_thinking () =
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     (option string)
-    "xhigh effort alias"
-    (Some "max")
+    "xhigh effort stays exact"
+    (Some "xhigh")
     (RD.normalize_effort_value dialect RE.XHigh);
   check
     (option string)
-    "minimal effort omitted"
-    None
-    (RD.normalize_effort_value dialect RE.Minimal)
+    "max effort stays exact"
+    (Some "max")
+    (RD.normalize_effort_value dialect RE.Max)
 ;;
 
 let test_anthropic_manual_model_uses_budget_tokens () =
@@ -1203,10 +1213,7 @@ let test_anthropic_manual_model_uses_budget_tokens () =
 
 let test_anthropic_opus48_uses_adaptive_effort () =
   let config =
-    anthropic_config
-      ~enable_thinking:true
-      ~thinking_budget:(RE.low_budget_max_tokens + 1)
-      "claude-opus-4-8"
+    anthropic_config ~enable_thinking:true ~reasoning_effort:RE.Medium "claude-opus-4-8"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   let thinking = json |> member "thinking" in
@@ -1223,7 +1230,7 @@ let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:(RE.low_budget_max_tokens + 1)
+      ~reasoning_effort:RE.Medium
       "claude-sonnet-4-6-20250514"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -1256,7 +1263,7 @@ let test_anthropic_output_config_merges_format_and_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:(RE.high_budget_max_tokens + 1)
+      ~reasoning_effort:RE.Max
       ~output_schema:schema
       "claude-opus-4-8"
   in

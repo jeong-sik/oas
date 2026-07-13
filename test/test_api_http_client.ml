@@ -51,10 +51,8 @@ let empty_openai_response finish_reason =
 
 let state_and_messages (provider : Provider.config) =
   let config =
-    { default_config with
-      model = provider.model_id
-    ; system_prompt = Some "reply briefly"
-    ; max_turns = 1
+    { (default_config ~model:provider.model_id) with
+      system_prompt = Some "reply briefly"
     ; max_tokens = Some 16
     }
   in
@@ -121,10 +119,8 @@ let test_create_message_uses_hardened_http_client () =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
     let config =
-      { default_config with
-        model = provider.model_id
-      ; system_prompt = Some "reply briefly"
-      ; max_turns = 1
+      { (default_config ~model:provider.model_id) with
+        system_prompt = Some "reply briefly"
       ; max_tokens = Some 16
       }
     in
@@ -184,17 +180,15 @@ let test_create_message_empty_completion_maps_to_provider_unavailable () =
     [ "stop"; "length" ]
 ;;
 
-let test_custom_stream_fallback_empty_maps_to_provider_unavailable () =
+let test_custom_stream_requires_streaming_codec () =
   List.iter
-    (fun stop_reason ->
+    (fun suffix ->
        let handler _conn _req body =
          ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
          Cohttp_eio.Server.respond_string ~status:`OK ~body:"custom-empty" ()
        in
        with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
-         let name =
-           "api-custom-empty-" ^ Llm_provider.Types.stop_reason_to_string stop_reason
-         in
+         let name = "api-custom-no-streaming-codec-" ^ suffix in
          let impl : Provider.provider_impl =
            { name
            ; request_kind = Provider.Custom name
@@ -203,14 +197,7 @@ let test_custom_stream_fallback_empty_maps_to_provider_unavailable () =
                { Provider.default_capabilities with supports_native_streaming = false }
            ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
            ; parse_response =
-               (fun _ ->
-                 { id = "custom-empty"
-                 ; model = "mock"
-                 ; stop_reason
-                 ; content = []
-                 ; usage = None
-                 ; telemetry = None
-                 })
+               (fun _ -> Alcotest.fail "streaming must not call sync parser")
            ; resolve =
                (fun _ -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
            }
@@ -230,8 +217,16 @@ let test_custom_stream_fallback_empty_maps_to_provider_unavailable () =
              ()
          in
          Alcotest.(check int) "no synthetic events" 0 (List.length !events);
-         expect_provider_unavailable result))
-    [ Llm_provider.Types.EndTurn; Llm_provider.Types.MaxTokens ]
+         match result with
+         | Error (Error.Config (UnsupportedProvider { detail })) ->
+           Alcotest.(check bool)
+             "exact missing-codec error"
+             true
+             (String.length detail > 0)
+         | Error error ->
+           Alcotest.failf "expected UnsupportedProvider, got %s" (Error.to_string error)
+         | Ok _ -> Alcotest.fail "expected UnsupportedProvider, got Ok"))
+    [ "a"; "b" ]
 ;;
 
 let test_custom_parser_failure_preserves_legacy_error_and_parse_evidence () =
@@ -266,39 +261,41 @@ let test_custom_parser_failure_preserves_legacy_error_and_parse_evidence () =
     | _ -> Alcotest.fail "expected typed response-parse evidence")
 ;;
 
-let test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence () =
-  let handler _conn _req body =
-    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:"slow" ()
+let test_timeout_requires_clock () =
+  let handler _conn _req _body =
+    Alcotest.fail "invalid timeout configuration must not reach HTTP"
   in
   with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
-    let provider =
-      register_failing_custom_provider
-        ~name:"api-custom-wall-clock-timeout"
-        ~base_url
-        (fun _ -> raise Eio.Time.Timeout)
+    let provider : Provider.config =
+      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
     let config, messages = state_and_messages provider in
-    let detailed =
-      Api.create_message_detailed ~sw ~net ~provider ~config ~messages ()
-      |> require_detailed_error
-    in
-    (match detailed.Provider_failure_attribution.error with
-     | Error.Api (Llm_provider.Retry.Timeout { phase = None; _ }) -> ()
-     | error ->
-       Alcotest.failf
-         "expected legacy timeout with no phase, got %s"
-         (Error.to_string error));
-    let attribution = require_attribution detailed in
-    match attribution.Provider_failure_attribution.evidence with
-    | Provider_failure_attribution.Timeout Llm_provider.Http_client.Wall_clock -> ()
-    | _ -> Alcotest.fail "expected typed wall-clock timeout evidence")
+    match
+      Api.create_message_detailed
+        ~sw
+        ~net
+        ~provider
+        ~request_timeout_s:1.0
+        ~config
+        ~messages
+        ()
+    with
+    | Error
+        { Provider_failure_attribution.error =
+            Error.Config (InvalidConfig { field = "request_timeout_s"; _ })
+        ; _
+        } -> ()
+    | Error detailed ->
+      Alcotest.failf
+        "expected request_timeout_s InvalidConfig, got %s"
+        (Error.to_string detailed.error)
+    | Ok _ -> Alcotest.fail "timeout without clock must fail explicitly")
 ;;
 
 let () =
   Alcotest.run
     "Api_http_client"
-    [ ( "legacy_create_message"
+    [ ( "explicit_create_message"
       , [ Alcotest.test_case
             "uses hardened post_sync headers"
             `Quick
@@ -308,17 +305,14 @@ let () =
             `Quick
             test_create_message_empty_completion_maps_to_provider_unavailable
         ; Alcotest.test_case
-            "custom stream fallback maps empty to provider unavailable"
+            "custom stream requires streaming codec"
             `Quick
-            test_custom_stream_fallback_empty_maps_to_provider_unavailable
+            test_custom_stream_requires_streaming_codec
         ; Alcotest.test_case
             "custom parser failure preserves legacy error and parse evidence"
             `Quick
             test_custom_parser_failure_preserves_legacy_error_and_parse_evidence
-        ; Alcotest.test_case
-            "wall-clock timeout preserves legacy error and typed evidence"
-            `Quick
-            test_wall_clock_timeout_preserves_legacy_error_and_typed_evidence
+        ; Alcotest.test_case "timeout requires clock" `Quick test_timeout_requires_clock
         ] )
     ]
 ;;

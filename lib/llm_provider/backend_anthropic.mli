@@ -20,6 +20,13 @@ val thinking_config_for_config
   -> Provider_config.t
   -> Yojson.Safe.t option
 
+(** Validate that categorical effort and numeric budget target the selected
+    Anthropic thinking wire exactly. *)
+val validate_thinking_controls
+  :  Capabilities.anthropic_thinking_control
+  -> Provider_config.t
+  -> (unit, string) result
+
 (** Optional Claude [output_config], including adaptive [effort] and native
     JSON-schema format when requested. *)
 val output_config_for_config

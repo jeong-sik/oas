@@ -88,6 +88,28 @@ let test_unregister () =
   check int "0 entries" 0 (List.length (Provider_registry.all reg))
 ;;
 
+let test_refresh_rejects_missing_endpoint_declarations () =
+  check
+    bool
+    "no implicit active endpoint"
+    true
+    (Option.is_none (Provider_registry.current_llama_endpoint ()));
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  match Provider_registry.refresh_llama_endpoints ~sw ~net:env#net ~endpoints:[] with
+  | Error Provider_registry.No_endpoints_declared ->
+    check
+      int
+      "missing declarations do not invent a fallback"
+      0
+      (List.length (Provider_registry.active_llama_endpoints ()))
+  | Error (Provider_registry.No_healthy_endpoints _) ->
+    fail "empty declarations cannot produce endpoint probe statuses"
+  | Ok _ -> fail "empty declarations must be rejected"
+;;
+
 (* ── Availability ───────────────────────────────────── *)
 
 let test_available_filter () =
@@ -215,10 +237,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_18 () =
+let test_default_has_17 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "18 known providers" 18 (List.length all);
+  check int "17 declared providers" 17 (List.length all);
   check bool "llama exists" true (Option.is_some (Provider_registry.find reg "nous"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
@@ -246,7 +268,11 @@ let test_default_has_18 () =
     "deepseek exists"
     true
     (Option.is_some (Provider_registry.find reg "deepseek"));
-  check bool "alibaba exists" true (Option.is_some (Provider_registry.find reg "alibaba"));
+  check
+    bool
+    "alibaba alias absent"
+    false
+    (Option.is_some (Provider_registry.find reg "alibaba"));
   check
     bool
     "dashscope exists"
@@ -321,7 +347,7 @@ let test_default_deepseek_api_key_env () =
 ;;
 
 let test_default_mimo_entry () =
-  let reg = Provider_registry.default ~getenv:(fun _ -> None) () in
+  let reg = Provider_registry.default () in
   match Provider_registry.find reg "mimo" with
   | Some e ->
     check
@@ -343,138 +369,18 @@ let test_default_mimo_entry () =
   | None -> fail "mimo should exist"
 ;;
 
-let test_provider_name_of_ollama_cloud_config () =
-  let cfg =
-    Provider_config.make
-      ~kind:Provider_config.Ollama
-      ~model_id:"glm-5.1:cloud"
-      ~base_url:"https://ollama.com"
-      ~request_path:"/api/chat"
-      ()
+let test_provider_name_is_wire_kind_projection () =
+  let check_kind kind base_url =
+    let config = Provider_config.make ~kind ~model_id:"test-model" ~base_url () in
+    check
+      string
+      (Provider_config.string_of_provider_kind kind)
+      (Provider_config.string_of_provider_kind kind)
+      (Provider_registry.provider_name_of_config config)
   in
-  check
-    string
-    "provider name"
-    "ollama_cloud"
-    (Provider_registry.provider_name_of_config cfg)
-;;
-
-(* ── provider_name_of_config: identity vs env override ──────────────
-   Provider identity of an already-built config must be deterministic:
-   the documented canonical URL always resolves to its provider, and the
-   env-overridden default URL resolves to it additively. A process env
-   override must never erase the documented default identity. *)
-
-let ollama_cfg base_url =
-  Provider_config.make
-    ~kind:Provider_config.Ollama
-    ~model_id:"glm-5.1:cloud"
-    ~base_url
-    ~request_path:"/api/chat"
-    ()
-;;
-
-let openai_compat_cfg base_url =
-  Provider_config.make
-    ~kind:Provider_config.OpenAI_compat
-    ~model_id:"deepseek-v4-pro"
-    ~base_url
-    ~request_path:"/chat/completions"
-    ()
-;;
-
-let test_provider_name_ollama_cloud_identity_survives_env_override () =
-  let override = "https://ollama-cloud-proxy.example" in
-  with_env "OLLAMA_CLOUD_BASE_URL" override (fun () ->
-    check
-      string
-      "canonical URL keeps ollama_cloud identity under env override"
-      "ollama_cloud"
-      (Provider_registry.provider_name_of_config (ollama_cfg "https://ollama.com"));
-    check
-      string
-      "env-overridden URL also resolves ollama_cloud"
-      "ollama_cloud"
-      (Provider_registry.provider_name_of_config (ollama_cfg override));
-    check
-      string
-      "unrelated URL still resolves ollama"
-      "ollama"
-      (Provider_registry.provider_name_of_config (ollama_cfg "http://127.0.0.1:11434")))
-;;
-
-let test_provider_name_ollama_cloud_identity_injected_getenv () =
-  let override = "https://ollama-cloud-injected.example" in
-  let getenv name =
-    if String.equal name "OLLAMA_CLOUD_BASE_URL" then Some override else None
-  in
-  check
-    string
-    "canonical URL keeps ollama_cloud identity under injected override"
-    "ollama_cloud"
-    (Provider_registry.provider_name_of_config ~getenv (ollama_cfg "https://ollama.com"));
-  check
-    string
-    "injected override URL also resolves ollama_cloud"
-    "ollama_cloud"
-    (Provider_registry.provider_name_of_config ~getenv (ollama_cfg override))
-;;
-
-let test_provider_name_deepseek_identity_survives_env_override () =
-  let override = "https://deepseek-proxy.example/v1" in
-  with_env "DEEPSEEK_BASE_URL" override (fun () ->
-    check
-      string
-      "canonical URL keeps deepseek identity under env override"
-      "deepseek"
-      (Provider_registry.provider_name_of_config
-         (openai_compat_cfg "https://api.deepseek.com"));
-    check
-      string
-      "env-overridden URL also resolves deepseek"
-      "deepseek"
-      (Provider_registry.provider_name_of_config (openai_compat_cfg override)))
-;;
-
-let test_provider_name_deepseek_identity_injected_getenv () =
-  let override = "https://deepseek-injected.example/v1" in
-  let getenv name =
-    if String.equal name "DEEPSEEK_BASE_URL" then Some override else None
-  in
-  check
-    string
-    "canonical URL keeps deepseek identity under injected override"
-    "deepseek"
-    (Provider_registry.provider_name_of_config
-       ~getenv
-       (openai_compat_cfg "https://api.deepseek.com"));
-  check
-    string
-    "injected override URL also resolves deepseek"
-    "deepseek"
-    (Provider_registry.provider_name_of_config ~getenv (openai_compat_cfg override));
-  check
-    string
-    "unrelated URL still falls back to openai_compat"
-    "openai_compat"
-    (Provider_registry.provider_name_of_config
-       ~getenv
-       (openai_compat_cfg "https://unlisted.example/v1"))
-;;
-
-let test_provider_name_env_override_cannot_steal_canonical_identity () =
-  (* An override pointing at another provider's documented endpoint must not
-     reassign it: canonical matches resolve before env-derived matches. *)
-  let getenv name =
-    if String.equal name "DEEPSEEK_BASE_URL" then Some "https://api.x.ai/v1" else None
-  in
-  check
-    string
-    "xai canonical URL stays xai despite deepseek override"
-    "xai"
-    (Provider_registry.provider_name_of_config
-       ~getenv
-       (openai_compat_cfg "https://api.x.ai/v1"))
+  List.iter
+    (fun kind -> check_kind kind "https://provider-identity-must-not-come-from-url.test")
+    Provider_config.all_provider_kinds
 ;;
 
 let default_entry_base_url name =
@@ -484,92 +390,31 @@ let default_entry_base_url name =
   | None -> failf "%s should exist" name
 ;;
 
-let test_default_nous_base_url_reads_llm_endpoints_at_call_time () =
-  let first = "http://127.0.0.1:18085" in
-  let second = "http://127.0.0.1:18086" in
-  with_env "LLM_ENDPOINTS" first (fun () ->
-    check string "first registry" first (default_entry_base_url "nous");
-    Unix.putenv "LLM_ENDPOINTS" second;
-    check string "second registry" second (default_entry_base_url "nous"))
-;;
-
-let test_default_ollama_base_url_reads_ollama_host_at_call_time () =
-  let first = "http://127.0.0.1:19134" in
-  let second = "http://127.0.0.1:19135" in
-  with_env "OLLAMA_HOST" first (fun () ->
-    check string "first registry" first (default_entry_base_url "ollama");
-    Unix.putenv "OLLAMA_HOST" second;
-    check string "second registry" second (default_entry_base_url "ollama"))
-;;
-
-(* Providers whose base_url accepts a [*_BASE_URL] env override, with the
-   documented SSOT default that applies when the variable is unset.
-   [alibaba] shares [dashscope]'s defaults record, so both appear under
-   the same env var. *)
-let call_time_base_url_env_overrides =
-  [ "gemini", "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
-  ; "glm", "ZAI_BASE_URL", Zai_catalog.general_base_url
-  ; "glm-coding", "ZAI_CODING_BASE_URL", Zai_catalog.coding_base_url
-  ; "kimi", "KIMI_BASE_URL", "https://api.kimi.com/coding"
-  ; "ollama_cloud", "OLLAMA_CLOUD_BASE_URL", "https://ollama.com"
-  ; "groq", "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
-  ; "deepseek", "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
-  ; ( "dashscope"
-    , "DASHSCOPE_BASE_URL"
-    , "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" )
-  ; ( "alibaba"
-    , "DASHSCOPE_BASE_URL"
-    , "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" )
-  ; "siliconflow", "SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"
-  ; "xai", "XAI_BASE_URL", "https://api.x.ai/v1"
-  ; "mistral", "MISTRAL_BASE_URL", "https://api.mistral.ai/v1"
-  ; "cohere", "COHERE_BASE_URL", "https://api.cohere.com/compatibility/v1"
-  ; "mimo", "MIMO_BASE_URL", "https://token-plan-sgp.xiaomimimo.com/v1"
-  ]
-;;
-
-let test_default_base_urls_read_env_at_registry_construction () =
-  List.iter
-    (fun (provider, env_var, _default_url) ->
-       let first = Printf.sprintf "http://127.0.0.1:18201/%s-first" provider in
-       let second = Printf.sprintf "http://127.0.0.1:18202/%s-second" provider in
-       with_env env_var first (fun () ->
-         check
-           string
-           (provider ^ " first registry")
-           first
-           (default_entry_base_url provider);
-         Unix.putenv env_var second;
-         check
-           string
-           (provider ^ " second registry")
-           second
-           (default_entry_base_url provider)))
-    call_time_base_url_env_overrides
-;;
-
-let test_default_base_urls_resolve_injected_getenv () =
-  List.iter
-    (fun (provider, env_var, _default_url) ->
-       let injected = Printf.sprintf "http://127.0.0.1:18203/%s-injected" provider in
-       let getenv name = if String.equal name env_var then Some injected else None in
-       let reg = Provider_registry.default ~getenv () in
-       match Provider_registry.find reg provider with
-       | Some e ->
-         check string (provider ^ " injected base_url") injected e.defaults.base_url
-       | None -> failf "%s should exist" provider)
-    call_time_base_url_env_overrides
-;;
-
-let test_default_base_urls_fall_back_without_env () =
-  let reg = Provider_registry.default ~getenv:(fun _ -> None) () in
-  List.iter
-    (fun (provider, _env_var, default_url) ->
-       match Provider_registry.find reg provider with
-       | Some e ->
-         check string (provider ^ " documented default") default_url e.defaults.base_url
-       | None -> failf "%s should exist" provider)
-    call_time_base_url_env_overrides
+let test_default_endpoints_ignore_ambient_overrides () =
+  with_env "LLM_ENDPOINTS" "http://127.0.0.1:18085" (fun () ->
+    with_env "OLLAMA_HOST" "http://127.0.0.1:19134" (fun () ->
+      with_env "KIMI_BASE_URL" "https://wrong-kimi.example" (fun () ->
+        with_env "DEEPSEEK_BASE_URL" "https://wrong-deepseek.example" (fun () ->
+          check
+            string
+            "nous declaration"
+            Discovery.default_endpoint
+            (default_entry_base_url "nous");
+          check
+            string
+            "ollama declaration"
+            Discovery.ollama_endpoint
+            (default_entry_base_url "ollama");
+          check
+            string
+            "kimi declaration"
+            "https://api.kimi.com/coding"
+            (default_entry_base_url "kimi");
+          check
+            string
+            "deepseek declaration"
+            "https://api.deepseek.com"
+            (default_entry_base_url "deepseek")))))
 ;;
 
 let test_default_max_context () =
@@ -598,9 +443,6 @@ let test_default_max_context () =
   (match Provider_registry.find reg "dashscope" with
    | Some e -> check int "dashscope 131K" 131_072 e.max_context
    | None -> fail "dashscope should exist");
-  (match Provider_registry.find reg "alibaba" with
-   | Some e -> check int "alibaba 131K" 131_072 e.max_context
-   | None -> fail "alibaba should exist");
   match Provider_registry.find reg "siliconflow" with
   | Some e -> check int "siliconflow 128K" 128_000 e.max_context
   | None -> fail "siliconflow should exist"
@@ -665,39 +507,6 @@ let test_glm_coding_api_key_env_isolated () =
        | None -> fail "glm-coding should exist")
 ;;
 
-let test_blank_zai_base_urls_fall_back () =
-  let prev_general = Sys.getenv_opt "ZAI_BASE_URL" in
-  let prev_coding = Sys.getenv_opt "ZAI_CODING_BASE_URL" in
-  let restore key = function
-    | Some v -> Unix.putenv key v
-    | None -> Unix.putenv key ""
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      restore "ZAI_BASE_URL" prev_general;
-      restore "ZAI_CODING_BASE_URL" prev_coding)
-    (fun () ->
-       Unix.putenv "ZAI_BASE_URL" "   ";
-       Unix.putenv "ZAI_CODING_BASE_URL" "\t";
-       let reg = Provider_registry.default () in
-       (match Provider_registry.find reg "glm" with
-        | Some e ->
-          check
-            string
-            "glm blank fallback"
-            Zai_catalog.general_base_url
-            e.defaults.base_url
-        | None -> fail "glm should exist");
-       match Provider_registry.find reg "glm-coding" with
-       | Some e ->
-         check
-           string
-           "glm-coding blank fallback"
-           Zai_catalog.coding_base_url
-           e.defaults.base_url
-       | None -> fail "glm-coding should exist")
-;;
-
 (* ── Provider catalog overlay ────────────────────────── *)
 
 let with_provider_catalog json f =
@@ -708,7 +517,7 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Provider_catalog.clear_global f
 ;;
 
-let test_catalog_overlay_adds_provider_and_alias () =
+let test_catalog_overlay_registers_exact_provider_id_only () =
   with_provider_catalog
     {|{
       "schema_version": 1,
@@ -740,10 +549,11 @@ let test_catalog_overlay_adds_provider_and_alias () =
           check bool "tools" true e.capabilities.supports_tools;
           check bool "tool choice" true e.capabilities.supports_tool_choice
         | None -> fail "catalog provider should be registered");
-       match Provider_registry.find reg "subscriber-local" with
-       | Some e ->
-         check string "alias base url" "http://127.0.0.1:8000" e.defaults.base_url
-       | None -> fail "catalog alias should be registered")
+       check
+         bool
+         "catalog alias is not a registry key"
+         false
+         (Option.is_some (Provider_registry.find reg "Subscriber-Local")))
 ;;
 
 let test_catalog_overlay_replaces_seed_provider () =
@@ -770,7 +580,7 @@ let test_catalog_overlay_replaces_seed_provider () =
        | None -> fail "openrouter should still exist")
 ;;
 
-let test_catalog_overlay_normalizes_provider_id () =
+let test_catalog_overlay_preserves_exact_provider_id () =
   with_provider_catalog
     {|{
       "schema_version": 1,
@@ -787,9 +597,14 @@ let test_catalog_overlay_normalizes_provider_id () =
     }|}
     (fun () ->
        let reg = Provider_registry.default () in
-       match Provider_registry.find reg "acme-cloud" with
-       | Some e -> check string "base url" "https://acme.example/v1" e.defaults.base_url
-       | None -> fail "catalog provider id should be normalized")
+       (match Provider_registry.find reg "Acme-Cloud" with
+        | Some e -> check string "base url" "https://acme.example/v1" e.defaults.base_url
+        | None -> fail "exact catalog provider id should be registered");
+       check
+         bool
+         "lowercase reinterpretation is rejected"
+         false
+         (Option.is_some (Provider_registry.find reg "acme-cloud")))
 ;;
 
 let test_catalog_rejects_empty_provider_id () =
@@ -1003,11 +818,7 @@ let test_catalog_lookup_case_insensitive () =
       (Option.is_some (Provider_catalog.lookup catalog "  alsomixed  "))
 ;;
 
-(* Constructs Provider_catalog.t directly (bypassing JSON parse) so that
-   empty/whitespace aliases survive to the registry overlay, where the
-   register_name warn is emitted. JSON parse-time filtering would otherwise
-   drop them before the overlay sees them. *)
-let test_catalog_empty_alias_not_registered () =
+let test_catalog_aliases_are_not_registry_keys () =
   let entry : Provider_catalog.entry =
     { id = "host"
     ; aliases = [ "good-alias"; ""; "   " ]
@@ -1025,41 +836,19 @@ let test_catalog_empty_alias_not_registered () =
     }
   in
   Provider_catalog.set_global [ entry ];
-  let warns = ref [] in
-  let sink level ~ctx msg =
-    match level with
-    | Diag.Warn -> warns := (ctx, msg) :: !warns
-    | _ -> ()
-  in
   Fun.protect ~finally:Provider_catalog.clear_global (fun () ->
-    Diag.with_sink sink (fun () ->
-      let reg = Provider_registry.default () in
-      check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
-      check
-        bool
-        "good alias registered"
-        true
-        (Option.is_some (Provider_registry.find reg "good-alias"));
-      check
-        bool
-        "empty alias not registered"
-        false
-        (Option.is_some (Provider_registry.find reg ""))));
-  let starts_with ~prefix s =
-    let plen = String.length prefix in
-    String.length s >= plen && String.sub s 0 plen = prefix
-  in
-  let empty_alias_warns =
-    List.filter
-      (fun (ctx, msg) ->
-         ctx = "provider_registry" && starts_with ~prefix:"ignoring empty alias" msg)
-      !warns
-  in
-  check
-    bool
-    "Diag.warn fired from provider_registry for at least one empty alias"
-    true
-    (List.length empty_alias_warns >= 1)
+    let reg = Provider_registry.default () in
+    check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
+    check
+      bool
+      "declared alias not registered"
+      false
+      (Option.is_some (Provider_registry.find reg "good-alias"));
+    check
+      bool
+      "empty alias not registered"
+      false
+      (Option.is_some (Provider_registry.find reg "")))
 ;;
 
 let test_catalog_load_file_and_lookup_alias () =
@@ -1200,10 +989,8 @@ let test_requires_any () =
 
 (* ── Kind ↔ registry integrity ────────────────────────── *)
 
-(** Minimal [Provider_config.t] construction for a given kind, using a
-    localhost base URL for [OpenAI_compat] (a local endpoint resolves to the
-    neutral "openai_compat" label per RFC-OAS-034, not a vendor entry) and a
-    plain (non-coding) URL for [Glm] (resolves to "glm"). *)
+(** Minimal [Provider_config.t] construction for a given kind. URL contents
+    cannot affect the projected wire-kind label. *)
 let mk_config_for_kind kind =
   let base_url =
     match kind with
@@ -1213,60 +1000,14 @@ let mk_config_for_kind kind =
   Provider_config.make ~kind ~model_id:"test" ~base_url ()
 ;;
 
-(** Regression guard for the masc-mcp capability-lookup bug (boundary-allow) fixed in
-    masc-mcp#9306 (boundary-allow). That bug passed [Anthropicdapter.string_of_provider_kind]
-    (masc canonical_name: "claude-api", ...) (boundary-allow) to
-    [Provider_registry.find], but the registry is keyed on the names
-    returned by [Provider_registry.provider_name_of_config] ("claude",
-    "kimi", "nous", "ollama", "claude_code", "gemini", ...). For
-    direct-API kinds the lookup silently fell back to
-    [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("claude" → Anthropic, "gemini" → Gemini,
-    "kimi" → Kimi) and returned the wrong capability matrix.
-
-    Assert here that [provider_name_of_config] is the authoritative key
-    source: every variant in [Provider_config.all_provider_kinds]
-    produces a name that resolves to [Some entry] in the default
-    registry. Adding a variant without a corresponding registry
-    registration fails this test. *)
-let test_every_kind_resolves_in_registry () =
-  let registry = Provider_registry.default () in
+(** [provider_name_of_config] is only a closed typed projection. It must not
+    reinterpret that label as a registry/vendor identity. *)
+let test_every_kind_projects_exact_wire_label () =
   List.iter
     (fun kind ->
        let cfg = mk_config_for_kind kind in
        let name = Provider_registry.provider_name_of_config cfg in
-       let label =
-         Printf.sprintf
-           "kind=%s name=%s"
-           (Provider_config.string_of_provider_kind kind)
-           name
-       in
-       match Provider_registry.find registry name with
-       | Some entry ->
-         check
-           string
-           (Printf.sprintf "%s: entry.name echoes lookup key" label)
-           name
-           entry.name
-       | None ->
-         (* OpenAI_compat is the generic compatibility kind: a local or otherwise
-            unmatched OpenAI-compatible endpoint resolves to the neutral
-            "openai_compat" label, which is intentionally not a registered vendor
-            entry (RFC-OAS-034). Every other kind must resolve to a registered
-            entry, so adding a variant without registration still fails here. *)
-         (match kind with
-          | Provider_config.OpenAI_compat ->
-            check
-              string
-              (Printf.sprintf "%s: neutral compat fallback" label)
-              "openai_compat"
-              name
-          | _ ->
-            failf
-              "%s: provider_name_of_config returned %S but registry has no entry for it; \
-               either register the provider or fix the naming function"
-              label
-              name))
+       check string name (Provider_config.string_of_provider_kind kind) name)
     Provider_config.all_provider_kinds
 ;;
 
@@ -1280,6 +1021,12 @@ let () =
         ; test_case "register and find" `Quick test_register_and_find
         ; test_case "overwrite" `Quick test_overwrite
         ; test_case "unregister" `Quick test_unregister
+        ] )
+    ; ( "endpoint_refresh"
+      , [ test_case
+            "missing declarations rejected"
+            `Quick
+            test_refresh_rejects_missing_endpoint_declarations
         ] )
     ; ( "availability"
       , [ test_case "filter" `Quick test_available_filter
@@ -1302,56 +1049,20 @@ let () =
         ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
-      , [ test_case "has 18 providers" `Quick test_default_has_18
+      , [ test_case "has 17 providers" `Quick test_default_has_17
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case "deepseek entry" `Quick test_default_deepseek_entry
         ; test_case "deepseek api key env" `Quick test_default_deepseek_api_key_env
         ; test_case "mimo entry" `Quick test_default_mimo_entry
         ; test_case
-            "provider_name_of_config returns ollama_cloud"
+            "provider_name_of_config projects wire kind"
             `Quick
-            test_provider_name_of_ollama_cloud_config
+            test_provider_name_is_wire_kind_projection
         ; test_case
-            "ollama_cloud identity survives env override"
+            "endpoints ignore ambient overrides"
             `Quick
-            test_provider_name_ollama_cloud_identity_survives_env_override
-        ; test_case
-            "ollama_cloud identity with injected getenv"
-            `Quick
-            test_provider_name_ollama_cloud_identity_injected_getenv
-        ; test_case
-            "deepseek identity survives env override"
-            `Quick
-            test_provider_name_deepseek_identity_survives_env_override
-        ; test_case
-            "deepseek identity with injected getenv"
-            `Quick
-            test_provider_name_deepseek_identity_injected_getenv
-        ; test_case
-            "env override cannot steal canonical identity"
-            `Quick
-            test_provider_name_env_override_cannot_steal_canonical_identity
-        ; test_case
-            "nous base_url reads LLM_ENDPOINTS at registry construction"
-            `Quick
-            test_default_nous_base_url_reads_llm_endpoints_at_call_time
-        ; test_case
-            "ollama base_url reads OLLAMA_HOST at registry construction"
-            `Quick
-            test_default_ollama_base_url_reads_ollama_host_at_call_time
-        ; test_case
-            "base_url env overrides read at registry construction"
-            `Quick
-            test_default_base_urls_read_env_at_registry_construction
-        ; test_case
-            "base_url env overrides resolve injected getenv"
-            `Quick
-            test_default_base_urls_resolve_injected_getenv
-        ; test_case
-            "base_url falls back to documented default without env"
-            `Quick
-            test_default_base_urls_fall_back_without_env
+            test_default_endpoints_ignore_ambient_overrides
         ; test_case "max_context values" `Quick test_default_max_context
         ; test_case
             "max_context matches capabilities"
@@ -1362,24 +1073,20 @@ let () =
             "glm coding api key env isolated"
             `Quick
             test_glm_coding_api_key_env_isolated
-        ; test_case
-            "blank zai base urls fall back"
-            `Quick
-            test_blank_zai_base_urls_fall_back
         ] )
     ; ( "provider_catalog"
       , [ test_case
-            "overlay adds provider and alias"
+            "overlay registers exact provider id only"
             `Quick
-            test_catalog_overlay_adds_provider_and_alias
+            test_catalog_overlay_registers_exact_provider_id_only
         ; test_case
             "overlay replaces seed provider"
             `Quick
             test_catalog_overlay_replaces_seed_provider
         ; test_case
-            "overlay normalizes provider id"
+            "overlay preserves exact provider id"
             `Quick
-            test_catalog_overlay_normalizes_provider_id
+            test_catalog_overlay_preserves_exact_provider_id
         ; test_case
             "rejects empty provider id"
             `Quick
@@ -1417,9 +1124,9 @@ let () =
             `Quick
             test_catalog_lookup_case_insensitive
         ; test_case
-            "empty alias not registered"
+            "aliases are not registry keys"
             `Quick
-            test_catalog_empty_alias_not_registered
+            test_catalog_aliases_are_not_registry_keys
         ; test_case
             "load_file and lookup alias"
             `Quick
@@ -1429,8 +1136,12 @@ let () =
             `Quick
             test_catalog_api_key_env_availability
         ] )
-    ; ( "kind_registry_integrity"
-      , [ test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry ] )
+    ; ( "kind_projection"
+      , [ test_case
+            "every kind projects exactly"
+            `Quick
+            test_every_kind_projects_exact_wire_label
+        ] )
     ; ( "types_usage"
       , [ test_case "zero_api_usage" `Quick test_zero_api_usage
         ; test_case "usage_of_response some" `Quick test_usage_of_response_some

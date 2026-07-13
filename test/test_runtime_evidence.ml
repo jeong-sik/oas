@@ -16,14 +16,12 @@ let mk_session
   ; goal
   ; title
   ; tag
-  ; permission_mode = Some "default"
   ; phase = Runtime.Running
   ; created_at = 1.0
   ; updated_at
   ; provider = Some "anthropic"
   ; model = Some "claude"
   ; system_prompt = None
-  ; max_turns = 10
   ; workdir = Some "/tmp/work"
   ; planned_participants = [ "alice" ]
   ; participants
@@ -73,7 +71,7 @@ let all_event_kinds () =
     }
   in
   [ Session_started { goal = "collect telemetry"; participants = [ "alice" ] }
-  ; Session_settings_updated { model = Some "claude-opus"; permission_mode = Some "safe" }
+  ; Session_settings_updated { model = Some "claude-opus" }
   ; Turn_recorded { actor = Some "user"; message = "start" }
   ; Input_required input_request
   ; Input_provided
@@ -87,7 +85,6 @@ let all_event_kinds () =
       ; prompt = "do work"
       ; provider = Some "anthropic"
       ; model = Some "claude"
-      ; permission_mode = Some "safe"
       }
   ; Agent_became_live
       (participant_event
@@ -291,7 +288,6 @@ let participant ?(aliases = []) name : Runtime.participant =
   ; runtime_actor = None
   ; requested_provider = None
   ; requested_model = None
-  ; requested_policy = None
   ; provider = None
   ; model = None
   ; resolved_provider = None
@@ -473,6 +469,7 @@ let test_sessions_store_raw_trace_files_and_hooks () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; block_index = None
     ; block_kind = None
     ; assistant_block = None
@@ -482,8 +479,7 @@ let test_sessions_store_raw_trace_files_and_hooks () =
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
+    ; tool_execution_mode = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name
@@ -622,16 +618,13 @@ let test_sessions_store_decodes_runtime_artifacts () =
     "name":"shell",
     "description":"Run a command",
     "origin":"runtime",
-    "kind":"local",
-    "shell":{"single_command_only":true,"shell_metacharacters_allowed":false,"chaining_allowed":false,"redirection_allowed":false,"pipes_allowed":true,"workdir_policy":"required"},
-    "notes":["audit"],
-    "examples":["ls"]
+    "execution_mode":"serial"
   },
   {
     "name":"plain",
-    "description":"No shell constraints",
-    "notes":[],
-    "examples":[]
+    "description":"A concurrently callable tool",
+    "origin":null,
+    "execution_mode":"concurrent"
   }
 ]|}
        in
@@ -704,11 +697,9 @@ let test_sessions_store_decodes_runtime_artifacts () =
        check int "tool catalog" 2 (List.length tools);
        let shell_tool = List.hd tools in
        check string "tool name" "shell" shell_tool.name;
-       match shell_tool.shell with
-       | Some shell ->
-         check bool "single command" true shell.Tool.single_command_only;
-         check bool "workdir policy" true (shell.Tool.workdir_policy = Some Tool.Required)
-       | None -> fail "expected shell constraints")
+       check bool "serial" true (shell_tool.execution_mode = Tool.Serial);
+       let plain_tool = List.nth tools 1 in
+       check bool "concurrent" true (plain_tool.execution_mode = Tool.Concurrent))
 ;;
 
 let test_get_tool_catalog_malformed_returns_error () =
@@ -736,6 +727,33 @@ let test_get_tool_catalog_malformed_returns_error () =
   check_error
     "malformed tool catalog returns Error (not raise)"
     (Sessions_store.get_tool_catalog ~session_root:root ~session_id ())
+;;
+
+let test_get_tool_catalog_rejects_removed_fields () =
+  with_temp_root "oas-tool-catalog-removed-field"
+  @@ fun root ->
+  let store = Runtime_store.create ~root () |> Result.get_ok in
+  let session_id = "sess-tc-removed" in
+  let artifact =
+    write_artifact
+      store
+      session_id
+      ~artifact_id:"art-tool-catalog"
+      ~name:"tool-catalog"
+      ~kind:"json"
+      ~created_at:1.0
+      {|[{"name":"shell","description":"Run","origin":null,"execution_mode":"serial","kind":"local"}]|}
+  in
+  Runtime_store.save_session store (mk_session ~session_id ~artifacts:[ artifact ] ())
+  |> Result.get_ok;
+  match Sessions_store.get_tool_catalog ~session_root:root ~session_id () with
+  | Ok _ -> fail "removed tool contract field must be rejected"
+  | Error error ->
+    check
+      bool
+      "error names removed field"
+      true
+      (Util.string_contains ~needle:"kind" (Error.to_string error))
 ;;
 
 let () =
@@ -773,6 +791,10 @@ let () =
             "tool catalog malformed returns error"
             `Quick
             test_get_tool_catalog_malformed_returns_error
+        ; Alcotest.test_case
+            "tool catalog removed fields rejected"
+            `Quick
+            test_get_tool_catalog_rejects_removed_fields
         ] )
     ]
 ;;

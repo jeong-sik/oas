@@ -17,6 +17,7 @@ let make_checkpoint
       ?(enable_thinking = None)
       ?(preserve_thinking = None)
       ?(thinking_budget = None)
+      ?(reasoning_effort = None)
       ()
   : Checkpoint.t
   =
@@ -40,6 +41,7 @@ let make_checkpoint
   ; preserve_thinking
   ; response_format = Types.Off
   ; thinking_budget
+  ; reasoning_effort
   ; cache_system_prompt = false
   ; context
   ; mcp_sessions = []
@@ -82,7 +84,7 @@ let sample_usage : Types.usage_stats =
   ; total_cache_read_input_tokens = 10
   ; api_calls = 3
   ; estimated_cost_usd = 0.0
-  ; unpriced_model = None
+  ; pricing_gap = None
   }
 ;;
 
@@ -313,77 +315,6 @@ let test_resume_custom_options () =
     (Agent.options agent).base_url
 ;;
 
-let test_resume_restores_tool_result_relocation_state () =
-  with_net
-  @@ fun net ->
-  let checkpoint_context = Context.create_sync () in
-  let checkpoint_crs = Content_replacement_state.create_sync () in
-  Content_replacement_state.record_replacement
-    checkpoint_crs
-    { tool_use_id = "t1"; preview = "cached-preview"; original_chars = 4096 };
-  Content_replacement_state.record_kept checkpoint_crs "t2";
-  Content_replacement_state.persist_to_context checkpoint_context checkpoint_crs;
-  let dir =
-    Filename.concat
-      (Filename.get_temp_dir_name ())
-      (Printf.sprintf "oas_resume_reloc_%d" (Unix.getpid ()))
-  in
-  (try Unix.mkdir dir 0o755 with
-   | Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-  let store_ref = ref None in
-  Fun.protect
-    ~finally:(fun () ->
-      Option.iter (fun store -> ignore (Tool_result_store.cleanup store)) !store_ref;
-      try Unix.rmdir dir with
-      | _ -> ())
-    (fun () ->
-       let store =
-         Tool_result_store.create
-           { storage_dir = dir
-           ; session_id = "resume"
-           ; threshold_chars = 100
-           ; preview_chars = 50
-           ; aggregate_budget = 0
-           }
-         |> Result.get_ok
-       in
-       store_ref := Some store;
-       let supplied_crs = Content_replacement_state.create_sync () in
-       let opts =
-         { Agent.default_options with
-           tool_result_relocation = Some (store, supplied_crs)
-         }
-       in
-       let cp = make_checkpoint ~context:checkpoint_context () in
-       let agent = Agent.resume ~net ~checkpoint:cp ~options:opts () in
-       match (Agent.options agent).tool_result_relocation with
-       | None -> Alcotest.fail "expected tool_result_relocation option"
-       | Some (_, restored_crs) ->
-         Alcotest.(check int)
-           "restored seen_count"
-           2
-           (Content_replacement_state.seen_count restored_crs);
-         Alcotest.(check bool)
-           "restored replacement frozen"
-           true
-           (Content_replacement_state.is_frozen restored_crs "t1");
-         Alcotest.(check bool)
-           "restored kept frozen"
-           true
-           (Content_replacement_state.is_frozen restored_crs "t2");
-         Alcotest.(check int)
-           "caller-supplied empty CRS unchanged"
-           0
-           (Content_replacement_state.seen_count supplied_crs);
-         (match Content_replacement_state.lookup_replacement restored_crs "t1" with
-          | Some replacement ->
-            Alcotest.(check string)
-              "restored preview"
-              "cached-preview"
-              replacement.preview
-          | None -> Alcotest.fail "expected restored replacement"))
-;;
-
 let test_resume_with_config_override () =
   with_net
   @@ fun net ->
@@ -396,9 +327,8 @@ let test_resume_with_config_override () =
       ()
   in
   let cfg =
-    { Types.default_config with
-      max_turns = 50
-    ; max_tokens = Some 8192
+    { (Types.default_config ~model:"test-model") with
+      max_tokens = Some 8192
     ; enable_thinking = Some false
     ; preserve_thinking = Some false
     ; thinking_budget = Some 512
@@ -408,7 +338,6 @@ let test_resume_with_config_override () =
   (* checkpoint fields override config *)
   Alcotest.(check string) "name from checkpoint" "cp-name" (Agent.state agent).config.name;
   (* config fields not in checkpoint are preserved *)
-  Alcotest.(check int) "max_turns from config" 50 (Agent.state agent).config.max_turns;
   Alcotest.(check (option int))
     "max_tokens from config"
     (Some 8192)
@@ -506,7 +435,7 @@ let test_resume_cache_tokens () =
     ; total_cache_read_input_tokens = 25
     ; api_calls = 2
     ; estimated_cost_usd = 0.0
-    ; unpriced_model = None
+    ; pricing_gap = None
     }
   in
   let cp = make_checkpoint ~usage () in
@@ -563,10 +492,6 @@ let () =
         ; test_case "with tools" `Quick test_resume_with_tools
         ; test_case "default options" `Quick test_resume_default_options
         ; test_case "custom options" `Quick test_resume_custom_options
-        ; test_case
-            "restores tool_result_relocation state"
-            `Quick
-            test_resume_restores_tool_result_relocation_state
         ; test_case "config override" `Quick test_resume_with_config_override
         ; test_case "empty checkpoint" `Quick test_resume_empty_checkpoint
         ; test_case

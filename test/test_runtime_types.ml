@@ -60,7 +60,6 @@ let test_participant () =
     ; runtime_actor = Some "ra-1"
     ; requested_provider = Some "anthropic"
     ; requested_model = Some "sonnet-4-6"
-    ; requested_policy = Some "best"
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
     ; resolved_provider = Some "anthropic"
@@ -110,14 +109,12 @@ let test_session () =
     ; goal = "test runtime"
     ; title = Some "Runtime Test"
     ; tag = Some "test"
-    ; permission_mode = Some "default"
     ; phase = Runtime.Running
     ; created_at = 1.7e9
     ; updated_at = 1.7e9
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
     ; system_prompt = Some "You are helpful."
-    ; max_turns = 10
     ; workdir = Some "/tmp/work"
     ; planned_participants = [ "agent-1" ]
     ; participants =
@@ -128,7 +125,6 @@ let test_session () =
           ; runtime_actor = None
           ; requested_provider = None
           ; requested_model = None
-          ; requested_policy = None
           ; provider = None
           ; model = None
           ; resolved_provider = None
@@ -164,7 +160,6 @@ let test_init_request () =
     { session_root = Some "/tmp/sessions"
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
-    ; permission_mode = Some "default"
     ; include_partial_messages = true
     ; setting_sources = [ "env"; "config" ]
     ; resume_session = None
@@ -229,30 +224,6 @@ let test_proof () =
     v
 ;;
 
-let test_permission_request () =
-  let v : Runtime.permission_request =
-    { action = "execute"; subject = "bash"; payload = `Assoc [ "command", `String "ls" ] }
-  in
-  roundtrip
-    ~to_yojson:Runtime.permission_request_to_yojson
-    ~of_yojson:Runtime.permission_request_of_yojson
-    ~show:Runtime.show_permission_request
-    ~name:"permission_request"
-    v
-;;
-
-let test_hook_request () =
-  let v : Runtime.hook_request =
-    { hook_name = "pre_tool"; payload = `Assoc [ "tool", `String "bash" ] }
-  in
-  roundtrip
-    ~to_yojson:Runtime.hook_request_to_yojson
-    ~of_yojson:Runtime.hook_request_of_yojson
-    ~show:Runtime.show_hook_request
-    ~name:"hook_request"
-    v
-;;
-
 (* ── Additional protocol types ────────────────────────────────── *)
 
 let test_start_request () =
@@ -262,9 +233,7 @@ let test_start_request () =
     ; participants = [ "a1" ]
     ; provider = Some "anthropic"
     ; model = Some "sonnet"
-    ; permission_mode = Some "default"
     ; system_prompt = Some "be helpful"
-    ; max_turns = Some 5
     ; workdir = Some "/work"
     }
   in
@@ -284,7 +253,6 @@ let test_spawn_agent_request () =
     ; provider = Some "local"
     ; model = Some "dashscope"
     ; system_prompt = None
-    ; max_turns = Some 3
     }
   in
   roundtrip
@@ -296,9 +264,7 @@ let test_spawn_agent_request () =
 ;;
 
 let test_update_settings () =
-  let v : Runtime.update_settings_request =
-    { model = Some "opus"; permission_mode = Some "strict" }
-  in
+  let v : Runtime.update_settings_request = { model = Some "opus" } in
   roundtrip
     ~to_yojson:Runtime.update_settings_request_to_yojson
     ~of_yojson:Runtime.update_settings_request_of_yojson
@@ -341,9 +307,8 @@ let test_command () =
         ; provider = None
         ; model = None
         ; system_prompt = None
-        ; max_turns = None
         }
-    ; Runtime.Update_session_settings { model = Some "opus"; permission_mode = None }
+    ; Runtime.Update_session_settings { model = Some "opus" }
     ; Runtime.Attach_artifact { name = "r.txt"; kind = "text"; content = "data" }
     ; Runtime.Checkpoint { label = Some "mid" }
     ; Runtime.Request_finalize { reason = Some "done" }
@@ -385,7 +350,6 @@ let test_event_kind () =
         ; prompt = "p"
         ; provider = None
         ; model = None
-        ; permission_mode = None
         }
     ; Runtime.Agent_became_live
         { participant_name = "sub"
@@ -447,28 +411,6 @@ let test_event () =
     v
 ;;
 
-let test_permission_response () =
-  let v : Runtime.permission_response =
-    { allow = true; message = Some "ok"; interrupt = false }
-  in
-  roundtrip
-    ~to_yojson:Runtime.permission_response_to_yojson
-    ~of_yojson:Runtime.permission_response_of_yojson
-    ~show:Runtime.show_permission_response
-    ~name:"perm_resp"
-    v
-;;
-
-let test_hook_response () =
-  let v : Runtime.hook_response = { continue_ = true; message = Some "proceed" } in
-  roundtrip
-    ~to_yojson:Runtime.hook_response_to_yojson
-    ~of_yojson:Runtime.hook_response_of_yojson
-    ~show:Runtime.show_hook_response
-    ~name:"hook_resp"
-    v
-;;
-
 let () =
   Alcotest.run
     "Runtime_types"
@@ -485,14 +427,10 @@ let () =
     ; ( "protocol"
       , [ Alcotest.test_case "init_request" `Quick test_init_request
         ; Alcotest.test_case "init_response" `Quick test_init_response
-        ; Alcotest.test_case "permission_request" `Quick test_permission_request
-        ; Alcotest.test_case "hook_request" `Quick test_hook_request
         ; Alcotest.test_case "start_request" `Quick test_start_request
         ; Alcotest.test_case "spawn_agent" `Quick test_spawn_agent_request
         ; Alcotest.test_case "update_settings" `Quick test_update_settings
         ; Alcotest.test_case "attach_artifact" `Quick test_attach_artifact_request
-        ; Alcotest.test_case "permission_response" `Quick test_permission_response
-        ; Alcotest.test_case "hook_response" `Quick test_hook_response
         ] )
     ; "command", [ Alcotest.test_case "variants" `Quick test_command ]
     ; ( "events"

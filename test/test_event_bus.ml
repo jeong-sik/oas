@@ -35,13 +35,6 @@ let test_create_default () =
   check int "no subscribers" 0 (Event_bus.subscriber_count bus)
 ;;
 
-let test_create_custom_buffer () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create ~buffer_size:8 () in
-  check int "no subscribers" 0 (Event_bus.subscriber_count bus)
-;;
-
 (* ── subscribe / unsubscribe ──────────────────────────────────────── *)
 
 let test_subscribe_count () =
@@ -302,7 +295,7 @@ let test_payload_kind_label_set_is_stable () =
     ; ( Event_bus.AgentFailed
           { agent_name = ""
           ; task_id = ""
-          ; error = Error.Agent (Error.MaxTurnsExceeded { turns = 0; limit = 0 })
+          ; error = Error.Agent (Error.UnrecognizedStopReason { reason = "test" })
           ; elapsed = 0.0
           }
       , "agent_failed" )
@@ -438,12 +431,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
       Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let _result =
     Agent_tools.find_and_execute_tool
@@ -506,12 +494,7 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
       Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let fired = ref [] in
   let on_tool_error =
@@ -557,12 +540,7 @@ let test_on_tool_error_hook_silent_on_success () =
       Ok { Types.content = "done"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let fired = ref 0 in
   let on_tool_error =
@@ -599,12 +577,7 @@ let test_on_error_fires_on_tool_not_found () =
   let context = Context.create_sync () in
   let bus = Event_bus.create () in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let fired = ref [] in
   let on_error =
@@ -662,12 +635,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       Ok { Types.content = "unused"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let fired = ref [] in
   let on_error =
@@ -711,7 +679,9 @@ let test_unknown_tool_reports_available_tools_and_retries () =
        Some "recoverable"
      | Types.Tool_failed { failure_kind = Agent_tools.Non_retryable_tool_error; _ } ->
        Some "non_retryable"
-     | Types.Tool_succeeded | Types.Legacy_unclassified_failure -> None);
+     | Types.Tool_failed { failure_kind = Agent_tools.Reported_tool_error; _ } ->
+       Some "reported"
+     | Types.Tool_succeeded -> None);
   check
     bool
     "content names missing tool"
@@ -739,238 +709,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
   | _ -> fail "on_error fired more than once"
 ;;
 
-let test_registered_read_alias_dispatches_to_read_file_when_visible () =
-  Eio_main.run
-  @@ fun _env ->
-  let context = Context.create_sync () in
-  let bus = Event_bus.create () in
-  let captured_input = ref `Null in
-  Agent_tool_name_alias.register_alias
-    ~alias:"consumer_read_alias_for_test"
-    ~canonical:"ReadFile";
-  let read_file =
-    Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun input ->
-      captured_input := input;
-      Ok { Types.content = "read-ok"; _meta = None })
-  in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
-  in
-  let on_error_called = ref false in
-  let hooks =
-    { Hooks.empty with
-      on_error =
-        Some
-          (fun _event ->
-            on_error_called := true;
-            Hooks.Continue)
-    }
-  in
-  let sub = Event_bus.subscribe bus in
-  let result =
-    Agent_tools.find_and_execute_tool
-      ~context
-      ~tools:[ read_file ]
-      ~hooks
-      ~event_bus:(Some bus)
-      ~tracer:Tracing.null
-      ~agent_name:"agent"
-      ~turn_count:0
-      ~correlation_id:"c"
-      ~run_id:"r"
-      ~schedule
-      "consumer_read_alias_for_test"
-      (`Assoc [ "path", `String "README.md" ])
-      "tool-name-alias-read"
-  in
-  check
-    bool
-    "registered read alias succeeds"
-    false
-    (Types.tool_result_outcome_is_error result.outcome);
-  check string "result uses visible tool name" "ReadFile" result.tool_name;
-  check string "read content" "read-ok" result.content;
-  check bool "on_error not called" false !on_error_called;
-  (match !captured_input with
-   | `Assoc fields ->
-     check
-       (option string)
-       "path preserved"
-       (Some "README.md")
-       (match List.assoc_opt "path" fields with
-        | Some (`String path) -> Some path
-        | _ -> None);
-     check bool "file_path not synthesized" false (List.mem_assoc "file_path" fields)
-   | _ -> fail "expected object input");
-  let events = Event_bus.drain sub in
-  check
-    bool
-    "event bus records resolved tool name"
-    true
-    (List.exists
-       (fun (event : Event_bus.event) ->
-          match event.payload with
-          | Event_bus.ToolCalled { tool_name; _ }
-          | Event_bus.ToolCompleted { tool_name; _ } -> String.equal tool_name "ReadFile"
-          | _ -> false)
-       events)
-;;
-
-let test_registered_search_alias_dispatches_to_search_files_when_visible () =
-  Eio_main.run
-  @@ fun _env ->
-  let context = Context.create_sync () in
-  let captured_input = ref `Null in
-  Agent_tool_name_alias.register_alias
-    ~alias:"consumer_search_alias_for_test"
-    ~canonical:"SearchFiles";
-  let search_files =
-    Tool.create
-      ~name:"SearchFiles"
-      ~description:"Search files"
-      ~parameters:[]
-      (fun input ->
-         captured_input := input;
-         Ok { Types.content = "search-ok"; _meta = None })
-  in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
-  in
-  let on_error_called = ref false in
-  let hooks =
-    { Hooks.empty with
-      on_error =
-        Some
-          (fun _event ->
-            on_error_called := true;
-            Hooks.Continue)
-    }
-  in
-  let result =
-    Agent_tools.find_and_execute_tool
-      ~context
-      ~tools:[ search_files ]
-      ~hooks
-      ~event_bus:None
-      ~tracer:Tracing.null
-      ~agent_name:"agent"
-      ~turn_count:0
-      ~schedule
-      "consumer_search_alias_for_test"
-      (`Assoc [ "query", `String "tool_returned_error_result"; "path", `String "logs" ])
-      "tool-name-alias-search"
-  in
-  check
-    bool
-    "registered search alias succeeds"
-    false
-    (Types.tool_result_outcome_is_error result.outcome);
-  check string "result uses visible tool name" "SearchFiles" result.tool_name;
-  check string "search content" "search-ok" result.content;
-  check bool "on_error not called" false !on_error_called;
-  match !captured_input with
-  | `Assoc fields ->
-    check
-      (option string)
-      "query preserved"
-      (Some "tool_returned_error_result")
-      (match List.assoc_opt "query" fields with
-       | Some (`String query) -> Some query
-       | _ -> None);
-    check
-      (option string)
-      "path preserved"
-      (Some "logs")
-      (match List.assoc_opt "path" fields with
-       | Some (`String path) -> Some path
-       | _ -> None);
-    check bool "pattern not synthesized" false (List.mem_assoc "pattern" fields)
-  | _ -> fail "expected object input"
-;;
-
-let test_registered_execute_alias_preserves_input () =
-  Eio_main.run
-  @@ fun _env ->
-  let context = Context.create_sync () in
-  let captured_input = ref `Null in
-  Agent_tool_name_alias.register_alias
-    ~alias:"consumer_execute_alias_for_test"
-    ~canonical:"Execute";
-  let execute =
-    Tool.create
-      ~name:"Execute"
-      ~description:"Execute command"
-      ~parameters:[]
-      (fun input ->
-         captured_input := input;
-         Ok { Types.content = "execute-ok"; _meta = None })
-  in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
-  in
-  let result =
-    Agent_tools.find_and_execute_tool
-      ~context
-      ~tools:[ execute ]
-      ~hooks:Hooks.empty
-      ~event_bus:None
-      ~tracer:Tracing.null
-      ~agent_name:"agent"
-      ~turn_count:0
-      ~schedule
-      "consumer_execute_alias_for_test"
-      (`Assoc [ "command", `String "git status --short"; "cwd", `String "/tmp/workspace" ])
-      "tool-name-alias-execute"
-  in
-  check
-    bool
-    "registered execute alias succeeds"
-    false
-    (Types.tool_result_outcome_is_error result.outcome);
-  check string "result uses visible tool name" "Execute" result.tool_name;
-  check string "execute content" "execute-ok" result.content;
-  check
-    bool
-    "result preserves canonical handler input"
-    true
-    (Yojson.Safe.equal result.input !captured_input);
-  match !captured_input with
-  | `Assoc fields ->
-    check
-      (option string)
-      "command preserved"
-      (Some "git status --short")
-      (match List.assoc_opt "command" fields with
-       | Some (`String command) -> Some command
-       | _ -> None);
-    check
-      (option string)
-      "cwd preserved"
-      (Some "/tmp/workspace")
-      (match List.assoc_opt "cwd" fields with
-       | Some (`String cwd) -> Some cwd
-       | _ -> None);
-    check bool "executable not synthesized" false (List.mem_assoc "executable" fields);
-    check bool "argv not synthesized" false (List.mem_assoc "argv" fields)
-  | _ -> fail "expected object input"
-;;
-
-let test_execution_result_preserves_corrected_input () =
+let test_execution_rejects_invalid_input_unchanged () =
   Eio_main.run
   @@ fun _env ->
   let context = Context.create_sync () in
@@ -991,12 +730,7 @@ let test_execution_result_preserves_corrected_input () =
          Ok { Types.content = "ok"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let result =
     Agent_tools.find_and_execute_tool
@@ -1010,18 +744,17 @@ let test_execution_result_preserves_corrected_input () =
       ~schedule
       "Count"
       (`Assoc [ "count", `String "42" ])
-      "tool-corrected-input"
+      "tool-invalid-input"
   in
+  check bool "handler not called" true (Yojson.Safe.equal `Null !handler_input);
   check
     bool
-    "result equals handler input"
+    "invalid input preserved"
     true
-    (Yojson.Safe.equal result.input !handler_input);
-  check
-    int
-    "coerced integer preserved"
-    42
-    Yojson.Safe.Util.(result.input |> member "count" |> to_int)
+    (Yojson.Safe.equal result.input (`Assoc [ "count", `String "42" ]));
+  match result.outcome with
+  | Types.Tool_failed { failure_kind = Agent_tools.Validation_error; _ } -> ()
+  | _ -> fail "expected validation failure"
 ;;
 
 let test_on_error_silent_on_successful_dispatch () =
@@ -1034,12 +767,7 @@ let test_on_error_silent_on_successful_dispatch () =
       Ok { Types.content = "done"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
-    { planned_index = 0
-    ; batch_index = 0
-    ; batch_size = 1
-    ; concurrency_class = "sequential_workspace"
-    ; batch_kind = "sequential"
-    }
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
   let fired = ref 0 in
   let on_error =
@@ -1155,67 +883,13 @@ let test_mk_event_propagates_caused_by () =
   check (option string) "event.meta.caused_by" (Some "parent-7") ev.meta.caused_by
 ;;
 
-(* ── Backpressure policy ──────────────────────────────────────────── *)
-
-(** [Block] policy is the default and preserves legacy semantics. *)
-let test_default_policy_is_block () =
+let test_publish_preserves_fifo_without_drain () =
   Eio_main.run
   @@ fun _env ->
-  (* Block is only observable indirectly: with a 1-slot buffer and no
-     drain, a second publish would block. We don't exercise that here
-     (would need a fiber); we just confirm that default [create]
-     behaves the same as the old API — drop counters stay at 0. *)
-  let bus = Event_bus.create ~buffer_size:2 () in
+  let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
-  let s = Event_bus.stats bus in
-  (match s.subscriptions with
-   | [ ss ] ->
-     check int "no drops under Block (not full)" 0 ss.dropped_total;
-     check int "published_total" 2 ss.published_total;
-     check int "depth 2" 2 ss.depth
-   | _ -> fail "expected exactly one subscription");
-  let _ = Event_bus.drain sub in
-  ()
-;;
-
-(** [Drop_oldest] evicts the queue head when full. *)
-let test_drop_oldest_policy () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create ~buffer_size:2 ~policy:Event_bus.Drop_oldest () in
-  let sub = Event_bus.subscribe bus in
-  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
-  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
-  (* Third event must evict turn=1, keep turn=2 and turn=3. *)
-  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
-  let events = Event_bus.drain sub in
-  check int "drained 2 events (one dropped)" 2 (List.length events);
-  let turns =
-    List.filter_map
-      (fun e ->
-         match e.Event_bus.payload with
-         | Event_bus.TurnStarted r -> Some r.turn
-         | _ -> None)
-      events
-  in
-  check (list int) "turn=1 was dropped, 2 and 3 remain" [ 2; 3 ] turns;
-  let s = Event_bus.stats bus in
-  match s.subscriptions with
-  | [ ss ] -> check int "dropped_total=1" 1 ss.dropped_total
-  | _ -> fail "one subscription"
-;;
-
-(** [Drop_newest] keeps the existing queue and drops incoming events. *)
-let test_drop_newest_policy () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create ~buffer_size:2 ~policy:Event_bus.Drop_newest () in
-  let sub = Event_bus.subscribe bus in
-  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
-  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
-  (* Buffer is full; this event must be dropped. *)
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
   let events = Event_bus.drain sub in
   let turns =
@@ -1226,12 +900,13 @@ let test_drop_newest_policy () =
          | _ -> None)
       events
   in
-  check (list int) "turn 1 and 2 remain, 3 dropped" [ 1; 2 ] turns;
+  check (list int) "all events remain in FIFO order" [ 1; 2; 3 ] turns;
   let s = Event_bus.stats bus in
   match s.subscriptions with
   | [ ss ] ->
-    check int "dropped_total=1" 1 ss.dropped_total;
-    check int "published_total=3" 3 ss.published_total
+    check int "published_total=3" 3 ss.published_total;
+    check int "drained_total=3" 3 ss.drained_total;
+    check int "depth=0" 0 ss.depth
   | _ -> fail "one subscription"
 ;;
 
@@ -1243,8 +918,7 @@ let test_stats_initial_shape () =
   let bus = Event_bus.create () in
   let s = Event_bus.stats bus in
   check int "no subscribers" 0 s.subscriber_count;
-  check int "empty subscriptions list" 0 (List.length s.subscriptions);
-  check (float 0.0) "blocked seconds = 0" 0.0 s.total_publish_blocked_seconds
+  check int "empty subscriptions list" 0 (List.length s.subscriptions)
 ;;
 
 let test_stats_tracks_counts () =
@@ -1306,10 +980,7 @@ let test_subscribe_without_purpose_defaults_none () =
 let () =
   run
     "Event_bus"
-    [ ( "create"
-      , [ test_case "default" `Quick test_create_default
-        ; test_case "custom buffer" `Quick test_create_custom_buffer
-        ] )
+    [ "create", [ test_case "default" `Quick test_create_default ]
     ; ( "subscribe"
       , [ test_case "count" `Quick test_subscribe_count
         ; test_case "unsubscribe" `Quick test_unsubscribe_count
@@ -1375,21 +1046,9 @@ let () =
             `Quick
             test_unknown_tool_reports_available_tools_and_retries
         ; test_case
-            "registered Read alias dispatches to ReadFile when visible"
+            "execution rejects invalid input unchanged"
             `Quick
-            test_registered_read_alias_dispatches_to_read_file_when_visible
-        ; test_case
-            "registered Grep alias dispatches to SearchFiles when visible"
-            `Quick
-            test_registered_search_alias_dispatches_to_search_files_when_visible
-        ; test_case
-            "registered execute_command alias preserves input"
-            `Quick
-            test_registered_execute_alias_preserves_input
-        ; test_case
-            "execution result preserves corrected input"
-            `Quick
-            test_execution_result_preserves_corrected_input
+            test_execution_rejects_invalid_input_unchanged
         ; test_case
             "on_error silent on successful dispatch"
             `Quick
@@ -1417,17 +1076,15 @@ let () =
             `Quick
             test_subscribe_without_purpose_defaults_none
         ] )
-    ; ( "backpressure_policy"
-      , [ test_case "default policy is Block" `Quick test_default_policy_is_block
-        ; test_case
-            "Drop_oldest evicts queue head when full"
+    ; ( "delivery"
+      , [ test_case
+            "preserves FIFO without subscriber drain"
             `Quick
-            test_drop_oldest_policy
-        ; test_case "Drop_newest keeps queue when full" `Quick test_drop_newest_policy
+            test_publish_preserves_fifo_without_drain
         ] )
     ; ( "stats"
       , [ test_case "initial shape" `Quick test_stats_initial_shape
-        ; test_case "tracks publish/drain/drop counts" `Quick test_stats_tracks_counts
+        ; test_case "tracks publish/drain counts" `Quick test_stats_tracks_counts
         ] )
     ]
 ;;

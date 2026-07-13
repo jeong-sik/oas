@@ -124,8 +124,7 @@ let mk_record
       ?(tool_planned_index = None)
       ?(tool_batch_index = None)
       ?(tool_batch_size = None)
-      ?(tool_concurrency_class = None)
-      ?(evidence_role = None)
+      ?(tool_execution_mode = None)
       ?(hook_name = None)
       ?(hook_decision = None)
       ?(hook_detail = None)
@@ -138,7 +137,7 @@ let mk_record
       ()
   : Raw_trace.record
   =
-  { trace_version = 1
+  { trace_version = Raw_trace.trace_version
   ; worker_run_id = "wr-test-0001"
   ; seq
   ; ts = 1.7e9
@@ -151,6 +150,7 @@ let mk_record
   ; enable_thinking = Some false
   ; preserve_thinking = None
   ; thinking_budget = Some 2048
+  ; reasoning_effort = Some "high"
   ; block_index
   ; block_kind
   ; assistant_block
@@ -160,8 +160,7 @@ let mk_record
   ; tool_planned_index
   ; tool_batch_index
   ; tool_batch_size
-  ; tool_concurrency_class
-  ; evidence_role
+  ; tool_execution_mode
   ; tool_result
   ; tool_error
   ; hook_name
@@ -197,7 +196,6 @@ let test_record_to_json_roundtrip_tool_exec () =
       ~tool_planned_index:(Some 1)
       ~tool_batch_index:(Some 0)
       ~tool_batch_size:(Some 2)
-      ~tool_concurrency_class:(Some "parallel_read")
       ~tool_result:(Some "output")
       ~tool_error:(Some false)
       ()
@@ -208,10 +206,6 @@ let test_record_to_json_roundtrip_tool_exec () =
     Alcotest.(check (option string)) "tool_use_id" (Some "tu-abc") decoded.tool_use_id;
     Alcotest.(check (option string)) "tool_name" (Some "bash") decoded.tool_name;
     Alcotest.(check (option int)) "tool_batch_size" (Some 2) decoded.tool_batch_size;
-    Alcotest.(check (option string))
-      "tool_concurrency_class"
-      (Some "parallel_read")
-      decoded.tool_concurrency_class;
     Alcotest.(check (option string)) "tool_result" (Some "output") decoded.tool_result;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error
   | Error _ -> Alcotest.fail "record_of_json failed for tool_exec"
@@ -283,7 +277,7 @@ let test_record_to_json_roundtrip_run_finished () =
 
 let test_record_to_json_all_none_optionals () =
   let r : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-none"
     ; seq = 1
     ; ts = 1.0
@@ -296,6 +290,7 @@ let test_record_to_json_all_none_optionals () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; block_index = None
     ; block_kind = None
     ; assistant_block = None
@@ -305,8 +300,7 @@ let test_record_to_json_all_none_optionals () =
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
+    ; tool_execution_mode = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name = None
@@ -331,7 +325,7 @@ let test_record_to_json_all_none_optionals () =
 let test_record_of_json_bad_type () =
   let json =
     `Assoc
-      [ "trace_version", `Int 1
+      [ "trace_version", `Int Raw_trace.trace_version
       ; "worker_run_id", `String "wr-x"
       ; "seq", `Int 1
       ; "ts", `Float 1.0
@@ -411,7 +405,7 @@ let test_read_all_blank_lines () =
 let test_record_json_all_fields_populated () =
   (* Exercises option_string, option_int, option_bool, option_json *)
   let r : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-all-fields"
     ; seq = 99
     ; ts = 1.7e9
@@ -425,6 +419,7 @@ let test_record_json_all_fields_populated () =
     ; enable_thinking = Some true
     ; preserve_thinking = Some true
     ; thinking_budget = Some 8192
+    ; reasoning_effort = Some "max"
     ; block_index = Some 3
     ; block_kind = Some "thinking"
     ; assistant_block =
@@ -435,8 +430,7 @@ let test_record_json_all_fields_populated () =
     ; tool_planned_index = Some 4
     ; tool_batch_index = Some 2
     ; tool_batch_size = Some 1
-    ; tool_concurrency_class = Some "sequential_workspace"
-    ; evidence_role = Some Raw_trace.Verification
+    ; tool_execution_mode = None
     ; tool_result = Some "result text"
     ; tool_error = Some true
     ; hook_name = Some "validator"
@@ -518,6 +512,7 @@ let test_summarize_run () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "bash")
         ~tool_input:(Some (`Assoc [ "cmd", `String "ls" ]))
+        ~tool_execution_mode:(Some Tool.Concurrent)
         ()
     ; mk_record
         ~seq:4
@@ -583,6 +578,7 @@ let test_validate_run_pass () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "read")
         ~tool_input:(Some `Null)
+        ~tool_execution_mode:(Some Tool.Serial)
         ()
     ; mk_record
         ~seq:3
@@ -616,169 +612,10 @@ let test_validate_run_pass () =
   | Ok validation ->
     Alcotest.(check bool) "ok" true validation.ok;
     Alcotest.(check int) "paired_tool_result_count" 1 validation.paired_tool_result_count;
-    Alcotest.(check bool) "has_file_write" false validation.has_file_write;
     List.iter
       (fun (check : Raw_trace.validation_check) ->
          Alcotest.(check bool) (Printf.sprintf "check %s" check.name) true check.passed)
       validation.checks
-  | Error err ->
-    Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
-;;
-
-let test_validate_run_uses_explicit_evidence_roles () =
-  let dir = tmpdir () in
-  let path = Filename.concat dir "validate_roles.jsonl" in
-  let records =
-    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
-    ; mk_record
-        ~seq:2
-        ~record_type:Raw_trace.Tool_execution_started
-        ~prompt:None
-        ~tool_use_id:(Some "tu-write")
-        ~tool_name:(Some "custom_write")
-        ~tool_input:(Some `Null)
-        ~evidence_role:(Some Raw_trace.File_write)
-        ()
-    ; mk_record
-        ~seq:3
-        ~record_type:Raw_trace.Tool_execution_finished
-        ~prompt:None
-        ~tool_use_id:(Some "tu-write")
-        ~tool_name:(Some "custom_write")
-        ~tool_result:(Some "wrote artifact")
-        ~tool_error:(Some false)
-        ~evidence_role:(Some Raw_trace.File_write)
-        ()
-    ; mk_record
-        ~seq:4
-        ~record_type:Raw_trace.Tool_execution_started
-        ~prompt:None
-        ~tool_use_id:(Some "tu-verify")
-        ~tool_name:(Some "custom_verify")
-        ~tool_input:(Some `Null)
-        ~evidence_role:(Some Raw_trace.Verification)
-        ()
-    ; mk_record
-        ~seq:5
-        ~record_type:Raw_trace.Tool_execution_finished
-        ~prompt:None
-        ~tool_use_id:(Some "tu-verify")
-        ~tool_name:(Some "custom_verify")
-        ~tool_result:(Some "ok")
-        ~tool_error:(Some false)
-        ~evidence_role:(Some Raw_trace.Verification)
-        ()
-    ; mk_record
-        ~seq:6
-        ~record_type:Raw_trace.Run_finished
-        ~prompt:None
-        ~final_text:(Some "OK")
-        ~stop_reason:(Some "end_turn")
-        ()
-    ]
-  in
-  write_jsonl path records;
-  let run_ref : Raw_trace.run_ref =
-    { worker_run_id = "wr-test-0001"
-    ; path
-    ; start_seq = 1
-    ; end_seq = 6
-    ; agent_name = "test_agent"
-    ; session_id = Some "s-test-001"
-    }
-  in
-  match Raw_trace_query.validate_run run_ref with
-  | Ok validation ->
-    Alcotest.(check bool) "ok" true validation.ok;
-    Alcotest.(check bool) "has file write role" true validation.has_file_write;
-    let role_success_counts =
-      validation.evidence_roles
-      |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
-        ( Raw_trace.evidence_role_to_string summary.evidence_role
-        , summary.successful_finished_count ))
-    in
-    Alcotest.(check (option int))
-      "generic file write success count"
-      (Some 1)
-      (List.assoc_opt "file_write" role_success_counts);
-    Alcotest.(check (option int))
-      "generic verification success count"
-      (Some 1)
-      (List.assoc_opt "verification" role_success_counts);
-    Alcotest.(check bool)
-      "verification role after write"
-      true
-      validation.verification_pass_after_file_write
-  | Error err ->
-    Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
-;;
-
-let test_validate_run_ignores_legacy_tool_names_without_roles () =
-  let dir = tmpdir () in
-  let path = Filename.concat dir "validate_no_legacy_roles.jsonl" in
-  let records =
-    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
-    ; mk_record
-        ~seq:2
-        ~record_type:Raw_trace.Tool_execution_started
-        ~prompt:None
-        ~tool_use_id:(Some "tu-write")
-        ~tool_name:(Some "file_write")
-        ~tool_input:(Some `Null)
-        ()
-    ; mk_record
-        ~seq:3
-        ~record_type:Raw_trace.Tool_execution_finished
-        ~prompt:None
-        ~tool_use_id:(Some "tu-write")
-        ~tool_name:(Some "file_write")
-        ~tool_result:(Some "wrote")
-        ~tool_error:(Some false)
-        ()
-    ; mk_record
-        ~seq:4
-        ~record_type:Raw_trace.Tool_execution_started
-        ~prompt:None
-        ~tool_use_id:(Some "tu-verify")
-        ~tool_name:(Some "shell_exec")
-        ~tool_input:(Some `Null)
-        ()
-    ; mk_record
-        ~seq:5
-        ~record_type:Raw_trace.Tool_execution_finished
-        ~prompt:None
-        ~tool_use_id:(Some "tu-verify")
-        ~tool_name:(Some "shell_exec")
-        ~tool_result:(Some "PASS")
-        ~tool_error:(Some false)
-        ()
-    ; mk_record
-        ~seq:6
-        ~record_type:Raw_trace.Run_finished
-        ~prompt:None
-        ~final_text:(Some "OK")
-        ~stop_reason:(Some "end_turn")
-        ()
-    ]
-  in
-  write_jsonl path records;
-  let run_ref : Raw_trace.run_ref =
-    { worker_run_id = "wr-test-0001"
-    ; path
-    ; start_seq = 1
-    ; end_seq = 6
-    ; agent_name = "test_agent"
-    ; session_id = Some "s-test-001"
-    }
-  in
-  match Raw_trace_query.validate_run run_ref with
-  | Ok validation ->
-    Alcotest.(check bool) "ok" true validation.ok;
-    Alcotest.(check bool) "legacy file_write ignored" false validation.has_file_write;
-    Alcotest.(check bool)
-      "legacy shell PASS ignored"
-      false
-      validation.verification_pass_after_file_write
   | Error err ->
     Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
 ;;
@@ -832,6 +669,7 @@ let test_validate_run_unmatched_tool_pairs () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "bash")
         ~tool_input:(Some `Null)
+        ~tool_execution_mode:(Some Tool.Serial)
         ()
     ; (* No matching Tool_execution_finished for tu-1 *)
       mk_record
@@ -962,14 +800,6 @@ let () =
     ; "summarize_run", [ Alcotest.test_case "full trace" `Quick test_summarize_run ]
     ; ( "validate_run"
       , [ Alcotest.test_case "passing" `Quick test_validate_run_pass
-        ; Alcotest.test_case
-            "explicit evidence roles"
-            `Quick
-            test_validate_run_uses_explicit_evidence_roles
-        ; Alcotest.test_case
-            "legacy tool names are ignored"
-            `Quick
-            test_validate_run_ignores_legacy_tool_names_without_roles
         ; Alcotest.test_case "no run_finished" `Quick test_validate_run_no_finished
         ; Alcotest.test_case
             "unmatched tool pairs"

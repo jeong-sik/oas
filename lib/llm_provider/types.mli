@@ -57,6 +57,7 @@ type tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error
+  | Reported_tool_error
 [@@deriving yojson, show]
 
 type tool_failure_provenance =
@@ -66,12 +67,10 @@ type tool_failure_provenance =
 [@@deriving show]
 
 (** A tool result has one authoritative outcome. Provider serializers derive
-    their wire-level [is_error] flag from this value. The legacy case exists
-    only for failed provider/checkpoint rows that predate typed provenance. *)
+    their wire-level [is_error] flag from this value. *)
 type tool_result_outcome =
   | Tool_succeeded
   | Tool_failed of tool_failure_provenance
-  | Legacy_unclassified_failure
 [@@deriving show]
 
 val tool_failure_kind_is_recoverable : tool_failure_kind -> bool
@@ -85,8 +84,7 @@ type tool_error =
 
 type tool_result = (tool_output, tool_error) result
 
-(** Lower an authoritative outcome to the hook/event-facing tool result.
-    Unclassified legacy failures are conservatively non-recoverable. *)
+(** Lower an authoritative outcome to the hook/event-facing tool result. *)
 val tool_result_of_outcome : content:string -> tool_result_outcome -> tool_result
 
 type tool_param =
@@ -295,9 +293,6 @@ type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
   ; reasoning_tokens : int option
-  ; reasoning_tokens_estimated : bool
-    (** [true] when reasoning_tokens was derived from text length / chars_per_token
-        approximation rather than reported by the provider. *)
   ; request_latency_ms : int option
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option

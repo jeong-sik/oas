@@ -91,31 +91,7 @@ let fresh_echo_tool () =
 
 (* ── before_turn tests ───────────────────────────────── *)
 
-(* NOTE: before_turn handles ElicitInput and Nudge. Skip is informational —
-   it fires the hook but does not prevent the LLM call. Nudge appends a
-   User-role message that reaches the model in the same turn. *)
-let test_before_turn_skip_fires_but_proceeds () =
-  with_mock_server ~port:18101 text_only_handler (fun ~sw ~net ~base_url ->
-    let skip_fired = ref false in
-    let options =
-      { Agent.default_options with
-        base_url
-      ; hooks =
-          { Hooks.empty with
-            before_turn =
-              Some
-                (fun _event ->
-                  skip_fired := true;
-                  Hooks.Skip)
-          }
-      }
-    in
-    let agent = Agent.create ~net ~options () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ | Error _ -> ());
-    Alcotest.(check bool) "hook fired" true !skip_fired)
-;;
-
+(* [Nudge] appends a User-role message that reaches the model in the same turn. *)
 let test_before_turn_continue_proceeds () =
   with_mock_server ~port:18102 text_only_handler (fun ~sw ~net ~base_url ->
     let fired = ref false in
@@ -132,7 +108,9 @@ let test_before_turn_continue_proceeds () =
           }
       }
     in
-    let agent = Agent.create ~net ~options () in
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    in
     match Agent.run ~sw agent "test" with
     | Ok resp ->
       Alcotest.(check bool) "hook fired" true !fired;
@@ -166,7 +144,9 @@ let test_before_turn_receives_turn_number () =
           }
       }
     in
-    let agent = Agent.create ~net ~options () in
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    in
     (match Agent.run ~sw agent "test" with
      | Ok _ -> ()
      | Error e -> Alcotest.fail (Error.to_string e));
@@ -189,7 +169,9 @@ let test_before_turn_nudge_injected_into_request () =
              }
          }
        in
-       let agent = Agent.create ~net ~options () in
+       let agent =
+         Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+       in
        (match Agent.run ~sw agent "first prompt" with
         | Ok _ -> ()
         | Error e -> Alcotest.fail (Error.to_string e));
@@ -214,7 +196,7 @@ let test_before_turn_nudge_injected_into_request () =
 
 (* ── pre_tool_use tests ──────────────────────────────── *)
 
-let test_pre_tool_skip_blocks_execution () =
+let test_pre_tool_block_blocks_execution () =
   let call_count = ref 0 in
   with_mock_server ~port:18104 (stateful_handler call_count) (fun ~sw ~net ~base_url ->
     let tool, tool_calls = fresh_echo_tool () in
@@ -226,36 +208,12 @@ let test_pre_tool_skip_blocks_execution () =
             pre_tool_use =
               Some
                 (function
-                  | Hooks.PreToolUse _ -> Hooks.Skip
+                  | Hooks.PreToolUse _ -> Hooks.Block "blocked"
                   | _ -> Hooks.Continue)
           }
       }
     in
-    let config = { default_config with max_turns = 3 } in
-    let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ | Error _ -> ());
-    Alcotest.(check int) "tool handler not called" 0 !tool_calls)
-;;
-
-let test_pre_tool_override_replaces_output () =
-  let call_count = ref 0 in
-  with_mock_server ~port:18105 (stateful_handler call_count) (fun ~sw ~net ~base_url ->
-    let tool, tool_calls = fresh_echo_tool () in
-    let options =
-      { Agent.default_options with
-        base_url
-      ; hooks =
-          { Hooks.empty with
-            pre_tool_use =
-              Some
-                (function
-                  | Hooks.PreToolUse _ -> Hooks.Override "overridden"
-                  | _ -> Hooks.Continue)
-          }
-      }
-    in
-    let config = { default_config with max_turns = 3 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -284,7 +242,7 @@ let test_post_tool_receives_output () =
           }
       }
     in
-    let config = { default_config with max_turns = 3 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -311,164 +269,12 @@ let test_on_stop_fires () =
           }
       }
     in
-    let agent = Agent.create ~net ~options () in
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
     Alcotest.(check bool) "on_stop fired" true !stop_fired)
-;;
-
-(* ── on_idle_escalated tests ─────────────────────────── *)
-
-let test_on_idle_escalated_final_warning_fires () =
-  let responses =
-    ref
-      [ tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ; tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ; text_body "done"
-      ]
-  in
-  with_mock_server ~port:18111 (sequence_handler responses) (fun ~sw ~net ~base_url ->
-    let tool, _tool_calls = fresh_echo_tool () in
-    let seen = ref [] in
-    let options =
-      { Agent.default_options with
-        base_url
-      ; max_idle_turns = 3
-      ; idle_final_warning_at = Some 1
-      ; hooks =
-          { Hooks.empty with
-            on_idle_escalated =
-              Some
-                (function
-                  | Hooks.OnIdleEscalated { severity; consecutive_idle_turns; tool_names }
-                    ->
-                    seen := (severity, consecutive_idle_turns, tool_names) :: !seen;
-                    Hooks.Nudge "try a different tool"
-                  | _ -> Hooks.Continue)
-          }
-      }
-    in
-    let config = { default_config with max_turns = 4 } in
-    let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ -> ()
-     | Error e -> Alcotest.fail (Error.to_string e));
-    match List.rev !seen with
-    | [ (severity, consecutive_idle_turns, tool_names) ] ->
-      Alcotest.(check string)
-        "severity"
-        "final_warning"
-        (Hooks.Idle_severity.to_string severity);
-      Alcotest.(check int) "idle turns" 1 consecutive_idle_turns;
-      Alcotest.(check (list string)) "tool names" [ "echo" ] tool_names
-    | _ -> Alcotest.fail "expected exactly one on_idle_escalated callback")
-;;
-
-let test_on_idle_escalated_skip_short_circuits_execution () =
-  let responses =
-    ref
-      [ tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ; tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ]
-  in
-  with_mock_server ~port:18112 (sequence_handler responses) (fun ~sw ~net ~base_url ->
-    let tool, tool_calls = fresh_echo_tool () in
-    let seen = ref [] in
-    let options =
-      { Agent.default_options with
-        base_url
-      ; max_idle_turns = 1
-      ; hooks =
-          { Hooks.empty with
-            on_idle_escalated =
-              Some
-                (function
-                  | Hooks.OnIdleEscalated { severity; _ } ->
-                    seen := severity :: !seen;
-                    Hooks.Skip
-                  | _ -> Hooks.Continue)
-          }
-      }
-    in
-    let config = { default_config with max_turns = 3 } in
-    let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    match Agent.run ~sw agent "test" with
-    | Ok resp ->
-      Alcotest.(check string) "current response preserved" "m2" resp.id;
-      Alcotest.(check int) "tool executed only once" 1 !tool_calls;
-      Alcotest.(check (list string))
-        "skip severity seen"
-        [ "skip" ]
-        (List.rev_map Hooks.Idle_severity.to_string !seen)
-    | Error e -> Alcotest.fail (Error.to_string e))
-;;
-
-(* The nudge must follow the role:Tool result message. It must not be packed
-   into the same message as ToolResult blocks, because that mixed shape is only
-   retained as serializer compatibility for older histories. *)
-let test_on_idle_nudge_follows_tool_results_message () =
-  let responses =
-    ref
-      [ tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ; tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
-      ; text_body "done"
-      ]
-  in
-  with_mock_server ~port:18113 (sequence_handler responses) (fun ~sw ~net ~base_url ->
-    let tool, _tool_calls = fresh_echo_tool () in
-    let nudge_marker = "OAS_IDLE_NUDGE_MARKER" in
-    let options =
-      { Agent.default_options with
-        base_url
-      ; max_idle_turns = 5
-      ; hooks =
-          { Hooks.empty with on_idle = Some (fun _event -> Hooks.Nudge nudge_marker) }
-      }
-    in
-    let config = { default_config with max_turns = 5 } in
-    let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ -> ()
-     | Error e -> Alcotest.fail (Error.to_string e));
-    let messages = (Agent.state agent).messages in
-    let is_nudge_text = function
-      | Text t -> t = nudge_marker
-      | _ -> false
-    in
-    let has_tool_result content =
-      List.exists
-        (function
-          | ToolResult _ -> true
-          | _ -> false)
-        content
-    in
-    let find_index pred =
-      let rec loop idx = function
-        | [] -> None
-        | x :: xs -> if pred x then Some idx else loop (idx + 1) xs
-      in
-      loop 0
-    in
-    List.iter
-      (fun (m : Types.message) ->
-         if List.exists is_nudge_text m.content && has_tool_result m.content
-         then Alcotest.fail "nudge must not share a message with tool results")
-      messages;
-    let result_index =
-      find_index
-        (fun (m : Types.message) -> m.role = Tool && has_tool_result m.content)
-        messages
-    in
-    let nudge_index =
-      find_index
-        (fun (m : Types.message) -> m.role = User && List.exists is_nudge_text m.content)
-        messages
-    in
-    match result_index, nudge_index with
-    | Some result_index, Some nudge_index ->
-      Alcotest.(check bool) "nudge follows tool results" true (result_index < nudge_index)
-    | None, _ -> Alcotest.fail "expected a role:Tool result message"
-    | _, None -> Alcotest.fail "expected a role:User nudge message")
 ;;
 
 (* ── multiple hooks test ─────────────────────────────── *)
@@ -495,7 +301,9 @@ let test_multiple_hooks_all_fire () =
           }
       }
     in
-    let agent = Agent.create ~net ~options () in
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
     Alcotest.(check bool) "before fired" true !before_fired;
@@ -519,7 +327,7 @@ let test_context_injector_adds_data () =
     let options =
       { Agent.default_options with base_url; context_injector = Some injector }
     in
-    let config = { default_config with max_turns = 3 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -539,11 +347,7 @@ let () =
   run
     "Hooks_Integration"
     [ ( "before_turn"
-      , [ test_case
-            "skip fires but proceeds"
-            `Quick
-            test_before_turn_skip_fires_but_proceeds
-        ; test_case "continue proceeds" `Quick test_before_turn_continue_proceeds
+      , [ test_case "continue proceeds" `Quick test_before_turn_continue_proceeds
         ; test_case "receives turn number" `Quick test_before_turn_receives_turn_number
         ; test_case
             "nudge injected into request body"
@@ -552,33 +356,13 @@ let () =
         ] )
     ; ( "pre_tool_use"
       , [ test_case
-            "skip blocks tool execution"
+            "block blocks tool execution"
             `Quick
-            test_pre_tool_skip_blocks_execution
-        ; test_case
-            "override replaces output"
-            `Quick
-            test_pre_tool_override_replaces_output
+            test_pre_tool_block_blocks_execution
         ] )
     ; ( "post_tool_use"
       , [ test_case "receives tool output" `Quick test_post_tool_receives_output ] )
     ; "on_stop", [ test_case "fires on completion" `Quick test_on_stop_fires ]
-    ; ( "on_idle_escalated"
-      , [ test_case
-            "final warning severity fires"
-            `Quick
-            test_on_idle_escalated_final_warning_fires
-        ; test_case
-            "skip short-circuits tool execution"
-            `Quick
-            test_on_idle_escalated_skip_short_circuits_execution
-        ] )
-    ; ( "on_idle"
-      , [ test_case
-            "nudge follows the tool-results message"
-            `Quick
-            test_on_idle_nudge_follows_tool_results_message
-        ] )
     ; ( "chaining"
       , [ test_case "multiple hooks all fire" `Quick test_multiple_hooks_all_fire ] )
     ; ( "context_injector"

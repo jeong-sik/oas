@@ -14,42 +14,27 @@ let first_id_prefix ~suite catalog =
   | (entry : Model_catalog.model_entry) :: _ -> entry.id_prefix
 ;;
 
-let with_oas_model_catalog_unset f =
-  let previous = Sys.getenv_opt "OAS_MODEL_CATALOG" in
-  Unix.putenv "OAS_MODEL_CATALOG" "";
+let with_clean_model_catalog_override f =
   Model_catalog.clear_global ();
-  Fun.protect
-    ~finally:(fun () ->
-      (match previous with
-       | Some value -> Unix.putenv "OAS_MODEL_CATALOG" value
-       | None -> Unix.putenv "OAS_MODEL_CATALOG" "");
-      Model_catalog.clear_global ())
-    f
+  Fun.protect ~finally:Model_catalog.clear_global f
 ;;
 
 let test_load_default_catalog () =
-  let expected =
-    Model_catalog_test_support.load_repo_model_catalog ~suite:"model catalog default"
-  in
   match Model_catalog.load_default () with
   | Error msg -> failf "default model catalog should load: %s" msg
   | Ok catalog ->
-    check
-      (list string)
-      "default catalog id_prefixes match repo catalog"
-      (id_prefixes expected)
-      (id_prefixes catalog)
+    check bool "default catalog has model declarations" true (id_prefixes catalog <> [])
 ;;
 
 let test_global_loads_default_catalog_for_capabilities () =
   let expected =
-    Model_catalog_test_support.load_repo_model_catalog
+    Model_catalog_test_support.load_packaged_model_catalog
       ~suite:"model catalog default production path"
   in
   let model_id =
     first_id_prefix ~suite:"model catalog default production path" expected
   in
-  with_oas_model_catalog_unset (fun () ->
+  with_clean_model_catalog_override (fun () ->
     match Capabilities.for_model_id_catalog model_id with
     | Some _ -> ()
     | None ->

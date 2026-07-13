@@ -44,7 +44,6 @@ module Behavioral : sig
   (** What we expect from the agent. *)
   type expectation =
     | ToolSelected of string list
-    | CompletesWithin of int
     | ContainsText of string
     | All of expectation list
 
@@ -102,10 +101,7 @@ module Performance : sig
     ; turn_count : int
     }
 
-  type expectation =
-    { max_p95_latency_ms : float option
-    ; max_turns : int option
-    }
+  type expectation = { max_p95_latency_ms : float option }
 
   val default_expectation : expectation
 
@@ -162,7 +158,6 @@ module Composability : sig
     | HandoffOccurred of string
     | AllAgentsCompleted
     | ContextPropagated of string
-    | TurnCountBelow of int
 
   type observation =
     { agents_involved : string list

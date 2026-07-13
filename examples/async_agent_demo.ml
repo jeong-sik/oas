@@ -6,10 +6,9 @@
     - [Async_agent.all] to collect results from several agents
     - Async agents using the same tool bundle as synchronous agents
 
-    Tool descriptors carry [concurrency_class] just like synchronous tool
-    calls. A read-only tool can be marked [Parallel_read]; an external API
-    tool should be [Exclusive_external] so it is never batched concurrently
-    with another call.
+    Tool descriptors carry [execution_mode] just like synchronous tool calls.
+    The caller declares whether calls may overlap or must retain order; OAS
+    does not infer this from effects.
 
     Prerequisites:
     - A running llama-server (or any OpenAI-compatible endpoint) on port 8085
@@ -22,17 +21,7 @@ open Agent_sdk
 open Types
 
 let read_only_tool =
-  let descriptor =
-    { Tool.kind = Some "demo"
-    ; mutation_class = Some Tool.Read_only
-    ; concurrency_class = Some Tool.Parallel_read
-    ; permission = Some Tool.ReadOnly
-    ; evidence_role = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
-  in
+  let descriptor = { Tool.execution_mode = Concurrent } in
   Tool.create
     ~descriptor
     ~name:"lookup"
@@ -57,23 +46,10 @@ let read_only_tool =
            })
 ;;
 
-(** External API tools should be marked [Exclusive_external] even when they are
-    read-only. The OAS runtime will then flush any parallel-read batch before
-    and after the call, avoiding concurrent requests against rate-limited
-    remote services. Host runtimes should map their web-search and web-fetch
-    tools to this class at the descriptor boundary. *)
+(** This simulated client declares serial execution. OAS does not recognize the
+    URL or tool name to choose that mode. *)
 let external_fetch_tool =
-  let descriptor =
-    { Tool.kind = Some "demo"
-    ; mutation_class = Some Tool.External_effect
-    ; concurrency_class = Some Tool.Exclusive_external
-    ; permission = Some Tool.ReadOnly
-    ; evidence_role = None
-    ; shell = None
-    ; notes = [ "External HTTP fetch; never parallelize" ]
-    ; examples = []
-    }
-  in
+  let descriptor = { Tool.execution_mode = Serial } in
   Tool.create
     ~descriptor
     ~name:"fetch_url"
@@ -99,7 +75,7 @@ let external_fetch_tool =
 
 let make_agent ~net name =
   let config =
-    { default_config with
+    { (default_config ~model:"claude-sonnet-4-6") with
       name
     ; system_prompt = Some "You have a lookup tool. Use it when helpful. Be concise."
     }

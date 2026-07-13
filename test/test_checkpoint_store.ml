@@ -32,6 +32,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) ()
   ; preserve_thinking = None
   ; response_format = Types.Off
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; cache_system_prompt = false
   ; context = Context.create_sync ()
   ; mcp_sessions = []
@@ -278,7 +279,7 @@ let test_roundtrip_preserves_usage () =
           ; total_cache_read_input_tokens = 20
           ; api_calls = 3
           ; estimated_cost_usd = 0.0
-          ; unpriced_model = None
+          ; pricing_gap = None
           }
       }
     in

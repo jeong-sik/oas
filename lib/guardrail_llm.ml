@@ -34,33 +34,6 @@ let response_to_text (resp : api_response) =
   |> String.concat "\n"
 ;;
 
-(* ── Parse "PASS" / "FAIL: reason" format ────────────────────── *)
-
-let parse_judge_response text =
-  let trimmed = String.trim text in
-  if String.uppercase_ascii trimmed = "PASS"
-  then Ok (true, "pass")
-  else (
-    let prefix = "FAIL" in
-    let plen = String.length prefix in
-    if
-      String.length trimmed >= plen
-      && String.uppercase_ascii (String.sub trimmed 0 plen) = prefix
-    then (
-      let reason =
-        if String.length trimmed > plen + 1
-        then
-          String.trim (String.sub trimmed (plen + 1) (String.length trimmed - plen - 1))
-          |> fun s ->
-          if String.length s > 0 && s.[0] = ':'
-          then String.trim (String.sub s 1 (String.length s - 1))
-          else s
-        else "policy violation"
-      in
-      Ok (false, reason))
-    else Error (Printf.sprintf "unexpected judge response: %S" trimmed))
-;;
-
 (* ── Validator constructors ──────────────────────────────────── *)
 
 let make_input_validator ~name ~policy_prompt ~judge : Guardrails_async.input_validator =
@@ -91,34 +64,6 @@ let make_output_validator ~name ~policy_prompt ~judge : Guardrails_async.output_
 
 [@@@coverage off]
 (* === Inline tests === *)
-
-let%test "parse_judge_response PASS" = parse_judge_response "PASS" = Ok (true, "pass")
-
-let%test "parse_judge_response pass lowercase" =
-  parse_judge_response "pass" = Ok (true, "pass")
-;;
-
-let%test "parse_judge_response PASS with whitespace" =
-  parse_judge_response "  PASS  " = Ok (true, "pass")
-;;
-
-let%test "parse_judge_response FAIL with reason" =
-  match parse_judge_response "FAIL: contains PII" with
-  | Ok (false, reason) -> reason = "contains PII"
-  | _ -> false
-;;
-
-let%test "parse_judge_response FAIL no reason" =
-  match parse_judge_response "FAIL" with
-  | Ok (false, reason) -> reason = "policy violation"
-  | _ -> false
-;;
-
-let%test "parse_judge_response unexpected" =
-  match parse_judge_response "MAYBE" with
-  | Error _ -> true
-  | _ -> false
-;;
 
 let%test "messages_to_text extracts text blocks" =
   let msgs =

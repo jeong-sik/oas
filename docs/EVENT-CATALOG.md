@@ -68,22 +68,16 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `AgentCompleted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle completion |
 | `AgentFailed` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle failure |
 | `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
-| `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
+| `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after the caller's explicit filter and overrides |
 | `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
 | `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM; carries `tool_use_id` and `turn` |
 | `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available; carries matching `tool_use_id` and `turn` |
 | `HandoffRequested` | `agent/agent_handoff.ml` | Agent delegates control to another agent |
 | `HandoffCompleted` | `agent/agent_handoff.ml` | Handoff target finished |
 | `ElicitationCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | User elicitation round completed |
-| `ContextOverflowImminent` | `pipeline/pipeline.ml` | Projected next-turn tokens will exceed budget |
-| `ContextCompactStarted` | `pipeline/pipeline.ml` | Compaction begun (before completion) |
-| `ContextCompacted` | `pipeline/pipeline.ml`, `pipeline/pipeline_compaction.ml` | Compaction completed (before_tokens → after_tokens) |
-| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
 | `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
 | `InferenceTelemetry` | `pipeline/pipeline_collect.ml` | Per-turn provider timing/token telemetry when reported by the backend |
 | `ToolFailureEpisodeDetected` | `agent/agent.ml` | Two adjacent completed tool rounds contain the same typed failure signature; carries the exact structural episodes selected for recovery judgment |
-| `ToolFailureRecoveryDecided` | `agent/agent.ml` | The recovery judge returned a closed decision that passed episode validation and was durably checkpointed |
-| `ToolFailureRecoveryJudgeFailed` | `agent/agent.ml` | The recovery completion, JSON parse, or decision validation boundary failed explicitly |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 
 **Invariants**:
@@ -130,6 +124,10 @@ val drain     : subscription -> event list
 Filters compose: `filter_any`, `filter_all`, `filter_agent`,
 `filter_tools_only`, `filter_topic`, `filter_correlation`, `filter_run`.
 
+Each subscription owns an unbounded FIFO. `publish` appends without waiting for
+subscriber drain and never evicts an event. `stats` exposes subscriber count,
+queue depth, and published/drained totals as observations only.
+
 ### 2.5 What is **not** in the native taxonomy (by design)
 
 - **Thinking / reasoning events** — provider semantics diverge (Anthropic
@@ -156,9 +154,8 @@ Available hooks (post-v0.154.0):
 |------|-----------|---------|
 | `before_turn` | `Types.agent_state -> unit` | Called before a turn starts |
 | `after_turn` | `Types.agent_state -> unit` | Called after a turn completes |
-| `pre_tool_use` | `tool_name:string -> input:Yojson.Safe.t -> tool_policy` | Filter/modify tool invocation |
+| `pre_tool_use` | `hook_event -> hook_decision` | Allow, block, or request external approval for a tool invocation |
 | `post_tool_use` | `tool_name:string -> output:Types.tool_result -> unit` | Observe tool result |
-| `on_context_compacted` | `agent_state -> before_tokens:int -> after_tokens:int -> phase:string -> unit` | **New in v0.154.0** — observe compaction for audit/metrics |
 | `elicit` | `question:string -> elicitation_response` | Interactively gather user input |
 
 See `lib/hooks.mli` for full contract.
@@ -405,9 +402,6 @@ string identifier:
 | `ToolCalled` / `ToolCompleted` | `tool.called` / `tool.completed` |
 | `HandoffRequested` / `HandoffCompleted` | `handoff.requested` / `handoff.completed` |
 | `ElicitationCompleted` | `elicitation.completed` |
-| `ContextOverflowImminent` | `context.overflow_imminent` |
-| `ContextCompactStarted` / `ContextCompacted` | `context.compact_started` / `context.compacted` |
-| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement.replaced` / `content_replacement.kept` |
 | `SlotSchedulerObserved` | `slot_scheduler.observed` |
 | `InferenceTelemetry` | `inference.telemetry` |
 | `Custom(name, _)` | `name` (unchanged — the name is already a namespaced identifier) |

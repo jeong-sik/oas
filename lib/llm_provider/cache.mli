@@ -23,7 +23,6 @@ val request_fingerprint
   :  config:Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
-  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
   -> unit
   -> string
 

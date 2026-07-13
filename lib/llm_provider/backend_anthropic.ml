@@ -78,33 +78,8 @@ let parse_response json =
   }
 ;;
 
-let effort_of_budget dialect budget =
-  Option.bind
-    (Reasoning_effort.of_budget budget)
-    (Reasoning_dialect.normalize_effort_value dialect)
-;;
-
-let effort_for_config mode (config : Provider_config.t) =
-  (* Gate adaptive effort on thinking being enabled, mirroring
-     [thinking_config_for_config]. Otherwise a turn hook that disables thinking
-     ([enable_thinking = Some false]) while a [thinking_budget] is still set would
-     emit [output_config: {effort}] with no accompanying [thinking] block. *)
-  match config.enable_thinking with
-  | Some false | None -> None
-  | Some true ->
-    let dialect = Reasoning_dialect.for_provider_config config in
-    (match mode, config.thinking_budget with
-     | ( ( Capabilities.Anthropic_adaptive_only
-         | Capabilities.Anthropic_adaptive_default
-         | Capabilities.Anthropic_adaptive_preferred
-         | Capabilities.Anthropic_always_adaptive )
-       , Some budget ) -> effort_of_budget dialect budget
-     | Capabilities.Anthropic_manual_budget, _
-     | ( ( Capabilities.Anthropic_adaptive_only
-         | Capabilities.Anthropic_adaptive_default
-         | Capabilities.Anthropic_adaptive_preferred
-         | Capabilities.Anthropic_always_adaptive )
-       , None ) -> None)
+let effort_for_config (config : Provider_config.t) =
+  Option.map Reasoning_effort.to_string config.reasoning_effort
 ;;
 
 let thinking_config_for_config mode (config : Provider_config.t) =
@@ -116,18 +91,40 @@ let thinking_config_for_config mode (config : Provider_config.t) =
       | Capabilities.Anthropic_adaptive_preferred ) ) ->
     Some (`Assoc [ "type", `String "adaptive" ])
   | Some true, Capabilities.Anthropic_manual_budget ->
-    let budget =
-      match config.thinking_budget with
-      | Some b -> b
-      | None -> Constants.Thinking.anthropic_budget ()
-    in
-    Some (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
+    (match config.thinking_budget with
+     | Some budget ->
+       Some (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
+     | None -> None)
   | Some false, Capabilities.Anthropic_adaptive_default ->
     Some (`Assoc [ "type", `String "disabled" ])
   | Some false, _ | None, _ -> None
 ;;
 
-let output_config_for_config mode (config : Provider_config.t) =
+let validate_thinking_controls mode (config : Provider_config.t) =
+  match mode, config.enable_thinking with
+  | Capabilities.Anthropic_always_adaptive, Some false ->
+    Error
+      (Printf.sprintf
+         "model %S cannot disable always-on adaptive thinking"
+         config.model_id)
+  | _, _ ->
+    (match mode, config.thinking_budget with
+     | Capabilities.Anthropic_manual_budget, Some _
+       when config.enable_thinking = Some true ->
+       Provider_config.validate_reasoning_effort_request config
+     | Capabilities.Anthropic_manual_budget, Some _ ->
+       Error "thinking_budget requires enable_thinking=true"
+     | Capabilities.Anthropic_manual_budget, None when config.enable_thinking = Some true
+       -> Error "manual-budget thinking requires an explicit thinking_budget"
+     | ( ( Capabilities.Anthropic_adaptive_only
+         | Capabilities.Anthropic_adaptive_default
+         | Capabilities.Anthropic_adaptive_preferred
+         | Capabilities.Anthropic_always_adaptive )
+       , Some _ ) -> Error "thinking_budget is unsupported by adaptive thinking"
+     | _, None -> Provider_config.validate_reasoning_effort_request config)
+;;
+
+let output_config_for_config _mode (config : Provider_config.t) =
   let output_format =
     match config.output_schema, config.response_format with
     | Some schema, _ -> Some schema
@@ -141,7 +138,7 @@ let output_config_for_config mode (config : Provider_config.t) =
     | None -> []
   in
   let fields =
-    match effort_for_config mode config with
+    match effort_for_config config with
     | Some effort -> ("effort", `String effort) :: fields
     | None -> fields
   in
@@ -153,7 +150,7 @@ let output_config_for_config mode (config : Provider_config.t) =
 (* Anthropic and OpenAI-compatible request envelopes have different field
    names, but the optional-envelope output-budget policy (caller override
    clamped to the ceiling, omission on [None]) is owned by the OpenAI
-   request module so the legacy Agent SDK path and the standalone backend
+   request module so the high-level Agent API and the standalone backend
    cannot drift. *)
 let effective_max_output_tokens = Backend_openai_request.effective_max_output_tokens
 
@@ -228,6 +225,14 @@ let build_request_artifact_from_receipt
        | Provider_config.Glm
        | Provider_config.DashScope -> Capabilities.default_capabilities)
   in
+  (match config.seed with
+   | Some _ ->
+     invalid_arg
+       (Printf.sprintf
+          "Backend_anthropic.build_request: the Anthropic Messages wire does not support \
+           seed for model %S"
+          config.model_id)
+   | None -> ());
   let tools_present = tools <> [] in
   let disable_parallel_tool_use =
     Capabilities.effective_disable_parallel_tool_use
@@ -262,19 +267,10 @@ let build_request_artifact_from_receipt
            "Backend_anthropic.build_request: unsupported provider kind %s"
            (Provider_config.string_of_provider_kind config.kind))
   in
-  (match thinking_mode, config.enable_thinking with
-   | Capabilities.Anthropic_always_adaptive, Some false ->
-     invalid_arg
-       (Printf.sprintf
-          "Backend_anthropic.build_request: model %S cannot disable always-on adaptive \
-           thinking"
-          config.model_id)
-   | _, _ -> ());
-  let messages =
-    messages
-    |> Tool_message_pairs.close_for_provider_request
-    |> Api_common.merge_tool_result_followup_user_messages
-  in
+  (match validate_thinking_controls thinking_mode config with
+   | Ok () -> ()
+   | Error reason -> invalid_arg ("Backend_anthropic.build_request: " ^ reason));
+  let messages = Api_common.merge_tool_result_followup_user_messages messages in
   let message_to_json = Api_common.message_to_json in
   let msgs_json = List.map message_to_json messages in
   let body =

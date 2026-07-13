@@ -13,32 +13,63 @@ type paused_participant =
   ; delta_error_count : int ref
   }
 
+type initialized_runtime =
+  { store : Runtime_store.t
+  ; request : Runtime.init_request
+  }
+
+type initialization_state =
+  | Uninitialized
+  | Initialized of initialized_runtime
+
+type session_lane_phase =
+  | Open
+  | Settling
+  | Settled
+
+type participant_lane
+type session_lane
+
 type state =
   { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  ; clock : float Eio.Time.clock_ty Eio.Resource.t
   ; event_bus : Event_bus.t
-  ; mutable session_root : string option
-  ; next_control_id : int Atomic.t
+  ; initialization_mu : Eio.Mutex.t
+  ; mutable initialization : initialization_state
   ; stdout_mu : Eio.Mutex.t
   ; store_mu : Eio.Mutex.t
-  ; control_waiters_mu : Eio.Mutex.t
-  ; control_waiters : (string, Runtime.control_response Eio.Promise.u) Hashtbl.t
   ; paused_inputs_mu : Eio.Mutex.t
   ; paused_inputs : (string * string, paused_participant) Hashtbl.t
+  ; session_lanes_mu : Eio.Mutex.t
+  ; session_lanes : (string, session_lane) Hashtbl.t
+  ; mutable accepting_lanes : bool
   }
 
 val runtime_version : string
+val create : net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> unit -> state
 
-val create
-  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> clock:float Eio.Time.clock_ty Eio.Resource.t
-  -> unit
-  -> state
+val initialize
+  :  state
+  -> Runtime.init_request
+  -> (initialized_runtime, Error.sdk_error) result
 
+val is_initialized : state -> bool
 val store_of_state : state -> (Runtime_store.t, Error.sdk_error) result
+val initialization_request : state -> (Runtime.init_request, Error.sdk_error) result
 val session_root_request_path : string option -> string option
+val clear_paused_inputs_for_session : state -> string -> unit
+val clear_all_paused_inputs : state -> unit
+
+val fork_participant_lane
+  :  sw:Eio.Switch.t
+  -> state
+  -> session_id:string
+  -> participant_name:string
+  -> (unit -> unit)
+  -> (unit, Error.sdk_error) result
+
+val settle_session_lane : state -> string -> unit
+val settle_all_session_lanes : state -> unit
 val write_protocol_message : state -> Runtime.protocol_message -> unit
-val next_control_id : state -> string
 val custom_name_of_kind : Runtime.event_kind -> string
 val event_bus_run_id_of_event : Runtime.event -> string option
 val emit_event : state -> string -> Runtime.event -> unit

@@ -23,14 +23,12 @@ let mk_session ?(artifacts = []) ?(updated_at = 1.0) session_id : Runtime.sessio
   ; goal = "runtime replay"
   ; title = None
   ; tag = None
-  ; permission_mode = None
   ; phase = Runtime.Running
   ; created_at = updated_at -. 0.5
   ; updated_at
-  ; provider = Some "mock"
+  ; provider = Some "test-provider"
   ; model = Some "model"
   ; system_prompt = None
-  ; max_turns = 10
   ; workdir = None
   ; planned_participants = []
   ; participants = []
@@ -85,6 +83,7 @@ let mk_checkpoint ?(messages = []) ?(created_at = 1.0) ?(turn_count = 0) session
   ; preserve_thinking = None
   ; response_format = Types.Off
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; cache_system_prompt = false
   ; context = Context.create_sync ()
   ; mcp_sessions = []

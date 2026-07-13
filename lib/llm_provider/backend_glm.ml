@@ -24,14 +24,19 @@ type glm_error_class =
   | Glm_server_error
   | Glm_invalid_request
 
+type glm_error_origin =
+  | Provider_response
+  | Response_parse
+
 type glm_error =
-  { code : string
+  { code : string option
   ; message : string
   ; error_class : glm_error_class
   ; is_retryable : bool
+  ; origin : glm_error_origin
   }
 
-(** Classify Glm error by code first, message fallback.
+(** Classify Glm errors only by the provider's documented code field.
     Code mapping from docs.z.ai/api-reference/api-code:
     - 1000-1004,1100-1120: auth/account
     - 1200-1261: parameter/request (terminal)
@@ -42,7 +47,7 @@ type glm_error =
     - 1304,1308,1310: quota exhausted (not retryable)
     - 1309,1311,1313: subscription/plan (quota)
     - 1230,1234,500: server error *)
-let classify_glm_error ~code ~message : glm_error_class * bool =
+let classify_glm_error ~code : glm_error_class * bool =
   match code with
   | "1000"
   | "1001"
@@ -70,16 +75,7 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1215"
   | "1231"
   | "1261" -> Glm_invalid_request, false
-  | unknown_code ->
-    let (_ : string) = unknown_code in
-    if
-      Retry.contains_case_insensitive ~haystack:message ~needle:"usage limit"
-      || Retry.contains_case_insensitive ~haystack:message ~needle:"quota"
-      || Retry.contains_case_insensitive ~haystack:message ~needle:"exceeded"
-    then Glm_quota_exceeded, false
-    else if Retry.contains_case_insensitive ~haystack:message ~needle:"rate limit"
-    then Glm_rate_limited, true
-    else Glm_invalid_request, false
+  | _unknown_code -> Glm_invalid_request, false
 ;;
 
 let http_code_of_glm_error_class = function
@@ -180,18 +176,22 @@ let check_glm_error_json (json : Yojson.Safe.t) : glm_error option =
     | err ->
       let code =
         match err |> member "code" with
-        | `String s -> s
-        | `Int n -> string_of_int n
-        | `Assoc _ | `List _ | `Intlit _ | `Float _ | `Bool _ | `Null -> "unknown"
+        | `String s -> Some s
+        | `Int n -> Some (string_of_int n)
+        | `Assoc _ | `List _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
       in
       let message =
         err
         |> member "message"
         |> to_string_option
-        |> Option.value ~default:"Unknown Glm API error"
+        |> Option.value ~default:(Yojson.Safe.to_string err)
       in
-      let error_class, is_retryable = classify_glm_error ~code ~message in
-      Some { code; message; error_class; is_retryable }
+      let error_class, is_retryable =
+        match code with
+        | Some code -> classify_glm_error ~code
+        | None -> Glm_invalid_request, false
+      in
+      Some { code; message; error_class; is_retryable; origin = Provider_response }
   with
   | Yojson.Json_error _ -> None
 ;;
@@ -234,7 +234,12 @@ let extract_reasoning_content (resp : api_response) body : api_response =
 
 let glm_parse_error message =
   Glm_api_error
-    { code = "parse"; message; error_class = Glm_invalid_request; is_retryable = false }
+    { code = None
+    ; message
+    ; error_class = Glm_invalid_request
+    ; is_retryable = false
+    ; origin = Response_parse
+    }
 ;;
 
 let parse_response body =
@@ -520,7 +525,7 @@ let%test "build_request with thinking=false injects disabled" =
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
   match check_glm_error body with
-  | Some err -> err.code = "1305" && err.error_class = Glm_rate_limited
+  | Some err -> err.code = Some "1305" && err.error_class = Glm_rate_limited
   | None -> false
 ;;
 
@@ -532,39 +537,36 @@ let%test "check_glm_error returns None for valid response" =
 let%test "check_glm_error handles int code" =
   let body = {|{"error":{"code":400,"message":"bad request"}}|} in
   match check_glm_error body with
-  | Some err -> err.code = "400"
+  | Some err -> err.code = Some "400"
   | None -> false
 ;;
 
-let%test "classify quota exceeded from message" =
-  classify_glm_error
-    ~code:"unknown"
-    ~message:"You have reached your specified API usage limits"
-  = (Glm_quota_exceeded, false)
+let%test "unknown code is not classified from message prose" =
+  classify_glm_error ~code:"unknown" = (Glm_invalid_request, false)
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_glm_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1113" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_glm_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
+  classify_glm_error ~code:"1001" = (Glm_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_glm_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1304" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_glm_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1308" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_glm_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
+  classify_glm_error ~code:"1305" = (Glm_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_glm_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
+  classify_glm_error ~code:"1301" = (Glm_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =

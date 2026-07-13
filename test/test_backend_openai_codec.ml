@@ -104,7 +104,7 @@ let block_of_fixture json =
   | "tool_result" ->
     let outcome =
       if optional_bool ~default:false "block" "is_error" json
-      then Legacy_unclassified_failure
+      then Tool_failed { failure_kind = Reported_tool_error; error_class = None }
       else Tool_succeeded
     in
     ToolResult
@@ -792,200 +792,6 @@ let test_system_and_tool_role_messages () =
   check_string "fallback content" "plain fallback" (member "content" fallback |> to_string)
 ;;
 
-let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
-  let messages =
-    [ msg
-        Assistant
-        [ ToolUse { id = "call-1"; name = "a"; input = `Null }
-        ; ToolUse { id = "call-2"; name = "b"; input = `Null }
-        ]
-    ; msg
-        User
-        [ ToolResult
-            { tool_use_id = "call-1"
-            ; content = "first"
-            ; outcome = Tool_succeeded
-            ; json = None
-            ; content_blocks = None
-            }
-        ; ToolResult
-            { tool_use_id = "call-1"
-            ; content = "dupe"
-            ; outcome = Tool_succeeded
-            ; json = None
-            ; content_blocks = None
-            }
-        ; ToolResult
-            { tool_use_id = "orphan"
-            ; content = "bad"
-            ; outcome = Legacy_unclassified_failure
-            ; json = None
-            ; content_blocks = None
-            }
-        ; Text "kept"
-        ]
-    ; msg
-        User
-        [ ToolResult
-            { tool_use_id = "orphan-2"
-            ; content = "drop"
-            ; outcome = Tool_succeeded
-            ; json = None
-            ; content_blocks = None
-            }
-        ]
-    ; msg Assistant [ Text "done" ]
-    ]
-  in
-  let stripped = Serialize.strip_orphaned_tool_results messages in
-  check_int "drops empty orphan-only message" 3 (List.length stripped);
-  let user = List.nth stripped 1 in
-  check_int "keeps one matching result and text" 2 (List.length user.content);
-  match user.content with
-  | ToolResult { tool_use_id; content; _ } :: Text text :: _ ->
-    check_string "tool id" "call-1" tool_use_id;
-    check_string "tool content" "first" content;
-    check_string "text" "kept" text
-  | _ -> Alcotest.fail "unexpected stripped user content"
-;;
-
-let test_close_tool_message_pairs_repairs_dangling_and_late_results () =
-  let messages =
-    [ msg Assistant [ ToolUse { id = "call-1"; name = "lookup"; input = `Null } ]
-    ; msg User [ Text "interleaving user text" ]
-    ; msg
-        Tool
-        [ ToolResult
-            { tool_use_id = "call-1"
-            ; content = "late result"
-            ; outcome = Tool_succeeded
-            ; json = None
-            ; content_blocks = None
-            }
-        ]
-    ]
-  in
-  let closed = Serialize.close_tool_message_pairs_for_request messages in
-  check_int "synthetic inserted and late result dropped" 3 (List.length closed);
-  (match List.nth closed 1 with
-   | { role = Tool
-     ; content = [ ToolResult { tool_use_id; content; outcome; _ } ]
-     ; metadata
-     ; _
-     } ->
-     check_string "synthetic id" "call-1" tool_use_id;
-     check_bool "synthetic is error" true (tool_result_outcome_is_error outcome);
-     check_bool
-       "synthetic content"
-       true
-       (String.starts_with ~prefix:"OAS synthesized" content);
-     Alcotest.(check (option bool))
-       "synthetic metadata"
-       (Some true)
-       (match List.assoc_opt "oas.synthetic_tool_result" metadata with
-        | Some (`Bool value) -> Some value
-        | _ -> None)
-   | _ -> Alcotest.fail "expected adjacent synthetic tool result");
-  let late_survived =
-    List.exists
-      (fun (m : message) ->
-         List.exists
-           (function
-             | ToolResult { content = "late result"; _ } -> true
-             | _ -> false)
-           m.content)
-      closed
-  in
-  check_bool "late result dropped" false late_survived
-;;
-
-let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
-  (* Sanitized from the MASC OAS snapshot shape:
-     assistant(text/tool_use) -> tool(tool_result), repeated many times, with a
-     later operator nudge occasionally separating a tool call from its result.
-     The invariant is structural: tool results stay adjacent to the tool calls
-     sent on the provider wire, and Thinking blocks never become visible
-     assistant content. *)
-  let messages = masc_oas_replay_fixture_messages () in
-  let closed = Serialize.close_tool_message_pairs_for_request messages in
-  let deepseek_dialect =
-    Reasoning_dialect.of_capabilities
-      { Capabilities.openai_compat_chat_extended_capabilities with
-        thinking_control_format = Capabilities.Thinking_object
-      }
-  in
-  let wire =
-    closed
-    |> List.concat_map
-         (Serialize.dialect_messages_of_message
-            ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_null
-            deepseek_dialect)
-  in
-  let roles = List.map (fun m -> member "role" m |> to_string) wire in
-  Alcotest.(check (list string))
-    "wire roles keep synthetic result before nudge and drop late result"
-    [ "assistant"; "tool"; "assistant"; "assistant"; "tool"; "user"; "assistant" ]
-    roles;
-  check_string
-    "first reasoning replayed for tool turn"
-    "trace-reasoning:first-tool"
-    (List.nth wire 0 |> member "reasoning_content" |> to_string);
-  Alcotest.(check bool)
-    "plain assistant thinking is not replayed under DeepSeek-style policy"
-    true
-    (List.nth wire 2 |> member "reasoning_content" = `Null);
-  check_string
-    "second reasoning replayed for tool turn"
-    "trace-reasoning:second-tool"
-    (List.nth wire 3 |> member "reasoning_content" |> to_string);
-  let synthetic_tool = List.nth wire 4 in
-  check_string
-    "synthetic tool id"
-    "trace-call-b"
-    (member "tool_call_id" synthetic_tool |> to_string);
-  check_bool
-    "synthetic tool content"
-    true
-    (String.starts_with
-       ~prefix:"OAS synthesized"
-       (member "content" synthetic_tool |> to_string));
-  check_bool
-    "late tool result was not replayed"
-    false
-    (List.exists
-       (fun json ->
-          member "role" json = `String "tool"
-          && member "content" json = `String {|{"temp_c":24}|})
-       wire);
-  let leaked =
-    List.exists
-      (fun json ->
-         member "role" json = `String "assistant"
-         &&
-         match member "content" json with
-         | `String s -> String.contains s ':'
-         | `Null | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> false)
-      wire
-  in
-  check_bool "thinking markers never leak into assistant content" false leaked;
-  let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
-  let kimi_wire =
-    closed |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
-  in
-  check_string
-    "Kimi preserves tool-turn reasoning"
-    "trace-reasoning:first-tool"
-    (List.nth kimi_wire 0 |> member "reasoning_content" |> to_string);
-  check_string
-    "Kimi preserves plain historical reasoning"
-    "trace-reasoning:plain-progress"
-    (List.nth kimi_wire 2 |> member "reasoning_content" |> to_string);
-  check_string
-    "Kimi preserves final historical reasoning"
-    "trace-reasoning:final"
-    (List.nth kimi_wire 6 |> member "reasoning_content" |> to_string)
-;;
-
 let test_kimi_replay_trace_preserves_all_historical_reasoning () =
   let messages =
     [ msg
@@ -1024,39 +830,6 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
     "plain visible content"
     "visible"
     (List.nth wire 2 |> member "content" |> to_string)
-;;
-
-let test_openai_build_request_closes_dangling_tool_call () =
-  let config =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o-mini"
-      ~base_url:"https://example.invalid/v1"
-      ()
-  in
-  let messages =
-    [ msg User [ Text "question" ]
-    ; msg Assistant [ ToolUse { id = "call-missing"; name = "lookup"; input = `Null } ]
-    ; msg User [ Text "continue" ]
-    ]
-  in
-  let body =
-    Backend_openai.build_request ~config ~messages () |> Yojson.Safe.from_string
-  in
-  let wire_messages = body |> member "messages" |> to_list in
-  let roles = List.map (fun json -> json |> member "role" |> to_string) wire_messages in
-  Alcotest.(check (list string))
-    "wire roles"
-    [ "user"; "assistant"; "tool"; "user" ]
-    roles;
-  let tool_msg = List.nth wire_messages 2 in
-  check_string "tool id" "call-missing" (tool_msg |> member "tool_call_id" |> to_string);
-  check_bool
-    "synthetic result body"
-    true
-    (String.starts_with
-       ~prefix:"OAS synthesized"
-       (tool_msg |> member "content" |> to_string))
 ;;
 
 let test_strip_thinking_blocks () =
@@ -1199,27 +972,7 @@ let test_serializer_ignored_block_variants () =
   check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
 ;;
 
-let test_strip_helpers_cover_non_tool_variants () =
-  let messages =
-    [ msg Assistant ignored_blocks
-    ; msg
-        User
-        (Text "kept"
-         :: ToolUse { id = "local-call"; name = "local"; input = `Null }
-         :: ignored_blocks)
-    ]
-  in
-  let stripped = Serialize.strip_orphaned_tool_results messages in
-  check_int "both messages remain" 2 (List.length stripped);
-  let user = List.nth stripped 1 in
-  Alcotest.(check bool)
-    "orphan tool result dropped"
-    false
-    (List.exists
-       (function
-         | ToolResult _ -> true
-         | _ -> false)
-       user.content);
+let test_strip_thinking_preserves_non_thinking_variants () =
   let no_thinking =
     Serialize.strip_thinking_blocks
       [ msg
@@ -1402,13 +1155,11 @@ let test_parse_text_list_reasoning_and_reported_telemetry () =
       { system_fingerprint = Some fp
       ; timings = Some timings
       ; reasoning_tokens = Some rt
-      ; reasoning_tokens_estimated
       ; peak_memory_gb = Some peak
       ; _
       } ->
     check_string "fingerprint" "fp-test" fp;
     check_int "reasoning tokens" 5 rt;
-    check_bool "reported not estimated" false reasoning_tokens_estimated;
     check_float "prompt ms" 20.5 (Option.get timings.prompt_ms);
     check_float "predicted per second" 14.0 (Option.get timings.predicted_per_second);
     check_int "cache_n" 2 (Option.get timings.cache_n);
@@ -1416,7 +1167,7 @@ let test_parse_text_list_reasoning_and_reported_telemetry () =
   | _ -> Alcotest.fail "expected telemetry"
 ;;
 
-let test_parse_reasoning_estimate_and_fenced_json () =
+let test_parse_reasoning_without_reported_tokens_and_fenced_json () =
   let json =
     response_json
       ~content:(`String "```json\n{\"ok\":true}\n```")
@@ -1426,12 +1177,10 @@ let test_parse_reasoning_estimate_and_fenced_json () =
   let response = parse_ok json in
   (match response.content with
    | [ Thinking { content = "abcdefghij"; _ }; Text {|{"ok":true}|} ] -> ()
-   | _ -> Alcotest.fail "expected estimated reasoning and stripped JSON text");
+   | _ -> Alcotest.fail "expected reasoning and stripped JSON text");
   match response.telemetry with
-  | Some
-      { timings = None; reasoning_tokens = Some n; reasoning_tokens_estimated = true; _ }
-    -> check_bool "estimated at least one token" true (n >= 1)
-  | _ -> Alcotest.fail "expected estimated reasoning telemetry"
+  | Some { timings = None; reasoning_tokens = None; _ } -> ()
+  | _ -> Alcotest.fail "reasoning tokens must remain absent when provider omits them"
 ;;
 
 let test_parse_tool_calls_rejects_malformed_and_does_not_drop () =
@@ -1941,7 +1690,7 @@ let test_responses_build_request_round_trips_tool_result_items () =
       ~base_url:"https://api.openai.com"
       ~request_path:"/v1/responses"
       ~enable_thinking:true
-      ~thinking_budget:4096
+      ~reasoning_effort:Reasoning_effort.Medium
       ~max_tokens:128
       ()
   in
@@ -2175,7 +1924,7 @@ let test_responses_build_request_includes_previous_response_id () =
   check_int "manual input still present" 1 (member "input" body |> to_list |> List.length)
 ;;
 
-let test_responses_build_request_disabled_reasoning_omits_reasoning_config () =
+let test_responses_build_request_rejects_numeric_thinking_budget () =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -2187,12 +1936,16 @@ let test_responses_build_request_disabled_reasoning_omits_reasoning_config () =
       ~max_tokens:128
       ()
   in
-  let body =
+  match
     Responses.build_request ~config ~messages:[ msg User [ Text "short answer" ] ] ()
-    |> Yojson.Safe.from_string
-  in
-  check_bool "reasoning omitted" true (member "reasoning" body = `Null);
-  check_bool "include omitted" true (member "include" body = `Null)
+  with
+  | _ -> Alcotest.fail "expected numeric thinking-budget rejection"
+  | exception Invalid_argument message ->
+    check_string
+      "rejection"
+      "Backend_openai_responses.build_request: thinking_budget is unsupported; pass \
+       reasoning_effort"
+      message
 ;;
 
 let test_responses_build_request_uses_text_format_json_schema () =
@@ -2420,25 +2173,9 @@ let () =
             `Quick
             test_system_and_tool_role_messages
         ; Alcotest.test_case
-            "strip orphaned tool results"
-            `Quick
-            test_strip_orphaned_tool_results_dedupes_and_drops_empty
-        ; Alcotest.test_case
-            "close tool message pairs"
-            `Quick
-            test_close_tool_message_pairs_repairs_dangling_and_late_results
-        ; Alcotest.test_case
-            "MASC replay trace separates reasoning/tool/nudge"
-            `Quick
-            test_masc_replay_trace_keeps_reasoning_and_tools_separated
-        ; Alcotest.test_case
             "Kimi replay preserves historical reasoning"
             `Quick
             test_kimi_replay_trace_preserves_all_historical_reasoning
-        ; Alcotest.test_case
-            "build_request closes dangling tool call"
-            `Quick
-            test_openai_build_request_closes_dangling_tool_call
         ; Alcotest.test_case "strip thinking blocks" `Quick test_strip_thinking_blocks
         ; Alcotest.test_case
             "tool choice and schema conversion"
@@ -2449,9 +2186,9 @@ let () =
             `Quick
             test_serializer_ignored_block_variants
         ; Alcotest.test_case
-            "strip helpers non-tool variants"
+            "strip thinking preserves non-thinking variants"
             `Quick
-            test_strip_helpers_cover_non_tool_variants
+            test_strip_thinking_preserves_non_thinking_variants
         ; Alcotest.test_case
             "tool schema defaults and legacy edge params"
             `Quick
@@ -2472,9 +2209,9 @@ let () =
             `Quick
             test_parse_text_list_reasoning_and_reported_telemetry
         ; Alcotest.test_case
-            "reasoning estimate and fenced JSON"
+            "reasoning without token estimate and fenced JSON"
             `Quick
-            test_parse_reasoning_estimate_and_fenced_json
+            test_parse_reasoning_without_reported_tokens_and_fenced_json
         ; Alcotest.test_case
             "tool calls reject malformed"
             `Quick
@@ -2558,9 +2295,9 @@ let () =
             `Quick
             test_responses_build_request_includes_previous_response_id
         ; Alcotest.test_case
-            "build request disabled reasoning omits config"
+            "build request rejects numeric thinking budget"
             `Quick
-            test_responses_build_request_disabled_reasoning_omits_reasoning_config
+            test_responses_build_request_rejects_numeric_thinking_budget
         ; Alcotest.test_case
             "build request text.format json_schema"
             `Quick

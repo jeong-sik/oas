@@ -138,7 +138,7 @@ let test_full_chain_across_turns () =
        let options =
          { Agent.default_options with base_url; context_injector = Some injector; hooks }
        in
-       let config = { default_config with max_turns = 3 } in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
        ignore (Agent.run ~sw agent "test context flow");
        (* Verify Layer 1: write side *)
@@ -188,7 +188,7 @@ let test_no_injector_no_context () =
          }
        in
        let options = { Agent.default_options with base_url; hooks } in
-       let config = { default_config with max_turns = 3 } in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
        ignore (Agent.run ~sw agent "test no injector");
        Alcotest.(check bool)
@@ -273,7 +273,7 @@ let test_accumulation_across_tool_calls () =
     let options =
       { Agent.default_options with base_url; context_injector = Some injector; hooks }
     in
-    let config = { default_config with max_turns = 3 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
     ignore (Agent.run ~sw agent "test accumulation");
     (* Tool was called twice *)
@@ -343,7 +343,7 @@ let test_context_identity () =
        let options =
          { Agent.default_options with base_url; context_injector = Some injector; hooks }
        in
-       let config = { default_config with max_turns = 3 } in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
        ignore (Agent.run ~sw agent "test identity");
        (* Same Context.t object used throughout *)

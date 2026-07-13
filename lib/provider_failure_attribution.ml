@@ -57,11 +57,8 @@ let sdk_error_of_http_error ?(accept_rejected = Api_invalid_request) err =
      | Api_invalid_request -> invalid_request reason
      | Config_invalid_config { field } ->
        Error.Config (Error.InvalidConfig { field; detail = reason }))
-  | Http.ProviderTerminal { kind = Http.Max_turns r; _ } ->
-    Error.Agent (Error.MaxTurnsExceeded { turns = r.turns; limit = r.limit })
-  | Http.ProviderTerminal { kind = Http.Session_conflict; _ }
-  | Http.ProviderTerminal { kind = Http.Other _; _ }
-  | Http.ProviderFailure _ -> Error.Provider (Llm_provider.Error.of_http_error err)
+  | Http.ProviderTerminal _ | Http.ProviderFailure _ ->
+    Error.Provider (Llm_provider.Error.of_http_error err)
 ;;
 
 let of_sdk_error error =
@@ -237,8 +234,6 @@ let network_to_string = function
 ;;
 
 let provider_terminal_to_yojson = function
-  | Http.Max_turns { turns; limit } ->
-    `Assoc [ "kind", `String "max_turns"; "turns", `Int turns; "limit", `Int limit ]
   | Http.Session_conflict -> `Assoc [ "kind", `String "session_conflict" ]
   | Http.Other _ -> `Assoc [ "kind", `String "other" ]
 ;;

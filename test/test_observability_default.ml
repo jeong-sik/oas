@@ -160,8 +160,7 @@ let test_builder_default_on_event_bus () =
   Eio_main.run
   @@ fun env ->
   let agent =
-    Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_turns 1
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> build_or_fail
   in
   Alcotest.(check bool)
@@ -174,8 +173,7 @@ let test_builder_without_event_bus_opts_out () =
   Eio_main.run
   @@ fun env ->
   let agent =
-    Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_turns 1
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.without_event_bus
     |> build_or_fail
   in
@@ -197,7 +195,6 @@ let test_pipeline_emits_inference_telemetry_on_default_bus () =
   let agent =
     Builder.create ~net ~model:"mock-model"
     |> Builder.with_name "obs-emit"
-    |> Builder.with_max_turns 1
     |> Builder.with_provider mock_provider
     |> Builder.with_transport transport
     |> build_or_fail
@@ -267,7 +264,6 @@ let test_tools_turns_and_interleaving_observed_by_default () =
   let agent =
     Builder.create ~net ~model:"mock-model"
     |> Builder.with_name "obs-tools"
-    |> Builder.with_max_turns 3
     |> Builder.with_provider mock_provider
     |> Builder.with_transport transport
     |> Builder.with_tool get_time_tool

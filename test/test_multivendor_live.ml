@@ -84,11 +84,10 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "smoke"
     ; model
     ; system_prompt = Some "Reply with the single word: ok."
-    ; max_turns = 1
     }
   in
   let agent = Agent.create ~net:env#net ~config ~options () in
@@ -219,16 +218,27 @@ let test_local_compat () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let endpoints = Llm_provider.Discovery.endpoints_from_env () in
+  let endpoints =
+    Llm_provider.Discovery.parse_llm_endpoints_env ()
+    |> List.map
+         (Llm_provider.Discovery.endpoint
+            ~protocol:Llm_provider.Discovery.Openai_compatible
+            ~capabilities:Llm_provider.Capabilities.default_capabilities)
+  in
   let statuses = Llm_provider.Discovery.discover ~sw ~net:env#net ~endpoints in
   let healthy =
     List.filter (fun (s : Llm_provider.Discovery.endpoint_status) -> s.healthy) statuses
   in
   if healthy = []
-  then
+  then (
+    let endpoint_urls =
+      List.map
+        (fun (endpoint : Llm_provider.Discovery.endpoint) -> endpoint.url)
+        endpoints
+    in
     skip_note
       "local-openai-compat"
-      (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoints))
+      (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoint_urls)))
   else
     List.iter
       (fun (s : Llm_provider.Discovery.endpoint_status) ->

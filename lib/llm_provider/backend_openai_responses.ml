@@ -364,31 +364,30 @@ let build_request_artifact
       ()
   =
   let tools = Backend_openai_request.effective_tools config tools in
-  let sanitized_messages =
-    Backend_openai_serialize.close_tool_message_pairs_for_request messages
-  in
   let dialect = Reasoning_dialect.for_provider_config config in
   let output_token_receipt =
     Backend_openai_request.output_token_receipt
       ~envelope:Types.Openai_responses_max_output_tokens
       config
   in
+  (match config.thinking_budget with
+   | Some _ ->
+     invalid_arg
+       "Backend_openai_responses.build_request: thinking_budget is unsupported; pass \
+        reasoning_effort"
+   | None -> ());
   let reasoning_effort =
     (match Provider_config.validate_reasoning_effort_request config with
      | Ok () -> ()
      | Error reason ->
        invalid_arg (Printf.sprintf "Backend_openai_responses.reasoning_effort: %s" reason));
-    match
-      Provider_config.reasoning_effort_request_value_typed
-        ~enable_thinking:config.enable_thinking
-        ~thinking_budget:config.thinking_budget
-    with
+    match config.reasoning_effort with
     | Some effort -> Reasoning_dialect.normalize_effort_value dialect effort
     | None -> None
   in
   let body =
     [ "model", `String config.model_id
-    ; "input", `List (List.concat_map input_items_of_message sanitized_messages)
+    ; "input", `List (List.concat_map input_items_of_message messages)
     ]
   in
   let body =
@@ -431,7 +430,7 @@ let build_request_artifact
   let body =
     if
       Option.is_some reasoning_effort
-      || List.exists message_has_responses_raw_reasoning sanitized_messages
+      || List.exists message_has_responses_raw_reasoning messages
     then ("include", `List [ `String "reasoning.encrypted_content" ]) :: body
     else body
   in

@@ -81,8 +81,6 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   ; supports_required_tool_choice = caps.supports_required_tool_choice
   ; supports_named_tool_choice = caps.supports_named_tool_choice
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
-  ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
-  ; supports_runtime_tool_events = caps.supports_runtime_tool_events
   ; assistant_tool_content_format = caps.assistant_tool_content_format
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
@@ -130,31 +128,6 @@ let registry_lookup_max_context registry id fallback =
   | _ -> fallback
 ;;
 
-let model_catalog_default_for_base_label base_label =
-  let base_label = normalize base_label in
-  match Llm_provider.Model_catalog.global () with
-  | None -> None
-  | Some catalog ->
-    List.find_map
-      (fun (entry : Llm_provider.Model_catalog.model_entry) ->
-         match entry.base_label with
-         | Some base when String.equal (normalize base) base_label ->
-           trim_non_empty entry.id_prefix
-         | Some _other_base -> None
-         | None -> None)
-      (Llm_provider.Model_catalog.model_entries catalog)
-;;
-
-let registry_default_model provider_id =
-  match normalize provider_id with
-  | "claude" | "anthropic" -> None
-  | "ollama" -> Some "default"
-  | provider_id ->
-    (match model_catalog_default_for_base_label provider_id with
-     | Some _ as model -> model
-     | None -> Some provider_id)
-;;
-
 let binding_of_catalog_entry registry (entry : PC.entry) =
   { id = normalize entry.id
   ; aliases = List.map normalize entry.aliases
@@ -183,7 +156,7 @@ let binding_of_registry_entry (entry : PR.entry) =
   ; request_path = entry.defaults.request_path
   ; api_key_env = entry.defaults.api_key_env
   ; auth = auth_of_defaults entry.defaults
-  ; default_model = registry_default_model entry.name
+  ; default_model = None
   ; max_context = (if entry.max_context > 0 then Some entry.max_context else None)
   ; capabilities = public_capabilities entry.capabilities
   ; available = entry.is_available ()
@@ -200,29 +173,6 @@ let catalog_names entries =
 ;;
 
 let sort_bindings bindings = List.sort (fun a b -> String.compare a.id b.id) bindings
-
-let builtin_provider_aliases =
-  [ "anthropic", "claude"
-  ; "claude", "claude"
-  ; "anthropic", "claude"
-  ; "moonshot", "kimi"
-  ; "kimi", "kimi"
-  ; "gemini", "gemini"
-  ; "glm", "glm"
-  ; "zai", "glm"
-  ; "zhipu", "glm"
-  ; "glm-coding", "glm-coding"
-  ; "zai-coding", "glm-coding"
-  ; "zhipu-coding", "glm-coding"
-  ; "openrouter", "openrouter"
-  ; "deepseek", "deepseek"
-  ; "groq", "groq"
-  ; "dashscope", "dashscope"
-  ; "qwen", "dashscope"
-  ]
-;;
-
-let builtin_alias_target label = List.assoc_opt (normalize label) builtin_provider_aliases
 
 let binding_by_exact_label registry normalized =
   match PC.global () with
@@ -249,16 +199,7 @@ let all () =
 
 let find label =
   let normalized = normalize label in
-  if normalized = ""
-  then None
-  else (
-    let registry = PR.default () in
-    match binding_by_exact_label registry normalized with
-    | Some _ as binding -> binding
-    | None ->
-      (match builtin_alias_target normalized with
-       | Some target -> binding_by_exact_label registry target
-       | None -> None))
+  if normalized = "" then None else binding_by_exact_label (PR.default ()) normalized
 ;;
 
 let find_catalog label =
@@ -274,13 +215,10 @@ let find_catalog label =
 ;;
 
 let known_labels () =
-  let binding_labels =
-    all ()
-    |> List.concat_map (fun binding -> binding.id :: binding.aliases)
-    |> List.map normalize
-  in
-  let alias_labels = List.map fst builtin_provider_aliases in
-  List.sort_uniq String.compare (binding_labels @ alias_labels)
+  all ()
+  |> List.concat_map (fun binding -> binding.id :: binding.aliases)
+  |> List.map normalize
+  |> List.sort_uniq String.compare
 ;;
 
 let normalize_endpoint_url value =
@@ -421,51 +359,53 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
 ;;
 
 let resolve_model binding ~requested_model =
-  let normalize_requested_model model =
-    match binding.kind with
-    | PConfig.Anthropic -> Model_registry.resolve_model_id model
-    | PConfig.Kimi
-    | PConfig.OpenAI_compat
-    | PConfig.Ollama
-    | PConfig.Gemini
-    | PConfig.Glm
-    | PConfig.DashScope -> model
-  in
-  let fallback_default_model () =
-    match binding.kind with
-    | PConfig.Ollama -> "default"
-    | PConfig.Anthropic ->
-      Model_registry.default_model_id_value () |> Model_registry.resolve_model_id
-    | PConfig.Kimi
-    | PConfig.OpenAI_compat
-    | PConfig.Gemini
-    | PConfig.Glm
-    | PConfig.DashScope -> binding.id
-  in
   match Option.bind requested_model trim_non_empty with
-  | Some model -> normalize_requested_model model
+  | Some model -> Ok model
   | None ->
-    (match binding.default_model with
-     | Some model when String.trim model <> "" -> normalize_requested_model model
-     | Some _blank_default_model -> fallback_default_model ()
-     | None -> fallback_default_model ())
+    (match Option.bind binding.default_model trim_non_empty with
+     | Some model -> Ok model
+     | None ->
+       Error
+         (Error.Config
+            (InvalidConfig
+               { field = "model"
+               ; detail =
+                   Printf.sprintf
+                     "provider %S requires an exact model or a catalog-declared \
+                      default_model"
+                     binding.id
+               })))
+;;
+
+let resolve ?model selector =
+  match find selector with
+  | None -> None
+  | Some binding ->
+    Some
+      (Result.map
+         (fun model_id ->
+            ( binding
+            , { Provider.provider = Provider.Custom_registered { name = binding.id }
+              ; model_id
+              ; api_key_env = binding.api_key_env
+              } ))
+         (resolve_model binding ~requested_model:model))
 ;;
 
 let to_provider_config ?model binding =
-  let model_id = resolve_model binding ~requested_model:model in
-  let request_path = trim_non_empty binding.request_path in
-  let max_context = binding.max_context in
-  PConfig.make
-    ~kind:binding.kind
-    ~model_id
-    ~base_url:binding.base_url
-    ~supports_structured_output_override:binding.capabilities.supports_structured_output
-    ~model_capabilities_override:binding.capabilities
-    ?request_path
-    ?max_context
-    ()
-;;
-
-let is_local ?model binding =
-  to_provider_config ?model binding |> Llm_provider.Provider_config.is_local
+  Result.map
+    (fun model_id ->
+       let request_path = trim_non_empty binding.request_path in
+       let max_context = binding.max_context in
+       PConfig.make
+         ~kind:binding.kind
+         ~model_id
+         ~base_url:binding.base_url
+         ~supports_structured_output_override:
+           binding.capabilities.supports_structured_output
+         ~model_capabilities_override:binding.capabilities
+         ?request_path
+         ?max_context
+         ())
+    (resolve_model binding ~requested_model:model)
 ;;

@@ -95,8 +95,6 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_required_tool_choice = caps.supports_required_tool_choice
   ; supports_named_tool_choice = caps.supports_named_tool_choice
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
-  ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
-  ; supports_runtime_tool_events = caps.supports_runtime_tool_events
   ; assistant_tool_content_format = caps.assistant_tool_content_format
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
@@ -182,6 +180,8 @@ let serialization_provider_config ?provider_config (config : agent_state)
               (capabilities_for_request ?provider_config config))
          ?enable_thinking:config.config.enable_thinking
          ?preserve_thinking:config.config.preserve_thinking
+         ?thinking_budget:config.config.thinking_budget
+         ?reasoning_effort:config.config.reasoning_effort
          ())
     projection
 ;;
@@ -363,9 +363,6 @@ let build_openai_body_unchecked
            && should_include_tools ~is_zai_glm capabilities config -> Some entries
     | None | Some _ -> None
   in
-  let sanitized_messages =
-    Llm_provider.Backend_openai_serialize.close_tool_message_pairs_for_request messages
-  in
   let provider_messages =
     (* Reasoning replay is decided by the typed dialect
        ([Reasoning_dialect.should_replay_reasoning] via [replay_policy]),
@@ -380,7 +377,7 @@ let build_openai_body_unchecked
         ~assistant_tool_content_format
         dialect
     in
-    system_message_json config @ List.concat_map message_serializer sanitized_messages
+    system_message_json config @ List.concat_map message_serializer messages
   in
   let body_assoc = [ "model", `String model_str; "messages", `List provider_messages ] in
   let body_assoc =
@@ -459,10 +456,7 @@ let build_openai_body_unchecked
         ~enable_thinking:config.config.enable_thinking
         ~preserve_thinking:config.config.preserve_thinking
         ~thinking_budget:config.config.thinking_budget
-        ~reasoning_effort:
-          (Llm_provider.Provider_config.reasoning_effort_request_value_typed
-             ~enable_thinking:config.config.enable_thinking
-             ~thinking_budget:config.config.thinking_budget)
+        ~reasoning_effort:serialization_config.PConfig.reasoning_effort
         ?zai_glm_clear_thinking
         ()
       @ body_assoc)
@@ -553,7 +547,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
    [kind = Glm]; "charglm-3" is a Z.AI model id outside the "glm-" prefix
    family, so a prefix classifier could not produce these results. *)
 let inline_test_agent_state model =
-  { Types.config = { Types.default_config with model }
+  { Types.config = Types.default_config ~model
   ; messages = []
   ; turn_count = 0
   ; usage = Types.empty_usage

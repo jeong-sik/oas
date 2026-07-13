@@ -563,28 +563,6 @@ let ollama_messages_of_message ?(model_id = "") msg =
       msg
 ;;
 
-(** Strip ToolResult blocks that are outside the immediate result span
-    following their Assistant ToolUse message. Occurs after context
-    compaction drops or reorders a ToolUse while the corresponding
-    ToolResult survives.
-
-    Provider request builders call {!close_tool_message_pairs_for_request} so
-    OpenAI-compatible, Anthropic, Gemini, and Ollama paths share the same
-    outbound history invariant.
-
-    Pure function — no I/O, no mutation. *)
-let strip_orphaned_tool_results = Tool_message_pairs.strip_orphaned_tool_results
-
-let strip_orphaned_tool_results_with_report =
-  Tool_message_pairs.strip_orphaned_tool_results_with_report
-;;
-
-let close_tool_message_pairs_for_request = Tool_message_pairs.close_for_provider_request
-
-let close_tool_message_pairs_for_request_with_report =
-  Tool_message_pairs.close_for_provider_request_with_report
-;;
-
 (** Strip Thinking blocks from all messages.
 
     Some OpenAI-compatible providers emit [reasoning_content] in

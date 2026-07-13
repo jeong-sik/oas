@@ -78,7 +78,8 @@ let declared_openai_compat_provider_catalog =
         "supports_named_tool_choice": false,
         "supports_reasoning": true,
         "supports_extended_thinking": true,
-        "supports_reasoning_budget": true,
+        "supports_reasoning_budget": false,
+        "accepted_reasoning_efforts": ["high", "max"],
         "thinking_control_format": "thinking_object",
         "supports_response_format_json": true,
         "supports_native_streaming": true,
@@ -144,6 +145,14 @@ let with_declared_openai_compat_provider_catalog f =
 
 let declared_provider_config name model_id : Provider.config =
   { Provider.provider = Provider.Custom_registered { name }; model_id; api_key_env = "" }
+;;
+
+let check_declared_provider_kind name expected =
+  let registry = Llm_provider.Provider_registry.default () in
+  match Llm_provider.Provider_registry.find registry name with
+  | Some entry ->
+    check bool (name ^ " typed provider kind") true (entry.defaults.kind = expected)
+  | None -> fail ("missing declared provider: " ^ name)
 ;;
 
 (* Helper: compare content_block via show string *)
@@ -213,7 +222,7 @@ let test_tool_result_error_round_trip () =
     Types.ToolResult
       { tool_use_id = "tu_002"
       ; content = "failed"
-      ; outcome = Legacy_unclassified_failure
+      ; outcome = Tool_failed { failure_kind = Reported_tool_error; error_class = None }
       ; json = None
       ; content_blocks = None
       }
@@ -304,7 +313,7 @@ let test_kimi_message_to_json_tool_result_uses_text_blocks () =
 (* ------------------------------------------------------------------ *)
 
 let make_state
-      ?(model = Types.default_config.model)
+      ?(model = (Types.default_config ~model:"test-model").model)
       ?thinking_budget
       ?tool_choice
       ?enable_thinking
@@ -313,10 +322,12 @@ let make_state
       ()
   =
   let response_format =
-    Option.value response_format ~default:Types.default_config.response_format
+    Option.value
+      response_format
+      ~default:(Types.default_config ~model:"test-model").response_format
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model
     ; response_format
     ; system_prompt = Some "You are helpful."
@@ -416,42 +427,28 @@ let test_build_body_with_thinking_budget () =
   check int "budget_tokens" 1024 (thinking |> member "budget_tokens" |> to_int)
 ;;
 
-let test_build_body_with_enable_thinking_default_budget () =
-  (* enable_thinking = true without an explicit budget should still
-     emit a thinking block, using the provider default budget for
-     manual-budget Claude models. Regression for the old gate
-     that required thinking_budget = Some _ to activate. *)
+let test_build_body_with_enable_thinking_omits_unspecified_budget () =
+  (* Manual-budget Claude requests require a caller-declared budget. OAS must
+     not invent one when the caller only toggles thinking. *)
   let config = make_manual_thinking_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
-  let thinking = json |> member "thinking" in
-  check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
-  check
-    int
-    "default budget_tokens"
-    (Llm_provider.Constants.Thinking.anthropic_budget ())
-    (thinking |> member "budget_tokens" |> to_int)
+  check bool "thinking omitted" true (json |> member "thinking" = `Null)
 ;;
 
 let test_build_body_adaptive_thinking () =
-  let config =
-    make_adaptive_thinking_state ~enable_thinking:true ~thinking_budget:1024 ()
-  in
+  let config = make_adaptive_thinking_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
   let thinking = json |> member "thinking" in
   check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
   check bool "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
-  check
-    string
-    "adaptive effort"
-    "low"
-    (json |> member "output_config" |> member "effort" |> to_string)
+  check bool "effort omitted" true (json |> member "output_config" = `Null)
 ;;
 
-let test_build_body_adaptive_output_config_merges_format_and_effort () =
+let test_build_body_adaptive_output_config_preserves_format () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -462,7 +459,6 @@ let test_build_body_adaptive_output_config_merges_format_and_effort () =
     make_state
       ~model:"claude-opus-4-8"
       ~enable_thinking:true
-      ~thinking_budget:50_000
       ~response_format:(Types.JsonSchema schema)
       ()
   in
@@ -473,7 +469,7 @@ let test_build_body_adaptive_output_config_merges_format_and_effort () =
   let output_config = json |> member "output_config" in
   check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
   check bool "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
-  check string "effort" "max" (output_config |> member "effort" |> to_string);
+  check bool "effort omitted" true (output_config |> member "effort" = `Null);
   check
     string
     "format type"
@@ -481,16 +477,17 @@ let test_build_body_adaptive_output_config_merges_format_and_effort () =
     (output_config |> member "format" |> member "type" |> to_string)
 ;;
 
-let test_build_body_enable_thinking_false_drops_thinking () =
-  (* enable_thinking = false must NOT emit a thinking block, even if
-     a budget was left in the config from a previous state. *)
+let test_build_body_rejects_adaptive_numeric_budget () =
   let config = make_state ~enable_thinking:false ~thinking_budget:5000 () in
-  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
-  check
-    bool
-    "no thinking key when disabled"
-    false
-    (List.exists (fun (k, _) -> k = "thinking") assoc)
+  match Api.build_body_assoc ~config ~messages:[] ~stream:false () with
+  | _ -> fail "expected adaptive numeric-budget rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Api_anthropic.build_body_assoc: thinking_budget is unsupported by adaptive \
+       thinking"
+      message
 ;;
 
 let test_build_body_without_thinking () =
@@ -536,7 +533,7 @@ let test_build_openai_body_with_json_schema () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = "gpt-mini"
         ; response_format = Types.JsonSchema schema
         }
@@ -577,7 +574,7 @@ let test_build_body_sampling_params_anthropic () =
      agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           temperature = Some 0.3
         ; top_p = Some 0.85
         ; top_k = Some 20
@@ -617,7 +614,7 @@ let test_build_openai_body_with_provider_m_sampling () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; temperature = Some 0.6
         ; top_p = Some 0.95
@@ -664,7 +661,7 @@ let test_build_openai_body_deepseek_thinking_drops_sampling () =
     in
     let state =
       { Types.config =
-          { Types.default_config with
+          { (Types.default_config ~model:"test-model") with
             model = provider_config.model_id
           ; temperature = Some 0.7
           ; top_p = Some 0.9
@@ -699,7 +696,7 @@ let test_build_openai_body_deepseek_disabled_thinking_keeps_sampling () =
     in
     let state =
       { Types.config =
-          { Types.default_config with
+          { (Types.default_config ~model:"test-model") with
             model = provider_config.model_id
           ; temperature = Some 0.7
           ; top_p = Some 0.9
@@ -889,10 +886,10 @@ let test_build_openai_body_deepseek_uses_dialect_controls () =
   with_declared_openai_compat_provider_catalog (fun () ->
     let state =
       { Types.config =
-          { Types.default_config with
+          { (Types.default_config ~model:"test-model") with
             model = deepseek_provider_config.model_id
           ; enable_thinking = Some true
-          ; thinking_budget = Some 2048
+          ; reasoning_effort = Some Llm_provider.Reasoning_effort.High
           ; temperature = Some 0.7
           ; top_p = Some 0.9
           }
@@ -915,7 +912,7 @@ let test_build_openai_body_deepseek_uses_dialect_controls () =
       "thinking enabled"
       "enabled"
       (json |> member "thinking" |> member "type" |> to_string);
-    check string "low maps high" "high" (json |> member "reasoning_effort" |> to_string);
+    check string "exact high" "high" (json |> member "reasoning_effort" |> to_string);
     check bool "temperature omitted" true (json |> member "temperature" = `Null);
     check bool "top_p omitted" true (json |> member "top_p" = `Null))
 ;;
@@ -989,7 +986,9 @@ let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
     in
     let state =
       { Types.config =
-          { Types.default_config with model = deepseek_provider_config.model_id }
+          { (Types.default_config ~model:"test-model") with
+            model = deepseek_provider_config.model_id
+          }
       ; messages = []
       ; turn_count = 0
       ; usage = Types.empty_usage
@@ -1030,7 +1029,7 @@ let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   let provider_config = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; top_p = Some 0.9
         ; top_k = Some 40
@@ -1098,7 +1097,7 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
@@ -1140,7 +1139,7 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
 let test_build_openai_body_bare_glm_named_tool_choice_is_generic () =
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = "glm-5"
         ; enable_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
@@ -1197,7 +1196,7 @@ let test_build_openai_body_bare_glm_gets_no_glm_dialect () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = "glm-5"
         ; enable_thinking = Some true
         ; preserve_thinking = Some true
@@ -1232,7 +1231,10 @@ let test_build_openai_body_bare_glm_gets_no_glm_dialect () =
 let test_build_openai_body_bare_glm_tool_choice_none_is_generic () =
   let state =
     { Types.config =
-        { Types.default_config with model = "glm-5"; tool_choice = Some Types.None_ }
+        { (Types.default_config ~model:"test-model") with
+          model = "glm-5"
+        ; tool_choice = Some Types.None_
+        }
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -1261,7 +1263,7 @@ let test_build_openai_body_bare_glm_tool_choice_none_is_generic () =
 (* Declared Z.AI GLM endpoint under the default clear_thinking=true (no
    [preserve_thinking]): the typed dialect resolves to No_replay, so
    prior-turn reasoning_content stays out of the request history even though
-   the request is GLM (RFC-OAS-030). Locks the non-replay arm of the typed
+   the request is GLM. Locks the non-replay arm of the typed
    [replay_policy] promotion in [reasoning_dialect_for_request]. *)
 let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
   let provider_config =
@@ -1294,7 +1296,7 @@ let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
         }
@@ -1352,7 +1354,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
         ; preserve_thinking = Some true
@@ -1411,7 +1413,7 @@ let test_build_openai_body_glm_clears_thinking_when_not_preserving () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
         ; preserve_thinking = Some false
@@ -1453,7 +1455,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
@@ -1524,7 +1526,7 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; tool_choice = Some Types.None_
         }
@@ -1555,21 +1557,12 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   check bool "tools omitted for glm none" false (List.mem_assoc "tools" assoc)
 ;;
 
-(* PR #2439 review regression: a provider registered in
-   [Provider_registry.default] with [kind = Glm] must serialize with the full
-   GLM dialect even though the model id carries no "glm-" prefix — the
-   serializer resolves [Custom_registered] through the same typed registry
-   projection as validation. Before the shared projection, the serializer
-   degraded every [Custom_registered] to a synthetic (OpenAI_compat, "")
-   config: validation classified the request as GLM while the body below
-   lost the reasoning_content replay and the thinking.clear_thinking field. *)
+(* A provider registered with [kind = Glm] must serialize with the full GLM
+   dialect for an opaque model id. Provider identity comes only from the typed
+   registry declaration; model text carries no semantic role. *)
 let test_build_openai_body_registered_glm_gets_glm_dialect () =
-  let model_id = "charglm-3" in
-  check
-    bool
-    "premise: model id has no glm- prefix"
-    false
-    (Llm_provider.Zai_catalog.is_glm_model_id model_id);
+  let model_id = "opaque-model" in
+  check_declared_provider_kind "glm" Llm_provider.Provider_config.Glm;
   let provider_config = declared_provider_config "glm" model_id in
   let messages =
     [ { Types.role = Types.Assistant
@@ -1589,7 +1582,7 @@ let test_build_openai_body_registered_glm_gets_glm_dialect () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = model_id
         ; enable_thinking = Some true
         ; preserve_thinking = Some true
@@ -1622,16 +1615,15 @@ let test_build_openai_body_registered_glm_gets_glm_dialect () =
    the tools list are dropped. Before the shared projection, the degraded
    generic config serialized ["none"] and kept the tools list. *)
 let test_build_openai_body_registered_glm_coding_tool_choice_none_omits_tools () =
-  let model_id = "charglm-3" in
-  check
-    bool
-    "premise: model id has no glm- prefix"
-    false
-    (Llm_provider.Zai_catalog.is_glm_model_id model_id);
+  let model_id = "opaque-model" in
+  check_declared_provider_kind "glm-coding" Llm_provider.Provider_config.Glm;
   let provider_config = declared_provider_config "glm-coding" model_id in
   let state =
     { Types.config =
-        { Types.default_config with model = model_id; tool_choice = Some Types.None_ }
+        { (Types.default_config ~model:"test-model") with
+          model = model_id
+        ; tool_choice = Some Types.None_
+        }
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -1677,7 +1669,8 @@ let test_build_openai_body_unknown_registered_provider_fails_closed () =
     declared_provider_config "no-such-registered-provider" "charglm-3"
   in
   let state =
-    { Types.config = { Types.default_config with model = "charglm-3" }
+    { Types.config =
+        { (Types.default_config ~model:"test-model") with model = "charglm-3" }
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -2063,7 +2056,7 @@ let test_build_body_with_cache () =
      minimum-token rule server-side. *)
   let long_prompt = "You are a cached helper. " ^ String.make 4100 'x' in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       system_prompt = Some long_prompt
     ; cache_system_prompt = true
     }
@@ -2086,7 +2079,7 @@ let test_build_body_with_cache () =
 let test_build_body_tools_cache_control () =
   (* When cache_system_prompt is true, last tool gets cache_control *)
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       system_prompt = Some "You are helpful."
     ; cache_system_prompt = true
     }
@@ -2137,7 +2130,7 @@ let test_build_body_tools_no_cache_without_flag () =
 
 let test_build_body_no_system_prompt () =
   let state =
-    { Types.config = Types.default_config
+    { Types.config = Types.default_config ~model:"test-model"
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -2444,7 +2437,7 @@ let test_json_of_string_or_raw_invalid () =
 
 let test_build_body_disable_parallel () =
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       tool_choice = Some Types.Auto
     ; disable_parallel_tool_use = true
     }
@@ -2493,18 +2486,18 @@ let () =
             test_build_openai_body_uses_unknown_model_fallback
         ; test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget
         ; test_case
-            "enable_thinking default budget"
+            "enable_thinking omits unspecified budget"
             `Quick
-            test_build_body_with_enable_thinking_default_budget
+            test_build_body_with_enable_thinking_omits_unspecified_budget
         ; test_case "adaptive thinking" `Quick test_build_body_adaptive_thinking
         ; test_case
-            "adaptive output_config merges format and effort"
+            "adaptive output_config preserves format"
             `Quick
-            test_build_body_adaptive_output_config_merges_format_and_effort
+            test_build_body_adaptive_output_config_preserves_format
         ; test_case
-            "enable_thinking false drops thinking"
+            "adaptive numeric budget rejected"
             `Quick
-            test_build_body_enable_thinking_false_drops_thinking
+            test_build_body_rejects_adaptive_numeric_budget
         ; test_case "without thinking" `Quick test_build_body_without_thinking
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools

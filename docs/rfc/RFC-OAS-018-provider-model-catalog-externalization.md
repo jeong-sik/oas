@@ -7,7 +7,7 @@
 | Created | 2026-05-12 |
 | Target | `agent_sdk` (oas) |
 | Supersedes | PR #1536 (`refactor/ollama-endpoint-constant`, closed as antipattern reinforcement) |
-| Sibling | RFC-OAS-009 (tool name ignorance), RFC-OAS-015 (mutable cleanup), RFC-OAS-016 (mcp optional), RFC-OAS-017 (coordinator-shape leak) |
+| Sibling | RFC-OAS-015 (mutable cleanup), RFC-OAS-016 (mcp optional), RFC-OAS-017 (coordinator-shape leak) |
 
 ## 0. Summary
 
@@ -70,7 +70,8 @@ let url_is_ollama url = match port url with Some 11434 -> true | _ -> ...
 - `starts_with` 분류기를 더 정교하게 만드는 보강 — string 분류기 #2.
 - Provider_kind 에 새 variant 추가 (`XAI`, `Mistral` 등) — 동일 패턴 누적. 본 RFC 합의 전 PR 거부.
 - compile-time embedded JSON (`[%blob "models.json"]`) — 결과적으로 lib 안에 다시 박힘. 거부.
-- prefix dispatcher 에 hex/glob lint 추가하는 "guard" PR — RFC-OAS-precedent (RFC-OAS-009 등) 가 advisory 였음에도 본 RFC 는 *데이터 자체* 를 옮기는 것이지 *문자열 검사 를 강화* 하는 것이 아님.
+- prefix dispatcher 에 hex/glob lint 추가하는 "guard" PR — 본 RFC 는 *데이터
+  자체* 를 옮기는 것이지 *문자열 검사 를 강화* 하는 것이 아님.
 
 ## 3. Goal — typed catalog interface
 
@@ -132,13 +133,14 @@ SDK 핵심 가정:
 - **G3 lint**: lib/ 에서 `qwen|llama-|gemma-|gpt-|claude-[a-z]+-[0-9]|deepseek|kimi-` 검색 0건 (RFC artifacts 와 catalog loader 제외).
 
 ### Phase 4 — Endpoint discovery decoupling
-- `discovery.ml:633 default_scan_ports` → user config (`OAS_DISCOVERY_PORTS=8085,8090,...`) + fixture default.
-- `discovery.ml:73, :455-463` 의 `:11434` 인식 함수 제거. provider 식별은 *capability handshake* (e.g. `/api/tags` GET 결과의 schema) 로 대체.
-- **G4 lint**: lib/ 에서 `:11434|:8085|:8086|:8087|:8088|:8089|:8090` literal 0건.
+- endpoint owner가 `endpoint_protocol`과 catalog capability를 명시한다. Discovery는 URL, port, model id, response prose, chat template에서 protocol/capability를 추론하지 않는다.
+- `/api/tags`는 이미 `Ollama_native`로 선언된 endpoint의 model inventory probe일 뿐 provider classifier가 아니다. schema 불일치는 endpoint-local typed failure로 반환한다.
+- legacy `url_is_ollama`/port classifier, `scan_local_endpoints`, `OAS_DISCOVERY_PORTS`, `/api/show` template inference는 호환 fallback 없이 삭제한다.
+- **G4 lint**: discovery production path에서 `url_is_ollama|template_has_tool_support|/api/show` 0건. protocol별 probe는 closed variant match로만 선택한다.
 
 ## 5. Drift guards (CI lint)
 
-`scripts/check-sdk-vocabulary.sh` 신설 (RFC-OAS-009 SDK independence gate 자매):
+`scripts/check-sdk-vocabulary.sh` 신설 (SDK independence regression gate):
 
 ```bash
 # Phase 별 staged enforcement
@@ -151,7 +153,7 @@ case "$PHASE_GATE" in
      PATTERN_MODEL='qwen|llama-|gemma-|gpt-[0-9]|claude-[a-z]+-[0-9]|deepseek|kimi-'
      ;;
   4) MODE=error  # G4 includes G3
-     PATTERN_PORT=':11434|:808[5-9]|:8090'
+     PATTERN_DISCOVERY='url_is_ollama|template_has_tool_support|scan_local_endpoints|/api/show'
      ;;
 esac
 # Allow-list: lib/llm_provider/catalog_*, docs/, assets/
@@ -163,6 +165,7 @@ esac
 
 - Phase 1 동안 catalog 미설정 사용자 → fallback (기존 동작 유지).
 - Phase 3 cutover 직전 minor release 에 README + CHANGELOG 명시.
+- Phase 4 discovery classifier와 port scan은 compatibility fallback 없이 삭제한다.
 - `assets/catalog_defaults.toml` 을 example 로 추가 (compiled-in 아닌 *문서 자산*).
 - `Provider_kind_legacy.t` alias 를 한 minor (`0.200.x`) 동안 유지 후 제거.
 
@@ -188,12 +191,12 @@ esac
 | 1 | catalog loader + fallback, 기존 test 100% green, 새 catalog 테스트 alcotest suite 1개 |
 | 2 | prefix dispatch `[@@deprecated]`, 모든 lib 호출 catalog 경유 (call-site lint) |
 | 3 | lib/ 에 모델 family literal 0건, Provider_kind 4 variants |
-| 4 | lib/ 에 hardcoded `:11434` 등 0건, endpoint discovery user-config-driven |
+| 4 | URL/port/template classifier 0건, endpoint protocol + capabilities declaration-driven, malformed probe가 endpoint-local failure로 관측됨 |
 
 ## 10. References
 
 - CLAUDE.md §Workaround Rejection Bar — signatures #2 (string classifier) + #3 (N-of-M)
-- RFC-OAS-009 — tool name ignorance (자매 가드: vocabulary independence)
+- `lib/agent/agent_tools.mli` — exact registered-name lookup contract
 - RFC-OAS-015 — mutable cleanup phased precedent
 - RFC-OAS-016 — mcp optional dependency (외부화 패턴 자매)
 - 측정 명령: `rg '"(qwen[^"]*|llama-?[0-9][^"]*|gemma-?[0-9][^"]*|claude-[a-z]+-[0-9][^"]*|gpt-[0-9][^"]*|deepseek[^"]*|kimi-[^"]*)"' lib/ | wc -l` → 240 (2026-05-12 main `8d8402f6`)

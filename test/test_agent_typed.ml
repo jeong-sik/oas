@@ -27,7 +27,9 @@ let make_transport response : Llm_provider.Llm_transport.t =
 let test_create () =
   Eio_main.run
   @@ fun env ->
-  let agent = Agent_typed.create ~net:env#net () in
+  let agent =
+    Agent_typed.create ~net:env#net ~config:(Types.default_config ~model:"test-model") ()
+  in
   let card = Agent_typed.card agent in
   check bool "has name" true (String.length card.name > 0)
 ;;
@@ -38,7 +40,7 @@ let test_inner () =
   let typed =
     Agent_typed.create
       ~net:env#net
-      ~config:{ Types.default_config with name = "typed-test" }
+      ~config:{ (Types.default_config ~model:"test-model") with name = "typed-test" }
       ()
   in
   let inner = Agent_typed.inner typed in
@@ -49,7 +51,9 @@ let test_inner () =
 let test_last_trace_none () =
   Eio_main.run
   @@ fun env ->
-  let agent = Agent_typed.create ~net:env#net () in
+  let agent =
+    Agent_typed.create ~net:env#net ~config:(Types.default_config ~model:"test-model") ()
+  in
   check bool "no trace" true (Option.is_none (Agent_typed.last_trace agent))
 ;;
 
@@ -74,7 +78,7 @@ let test_checkpoint_sink_forwarded () =
           }
     }
   in
-  let config = { Types.default_config with model = "mock-model"; max_turns = 1 } in
+  let config = { (Types.default_config ~model:"test-model") with model = "mock-model" } in
   let agent = Agent_typed.create ~net:env#net ~config ~options ~checkpoint_sink () in
   (match Agent_typed.run ~sw agent "hi" with
    | Ok (_response, _completed) -> ()
@@ -90,7 +94,7 @@ let test_checkpoint_sink_forwarded () =
     The following would NOT compile, proving phantom types work:
 
     {[
-      let agent = Agent_typed.create ~net () in
+      let agent = Agent_typed.create ~net ~config:(Types.default_config ~model:"test-model") () in
       match Agent_typed.run ~sw agent "hi" with
       | Ok (_resp, completed) ->
         (* This would be a TYPE ERROR: *)

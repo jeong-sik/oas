@@ -61,7 +61,7 @@ let with_temp_model_catalog contents f =
 
 let isolate_ambient_runtime_sources () =
   Capability_manifest.set_global [];
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"Capabilities"
+  Model_catalog_test_support.install_packaged_model_catalog ~suite:"Capabilities"
 ;;
 
 (* ── Default capabilities ────────────────────────────── *)
@@ -234,72 +234,9 @@ let test_lookup_gemini () =
   | None -> fail "should match gemini"
 ;;
 
-(* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
-
-let pp_gemini_family ppf = function
-  | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
-  | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
-  | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
-  | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
-;;
-
-let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
-
-let test_gemini_family_3_1 () =
-  check
-    gemini_family_testable
-    "gemini-3.1-pro-preview classifies as Gemini_3_1"
-    Capabilities.Gemini_3_1
-    (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
-;;
-
-let test_gemini_family_3_1_flash_lite () =
-  check
-    gemini_family_testable
-    "gemini-3.1-flash-lite-preview classifies as Gemini_3_1"
-    Capabilities.Gemini_3_1
-    (Capabilities.gemini_family_of_id "gemini-3.1-flash-lite-preview")
-;;
-
-let test_gemini_family_3 () =
-  check
-    gemini_family_testable
-    "gemini-3-flash-preview classifies as Gemini_3 (not 3.1)"
-    Capabilities.Gemini_3
-    (Capabilities.gemini_family_of_id "gemini-3-flash-preview")
-;;
-
-let test_gemini_family_2_5 () =
-  check
-    gemini_family_testable
-    "gemini-2.5-flash classifies as Gemini_2_5"
-    Capabilities.Gemini_2_5
-    (Capabilities.gemini_family_of_id "gemini-2.5-flash")
-;;
-
-let test_gemini_family_other_non_gemini () =
-  check
-    gemini_family_testable
-    "non-gemini id falls into Gemini_other with literal retained"
-    (Capabilities.Gemini_other "claude-opus-4")
-    (Capabilities.gemini_family_of_id "claude-opus-4")
-;;
-
-let test_gemini_family_other_unknown_gemini () =
-  (* A future gemini line not yet classified should land in Gemini_other —
-     not be silently absorbed into an existing arm. *)
-  check
-    gemini_family_testable
-    "gemini-4-foo lands in Gemini_other (no silent fallback)"
-    (Capabilities.Gemini_other "gemini-4-foo")
-    (Capabilities.gemini_family_of_id "gemini-4-foo")
-;;
-
-let test_gemini_family_drives_capabilities () =
+let test_gemini_catalog_drives_capabilities () =
   (* Behavioural cross-check: all three live variants resolve to
-     gemini_capabilities (1M context). This is the property the #968 drift
-     gate was trying to assert via string-grep; now it is enforced by the
-     type system at the dispatch site and by this test. *)
+     their declared catalog capability rows (1M context). *)
   let ctx id =
     match Capabilities.for_model_id id with
     | Some c -> c.max_context_tokens
@@ -2091,33 +2028,6 @@ let test_manifest_load_file_malformed_returns_error () =
     | Ok _ -> Alcotest.fail "expected malformed manifest JSON to fail")
 ;;
 
-let test_manifest_load_runtime_file_success_logs_info () =
-  let logs = ref [] in
-  with_temp_manifest
-    {|{"schema_version":1,"models":[{"id_prefix":"runtime-visible","supports_tools":true}] }|}
-    (fun path ->
-       let manifest =
-         Diag.with_sink
-           (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
-           (fun () -> Capability_manifest.load_runtime_file path)
-       in
-       (match manifest with
-        | Some [ entry ] ->
-          check string "loaded id_prefix" "runtime-visible" entry.id_prefix
-        | Some _ -> Alcotest.fail "expected one runtime manifest entry"
-        | None -> Alcotest.fail "expected runtime manifest to load");
-       let has_info =
-         List.exists
-           (fun (level, ctx, msg) ->
-              level = Diag.Info
-              && String.equal ctx "capability_manifest"
-              && string_contains_sub msg "loaded 1 entries"
-              && string_contains_sub msg path)
-           !logs
-       in
-       check bool "logs info load success" true has_info)
-;;
-
 let test_model_catalog_rejects_unknown_reasoning_replay () =
   with_temp_model_catalog
     {|
@@ -2554,25 +2464,10 @@ let () =
         ; test_case "claude sonnet" `Quick test_lookup_claude_sonnet
         ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
-        ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
         ; test_case
-            "gemini_family Gemini_3_1 flash-lite"
+            "gemini catalog drives 1M ctx capabilities"
             `Quick
-            test_gemini_family_3_1_flash_lite
-        ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
-        ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
-        ; test_case
-            "gemini_family Gemini_other (non-gemini)"
-            `Quick
-            test_gemini_family_other_non_gemini
-        ; test_case
-            "gemini_family Gemini_other (unknown gemini)"
-            `Quick
-            test_gemini_family_other_unknown_gemini
-        ; test_case
-            "gemini_family drives 1M ctx capabilities"
-            `Quick
-            test_gemini_family_drives_capabilities
+            test_gemini_catalog_drives_capabilities
         ; test_case
             "kimi-k2 native cloud suffix vs Ollama Cloud"
             `Quick
@@ -2770,10 +2665,6 @@ let () =
             "malformed manifest file errors"
             `Quick
             test_manifest_load_file_malformed_returns_error
-        ; test_case
-            "runtime manifest load logs success"
-            `Quick
-            test_manifest_load_runtime_file_success_logs_info
         ; test_case
             "model catalog rejects unknown reasoning_replay"
             `Quick

@@ -35,6 +35,7 @@ type t =
   ; preserve_thinking : bool option
   ; response_format : Types.response_format
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; cache_system_prompt : bool
   ; context : Context.t
   ; mcp_sessions : Mcp_session.info list
@@ -62,6 +63,7 @@ type sampling_patch =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   }
 
 type limits_patch =
@@ -93,21 +95,12 @@ type delta =
   ; operations : delta_op list
   }
 
-type delta_restore_mode =
-  | Delta_applied
-  | Full_restore
-
-type delta_restore_result =
-  { checkpoint : t
-  ; mode : delta_restore_mode
-  }
-
 (** {1 Serialization} *)
 
 (** Serialize checkpoint to JSON. *)
 val to_json : t -> Yojson.Safe.t
 
-(** Deserialize checkpoint from JSON. Supports versions 1-5. *)
+(** Deserialize the exact current checkpoint schema. Older versions are rejected. *)
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 
 (** Serialize checkpoint to a JSON string. *)
@@ -122,24 +115,11 @@ val delta_to_json : delta -> Yojson.Safe.t
 (** Deserialize a checkpoint delta sidecar from JSON. *)
 val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
 
-(** Whether the delta checkpoint feature flag is enabled.
-    Checks [OAS_DELTA_CHECKPOINT] env var. *)
-val delta_enabled : unit -> bool
-
 (** Compute a delta from a base checkpoint to a target checkpoint. *)
 val compute_delta : t -> t -> delta
 
 (** Apply a delta to a base checkpoint. *)
 val apply_delta : t -> delta -> (t, Error.sdk_error) result
-
-(** Apply delta when enabled and valid, otherwise fall back to the full checkpoint. *)
-val restore_with_delta_fallback
-  :  ?metrics:Metrics.t
-  -> base:t
-  -> delta:delta
-  -> full_checkpoint:t
-  -> unit
-  -> (delta_restore_result, Error.sdk_error) result
 
 (** {1 Queries} *)
 
@@ -155,5 +135,6 @@ val token_usage : t -> Types.usage_stats
     (e.g., checkpoint telemetry). *)
 val usage_to_json : Types.usage_stats -> Yojson.Safe.t
 
-(** Deserialize usage_stats from JSON. *)
-val usage_of_json : Yojson.Safe.t -> Types.usage_stats
+(** Deserialize exact current usage stats from JSON. Legacy fields are
+    rejected explicitly. *)
+val usage_of_json : Yojson.Safe.t -> (Types.usage_stats, Error.sdk_error) result

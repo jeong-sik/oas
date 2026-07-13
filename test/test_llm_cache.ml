@@ -211,7 +211,8 @@ let test_roundtrip_tool_result_error () =
       [ ToolResult
           { tool_use_id = "tu_2"
           ; content = "failed"
-          ; outcome = Legacy_unclassified_failure
+          ; outcome =
+              Tool_failed { failure_kind = Reported_tool_error; error_class = None }
           ; json = None
           ; content_blocks = None
           }

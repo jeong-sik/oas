@@ -4,8 +4,7 @@
     On crash recovery, replays the journal to reconstruct exact state
     without re-executing side-effectful activities.
 
-    Complements {!Durable} (step-level pipelines) with fine-grained
-    agent-loop-level event sourcing inspired by Temporal workflows.
+    Provides fine-grained agent-loop-level event sourcing.
 
     Key properties:
     - Events are append-only (immutable journal)
@@ -47,12 +46,12 @@ type event =
   | Llm_request of
       { turn : int
       ; model : string
-      ; input_tokens : int
       ; timestamp : float
       }
   | Llm_response of
       { turn : int
-      ; output_tokens : int
+      ; input_tokens : int option
+      ; output_tokens : int option
       ; stop_reason : string
       ; duration_ms : float
       ; timestamp : float
@@ -127,8 +126,8 @@ type replay_summary =
   { last_turn : int
   ; completed_tools : (string * Yojson.Safe.t) list (** idempotency_key -> output *)
   ; last_state : string
-  ; total_input_tokens : int
-  ; total_output_tokens : int
+  ; total_input_tokens : int option
+  ; total_output_tokens : int option
   ; error_count : int
   }
 

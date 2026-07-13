@@ -362,18 +362,7 @@ let test_tool_contract () =
     { name = "run_cmd"
     ; description = "Run command"
     ; origin = Some "mcp"
-    ; kind = Some "shell"
-    ; shell =
-        Some
-          { single_command_only = true
-          ; shell_metacharacters_allowed = false
-          ; chaining_allowed = false
-          ; redirection_allowed = true
-          ; pipes_allowed = true
-          ; workdir_policy = Some Tool.Recommended
-          }
-    ; notes = [ "note1"; "note2" ]
-    ; examples = [ "ex1" ]
+    ; execution_mode = Tool.Concurrent
     }
   in
   roundtrip
@@ -383,14 +372,7 @@ let test_tool_contract () =
     ~name:"tool_contract_full"
     v;
   let v2 : Sessions.tool_contract =
-    { name = "simple"
-    ; description = ""
-    ; origin = None
-    ; kind = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
+    { name = "simple"; description = ""; origin = None; execution_mode = Tool.Serial }
   in
   roundtrip
     ~to_yojson:Sessions.tool_contract_to_yojson
@@ -417,7 +399,6 @@ let test_worker_run_all_statuses () =
          ; model = Some "claude"
          ; requested_provider = Some "rp"
          ; requested_model = Some "rm"
-         ; requested_policy = Some "strict"
          ; resolved_provider = Some "anthropic"
          ; resolved_model = Some "claude"
          ; status
@@ -434,10 +415,7 @@ let test_worker_run_all_statuses () =
          ; started_at = Some 40.0
          ; finished_at = Some 50.0
          ; last_progress_at = Some 45.0
-         ; policy_snapshot = Some "snapshot-data"
          ; paired_tool_result_count = 3
-         ; has_file_write = true
-         ; verification_pass_after_file_write = true
          }
        in
        roundtrip
@@ -462,7 +440,6 @@ let test_worker_run_minimal () =
     ; model = None
     ; requested_provider = None
     ; requested_model = None
-    ; requested_policy = None
     ; resolved_provider = None
     ; resolved_model = None
     ; status = Sessions.Planned
@@ -479,10 +456,7 @@ let test_worker_run_minimal () =
     ; started_at = None
     ; finished_at = None
     ; last_progress_at = None
-    ; policy_snapshot = None
     ; paired_tool_result_count = 0
-    ; has_file_write = false
-    ; verification_pass_after_file_write = false
     }
   in
   roundtrip
@@ -527,7 +501,6 @@ let make_participant name : Runtime.participant =
   ; runtime_actor = Some name
   ; requested_provider = None
   ; requested_model = None
-  ; requested_policy = None
   ; provider = None
   ; model = None
   ; resolved_provider = None
@@ -550,14 +523,12 @@ let make_session participants : Runtime.session =
   ; goal = "test"
   ; title = None
   ; tag = None
-  ; permission_mode = None
   ; phase = Bootstrapping
   ; created_at = 0.0
   ; updated_at = 0.0
   ; provider = None
   ; model = None
   ; system_prompt = None
-  ; max_turns = 8
   ; workdir = None
   ; planned_participants = List.map (fun (p : participant) -> p.name) participants
   ; participants

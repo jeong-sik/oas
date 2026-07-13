@@ -87,7 +87,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 | # | 위치 | 증상 | 조치 |
 |---|------|------|------|
 | B4 | `provider_config.ml:199` `base_url_targets_ollama_cloud` | vendor-canonical `ollama.com`은 정당하나 loose `String.starts_with` prefix라 `https://ollama.com.attacker.example` look-alike가 `ollama_cloud` namespace 상속. 형제 `base_url_targets_openai`(205)·`openai_host_supports_output_schema`(789)는 이미 `Uri.host` 정확 비교. | prefix → `Uri.host` 파싱 후 `= "ollama.com" || ends_with ".ollama.com"`. |
-| B5 | `discovery.ml:287` `infer_capabilities` | unknown model_id의 probed generic 엔드포인트가 `structured_output`/`image_input`/`required·named tool_choice`=true를 무근거 부여. reasoning/thinking은 올바르게 fail-closed(정상). blast radius는 discovery 리포팅 메타로 제한(completion-contract 미사용). | **false-positive로 강등, 조치 없음** — discovery capability는 애초 `f(probed runtime)`이 legit contract이라 §4/§7 재감사에서 기각. |
+| B5 | `discovery.ml` endpoint capability inference | unknown model id, URL/port, `/api/show` template를 근거로 generic endpoint에 capability를 부여했다. | **hard cut** — caller가 `endpoint_protocol`과 catalog capability를 선언한다. Discovery는 objective `/props` 값만 overlay하며 malformed probe는 endpoint-local failure로 반환한다. |
 | B6 | `capabilities.ml:761` `apply_manifest_entry` | manifest 오타 `base_label`이 `capabilities_for_provider_label = None`을 거쳐 **경고 없이** `default_capabilities`로 붕괴. 형제 필드 핸들러(805·856)는 `Diag.warn`함. 함수 docstring 자체가 fail-closed를 명시. host 무관(config→capability), 권한 손실이라 low. | **false-positive로 강등, 조치 없음** — 이미 fail-closed(권한 상승 아님)라 §4/§7 재감사에서 기각. |
 | B7 | `complete_sampling.ml:57` `openai_compat_should_default_min_p` | capabilities 미상일 때 `None → is_local`로 min_p default 결정. host locality가 sampling default 선택. `config.min_p` 명시값 우선이라 blast radius 최소. | 명시 runtime/model capability 우선; 미상이면 미설정 또는 선언된 runtime kind로 키잉. |
 
@@ -104,7 +104,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 1. namespace provenance를 명시 선언으로 도입 (`model_id` prefix 또는 config 필드). PR #2404(declarative override SSOT)와 정렬.
 2. `base_url_targets_runpod_proxy → "runpod_mtp"`(B1/B2) 및 `is_local → "nous"`(B3)를 포함한 모든 generic-host→capability 매핑 삭제.
 3. host-결합 namespace를 serving-contract 식별자로 rename.
-4. P3 경화 — 적대적 재감사(#2414) 후 착지: **B4**=ollama `Uri.host` 정확 비교(#2420), **B7**=min_p를 `is_local` 대신 catalog-declared로(#2425), **model_catalog**=unknown TOML 키 fail-closed(#2426), **:840**=unknown base label parse-time fail-closed(이 PR). **B5/B6는 false-positive로 강등**(discovery=capability=f(runtime) legit / manifest=이미 fail-closed).
+4. P3 경화 — 적대적 재감사(#2414) 후 착지: **B4**=ollama `Uri.host` 정확 비교(#2420), **B7**=min_p를 `is_local` 대신 catalog-declared로(#2425), **model_catalog**=unknown TOML 키 fail-closed(#2426), **:840**=unknown base label parse-time fail-closed(이 PR). **B5는 후속 hard cut으로 제거**되어 discovery가 protocol/catalog declaration만 소비한다. **B6는 이미 fail-closed라 조치 없음**.
    **B4'(:804 host→output_schema capability)는 설계 변경 필요로 defer**(§7 참조).
 5. §5 ratchet 추가로 재발 차단 — **#2419 착지**(hardening ratchet 확장).
 

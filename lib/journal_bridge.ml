@@ -20,19 +20,17 @@ let projection_of_event (evt : Durable_event.event) : string * Yojson.Safe.t =
   match evt with
   | Turn_started { turn; timestamp } ->
     "durable.turn_started", `Assoc [ "turn", `Int turn; "timestamp", `Float timestamp ]
-  | Llm_request { turn; model; input_tokens; timestamp } ->
+  | Llm_request { turn; model; timestamp } ->
     ( "durable.llm_request"
-    , `Assoc
-        [ "turn", `Int turn
-        ; "model", `String model
-        ; "input_tokens", `Int input_tokens
-        ; "timestamp", `Float timestamp
-        ] )
-  | Llm_response { turn; output_tokens; stop_reason; duration_ms; timestamp } ->
+    , `Assoc [ "turn", `Int turn; "model", `String model; "timestamp", `Float timestamp ]
+    )
+  | Llm_response
+      { turn; input_tokens; output_tokens; stop_reason; duration_ms; timestamp } ->
     ( "durable.llm_response"
     , `Assoc
         [ "turn", `Int turn
-        ; "output_tokens", `Int output_tokens
+        ; "input_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) input_tokens
+        ; "output_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) output_tokens
         ; "stop_reason", `String stop_reason
         ; "duration_ms", `Float duration_ms
         ; "timestamp", `Float timestamp

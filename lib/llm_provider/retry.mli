@@ -1,4 +1,4 @@
-(** Structured API errors and retry logic with exponential backoff + jitter.
+(** Structured provider/API error evidence and typed classification.
 
     @stability Internal
     @since 0.93.1 *)
@@ -41,84 +41,8 @@ type api_error =
       ; phase : Http_client.timeout_phase option
       }
 
-type retry_config =
-  { max_retries : int
-  ; initial_delay : float
-  ; max_delay : float
-  ; backoff_factor : float
-  }
-
-val default_config : retry_config
-
 (** {1 Error classification} *)
 
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
-val is_context_overflow_message : string -> bool
-
-(** True when the error represents hard account-level quota exhaustion
-    (balance 0, credit depleted, monthly quota reached, resource exhausted).
-    A retry of the exact same request will never succeed until billing /
-    capacity is restored out-of-band.
-
-    [RateLimited] messages are inspected via substring match; [PaymentRequired]
-    (HTTP 402) is always [true] by status-code semantics alone (no message
-    inspection needed). [AuthorizationError] remains [false] because HTTP 403
-    does not distinguish quota, entitlement, and account-policy refusals. Other
-    variants return [false].
-
-    Consumers (e.g. health trackers) use this to apply an immediate
-    long cooldown instead of transient backoff.
-
-    @since 0.156.0 *)
-val is_hard_quota : api_error -> bool
-
-(** Extract the available context token limit from a context overflow error message.
-    Parses both "available context size (N)" and "input token budget exceeded: U/N"
-    formats. Returns [None] if the message is not an overflow error or the limit
-    cannot be parsed.
-
-    @since 0.102.0 *)
-val parse_context_overflow_limit : string -> int option
-
-(** Alias for {!parse_context_overflow_limit}.  Preferred name for SSOT consumers. *)
-val extract_context_limit : string -> int option
-
-(** Case-insensitive substring search for provider error classifiers.
-    @since 0.197.0 *)
-val contains_case_insensitive : haystack:string -> needle:string -> bool
-
 val classify_error : status:int -> body:string -> api_error
-
-(** HTTP status that a provider error condition carries as an initial response,
-    keyed on the error-object [type] string emitted mid-stream (where no HTTP
-    status is available). Lets a mid-stream SSE error converge onto the same
-    [Http_client.HttpError {code; body}] -> {!classify_error} path as a
-    non-streaming error. [None] for an unrecognized [type] (caller keeps it as
-    an unclassifiable network error rather than guessing).
-
-    @since 0.205.0 *)
-val status_of_provider_error_type : string -> int option
-
-(** {1 Retry execution} *)
-
-val calculate_delay : retry_config -> int -> float
-
-val with_retry
-  :  clock:_ Eio.Time.clock
-  -> ?config:retry_config
-  -> (unit -> ('a, api_error) result)
-  -> ('a, api_error) result
-
-(** Retry a function while preserving its original error type.
-    [classify] returns [Some api_error] for errors that should use the shared
-    retry / backoff policy, or [None] to fail fast without retry.
-
-    @stability Internal
-    @since 0.163.0 *)
-val with_retry_map_error
-  :  clock:_ Eio.Time.clock
-  -> ?config:retry_config
-  -> classify:('e -> api_error option)
-  -> (unit -> ('a, 'e) result)
-  -> ('a, 'e) result

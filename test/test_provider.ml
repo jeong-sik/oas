@@ -37,8 +37,14 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
 ;;
 
-let install_repo_model_catalog () =
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"provider"
+let install_packaged_model_catalog () =
+  Model_catalog_test_support.install_packaged_model_catalog ~suite:"provider"
+;;
+
+let declared_pricing model_id =
+  match Provider.pricing_for_model_opt model_id with
+  | Some pricing -> pricing
+  | None -> Alcotest.failf "expected catalog pricing for %S" model_id
 ;;
 
 let with_empty_capability_sources f =
@@ -292,7 +298,10 @@ let test_model_spec_openrouter_capabilities () =
 ;;
 
 let test_inference_contract_anthropic_multimodal () =
-  let contract = Provider.inference_contract_of_config (Provider.anthropic_sonnet ()) in
+  let contract =
+    Provider.inference_contract_of_config
+      (Provider.anthropic ~model_id:"claude-sonnet-4-6" ())
+  in
   Alcotest.(check string)
     "modality"
     "multimodal"
@@ -586,9 +595,9 @@ let test_anthropic_capabilities_consults_for_model_id () =
      Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
      a 1M window in that table; this test pins that the config path
      now picks them up. *)
-  let opus = Provider.anthropic_opus () in
-  let sonnet = Provider.anthropic_sonnet () in
-  let haiku = Provider.anthropic_haiku () in
+  let opus = Provider.anthropic ~model_id:"claude-opus-4-6" () in
+  let sonnet = Provider.anthropic ~model_id:"claude-sonnet-4-6" () in
+  let haiku = Provider.anthropic ~model_id:"claude-haiku-4-5-20251001" () in
   let opus_caps = Provider.capabilities_for_config opus in
   let sonnet_caps = Provider.capabilities_for_config sonnet in
   let haiku_caps = Provider.capabilities_for_config haiku in
@@ -635,7 +644,7 @@ let test_anthropic_capabilities_unknown_model_id_falls_back () =
 (* ── Phase 6: pricing, ollama, static_token ─────────────────────── *)
 
 let test_pricing_sonnet () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6-20250514" in
+  let p = declared_pricing "claude-sonnet-4-6-20250514" in
   Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 15.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
@@ -643,30 +652,29 @@ let test_pricing_sonnet () =
 ;;
 
 let test_pricing_gpt55 () =
-  let p = Provider.pricing_for_model "gpt-5.5" in
+  let p = declared_pricing "gpt-5.5" in
   Alcotest.(check (float 0.001)) "input/M" 5.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 30.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.0 p.cache_write_multiplier;
   Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
 ;;
 
-let test_pricing_local () =
-  let p =
-    Provider.pricing_for_provider
-      ~provider:(Local { base_url = "http://127.0.0.1:8085" })
-      ~model_id:"dashscope-3.5-35b-a3b"
-  in
-  Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
-  Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
+let test_incomplete_catalog_pricing_remains_absent () =
+  Alcotest.(check bool)
+    "cache multipliers are not invented"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "dashscope-3.5-35b-a3b"))
 ;;
 
 let test_pricing_unknown () =
-  let p = Provider.pricing_for_model "future-model-xyz" in
-  Alcotest.(check (float 0.001)) "zero" 0.0 p.input_per_million
+  Alcotest.(check bool)
+    "unpriced"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "future-model-xyz"))
 ;;
 
 let test_estimate_cost () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let p = declared_pricing "claude-sonnet-4-6" in
   let cost =
     Provider.estimate_cost
       ~pricing:p
@@ -799,7 +807,7 @@ let test_openai_compat_no_auth () =
 
 let agent_state_with_params () : Types.agent_state =
   let cfg =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model = "claude-test"
     ; max_tokens = Some 4096
     ; temperature = Some 0.7
@@ -919,33 +927,19 @@ let test_provider_config_of_agent_missing_env () =
   | Ok _ -> Alcotest.fail "should fail when env var missing"
 ;;
 
-let test_provider_config_of_agent_none_fallback () =
-  (* None provider with ANTHROPIC_API_KEY present = Anthropic default *)
-  Unix.putenv "ANTHROPIC_API_KEY" "sk-ant-default-fallback";
+let test_provider_config_of_agent_none_is_rejected () =
   let state = agent_state_with_params () in
   match
     Provider.provider_config_of_agent ~state ~base_url:"https://api.anthropic.com" None
   with
-  | Ok pc ->
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "provider" field;
     Alcotest.(check string)
-      "defaults to anthropic"
-      "anthropic"
-      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
-    Alcotest.(check string)
-      "uses fallback key"
-      "sk-ant-default-fallback"
-      (pc.api_key :> string);
-    Alcotest.(check string)
-      "preserves caller base_url"
-      "https://api.anthropic.com"
-      pc.base_url;
-    Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
-    check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
-    check_auth_headers
-      "x-api-key auth header derived"
-      [ "x-api-key", "sk-ant-default-fallback" ]
-      pc
-  | Error e -> Alcotest.fail (Error.to_string e)
+      "explicit error"
+      "An explicit provider configuration is required"
+      detail
+  | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+  | Ok _ -> Alcotest.fail "missing provider must not be reinterpreted as Anthropic"
 ;;
 
 let test_provider_config_of_agent_local_keeps_empty_api_key () =
@@ -1030,7 +1024,7 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
-let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default () =
+let test_provider_config_of_agent_custom_registered_nous_uses_declaration () =
   with_env "LLM_ENDPOINTS" (Some "") (fun () ->
     with_env
       Llm_provider.Discovery.local_llm_url_env_var
@@ -1049,7 +1043,7 @@ let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default (
          | Ok pc ->
            Alcotest.(check string)
              "custom nous base_url"
-             "http://127.0.0.1:19013"
+             Llm_provider.Discovery.default_endpoint
              pc.base_url
          | Error e ->
            Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
@@ -1384,7 +1378,7 @@ let test_provider_config_of_agent_custom_registered_unknown_name () =
 ;;
 
 let () =
-  install_repo_model_catalog ();
+  install_packaged_model_catalog ();
   Alcotest.run
     "Provider"
     [ ( "resolve"
@@ -1469,7 +1463,10 @@ let () =
     ; ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
         ; Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55
-        ; Alcotest.test_case "local free" `Quick test_pricing_local
+        ; Alcotest.test_case
+            "incomplete catalog pricing remains absent"
+            `Quick
+            test_incomplete_catalog_pricing_remains_absent
         ; Alcotest.test_case "unknown model" `Quick test_pricing_unknown
         ; Alcotest.test_case "estimate cost" `Quick test_estimate_cost
         ; Alcotest.test_case
@@ -1511,9 +1508,9 @@ let () =
             `Quick
             test_provider_config_of_agent_missing_env
         ; Alcotest.test_case
-            "none falls back to ANTHROPIC_API_KEY"
+            "none is rejected explicitly"
             `Quick
-            test_provider_config_of_agent_none_fallback
+            test_provider_config_of_agent_none_is_rejected
         ; Alcotest.test_case
             "local keeps empty api key"
             `Quick
@@ -1527,9 +1524,9 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_kimi_preserves_headers
         ; Alcotest.test_case
-            "custom registered nous uses call-time default"
+            "custom registered nous uses declaration"
             `Quick
-            test_provider_config_of_agent_custom_registered_nous_uses_calltime_default
+            test_provider_config_of_agent_custom_registered_nous_uses_declaration
         ; Alcotest.test_case
             "custom registered ollama_cloud adds auth header"
             `Quick

@@ -10,6 +10,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+* **HTTP deadlines:** remove the implicit 60-second request/connect deadline
+  and 30-second response-drain deadline. `timeout_s` and
+  `connect_timeout_s` are enforced only when explicitly supplied, and a
+  deadline without a clock now returns typed `AcceptRejected` instead of
+  silently running unarmed.
+* **hooks:** remove `Skip`/`K_Skip` and `Override`/`K_Override`. A
+  `PreToolUse` hook now either executes the real tool with `Continue`, rejects
+  it with `Block`, or delegates to the registered approval callback with
+  `ApprovalRequired`; OAS no longer fabricates a successful tool result without
+  executing a tool.
 * **hooks:** establish 0.209 as the supported compatibility floor for
   `Hooks.Block` and `K_Block`, which were incorrectly shipped in the 0.208.21
   patch line. Exhaustive matches must handle the new variants; see the
@@ -20,28 +30,76 @@ original tag dates. `0.100.4` was never tagged or released.
   The usual deprecation window is waived as a safety exception: restoring the
   removed implementation or a compatibility shim would preserve heuristic
   string matching and a silent model-error fallback.
+* **agent:** remove numeric lifecycle ceilings, repeated-call idle heuristics,
+  exit predicates, and their errors/hooks. Turn and tool counts remain
+  telemetry; callers retain explicit Eio cancellation and objective wall-clock
+  or inactivity timeouts.
+* **runtime:** remove turn ceilings from runtime/session/subagent/sandbox
+  contracts. Sandbox verdicts enforce only the configured wall-clock timeout.
+* **scheduling:** remove request-priority classes, numeric ranks, implicit
+  defaults, and agent/completion priority fields. Provider capacity scheduling
+  now grants queued requests in FIFO arrival order; resumed permits rejoin the
+  same queue and cannot bypass older work.
+* **provider calls:** remove synchronous automatic retry/backoff APIs and their
+  hidden defaults. `Complete.complete`, `Complete.complete_stream`, and the
+  Agent pipeline now perform exactly one provider attempt and return the typed
+  result unchanged; callers own any later asynchronous attempt or runtime
+  rotation.
+* **tool results:** remove implicit call-time stubbing, relocation/offload
+  stores, replacement events, and MCP output truncation. Tool and MCP content
+  now reaches the provider exactly unless a caller explicitly supplies a
+  context reducer.
+* **tool surface:** remove selector, index, progressive-disclosure, and schema-
+  disclosure layers. Every registered tool is sent with its full schema, and
+  dispatch uses the exact registered name.
+* **tool exposure:** remove the synchronous `Guardrails` name-filtering layer,
+  per-turn filter overrides, and `Tool_set.filter`. Every caller-supplied tool
+  reaches the provider unchanged; policy gates belong at the caller boundary.
+* **governance:** remove the standalone approval pipeline, priority-rule policy
+  engine, score-to-risk judge facade, parent-to-child policy channel, and its
+  tool-set operation algebra, along with the product-governance boundary lint.
+  HITL and model judgment remain caller-owned callbacks over the generic
+  hook/provider surfaces.
+* **context:** remove `Budget_strategy`, automatic compaction, threshold-based
+  preparation, and overflow retry. Exact message and tool content is the
+  default; a provider `ContextOverflow` is returned unchanged after one
+  request. Repair, pruning, and thinking removal require an explicitly supplied
+  `Context_reducer.t`.
+* **handoff:** make each target's exact name a normal tool backed by a real
+  delegate closure. Remove prefixed aliases, stub handlers, transcript scans,
+  and post-execution result replacement.
+* **tool descriptors:** remove permission risk levels, mutation aliases,
+  shell/workdir constraints, evidence roles, kinds, notes, examples, and the
+  three-class concurrency taxonomy. A descriptor now contains only a
+  caller-declared `Concurrent` or `Serial` execution mode; absence means
+  `Serial`. Raw trace v2 and session tool catalogs expose only that structural
+  mode and reject the removed fields. Explicit approval remains a separate hook
+  callback.
+* **events:** remove bounded-stream backpressure policies and their drop/block
+  compatibility statistics. Each subscriber now owns a lossless unbounded FIFO;
+  queue depth remains observable but never changes publisher behavior.
+* **runtime control:** remove the orphan SDK-client permission taxonomy, session
+  policy snapshot, and Runtime permission/hook control channel. Session start,
+  spawn, and finalize no longer wait on implicit control requests or a fixed
+  timeout; caller-owned approval remains available through the generic typed
+  Agent hook callback. Runtime stdio now accepts only canonical protocol
+  envelopes. This hard cut is reported as Runtime protocol version
+  `oas-runtime-0.2`.
+* **runtime MCP:** remove the request policy carrier that no provider transport
+  consumed. It no longer changes cache keys or advertises tool names that were
+  absent from the actual provider request.
+* **harness:** keep turn counts as observations only; remove turn-count
+  pass/fail assertions and performance ceilings.
 
 ### Bug Fixes
 
-* **context_offload:** emit a diagnostic warning when tool-result offload write
-  fails before preserving the original content.
-* **defaults:** restore `Context_offload.default_config` and
-  `Mcp_http.default_config` as compatibility values; use
-  `Context_offload.make_default_config ()` or `Mcp_http.make_default_config ()`
-  for call-time environment resolution.
+* **defaults:** restore `Mcp_http.default_config` as a compatibility value; use
+  `Mcp_http.make_default_config ()` for call-time environment resolution.
 * **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
-* **tool:** centralize mutation class concurrency policy and preserve `local_mutation` alias ([#2187](https://github.com/jeong-sik/oas/issues/2187))
-
-### Behavioral Changes
-
-* **tool:** unknown `mutation_class` strings are now rejected at `Tool.create` time instead of falling back silently.
-
 ### Features
 
-* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or`, `Defaults.int_env_or`/`float_env_or`/`bool_env_or`, and `Tool_result_store` config overrides now delegate to it.
+* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or` and `Defaults.int_env_or`/`float_env_or`/`bool_env_or` now delegate to it.
 * **env:** `Defaults` env parsers preserve the historical structured `Log.warn` schema via the new `Cli_common_env` `on_invalid` callback.
-* **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
-* **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
 ## [0.211.10](https://github.com/jeong-sik/oas/compare/v0.211.9...v0.211.10) (2026-07-13)
@@ -384,7 +442,7 @@ original tag dates. `0.100.4` was never tagged or released.
 * **stream-acc:** replace InputJsonDelta buffer on whole-value re-emit (malformed {}{}) ([#2344](https://github.com/jeong-sik/oas/issues/2344)) ([e4a128a](https://github.com/jeong-sik/oas/commit/e4a128a13777c6b9aa71b1c78bfb6aff232ac686))
 * **streaming:** remove coordinator term from provider comments ([#2321](https://github.com/jeong-sik/oas/issues/2321)) ([15276bd](https://github.com/jeong-sik/oas/commit/15276bd18f66b2023565ae4489702b992cf7caec))
 * **test:** avoid response helper shadowing ([#2340](https://github.com/jeong-sik/oas/issues/2340)) ([66553e2](https://github.com/jeong-sik/oas/commit/66553e2f28c89f4f995c63d6a465cc551b88cbb2))
-* **test:** prefer OAS_MODEL_CATALOG in provider suites ([#2319](https://github.com/jeong-sik/oas/issues/2319)) ([41d64c6](https://github.com/jeong-sik/oas/commit/41d64c6bd3ec52f16f9a5cb32db3ec80cb3f141e))
+* **test:** prefer the packaged model catalog in provider suites ([#2319](https://github.com/jeong-sik/oas/issues/2319)) ([41d64c6](https://github.com/jeong-sik/oas/commit/41d64c6bd3ec52f16f9a5cb32db3ec80cb3f141e))
 
 ## [0.208.2](https://github.com/jeong-sik/oas/compare/v0.208.1...v0.208.2) (2026-06-30)
 
@@ -649,7 +707,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **tool:** centralize mutation class concurrency policy ([#2187](https://github.com/jeong-sik/oas/issues/2187)) ([5f8aecf](https://github.com/jeong-sik/oas/commit/5f8aecfb3c5f217573f21a0f06e9aef490e52c7d))
 * **tools:** input fail-closed + deterministic recovery ids (RFC-OAS-029 S8.1/S4.3/S10.1) ([#2234](https://github.com/jeong-sik/oas/issues/2234)) ([c021f11](https://github.com/jeong-sik/oas/commit/c021f113a7830601a6cb5386428b79f8e99d169f))
 * **tools:** resolve legacy Read to visible ReadFile ([#1800](https://github.com/jeong-sik/oas/issues/1800)) ([17e1408](https://github.com/jeong-sik/oas/commit/17e1408c6849b46fd7139fb79dd28b470e84710a))
-* **typed_tool_safe:** improve result safety in lib/typed_tool_safe.ml ([#2158](https://github.com/jeong-sik/oas/issues/2158)) ([1ad1092](https://github.com/jeong-sik/oas/commit/1ad1092e00596b7c3ffc2f524c025a8643b4f6db))
 * **typed_tool:** improve result safety in lib/typed_tool.ml ([#2159](https://github.com/jeong-sik/oas/issues/2159)) ([022407e](https://github.com/jeong-sik/oas/commit/022407e712334e081e18a444e6d00c92d1284926))
 
 
@@ -919,7 +976,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **eval_collector:** unsubscribe before final drain ([#2148](https://github.com/jeong-sik/oas/issues/2148)) ([1cefcf3](https://github.com/jeong-sik/oas/commit/1cefcf31c0fff9a1b44930d61034dc0ed824272e))
 * **llm_provider:** reject unsatisfiable thinking-control instead of silent drop ([#2156](https://github.com/jeong-sik/oas/issues/2156)) ([8a30a9a](https://github.com/jeong-sik/oas/commit/8a30a9a25b536216352f2ef5e858da52bdcb5e65))
 * **models:** register minimax-m3 capability entry (librarian thinking control) ([#2155](https://github.com/jeong-sik/oas/issues/2155)) ([7897d49](https://github.com/jeong-sik/oas/commit/7897d4998a101387412ba32beaf896b2a1863552))
-* **typed_tool_safe:** improve result safety in lib/typed_tool_safe.ml ([#2158](https://github.com/jeong-sik/oas/issues/2158)) ([1ad1092](https://github.com/jeong-sik/oas/commit/1ad1092e00596b7c3ffc2f524c025a8643b4f6db))
 * **typed_tool:** improve result safety in lib/typed_tool.ml ([#2159](https://github.com/jeong-sik/oas/issues/2159)) ([022407e](https://github.com/jeong-sik/oas/commit/022407e712334e081e18a444e6d00c92d1284926))
 
 ## [0.207.5](https://github.com/jeong-sik/oas/compare/v0.207.4...v0.207.5) (2026-06-19)
@@ -2187,7 +2243,7 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Documentation
 
-* **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Apply with `OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
+* **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Load with `Capability_manifest.load_file` and install with `Capability_manifest.set_global` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
 
 ## [0.200.6](https://github.com/jeong-sik/oas/compare/v0.200.5...v0.200.6) (2026-05-27)
 
@@ -3811,11 +3867,6 @@ dead surface accumulated alongside the CDAL framework.
 ## [0.190.26] - 2026-05-06
 
 ### Fixed
-- `lib/protocol/mcp_schema.ml`: MCP builtin tool descriptors now route through the centralized `Mode_enforcer` registry instead of carrying their own duplicated permission table (-84 / +5, **net -79 LOC**). Read/write/external MCP-wrapped tools now expose `Tool.permission` so downstream coordinators can decide whether tool use is read-only, workspace-mutating, or externally effectful. Previously MCP-wrapped builtins had mutation/concurrency metadata but no `Tool.permission`, leading strict required-tool and approval policies to treat them as unclassified. (#1438)
-
-### Added
-- `test/test_mcp.ml`: regression coverage proving strict effectful-tool contracts accept MCP write tools and reject MCP read-only tools. (#1438)
-
 ## [0.190.25] - 2026-05-06
 
 ### Fixed
@@ -4036,7 +4087,7 @@ dead surface accumulated alongside the CDAL framework.
 ## [0.189.0] - 2026-05-05
 
 ### Added
-- `Capability_manifest` module: external JSON manifest for runtime model capability overrides (`OAS_CAPABILITY_MANIFEST`). Supports prefix-matching, schema-version gating, and per-model boolean/int overrides for tool-use, structured-output, multimodal, sampling, and reasoning capabilities. (#1347)
+- `Capability_manifest` module: explicitly loaded external JSON manifest for runtime model capability overrides. Supports prefix-matching, schema-version gating, and per-model boolean/int overrides for tool-use, structured-output, multimodal, sampling, and reasoning capabilities. (#1347)
 - `Pricing.pricing_entry` type and dynamic pricing override API:
   `install_pricing_overrides`, `clear_pricing_overrides`,
   `pricing_entry_of_json`, `parse_pricing_entries_json`,
@@ -4616,7 +4667,6 @@ dead surface accumulated alongside the CDAL framework.
 
 - Gemini CLI has no runtime flag to disable hooks — hook lifecycle remains governed by the `gemini hooks` subcommand, outside transport scope.
 - Codex CLI exposes no dedicated `--no-mcp` / `--no-hooks` flags; every toggle there flows through `-c key=value` TOML overrides.
-- The stale "Gemini CLI does not yet expose flags for any of them" comment in `transport_gemini_cli.ml` was corrected — the parity config fields (`mcp_config` / `allowed_tools` / `max_turns` / `permission_mode`) are still unused because wiring them directly would silently reinterpret existing callers. Use the env vars above instead.
 
 ## [0.157.1] - 2026-04-18
 
@@ -5325,13 +5375,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ### Added
 - `Mode_enforcer.builtin_descriptor` derives `Tool.descriptor` from the builtin registry. Read-only tools get `Parallel_read`, mutation tools get `Sequential_workspace`, shell/external tools get `Exclusive_external`. Consumers can query descriptors for built-in tools without hardcoding.
 - `agent_tools.concurrency_class_of_tool` now falls back to `builtin_descriptor` when a tool has no attached descriptor, enabling correct parallelization of read-only built-in tools.
-
-## [0.103.0] - 2026-04-06
-
-### Added
-- `Tool.permission` type (`ReadOnly | Write | Destructive`) for per-tool side-effect metadata. Added as optional field on `Tool.descriptor`. Consumers use this to decide approval policy per tool instead of applying uniform approval to all tools.
-- `Tool.permission` and `Tool.is_read_only` accessor functions.
-- `permission` included in `descriptor_to_yojson` output.
 
 ## [0.102.0] - 2026-04-06
 
@@ -6203,7 +6246,6 @@ match Builder.build_safe builder with
   - `status`
   - `requested_provider`
   - `requested_model`
-  - `requested_policy`
   - `resolved_provider`
   - `resolved_model`
   - `last_progress_at`
@@ -6261,7 +6303,6 @@ match Builder.build_safe builder with
   - `error`
   - `started_at`
   - `finished_at`
-  - `policy_snapshot`
 - Raw trace validation now includes consumer-friendly verdict details:
   - `paired_tool_result_count`
   - `has_file_write`
@@ -6426,7 +6467,6 @@ match Builder.build_safe builder with
 - Harness-first runtime layer with bundled `oas-runtime` subprocess, file-backed session journal, report/proof generation, and typed runtime protocol
 - High-level `query` / `Client` surface on top of the runtime harness, with low-level `runtime_query` / `Runtime_client` escape hatches
 - Session helpers for listing, reading, renaming, and tagging persisted runtime sessions
-- Control-protocol callback round-trip for permission and hook requests
 - `Contract` module for explicit runtime awareness, trigger context, tool grants, MCP allowlists, and skill bundles
 - Builder helpers for contract-aware assembly: `with_contract`, `with_skill`, `with_skills`, `with_tool_grants`, `with_mcp_tool_allowlist`
 - Long-lived interactive client semantics:
@@ -6438,7 +6478,7 @@ match Builder.build_safe builder with
 ### Changed
 - Default high-level local-first path is now `provider = Some "local-qwen"` and `model = Some "qwen3.5"` for `llama.cpp`-style local runtimes
 - Runtime transport now uses a background reader thread to handle response, control, and event envelopes
-- `set_permission_mode` and `set_model` now persist through runtime session updates instead of mutating SDK-local state only
+- `set_model` now persists through runtime session updates instead of mutating SDK-local state only
 - Builder now compiles explicit contracts into composed system prompts, filtered local tools, filtered MCP tool surfaces, and reserved context metadata
 
 ### Fixed

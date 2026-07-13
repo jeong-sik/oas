@@ -1,5 +1,5 @@
 (** HTTP-level tests for Complete module using mock cohttp-eio server.
-    Tests complete, complete_with_retry, complete_stream.
+    Tests one-shot complete and complete_stream.
     No real LLM calls — all responses are canned JSON. *)
 
 open Alcotest
@@ -836,34 +836,6 @@ let test_complete_tool_call_metrics () =
          check string "model" "dashscope-3:8b" model_id;
          check int "tool call count" 2 count
        | _ -> fail "expected one tool-call metric");
-      Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok"
-  with
-  | Exit -> ()
-;;
-
-(* ── complete_with_retry: success first try ──────────── *)
-
-let test_retry_first_try () =
-  Eio_main.run
-  @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "first try ok") in
-    let config = make_config url in
-    match Complete.complete_with_retry ~sw ~net:env#net ~clock ~config ~messages () with
-    | Ok resp ->
-      let text =
-        List.filter_map
-          (function
-            | Types.Text s -> Some s
-            | _ -> None)
-          resp.content
-        |> String.concat ""
-      in
-      check string "text" "first try ok" text;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
   with
@@ -2081,7 +2053,6 @@ let () =
             `Quick
             test_metrics_global_used_when_no_per_call_metrics
         ] )
-    ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
         ; test_case

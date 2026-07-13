@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-25",
+  "updated_at": "2026-07-14",
   "description": "Operator-facing index of OAS runtime output and schema surfaces.",
   "surfaces": [
     {
@@ -18,7 +18,7 @@
       "notes": "Native payloads stay provider-agnostic; downstream domain events should use Custom or a downstream bus."
     },
     {
-      "id": "oas.runtime_protocol.v1",
+      "id": "oas.runtime_protocol.v2",
       "kind": "runtime_protocol",
       "owner": "OAS",
       "producer": "Runtime server",
@@ -29,7 +29,7 @@
       "tests": ["test/test_runtime_server_types.ml"],
       "stability": "evolving",
       "version_field": "Runtime.protocol_version",
-      "notes": "Runtime protocol owns request, response, event, report, proof, and control message envelopes."
+      "notes": "Runtime protocol owns canonical request, response, event, report, proof, and system envelopes. Version 2 removes the implicit permission and hook control channel."
     },
     {
       "id": "oas.runtime_sync_window.v1",
@@ -170,20 +170,6 @@
       "stability": "evolving",
       "version_field": null,
       "notes": "JsonSchema response_format is the provider-native path; caller-side parse remains authoritative."
-    },
-    {
-      "id": "oas.cdal_proof_bundle.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "CDAL/proof producers",
-      "consumer": ["downstream proof bundle consumers"],
-      "wire_or_artifact": "CDAL proof bundle JSON",
-      "schema_source": ["docs/schemas/cdal-proof-bundle-v1.json"],
-      "validator": "Versioned JSON schema",
-      "tests": ["test/test_schema_surface_index.ml"],
-      "stability": "evolving",
-      "version_field": "schema_version",
-      "notes": "Cross-repo consumers should use the JSON schema and fixtures instead of reading OAS runtime internals."
     }
   ]
 }

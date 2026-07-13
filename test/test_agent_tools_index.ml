@@ -41,20 +41,17 @@ let test_duplicate_exact_name_preserves_first_match () =
     check string "first duplicate wins" "desc:dup:first" tool.schema.description
 ;;
 
-let test_tool_id_normalized_lookup_for_builtin () =
+let test_case_variant_never_dispatches () =
   let tools = [ make_tool "READ_FILE" ] in
   let index = Agent_tools.build_index tools in
-  match Agent_tools.find_in_index index "read_file" with
-  | None -> fail "expected normalized read_file"
-  | Some tool -> check string "normalized lookup" "READ_FILE" tool.schema.name
+  check
+    (option string)
+    "case variant is not inferred"
+    None
+    (tool_description (Agent_tools.find_in_index index "read_file"))
 ;;
 
 let test_user_tool_case_variant_does_not_fallback () =
-  (* Regression: Tool_id.of_string lowercases unknown names into User _.
-     If find_in_index applied that fallback to user tools, a case-variant
-     call would silently dispatch a different user-defined tool than the
-     model named, breaking approval/audit context. The fallback must only
-     fire for canonical built-ins/MCP IDs. *)
   let tools = [ make_tool "mytool" ] in
   let index = Agent_tools.build_index tools in
   (match Agent_tools.find_in_index index "mytool" with
@@ -98,9 +95,9 @@ let () =
             `Quick
             test_duplicate_exact_name_preserves_first_match
         ; test_case
-            "tool_id normalized lookup for builtin"
+            "case variant never dispatches"
             `Quick
-            test_tool_id_normalized_lookup_for_builtin
+            test_case_variant_never_dispatches
         ; test_case
             "user tool case variant does not fallback"
             `Quick

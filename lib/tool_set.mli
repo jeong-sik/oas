@@ -29,11 +29,6 @@ val merge : t -> t -> t
 (** Merge a list of tool sets left-to-right. *)
 val concat : t list -> t
 
-(** {1 Filtering} *)
-
-(** Filter tools by guardrails (allow/deny lists). *)
-val filter : Guardrails.t -> t -> t
-
 (** {1 Query} *)
 
 val to_list : t -> Tool.t list

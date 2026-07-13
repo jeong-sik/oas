@@ -8,7 +8,7 @@ open Agent_sdk
 let make_agent env =
   Agent.create
     ~net:env#net
-    ~config:{ Types.default_config with name = "original"; max_turns = 5 }
+    ~config:{ (Types.default_config ~model:"test-model") with name = "original" }
     ()
 ;;
 
@@ -18,7 +18,7 @@ let make_agent_with_context env =
   Context.set ctx "key2" (`Int 42);
   Agent.create
     ~net:env#net
-    ~config:{ Types.default_config with name = "ctx-agent" }
+    ~config:{ (Types.default_config ~model:"test-model") with name = "ctx-agent" }
     ~context:ctx
     ()
 ;;
@@ -132,8 +132,7 @@ let test_clone_preserves_config () =
   @@ fun env ->
   let agent = make_agent env in
   let clone = Agent.clone agent in
-  check string "name" "original" (Agent.state clone).config.name;
-  check int "max_turns" 5 (Agent.state clone).config.max_turns
+  check string "name" "original" (Agent.state clone).config.name
 ;;
 
 (* ── 9. clone_shares_tools ───────────────────────────────────────── *)
@@ -145,7 +144,13 @@ let test_clone_shares_tools () =
     Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _ ->
       Ok { Types.content = "ok"; _meta = None })
   in
-  let agent = Agent.create ~net:env#net ~config:Types.default_config ~tools:[ tool ] () in
+  let agent =
+    Agent.create
+      ~net:env#net
+      ~config:(Types.default_config ~model:"test-model")
+      ~tools:[ tool ]
+      ()
+  in
   let clone = Agent.clone agent in
   check bool "tools physically identical" true (Agent.tools agent == Agent.tools clone)
 ;;

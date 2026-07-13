@@ -83,36 +83,15 @@ val get_prompt
   -> unit
   -> (Mcp_schema.mcp_prompt_result, Error.sdk_error) result
 
-(** {1 Output utilities} *)
-
-val output_token_budget : unit -> int
-val truncate_output : string -> string
-
 (** {1 Managed connections} *)
 val text_of_tool_result : Mcp_schema.Sdk_types.tool_result -> string
 
-type env_policy =
-  | Minimal
-  | Inherit
-  | Explicit
-
 val merge_env : (string * string) list -> string array
-
-(** Build a child environment for an MCP stdio subprocess according to
-    [env_policy].  [Minimal] is the default and only passes [PATH], [LANG],
-    [LC_ALL], [TMPDIR], plus any variables explicitly listed in [env]. *)
-val build_minimal_env : policy:env_policy -> (string * string) list -> string array
-
-(** Serialize/deserialize [env_policy]. *)
-val env_policy_to_string : env_policy -> string
-
-val env_policy_of_string : string -> (env_policy, string) result
 
 type server_spec =
   { command : string
   ; args : string list
   ; env : (string * string) list
-  ; env_policy : env_policy
   ; name : string
   }
 

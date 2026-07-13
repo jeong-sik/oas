@@ -93,22 +93,6 @@ type payload =
         (** Same turn index as the matching [ToolCalled]. See its doc.
             @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
-  | ToolFailureEpisodeDetected of
-      { agent_name : string
-      ; turn : int
-      ; episodes : Tool_failure_episode.t list
-      }
-  | ToolFailureRecoveryDecided of
-      { agent_name : string
-      ; turn : int
-      ; decision : Tool_failure_recovery.decision
-      }
-  | ToolFailureRecoveryJudgeFailed of
-      { agent_name : string
-      ; turn : int
-      ; kind : Tool_failure_recovery.judge_error_kind
-      ; detail : string
-      }
   | TurnStarted of
       { agent_name : string
       ; turn : int
@@ -119,9 +103,8 @@ type payload =
       ; tool_names : string list
       }
   (** Emitted between [TurnStarted] and the LLM call, after
-          guardrails + operator policy + tool_filter_override +
-          tool_selector have been applied to the agent's tool registry.
-          [tool_names] is exactly the list of tools the LLM sees this
+          the caller-supplied tool set has been serialized. [tool_names] is
+          exactly the list of tools the LLM sees this
           turn (deterministic, ordered). Empty list when no tools are
           presented to the LLM.
 
@@ -157,45 +140,6 @@ type payload =
       ; question : string
       ; response : Hooks.elicitation_response
       }
-  | ContextCompacted of
-      { agent_name : string
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
-      }
-  | ContextOverflowImminent of
-      { agent_name : string
-      ; estimated_tokens : int
-      ; limit_tokens : int
-      ; ratio : float
-      }
-  (** Proactive warning: next turn is projected to exceed context budget.
-          Emitted before compaction is attempted.
-          @since 0.136.0 *)
-  | ContextCompactStarted of
-      { agent_name : string
-      ; trigger : string
-      }
-  (** Compaction has begun (before [ContextCompacted] which signals completion).
-          [trigger] is one of ["proactive"], ["emergency"], ["operator"].
-          @since 0.136.0 *)
-  | ContentReplacementReplaced of
-      { tool_use_id : string
-      ; preview : string
-      ; original_chars : int
-      ; seen_count_after : int
-      }
-  (** Content replacement state froze a tool result by replacing the
-          original output with a preview. Promoted from
-          [Custom("content_replacement_frozen", ...)].
-          @since 0.154.1 *)
-  | ContentReplacementKept of
-      { tool_use_id : string
-      ; seen_count_after : int
-      }
-  (** Content replacement state froze a tool result without replacement.
-          Promoted from [Custom("content_replacement_frozen", ...)].
-          @since 0.154.1 *)
   | SlotSchedulerObserved of
       { max_slots : int
       ; active : int
@@ -331,42 +275,17 @@ val mk_event
 
 type t
 
-(** Backpressure policy applied when a subscriber's stream is full.
-
-    - [Block] — [publish] blocks until the subscriber drains (current
-      semantics; default). A single slow subscriber stalls every
-      publisher sharing the bus.
-    - [Drop_oldest] — evict the oldest queued event for the offending
-      subscriber, enqueue the new one. Keeps [publish] non-blocking at
-      the cost of losing the queue head. Increments [dropped_total].
-    - [Drop_newest] — drop the event being published for that
-      subscriber and leave the queue intact. Non-blocking; newest
-      event is lost. Increments [dropped_total].
-
-    The policy is bus-wide and affects every subscriber. It is set at
-    {!create} time and cannot be changed afterwards. Publishers
-    observe different behaviours via [Drop_*] only indirectly, through
-    {!stats}: [Drop_*] never blocks, [Block] may accumulate time in
-    [total_publish_blocked_seconds].
-
-    @since 0.160.0 *)
-type backpressure_policy =
-  | Block
-  | Drop_oldest
-  | Drop_newest
-
-(** Create a bus.
-
-    - [?buffer_size] — per-subscriber stream capacity (default 256).
-    - [?policy] — backpressure policy (default [Block] for backward
-      compatibility).
-
-    @since 0.160.0 [?policy] parameter added. *)
-val create : ?buffer_size:int -> ?policy:backpressure_policy -> unit -> t
+(** Create a bus. Each subscriber owns an unbounded FIFO. Publishing only
+    appends to those queues, so a slow subscriber neither loses events nor
+    blocks unrelated publishers. Queue depth remains observable through
+    {!stats}. *)
+val create : unit -> t
 
 (** {2 Filters} *)
 
-type filter = event -> bool
+(** A total, typed filter description. Arbitrary callbacks are deliberately
+    excluded so subscriber code cannot raise or block a producer. *)
+type filter
 
 val accept_all : filter
 val filter_agent : string -> filter
@@ -410,16 +329,12 @@ val subscriber_count : t -> int
     - [published_total] — events that passed the filter and were
       offered to this subscriber (before any drop).
     - [drained_total] — events removed via {!drain}.
-    - [dropped_total] — events discarded under [Drop_oldest] or
-      [Drop_newest]. Always 0 under [Block].
-
     @since 0.160.0 *)
 type subscription_stats =
   { purpose : string option
   ; depth : int
   ; published_total : int
   ; drained_total : int
-  ; dropped_total : int
   }
 
 (** Bus-wide runtime statistics.
@@ -427,15 +342,10 @@ type subscription_stats =
     - [subscriber_count] — current subscriber count.
     - [subscriptions] — per-subscriber stats in subscription order
       (newest first, matching internal list order).
-    - [total_publish_blocked_seconds] — wall-clock seconds that
-      [publish] spent waiting on full subscriber streams (only
-      accumulates under [Block]; always 0 for [Drop_*]).
-
     @since 0.160.0 *)
 type bus_stats =
   { subscriber_count : int
   ; subscriptions : subscription_stats list
-  ; total_publish_blocked_seconds : float
   }
 
 (** Snapshot of bus-wide and per-subscriber runtime statistics.

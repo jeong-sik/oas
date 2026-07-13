@@ -21,10 +21,9 @@ let run_live_test () =
      | _ -> "non-local")
     provider.model_id;
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model = provider.model_id
     ; system_prompt = Some "You are a helpful assistant. Reply in one sentence."
-    ; max_turns = 1
     ; max_tokens = Some 100
     }
   in

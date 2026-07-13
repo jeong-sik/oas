@@ -1,4 +1,5 @@
 open Runtime
+open Result_syntax
 
 type paused_participant =
   { detail : Runtime.spawn_agent_request
@@ -10,50 +11,266 @@ type paused_participant =
   ; delta_error_count : int ref
   }
 
+type initialized_runtime =
+  { store : Runtime_store.t
+  ; request : Runtime.init_request
+  }
+
+type initialization_state =
+  | Uninitialized
+  | Initialized of initialized_runtime
+
+type session_lane_phase =
+  | Open
+  | Settling
+  | Settled
+
+type participant_lane =
+  { participant_name : string
+  ; settled : unit Eio.Promise.t
+  ; settle : unit Eio.Promise.u
+  ; mutable cancel_context : Eio.Cancel.t option
+  }
+
+type session_lane =
+  { mutable phase : session_lane_phase
+  ; mutable participants : participant_lane list
+  }
+
 type state =
   { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  ; clock : float Eio.Time.clock_ty Eio.Resource.t
   ; event_bus : Event_bus.t
-  ; mutable session_root : string option
-  ; next_control_id : int Atomic.t
+  ; initialization_mu : Eio.Mutex.t
+  ; mutable initialization : initialization_state
   ; stdout_mu : Eio.Mutex.t
   ; store_mu : Eio.Mutex.t
-  ; control_waiters_mu : Eio.Mutex.t
-  ; control_waiters : (string, Runtime.control_response Eio.Promise.u) Hashtbl.t
   ; paused_inputs_mu : Eio.Mutex.t
   ; paused_inputs : (string * string, paused_participant) Hashtbl.t
+  ; session_lanes_mu : Eio.Mutex.t
+  ; session_lanes : (string, session_lane) Hashtbl.t
+  ; mutable accepting_lanes : bool
   }
 
 let runtime_version = Sdk_version.version
 
-let create ~net ~clock () =
+let create ~net () =
   { net
-  ; clock
   ; event_bus = Event_bus.create ()
-  ; session_root = None
-  ; next_control_id = Atomic.make 1
+  ; initialization_mu = Eio.Mutex.create ()
+  ; initialization = Uninitialized
   ; stdout_mu = Eio.Mutex.create ()
   ; store_mu = Eio.Mutex.create ()
-  ; control_waiters_mu = Eio.Mutex.create ()
-  ; control_waiters = Hashtbl.create 16
   ; paused_inputs_mu = Eio.Mutex.create ()
   ; paused_inputs = Hashtbl.create 16
+  ; session_lanes_mu = Eio.Mutex.create ()
+  ; session_lanes = Hashtbl.create 16
+  ; accepting_lanes = true
   }
 ;;
 
-let store_of_state state = Runtime_store.create ?root:state.session_root ()
 let session_root_request_path = Util.trim_non_empty_opt
+
+let canonical_init_request (request : Runtime.init_request) =
+  { request with
+    session_root = session_root_request_path request.session_root
+  ; provider = Util.trim_non_empty_opt request.provider
+  ; model = Util.trim_non_empty_opt request.model
+  ; resume_session = Util.trim_non_empty_opt request.resume_session
+  ; cwd = Util.trim_non_empty_opt request.cwd
+  }
+;;
+
+let init_request_equal left right =
+  Yojson.Safe.equal
+    (Runtime.init_request_to_yojson left)
+    (Runtime.init_request_to_yojson right)
+;;
+
+let initialization_error detail =
+  Error (Error.Config (InvalidConfig { field = "runtime.initialize"; detail }))
+;;
+
+let initialize state request =
+  Eio.Mutex.use_rw ~protect:true state.initialization_mu (fun () ->
+    let request = canonical_init_request request in
+    match state.initialization with
+    | Uninitialized ->
+      let* store = Runtime_store.create ?root:request.session_root () in
+      let initialized = { store; request } in
+      state.initialization <- Initialized initialized;
+      Ok initialized
+    | Initialized current when init_request_equal current.request request ->
+      initialization_error "runtime is already initialized; Initialize is one-shot"
+    | Initialized _ ->
+      initialization_error
+        "runtime is already initialized with different settings; reinitialization is not \
+         permitted")
+;;
+
+let is_initialized state =
+  Eio.Mutex.use_ro state.initialization_mu (fun () ->
+    match state.initialization with
+    | Initialized _ -> true
+    | Uninitialized -> false)
+;;
+
+let store_of_state state =
+  Eio.Mutex.use_ro state.initialization_mu (fun () ->
+    match state.initialization with
+    | Initialized initialized -> Ok initialized.store
+    | Uninitialized ->
+      initialization_error "runtime must be initialized before handling this request")
+;;
+
+let initialization_request state =
+  Eio.Mutex.use_ro state.initialization_mu (fun () ->
+    match state.initialization with
+    | Initialized initialized -> Ok initialized.request
+    | Uninitialized ->
+      initialization_error "runtime must be initialized before handling this request")
+;;
+
+let clear_paused_inputs_for_session state session_id =
+  Eio.Mutex.use_rw ~protect:true state.paused_inputs_mu (fun () ->
+    Hashtbl.filter_map_inplace
+      (fun (stored_session_id, _request_id) paused ->
+         if String.equal stored_session_id session_id then None else Some paused)
+      state.paused_inputs)
+;;
+
+let clear_all_paused_inputs state =
+  Eio.Mutex.use_rw ~protect:true state.paused_inputs_mu (fun () ->
+    Hashtbl.clear state.paused_inputs)
+;;
+
+exception Session_lane_cancelled of string
+
+let lane_error ~field detail = Error (Error.Config (InvalidConfig { field; detail }))
+
+let register_participant_lane state ~session_id ~participant_name =
+  Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+    if not state.accepting_lanes
+    then
+      lane_error
+        ~field:"runtime.lifecycle"
+        "runtime is shutting down; new participant lanes are rejected"
+    else (
+      let lane =
+        match Hashtbl.find_opt state.session_lanes session_id with
+        | Some lane -> lane
+        | None ->
+          let lane = { phase = Open; participants = [] } in
+          Hashtbl.add state.session_lanes session_id lane;
+          lane
+      in
+      match lane.phase with
+      | Settling | Settled ->
+        lane_error
+          ~field:"runtime.session_lane"
+          (Printf.sprintf
+             "session %S is settling; new participant lanes are rejected"
+             session_id)
+      | Open ->
+        let settled, settle = Eio.Promise.create () in
+        let participant = { participant_name; settled; settle; cancel_context = None } in
+        lane.participants <- participant :: lane.participants;
+        Ok participant))
+;;
+
+let finish_participant_lane state session_id participant =
+  Eio.Cancel.protect (fun () ->
+    ignore (Eio.Promise.try_resolve participant.settle ());
+    Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+      match Hashtbl.find_opt state.session_lanes session_id with
+      | None -> ()
+      | Some lane ->
+        lane.participants
+        <- List.filter (fun active -> active != participant) lane.participants;
+        if lane.phase = Settling && lane.participants = [] then lane.phase <- Settled))
+;;
+
+let fork_participant_lane ~sw state ~session_id ~participant_name run =
+  let* participant = register_participant_lane state ~session_id ~participant_name in
+  Eio.Fiber.fork ~sw (fun () ->
+    let run_in_lane () =
+      Eio.Cancel.sub (fun cancel_context ->
+        let should_run =
+          Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+            participant.cancel_context <- Some cancel_context;
+            match Hashtbl.find_opt state.session_lanes session_id with
+            | Some { phase = Open; _ } when state.accepting_lanes -> true
+            | Some { phase = Open | Settling | Settled; _ } | None -> false)
+        in
+        if should_run then run ())
+    in
+    match run_in_lane () with
+    | () -> finish_participant_lane state session_id participant
+    | exception Eio.Cancel.Cancelled _ ->
+      finish_participant_lane state session_id participant
+    | exception exn ->
+      finish_participant_lane state session_id participant;
+      Log.error
+        (Log.create ~module_name:"runtime_server_types" ())
+        "participant lane escaped with an exception"
+        [ Log.S ("session_id", session_id)
+        ; Log.S ("participant", participant_name)
+        ; Log.S ("error", Printexc.to_string exn)
+        ]);
+  Ok ()
+;;
+
+let settle_participants session_id participants =
+  List.iter
+    (fun participant ->
+       match participant.cancel_context with
+       | Some cancel_context ->
+         Eio.Cancel.cancel cancel_context (Session_lane_cancelled session_id)
+       | None -> ())
+    participants;
+  List.iter (fun participant -> Eio.Promise.await participant.settled) participants
+;;
+
+let settle_session_lane state session_id =
+  let participants =
+    Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+      match Hashtbl.find_opt state.session_lanes session_id with
+      | None ->
+        Hashtbl.add state.session_lanes session_id { phase = Settling; participants = [] };
+        []
+      | Some lane ->
+        lane.phase <- Settling;
+        lane.participants)
+  in
+  settle_participants session_id participants;
+  Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+    match Hashtbl.find_opt state.session_lanes session_id with
+    | Some lane when lane.participants = [] -> lane.phase <- Settled
+    | Some _ | None -> ())
+;;
+
+let settle_all_session_lanes state =
+  let lanes =
+    Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+      state.accepting_lanes <- false;
+      Hashtbl.fold
+        (fun session_id lane acc ->
+           lane.phase <- Settling;
+           (session_id, lane.participants) :: acc)
+        state.session_lanes
+        [])
+  in
+  List.iter
+    (fun (session_id, participants) -> settle_participants session_id participants)
+    lanes;
+  Eio.Mutex.use_rw ~protect:true state.session_lanes_mu (fun () ->
+    Hashtbl.iter (fun _ lane -> lane.phase <- Settled) state.session_lanes)
+;;
 
 let write_protocol_message state message =
   Eio.Mutex.use_rw ~protect:true state.stdout_mu (fun () ->
     output_string stdout (protocol_message_to_string message);
     output_char stdout '\n';
     flush stdout)
-;;
-
-let next_control_id state =
-  let id = Atomic.fetch_and_add state.next_control_id 1 in
-  Printf.sprintf "ctrl-%06d" id
 ;;
 
 (** Map a Runtime.event_kind constructor to its Custom event name.

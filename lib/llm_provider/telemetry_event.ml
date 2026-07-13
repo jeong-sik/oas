@@ -80,13 +80,7 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Context_window_usage of
-      { agent_name : string
-      ; turn : int
-      ; estimated_tokens : int
-      ; limit_tokens : int
-      ; usage_ratio : float
-      }
+  | Wire_capture_failure of Wire_capture.failure
 [@@deriving yojson, show]
 
 let event_type_name = function
@@ -95,5 +89,5 @@ let event_type_name = function
   | Thinking_complete _ -> "thinking_complete"
   | Timeout _ -> "timeout"
   | Prefill_complete _ -> "prefill_complete"
-  | Context_window_usage _ -> "context_window_usage"
+  | Wire_capture_failure _ -> "wire_capture_failure"
 ;;

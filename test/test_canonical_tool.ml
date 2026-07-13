@@ -294,7 +294,7 @@ let test_result_preserves_failure_outcome () =
     Types.ToolResult
       { tool_use_id = "call_err"
       ; content = "boom"
-      ; outcome = Legacy_unclassified_failure
+      ; outcome = Tool_failed { failure_kind = Reported_tool_error; error_class = None }
       ; json = None
       ; content_blocks = None
       }
@@ -304,7 +304,9 @@ let test_result_preserves_failure_outcome () =
     Alcotest.(check bool)
       "failure outcome preserved"
       true
-      (proj.outcome = Types.Legacy_unclassified_failure);
+      (proj.outcome
+       = Types.Tool_failed
+           { failure_kind = Types.Reported_tool_error; error_class = None });
     Alcotest.(check (option json_eq))
       "structured_content None when json None"
       None

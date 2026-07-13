@@ -8,7 +8,7 @@
 | Verified against | `origin/main` head `0c2aef991` + issue #2528 identity invariant (2026-07-11) |
 | Target | `agent_sdk` (oas) — `lib/llm_provider` only |
 | Supersedes | None |
-| Related | RFC-OAS-005 (tool-result relocation), RFC-OAS-008 (typed tool identification), RFC-OAS-016 (mcp optional dependency), RFC-OAS-023 (capability axis reshape); WP1/WP2/WP4 (already in `origin/main`) |
+| Related | RFC-OAS-016 (mcp optional dependency), RFC-OAS-023 (capability axis reshape); WP1/WP2/WP4 (already in `origin/main`) |
 | Boundary | OAS = Provider Canonicalization only. Zero references to masc-mcp, Shell IR, keeper, sandbox, descriptor execution, or any execution-policy concept. |
 
 ---
@@ -54,7 +54,7 @@ MASC는 본 문서에서 **이름이 붙은 소비자(named consumer)** 로만 �
 
 ### Non-Goals
 - `output_schema`를 `tool_schema`로 relocate 하지 않음 (D7).
-- tool-name → variant migration 없음 — 그것은 RFC-OAS-008의 일이다. 본 RFC는 `tool_schema.name : string`을 유지.
+- tool-name → OAS builtin variant migration 없음. 본 RFC는 consumer-등록 `tool_schema.name : string`을 정확히 보존.
 - execution, policy, effect 개념 없음.
 - MCP `tools/call` 구현 없음. OpenAI Responses API canonicalization은 현재 구현되어 있으므로 Chat Completions와 같은 identity 불변식을 적용한다.
 - telemetry-only 필드 없음: 추가되는 모든 필드는 이름 붙은 소비자를 가진다.
@@ -109,7 +109,7 @@ let id =
 ### 3.4 구현 경계 (verified)
 - `git grep 'provider_call_id\|order_index'` over `lib/` → **zero**. 두 개념 모두 신규.
 - OpenAI **Responses API**는 `Streaming.responses_sse_to_events`가 `call_id`를 우선 보존하고, id-less output item에는 같은 OAS allocation invariant를 적용한다. `item_id`는 output-item routing identity이며 tool `call_id`로 재해석하지 않는다.
-- `lib/llm_provider`에 **MCP `tools/call`** converter 없음. `mcp` 참조는 부수적: capability flag `supports_runtime_mcp_tools`(`capabilities.ml`), policy passthrough `runtime_mcp_policy`(`complete.ml`), HTTP header byte 주석(`http_client.ml`). MCP transport/optional-dep는 RFC-OAS-016, 소비자 측.
+- `lib/llm_provider`에 **MCP `tools/call`** converter 없음. MCP transport/optional-dep는 RFC-OAS-016의 소비자 경계다.
 
 ### 3.5 request-level structured output (D7 boundary)
 `provider_config.ml`이 structured-output을 **request** 관심사로 이미 보유: `output_schema : Yojson.Safe.t option` (`:67`), `response_format`에서 `output_schema_of_response_format`(`:39`)로 도출, `validate_output_schema_request`(`:312`)로 검증, host gate `provider_d_host_supports_output_schema`(`:294`). 올바르며 본 RFC는 이를 옮기지 않는다.
@@ -154,7 +154,7 @@ type provider_tool_call =
   ; provider_kind : Provider_kind.t
       (** 이 call을 emit한 provider. projection 시점에 thread됨;
           optional telemetry 필드에서 읽지 않음 (D5). *)
-  ; name : string (** tool 이름 (RFC-OAS-008 경계상 string; 여기서 migrate 안 함). *)
+  ; name : string (** consumer가 등록한 tool 이름; OAS는 의미를 분류하지 않음. *)
   ; arguments : Yojson.Safe.t
   ; order_index : int
       (** response 안에서 tool call들 사이의 등장 순서.
@@ -191,7 +191,7 @@ val tool_result_of_block : Types.content_block -> provider_tool_result option
 ### 4.1 의도적으로 뺀 것 (anti-pattern bar를 우리 타입에도 적용)
 - **`raw_provider_item : Yojson.Safe.t` 없음.** 연구 초안이 제안했으나 unconsumed blob carrier — telemetry-as-fix 시그니처 그 자체. round-trip 충실도는 이미 `content_block`(in-memory SSOT)이 provider별 재serialize로 제공한다. byte-exact replay가 미래에 필요하면 이름 붙은 소비자와 함께 별도 RFC로. 제거.
 - **`canonical_call_id`를 `call_id`와 별도로 두지 않음.** id 필드는 하나. native-id provider는 native id, id-less provider는 occurrence-unique OAS allocation을 쓴다. 두 번째 "cross-provider stable" id는 correlation SSOT를 duplicate 한다.
-- **tool *선언* 에 `namespace`/`portable_name`/`stable_id` 없음.** tool-name typing은 RFC-OAS-008. 여기서 decl을 widen 하면 그것을 선점한다. WP8은 *call/result* 에 관한 것이지 *decl* 이 아니다.
+- **tool *선언* 에 `namespace`/`portable_name`/`stable_id` 없음.** Tool identity는 consumer 등록 경계가 소유한다. WP8은 *call/result* 에 관한 것이지 *decl* 이 아니다.
 - **tool decl에 `output_schema?` 생략** (D7). MCP per-tool `outputSchema` passthrough가 필요해지면 strict passthrough로 RFC-OAS-016 뒤에 gate, `tool_schema` 변경이 아니다.
 - **`id_origin`은 Keystone(§6 K) 결정에 종속.** 권고는 제거. 유지 시 parse-site threading 필요(lane-B).
 

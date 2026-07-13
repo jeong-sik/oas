@@ -16,7 +16,7 @@ let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?co
   let base_config =
     match config with
     | Some c -> c
-    | None -> default_config
+    | None -> default_config ~model:checkpoint.model
   in
   let call_time_or_checkpoint project checkpoint_value =
     match config with
@@ -44,6 +44,8 @@ let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?co
     ; response_format = checkpoint.response_format
     ; thinking_budget =
         call_time_or_checkpoint (fun c -> c.thinking_budget) checkpoint.thinking_budget
+    ; reasoning_effort =
+        call_time_or_checkpoint (fun c -> c.reasoning_effort) checkpoint.reasoning_effort
     ; tool_choice = checkpoint.tool_choice
     ; disable_parallel_tool_use = checkpoint.disable_parallel_tool_use
     ; cache_system_prompt = checkpoint.cache_system_prompt
@@ -96,6 +98,7 @@ let build_checkpoint
   ; preserve_thinking = state.config.preserve_thinking
   ; response_format = state.config.response_format
   ; thinking_budget = state.config.thinking_budget
+  ; reasoning_effort = state.config.reasoning_effort
   ; cache_system_prompt = state.config.cache_system_prompt
   ; context = Context.copy context
   ; mcp_sessions = Mcp_session.capture_all mcp_clients

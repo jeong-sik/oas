@@ -5,7 +5,6 @@ open Llm_provider
 let check_string = Alcotest.(check string)
 let check_int = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
-let getenv_from pairs name = List.assoc_opt name pairs
 
 let reasoning_effort_option_to_string =
   Option.map Provider_config.reasoning_effort_to_string
@@ -33,6 +32,7 @@ let test_make_defaults () =
   check_bool "enable_thinking None" true (cfg.enable_thinking = None);
   check_bool "preserve_thinking None" true (cfg.preserve_thinking = None);
   check_bool "thinking_budget None" true (cfg.thinking_budget = None);
+  check_bool "reasoning_effort None" true (cfg.reasoning_effort = None);
   check_bool "clear_thinking None" true (cfg.clear_thinking = None);
   check_bool "tool_stream false" false cfg.tool_stream;
   check_bool "tool_choice None" true (cfg.tool_choice = None);
@@ -161,6 +161,7 @@ let test_make_with_all_options () =
       ~enable_thinking:true
       ~preserve_thinking:true
       ~thinking_budget:1000
+      ~reasoning_effort:Reasoning_effort.Low
       ~clear_thinking:false
       ~tool_stream:true
       ~disable_parallel_tool_use:true
@@ -180,6 +181,7 @@ let test_make_with_all_options () =
   check_bool "enable_thinking" true (cfg.enable_thinking = Some true);
   check_bool "preserve_thinking" true (cfg.preserve_thinking = Some true);
   check_bool "thinking_budget" true (cfg.thinking_budget = Some 1000);
+  check_bool "reasoning_effort" true (cfg.reasoning_effort = Some Reasoning_effort.Low);
   check_bool "clear_thinking" true (cfg.clear_thinking = Some false);
   check_bool "tool_stream" true cfg.tool_stream;
   check_bool "disable_parallel" true cfg.disable_parallel_tool_use;
@@ -1052,17 +1054,6 @@ let test_is_local_localhost_query_true () =
   check_bool "localhost query is local" true (Provider_config.is_local cfg)
 ;;
 
-let test_default_attempt_timeout_s () =
-  let check_timeout label expected kind =
-    Alcotest.(check (option (float 0.001)))
-      label
-      expected
-      (Provider_config.default_attempt_timeout_s kind)
-  in
-  check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
-;;
-
 let test_connect_timeout_s_default_and_override () =
   let default_cfg =
     Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
@@ -1085,72 +1076,6 @@ let test_connect_timeout_s_default_and_override () =
     explicit_cfg.connect_timeout_s
 ;;
 
-let test_max_turns_hard_cap_and_clamp () =
-  Alcotest.(check (option int))
-    "anthropic no hard cap"
-    None
-    (Provider_config.max_turns_hard_cap Anthropic);
-  check_int
-    "anthropic preserves request"
-    99
-    (Provider_config.clamp_max_turns Anthropic 99)
-;;
-
-let test_reasoning_effort_of_thinking_config () =
-  let check_effort label expected enable_thinking thinking_budget =
-    check_string
-      label
-      expected
-      (Provider_config.effort_of_thinking_config ~enable_thinking ~thinking_budget)
-  in
-  check_effort "disabled" "none" (Some false) (Some 4096);
-  check_effort "missing flag" "none" None (Some 4096);
-  check_effort "zero budget" "none" (Some true) (Some 0);
-  check_effort
-    "low budget"
-    "low"
-    (Some true)
-    (Some Reasoning_effort.low_budget_max_tokens);
-  check_effort
-    "medium budget"
-    "medium"
-    (Some true)
-    (Some Reasoning_effort.medium_budget_max_tokens);
-  check_effort
-    "high budget"
-    "high"
-    (Some true)
-    (Some Reasoning_effort.high_budget_max_tokens);
-  check_effort
-    "xhigh budget"
-    "xhigh"
-    (Some true)
-    (Some (Reasoning_effort.high_budget_max_tokens + 1))
-;;
-
-let test_reasoning_effort_top_tier_budget_mapping () =
-  let check_effort label expected budget =
-    Alcotest.(check (option string))
-      label
-      (Some expected)
-      (reasoning_effort_option_to_string (Reasoning_effort.of_budget_with_xhigh budget))
-  in
-  check_effort "low top-tier mapping" "low" Reasoning_effort.low_budget_max_tokens;
-  check_effort
-    "medium top-tier mapping"
-    "medium"
-    Reasoning_effort.medium_budget_max_tokens;
-  check_effort "high top-tier mapping" "high" Reasoning_effort.high_budget_max_tokens;
-  check_effort
-    "xhigh top-tier mapping"
-    "xhigh"
-    (Reasoning_effort.high_budget_max_tokens + 1);
-  Alcotest.(check (option string))
-    "non-positive budget omits effort"
-    None
-    (reasoning_effort_option_to_string (Reasoning_effort.of_budget_with_xhigh 0))
-;;
-
 let test_reasoning_effort_typed_roundtrip () =
   let cases =
     [ Provider_config.None_, "none"
@@ -1159,6 +1084,7 @@ let test_reasoning_effort_typed_roundtrip () =
     ; Provider_config.Medium, "medium"
     ; Provider_config.High, "high"
     ; Provider_config.XHigh, "xhigh"
+    ; Provider_config.Max, "max"
     ]
   in
   List.iter
@@ -1183,65 +1109,30 @@ let test_reasoning_effort_typed_roundtrip () =
 ;;
 
 let test_reasoning_effort_typed_config_value () =
-  let check_value label expected enable_thinking thinking_budget =
-    Alcotest.(check (option string))
-      label
-      expected
-      (reasoning_effort_option_to_string
-         (Provider_config.effort_of_thinking_config_value
-            ~enable_thinking
-            ~thinking_budget
-            ()))
+  let explicit =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"typed-effort-model"
+      ~base_url:"https://example.test"
+      ~reasoning_effort:Reasoning_effort.High
+      ()
   in
-  check_value "disabled typed" None (Some false) (Some 4096);
-  check_value "missing flag typed" None None (Some 4096);
-  check_value "zero budget typed" None (Some true) (Some 0);
-  check_value
-    "low typed"
-    (Some "low")
-    (Some true)
-    (Some Reasoning_effort.low_budget_max_tokens);
-  check_value
-    "medium typed"
-    (Some "medium")
-    (Some true)
-    (Some Reasoning_effort.medium_budget_max_tokens);
-  check_value
-    "high typed"
+  Alcotest.(check (option string))
+    "explicit effort preserved"
     (Some "high")
-    (Some true)
-    (Some Reasoning_effort.high_budget_max_tokens);
-  check_value
-    "xhigh typed"
-    (Some "xhigh")
-    (Some true)
-    (Some (Reasoning_effort.high_budget_max_tokens + 1));
-  let getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "xhigh" ] in
+    (reasoning_effort_option_to_string explicit.reasoning_effort);
+  let budget_only =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"budget-only-model"
+      ~base_url:"https://example.test"
+      ~thinking_budget:8192
+      ()
+  in
   Alcotest.(check (option string))
-    "env default typed"
-    (Some "xhigh")
-    (reasoning_effort_option_to_string
-       (Provider_config.effort_of_thinking_config_value
-          ~getenv
-          ~enable_thinking:(Some true)
-          ~thinking_budget:None
-          ()));
-  let none_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "none" ] in
-  Alcotest.(check (option string))
-    "env none typed"
-    (Some "none")
-    (reasoning_effort_option_to_string
-       (Provider_config.effort_of_thinking_config_value
-          ~getenv:none_getenv
-          ~enable_thinking:(Some true)
-          ~thinking_budget:None
-          ()));
-  let invalid_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "urgent" ] in
-  Alcotest.(check string)
-    "invalid env defaults medium"
-    "medium"
-    (Provider_config.reasoning_effort_to_string
-       (Provider_config.default_reasoning_effort_value ~getenv:invalid_getenv ()))
+    "numeric budget does not imply effort"
+    None
+    (reasoning_effort_option_to_string budget_only.reasoning_effort)
 ;;
 
 let test_validate_reasoning_effort_subset_rejects_unsupported () =
@@ -1253,13 +1144,12 @@ let test_validate_reasoning_effort_subset_rejects_unsupported () =
   in
   Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
     Capability_manifest.set_global manifest;
-    let cfg thinking_budget =
+    let cfg reasoning_effort =
       Provider_config.make
         ~kind:OpenAI_compat
         ~model_id:"effort-subset-model"
         ~base_url:"https://api.openai.com/v1"
-        ~enable_thinking:true
-        ~thinking_budget
+        ~reasoning_effort
         ()
     in
     Alcotest.(check bool)
@@ -1267,10 +1157,9 @@ let test_validate_reasoning_effort_subset_rejects_unsupported () =
       true
       (Result.is_ok
          (Provider_config.validate_reasoning_effort_request_typed
-            (cfg Reasoning_effort.low_budget_max_tokens)));
+            (cfg Reasoning_effort.Low)));
     match
-      Provider_config.validate_reasoning_effort_request_typed
-        (cfg Reasoning_effort.high_budget_max_tokens)
+      Provider_config.validate_reasoning_effort_request_typed (cfg Reasoning_effort.High)
     with
     | Error
         (Provider_config.Unsupported_reasoning_effort
@@ -1280,6 +1169,26 @@ let test_validate_reasoning_effort_subset_rejects_unsupported () =
         "unexpected rejection: %s"
         (Provider_config.reasoning_effort_request_rejection_to_message rejection)
     | Ok () -> Alcotest.fail "high effort should be rejected by accepted subset")
+;;
+
+let test_validate_reasoning_effort_fails_closed_without_declaration () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"undeclared-effort-model"
+      ~base_url:"https://api.openai.com/v1"
+      ~reasoning_effort:Reasoning_effort.High
+      ()
+  in
+  match Provider_config.validate_reasoning_effort_request_typed config with
+  | Error
+      (Provider_config.Undeclared_reasoning_effort_capability
+         { effort = Provider_config.High; _ }) -> ()
+  | Error rejection ->
+    Alcotest.failf
+      "unexpected rejection: %s"
+      (Provider_config.reasoning_effort_request_rejection_to_message rejection)
+  | Ok () -> Alcotest.fail "undeclared effort capability must fail closed"
 ;;
 
 let test_zai_glm_clear_thinking_request_field () =
@@ -1310,66 +1219,6 @@ let test_zai_glm_clear_thinking_request_field () =
     "typed thinking control omits"
     None
     (resolve ~thinking_control_format:Capabilities.Thinking_object ())
-;;
-
-let test_reasoning_effort_of_config () =
-  let ollama =
-    Provider_config.make
-      ~kind:Ollama
-      ~model_id:"llama"
-      ~base_url:"http://127.0.0.1:11434"
-      ~enable_thinking:true
-      ~thinking_budget:2048
-      ()
-  in
-  let anthropic =
-    Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet"
-      ~base_url:"https://api.anthropic.com"
-      ~enable_thinking:true
-      ~thinking_budget:2048
-      ()
-  in
-  Alcotest.(check (option string))
-    "ollama exposes effort"
-    (Some "low")
-    (Provider_config.reasoning_effort_of_config ollama);
-  Alcotest.(check (option string))
-    "non-ollama has no effort"
-    None
-    (Provider_config.reasoning_effort_of_config anthropic)
-;;
-
-let test_reasoning_effort_request_value () =
-  let check_value label expected enable_thinking thinking_budget =
-    Alcotest.(check (option string))
-      label
-      expected
-      (Provider_config.reasoning_effort_request_value ~enable_thinking ~thinking_budget)
-  in
-  let check_typed_value label expected enable_thinking thinking_budget =
-    Alcotest.(check (option string))
-      label
-      expected
-      (reasoning_effort_option_to_string
-         (Provider_config.reasoning_effort_request_value_typed
-            ~enable_thinking
-            ~thinking_budget))
-  in
-  check_value "unset omits field" None None (Some 4096);
-  check_value "disabled omits field" None (Some false) (Some 4096);
-  check_value "zero budget omits field" None (Some true) (Some 0);
-  check_value
-    "enabled maps effort"
-    (Some "low")
-    (Some true)
-    (Some Reasoning_effort.low_budget_max_tokens);
-  check_typed_value
-    "enabled maps typed effort"
-    (Some "low")
-    (Some true)
-    (Some Reasoning_effort.low_budget_max_tokens)
 ;;
 
 let test_structured_output_name_of_schema () =
@@ -1587,7 +1436,10 @@ let test_provider_name_of_config_glm_coding () =
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
-  check_string "glm coding" "glm-coding" (Provider_registry.provider_name_of_config cfg)
+  check_string
+    "glm coding wire kind"
+    "glm"
+    (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_local_openai_compat () =
@@ -1617,7 +1469,10 @@ let test_provider_name_of_config_openrouter () =
       ~request_path:"/chat/completions"
       ()
   in
-  check_string "openrouter" "openrouter" (Provider_registry.provider_name_of_config cfg)
+  check_string
+    "openrouter uses explicit wire kind"
+    "openai_compat"
+    (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_unmatched_openai_compat () =
@@ -1767,7 +1622,10 @@ let check_provider_name_from_registered_endpoint ~label ~provider ~model_id =
         ~request_path:entry.defaults.request_path
         ()
     in
-    check_string label provider (Provider_registry.provider_name_of_config cfg)
+    check_string
+      label
+      (Provider_config.string_of_provider_kind entry.defaults.kind)
+      (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_ignores_xai_catalog_model () =
@@ -2421,14 +2279,6 @@ let () =
             `Quick
             test_is_local_localhost_query_true
         ; Alcotest.test_case
-            "default attempt timeout hints"
-            `Quick
-            test_default_attempt_timeout_s
-        ; Alcotest.test_case
-            "turn hard caps and clamp"
-            `Quick
-            test_max_turns_hard_cap_and_clamp
-        ; Alcotest.test_case
             "reasoning effort typed roundtrip"
             `Quick
             test_reasoning_effort_typed_roundtrip
@@ -2437,25 +2287,13 @@ let () =
             `Quick
             test_reasoning_effort_typed_config_value
         ; Alcotest.test_case
-            "thinking effort thresholds"
-            `Quick
-            test_reasoning_effort_of_thinking_config
-        ; Alcotest.test_case
-            "thinking effort top-tier thresholds"
-            `Quick
-            test_reasoning_effort_top_tier_budget_mapping
-        ; Alcotest.test_case
-            "reasoning effort by config"
-            `Quick
-            test_reasoning_effort_of_config
-        ; Alcotest.test_case
-            "reasoning effort request value"
-            `Quick
-            test_reasoning_effort_request_value
-        ; Alcotest.test_case
             "reasoning effort accepted subset"
             `Quick
             test_validate_reasoning_effort_subset_rejects_unsupported
+        ; Alcotest.test_case
+            "reasoning effort undeclared fails closed"
+            `Quick
+            test_validate_reasoning_effort_fails_closed_without_declaration
         ; Alcotest.test_case
             "zai glm clear_thinking request field"
             `Quick

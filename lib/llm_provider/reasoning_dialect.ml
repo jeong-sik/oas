@@ -21,7 +21,6 @@ type toggle_wire =
 type effort_alias_policy =
   | Preserve_effort
   | Deepseek_high_or_max
-  | Anthropic_output_max
 
 type sampling_policy =
   { ignored_always : Capabilities.sampling_parameter list
@@ -284,16 +283,14 @@ let reasoning_output_fields dialect ~enable_thinking =
 
 let normalize_effort_value dialect effort =
   match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
+  | Deepseek_high_or_max, Reasoning_effort.High -> Some "high"
+  | Deepseek_high_or_max, Reasoning_effort.Max -> Some "max"
   | ( Deepseek_high_or_max
-    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
-    Some "high"
-  | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
-  | Deepseek_high_or_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
-  | Anthropic_output_max, Reasoning_effort.XHigh -> Some "max"
-  | ( Anthropic_output_max
-    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
-    Some (Reasoning_effort.to_string effort)
-  | Anthropic_output_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
+    , ( Reasoning_effort.None_
+      | Reasoning_effort.Minimal
+      | Reasoning_effort.Low
+      | Reasoning_effort.Medium
+      | Reasoning_effort.XHigh ) ) -> None
   | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
 ;;
 
@@ -306,13 +303,32 @@ let request_control_fields
       ?zai_glm_clear_thinking
       ()
   =
+  (match thinking_budget, dialect.toggle_wire with
+   | None, _ | Some _, Enable_thinking -> ()
+   | Some _, _ ->
+     invalid_arg
+       "Reasoning_dialect.request_control_fields: thinking_budget is unsupported by the \
+        selected provider wire");
+  (match reasoning_effort, dialect.toggle_wire with
+   | None, _
+   | Some _, Reasoning_effort
+   | Some _, Thinking_object { includes_reasoning_effort = true } -> ()
+   | Some _, _ ->
+     invalid_arg
+       "Reasoning_dialect.request_control_fields: reasoning_effort is unsupported by the \
+        selected provider wire");
   let output_fields = reasoning_output_fields dialect ~enable_thinking in
   let normalized_effort_field () =
     match reasoning_effort with
     | Some effort ->
       (match normalize_effort_value dialect effort with
        | Some normalized -> [ "reasoning_effort", `String normalized ]
-       | None -> [])
+       | None ->
+         invalid_arg
+           (Printf.sprintf
+              "Reasoning_dialect.request_control_fields: reasoning_effort %S is not \
+               supported by the selected provider wire"
+              (Reasoning_effort.to_string effort)))
     | None -> []
   in
   match dialect.toggle_wire with
@@ -396,7 +412,6 @@ let for_provider_config (config : Provider_config.t) =
       toggle_wire = Anthropic_thinking
     ; replay_policy = Preserve_always
     ; streaming = Delta_field "thinking_delta"
-    ; effort_alias_policy = Anthropic_output_max
     }
   | Gemini ->
     { default with
@@ -415,7 +430,7 @@ let for_provider_config (config : Provider_config.t) =
         of_capabilities caps
         |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
     in
-    (* RFC-OAS-029 S3.1 + RFC-OAS-030: GLM reasoning replay is
+    (* RFC-OAS-029 S3.1: GLM reasoning replay is
        clear_thinking-conditional (Preserved Thinking = thinking active AND
        clear_thinking=false). The GLM capability profile carries
        [No_thinking_control]/[No_preserve_thinking_control], so it resolves to
@@ -444,17 +459,6 @@ let for_provider_config (config : Provider_config.t) =
        while the builder emitted enable_thinking. *)
     of_capabilities Capabilities.dashscope_capabilities
     |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-;;
-
-let normalize_effort dialect raw =
-  let normalized = String.lowercase_ascii (String.trim raw) in
-  match normalized with
-  | "none" | "off" | "disabled" | "" -> None
-  | "max" -> Some "max"
-  | _ ->
-    (match Reasoning_effort.of_string raw with
-     | Some effort -> normalize_effort_value dialect effort
-     | None -> None)
 ;;
 
 let sampling_params_ignored_when_thinking dialect =
@@ -625,7 +629,7 @@ let%test "request_control_fields emits deepseek thinking object and normalized e
     dialect
     ~enable_thinking:(Some true)
     ~preserve_thinking:None
-    ~thinking_budget:(Some 4096)
+    ~thinking_budget:None
     ~reasoning_effort:(Some Reasoning_effort.Medium)
     ()
   = [ "thinking", `Assoc [ "type", `String "enabled" ]

@@ -62,7 +62,6 @@ type t = entry list
 val of_json : Yojson.Safe.t -> (t, string) result
 
 val load_file : string -> (t, string) result
-val load_runtime_file : string -> t option
 
 (** Find an entry by id or alias.
 
@@ -85,12 +84,11 @@ val default_model_for_provider : t -> string -> string option
 
 (** Process-wide catalog overlay.
 
-    Resolution order:
-    + 1. runtime override installed with {!set_global}
-    + 2. [OAS_PROVIDER_CATALOG] JSON file, cached after first load
-    + 3. no overlay *)
+    Returns only the runtime override installed explicitly with {!set_global};
+    [None] means no overlay. OAS never discovers a provider catalog from the
+    process environment. Callers that need a JSON overlay must call
+    {!load_file} and {!set_global}. *)
 val global : unit -> t option
 
-val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

@@ -18,6 +18,7 @@ type cost_report =
   ; cache_miss_input_tokens : int
   ; api_calls : int
   ; avg_cost_per_call : float
+  ; pricing_gap : Types.pricing_gap option
   }
 
 (** Generate a cost report from accumulated usage stats. *)
@@ -40,20 +41,29 @@ let report (usage : Types.usage_stats) : cost_report =
          - usage.total_cache_read_input_tokens)
   ; api_calls = usage.api_calls
   ; avg_cost_per_call = avg
+  ; pricing_gap = usage.pricing_gap
   }
 ;;
 
 (** Format a cost report as a human-readable string. *)
 let report_to_string (r : cost_report) : string =
-  Printf.sprintf
-    "Cost: $%.6f (%d calls, avg $%.6f/call) | Tokens: %d in, %d out (cache: %d write, %d \
-     read, %d miss)"
-    r.total_usd
-    r.api_calls
-    r.avg_cost_per_call
-    r.input_tokens
-    r.output_tokens
-    r.cache_creation_tokens
-    r.cache_read_tokens
-    r.cache_miss_input_tokens
+  let summary =
+    Printf.sprintf
+      "Cost: $%.6f (%d calls, avg $%.6f/call) | Tokens: %d in, %d out (cache: %d write, \
+       %d read, %d miss)"
+      r.total_usd
+      r.api_calls
+      r.avg_cost_per_call
+      r.input_tokens
+      r.output_tokens
+      r.cache_creation_tokens
+      r.cache_read_tokens
+      r.cache_miss_input_tokens
+  in
+  match r.pricing_gap with
+  | None -> summary
+  | Some Types.Model_identity_unavailable ->
+    summary ^ " | Pricing incomplete: model identity unavailable"
+  | Some (Types.Pricing_unavailable model_id) ->
+    summary ^ Printf.sprintf " | Pricing incomplete: no catalog entry for %s" model_id
 ;;

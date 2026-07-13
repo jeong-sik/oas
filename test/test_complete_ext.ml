@@ -1,5 +1,4 @@
-(** Extended coverage tests for Complete module — public API only.
-    Targets: is_retryable and default_retry_config. *)
+(** Extended coverage tests for the one-shot Complete public API. *)
 
 open Alcotest
 open Llm_provider
@@ -57,7 +56,6 @@ type metric_probe =
   ; mutable statuses : int list
   ; mutable token_usage : (int * int) list
   ; mutable tool_calls : int list
-  ; mutable retries : int list
   ; mutable streaming_first_chunks : float list
   }
 
@@ -70,7 +68,6 @@ let metric_probe () =
   ; statuses = []
   ; token_usage = []
   ; tool_calls = []
-  ; retries = []
   ; streaming_first_chunks = []
   }
 ;;
@@ -90,8 +87,6 @@ let metrics_of_probe probe =
   ; on_tool_calls =
       (fun ~provider:_ ~model_id:_ ~count ->
         probe.tool_calls <- count :: probe.tool_calls)
-  ; on_retry =
-      (fun ~provider:_ ~model_id:_ ~attempt -> probe.retries <- attempt :: probe.retries)
   ; on_streaming_first_chunk =
       (fun ~provider:_ ~model_id:_ ~ttfrc_ms ->
         probe.streaming_first_chunks <- ttfrc_ms :: probe.streaming_first_chunks)
@@ -136,124 +131,6 @@ let check_typed_empty_completion expected = function
     failf "expected typed empty completion, got %s" (string_of_http_error err)
 ;;
 
-(* ── is_retryable ────────────────────────────────────── *)
-
-let test_retryable_429 () =
-  check
-    bool
-    "429"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 429; body = "" }))
-;;
-
-let test_retryable_500 () =
-  check
-    bool
-    "500"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 500; body = "" }))
-;;
-
-let test_retryable_502 () =
-  check
-    bool
-    "502"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 502; body = "" }))
-;;
-
-let test_retryable_503 () =
-  check
-    bool
-    "503"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 503; body = "" }))
-;;
-
-let test_retryable_529 () =
-  check
-    bool
-    "529"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 529; body = "" }))
-;;
-
-let test_not_retryable_400 () =
-  check
-    bool
-    "400"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 400; body = "" }))
-;;
-
-let test_not_retryable_401 () =
-  check
-    bool
-    "401"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 401; body = "" }))
-;;
-
-let test_not_retryable_403 () =
-  check
-    bool
-    "403"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 403; body = "" }))
-;;
-
-let test_not_retryable_404 () =
-  check
-    bool
-    "404"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
-;;
-
-let test_not_retryable_422 () =
-  check
-    bool
-    "422"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 422; body = "" }))
-;;
-
-let test_retryable_network () =
-  check
-    bool
-    "network error"
-    true
-    (Complete.is_retryable
-       (Http_client.NetworkError { message = "connection refused"; kind = Unknown }))
-;;
-
-let test_not_retryable_200 () =
-  (* 200 is not an error, but is_retryable should return false *)
-  check
-    bool
-    "200"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 200; body = "" }))
-;;
-
-(* ── default_retry_config ────────────────────────────── *)
-
-let test_retry_config_max () =
-  check int "max_retries" 3 Complete.default_retry_config.max_retries
-;;
-
-let test_retry_config_initial () =
-  check (float 0.01) "initial_delay" 1.0 Complete.default_retry_config.initial_delay_sec
-;;
-
-let test_retry_config_max_delay () =
-  check (float 0.01) "max_delay" 30.0 Complete.default_retry_config.max_delay_sec
-;;
-
-let test_retry_config_backoff () =
-  check (float 0.01) "backoff" 2.0 Complete.default_retry_config.backoff_multiplier
-;;
-
 (* ── Provider defaults / public helpers ───────────────── *)
 
 let test_gemini_url_variants () =
@@ -287,37 +164,6 @@ let test_gemini_url_variants () =
     "stream no key"
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?alt=sse"
     (Complete.gemini_url ~config:no_key ~stream:true)
-;;
-
-let test_sampling_defaults_and_overlay () =
-  let defaults = Complete.provider_sampling_defaults Provider_config.OpenAI_compat in
-  check
-    (option (float 0.001))
-    "openai min_p"
-    (Some Constants.Sampling.openai_compat_min_p)
-    defaults.default_min_p;
-  let no_defaults = Complete.provider_sampling_defaults Provider_config.Anthropic in
-  check (option (float 0.001)) "anthropic min_p" None no_defaults.default_min_p;
-  let local = make_config () in
-  let local_defaulted = Complete.apply_sampling_defaults local in
-  check
-    (option (float 0.001))
-    "uncatalogued local OpenAI_compat min_p not defaulted (RFC-OAS-034)"
-    None
-    local_defaulted.min_p;
-  let explicit = make_config ~min_p:0.2 ~top_p:0.7 ~top_k:17 () in
-  let explicit_defaulted = Complete.apply_sampling_defaults explicit in
-  check
-    (option (float 0.001))
-    "explicit min_p preserved"
-    (Some 0.2)
-    explicit_defaulted.min_p;
-  check
-    (option (float 0.001))
-    "explicit top_p preserved"
-    (Some 0.7)
-    explicit_defaulted.top_p;
-  check (option int) "explicit top_k preserved" (Some 17) explicit_defaulted.top_k
 ;;
 
 (* ── complete wrapper paths ───────────────────────────── *)
@@ -492,41 +338,7 @@ let test_complete_cached_empty_fails_before_transport () =
   check_typed_empty_completion Types.MaxTokens result
 ;;
 
-let test_complete_with_retry_does_not_retry_empty_completion () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let calls = ref 0 in
-  let response = make_response ~stop_reason:Types.MaxTokens ~content:[] () in
-  let transport =
-    transport_of_sync (fun () ->
-      incr calls;
-      { Llm_transport.response = Ok response; latency_ms = Some 1 })
-  in
-  let retry_config =
-    { Complete.max_retries = 3
-    ; initial_delay_sec = 0.0
-    ; max_delay_sec = 0.0
-    ; backoff_multiplier = 1.0
-    }
-  in
-  let result =
-    Complete.complete_with_retry
-      ~sw
-      ~net:(Eio.Stdenv.net env)
-      ~transport
-      ~clock:(Eio.Stdenv.clock env)
-      ~config:(make_config ~model_id:"empty-no-retry" ())
-      ~messages:[ Types.user_msg "hello" ]
-      ~retry_config
-      ()
-  in
-  check int "single attempt" 1 !calls;
-  check_typed_empty_completion Types.MaxTokens result
-;;
-
-let test_complete_with_retry_retries_then_success () =
+let test_complete_transport_failure_is_one_shot () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -534,44 +346,31 @@ let test_complete_with_retry_retries_then_success () =
   let probe = metric_probe () in
   let metrics = metrics_of_probe probe in
   let attempts = ref 0 in
-  let config = make_config ~model_id:"openai-retry" () in
-  let response = make_response ~model:"openai-retry" ~usage:(make_usage ()) () in
+  let config = make_config ~model_id:"openai-one-shot" () in
   let transport =
     transport_of_sync (fun () ->
       incr attempts;
-      if !attempts < 3
-      then
-        { Llm_transport.response =
-            Error (Http_client.HttpError { code = 500; body = "temporary" })
-        ; latency_ms = Some 3
-        }
-      else { Llm_transport.response = Ok response; latency_ms = Some 9 })
-  in
-  let retry_config =
-    { Complete.max_retries = 3
-    ; initial_delay_sec = 0.0
-    ; max_delay_sec = 0.0
-    ; backoff_multiplier = 1.0
-    }
+      { Llm_transport.response =
+          Error (Http_client.HttpError { code = 500; body = "temporary" })
+      ; latency_ms = Some 3
+      })
   in
   (match
-     Complete.complete_with_retry
+     Complete.complete
        ~sw
        ~net:(Eio.Stdenv.net env)
        ~transport
-       ~clock:(Eio.Stdenv.clock env)
        ~config
        ~messages:[ Types.user_msg "hello" ]
-       ~retry_config
        ~metrics
        ()
    with
-   | Ok resp -> check string "retry success" "openai-retry" resp.model
-   | Error err -> failf "unexpected retry error: %s" (string_of_http_error err));
-  check int "attempts" 3 !attempts;
-  check (list int) "retry callbacks" [ 1; 2 ] (List.rev probe.retries);
-  check (list int) "statuses" [ 500; 500; 200 ] (List.rev probe.statuses);
-  check (list string) "errors" [ "HTTP 500"; "HTTP 500" ] (List.rev probe.errors)
+   | Error (Http_client.HttpError { code = 500; body = "temporary" }) -> ()
+   | Error err -> failf "unexpected typed error: %s" (string_of_http_error err)
+   | Ok _ -> fail "expected provider failure");
+  check int "one provider attempt" 1 !attempts;
+  check (list int) "status" [ 500 ] (List.rev probe.statuses);
+  check (list string) "error" [ "HTTP 500" ] (List.rev probe.errors)
 ;;
 
 let test_complete_stream_transport_success_metrics_and_telemetry () =
@@ -658,42 +457,16 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
 let () =
   run
     "complete_ext"
-    [ ( "is_retryable"
-      , [ test_case "429 rate limit" `Quick test_retryable_429
-        ; test_case "500 server" `Quick test_retryable_500
-        ; test_case "502 bad gateway" `Quick test_retryable_502
-        ; test_case "503 unavailable" `Quick test_retryable_503
-        ; test_case "529 overloaded" `Quick test_retryable_529
-        ; test_case "400 bad request" `Quick test_not_retryable_400
-        ; test_case "401 unauthorized" `Quick test_not_retryable_401
-        ; test_case "403 forbidden" `Quick test_not_retryable_403
-        ; test_case "404 not found" `Quick test_not_retryable_404
-        ; test_case "422 unprocessable" `Quick test_not_retryable_422
-        ; test_case "200 success" `Quick test_not_retryable_200
-        ; test_case "network error" `Quick test_retryable_network
-        ] )
-    ; ( "default_retry_config"
-      , [ test_case "max retries" `Quick test_retry_config_max
-        ; test_case "initial delay" `Quick test_retry_config_initial
-        ; test_case "max delay" `Quick test_retry_config_max_delay
-        ; test_case "backoff" `Quick test_retry_config_backoff
-        ] )
-    ; ( "helpers"
-      , [ test_case "gemini URL variants" `Quick test_gemini_url_variants
-        ; test_case
-            "sampling defaults and overlay"
-            `Quick
-            test_sampling_defaults_and_overlay
-        ] )
+    [ "helpers", [ test_case "gemini URL variants" `Quick test_gemini_url_variants ]
     ; ( "complete"
       , [ test_case
             "transport success cache metrics and trace headers"
             `Quick
             test_complete_transport_success_cache_metrics_and_trace_headers
         ; test_case
-            "retry retries then success"
+            "provider failure is one shot"
             `Quick
-            test_complete_with_retry_retries_then_success
+            test_complete_transport_failure_is_one_shot
         ; test_case
             "injected sync rejects typed empty"
             `Quick
@@ -706,10 +479,6 @@ let () =
             "cached empty fails before transport"
             `Quick
             test_complete_cached_empty_fails_before_transport
-        ; test_case
-            "empty completion is not retried"
-            `Quick
-            test_complete_with_retry_does_not_retry_empty_completion
         ; test_case
             "stream transport success metrics and telemetry"
             `Quick

@@ -8,10 +8,6 @@ val api_version : string
 val max_response_body : int
 val max_stdio_buffer : int
 
-(** Default per-request wall-clock timeout for LLM HTTP calls (seconds).
-    Used by [Api.create_message] to bound HTTP stalls. *)
-val default_request_timeout_s : float
-
 (** Allocate an opaque, process-unique tool-use identity.
 
     Use this only when the provider does not supply an identity.  The result is

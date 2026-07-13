@@ -11,6 +11,7 @@ type tool_failure_kind = Types.tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error
+  | Reported_tool_error
 
 type tool_execution_result =
   { tool_use_id : string
@@ -25,87 +26,32 @@ type scheduled_tool_use =
   ; id : string
   ; name : string
   ; input : Yojson.Safe.t
-  ; concurrency_class : Tool.concurrency_class
+  ; execution_mode : Tool.execution_mode
   }
 
 type execution_batch =
-  | Parallel_batch of scheduled_tool_use list
-  | Sequential_batch of scheduled_tool_use
-  | Exclusive_batch of scheduled_tool_use
+  | Concurrent_batch of scheduled_tool_use list
+  | Serial_batch of scheduled_tool_use
 
-type tool_index =
-  { by_id : (Tool_id.t, Tool.t) Hashtbl.t
-  ; by_name : (string, Tool.t) Hashtbl.t
-  }
+type tool_index = (string, Tool.t) Hashtbl.t
 
 let add_first tbl key value = if not (Hashtbl.mem tbl key) then Hashtbl.add tbl key value
 
 let build_index tools =
   let capacity = max 16 (List.length tools * 2) in
-  let by_id = Hashtbl.create capacity in
   let by_name = Hashtbl.create capacity in
   List.iter
     (fun (tool : Tool.t) ->
        let name = tool.schema.name in
-       add_first by_name name tool;
-       add_first by_id (Tool_id.of_string name) tool)
+       add_first by_name name tool)
     tools;
-  { by_id; by_name }
+  by_name
 ;;
 
-let find_in_index index name =
-  match Hashtbl.find_opt index.by_name name with
-  | Some _ as found -> found
-  | None ->
-    (* Fallback applies the case-insensitive [Tool_id.of_string] mapping so
-       canonical built-ins and MCP IDs still resolve when the caller emits a
-       case-variant. For user-defined tools, [Tool_id.of_string] lowercases the
-       raw name into [User _], which would let a case-variant call dispatch a
-       *different* user tool (e.g. caller "MyTool" → user "mytool" when only
-       the latter is registered). To preserve approval/audit behavior, gate
-       the fallback so user IDs require an exact [by_name] match. *)
-    (match Tool_id.of_string name with
-     | Tool_id.User _ -> None
-     | id -> Hashtbl.find_opt index.by_id id)
-;;
-
-let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
-  (* Scheduling-time classification must not raise: descriptors that did not
-     pass through [Tool.create] (e.g., record-constructed or deserialized
-     tools) should still schedule safely. Validation belongs at construction
-     time, not during batch scheduling. *)
-  match descriptor.Tool.concurrency_class with
-  | Some cc -> cc
-  | None ->
-    (match
-       Option.bind
-         descriptor.Tool.mutation_class
-         Tool.expected_concurrency_class_of_mutation_class
-     with
-     | Some inferred -> inferred
-     | None -> Tool.Sequential_workspace)
-;;
-
-(* RFC-OAS-009 v2 PR-B: removed CDAL builtin_descriptor fallback.
-   Tools without descriptor fall through to Sequential_workspace
-   (fail-closed). Consumers should supply Tool.descriptor at
-   construction time so the agent runtime never reaches into the
-   CDAL builtin registry to classify concurrency. *)
-let concurrency_class_of_tool tool =
-  match Tool.descriptor tool with
-  | Some descriptor -> concurrency_class_from_descriptor descriptor
-  | None -> Tool.Sequential_workspace
-;;
-
-let json_object_keys_for_log = function
-  | `Assoc fields ->
-    fields |> List.map fst |> List.sort_uniq String.compare |> String.concat ","
-  | _ -> "-"
-;;
+let find_in_index (index : tool_index) name : Tool.t option = Hashtbl.find_opt index name
 
 let tool_names_of_index index =
-  Hashtbl.fold (fun name _ acc -> name :: acc) index.by_name []
-  |> List.sort_uniq String.compare
+  Hashtbl.fold (fun name _ acc -> name :: acc) index [] |> List.sort_uniq String.compare
 ;;
 
 let preview_tool_names ?(limit = 12) names =
@@ -137,17 +83,7 @@ let unknown_tool_failure ~requested ~available =
   , failure_kind )
 ;;
 
-let resolve_tool_call tool_index name input =
-  match find_in_index tool_index name with
-  | Some tool -> name, input, Some tool, None
-  | None ->
-    (match Agent_tool_name_alias.resolve ~requested:name ~input with
-     | Some (alias, aliased_input) ->
-       (match find_in_index tool_index alias with
-        | Some tool -> alias, aliased_input, Some tool, Some alias
-        | None -> name, input, None, None)
-     | None -> name, input, None, None)
-;;
+let resolve_tool_call tool_index name input = name, input, find_in_index tool_index name
 
 let tool_failure_result ~id ~name ~input ~content ~error_class =
   { tool_use_id = id
@@ -169,68 +105,44 @@ let tool_exception_result ~id ~name ~input exn =
   tool_failure_result ~id ~name ~input ~content ~error_class:Types.Unknown
 ;;
 
-let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
-  try f () with
-  | Out_of_memory -> raise Out_of_memory
-  | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
-  | exn ->
-    Log.warn
-      _log
-      "tool lifecycle callback raised"
-      [ Log.S ("tool", tool_name)
-      ; Log.S ("callback", callback_name)
-      ; Log.S ("error", Printexc.to_string exn)
-      ]
-;;
-
 let approval_required_without_callback_result ~id ~name ~input =
   let reason = "approval required but no approval callback is registered" in
   blocked_tool_result ~id ~name ~input ~content:("Tool rejected: " ^ reason)
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
-  let concurrency_class =
+  let execution_mode =
     match find_in_index tool_index name with
-    | Some tool -> concurrency_class_of_tool tool
-    | None -> Tool.Sequential_workspace
+    | Some tool -> Tool.execution_mode tool
+    | None -> Tool.Serial
   in
-  { index; id; name; input; concurrency_class }
+  { index; id; name; input; execution_mode }
 ;;
 
 let execution_batches tool_uses =
-  let flush_parallel acc = function
+  let flush_concurrent acc = function
     | [] -> acc
-    | parallel_tools -> Parallel_batch (List.rev parallel_tools) :: acc
+    | concurrent_tools -> Concurrent_batch (List.rev concurrent_tools) :: acc
   in
-  let rec build acc current_parallel = function
-    | [] -> List.rev (flush_parallel acc current_parallel)
+  let rec build acc current_concurrent = function
+    | [] -> List.rev (flush_concurrent acc current_concurrent)
     | tool_use :: rest ->
-      (match tool_use.concurrency_class with
-       | Tool.Parallel_read -> build acc (tool_use :: current_parallel) rest
-       | Tool.Sequential_workspace ->
-         let acc = flush_parallel acc current_parallel in
-         build (Sequential_batch tool_use :: acc) [] rest
-       | Tool.Exclusive_external ->
-         let acc = flush_parallel acc current_parallel in
-         build (Exclusive_batch tool_use :: acc) [] rest)
+      (match tool_use.execution_mode with
+       | Tool.Concurrent -> build acc (tool_use :: current_concurrent) rest
+       | Tool.Serial ->
+         let acc = flush_concurrent acc current_concurrent in
+         build (Serial_batch tool_use :: acc) [] rest)
   in
   build [] [] tool_uses
 ;;
 
-let hook_schedule_of_tool_use
-      ~batch_index
-      ~batch_size
-      ~batch_kind
-      (tool_use : scheduled_tool_use)
+let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
   : Hooks.tool_schedule
   =
   { planned_index = tool_use.index
   ; batch_index
   ; batch_size
-  ; concurrency_class = Tool.concurrency_class_name tool_use.concurrency_class
-  ; batch_kind
+  ; execution_mode = tool_use.execution_mode
   }
 ;;
 
@@ -261,13 +173,8 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
                | Hooks.BeforeTurnParams _
                | Hooks.AfterTurn _
                | Hooks.OnStop _
-               | Hooks.OnIdle _
-               | Hooks.OnIdleEscalated _
                | Hooks.OnError _
-               | Hooks.OnToolError _
-               | Hooks.PreCompact _
-               | Hooks.PostCompact _
-               | Hooks.OnContextCompacted _ -> None)
+               | Hooks.OnToolError _ -> None)
         | None -> ());
        decision)
 ;;
@@ -291,14 +198,7 @@ let find_and_execute_tool_with_index
       id
   =
   let requested_name = name in
-  let name, input, tool_opt, alias_opt = resolve_tool_call tool_index name input in
-  (match alias_opt with
-   | Some alias ->
-     Log.info
-       _log
-       "provider tool name alias resolved"
-       [ Log.S ("requested_tool", requested_name); Log.S ("resolved_tool", alias) ]
-   | None -> ());
+  let name, input, tool_opt = resolve_tool_call tool_index name input in
   (* ToolCalled event — capture the published envelope's run_id so the
      matching ToolCompleted records it as caused_by, preserving the
      call -> completion causation chain per tool invocation (#877).
@@ -353,177 +253,94 @@ let find_and_execute_tool_with_index
                   { tool_use_id = id; tool_name = name; input; error = message; schedule })
              : Hooks.hook_decision)
         in
-        (* Multi-stage deterministic correction before execution.
-       Correction_pipeline runs safe default stages (type coercion and format
-       normalization) then validates. Optional zero-default injection is
-       opt-in because adding absent optional fields can change a tool-call
-       union branch. If det correction fixes the input, skip the LLM retry
-       path entirely. If still invalid, fall back to
-       Tool_middleware.validate_and_coerce for structured error feedback.
-       Ref: Samchon function calling harness (6.75% → 100%). *)
+        (* Tool inputs cross this boundary unchanged. The schema either accepts
+           the exact JSON value or produces a typed validation failure for the
+           model to correct in a later native ToolUse block. *)
         let validated_input =
-          match Correction_pipeline.run ~schema:tool.schema input with
-          | Correction_pipeline.Fixed { corrected; corrections } ->
-            if corrections <> []
-            then (
-              let field_names =
-                corrections
-                |> List.map (fun (c : Correction_pipeline.correction) -> c.field)
-                |> List.sort_uniq String.compare
-                |> String.concat ","
-              in
-              let stage_names =
-                corrections
-                |> List.map (fun (c : Correction_pipeline.correction) -> c.stage)
-                |> List.sort_uniq String.compare
-                |> String.concat ","
-              in
-              let added_fields =
-                corrections
-                |> List.filter_map (fun (c : Correction_pipeline.correction) ->
-                  match c.from_value with
-                  | None -> Some c.field
-                  | Some _ -> None)
-                |> List.sort_uniq String.compare
-                |> String.concat ","
-              in
-              let changed_fields =
-                corrections
-                |> List.filter_map (fun (c : Correction_pipeline.correction) ->
-                  match c.from_value with
-                  | Some _ -> Some c.field
-                  | None -> None)
-                |> List.sort_uniq String.compare
-                |> String.concat ","
-              in
-              Log.info
-                _log
-                "correction_pipeline fixed tool input fields"
-                [ Log.S ("tool", name)
-                ; Log.I ("fixes", List.length corrections)
-                ; Log.S ("fields", field_names)
-                ; Log.S ("stages", stage_names)
-                ; Log.S ("input_keys", json_object_keys_for_log input)
-                ; Log.S ("corrected_keys", json_object_keys_for_log corrected)
-                ; Log.S ("added_fields", added_fields)
-                ; Log.S ("changed_fields", changed_fields)
-                ]);
-            Ok corrected
-          | Correction_pipeline.Still_invalid { corrected; errors; attempted } ->
-            Log.warn
-              _log
-              "correction_pipeline still invalid after deterministic fixes"
-              [ Log.S ("tool", name)
-              ; Log.I ("error_count", List.length errors)
-              ; Log.I ("attempted_corrections", List.length attempted)
-              ];
-            (* Det correction insufficient — build structured feedback for the
-           turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
+          match Tool_input_validation.validate tool.schema input with
+          | Tool_input_validation.Valid exact_input -> Ok exact_input
+          | Tool_input_validation.Invalid errors ->
             let message =
-              Correction_pipeline.build_nondet_feedback
+              Tool_input_validation.format_errors_inline
                 ~tool_name:name
-                ~args:corrected
-                ~still_invalid:errors
-                ~attempted
+                ~args:input
+                errors
             in
-            emit_post_tool_use_failure ~input:corrected message;
-            Error (corrected, message)
+            emit_post_tool_use_failure ~input message;
+            Error message
         in
         (match validated_input with
-         | Error (corrected_input, msg) ->
-           validation_error_result ~input:corrected_input msg
-         | Ok coerced_input ->
-           let shell_constraint_result =
-             match Tool.descriptor tool with
-             | None -> Tool_middleware.Pass
-             | Some descriptor ->
-               Tool_middleware.validate_shell_constraints
-                 ~tool_name:name
-                 ~descriptor
-                 coerced_input
+         | Error message -> validation_error_result ~input message
+         | Ok exact_input ->
+           let t0 = Unix.gettimeofday () in
+           let result = Tool.execute ~context tool exact_input in
+           let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+           let result_bytes =
+             match result with
+             | Ok { content; _meta = _ } -> String.length content
+             | Error { message; _ } -> String.length message
            in
-           (match shell_constraint_result with
-            | Tool_middleware.Reject { message; _ } ->
-              emit_post_tool_use_failure ~input:coerced_input message;
-              validation_error_result ~input:coerced_input message
-            | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
-              let t0 = Unix.gettimeofday () in
-              let result = Tool.execute ~context tool coerced_input in
-              let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-              let result_bytes =
-                match result with
-                | Ok { content; _meta = _ } -> String.length content
-                | Error { message; _ } -> String.length message
-              in
-              let _post =
-                invoke_hook
-                  ?on_hook_invoked
-                  ~tracer
-                  ~agent_name
-                  ~turn_count
-                  ~hook_name:"post_tool_use"
-                  hooks.post_tool_use
-                  (Hooks.PostToolUse
-                     { tool_use_id = id
-                     ; tool_name = name
-                     ; input = coerced_input
-                     ; output = result
-                     ; result_bytes
-                     ; duration_ms
-                     ; schedule
-                     })
-              in
-              (match result with
-               | Error { message; _ } ->
-                 ignore
-                   (invoke_hook
-                      ?on_hook_invoked
-                      ~tracer
-                      ~agent_name
-                      ~turn_count
-                      ~hook_name:"post_tool_use_failure"
-                      hooks.post_tool_use_failure
-                      (Hooks.PostToolUseFailure
-                         { tool_use_id = id
-                         ; tool_name = name
-                         ; input = coerced_input
-                         ; error = message
-                         ; schedule
-                         })
-                    : Hooks.hook_decision);
-                 (* OnToolError: minimal tool-name/error event for consumers that
+           let _post =
+             invoke_hook
+               ?on_hook_invoked
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ~hook_name:"post_tool_use"
+               hooks.post_tool_use
+               (Hooks.PostToolUse
+                  { tool_use_id = id
+                  ; tool_name = name
+                  ; input = exact_input
+                  ; output = result
+                  ; result_bytes
+                  ; duration_ms
+                  ; schedule
+                  })
+           in
+           (match result with
+            | Error { message; _ } ->
+              ignore
+                (invoke_hook
+                   ?on_hook_invoked
+                   ~tracer
+                   ~agent_name
+                   ~turn_count
+                   ~hook_name:"post_tool_use_failure"
+                   hooks.post_tool_use_failure
+                   (Hooks.PostToolUseFailure
+                      { tool_use_id = id
+                      ; tool_name = name
+                      ; input = exact_input
+                      ; error = message
+                      ; schedule
+                      })
+                 : Hooks.hook_decision);
+              (* OnToolError: minimal tool-name/error event for consumers that
             don't need the PostToolUseFailure context (tool_use_id,
             schedule). Previously the hook type existed but had no emit
             site — registering [on_tool_error] was a silent no-op (#1029). *)
-                 ignore
-                   (invoke_hook
-                      ?on_hook_invoked
-                      ~tracer
-                      ~agent_name
-                      ~turn_count
-                      ~hook_name:"on_tool_error"
-                      hooks.on_tool_error
-                      (Hooks.OnToolError { tool_name = name; error = message })
-                    : Hooks.hook_decision)
-               | Ok _ -> ());
-              let content, outcome =
-                match result with
-                | Ok { content; _meta = _ } -> content, Tool_succeeded
-                | Error { message; recoverable; error_class } ->
-                  let failure_kind =
-                    if recoverable
-                    then Recoverable_tool_error
-                    else Non_retryable_tool_error
-                  in
-                  message, Tool_failed { failure_kind; error_class }
-              in
-              { tool_use_id = id
-              ; tool_name = name
-              ; input = coerced_input
-              ; content
-              ; outcome
-              }))
-        (* Tool_middleware validation match *)
+              ignore
+                (invoke_hook
+                   ?on_hook_invoked
+                   ~tracer
+                   ~agent_name
+                   ~turn_count
+                   ~hook_name:"on_tool_error"
+                   hooks.on_tool_error
+                   (Hooks.OnToolError { tool_name = name; error = message })
+                 : Hooks.hook_decision)
+            | Ok _ -> ());
+           let content, outcome =
+             match result with
+             | Ok { content; _meta = _ } -> content, Tool_succeeded
+             | Error { message; recoverable; error_class } ->
+               let failure_kind =
+                 if recoverable then Recoverable_tool_error else Non_retryable_tool_error
+               in
+               message, Tool_failed { failure_kind; error_class }
+           in
+           { tool_use_id = id; tool_name = name; input = exact_input; content; outcome })
       | None ->
         (* Tool dispatch failure (the LLM asked for a tool that isn't
          registered). Distinct from OnToolError — that fires when a
@@ -641,7 +458,6 @@ let execute_scheduled_tool
       ~turn_count
       ~(usage : Types.usage_stats)
       ~approval
-      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started
@@ -665,9 +481,7 @@ let execute_scheduled_tool
           })
    | None -> ());
   (match on_tool_execution_started with
-   | Some callback ->
-     protect_tool_lifecycle_callback ~tool_name:name ~callback_name:"started" (fun () ->
-       callback ~tool_use_id:id ~tool_name:name ~input ~schedule)
+   | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input ~schedule
    | None -> ());
   let t0_tool = Unix.gettimeofday () in
   let triple =
@@ -694,50 +508,14 @@ let execute_scheduled_tool
                   })
            in
            match decision with
-           | Hooks.Skip ->
-             { tool_use_id = id
-             ; tool_name = name
-             ; input
-             ; content = "Tool execution skipped by hook"
-             ; outcome = Tool_succeeded
-             }
-           | Hooks.Override value ->
-             { tool_use_id = id
-             ; tool_name = name
-             ; input
-             ; content = value
-             ; outcome = Tool_succeeded
-             }
            | Hooks.ApprovalRequired ->
              (match approval with
               | None ->
-                (match missing_approval_callback_policy with
-                 | Hooks.Execute_without_callback ->
-                   Log.debug
-                     _log
-                     "ApprovalRequired but no approval callback — executing"
-                     [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                   find_and_execute_tool_with_index
-                     ~context
-                     ~tool_index
-                     ~hooks
-                     ~event_bus
-                     ~tracer
-                     ~agent_name
-                     ~turn_count
-                     ?correlation_id
-                     ?run_id
-                     ?on_hook_invoked
-                     ~schedule
-                     name
-                     input
-                     id
-                 | Hooks.Reject_without_callback ->
-                   Log.warn
-                     _log
-                     "ApprovalRequired but no approval callback — rejecting"
-                     [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                   approval_required_without_callback_result ~id ~name ~input)
+                Log.warn
+                  _log
+                  "ApprovalRequired but no approval callback — returning explicit failure"
+                  [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
+                approval_required_without_callback_result ~id ~name ~input
               | Some approve_fn ->
                 (match approve_fn ~tool_name:name ~input with
                  | Hooks.Approve ->
@@ -839,8 +617,8 @@ let execute_scheduled_tool
            | Hooks.Block reason ->
              (* Intentional policy rejection from a PreToolUse hook. The host
                 executes no tool; the reason string becomes the tool result
-                content verbatim. Distinct from [Hooks.Override] (soft nudge,
-                is_error=false) and [Hooks.HookFailed] (infra failure). *)
+                content verbatim. Distinct from [Hooks.HookFailed], which
+                represents an unintentional hook failure. *)
              blocked_tool_result ~id ~name ~input ~content:reason
          with
          | Out_of_memory -> raise Out_of_memory
@@ -879,12 +657,11 @@ let execute_scheduled_tool
    | None -> ());
   (match on_tool_execution_finished with
    | Some callback ->
-     protect_tool_lifecycle_callback ~tool_name:name ~callback_name:"finished" (fun () ->
-       callback
-         ~tool_use_id:id
-         ~tool_name:name
-         ~content:triple.content
-         ~is_error:(Types.tool_result_outcome_is_error triple.outcome))
+     callback
+       ~tool_use_id:id
+       ~tool_name:name
+       ~content:triple.content
+       ~is_error:(Types.tool_result_outcome_is_error triple.outcome)
    | None -> ());
   index, triple
 ;;
@@ -900,7 +677,6 @@ let execute_tools
       ~turn_count
       ~(usage : Types.usage_stats)
       ~approval
-      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started
@@ -942,7 +718,6 @@ let execute_tools
       ~turn_count
       ~usage
       ~approval
-      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started
@@ -952,35 +727,14 @@ let execute_tools
   execution_batches scheduled
   |> List.mapi (fun batch_index batch ->
     match batch with
-    | Sequential_batch tool_use ->
-      let schedule =
-        hook_schedule_of_tool_use
-          ~batch_index
-          ~batch_size:1
-          ~batch_kind:"sequential"
-          tool_use
-      in
+    | Serial_batch tool_use ->
+      let schedule = hook_schedule_of_tool_use ~batch_index ~batch_size:1 tool_use in
       [ run_one ~schedule tool_use ]
-    | Exclusive_batch tool_use ->
-      let schedule =
-        hook_schedule_of_tool_use
-          ~batch_index
-          ~batch_size:1
-          ~batch_kind:"exclusive"
-          tool_use
-      in
-      [ run_one ~schedule tool_use ]
-    | Parallel_batch tool_uses ->
+    | Concurrent_batch tool_uses ->
       let batch_size = List.length tool_uses in
       tool_uses
       |> List.map (fun tool_use ->
-        let schedule =
-          hook_schedule_of_tool_use
-            ~batch_index
-            ~batch_size
-            ~batch_kind:"parallel"
-            tool_use
-        in
+        let schedule = hook_schedule_of_tool_use ~batch_index ~batch_size tool_use in
         tool_use, schedule)
       |> Eio.Fiber.List.map (fun (tool_use, schedule) -> run_one ~schedule tool_use))
   |> List.concat

@@ -39,7 +39,6 @@ type participant =
   ; runtime_actor : string option
   ; requested_provider : string option
   ; requested_model : string option
-  ; requested_policy : string option
   ; provider : string option
   ; model : string option
   ; resolved_provider : string option
@@ -90,14 +89,12 @@ type session =
   ; goal : string
   ; title : string option
   ; tag : string option
-  ; permission_mode : string option
   ; phase : phase
   ; created_at : float
   ; updated_at : float
   ; provider : string option
   ; model : string option
   ; system_prompt : string option
-  ; max_turns : int
   ; workdir : string option
   ; planned_participants : string list
   ; participants : participant list
@@ -115,7 +112,6 @@ type init_request =
   { session_root : string option
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   ; include_partial_messages : bool
   ; setting_sources : string list
   ; resume_session : string option
@@ -132,50 +128,18 @@ type init_response =
   }
 [@@deriving yojson, show]
 
-type permission_request =
-  { action : string
-  ; subject : string
-  ; payload : Yojson.Safe.t
-  }
-[@@deriving yojson, show]
-
-type permission_response =
-  { allow : bool
-  ; message : string option
-  ; interrupt : bool
-  }
-[@@deriving yojson, show]
-
-type hook_request =
-  { hook_name : string
-  ; payload : Yojson.Safe.t
-  }
-[@@deriving yojson, show]
-
-type hook_response =
-  { continue_ : bool [@key "continue"]
-  ; message : string option
-  }
-[@@deriving yojson, show]
-
 type start_request =
   { session_id : string option
   ; goal : string
   ; participants : string list
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   ; system_prompt : string option
-  ; max_turns : int option
   ; workdir : string option
   }
 [@@deriving yojson, show]
 
-type update_settings_request =
-  { model : string option
-  ; permission_mode : string option
-  }
-[@@deriving yojson, show]
+type update_settings_request = { model : string option } [@@deriving yojson, show]
 
 type record_turn_request =
   { actor : string option
@@ -196,7 +160,6 @@ type spawn_agent_request =
   ; provider : string option
   ; model : string option
   ; system_prompt : string option
-  ; max_turns : int option
   }
 [@@deriving yojson, show]
 
@@ -260,7 +223,6 @@ type spawn_event =
   ; prompt : string
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   }
 [@@deriving yojson, show]
 
@@ -400,16 +362,6 @@ type response =
   | Error_response of string
 [@@deriving yojson, show]
 
-type control_request =
-  | Permission_request of permission_request
-  | Hook_request of hook_request
-[@@deriving yojson, show]
-
-type control_response =
-  | Permission_response of permission_response
-  | Hook_response of hook_response
-[@@deriving yojson, show]
-
 type protocol_message =
   | Request_message of
       { request_id : string
@@ -418,14 +370,6 @@ type protocol_message =
   | Response_message of
       { request_id : string
       ; response : response
-      }
-  | Control_request_message of
-      { control_id : string
-      ; request : control_request
-      }
-  | Control_response_message of
-      { control_id : string
-      ; response : control_response
       }
   | Event_message of
       { session_id : string option

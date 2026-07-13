@@ -10,8 +10,7 @@ let test_default_turn_params () =
   Alcotest.(check (option int)) "no thinking_budget" None p.thinking_budget;
   Alcotest.(check (option bool)) "no enable_thinking" None p.enable_thinking;
   Alcotest.(check bool) "no extra context" true (p.extra_system_context = None);
-  Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None);
-  Alcotest.(check bool) "no tool filter" true (p.tool_filter_override = None)
+  Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None)
 ;;
 
 let test_enable_thinking_override () =
@@ -83,7 +82,6 @@ let test_before_turn_params_event () =
   let event =
     Hooks.BeforeTurnParams
       { turn = 0
-      ; max_turns = 10
       ; messages = []
       ; last_tool_results = []
       ; current_params = params
@@ -92,9 +90,7 @@ let test_before_turn_params_event () =
   in
   (* Just verify the event constructs correctly *)
   match event with
-  | Hooks.BeforeTurnParams { turn; max_turns; _ } ->
-    Alcotest.(check int) "turn 0" 0 turn;
-    Alcotest.(check int) "max_turns 10" 10 max_turns
+  | Hooks.BeforeTurnParams { turn; _ } -> Alcotest.(check int) "turn 0" 0 turn
   | _ -> Alcotest.fail "wrong event type"
 ;;
 
@@ -212,35 +208,6 @@ let test_provider_mock_tool_use () =
   | Error _ -> Alcotest.fail "unexpected error"
 ;;
 
-(* ── Dynamic context reducer ─────────────────────────────────── *)
-
-let test_dynamic_reducer () =
-  let reducer =
-    Context_reducer.dynamic (fun ~cache:_ ~turn ~messages:_ ->
-      if turn < 3
-      then Context_reducer.Keep_last_n 20
-      else Context_reducer.Token_budget 100)
-  in
-  (* With few turns, should keep all *)
-  let messages : Types.message list =
-    [ { role = User
-      ; content = [ Types.Text "hello" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { role = Assistant
-      ; content = [ Types.Text "hi" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let reduced = Context_reducer.reduce reducer messages in
-  Alcotest.(check int) "2 messages kept" 2 (List.length reduced)
-;;
-
 (* ── Context scoped isolation ────────────────────────────────── *)
 
 let test_context_scope_isolation () =
@@ -310,7 +277,6 @@ let () =
         ; Alcotest.test_case "reset" `Quick test_provider_mock_reset
         ; Alcotest.test_case "tool_use" `Quick test_provider_mock_tool_use
         ] )
-    ; "dynamic_reducer", [ Alcotest.test_case "basic" `Quick test_dynamic_reducer ]
     ; ( "context_scope"
       , [ Alcotest.test_case "isolation" `Quick test_context_scope_isolation ] )
     ]

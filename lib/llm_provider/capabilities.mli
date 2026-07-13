@@ -78,8 +78,6 @@ type capabilities =
   ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
-  ; supports_runtime_mcp_tools : bool
-  ; supports_runtime_tool_events : bool
   ; assistant_tool_content_format : assistant_tool_content_format
   ; (* Thinking / reasoning *)
     supports_reasoning : bool
@@ -204,45 +202,14 @@ type anthropic_thinking_control =
     neither source declares an Anthropic thinking policy. *)
 val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_control option
 
-(** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
-    used to live as scattered [String.starts_with] calls. Downstream code
-    should switch on this variant rather than re-compare strings.
-
-    @since 0.196.3 *)
-type gemini_family =
-  | Gemini_3_1 (** [gemini-3.1.*] *)
-  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
-  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
-  | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
-
-(** Gemini thinking-control protocol for a model family. Gemini 3+ uses
-    [thinkingLevel], while Gemini 2.5 uses [thinkingBudget]. *)
-type gemini_thinking_control =
-  | Gemini_thinking_budget
-  | Gemini_thinking_level of { supports_minimal : bool }
-  | Gemini_unknown_thinking_control
-
-(** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
-    more specific prefix wins. Input is expected lowercased; callers that
-    cannot lowercase first should normalize via [String.lowercase_ascii] at
-    the boundary. *)
-val gemini_family_of_id : string -> gemini_family
-
-(** Return the documented thinking-control protocol for a Gemini model id.
-    Accepts raw config values; trims and lowercases before delegating to the
-    bounded {!gemini_family_of_id} classifier. *)
-val gemini_thinking_control_of_id : string -> gemini_thinking_control
-
 (** Look up capabilities for [model_id] in the loaded model catalog only
     (no manifest consultation).
 
-    The catalog is resolved by {!Model_catalog.global}, in order: runtime
-    override installed via {!Model_catalog.set_global}, the
-    [OAS_MODEL_CATALOG] environment variable, then the packaged default
-    [models.toml]. Ambient discovery is cached after first load; embedding
-    hosts and test harnesses can call [Model_catalog.preload_global], inject
-    [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
-    override.
+    The catalog is resolved by {!Model_catalog.global}: an explicit runtime
+    override installed via {!Model_catalog.set_global}, otherwise the packaged
+    default [models.toml]. Embedding hosts and test harnesses can install an
+    explicit runtime override; OAS performs no environment-based catalog
+    discovery.
 
     Returns [None] when no catalog is available or when no catalog entry
     prefix-matches [model_id]; there is no in-code fallback table. *)
@@ -333,8 +300,7 @@ val apply_manifest_entry : Capability_manifest.entry -> capabilities
     falling back to the catalog lookup ({!for_model_id_catalog}) on a
     miss.
 
-    Useful for testing the manifest integration path without relying on
-    the [OAS_CAPABILITY_MANIFEST] env var.
+    Useful when the caller does not want to install a process-wide manifest.
 
     @since 0.188.0 *)
 val for_model_id_with_manifest : Capability_manifest.t -> string -> capabilities option

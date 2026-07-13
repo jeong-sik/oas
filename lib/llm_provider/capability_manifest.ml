@@ -516,20 +516,6 @@ let load_file path =
   of_json json
 ;;
 
-let load_runtime_file path =
-  match load_file path with
-  | Ok manifest ->
-    Diag.info
-      "capability_manifest"
-      "loaded %d entries from %s"
-      (List.length manifest)
-      path;
-    Some manifest
-  | Error msg ->
-    Diag.warn "capability_manifest" "failed to load %s: %s" path msg;
-    None
-;;
-
 (* ── Lookup ─────────────────────────────────────────────── *)
 
 let lookup (t : t) model_id =
@@ -542,35 +528,7 @@ let lookup (t : t) model_id =
 ;;
 
 (* ── Global manifest ───────────────────────────────────────
-   Two-tier source: runtime override (set by host application via
-   [set_global]) takes precedence over the env-var-loaded cached
-   manifest. The env path stays as the file-based default for
-   standalone OAS deployments without an embedding host. *)
-
-type env_cache =
-  | Unloaded
-  | Loaded of t option
-
-let load_ambient_manifest () =
-  match Cli_common_env.get "OAS_CAPABILITY_MANIFEST" with
-  | None -> None
-  | Some path -> load_runtime_file path
-;;
-
-let env_loaded_manifest : env_cache Atomic.t = Atomic.make Unloaded
-
-let load_ambient_once () =
-  match Atomic.get env_loaded_manifest with
-  | Loaded value -> value
-  | Unloaded ->
-    let value = load_ambient_manifest () in
-    if Atomic.compare_and_set env_loaded_manifest Unloaded (Loaded value)
-    then value
-    else (
-      match Atomic.get env_loaded_manifest with
-      | Loaded value -> value
-      | Unloaded -> value)
-;;
+   Embedding applications explicitly parse and install a manifest. *)
 
 (* Process-wide runtime override. [Atomic.t] makes [set_global] /
    [clear_global] / [global] safe under OCaml 5 multi-domain concurrency
@@ -578,21 +536,7 @@ let load_ambient_once () =
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global m = Atomic.set runtime_override (Some m)
 let clear_global () = Atomic.set runtime_override None
-let preload_global () = ignore (load_ambient_once () : t option)
-
-let global () =
-  match Atomic.get runtime_override with
-  | Some _ as o -> o
-  | None ->
-    let env_value = load_ambient_once () in
-    (* Re-check the override after the (possibly slow) env
-       load: if another domain installed an override during the load,
-       its value takes precedence so [global] stays linearizable with
-       respect to [set_global]/[clear_global]. *)
-    (match Atomic.get runtime_override with
-     | Some _ as o -> o
-     | None -> env_value)
-;;
+let global () = Atomic.get runtime_override
 
 (* ── Inline tests ───────────────────────────────────────── *)
 
@@ -775,26 +719,10 @@ let%test "set_global / clear_global: runtime override roundtrips" =
         | None -> false
       in
       clear_global ();
-      (* After [clear_global], the override is gone. Whether [global ()]
-           returns [None] or some env-loaded value depends on the test
-           runner's environment; we only assert the override entry no
-           longer surfaces. *)
-      let observed_after_clear =
-        match global () with
-        | Some entries ->
-          not (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
-        | None -> true
-      in
+      let observed_after_clear = Option.is_none (global ()) in
       observed_after_set && observed_after_clear)
 ;;
 
-(* Title scoped to what this test actually verifies: set_global makes
-   global() return [Some] with the installed manifest. Verifying that
-   the runtime override *shadows* an env-var-loaded manifest is not
-   reachable from an inline test because [env_loaded_manifest] is a
-   [Lazy.t] that is forced at most once per process, and the test
-   harness shares that process. A deterministic env-shadowing assertion
-   would require module-level reset (out of scope for this PR). *)
 let%test "set_global installs runtime override and returns it from global ()" =
   let json =
     Yojson.Safe.from_string

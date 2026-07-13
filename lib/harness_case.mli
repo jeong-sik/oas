@@ -21,7 +21,6 @@ type trace_assertion =
   | Tool_called of string
   | Tool_sequence of string list
   | Tool_call_count of int
-  | Max_turns of int
 
 type metric_assertion =
   { name : string

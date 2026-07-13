@@ -251,7 +251,6 @@ let patch_telemetry
   : Types.api_response
   =
   let pk = Some config.kind in
-  let re = Complete_sampling.reasoning_effort_of_config config in
   let model = if String.trim resp.model = "" then config.model_id else resp.model in
   let caps, capability_source = resolve_capabilities_for_config config in
   let ctx_window = caps.max_context_tokens in
@@ -263,7 +262,6 @@ let patch_telemetry
         { t with
           Types.request_latency_ms = latency_ms
         ; provider_kind = pk
-        ; reasoning_effort = re
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
         ; ttfrc_ms =
@@ -280,7 +278,6 @@ let patch_telemetry
         { Types.default_inference_telemetry with
           request_latency_ms = latency_ms
         ; provider_kind = pk
-        ; reasoning_effort = re
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
         ; ttfrc_ms

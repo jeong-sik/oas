@@ -82,13 +82,7 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Context_window_usage of
-      { agent_name : string
-      ; turn : int
-      ; estimated_tokens : int
-      ; limit_tokens : int
-      ; usage_ratio : float
-      }
+  | Wire_capture_failure of Wire_capture.failure
 [@@deriving yojson, show]
 
 (** Human-readable event type label for metrics and logging. *)

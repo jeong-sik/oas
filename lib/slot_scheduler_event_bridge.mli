@@ -1,10 +1,8 @@
 (** Slot_scheduler ↔ Event_bus publisher.
 
     Projects a {!Llm_provider.Slot_scheduler} snapshot onto the supplied
-    {!Event_bus} as a native [SlotSchedulerObserved] event. Unlike
-    {!Content_replacement_event_bridge}, this module does NOT wrap a mutator
-    — the scheduler is read-only from our
-    perspective. Callers decide when to publish (typically on grant,
+    {!Event_bus} as a native [SlotSchedulerObserved] event. The scheduler is
+    read-only from our perspective. Callers decide when to publish (typically on grant,
     release, or a periodic tick).
 
     {1 Payload shape}

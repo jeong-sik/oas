@@ -50,7 +50,7 @@ let usage_stats_gen =
     ; total_cache_read_input_tokens = cache_read
     ; api_calls
     ; estimated_cost_usd = float_of_int estimated_cost_cents /. 100.0
-    ; unpriced_model = None
+    ; pricing_gap = None
     }
 ;;
 
@@ -110,7 +110,6 @@ let mcp_info_gen =
        ; command
        ; args
        ; env = []
-       ; env_policy = Mcp.Minimal
        ; http_base_url = None
        ; http_headers = []
        ; tool_schemas
@@ -145,6 +144,7 @@ let checkpoint_gen =
   let* preserve_thinking = option bool in
   let* response_format = response_format_gen in
   let* thinking_budget = option (int_range 0 2048) in
+  let* reasoning_effort = option (oneof_list Llm_provider.Reasoning_effort.all) in
   let* cache_system_prompt = bool in
   let* context = context_gen in
   let* mcp_sessions = list_size (int_range 0 1) mcp_info_gen in
@@ -170,6 +170,7 @@ let checkpoint_gen =
     ; preserve_thinking
     ; response_format
     ; thinking_budget
+    ; reasoning_effort
     ; cache_system_prompt
     ; context
     ; mcp_sessions
@@ -183,23 +184,6 @@ let arb_checkpoint =
 ;;
 
 let checkpoint_equal left right = Checkpoint.to_json left = Checkpoint.to_json right
-let with_eio f () = Eio_main.run (fun _env -> f ())
-
-let with_env key value f =
-  let original = Sys.getenv_opt key in
-  let restore () =
-    match original with
-    | Some previous -> Unix.putenv key previous
-    | None -> Unix.putenv key ""
-  in
-  (* OCaml 5.5 adds Unix.unsetenv, but our supported switches are still on the
-     5.4 floor. For this feature flag helper, the empty string is equivalent to
-     "off". *)
-  (match value with
-   | Some next -> Unix.putenv key next
-   | None -> Unix.putenv key "");
-  Fun.protect f ~finally:restore
-;;
 
 let make_unit_checkpoint
       ?(messages = [])
@@ -231,6 +215,7 @@ let make_unit_checkpoint
   ; preserve_thinking = None
   ; response_format = Off
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; cache_system_prompt = false
   ; context
   ; mcp_sessions = []
@@ -252,7 +237,6 @@ let sample_mcp_session =
   ; command = "memory-server"
   ; args = [ "--stdio" ]
   ; env = [ "MODE", "test" ]
-  ; env_policy = Mcp.Minimal
   ; http_base_url = None
   ; http_headers = []
   ; tool_schemas = [ sample_tool_schema ]
@@ -334,7 +318,7 @@ let test_delta_json_all_replacement_ops () =
         ; total_cache_read_input_tokens = 2
         ; api_calls = 4
         ; estimated_cost_usd = 0.42
-        ; unpriced_model = Some "custom-unpriced"
+        ; pricing_gap = Some (Types.Pricing_unavailable "custom-unpriced")
         }
     ; turn_count = 9
     ; tools = [ sample_tool_schema ]
@@ -345,6 +329,7 @@ let test_delta_json_all_replacement_ops () =
     ; min_p = Some 0.05
     ; enable_thinking = Some true
     ; thinking_budget = Some 128
+    ; reasoning_effort = Some Llm_provider.Reasoning_effort.Max
     ; disable_parallel_tool_use = true
     ; response_format = JsonSchema (`Assoc [ "type", `String "object" ])
     ; cache_system_prompt = true
@@ -393,7 +378,7 @@ let test_delta_json_all_replacement_ops () =
     Alcotest.failf "expected delta to apply: %s" (Agent_sdk.Error.to_string err)
 ;;
 
-let test_delta_json_null_and_legacy_limit_paths () =
+let test_delta_json_null_and_rejected_legacy_limit_paths () =
   let base = make_unit_checkpoint ~tool_choice:(Some Any) () in
   let target = { base with tool_choice = None; working_context = None } in
   let delta = Checkpoint.compute_delta base target in
@@ -427,9 +412,9 @@ let test_delta_json_null_and_legacy_limit_paths () =
       ]
   in
   Alcotest.(check bool)
-    "legacy response_format_json accepted"
+    "legacy response_format_json rejected"
     true
-    (Result.is_ok (Checkpoint.delta_of_json legacy_limits_json));
+    (Result.is_error (Checkpoint.delta_of_json legacy_limits_json));
   let unknown_op_json = with_operations [ `Assoc [ "kind", `String "bogus" ] ] in
   Alcotest.(check bool)
     "unknown op rejected"
@@ -666,130 +651,6 @@ let test_apply_delta_rejects_invalid_splice () =
     (Result.is_error (Checkpoint.apply_delta base invalid_delta))
 ;;
 
-let test_restore_with_delta_fallback_disabled () =
-  let base = make_unit_checkpoint () in
-  let target =
-    make_unit_checkpoint
-      ~session_id:"sess-b"
-      ~messages:
-        [ { role = User
-          ; content = [ Text "delta" ]
-          ; name = None
-          ; tool_call_id = None
-          ; metadata = []
-          }
-        ]
-      ()
-  in
-  let delta = Checkpoint.compute_delta base target in
-  let result =
-    with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-      Checkpoint.restore_with_delta_fallback ~base ~delta ~full_checkpoint:target ()
-      |> Result.get_ok)
-  in
-  Alcotest.(check bool)
-    "full checkpoint used"
-    true
-    (result.mode = Checkpoint.Full_restore && checkpoint_equal result.checkpoint target)
-;;
-
-let test_restore_with_delta_fallback_records_failure_metrics () =
-  let metrics = Metrics.create () in
-  let base = make_unit_checkpoint () in
-  let target = make_unit_checkpoint ~session_id:"sess-b" () in
-  let delta =
-    { (Checkpoint.compute_delta base target) with base_checkpoint_hash = "bad-hash" }
-  in
-  let result =
-    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-      Checkpoint.restore_with_delta_fallback
-        ~metrics
-        ~base
-        ~delta
-        ~full_checkpoint:target
-        ()
-      |> Result.get_ok)
-  in
-  let apply_total =
-    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
-  in
-  let apply_failures =
-    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_failures_total" ~unit_:"1"
-  in
-  let fallback_total =
-    Metrics.counter metrics ~name:"oas.checkpoint.full_restore_fallback_total" ~unit_:"1"
-  in
-  let size_histogram =
-    Metrics.histogram
-      metrics
-      ~name:"oas.checkpoint.delta_size_bytes"
-      ~buckets:[ 128.; 512.; 1024.; 4096.; 16384.; 65536. ]
-  in
-  Alcotest.(check bool)
-    "fallback used"
-    true
-    (result.mode = Checkpoint.Full_restore && checkpoint_equal result.checkpoint target);
-  Alcotest.(check int) "apply total" 1 (Metrics.counter_value apply_total ());
-  Alcotest.(check int) "apply failures" 1 (Metrics.counter_value apply_failures ());
-  Alcotest.(check int) "fallback total" 1 (Metrics.counter_value fallback_total ());
-  Alcotest.(check int) "delta size observed" 1 (Metrics.histogram_count size_histogram)
-;;
-
-let test_restore_with_delta_fallback_gate_skips_after_failure () =
-  let metrics = Metrics.create () in
-  let base = make_unit_checkpoint () in
-  let target = make_unit_checkpoint ~session_id:"sess-b" () in
-  let bad_delta =
-    { (Checkpoint.compute_delta base target) with base_checkpoint_hash = "bad-hash" }
-  in
-  let good_delta = Checkpoint.compute_delta base target in
-  let first =
-    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-      Checkpoint.restore_with_delta_fallback
-        ~metrics
-        ~base
-        ~delta:bad_delta
-        ~full_checkpoint:target
-        ()
-      |> Result.get_ok)
-  in
-  let second =
-    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-      Checkpoint.restore_with_delta_fallback
-        ~metrics
-        ~base
-        ~delta:good_delta
-        ~full_checkpoint:target
-        ()
-      |> Result.get_ok)
-  in
-  let apply_total =
-    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
-  in
-  let fallback_total =
-    Metrics.counter metrics ~name:"oas.checkpoint.full_restore_fallback_total" ~unit_:"1"
-  in
-  Alcotest.(check bool) "first fallback" true (first.mode = Checkpoint.Full_restore);
-  Alcotest.(check bool) "gate fallback" true (second.mode = Checkpoint.Full_restore);
-  Alcotest.(check int)
-    "apply total stays at first failure"
-    1
-    (Metrics.counter_value apply_total ());
-  Alcotest.(check int)
-    "fallback total counts both"
-    2
-    (Metrics.counter_value fallback_total ())
-;;
-
-let test_delta_enabled_env_var () =
-  (* OAS_DELTA_CHECKPOINT enables *)
-  with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-    Alcotest.(check bool) "OAS var enables" true (Checkpoint.delta_enabled ()));
-  (* Not set: disabled *)
-  with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-    Alcotest.(check bool) "not set" false (Checkpoint.delta_enabled ()))
-;;
-
 let () =
   Alcotest.run
     "Checkpoint_delta"
@@ -805,9 +666,9 @@ let () =
             `Quick
             test_delta_json_all_replacement_ops
         ; Alcotest.test_case
-            "delta JSON null and legacy limit paths"
+            "delta JSON null and rejected legacy limit paths"
             `Quick
-            test_delta_json_null_and_legacy_limit_paths
+            test_delta_json_null_and_rejected_legacy_limit_paths
         ; Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip
         ; Alcotest.test_case
             "metadata delta roundtrip"
@@ -821,19 +682,6 @@ let () =
             "apply_delta rejects invalid splice"
             `Quick
             test_apply_delta_rejects_invalid_splice
-        ; Alcotest.test_case
-            "feature flag disabled falls back"
-            `Quick
-            test_restore_with_delta_fallback_disabled
-        ; Alcotest.test_case "delta env var" `Quick test_delta_enabled_env_var
-        ; Alcotest.test_case
-            "bad delta records failure metrics"
-            `Quick
-            (with_eio test_restore_with_delta_fallback_records_failure_metrics)
-        ; Alcotest.test_case
-            "failure gate skips later delta path"
-            `Quick
-            (with_eio test_restore_with_delta_fallback_gate_skips_after_failure)
         ] )
     ]
 ;;

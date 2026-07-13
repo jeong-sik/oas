@@ -19,8 +19,7 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted of Tool_failure_episode.completed_round option
-  | IdleSkipped (** on_idle hook returned Skip — agent should stop gracefully. *)
+  | ToolsExecuted
 
 (** Persist [state] using the same pre-commit checkpoint transaction as turn
     collection. The live agent state is not changed by this function. *)
@@ -37,7 +36,6 @@ val run_turn
   -> ?clock:_ Eio.Time.clock
   -> api_strategy:api_strategy
   -> ?raw_trace_run:Raw_trace.active_run
-  -> ?recovery_context:string
   -> ?on_provider_failure:(Provider_failure_attribution.t option -> unit)
   -> Agent_types.t
   -> (turn_outcome, Error.sdk_error) result

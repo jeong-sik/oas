@@ -31,7 +31,9 @@ let build_body_assoc
       ?top_k:config.config.top_k
       ?min_p:config.config.min_p
       ?enable_thinking:config.config.enable_thinking
+      ?preserve_thinking:config.config.preserve_thinking
       ?thinking_budget:config.config.thinking_budget
+      ?reasoning_effort:config.config.reasoning_effort
       ~response_format:config.config.response_format
       ()
   in
@@ -87,22 +89,19 @@ let build_body_assoc
            "Api_anthropic.build_body_assoc: unsupported provider kind %s"
            (Llm_provider.Provider_config.string_of_provider_kind provider_kind))
   in
-  (match thinking_mode, config.config.enable_thinking with
-   | Llm_provider.Capabilities.Anthropic_always_adaptive, Some false ->
-     invalid_arg
-       (Printf.sprintf
-          "Api_anthropic.build_body_assoc: model %S cannot disable always-on adaptive \
-           thinking"
-          model_str)
-   | _, _ -> ());
+  (match
+     Llm_provider.Backend_anthropic.validate_thinking_controls
+       thinking_mode
+       provider_config
+   with
+   | Ok () -> ()
+   | Error reason -> invalid_arg ("Api_anthropic.build_body_assoc: " ^ reason));
   (match config.config.min_p with
    | Some _ ->
      Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"min_p"
    | None -> ());
   let messages =
-    messages
-    |> Llm_provider.Tool_message_pairs.close_for_provider_request
-    |> Llm_provider.Api_common.merge_tool_result_followup_user_messages
+    Llm_provider.Api_common.merge_tool_result_followup_user_messages messages
   in
   let body_assoc =
     [ "model", `String model_str

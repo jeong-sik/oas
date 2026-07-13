@@ -266,9 +266,6 @@ let build_request_assoc_artifact
       ()
   =
   let tools = effective_tools config tools in
-  let sanitized_messages =
-    Backend_openai_serialize.close_tool_message_pairs_for_request messages
-  in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
   let output_token_receipt =
@@ -313,7 +310,7 @@ let build_request_assoc_artifact
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
        ]
      | _ -> [])
-    @ List.concat_map message_serializer sanitized_messages
+    @ List.concat_map message_serializer messages
   in
   (* Per-model capabilities ([caps] above) drive the [top_k] / [min_p]
      sampling-field gates further down; the output-token budget (clamp
@@ -380,10 +377,7 @@ let build_request_assoc_artifact
       ~enable_thinking:config.enable_thinking
       ~preserve_thinking:config.preserve_thinking
       ~thinking_budget:config.thinking_budget
-      ~reasoning_effort:
-        (Provider_config.reasoning_effort_request_value_typed
-           ~enable_thinking:config.enable_thinking
-           ~thinking_budget:config.thinking_budget)
+      ~reasoning_effort:config.reasoning_effort
       ?zai_glm_clear_thinking
       ()
     @ body
@@ -421,18 +415,14 @@ let build_request_assoc_artifact
   in
   let body = if stream then ("stream", `Bool true) :: body else body in
   let body =
-    if caps.supports_seed
-    then (
-      let seed =
-        match config.seed with
-        | Some n -> n
-        | None ->
-          (match Constants.Deterministic.seed_of_env () with
-           | Some n -> n
-           | None -> Constants.Deterministic.default_seed)
-      in
-      ("seed", `Int seed) :: body)
-    else body
+    match caps.supports_seed, config.seed with
+    | true, Some seed -> ("seed", `Int seed) :: body
+    | false, Some _ ->
+      invalid_arg
+        (Printf.sprintf
+           "Backend_openai_request.build_request: model %S does not support seed"
+           config.model_id)
+    | true, None | false, None -> body
   in
   Request_artifact_internal.create ~payload:(`Assoc body) ~output_token_receipt
 ;;

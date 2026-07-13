@@ -95,18 +95,18 @@ let%test "map_stream_finalize_result maps typed empty to provider unavailable (o
 ;;
 
 (** Streaming variant of create_message.
-    Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
-    Custom providers fall back to sync + synthetic events.
+    Supports providers with an implemented Anthropic or OpenAI-compatible SSE
+    codec. A custom provider without a streaming codec is rejected explicitly.
 
-    Does not accept retry_config: SSE streams deliver partial results
-    incrementally; retrying mid-stream would discard data. *)
+    Performs exactly one provider stream attempt. Partial events and a terminal
+    typed failure are returned unchanged; any later attempt belongs to a new
+    caller-owned stream. *)
 let create_message_stream_detailed
       ~sw
       ~net
       ?clock
       ?idle_timeout
-      ?(base_url = Api.default_base_url)
-      ?provider
+      ~provider
       ~config
       ~messages
       ?tools
@@ -114,28 +114,11 @@ let create_message_stream_detailed
       ()
   : (api_response, Provider_failure_attribution.detailed_error) result
   =
-  let resolve_result =
-    match provider with
-    | Some p ->
-      (match Provider.resolve p with
-       | Ok (url, key, headers) -> Ok (p, url, key, headers)
-       | Error e -> Error e)
-    | None ->
-      (match Llm_provider.Cli_common_env.get "ANTHROPIC_API_KEY" with
-       | Some key ->
-         let fallback_provider : Provider.config =
-           { provider = Provider.Anthropic
-           ; model_id = model_to_string config.config.model
-           ; api_key_env = "ANTHROPIC_API_KEY"
-           }
-         in
-         Ok (fallback_provider, base_url, key, [])
-       | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
-  in
-  match resolve_result with
+  match Provider.resolve provider with
   | Error error ->
     Error (Provider_failure_attribution.of_provider_configuration_error error)
-  | Ok (provider_cfg, base_url, api_key, resolved_headers) ->
+  | Ok (base_url, api_key, resolved_headers) ->
+    let provider_cfg = provider in
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let binding =
       Binding_identity.of_resolved_provider
@@ -272,23 +255,17 @@ let create_message_stream_detailed
               finalize_stream_acc acc)
             ()
           |> map_stream_finalize_result_detailed ~binding)
-     | Provider.Custom _ ->
-       (* Sync fallback: non-streaming call + synthetic events *)
-       (match
-          Api.create_message_detailed
-            ~sw
-            ~net
-            ~base_url
-            ~provider:provider_cfg
-            ~config
-            ~messages
-            ?tools
-            ()
-        with
-        | Ok response ->
-          emit_synthetic_events response on_event;
-          Ok response
-        | Error _ as error -> error))
+     | Provider.Custom name ->
+       let error =
+         Error.Config
+           (UnsupportedProvider
+              { detail =
+                  Printf.sprintf
+                    "custom provider %S does not declare an implemented streaming codec"
+                    name
+              })
+       in
+       Error (Provider_failure_attribution.of_runtime_binding_error ~binding error))
 ;;
 
 let create_message_stream
@@ -296,8 +273,7 @@ let create_message_stream
       ~net
       ?clock
       ?idle_timeout
-      ?base_url
-      ?provider
+      ~provider
       ~config
       ~messages
       ?tools
@@ -309,8 +285,7 @@ let create_message_stream
     ~net
     ?clock
     ?idle_timeout
-    ?base_url
-    ?provider
+    ~provider
     ~config
     ~messages
     ?tools

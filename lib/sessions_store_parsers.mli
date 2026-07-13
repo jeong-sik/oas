@@ -19,7 +19,6 @@ val decode_json_with : (Yojson.Safe.t -> 'a) -> string -> ('a, Error.sdk_error) 
 
 (** {1 Domain decoders} *)
 
-val shell_constraints_of_json : Yojson.Safe.t -> Tool.shell_constraints option
 val tool_contract_of_json : Yojson.Safe.t -> Sessions_types.tool_contract
 val telemetry_of_json : Yojson.Safe.t -> Sessions_types.telemetry
 val structured_telemetry_of_json : Yojson.Safe.t -> Sessions_types.structured_telemetry
@@ -29,5 +28,4 @@ val raw_trace_manifest_of_json
   :  Yojson.Safe.t
   -> (Sessions_types.raw_trace_manifest, string) result
 
-val workdir_policy_of_string : string -> Tool.workdir_policy option
 val infer_event_name_from_kind : string -> string

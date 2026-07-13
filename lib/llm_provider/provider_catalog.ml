@@ -387,6 +387,20 @@ let parse_capabilities provider_json =
     | `Assoc _ as v -> v
     | _ -> provider_json
   in
+  let* () =
+    match
+      List.find_opt
+        (fun field -> member_present field cap_json)
+        [ "supports_runtime_mcp_tools"; "supports_runtime_tool_events" ]
+    with
+    | None -> Ok ()
+    | Some field ->
+      Error
+        (Printf.sprintf
+           "removed provider catalog capability %S; runtime tool transport is not a \
+            model/provider capability"
+           field)
+  in
   let* base = capability_base provider_json in
   let* thinking_control_format =
     (* Provider-level presets declare the same [thinking_control_format] /
@@ -491,18 +505,6 @@ let parse_capabilities provider_json =
       "supports_parallel_tool_calls"
       caps
       (fun caps v -> { caps with Capabilities.supports_parallel_tool_calls = v })
-      cap_json
-    |> fun caps ->
-    override_bool
-      "supports_runtime_mcp_tools"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_runtime_mcp_tools = v })
-      cap_json
-    |> fun caps ->
-    override_bool
-      "supports_runtime_tool_events"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_runtime_tool_events = v })
       cap_json
     |> fun caps ->
     (match assistant_tool_content_format with
@@ -789,20 +791,6 @@ let load_file path =
   of_json json
 ;;
 
-let load_runtime_file path =
-  match load_file path with
-  | Ok catalog ->
-    Diag.info
-      "provider_catalog"
-      "loaded %d provider entries from %s"
-      (List.length catalog)
-      path;
-    Some catalog
-  | Error msg ->
-    Diag.warn "provider_catalog" "failed to load %s: %s" path msg;
-    None
-;;
-
 let normalize_id s = String.lowercase_ascii (String.trim s)
 
 let lookup t provider_id =
@@ -820,42 +808,7 @@ let default_model_for_provider t provider_id =
   | None -> None
 ;;
 
-type env_cache =
-  | Unloaded
-  | Loaded of t option
-
-let load_ambient_catalog () =
-  match Cli_common_env.get "OAS_PROVIDER_CATALOG" with
-  | None -> None
-  | Some path -> load_runtime_file path
-;;
-
-let env_loaded_catalog : env_cache Atomic.t = Atomic.make Unloaded
-
-let load_ambient_once () =
-  match Atomic.get env_loaded_catalog with
-  | Loaded value -> value
-  | Unloaded ->
-    let value = load_ambient_catalog () in
-    if Atomic.compare_and_set env_loaded_catalog Unloaded (Loaded value)
-    then value
-    else (
-      match Atomic.get env_loaded_catalog with
-      | Loaded value -> value
-      | Unloaded -> value)
-;;
-
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global t = Atomic.set runtime_override (Some t)
 let clear_global () = Atomic.set runtime_override None
-let preload_global () = ignore (load_ambient_once () : t option)
-
-let global () =
-  match Atomic.get runtime_override with
-  | Some _ as v -> v
-  | None ->
-    let env_value = load_ambient_once () in
-    (match Atomic.get runtime_override with
-     | Some _ as v -> v
-     | None -> env_value)
-;;
+let global () = Atomic.get runtime_override

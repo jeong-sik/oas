@@ -27,7 +27,10 @@ let content_block_gen =
              { tool_use_id = id
              ; content
              ; outcome =
-                 (if is_error then Legacy_unclassified_failure else Tool_succeeded)
+                 (if is_error
+                  then
+                    Tool_failed { failure_kind = Reported_tool_error; error_class = None }
+                  else Tool_succeeded)
              ; json = Types.try_parse_json content
              ; content_blocks = None
              })
@@ -193,8 +196,9 @@ let test_pricing_non_negative =
     ~name:"pricing is always non-negative"
     (QCheck.make QCheck.Gen.string_printable ~print:(fun s -> s))
     (fun model_id ->
-       let p = Provider.pricing_for_model model_id in
-       p.input_per_million >= 0.0 && p.output_per_million >= 0.0)
+       match Provider.pricing_for_model_opt model_id with
+       | None -> true
+       | Some p -> p.input_per_million >= 0.0 && p.output_per_million >= 0.0)
 ;;
 
 let test_cost_estimation_non_negative =
@@ -342,48 +346,6 @@ let test_raw_openai_compat_dashscope_requires_endpoint_declaration =
          && caps.thinking_control_format = Llm_provider.Capabilities.No_thinking_control))
 ;;
 
-(* ── Context Reducer Properties ──────────────────────────────── *)
-
-let test_context_reducer_never_adds =
-  QCheck.Test.make
-    ~count:100
-    ~name:"context reducer output is never longer than input"
-    (QCheck.make (QCheck.Gen.int_range 1 20) ~print:string_of_int)
-    (fun n ->
-       let msgs =
-         List.init (n + 5) (fun i ->
-           { role = (if i mod 2 = 0 then User else Assistant)
-           ; content = [ Text (Printf.sprintf "msg_%d" i) ]
-           ; name = None
-           ; tool_call_id = None
-           ; metadata = []
-           })
-       in
-       let reducer = Context_reducer.keep_last n in
-       let result = Context_reducer.reduce reducer msgs in
-       List.length result <= List.length msgs)
-;;
-
-let test_token_budget_reducer_respects_limit =
-  QCheck.Test.make
-    ~count:100
-    ~name:"token_budget reducer respects budget"
-    (QCheck.make (QCheck.Gen.int_range 100 10000) ~print:string_of_int)
-    (fun budget ->
-       let msgs =
-         List.init 20 (fun i ->
-           { role = (if i mod 2 = 0 then User else Assistant)
-           ; content = [ Text (String.make 50 'x') ]
-           ; name = None
-           ; tool_call_id = None
-           ; metadata = []
-           })
-       in
-       let reducer = Context_reducer.token_budget budget in
-       let result = Context_reducer.reduce reducer msgs in
-       List.length result <= List.length msgs)
-;;
-
 (* ── Lifecycle Properties ────────────────────────────────────── *)
 
 let lifecycle_status_gen =
@@ -443,9 +405,6 @@ let () =
       ; test_capabilities_provider_m_reasoning
       ; test_local_glm_model_id_requires_endpoint_declaration
       ; test_raw_openai_compat_dashscope_requires_endpoint_declaration
-      ; (* Context reducer *)
-        test_context_reducer_never_adds
-      ; test_token_budget_reducer_respects_limit
       ; (* Lifecycle *)
         test_lifecycle_show_non_empty
       ; (* Capabilities *)

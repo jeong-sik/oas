@@ -68,11 +68,11 @@ let with_trace_file name body =
        Out_channel.with_open_text trace_path (fun oc ->
          output_string
            oc
-           {|{"trace_version":1,"worker_run_id":"wr-file","seq":1,"ts":1.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_started","prompt":"Replay this","block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":null,"stop_reason":null,"error":null}|};
+           {|{"trace_version":2,"worker_run_id":"wr-file","seq":1,"ts":1.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_started","prompt":"Replay this","block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":null,"stop_reason":null,"error":null}|};
          output_char oc '\n';
          output_string
            oc
-           {|{"trace_version":1,"worker_run_id":"wr-file","seq":2,"ts":2.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_finished","prompt":null,"block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":"done","stop_reason":"end_turn","error":null}|};
+           {|{"trace_version":2,"worker_run_id":"wr-file","seq":2,"ts":2.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_finished","prompt":null,"block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":"done","stop_reason":"end_turn","error":null}|};
          output_char oc '\n');
        body trace_path)
 ;;
@@ -124,7 +124,7 @@ let test_grade_case_trace_replay () =
       Harness_case.trace_replay_of_records
         ~id:"trace-replay"
         ~source_trace_path:"/tmp/trace-replay.ndjson"
-        [ { Raw_trace.trace_version = 1
+        [ { Raw_trace.trace_version = Raw_trace.trace_version
           ; worker_run_id = "wr-1"
           ; seq = 1
           ; ts = 1.0
@@ -137,6 +137,7 @@ let test_grade_case_trace_replay () =
           ; enable_thinking = None
           ; preserve_thinking = None
           ; thinking_budget = None
+          ; reasoning_effort = None
           ; block_index = None
           ; block_kind = None
           ; assistant_block = None
@@ -146,8 +147,7 @@ let test_grade_case_trace_replay () =
           ; tool_planned_index = None
           ; tool_batch_index = None
           ; tool_batch_size = None
-          ; tool_concurrency_class = None
-          ; evidence_role = None
+          ; tool_execution_mode = None
           ; tool_result = None
           ; tool_error = None
           ; hook_name = None
@@ -157,7 +157,7 @@ let test_grade_case_trace_replay () =
           ; stop_reason = None
           ; error = None
           }
-        ; { Raw_trace.trace_version = 1
+        ; { Raw_trace.trace_version = Raw_trace.trace_version
           ; worker_run_id = "wr-1"
           ; seq = 2
           ; ts = 2.0
@@ -170,6 +170,7 @@ let test_grade_case_trace_replay () =
           ; enable_thinking = None
           ; preserve_thinking = None
           ; thinking_budget = None
+          ; reasoning_effort = None
           ; block_index = None
           ; block_kind = None
           ; assistant_block = None
@@ -179,8 +180,7 @@ let test_grade_case_trace_replay () =
           ; tool_planned_index = None
           ; tool_batch_index = None
           ; tool_batch_size = None
-          ; tool_concurrency_class = None
-          ; evidence_role = None
+          ; tool_execution_mode = None
           ; tool_result = None
           ; tool_error = None
           ; hook_name = None
@@ -331,7 +331,6 @@ let test_grade_case_trace_assertion_matrix () =
         [ Harness_case.Trace (Harness_case.Tool_called "read")
         ; Harness_case.Trace (Harness_case.Tool_sequence [ "read"; "write" ])
         ; Harness_case.Trace (Harness_case.Tool_call_count 2)
-        ; Harness_case.Trace (Harness_case.Max_turns 3)
         ]
       ~id:"trace-pass"
       ~prompt:"noop"
@@ -347,7 +346,7 @@ let test_grade_case_trace_assertion_matrix () =
       case_
   in
   check bool "passed" true (result.status = Harness_report.Pass);
-  check int "trace verdicts" 4 (List.length result.verdicts)
+  check int "trace verdicts" 3 (List.length result.verdicts)
 ;;
 
 let test_grade_case_trace_assertion_failures () =
@@ -357,7 +356,6 @@ let test_grade_case_trace_assertion_failures () =
         [ Harness_case.Trace (Harness_case.Tool_called "write")
         ; Harness_case.Trace (Harness_case.Tool_sequence [ "write" ])
         ; Harness_case.Trace (Harness_case.Tool_call_count 2)
-        ; Harness_case.Trace (Harness_case.Max_turns 2)
         ]
       ~id:"trace-fail"
       ~prompt:"noop"
@@ -373,7 +371,7 @@ let test_grade_case_trace_assertion_failures () =
       case_
   in
   check bool "failed" true (result.status = Harness_report.Fail);
-  check int "trace verdicts" 4 (List.length result.verdicts)
+  check int "trace verdicts" 3 (List.length result.verdicts)
 ;;
 
 let test_grade_case_metric_variants () =

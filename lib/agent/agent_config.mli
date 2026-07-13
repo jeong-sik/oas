@@ -30,12 +30,11 @@ type agent_file_config =
   ; model : string
   ; system_prompt : string option
   ; max_tokens : int option
-  ; max_turns : int option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; provider : string option
-  ; base_url : string option
   ; tools : tool_file_config list
   ; mcp_servers : mcp_file_config list
   }
@@ -50,7 +49,10 @@ val load : string -> (agent_file_config, Error.sdk_error) result
 
 (** {1 Provider resolution} *)
 
-val resolve_provider : model_id:Types.model -> string -> string option -> Provider.config
+val resolve_provider
+  :  model_id:Types.model
+  -> string
+  -> (Provider.config, Error.sdk_error) result
 
 (** {1 MCP connection} *)
 
@@ -75,4 +77,4 @@ val to_builder
   -> ?mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> agent_file_config
-  -> Builder.t
+  -> (Builder.t, Error.sdk_error) result

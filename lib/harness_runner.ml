@@ -175,15 +175,6 @@ let trace_verdict
       ; Printf.sprintf "actual_tool_calls=%d" actual
       ]
       ~detail:(if passed then None else Some "tool call count mismatch")
-  | Harness_case.Max_turns expected ->
-    let passed = obs.turn_count <= expected in
-    mk_verdict
-      ~score:(if passed then 1.0 else 0.0)
-      passed
-      [ Printf.sprintf "max_turns=%d" expected
-      ; Printf.sprintf "actual_turns=%d" obs.turn_count
-      ]
-      ~detail:(if passed then None else Some "turn limit exceeded")
 ;;
 
 let compare_numeric_threshold ~goal ~target ~tolerance_pct current =

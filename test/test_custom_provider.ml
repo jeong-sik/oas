@@ -84,12 +84,12 @@ let test_register_overwrites () =
 (* ── Custom_registered config creation ─────────────────────── *)
 
 let test_custom_provider_config () =
-  let cfg = Provider.custom_provider ~name:"my-vllm" () in
+  let cfg = Provider.custom_provider ~name:"my-vllm" ~model_id:"exact-model" () in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider name" "my-vllm" name;
-    Alcotest.(check string) "default model_id" "custom" cfg.model_id;
-    Alcotest.(check string) "default api_key_env" "DUMMY_KEY" cfg.api_key_env
+    Alcotest.(check string) "exact model_id" "exact-model" cfg.model_id;
+    Alcotest.(check string) "no credential override" "" cfg.api_key_env
   | _ -> Alcotest.fail "expected Custom_registered variant"
 ;;
 
@@ -110,7 +110,7 @@ let test_custom_provider_config_with_overrides () =
 let test_resolve_registered () =
   let impl = make_test_impl ~name:"resolve-test" () in
   Provider.register_provider impl;
-  let cfg = Provider.custom_provider ~name:"resolve-test" () in
+  let cfg = Provider.custom_provider ~name:"resolve-test" ~model_id:"exact-model" () in
   match Provider.resolve cfg with
   | Ok (base_url, _key, _headers) ->
     Alcotest.(check string) "base_url from impl" "http://localhost:9999" base_url
@@ -119,7 +119,9 @@ let test_resolve_registered () =
 ;;
 
 let test_resolve_unregistered () =
-  let cfg = Provider.custom_provider ~name:"never-registered-zzz" () in
+  let cfg =
+    Provider.custom_provider ~name:"never-registered-zzz" ~model_id:"exact-model" ()
+  in
   match Provider.resolve cfg with
   | Error (Error.Config (InvalidConfig { field; _ })) ->
     Alcotest.(check string) "field" "provider" field
@@ -190,7 +192,9 @@ let test_model_spec_registered () =
 (* ── provider_runtime_name ──────────────────────────────── *)
 
 let test_lifecycle_runtime_name () =
-  let cfg : Provider.config = Provider.custom_provider ~name:"life-test" () in
+  let cfg : Provider.config =
+    Provider.custom_provider ~name:"life-test" ~model_id:"exact-model" ()
+  in
   let name = Agent_lifecycle.provider_runtime_name (Some cfg) in
   Alcotest.(check (option string)) "runtime name" (Some "life-test") name
 ;;
@@ -206,7 +210,7 @@ let test_openai_body_forces_parallel_disable_from_provider_capability () =
   in
   let state =
     { Types.config =
-        { Types.default_config with
+        { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; tool_choice = Some Types.Auto
         ; disable_parallel_tool_use = false

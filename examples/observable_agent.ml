@@ -197,7 +197,13 @@ let resolve_provider ~sw ~net =
   if force_mock
   then None
   else (
-    let endpoints = Llm_provider.Discovery.endpoints_from_env () in
+    let endpoints =
+      Llm_provider.Discovery.parse_llm_endpoints_env ()
+      |> List.map
+           (Llm_provider.Discovery.endpoint
+              ~protocol:Llm_provider.Discovery.Openai_compatible
+              ~capabilities:Llm_provider.Capabilities.default_capabilities)
+    in
     let statuses = Llm_provider.Discovery.discover ~sw ~net ~endpoints in
     List.find_map
       (fun (s : Llm_provider.Discovery.endpoint_status) ->
@@ -260,11 +266,9 @@ let () =
       }
     in
     let config =
-      { default_config with
+      { (default_config ~model:model_label) with
         name = "observable"
-      ; model = model_label
       ; system_prompt = Some "You have tools. Use them to answer."
-      ; max_turns = 5
       }
     in
     let agent =

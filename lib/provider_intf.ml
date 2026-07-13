@@ -241,7 +241,13 @@ let%test "supports_streaming OpenAICompat" =
 ;;
 
 let%test "of_config returns a provider_module" =
-  match of_config (Provider.local_llm ()) with
+  match
+    of_config
+      (Provider.local_llm
+         ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
+         ~model_id:"test-model"
+         ())
+  with
   | Ok _ -> true
   | Error _ -> false
 ;;
@@ -260,7 +266,13 @@ let%test "of_config propagates resolve errors" =
 ;;
 
 let%test "of_config_streaming Local returns Some" =
-  match of_config_streaming (Provider.local_llm ()) with
+  match
+    of_config_streaming
+      (Provider.local_llm
+         ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
+         ~model_id:"test-model"
+         ())
+  with
   | Ok (Some _) -> true
   | _ -> false
 ;;

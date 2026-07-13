@@ -1,40 +1,5 @@
 open Agent_sdk
 
-let with_state f =
-  Eio_main.run
-  @@ fun env ->
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
-  f state
-;;
-
-let test_next_control_id_sequential () =
-  with_state
-  @@ fun state ->
-  let ids = List.init 3 (fun _ -> Runtime_server_types.next_control_id state) in
-  Alcotest.(check (list string))
-    "sequential ids"
-    [ "ctrl-000001"; "ctrl-000002"; "ctrl-000003" ]
-    ids
-;;
-
-let test_next_control_id_unique_across_domains () =
-  with_state
-  @@ fun state ->
-  let workers = 4 in
-  let per_worker = 200 in
-  let domains =
-    List.init workers (fun _ ->
-      Domain.spawn (fun () ->
-        Array.to_list
-          (Array.init per_worker (fun _ -> Runtime_server_types.next_control_id state))))
-  in
-  let ids = List.concat (List.map Domain.join domains) in
-  let module S = Set.Make (String) in
-  let uniq = List.fold_left (fun acc id -> S.add id acc) S.empty ids in
-  Alcotest.(check int) "all ids returned" (workers * per_worker) (List.length ids);
-  Alcotest.(check int) "all ids unique" (workers * per_worker) (S.cardinal uniq)
-;;
-
 let participant_event ?raw_trace_run_id () : Runtime.participant_event =
   { participant_name = "worker-1"
   ; summary = None
@@ -123,7 +88,7 @@ let test_custom_name_of_kind_all_variants () =
   let cases =
     [ ( Runtime.Session_started { goal = "g"; participants = [ "p" ] }
       , "runtime.session_started" )
-    ; ( Runtime.Session_settings_updated { model = Some "m"; permission_mode = None }
+    ; ( Runtime.Session_settings_updated { model = Some "m" }
       , "runtime.session_settings_updated" )
     ; ( Runtime.Turn_recorded { actor = Some "user"; message = "hello" }
       , "runtime.turn_recorded" )
@@ -149,9 +114,8 @@ let test_custom_name_of_kind_all_variants () =
           { participant_name = "worker-1"
           ; role = Some "reviewer"
           ; prompt = "review"
-          ; provider = Some "mock"
-          ; model = Some "mock-model"
-          ; permission_mode = Some "ask"
+          ; provider = Some "test-provider"
+          ; model = Some "test-model"
           }
       , "runtime.agent_spawn_requested" )
     ; Runtime.Agent_became_live participant, "runtime.agent_became_live"
@@ -200,17 +164,116 @@ let test_session_root_request_path_trims_blank_values () =
     (Runtime_server_types.session_root_request_path None)
 ;;
 
+let cancellable_lane started cancelled blocker () =
+  Eio.Promise.resolve started ();
+  match Eio.Promise.await blocker with
+  | () -> ()
+  | exception (Eio.Cancel.Cancelled _ as exn) ->
+    ignore (Eio.Promise.try_resolve cancelled ());
+    raise exn
+;;
+
+let test_settle_session_lane_is_session_scoped () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let a_started, a_started_resolver = Eio.Promise.create () in
+  let a_cancelled, a_cancelled_resolver = Eio.Promise.create () in
+  let a_blocker, _a_blocker_resolver = Eio.Promise.create () in
+  let b_started, b_started_resolver = Eio.Promise.create () in
+  let b_cancelled, b_cancelled_resolver = Eio.Promise.create () in
+  let b_blocker, b_blocker_resolver = Eio.Promise.create () in
+  (match
+     Runtime_server_types.fork_participant_lane
+       ~sw
+       state
+       ~session_id:"session-a"
+       ~participant_name:"agent-a"
+       (cancellable_lane a_started_resolver a_cancelled_resolver a_blocker)
+   with
+   | Ok () -> ()
+   | Error err -> Alcotest.fail (Error.to_string err));
+  (match
+     Runtime_server_types.fork_participant_lane
+       ~sw
+       state
+       ~session_id:"session-b"
+       ~participant_name:"agent-b"
+       (cancellable_lane b_started_resolver b_cancelled_resolver b_blocker)
+   with
+   | Ok () -> ()
+   | Error err -> Alcotest.fail (Error.to_string err));
+  Eio.Promise.await a_started;
+  Eio.Promise.await b_started;
+  Runtime_server_types.settle_session_lane state "session-a";
+  Alcotest.(check bool)
+    "session-a cancelled"
+    true
+    (Option.is_some (Eio.Promise.peek a_cancelled));
+  Alcotest.(check bool)
+    "session-b remains live"
+    true
+    (Option.is_none (Eio.Promise.peek b_cancelled));
+  (match
+     Runtime_server_types.fork_participant_lane
+       ~sw
+       state
+       ~session_id:"session-a"
+       ~participant_name:"late-agent-a"
+       (fun () -> Alcotest.fail "settled session accepted a late participant")
+   with
+   | Error (Error.Config (InvalidConfig { field = "runtime.session_lane"; _ })) -> ()
+   | Error err ->
+     Alcotest.failf "unexpected settled-session error: %s" (Error.to_string err)
+   | Ok () -> Alcotest.fail "settled session must reject late participants");
+  Eio.Promise.resolve b_blocker_resolver ();
+  Runtime_server_types.settle_session_lane state "session-b"
+;;
+
+let test_shutdown_settles_all_lanes_before_return () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let started, started_resolver = Eio.Promise.create () in
+  let cancelled, cancelled_resolver = Eio.Promise.create () in
+  let blocker, _blocker_resolver = Eio.Promise.create () in
+  (match
+     Runtime_server_types.fork_participant_lane
+       ~sw
+       state
+       ~session_id:"session-shutdown"
+       ~participant_name:"agent-shutdown"
+       (cancellable_lane started_resolver cancelled_resolver blocker)
+   with
+   | Ok () -> ()
+   | Error err -> Alcotest.fail (Error.to_string err));
+  Eio.Promise.await started;
+  Runtime_server_types.settle_all_session_lanes state;
+  Alcotest.(check bool)
+    "lane cancellation observed before settle returned"
+    true
+    (Option.is_some (Eio.Promise.peek cancelled));
+  match
+    Runtime_server_types.fork_participant_lane
+      ~sw
+      state
+      ~session_id:"late-session"
+      ~participant_name:"late-agent"
+      (fun () -> Alcotest.fail "shutdown accepted a late lane")
+  with
+  | Error (Error.Config (InvalidConfig { field = "runtime.lifecycle"; _ })) -> ()
+  | Error err -> Alcotest.failf "unexpected late-lane error: %s" (Error.to_string err)
+  | Ok () -> Alcotest.fail "shutdown must reject late participant lanes"
+;;
+
 let () =
   Alcotest.run
     "Runtime_server_types"
-    [ ( "control ids"
-      , [ Alcotest.test_case "sequential" `Quick test_next_control_id_sequential
-        ; Alcotest.test_case
-            "unique across domains"
-            `Quick
-            test_next_control_id_unique_across_domains
-        ] )
-    ; ( "event bus run correlation"
+    [ ( "event bus run correlation"
       , [ Alcotest.test_case
             "uses participant raw trace run id"
             `Quick
@@ -243,6 +306,16 @@ let () =
             "trims request path"
             `Quick
             test_session_root_request_path_trims_blank_values
+        ] )
+    ; ( "session lanes"
+      , [ Alcotest.test_case
+            "settle is session scoped"
+            `Quick
+            test_settle_session_lane_is_session_scoped
+        ; Alcotest.test_case
+            "shutdown settles all lanes"
+            `Quick
+            test_shutdown_settles_all_lanes_before_return
         ] )
     ]
 ;;

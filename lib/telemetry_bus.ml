@@ -12,10 +12,7 @@
 type t = { bus : Event_bus.t }
 type subscription = { inner : Event_bus.subscription }
 
-let create ?(buffer_size = 256) ?(policy = Event_bus.Drop_oldest) () =
-  { bus = Event_bus.create ~buffer_size ~policy () }
-;;
-
+let create () = { bus = Event_bus.create () }
 let of_event_bus bus = { bus }
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
@@ -29,19 +26,13 @@ let publish bus event =
 
 (* ── Subscribe ────────────────────────────────────────────────────── *)
 
-let subscribe ?filter ?purpose bus =
-  let telemetry_filter (ev : Event_bus.event) =
-    match ev.payload with
-    | Event_bus.Custom ("telemetry_event", json) ->
-      (match Llm_provider.Telemetry_event.of_yojson json with
-       | Ok te ->
-         (match filter with
-          | Some f -> f te
-          | None -> true)
-       | Error _ -> false)
-    | _ -> false
+let subscribe ?purpose bus =
+  let inner =
+    Event_bus.subscribe
+      ~filter:(Event_bus.filter_topic "telemetry_event")
+      ?purpose
+      bus.bus
   in
-  let inner = Event_bus.subscribe ~filter:telemetry_filter ?purpose bus.bus in
   { inner }
 ;;
 

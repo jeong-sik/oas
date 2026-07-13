@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "capability-manifest-v1",
   "title": "OAS Capability Manifest v1",
-  "description": "External model capability overrides for the OAS agent SDK. Load with OAS_CAPABILITY_MANIFEST=path/to/manifest.json.",
+  "description": "External model capability overrides for the OAS agent SDK. Load explicitly with Capability_manifest.load_file and install with Capability_manifest.set_global.",
   "type": "object",
   "required": ["schema_version", "models"],
   "properties": {

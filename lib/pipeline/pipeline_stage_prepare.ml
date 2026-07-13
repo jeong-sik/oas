@@ -56,13 +56,12 @@ let stage_input ?raw_trace_run ?clock agent =
         | None -> ());
        (match
           Agent_elicitation.message_of_response
-            ~metadata:(Agent_types.recovery_run_boundary_metadata agent)
+            ~metadata:[]
             ~question:req.question
             response
         with
         | Some message ->
-          update_state agent (fun s -> { s with messages = Util.snoc s.messages message });
-          Agent_types.set_recovery_state agent Agent_types.empty_recovery_state
+          update_state agent (fun s -> { s with messages = Util.snoc s.messages message })
         | None -> ());
        Ok ()
      | None ->
@@ -93,11 +92,7 @@ let stage_input ?raw_trace_run ?clock agent =
   | Hooks.Continue -> Ok ()
   | Hooks.HookFailed { stage; detail } ->
     Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
-  | Hooks.Skip
-  | Hooks.Override _
-  | Hooks.ApprovalRequired
-  | Hooks.AdjustParams _
-  | Hooks.Block _ ->
+  | Hooks.ApprovalRequired | Hooks.AdjustParams _ | Hooks.Block _ ->
     (* Reject illegal hook decisions with a typed error instead of crashing.
        [Hooks.invoke_validated] normally filters these out; this branch guards
        against a validation bypass or future hook matrix drift. [Block] is
@@ -105,42 +100,7 @@ let stage_input ?raw_trace_run ?clock agent =
     Error (illegal_hook_decision ~stage:"before_turn" ~decision:before_decision)
 ;;
 
-(* Lower a canonical tool-result projection to the [Types.tool_result] the
-   [before_turn_params] hook and disclosure resolver consume. [outcome]
-   selects the Error/Ok branch; [content] is the canonical string payload.
-   [structured_content]/[content_blocks] from the projection are not needed by
-   these local consumers but are surfaced by the projection for a downstream
-   external consumer (RFC-OAS-024). *)
-let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_result)
-  : Types.tool_result
-  =
-  Types.tool_result_of_outcome ~content:proj.content proj.outcome
-;;
-
-let role_can_carry_tool_results = function
-  | User | Tool -> true
-  | System | Assistant -> false
-;;
-
-let last_tool_results_from messages =
-  let extract_results msg =
-    if not (role_can_carry_tool_results msg.role)
-    then []
-    else
-      List.filter_map
-        (fun (block : content_block) ->
-           Llm_provider.Canonical_tool.tool_result_of_block block
-           |> Option.map tool_result_of_projection)
-        msg.content
-  in
-  List.fold_left
-    (fun acc msg ->
-       match extract_results msg with
-       | [] -> acc
-       | results -> results)
-    []
-    messages
-;;
+let last_tool_results_from = Agent_turn.last_tool_results_from
 
 (* Wiring coverage (RFC-OAS-024 WP8 Inc1): the consumed [last_tool_results_from]
    path routes [ToolResult] blocks through
@@ -162,7 +122,8 @@ let%test "last_tool_results_from routes through canonical projection (with json)
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "boom"
-              ; outcome = Legacy_unclassified_failure
+              ; outcome =
+                  Tool_failed { failure_kind = Reported_tool_error; error_class = None }
               ; json = None
               ; content_blocks = None
               }
@@ -180,189 +141,66 @@ let%test "last_tool_results_from routes through canonical projection (with json)
   | _ -> false
 ;;
 
-let resolve_disclosure_level agent =
-  match agent.options.disclosure_resolver with
-  | None -> agent.options.disclosure_level
-  | Some resolver ->
-    Disclosure_resolver.resolve
-      ~resolver:(Some resolver)
-      ~static:agent.options.disclosure_level
-      ~last_results:(last_tool_results_from agent.state.messages)
-;;
-
 let prepare_turn_for_agent agent ~turn_params =
   Agent_turn.prepare_turn
-    ~config:agent.state.config
-    ~guardrails:agent.options.guardrails
-    ~operator_policy:agent.options.operator_policy
-    ~policy_channel:agent.options.policy_channel
     ~tools:agent.tools
     ~messages:agent.state.messages
-    ~context_reducer:agent.options.context_reducer
     ~turn_params
-    ?tool_selector:agent.options.tool_selector
-    ?disclosure_level:(resolve_disclosure_level agent)
     ()
 ;;
 
-let dedupe_preserve_order xs =
-  let seen = Hashtbl.create (List.length xs) in
-  List.filter
-    (fun x ->
-       if x = "" || Hashtbl.mem seen x
-       then false
-       else (
-         Hashtbl.replace seen x ();
-         true))
-    xs
-;;
-
-let turn_ready_tool_names_from_policy ?runtime_mcp_policy visible_tool_names =
-  let runtime_tool_names =
-    match runtime_mcp_policy with
-    | None -> []
-    | Some policy -> policy.Llm_provider.Llm_transport.allowed_tool_names
-  in
-  dedupe_preserve_order (visible_tool_names @ runtime_tool_names)
-;;
-
-let turn_ready_tool_names (prep : Agent_turn.turn_preparation) =
-  turn_ready_tool_names_from_policy
-    ?runtime_mcp_policy:prep.runtime_mcp_policy
-    prep.visible_tool_names
-;;
-
-let%test "turn_ready_tool_names includes runtime MCP policy names" =
-  let runtime_mcp_policy =
-    { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
-      allowed_tool_names = [ "status_tool"; "shell_tool"; "inline_tool" ]
-    }
-  in
-  turn_ready_tool_names_from_policy ~runtime_mcp_policy [ "inline_tool" ]
-  = [ "inline_tool"; "status_tool"; "shell_tool" ]
-;;
-
-let filter_runtime_tool_names tool_filter names =
-  match tool_filter with
-  | Guardrails.AllowAll -> names
-  | AllowList allowed -> List.filter (fun name -> List.mem name allowed) names
-  | DenyList denied -> List.filter (fun name -> not (List.mem name denied)) names
-  | Custom _ -> []
-;;
-
-let narrow_runtime_mcp_policy_for_turn
-      (guardrails : Guardrails.t)
-      (policy : Llm_provider.Llm_transport.runtime_mcp_policy)
-  =
-  { policy with
-    allowed_tool_names =
-      filter_runtime_tool_names guardrails.tool_filter policy.allowed_tool_names
-  }
-;;
-
-let runtime_mcp_policy_for_prepared_turn
-      runtime_mcp_policy
-      (prep : Agent_turn.turn_preparation)
-  =
-  runtime_mcp_policy
-  |> Option.map (narrow_runtime_mcp_policy_for_turn prep.effective_guardrails)
-;;
-
-let%test "runtime MCP policy is narrowed by AllowList guardrails" =
-  let policy =
-    { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
-      allowed_tool_names = [ "status_tool"; "shell_tool"; "ledger_tool" ]
-    }
-  in
-  let narrowed =
-    narrow_runtime_mcp_policy_for_turn
-      { Guardrails.permissive with
-        tool_filter = Guardrails.AllowList [ "status_tool"; "ledger_tool" ]
-      }
-      policy
-  in
-  narrowed.allowed_tool_names = [ "status_tool"; "ledger_tool" ]
-;;
-
-let stage_parse ?raw_trace_run ?clock ?recovery_context agent =
+let stage_parse ?raw_trace_run ?clock agent =
   let* turn_params =
-    match agent.options.hooks.before_turn_params with
-    | None -> Ok Hooks.default_turn_params
-    | Some _ ->
-      let last_results = last_tool_results_from agent.state.messages in
-      let reasoning = Hooks.extract_reasoning agent.state.messages in
-      let decision =
-        invoke_hook_with_trace
-          agent
-          ?raw_trace_run
-          ~hook_name:"before_turn_params"
-          agent.options.hooks.before_turn_params
-          (Hooks.BeforeTurnParams
-             { turn = agent.state.turn_count
-             ; max_turns = agent.state.config.max_turns
-             ; messages = agent.state.messages
-             ; last_tool_results = last_results
-             ; current_params = Hooks.default_turn_params
-             ; reasoning
-             })
-      in
-      (match decision with
-       | Hooks.AdjustParams params -> Ok params
-       | Hooks.Continue -> Ok Hooks.default_turn_params
-       | Hooks.HookFailed { stage; detail } ->
-         Error (hook_failed_sdk_error ~hook_name:"before_turn_params" ~stage ~detail)
-       | Hooks.Skip
-       | Hooks.Override _
-       | Hooks.ApprovalRequired
-       | Hooks.ElicitInput _
-       | Hooks.Nudge _
-       | Hooks.Block _ ->
-         (* Reject illegal hook decisions with a typed error instead of crashing.
-            [Block] is legal only at pre_tool_use, so it is illegal here. *)
-         Error (illegal_hook_decision ~stage:"before_turn_params" ~decision))
+    match
+      Agent_turn.resolve_turn_params
+        ~hooks:agent.options.hooks
+        ~messages:agent.state.messages
+        ~turn:agent.state.turn_count
+        ~invoke_hook:(fun ~hook_name hook event ->
+          invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook event)
+    with
+    | Ok params -> Ok params
+    | Error (Agent_turn.Hook_failed { stage; detail }) ->
+      Error (hook_failed_sdk_error ~hook_name:"before_turn_params" ~stage ~detail)
+    | Error (Agent_turn.Illegal_decision decision) ->
+      Error (illegal_hook_decision ~stage:"before_turn_params" ~decision)
   in
-  let original_config = agent.state.config in
-  let new_config =
-    { original_config with
+  let base_config = agent.state.config in
+  let turn_config =
+    { base_config with
       temperature =
         (match turn_params.temperature with
          | Some _ as t -> t
-         | None -> original_config.temperature)
+         | None -> base_config.temperature)
     ; thinking_budget =
         (match turn_params.thinking_budget with
          | Some _ as t -> t
-         | None -> original_config.thinking_budget)
+         | None -> base_config.thinking_budget)
+    ; reasoning_effort =
+        (match turn_params.reasoning_effort with
+         | Some _ as effort -> effort
+         | None -> base_config.reasoning_effort)
     ; enable_thinking =
         (match turn_params.enable_thinking with
          | Some _ as t -> t
-         | None -> original_config.enable_thinking)
+         | None -> base_config.enable_thinking)
     ; preserve_thinking =
         (match turn_params.preserve_thinking with
          | Some _ as t -> t
-         | None -> original_config.preserve_thinking)
+         | None -> base_config.preserve_thinking)
     ; tool_choice =
         (match turn_params.tool_choice with
          | Some _ as t -> t
-         | None -> original_config.tool_choice)
+         | None -> base_config.tool_choice)
     ; system_prompt =
         (let base =
            match turn_params.system_prompt_override with
            | Some _ as prompt -> prompt
-           | None -> original_config.system_prompt
+           | None -> base_config.system_prompt
          in
-         let base = Option.map Llm_provider.Utf8_sanitize.sanitize base in
-         match recovery_context with
-         | None -> base
-         | Some context ->
-           let context = Llm_provider.Utf8_sanitize.sanitize context in
-           Some
-             (match base with
-              | None -> context
-              | Some prompt -> prompt ^ "\n\n" ^ context))
+         Option.map Llm_provider.Utf8_sanitize.sanitize base)
     }
   in
-  update_state agent (fun s -> { s with config = new_config });
-  let original_config = original_config in
   (match agent.options.event_bus with
    | Some bus ->
      safe_publish
@@ -395,17 +233,10 @@ let stage_parse ?raw_trace_run ?clock ?recovery_context agent =
           })
    | None -> ());
   let prep = prepare_turn_for_agent agent ~turn_params in
-  let runtime_mcp_policy =
-    runtime_mcp_policy_for_prepared_turn agent.options.runtime_mcp_policy prep
-  in
-  let prep = { prep with runtime_mcp_policy } in
-  let ready_tool_names = turn_ready_tool_names prep in
-  (* TurnReady event — emitted after guardrails + operator policy +
-     tool_filter_override + tool_selector have produced the final tool
-     list the LLM will see this turn. CLI runtime-MCP tools are included
-     from the request-scoped runtime policy because those tools bypass
-     inline Tool.t schemas. Downstream substrate observability
-     subscribers use this to verify deterministically
+  let ready_tool_names = prep.visible_tool_names in
+  (* TurnReady reports the exact caller-supplied tool list the LLM will see
+     this turn. Downstream substrate observability subscribers use this
+     to verify deterministically
      which tools the autonomous agent actually has access to, before
      making claims about LLM behaviour from a missing tool call.
      Sibling of TurnStarted (announce) and TurnCompleted (post-LLM). *)
@@ -434,5 +265,5 @@ let stage_parse ?raw_trace_run ?clock ?recovery_context agent =
              }
        }
    | None -> ());
-  Ok (prep, original_config, turn_params)
+  Ok (prep, turn_config, turn_params)
 ;;

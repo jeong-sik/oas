@@ -24,14 +24,12 @@ let mk_session ?(artifacts = []) session_id : Runtime.session =
   ; goal = "artifact coverage"
   ; title = Some "Artifact coverage"
   ; tag = Some "test"
-  ; permission_mode = Some "default"
   ; phase = Runtime.Running
   ; created_at = 1.0
   ; updated_at = 2.0
   ; provider = None
   ; model = None
   ; system_prompt = None
-  ; max_turns = 3
   ; workdir = None
   ; planned_participants = []
   ; participants = []

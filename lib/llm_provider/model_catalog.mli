@@ -85,7 +85,6 @@ val of_model_entries : model_entry list -> t
 val model_entries : t -> model_entry list
 val provider_entries : t -> provider_entry list
 val load_file : string -> (t, string) result
-val load_runtime_file : string -> t option
 
 (** Candidate locations for the packaged default [models.toml].
 
@@ -101,14 +100,8 @@ val default_catalog_paths : unit -> string list
     rather than falling back silently. *)
 val load_default : unit -> (t, string) result
 
-(** Longest-prefix lookup for catalog model IDs.
-
-    In addition to exact catalog syntax, [lookup] accepts a flattened
-    [<provider_label>.<model_id>] value and resolves it against
-    [<provider_label>/<model_id>] or [<provider_label>:<model_id>] entries. This
-    keeps embedding runtimes that use dot-qualified model identifiers on the
-    same provider-qualified catalog path rather than falling back to generic
-    OpenAI-compatible capabilities. *)
+(** Longest-prefix lookup using the catalog's exact declared [id_prefix]
+    syntax. OAS does not rewrite dot/slash/colon-qualified identifiers. *)
 val lookup : t -> string -> model_entry option
 
 (** Return the catalog-declared provider identity for the longest matching
@@ -142,15 +135,16 @@ val provider_label_for_endpoint
 
     Resolution order:
     - runtime override installed with {!set_global}
-    - [OAS_MODEL_CATALOG], when set to a non-empty path
     - packaged default [models.toml] installed through the agent_sdk
       [model_catalog] Dune site, or the source-root [models.toml] when running
       from an uninstalled Dune build
 
-    The ambient result is cached after the first load. {!clear_global} clears
-    the runtime override and the ambient cache. *)
+    The packaged result is cached after the first load. OAS does not inspect an
+    environment variable for an alternate catalog. Callers that need a custom
+    catalog must call {!load_file} and {!set_global} explicitly.
+
+    {!clear_global} clears the runtime override and packaged cache. *)
 val global : unit -> t option
 
-val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

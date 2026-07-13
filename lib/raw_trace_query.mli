@@ -19,13 +19,6 @@ val read_runs : path:string -> unit -> (Raw_trace.run_ref list, Error.sdk_error)
 (** Read all records for a single run. *)
 val read_run : Raw_trace.run_ref -> (Raw_trace.record list, Error.sdk_error) result
 
-(** Summarize observed evidence roles in records without relying on tool names.
-    This is the typed extension point for future evidence roles: callers can
-    group by [Raw_trace.evidence_role] without changing raw-trace query code. *)
-val evidence_role_summaries
-  :  Raw_trace.record list
-  -> Raw_trace.evidence_role_summary list
-
 (** {1 Summarize} *)
 
 (** Produce a summary of a single run (event counts, tool/hook names,
@@ -36,6 +29,5 @@ val summarize_run : Raw_trace.run_ref -> (Raw_trace.run_summary, Error.sdk_error
 
 (** Run structural validation checks on a single run.
     Checks sequence monotonicity, run start/finish presence,
-    tool execution pairing, typed evidence-role summaries, and optional
-    verification pass. *)
+    and tool execution pairing. *)
 val validate_run : Raw_trace.run_ref -> (Raw_trace.run_validation, Error.sdk_error) result

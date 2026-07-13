@@ -2,8 +2,8 @@
 
 OAS supports an external provider catalog for adding or overriding provider
 connection metadata without changing SDK code. This is the provider-side
-companion to `OAS_CAPABILITY_MANIFEST`: capabilities describe what a model can
-do, while the provider catalog describes how a runtime connects to that model.
+companion to `Capability_manifest`: capabilities describe what a model can do,
+while the provider catalog describes how a runtime connects to that model.
 
 The catalog is intentionally coordinator-neutral. It must not contain
 downstream orchestration concepts such as domain roles, workflow queues,
@@ -13,20 +13,27 @@ generic provider/runtime facts.
 
 ## Loading
 
-Set `OAS_PROVIDER_CATALOG` to a JSON file:
+Load a JSON file and install the parsed catalog explicitly during application
+bootstrap:
 
-```sh
-export OAS_PROVIDER_CATALOG="$HOME/.config/oas/providers.json"
+```ocaml
+let catalog =
+  match Provider_catalog.load_file "/home/app/.config/oas/providers.json" with
+  | Ok catalog -> catalog
+  | Error message -> failwith message
+in
+Provider_catalog.set_global catalog
 ```
-
-Embedding applications can also install a process-local catalog with
-`Llm_provider.Provider_catalog.set_global`.
 
 Resolution order:
 
-1. Runtime override installed with `Provider_catalog.set_global`
-2. `OAS_PROVIDER_CATALOG`
+1. Explicit overlay installed with `Provider_catalog.set_global`
+2. Packaged `models.toml` provider rows
 3. Built-in provider seed data
+
+OAS never discovers a provider catalog from the process environment. File
+selection, reload policy, and parse-error handling belong to the embedding
+application.
 
 The packaged `models.toml` can also carry shareable provider identity rows under
 `[[providers]]`. Those rows are data, not OCaml vendor branches: OAS uses them
@@ -34,8 +41,9 @@ to register default provider entries and to resolve exact endpoint identity
 without hardcoded host lists. External products can read the same TOML file and
 project the same provider/model catalog into their runtime config.
 
-Catalog entries overwrite built-in provider ids when ids collide. Aliases are
-registered as additional lookup keys for the same entry.
+Catalog entries overwrite built-in provider ids when exact ids collide.
+`Provider_registry` registers only the declared `id`; aliases are never
+reinterpreted as provider identities.
 
 ## Lookup and collisions
 
@@ -43,23 +51,18 @@ registered as additional lookup keys for the same entry.
 |---|---|
 | `Provider_catalog.lookup` (in-catalog match) | **First match in source order wins.** Later duplicate ids/aliases in the same catalog file are unreachable through `lookup`. |
 | `Provider_registry` overlay (catalog vs. built-in) | **Catalog overwrites built-in** by id when registered (`Hashtbl.replace`). The catalog overlay is applied last in `Provider_registry.default ()`. |
-| `Provider_registry` overlay (catalog vs. catalog) | **Last register wins.** If two catalog entries share an id (or one's alias collides with another's id), the entry registered later replaces the earlier one in the registry — even though `Provider_catalog.lookup` would still return the earlier one. This is intentionally asymmetric: write to the catalog, read in source order. |
+| `Provider_registry` overlay (catalog vs. catalog) | **Last exact id wins.** If two catalog entries share an id, the entry registered later replaces the earlier one in the registry. Aliases do not participate. |
 
-Lookup is **case-insensitive**: both ids and aliases are trimmed and
-lowercased before comparison. `"VLLM-LOCAL"`, `"vllm-local"`, and
-`"  vllm-local  "` resolve to the same entry.
+`Provider_catalog.lookup` remains a catalog-local, case-insensitive id/alias
+query. `Provider_registry.find` is deliberately different: it accepts the
+exact declared registry id only. `"VLLM-LOCAL"`, `"vllm-local"`, and an alias
+are distinct inputs at the runtime binding boundary.
 
 Invalid identifiers are rejected or skipped:
 
 - Empty/whitespace **id** in a JSON catalog → `of_json` returns `Error`.
-- Empty/whitespace **alias** in a JSON catalog → skipped by `of_json`
-  before registry overlay, so JSON-file catalogs do not emit the
-  `provider_registry` empty-alias warning.
-- Empty/whitespace **alias** in a programmatically constructed catalog →
-  skipped at overlay time and logged via
-  `Diag.warn` (ctx `provider_registry`, format `ignoring empty %s for
-  provider %S in catalog overlay`, e.g. `ignoring empty alias for
-  provider "vllm-local" in catalog overlay`).
+- Aliases are not inserted into `Provider_registry`, whether the catalog came
+  from JSON or was constructed programmatically.
 
 If you have duplicate ids in a single catalog file, the recommended fix
 is to consolidate them — relying on first-match-wins or last-write-wins
@@ -74,7 +77,6 @@ Packaged TOML provider rows:
 id = "mimo"
 kind = "openai_compat"
 base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
-base_url_env = "MIMO_BASE_URL"
 request_path = "/chat/completions"
 api_key_env = "MIMO_API_KEY"
 default_model = "mimo-v2.5-pro"
@@ -132,7 +134,7 @@ Important provider fields:
 | `request_path` | string | Completion request path. Defaults from `kind`. |
 | `auth` | object | Credential mode. See below. |
 | `default_model` | string | Used when a caller selects the provider without a model. |
-| `aliases` | string array | Additional provider ids registered to the same entry. |
+| `aliases` | string array | Catalog-local lookup names. They are not provider registry ids. |
 | `capabilities_base` | string | Provider preset from `Capabilities.capabilities_for_provider_label`. |
 | `capabilities` | object | Optional capability overrides. |
 | `credential_scope` | string | Human-readable credential scope label. |
@@ -184,7 +186,6 @@ The `capabilities` object accepts the same capability field names used by
 - `max_context_tokens`, `max_output_tokens`
 - `supports_tools`, `supports_tool_choice`, `supports_parallel_tool_calls`
 - `assistant_tool_content_format`
-- `supports_runtime_mcp_tools`, `supports_runtime_tool_events`
 - `supports_reasoning`, `supports_extended_thinking`, `supports_reasoning_budget`
 - `accepted_reasoning_efforts`
 - `thinking_control_format`, `preserve_thinking_control_format`
@@ -196,9 +197,9 @@ The `capabilities` object accepts the same capability field names used by
 - `supports_top_k`, `supports_min_p`, `supports_seed`
 - `emits_usage_tokens`, `supported_models`
 
-Model-specific facts should still live in `OAS_CAPABILITY_MANIFEST`. Provider
-catalog capabilities should describe runtime/provider defaults and transport
-constraints.
+Model-specific facts should live in the packaged/explicit model catalog or an
+explicitly installed `Capability_manifest`. Provider catalog capabilities
+should describe runtime/provider defaults and transport constraints.
 
 Accepted `thinking_control_format` values are:
 
@@ -240,6 +241,7 @@ Accepted `accepted_reasoning_efforts` values are:
 - `medium`
 - `high`
 - `xhigh`
+- `max`
 
 Accepted `modality_priority` values are:
 

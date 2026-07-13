@@ -40,11 +40,12 @@ OAS wiring.
 
 | Field | Type | Why |
 |-------|------|-----|
-| `max_context_tokens` | `int option` | context_reducer needs a ceiling. Range: 128K-10M across models. None = unknown. |
+| `max_context_tokens` | `int option` | Provider-declared context capacity for discovery and exact capability reporting. None = unknown. |
 | `max_output_tokens` | `int option` | agent_config.max_tokens must not exceed this. Range: 8K-128K. Silent truncation if exceeded. |
 
 Discovery fills these for local models (`ctx_size` from `/props`).
-Cloud providers need hardcoded lookup tables keyed by model_id.
+Cloud provider limits come from the validated provider/model catalog; runtime code does not
+infer them from model names.
 
 ### Tier 2: Feature flags (boolean, affects agent behavior)
 

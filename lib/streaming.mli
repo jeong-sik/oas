@@ -18,10 +18,7 @@ val emit_synthetic_events : Types.api_response -> (Types.sse_event -> unit) -> u
 
 (** {1 Stream Accumulation} *)
 
-(** Legacy streaming accumulation surface.
-    Re-exports the canonical {!Llm_provider.Complete_stream_acc} signature so
-    record labels such as [Streaming.stop_reason_received] remain source
-    compatible without copying the accumulator shape here. *)
+(** Canonical streaming accumulator surface. *)
 include module type of Llm_provider.Complete_stream_acc
 
 (** {1 HTTP Error Mapping} *)
@@ -34,19 +31,20 @@ val map_http_error
 
 (** {1 Streaming API Call} *)
 
-(** Create a streaming LLM message.
-    Supports Anthropic (native SSE), OpenAI-compatible (SSE),
-    and custom providers (sync fallback with synthetic events).
+(** Create a streaming LLM message for an explicitly selected provider.
+    Anthropic and OpenAI-compatible SSE codecs are implemented. A custom
+    provider without a streaming codec returns [UnsupportedProvider]; a
+    completed synchronous response is never presented as a live stream.
 
-    Does not accept [retry_config]: SSE streams deliver partial results
-    incrementally; retrying mid-stream would discard data. *)
+    Performs exactly one provider stream attempt. Partial events and a terminal
+    typed failure are returned unchanged; any later attempt belongs to a new
+    caller-owned stream. *)
 val create_message_stream_detailed
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider:Provider.config
   -> config:Types.agent_state
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
@@ -59,8 +57,7 @@ val create_message_stream
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider:Provider.config
   -> config:Types.agent_state
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list

@@ -21,12 +21,6 @@ let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_mes
 let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
-let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
-
-let close_tool_message_pairs_for_request =
-  Backend_openai_serialize.close_tool_message_pairs_for_request
-;;
-
 let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)
@@ -82,7 +76,8 @@ let deepseek_v4_capabilities =
   ; supports_named_tool_choice = false
   ; supports_reasoning = true
   ; supports_extended_thinking = true
-  ; supports_reasoning_budget = true
+  ; supports_reasoning_budget = false
+  ; accepted_reasoning_efforts = Some [ Reasoning_effort.High; Reasoning_effort.Max ]
   ; thinking_control_format = Capabilities.Thinking_object
   ; supports_response_format_json = true
   ; supports_native_streaming = true
@@ -91,13 +86,13 @@ let deepseek_v4_capabilities =
   }
 ;;
 
-let declared_deepseek_config ?enable_thinking ?thinking_budget model_id =
+let declared_deepseek_config ?enable_thinking ?reasoning_effort model_id =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id
     ~base_url:"https://api.deepseek.com"
     ?enable_thinking
-    ?thinking_budget
+    ?reasoning_effort
     ~model_capabilities_override:deepseek_v4_capabilities
     ()
 ;;
@@ -1382,15 +1377,12 @@ let%test "build_request serializes thinking object for deepseek-v4-flash" =
   let config =
     declared_deepseek_config
       ~enable_thinking:true
-      ~thinking_budget:2048
+      ~reasoning_effort:Reasoning_effort.High
       "deepseek-v4-flash"
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  (* thinking_budget 2048 -> typed effort [Low], but the DeepSeek dialect
-     (Deepseek_high_or_max) normalizes low/medium/high -> "high" (see
-     test_thinking_control_dialects.ml "low maps high"). *)
   json |> member "thinking" |> member "type" |> to_string = "enabled"
   && json |> member "reasoning_effort" |> to_string = "high"
 ;;
@@ -1445,7 +1437,7 @@ let%test "build_request emits reasoning_effort for Openai reasoning models" =
       ~model_id:"gpt-5.1"
       ~base_url:"https://api.openai.com/v1"
       ~enable_thinking:true
-      ~thinking_budget:2048
+      ~reasoning_effort:Reasoning_effort.Low
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -1648,21 +1640,36 @@ let%test
   && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request omits seed when model does not support it" =
-  (* glm-5.1 inherits default_capabilities.supports_seed = false.
-     The capability gate must exclude the "seed" field from the
-     wire body — Glm rejects unknown params. *)
+let%test "build_request rejects explicit seed when model does not support it" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
       ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
+      ~seed:42
+      ()
+  in
+  match build_request ~config ~messages:[] () with
+  | _ -> false
+  | exception Invalid_argument message ->
+    String.equal
+      message
+      "Backend_openai_request.build_request: model \"glm-5.1\" does not support seed"
+;;
+
+let%test "build_request emits only an explicit supported seed" =
+  let capabilities = { Capabilities.default_capabilities with supports_seed = true } in
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.OpenAI_compat
+      ~model_id:"seed-capable-model"
+      ~base_url:"http://localhost"
+      ~model_capabilities_override:capabilities
+      ~seed:42
       ()
   in
   let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "seed" = `Null
+  Yojson.Safe.Util.(body |> Yojson.Safe.from_string |> member "seed" |> to_int) = 42
 ;;
 
 let%test "strip_thinking_blocks removes Thinking from all messages" =

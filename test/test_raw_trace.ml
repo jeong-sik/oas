@@ -154,16 +154,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let file_write_tool =
     Tool.create
-      ~descriptor:
-        { Tool.kind = Some "file"
-        ; mutation_class = Some Tool.Workspace
-        ; concurrency_class = Some Tool.Sequential_workspace
-        ; permission = Some Tool.Write
-        ; evidence_role = Some Tool.File_write
-        ; shell = None
-        ; notes = []
-        ; examples = []
-        }
+      ~descriptor:{ Tool.execution_mode = Serial }
       ~name:"file_write"
       ~description:"Write a file"
       ~parameters:
@@ -186,16 +177,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let shell_exec_tool =
     Tool.create
-      ~descriptor:
-        { Tool.kind = Some "shell"
-        ; mutation_class = Some Tool.Read_only
-        ; concurrency_class = Some Tool.Parallel_read
-        ; permission = Some Tool.ReadOnly
-        ; evidence_role = Some Tool.Verification
-        ; shell = None
-        ; notes = []
-        ; examples = []
-        }
+      ~descriptor:{ Tool.execution_mode = Concurrent }
       ~name:"shell_exec"
       ~description:"Run a verification command"
       ~parameters:
@@ -273,7 +255,14 @@ let test_agent_run_stream_append_only_raw_trace () =
       ; raw_trace = Some sink
       }
     in
-    let agent = Agent.create ~net:env#net ~tools ~options () in
+    let agent =
+      Agent.create
+        ~config:(Types.default_config ~model:"test-model")
+        ~net:env#net
+        ~tools
+        ~options
+        ()
+    in
     let response1 = unwrap (Agent.run ~sw agent "trace chain") in
     let text1 = response_text response1 in
     Alcotest.(check string) "first final text" "trace complete" text1;
@@ -417,14 +406,14 @@ let test_agent_run_stream_append_only_raw_trace () =
          (fun (record : Raw_trace.record) -> record.tool_batch_size)
          started_records);
     Alcotest.(check (list (option string)))
-      "concurrency classes"
-      [ Some "sequential_workspace"
-      ; Some "parallel_read"
-      ; Some "sequential_workspace"
-      ; Some "parallel_read"
-      ]
+      "execution modes"
+      [ Some "serial"; Some "concurrent"; Some "serial"; Some "concurrent" ]
       (List.map
-         (fun (record : Raw_trace.record) -> record.tool_concurrency_class)
+         (fun (record : Raw_trace.record) ->
+            Option.map
+              (fun mode ->
+                 Tool.execution_mode_to_yojson mode |> Yojson.Safe.Util.to_string)
+              record.tool_execution_mode)
          started_records);
     let first_record = List.hd run1_records in
     Alcotest.(check (option string))
@@ -489,37 +478,6 @@ let test_agent_run_stream_append_only_raw_trace () =
       "paired tool result count"
       4
       run1_validation.paired_tool_result_count;
-    Alcotest.(check bool) "has file_write" true run1_validation.has_file_write;
-    Alcotest.(check bool)
-      "verification pass after file_write"
-      true
-      run1_validation.verification_pass_after_file_write;
-    let role_counts =
-      Raw_trace_query.evidence_role_summaries run1_records
-      |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
-        Raw_trace.evidence_role_to_string summary.evidence_role, summary.record_count)
-    in
-    Alcotest.(check (option int))
-      "generic file_write role count"
-      (Some 1)
-      (List.assoc_opt "file_write" role_counts);
-    Alcotest.(check (option int))
-      "generic verification role count"
-      (Some 2)
-      (List.assoc_opt "verification" role_counts);
-    let evidence_roles =
-      run1_records
-      |> List.filter_map Raw_trace.record_evidence_role
-      |> List.map Raw_trace.evidence_role_to_string
-    in
-    Alcotest.(check bool)
-      "records mark file write evidence"
-      true
-      (List.mem "file_write" evidence_roles);
-    Alcotest.(check bool)
-      "records mark verification evidence"
-      true
-      (List.mem "verification" evidence_roles);
     let output_path = Filename.concat root "output.txt" in
     Alcotest.(check string)
       "output file content"
@@ -578,85 +536,9 @@ let test_record_type_of_string () =
   | Ok _ -> Alcotest.fail "expected error for bogus"
 ;;
 
-let test_evidence_role_to_string () =
-  let cases =
-    [ Raw_trace.File_write, "file_write"; Raw_trace.Verification, "verification" ]
-  in
-  List.iter
-    (fun (role, expected) ->
-       Alcotest.(check string) expected expected (Raw_trace.evidence_role_to_string role))
-    cases
-;;
-
-let test_evidence_role_of_string () =
-  let cases = [ "file_write"; "verification" ] in
-  List.iter
-    (fun s ->
-       match Raw_trace.evidence_role_of_string s with
-       | Ok role ->
-         Alcotest.(check string)
-           ("roundtrip " ^ s)
-           s
-           (Raw_trace.evidence_role_to_string role)
-       | Error e -> Alcotest.fail (Error.to_string e))
-    cases;
-  match Raw_trace.evidence_role_of_string "shell_exec" with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected error for legacy tool name"
-;;
-
-let test_record_evidence_role_does_not_infer_legacy_tool_names () =
-  let record : Raw_trace.record =
-    { trace_version = 1
-    ; worker_run_id = "wr-legacy"
-    ; seq = 1
-    ; ts = 1700000000.0
-    ; agent_name = "test-agent"
-    ; session_id = None
-    ; record_type = Raw_trace.Tool_execution_finished
-    ; prompt = None
-    ; model = None
-    ; tool_choice = None
-    ; enable_thinking = None
-    ; preserve_thinking = None
-    ; thinking_budget = None
-    ; block_index = None
-    ; block_kind = None
-    ; assistant_block = None
-    ; tool_use_id = Some "tu-legacy"
-    ; tool_name = Some "file_write"
-    ; tool_input = None
-    ; tool_planned_index = None
-    ; tool_batch_index = None
-    ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
-    ; tool_result = Some "PASS"
-    ; tool_error = Some false
-    ; hook_name = None
-    ; hook_decision = None
-    ; hook_detail = None
-    ; final_text = None
-    ; stop_reason = None
-    ; error = None
-    }
-  in
-  Alcotest.(check (option string))
-    "legacy tool name alone has no evidence role"
-    None
-    (Option.map Raw_trace.evidence_role_to_string (Raw_trace.record_evidence_role record));
-  Alcotest.(check (option string))
-    "explicit role is preserved"
-    (Some "file_write")
-    (Option.map
-       Raw_trace.evidence_role_to_string
-       (Raw_trace.record_evidence_role
-          { record with evidence_role = Some Raw_trace.File_write }))
-;;
-
 let test_record_to_json_roundtrip () =
   let record : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-test"
     ; seq = 1
     ; ts = 1700000000.0
@@ -669,6 +551,7 @@ let test_record_to_json_roundtrip () =
     ; enable_thinking = Some false
     ; preserve_thinking = None
     ; thinking_budget = Some 2048
+    ; reasoning_effort = Some "high"
     ; block_index = None
     ; block_kind = None
     ; assistant_block = None
@@ -678,8 +561,7 @@ let test_record_to_json_roundtrip () =
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
+    ; tool_execution_mode = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name = None
@@ -705,18 +587,14 @@ let test_record_to_json_roundtrip () =
        | Some value -> Yojson.Safe.to_string value
        | None -> "");
     Alcotest.(check (option bool)) "enable_thinking" (Some false) decoded.enable_thinking;
-    Alcotest.(check (option int)) "thinking_budget" (Some 2048) decoded.thinking_budget;
-    Alcotest.(check (option string))
-      "missing evidence_role stays None"
-      None
-      (Option.map Raw_trace.evidence_role_to_string decoded.evidence_role)
+    Alcotest.(check (option int)) "thinking_budget" (Some 2048) decoded.thinking_budget
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
 let test_record_of_json_rejects_invalid_tool_choice () =
   let json =
     `Assoc
-      [ "trace_version", `Int 1
+      [ "trace_version", `Int Raw_trace.trace_version
       ; "worker_run_id", `String "wr-invalid"
       ; "seq", `Int 1
       ; "ts", `Float 1700000000.0
@@ -733,9 +611,96 @@ let test_record_of_json_rejects_invalid_tool_choice () =
     (Result.is_error (Raw_trace.record_of_json json))
 ;;
 
+let raw_record_json
+      ?(trace_version = Raw_trace.trace_version)
+      ?(record_type = "run_started")
+      fields
+  =
+  `Assoc
+    ([ "trace_version", `Int trace_version
+     ; "worker_run_id", `String "wr-json"
+     ; "seq", `Int 1
+     ; "ts", `Float 1700000000.0
+     ; "agent_name", `String "test-agent"
+     ; "session_id", `Null
+     ; "record_type", `String record_type
+     ]
+     @ fields)
+;;
+
+let test_record_of_json_rejects_version_one () =
+  let json = raw_record_json ~trace_version:1 [] in
+  (match Raw_trace.record_of_json json with
+   | Error (Error.Serialization (VersionMismatch { expected; got })) ->
+     Alcotest.(check int) "expected current" Raw_trace.trace_version expected;
+     Alcotest.(check int) "got old" 1 got
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "trace version 1 must be rejected");
+  Alcotest.(check bool)
+    "public yojson decoder also rejects old version"
+    true
+    (Result.is_error (Raw_trace.record_of_yojson json))
+;;
+
+let test_record_of_json_rejects_removed_descriptor_fields () =
+  let assert_rejected field =
+    let json = raw_record_json [ field, `String "old" ] in
+    (match Raw_trace.record_of_json json with
+     | Error (Error.Serialization (JsonParseError { detail })) ->
+       Alcotest.(check bool)
+         (field ^ " named")
+         true
+         (Util.string_contains ~needle:field detail)
+     | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+     | Ok _ -> Alcotest.fail (field ^ " must be rejected"));
+    Alcotest.(check bool)
+      (field ^ " rejected by public yojson decoder")
+      true
+      (Result.is_error (Raw_trace.record_of_yojson json))
+  in
+  assert_rejected "tool_concurrency_class";
+  assert_rejected "evidence_role"
+;;
+
+let test_record_of_json_requires_started_execution_mode () =
+  let json =
+    raw_record_json
+      ~record_type:"tool_execution_started"
+      [ "tool_use_id", `String "tool-1"; "tool_name", `String "lookup" ]
+  in
+  match Raw_trace.record_of_json json with
+  | Error (Error.Serialization (JsonParseError _)) -> ()
+  | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+  | Ok _ -> Alcotest.fail "tool_execution_started without execution mode must fail"
+;;
+
+let test_record_of_json_execution_modes () =
+  List.iter
+    (fun mode ->
+       let json =
+         raw_record_json
+           ~record_type:"tool_execution_started"
+           [ "tool_use_id", `String "tool-1"
+           ; "tool_name", `String "lookup"
+           ; "tool_execution_mode", Tool.execution_mode_to_yojson mode
+           ]
+       in
+       match Raw_trace.record_of_json json with
+       | Ok record ->
+         Alcotest.(check string)
+           "mode"
+           (Tool.show_execution_mode mode)
+           (Option.fold
+              ~none:"missing"
+              ~some:Tool.show_execution_mode
+              record.tool_execution_mode)
+       | Error error -> Alcotest.fail (Error.to_string error))
+    [ Tool.Concurrent; Tool.Serial ]
+;;
+
 let test_record_to_json_full () =
   let record : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-full"
     ; seq = 5
     ; ts = 1700000005.0
@@ -748,6 +713,7 @@ let test_record_to_json_full () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; block_index = Some 2
     ; block_kind = Some "tool_use"
     ; assistant_block = Some (`String "block-data")
@@ -757,8 +723,7 @@ let test_record_to_json_full () =
     ; tool_planned_index = Some 0
     ; tool_batch_index = Some 1
     ; tool_batch_size = Some 1
-    ; tool_concurrency_class = Some "sequential_workspace"
-    ; evidence_role = Some Raw_trace.File_write
+    ; tool_execution_mode = None
     ; tool_result = Some "file content"
     ; tool_error = Some false
     ; hook_name = Some "pre_tool"
@@ -773,10 +738,6 @@ let test_record_to_json_full () =
   match Raw_trace.record_of_json json with
   | Ok decoded ->
     Alcotest.(check (option string)) "tool_name" (Some "file_write") decoded.tool_name;
-    Alcotest.(check (option string))
-      "evidence_role"
-      (Some "file_write")
-      (Option.map Raw_trace.evidence_role_to_string decoded.evidence_role);
     Alcotest.(check (option int)) "block_index" (Some 2) decoded.block_index;
     Alcotest.(check (option int)) "planned_index" (Some 0) decoded.tool_planned_index;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error;
@@ -828,6 +789,7 @@ let test_run_summary_yojson () =
     ; enable_thinking = Some true
     ; preserve_thinking = None
     ; thinking_budget = Some 4096
+    ; reasoning_effort = Some "high"
     ; thinking_block_count = 1
     ; text_block_count = 1
     ; tool_use_block_count = 2
@@ -869,15 +831,6 @@ let test_run_validation_yojson () =
     ; checks = [ { name = "tool_pairs"; passed = true } ]
     ; evidence = [ "evidence1" ]
     ; paired_tool_result_count = 2
-    ; evidence_roles =
-        [ { evidence_role = Raw_trace.File_write
-          ; record_count = 2
-          ; successful_finished_count = 1
-          ; last_success_seq = Some 2
-          }
-        ]
-    ; has_file_write = false
-    ; verification_pass_after_file_write = false
     ; final_text = Some "ok"
     ; tool_names = [ "read" ]
     ; stop_reason = Some "end_turn"
@@ -885,27 +838,13 @@ let test_run_validation_yojson () =
     }
   in
   let json = Raw_trace.run_validation_to_yojson validation in
-  (match Raw_trace.run_validation_of_yojson json with
-   | Ok decoded ->
-     Alcotest.(check string)
-       "roundtrip"
-       (Raw_trace.show_run_validation validation)
-       (Raw_trace.show_run_validation decoded)
-   | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg));
-  let legacy_json =
-    match json with
-    | `Assoc fields ->
-      `Assoc
-        (List.filter (fun (name, _) -> not (String.equal name "evidence_roles")) fields)
-    | other -> other
-  in
-  match Raw_trace.run_validation_of_yojson legacy_json with
+  match Raw_trace.run_validation_of_yojson json with
   | Ok decoded ->
-    Alcotest.(check int)
-      "legacy evidence roles default"
-      0
-      (List.length decoded.evidence_roles)
-  | Error msg -> Alcotest.fail ("legacy run_validation_of_yojson: " ^ msg)
+    Alcotest.(check string)
+      "roundtrip"
+      (Raw_trace.show_run_validation validation)
+      (Raw_trace.show_run_validation decoded)
+  | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
 ;;
 
 let test_tool_result_assistant_block_summary () =
@@ -963,12 +902,6 @@ let () =
       , [ Alcotest.test_case "safe_name" `Quick test_safe_name
         ; Alcotest.test_case "record_type_to_string" `Quick test_record_type_to_string
         ; Alcotest.test_case "record_type_of_string" `Quick test_record_type_of_string
-        ; Alcotest.test_case "evidence_role_to_string" `Quick test_evidence_role_to_string
-        ; Alcotest.test_case "evidence_role_of_string" `Quick test_evidence_role_of_string
-        ; Alcotest.test_case
-            "no legacy evidence role inference"
-            `Quick
-            test_record_evidence_role_does_not_infer_legacy_tool_names
         ] )
     ; ( "record_json"
       , [ Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip
@@ -976,6 +909,19 @@ let () =
             "invalid tool_choice rejected"
             `Quick
             test_record_of_json_rejects_invalid_tool_choice
+        ; Alcotest.test_case
+            "version one rejected"
+            `Quick
+            test_record_of_json_rejects_version_one
+        ; Alcotest.test_case
+            "removed descriptor fields rejected"
+            `Quick
+            test_record_of_json_rejects_removed_descriptor_fields
+        ; Alcotest.test_case
+            "started mode required"
+            `Quick
+            test_record_of_json_requires_started_execution_mode
+        ; Alcotest.test_case "execution modes" `Quick test_record_of_json_execution_modes
         ; Alcotest.test_case "full roundtrip" `Quick test_record_to_json_full
         ] )
     ; ( "type_yojson"

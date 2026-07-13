@@ -112,50 +112,10 @@ let test_fallback_endpoint_constants_ignore_env () =
       (Discovery.resolve_ollama_endpoint ()))
 ;;
 
-let test_endpoints_from_env_default () =
-  let getenv = test_getenv [] in
-  let result = Discovery.endpoints_from_env ~getenv () in
-  Alcotest.(check (list string))
-    "default endpoint"
-    [ Discovery.resolve_default_endpoint ~getenv ()
-    ; Discovery.resolve_ollama_endpoint ~getenv ()
-    ]
-    result
-;;
-
-let test_endpoints_from_env_custom () =
-  let getenv =
-    test_getenv
-      [ Discovery.llm_endpoints_env_var, "http://a:8085, http://b:8086,http://c:8087" ]
-  in
-  let result = Discovery.endpoints_from_env ~getenv () in
-  Alcotest.(check (list string))
-    "parsed endpoints"
-    [ "http://a:8085"
-    ; "http://b:8086"
-    ; "http://c:8087"
-    ; Discovery.resolve_ollama_endpoint ~getenv ()
-    ]
-    result
-;;
-
-let test_endpoints_from_env_resolves_defaults_from_getenv () =
-  let getenv =
-    test_getenv
-      [ Discovery.llm_endpoints_env_var, ""
-      ; Discovery.local_llm_url_env_var, "http://127.0.0.1:19005"
-      ; Discovery.ollama_host_env_var, "http://127.0.0.1:19006"
-      ]
-  in
-  Alcotest.(check (list string))
-    "resolved defaults"
-    [ "http://127.0.0.1:19005"; "http://127.0.0.1:19006" ]
-    (Discovery.endpoints_from_env ~getenv ())
-;;
-
-let test_discover_uses_call_time_ollama_host () =
+let test_discover_uses_explicit_ollama_protocol () =
   let props_hits = ref 0 in
   let slots_hits = ref 0 in
+  let show_hits = ref 0 in
   let handler _conn req body =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     match Uri.path (Cohttp.Request.uri req) with
@@ -171,6 +131,7 @@ let test_discover_uses_call_time_ollama_host () =
         ~body:{|{"models":[{"name":"phi4"}]}|}
         ()
     | "/api/show" ->
+      incr show_hits;
       Cohttp_eio.Server.respond_string
         ~status:`OK
         ~body:{|{"model_info":{"context_length":8192},"template":"{{ .Content }}"}|}
@@ -184,23 +145,30 @@ let test_discover_uses_call_time_ollama_host () =
     | _ -> Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"missing" ()
   in
   with_mock_server handler (fun ~sw ~net ~endpoint ->
-    with_env Discovery.ollama_host_env_var endpoint (fun () ->
-      match Discovery.discover ~sw ~net ~endpoints:[ endpoint ] with
-      | [ status ] ->
-        Alcotest.(check bool) "healthy" true status.healthy;
-        Alcotest.(check int) "props probe skipped" 0 !props_hits;
-        Alcotest.(check int) "slots probe skipped" 0 !slots_hits;
-        Alcotest.(check (option int))
-          "ollama context"
-          (Some 8192)
-          (Option.map
-             (fun (props : Discovery.server_props) -> props.ctx_size)
-             status.props);
-        Alcotest.(check bool)
-          "ollama think behavior"
-          true
-          (status.capabilities.thinking_control_format = Capabilities.Ollama_think)
-      | _ -> Alcotest.fail "expected one endpoint status"))
+    let declared =
+      Discovery.endpoint
+        ~protocol:Discovery.Ollama_native
+        ~capabilities:Capabilities.ollama_capabilities
+        endpoint
+    in
+    match Discovery.discover ~sw ~net ~endpoints:[ declared ] with
+    | [ status ] ->
+      Alcotest.(check bool) "healthy" true status.healthy;
+      Alcotest.(check int) "props probe skipped" 0 !props_hits;
+      Alcotest.(check int) "slots probe skipped" 0 !slots_hits;
+      Alcotest.(check int) "template probe skipped" 0 !show_hits;
+      Alcotest.(check bool) "ollama props are not inferred" true (status.props = None);
+      Alcotest.(check bool)
+        "declared ollama think behavior"
+        true
+        (status.capabilities.thinking_control_format = Capabilities.Ollama_think);
+      Alcotest.(check (list string))
+        "no failures"
+        []
+        (List.map
+           (fun (failure : Discovery.probe_failure) -> failure.detail)
+           status.failures)
+    | _ -> Alcotest.fail "expected one endpoint status")
 ;;
 
 let test_parse_models_json () =
@@ -213,49 +181,48 @@ let test_parse_models_json () =
     ]
   }|}
   in
-  let models =
-    (* Use the internal parser indirectly via a full endpoint_status *)
-    match json |> Yojson.Safe.Util.member "data" with
-    | `List items ->
-      items
-      |> List.filter_map (fun item ->
-        let open Yojson.Safe.Util in
-        match item |> member "id" |> to_string_option with
-        | Some id ->
-          let owned_by =
-            item
-            |> member "owned_by"
-            |> to_string_option
-            |> Option.value ~default:"unknown"
-          in
-          Some Discovery.{ id; owned_by }
-        | None -> None)
-    | _ -> []
+  match Discovery_parse.parse_models json with
+  | Ok models ->
+    Alcotest.(check int) "model count" 2 (List.length models);
+    Alcotest.(check string) "first model id" "dashscope-3.5-35b" (List.hd models).id
+  | Error detail -> Alcotest.failf "valid model inventory rejected: %s" detail
+;;
+
+let test_parse_models_rejects_malformed_item () =
+  let json =
+    `Assoc
+      [ ( "data"
+        , `List
+            [ `Assoc [ "id", `String "valid"; "owned_by", `String "local" ]
+            ; `Assoc [ "owned_by", `String "local" ]
+            ] )
+      ]
   in
-  Alcotest.(check int) "model count" 2 (List.length models);
-  Alcotest.(check string) "first model id" "dashscope-3.5-35b" (List.hd models).id
+  match Discovery_parse.parse_models json with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "malformed inventory item was silently dropped"
 ;;
 
 let test_endpoint_status_to_json_healthy () =
   let status : Discovery.endpoint_status =
     { url = "http://127.0.0.1:8085"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = true
     ; models = [ { id = "dashscope-3.5-35b"; owned_by = "llama-server" } ]
-    ; props =
-        Some
-          { total_slots = 4
-          ; ctx_size = 32768
-          ; model = "dashscope-3.5-35b"
-          ; supports_tools = None
-          }
+    ; props = Some { total_slots = 4; ctx_size = 32768; model = "dashscope-3.5-35b" }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
     ; capabilities = Capabilities.openai_compat_chat_extended_capabilities
+    ; failures = []
     }
   in
   let json = Discovery.endpoint_status_to_json status in
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "healthy" true (json |> member "healthy" |> to_bool);
   Alcotest.(check string) "url" "http://127.0.0.1:8085" (json |> member "url" |> to_string);
+  Alcotest.(check string)
+    "protocol"
+    "openai_compatible"
+    (json |> member "protocol" |> to_string);
   let slots = json |> member "slots" in
   Alcotest.(check int) "total slots" 4 (slots |> member "total" |> to_int);
   Alcotest.(check int) "idle slots" 3 (slots |> member "idle" |> to_int);
@@ -266,17 +233,29 @@ let test_endpoint_status_to_json_healthy () =
 let test_endpoint_status_to_json_unhealthy () =
   let status : Discovery.endpoint_status =
     { url = "http://127.0.0.1:9999"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = false
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = [ { phase = "health"; detail = "connection refused" } ]
     }
   in
   let json = Discovery.endpoint_status_to_json status in
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "healthy" false (json |> member "healthy" |> to_bool);
   Alcotest.(check int) "no models" 0 (json |> member "models" |> to_list |> List.length);
+  let failures = json |> member "failures" |> to_list in
+  Alcotest.(check int) "one explicit failure" 1 (List.length failures);
+  Alcotest.(check string)
+    "failure phase"
+    "health"
+    (List.hd failures |> member "phase" |> to_string);
+  Alcotest.(check string)
+    "failure detail"
+    "connection refused"
+    (List.hd failures |> member "detail" |> to_string);
   (* props and slots should be absent *)
   Alcotest.(check bool) "no props" true (member "props" json = `Null)
 ;;
@@ -284,25 +263,31 @@ let test_endpoint_status_to_json_unhealthy () =
 let test_summary_to_json () =
   let endpoints : Discovery.endpoint_status list =
     [ { url = "http://a:8085"
+      ; protocol = Discovery.Openai_compatible
       ; healthy = true
       ; models = []
       ; props = None
       ; slots = Some { total = 4; busy = 1; idle = 3 }
       ; capabilities = Capabilities.default_capabilities
+      ; failures = []
       }
     ; { url = "http://b:8086"
+      ; protocol = Discovery.Openai_compatible
       ; healthy = true
       ; models = []
       ; props = None
       ; slots = Some { total = 2; busy = 2; idle = 0 }
       ; capabilities = Capabilities.default_capabilities
+      ; failures = []
       }
     ; { url = "http://c:8087"
+      ; protocol = Discovery.Openai_compatible
       ; healthy = false
       ; models = []
       ; props = None
       ; slots = None
       ; capabilities = Capabilities.default_capabilities
+      ; failures = [ { phase = "health"; detail = "unreachable" } ]
       }
     ]
   in
@@ -336,11 +321,13 @@ let test_refresh_and_sync_updates_context () =
      verify per-slot = ctx_size / total_slots *)
   let status_with_props ctx_size total_slots : Discovery.endpoint_status =
     { url = "http://test"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots; ctx_size; model = "test"; supports_tools = None }
+    ; props = Some { total_slots; ctx_size; model = "test" }
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   (* Simulate what refresh_and_sync computes *)
@@ -372,11 +359,13 @@ let test_refresh_and_sync_updates_context () =
   (* No healthy endpoints *)
   let unhealthy : Discovery.endpoint_status =
     { url = "http://dead"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = false
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = [ { phase = "health"; detail = "unreachable" } ]
     }
   in
   let result = compute_per_slot [ unhealthy ] in
@@ -384,11 +373,13 @@ let test_refresh_and_sync_updates_context () =
   (* No props *)
   let no_props : Discovery.endpoint_status =
     { url = "http://noprops"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = true
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   let result = compute_per_slot [ no_props ] in
@@ -435,15 +426,21 @@ let test_refresh_and_sync_mock_server_updates_indexes () =
           [
             {"id":0,"is_processing":true},
             {"id":1,"is_processing":false},
-            {"id":2,"state":1},
-            {"id":3,"state":0}
+            {"id":2,"is_processing":true},
+            {"id":3,"is_processing":false}
           ]
           |}
         ()
     | _ -> Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"missing" ()
   in
   with_mock_server handler (fun ~sw ~net ~endpoint ->
-    let statuses = Discovery.refresh_and_sync ~sw ~net ~endpoints:[ endpoint ] in
+    let declared =
+      Discovery.endpoint
+        ~protocol:Discovery.Openai_compatible
+        ~capabilities:Capabilities.openai_compat_chat_capabilities
+        endpoint
+    in
+    let statuses = Discovery.refresh_and_sync ~sw ~net ~endpoints:[ declared ] in
     match statuses with
     | [ status ] ->
       Alcotest.(check bool) "healthy" true status.healthy;
@@ -492,12 +489,14 @@ let test_refresh_and_sync_mock_server_updates_indexes () =
 let test_max_context_of_status_falls_back_to_capabilities () =
   let status : Discovery.endpoint_status =
     { url = "http://fallback"
+    ; protocol = Discovery.Openai_compatible
     ; healthy = true
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities =
         Capabilities.with_context_size Capabilities.default_capabilities ~ctx_size:4096
+    ; failures = []
     }
   in
   Alcotest.(check (option int))
@@ -522,18 +521,18 @@ let () =
             "fallback endpoint constants ignore env"
             `Quick
             test_fallback_endpoint_constants_ignore_env
-        ; Alcotest.test_case "default" `Quick test_endpoints_from_env_default
-        ; Alcotest.test_case "custom" `Quick test_endpoints_from_env_custom
         ; Alcotest.test_case
-            "resolved endpoint defaults"
+            "discover uses explicit Ollama protocol"
             `Quick
-            test_endpoints_from_env_resolves_defaults_from_getenv
-        ; Alcotest.test_case
-            "discover uses call-time ollama host"
-            `Quick
-            test_discover_uses_call_time_ollama_host
+            test_discover_uses_explicit_ollama_protocol
         ] )
-    ; "parsing", [ Alcotest.test_case "models json" `Quick test_parse_models_json ]
+    ; ( "parsing"
+      , [ Alcotest.test_case "models json" `Quick test_parse_models_json
+        ; Alcotest.test_case
+            "malformed model item rejected"
+            `Quick
+            test_parse_models_rejects_malformed_item
+        ] )
     ; ( "json"
       , [ Alcotest.test_case
             "healthy endpoint"

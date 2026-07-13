@@ -5,11 +5,15 @@
     - Hooks.extract_reasoning (Stage 2: Parse)
     - Agent_turn.resolve_turn_params (Stage 2)
     - Agent_turn.apply_context_injection (Stage 5)
-    - Agent_turn.filter_valid_messages (Stage 5)
     - Error_domain.tag_error pattern (coordinator)
     - Pipeline.run_turn via mock HTTP (Stages 1-6) *)
 
 open Agent_sdk
+
+let context_messages = function
+  | Ok messages -> messages
+  | Error error -> Alcotest.fail error.Agent_turn.detail
+;;
 
 (* ── Hooks.extract_reasoning: edge cases ──────────────────── *)
 
@@ -142,6 +146,11 @@ let test_reasoning_no_uncertainty () =
 
 (* ── Agent_turn.resolve_turn_params ───────────────────────── *)
 
+let expect_turn_params = function
+  | Ok params -> params
+  | Error _ -> Alcotest.fail "expected resolved turn params"
+;;
+
 (** resolve_turn_params with no before_turn_params hook returns defaults. *)
 let test_resolve_params_no_hook () =
   let hooks = Hooks.empty in
@@ -156,7 +165,8 @@ let test_resolve_params_no_hook () =
   in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
   let params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check bool) "default temperature" true (Option.is_none params.temperature);
   Alcotest.(check bool)
@@ -187,7 +197,8 @@ let test_resolve_params_continue () =
     | None -> Hooks.Continue
   in
   let params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check bool) "default temperature" true (Option.is_none params.temperature);
   Alcotest.(check bool)
@@ -205,12 +216,12 @@ let test_resolve_params_adjust () =
   let adjusted : Hooks.turn_params =
     { temperature = Some 0.7
     ; thinking_budget = Some 1000
+    ; reasoning_effort = None
     ; enable_thinking = None
     ; preserve_thinking = None
     ; tool_choice = None
     ; extra_system_context = Some "Debug mode"
     ; system_prompt_override = None
-    ; tool_filter_override = None
     }
   in
   let hooks =
@@ -231,7 +242,8 @@ let test_resolve_params_adjust () =
     | None -> Hooks.Continue
   in
   let params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check (option (float 0.01)))
     "adjusted temperature"
@@ -272,7 +284,8 @@ let test_resolve_params_system_prompt_override () =
     | None -> Hooks.Continue
   in
   let params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check (option string))
     "system_prompt_override applied"
@@ -296,7 +309,8 @@ let test_resolve_params_no_system_prompt_override () =
   in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
   let params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check (option string))
     "no system_prompt_override"
@@ -354,7 +368,8 @@ let test_resolve_params_with_tool_results () =
     | None -> Hooks.Continue
   in
   let _params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check int) "1 tool result captured" 1 (List.length !captured_results);
   match List.hd !captured_results with
@@ -416,7 +431,8 @@ let test_resolve_params_error_tool_results () =
     | None -> Hooks.Continue
   in
   let _params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+    Agent_turn.resolve_turn_params ~hooks ~messages ~turn:0 ~invoke_hook
+    |> expect_turn_params
   in
   Alcotest.(check int) "1 error result" 1 (List.length !captured_results);
   match List.hd !captured_results with
@@ -425,40 +441,6 @@ let test_resolve_params_error_tool_results () =
     Alcotest.(check bool) "recoverable" true recoverable;
     Alcotest.(check bool) "error class" true (error_class = Some Types.Deterministic)
   | Ok _ -> Alcotest.fail "expected Error result"
-;;
-
-(** resolve_turn_params passes max_turns to hook event. *)
-let test_resolve_params_max_turns_passed () =
-  let captured_max_turns = ref 0 in
-  let hooks =
-    { Hooks.empty with
-      before_turn_params =
-        Some
-          (fun event ->
-            (match event with
-             | Hooks.BeforeTurnParams { max_turns; _ } -> captured_max_turns := max_turns
-             | _ -> ());
-            Hooks.Continue)
-    }
-  in
-  let messages : Types.message list =
-    [ { role = User
-      ; content = [ Text "hi" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let invoke_hook ~hook_name:_ hook event =
-    match hook with
-    | Some h -> h event
-    | None -> Hooks.Continue
-  in
-  let _params =
-    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:42 ~turn:0 ~invoke_hook
-  in
-  Alcotest.(check int) "max_turns passed" 42 !captured_max_turns
 ;;
 
 (* ── Agent_turn.apply_context_injection ───────────────────── *)
@@ -493,6 +475,7 @@ let test_context_injection_sets_values () =
   in
   let _new_messages =
     Agent_turn.apply_context_injection ~context ~messages ~injector ~tool_uses ~results
+    |> context_messages
   in
   Alcotest.(check (option string))
     "key1 set"
@@ -533,6 +516,7 @@ let test_context_injection_none () =
   in
   let new_messages =
     Agent_turn.apply_context_injection ~context ~messages ~injector ~tool_uses ~results
+    |> context_messages
   in
   (* No extra messages appended *)
   Alcotest.(check int) "messages unchanged" 1 (List.length new_messages)
@@ -581,6 +565,7 @@ let test_context_injection_extra_messages () =
   in
   let new_messages =
     Agent_turn.apply_context_injection ~context ~messages ~injector ~tool_uses ~results
+    |> context_messages
   in
   (* Original 2 + injected 1 *)
   Alcotest.(check int) "messages with injection" 3 (List.length new_messages)
@@ -617,6 +602,7 @@ let test_context_injection_error_result () =
   in
   let _new_messages =
     Agent_turn.apply_context_injection ~context ~messages ~injector ~tool_uses ~results
+    |> context_messages
   in
   match !received_output with
   | Some (Error { message; recoverable; _ }) ->
@@ -649,81 +635,16 @@ let test_context_injection_raises () =
       }
     ]
   in
-  (* Should not raise - exception is caught internally *)
-  let new_messages =
+  match
     Agent_turn.apply_context_injection ~context ~messages ~injector ~tool_uses ~results
-  in
-  Alcotest.(check int) "messages unchanged after exception" 1 (List.length new_messages)
-;;
-
-(* ── Agent_turn.filter_valid_messages: more edge cases ────── *)
-
-(** Multiple consecutive same-role messages filtered. *)
-let test_filter_valid_multiple_same_role () =
-  let messages =
-    [ { Types.role = User
-      ; content = [ Text "last" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let extra =
-    [ { Types.role = User
-      ; content = [ Text "a" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { Types.role = User
-      ; content = [ Text "b" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { Types.role = Assistant
-      ; content = [ Text "c" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { Types.role = Assistant
-      ; content = [ Text "d" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let result = Agent_turn.filter_valid_messages ~messages extra in
-  (* User (filtered: same as last), User (filtered: same as prev User),
-     Assistant (kept), Assistant (filtered: same as prev) *)
-  Alcotest.(check int) "only 1 kept (first role change)" 1 (List.length result)
-;;
-
-(** Single extra message with different role. *)
-let test_filter_valid_single_different () =
-  let messages =
-    [ { Types.role = User
-      ; content = [ Text "last" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let extra =
-    [ { Types.role = Assistant
-      ; content = [ Text "reply" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let result = Agent_turn.filter_valid_messages ~messages extra in
-  Alcotest.(check int) "1 message kept" 1 (List.length result)
+  with
+  | Error { tool_name = Some "tool"; detail } ->
+    Alcotest.(check bool)
+      "exception detail"
+      true
+      (String.starts_with ~prefix:"Failure(\"injector crash\")" detail)
+  | Error _ -> Alcotest.fail "expected failing tool name"
+  | Ok _ -> Alcotest.fail "injector exception must be explicit"
 ;;
 
 (* ── Error_domain: pipeline tag_error pattern ─────────────── *)
@@ -806,10 +727,6 @@ let () =
             "error tool results"
             `Quick
             test_resolve_params_error_tool_results
-        ; Alcotest.test_case
-            "max_turns passed"
-            `Quick
-            test_resolve_params_max_turns_passed
         ] )
     ; ( "context_injection"
       , [ Alcotest.test_case "sets values" `Quick test_context_injection_sets_values
@@ -817,16 +734,6 @@ let () =
         ; Alcotest.test_case "extra messages" `Quick test_context_injection_extra_messages
         ; Alcotest.test_case "error result" `Quick test_context_injection_error_result
         ; Alcotest.test_case "injector raises" `Quick test_context_injection_raises
-        ] )
-    ; ( "filter_valid_messages"
-      , [ Alcotest.test_case
-            "multiple same role"
-            `Quick
-            test_filter_valid_multiple_same_role
-        ; Alcotest.test_case
-            "single different role"
-            `Quick
-            test_filter_valid_single_different
         ] )
     ; ( "tag_error_pattern"
       , [ Alcotest.test_case "internal + route" `Quick test_tag_error_pattern_internal

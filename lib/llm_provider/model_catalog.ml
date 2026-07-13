@@ -699,21 +699,6 @@ let load_file path =
         | Ok providers -> Ok { models; providers }))
 ;;
 
-let load_runtime_file path =
-  match load_file path with
-  | Ok catalog ->
-    Diag.info
-      "model_catalog"
-      "loaded %d model entries and %d provider entries from %s"
-      (List.length catalog.models)
-      (List.length catalog.providers)
-      path;
-    Some catalog
-  | Error msg ->
-    Diag.warn "model_catalog" "failed to load %s: %s" path msg;
-    None
-;;
-
 let is_existing_file path =
   try Sys.file_exists path && not (Sys.is_directory path) with
   | Sys_error _ -> false
@@ -762,43 +747,18 @@ let load_default () =
     first_loaded [] paths
 ;;
 
-let dot_qualified_aliases model_id =
-  let original_model_id = String.trim model_id in
-  match String.index_opt original_model_id '.' with
-  | None -> []
-  | Some index when index = 0 || index = String.length original_model_id - 1 -> []
-  | Some index ->
-    let provider_label = String.lowercase_ascii (String.sub original_model_id 0 index) in
-    let model_id =
-      String.sub
-        original_model_id
-        (index + 1)
-        (String.length original_model_id - index - 1)
-    in
-    [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ]
-;;
-
 let lookup t model_id =
   let sorted_t =
     List.fast_sort
       (fun a b -> compare (String.length b.id_prefix) (String.length a.id_prefix))
       t.models
   in
-  let rec lookup_candidates = function
-    | [] -> None
-    | candidate :: rest ->
-      let m = String.lowercase_ascii (String.trim candidate) in
-      (match
-         List.find_opt
-           (fun entry ->
-              let prefix = String.lowercase_ascii entry.id_prefix in
-              String.starts_with ~prefix m)
-           sorted_t
-       with
-       | Some _ as entry -> entry
-       | None -> lookup_candidates rest)
-  in
-  lookup_candidates (model_id :: dot_qualified_aliases model_id)
+  let model_id = String.lowercase_ascii (String.trim model_id) in
+  List.find_opt
+    (fun entry ->
+       let prefix = String.lowercase_ascii entry.id_prefix in
+       String.starts_with ~prefix model_id)
+    sorted_t
 ;;
 
 let provider_name_for_model_id t model_id =
@@ -820,42 +780,35 @@ let provider_label_for_endpoint ?getenv t ~kind ~base_url ~request_path =
     ~request_path
 ;;
 
-type env_cache =
+type default_cache =
   | Unloaded
   | Loaded of t option
 
-let load_ambient_catalog () =
-  match Cli_common_env.get "OAS_MODEL_CATALOG" with
-  | Some path -> load_runtime_file path
-  | None ->
-    (match load_default () with
-     | Ok catalog ->
-       Diag.info
-         "model_catalog"
-         "loaded %d default model entries and %d provider entries from packaged catalog"
-         (List.length catalog.models)
-         (List.length catalog.providers);
-       Some catalog
-     | Error msg ->
-       Diag.warn
-         "model_catalog"
-         "failed to load packaged default model catalog: %s; set OAS_MODEL_CATALOG to an \
-          explicit catalog path to override"
-         msg;
-       None)
+let load_packaged_catalog () =
+  match load_default () with
+  | Ok catalog ->
+    Diag.info
+      "model_catalog"
+      "loaded %d default model entries and %d provider entries from packaged catalog"
+      (List.length catalog.models)
+      (List.length catalog.providers);
+    Some catalog
+  | Error msg ->
+    Diag.warn "model_catalog" "failed to load packaged default model catalog: %s" msg;
+    None
 ;;
 
-let env_loaded_catalog : env_cache Atomic.t = Atomic.make Unloaded
+let packaged_catalog : default_cache Atomic.t = Atomic.make Unloaded
 
-let load_ambient_once () =
-  match Atomic.get env_loaded_catalog with
+let load_packaged_once () =
+  match Atomic.get packaged_catalog with
   | Loaded value -> value
   | Unloaded ->
-    let value = load_ambient_catalog () in
-    if Atomic.compare_and_set env_loaded_catalog Unloaded (Loaded value)
+    let value = load_packaged_catalog () in
+    if Atomic.compare_and_set packaged_catalog Unloaded (Loaded value)
     then value
     else (
-      match Atomic.get env_loaded_catalog with
+      match Atomic.get packaged_catalog with
       | Loaded value -> value
       | Unloaded -> value)
 ;;
@@ -865,17 +818,15 @@ let set_global t = Atomic.set runtime_override (Some t)
 
 let clear_global () =
   Atomic.set runtime_override None;
-  Atomic.set env_loaded_catalog Unloaded
+  Atomic.set packaged_catalog Unloaded
 ;;
-
-let preload_global () = ignore (load_ambient_once () : t option)
 
 let global () =
   match Atomic.get runtime_override with
   | Some _ as o -> o
   | None ->
-    let env_value = load_ambient_once () in
+    let packaged_value = load_packaged_once () in
     (match Atomic.get runtime_override with
      | Some _ as o -> o
-     | None -> env_value)
+     | None -> packaged_value)
 ;;

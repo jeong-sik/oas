@@ -57,7 +57,6 @@ let max_retries = Env_config.get_int "OAS_MAX_RETRIES" ~default:3
 
 | Env var | Module | Default | Purpose |
 |---------|--------|---------|---------|
-| `OAS_MCP_OUTPUT_MAX_TOKENS` | `mcp.ml` | 25000 | Max tokens for MCP tool output |
 | `LLM_ENDPOINTS` | `discovery.ml` | `http://127.0.0.1:8085` | Local LLM endpoints |
 
 ## Migration Strategy

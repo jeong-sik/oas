@@ -28,7 +28,6 @@ type state_isolation =
     - [tools]: tool allowlist applied by {!filter_tools}
     - [disallowed_tools]: tool blocklist applied by {!filter_tools}
     - [model]: determines which LLM model the sub-agent uses
-    - [max_turns]: enforced turn limit for the sub-agent run loop
     - [skill_refs]: resolved to [Skill.t] list during {!load}
     - [skills]: rendered into the prompt by {!compose_prompt}
 
@@ -45,7 +44,6 @@ type t =
   ; tools : string list option
   ; disallowed_tools : string list
   ; model : model_override
-  ; max_turns : int option
   ; skill_refs : string list
   ; skills : Skill.t list
   ; state_isolation : state_isolation

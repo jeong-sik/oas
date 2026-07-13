@@ -231,11 +231,9 @@ let () =
     }
   in
   let config =
-    { default_config with
+    { (default_config ~model:"qwen3.5") with
       name = "codegen"
     ; system_prompt = Some system_prompt
-    ; max_turns = 8
-    ; model = "qwen3.5"
     }
   in
   let options = { Agent.default_options with provider = Some provider_config } in

@@ -179,20 +179,11 @@ let test_descriptor_some () =
       ~parse:(fun _ -> Ok ())
       ~handler:(fun () -> Ok ())
       ~encode:(fun () -> `Null)
-      ~descriptor:
-        { kind = Some "read"
-        ; mutation_class = Some Tool.Read_only
-        ; concurrency_class = Some Tool.Parallel_read
-        ; permission = Some Tool.ReadOnly
-        ; evidence_role = None
-        ; shell = None
-        ; notes = []
-        ; examples = []
-        }
+      ~descriptor:{ Tool.execution_mode = Concurrent }
       ()
   in
   match Typed_tool.descriptor tool with
-  | Some d -> Alcotest.(check bool) "read_only" true (d.permission = Some Tool.ReadOnly)
+  | Some d -> Alcotest.(check bool) "concurrent" true (d.execution_mode = Tool.Concurrent)
   | None -> Alcotest.fail "expected descriptor"
 ;;
 

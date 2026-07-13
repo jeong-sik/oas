@@ -73,6 +73,7 @@ type tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error
+  | Reported_tool_error
 [@@deriving yojson, show]
 
 type tool_failure_provenance =
@@ -84,17 +85,16 @@ type tool_failure_provenance =
 type tool_result_outcome =
   | Tool_succeeded
   | Tool_failed of tool_failure_provenance
-  | Legacy_unclassified_failure
 [@@deriving show]
 
 let tool_failure_kind_is_recoverable = function
   | Validation_error | Recoverable_tool_error -> true
-  | Non_retryable_tool_error -> false
+  | Non_retryable_tool_error | Reported_tool_error -> false
 ;;
 
 let tool_result_outcome_is_error = function
   | Tool_succeeded -> false
-  | Tool_failed _ | Legacy_unclassified_failure -> true
+  | Tool_failed _ -> true
 ;;
 
 type tool_error =
@@ -113,8 +113,6 @@ let tool_result_of_outcome ~content = function
       ; recoverable = tool_failure_kind_is_recoverable failure_kind
       ; error_class
       }
-  | Legacy_unclassified_failure ->
-    Error { message = content; recoverable = false; error_class = None }
 ;;
 
 type tool_param =
@@ -590,7 +588,6 @@ type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
   ; reasoning_tokens : int option
-  ; reasoning_tokens_estimated : bool
   ; request_latency_ms : int option
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option
@@ -607,7 +604,6 @@ let default_inference_telemetry : inference_telemetry =
   { system_fingerprint = None
   ; timings = None
   ; reasoning_tokens = None
-  ; reasoning_tokens_estimated = false
   ; request_latency_ms = None
   ; peak_memory_gb = None
   ; provider_kind = None

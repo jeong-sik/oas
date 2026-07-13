@@ -9,7 +9,10 @@ let base_info : Agent_card.agent_info =
   ; agent_description = Some "A test agent"
   ; version = Agent_sdk.Sdk_version.version
   ; config =
-      { Types.default_config with name = "test-agent"; enable_thinking = Some true }
+      { (Types.default_config ~model:"test-model") with
+        name = "test-agent"
+      ; enable_thinking = Some true
+      }
   ; tool_schemas =
       [ { Types.name = "get_weather"
         ; description = "Get weather"

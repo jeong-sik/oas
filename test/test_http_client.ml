@@ -242,6 +242,59 @@ let test_post_stream_invalid_url_returns_network_error () =
   | Ok _ -> Alcotest.fail "expected invalid URL to fail before opening a stream"
 ;;
 
+let test_http_deadlines_without_clock_are_rejected () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let check label parameter = function
+    | Error (Http_client.AcceptRejected { reason }) ->
+      Alcotest.(check bool)
+        label
+        true
+        (Util.contains_substring_ci ~haystack:reason ~needle:parameter)
+    | Error _ -> Alcotest.failf "%s returned the wrong typed error" label
+    | Ok _ -> Alcotest.failf "%s silently ignored its deadline" label
+  in
+  check
+    "get_sync"
+    "timeout_s"
+    (Http_client.get_sync ~timeout_s:1.0 ~sw ~net:env#net ~url:"http://" ~headers:[] ());
+  check
+    "post_sync"
+    "timeout_s"
+    (Http_client.post_sync
+       ~timeout_s:1.0
+       ~sw
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ());
+  check
+    "post_stream"
+    "connect_timeout_s"
+    (Http_client.post_stream
+       ~connect_timeout_s:1.0
+       ~sw
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ());
+  check
+    "with_post_stream"
+    "connect_timeout_s"
+    (Http_client.with_post_stream
+       ~connect_timeout_s:1.0
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ~f:(fun _reader -> ())
+       ())
+;;
+
 let test_timeout_phase_policy_labels () =
   let cases =
     [ Http_client.Admission, "admission"
@@ -423,12 +476,10 @@ let test_error_domain_full_roundtrip () =
     [ Agent_sdk.Error.Api (Retry.RateLimited { retry_after = Some 2.0; message = "slow" })
     ; Agent_sdk.Error.Api (Retry.AuthError { message = "bad key" })
     ; Agent_sdk.Error.Api (Retry.ServerError { status = 500; message = "internal" })
-    ; Agent_sdk.Error.Agent (MaxTurnsExceeded { turns = 5; limit = 3 })
-    ; Agent_sdk.Error.Agent (IdleDetected { consecutive_idle_turns = 3 })
     ; Agent_sdk.Error.Config (MissingEnvVar { var_name = "API_KEY" })
     ; Agent_sdk.Error.Config (UnsupportedProvider { detail = "unknown" })
     ; Agent_sdk.Error.Config
-        (InvalidConfig { field = "max_turns"; detail = "must be >= 0, got -1" })
+        (InvalidConfig { field = "model"; detail = "must not be empty" })
     ; Agent_sdk.Error.Mcp (ServerStartFailed { command = "node"; detail = "not found" })
     ; Agent_sdk.Error.Mcp (InitializeFailed { detail = "timeout" })
     ; Agent_sdk.Error.Mcp (ToolListFailed { detail = "parse" })
@@ -479,9 +530,9 @@ let test_error_domain_retryable () =
     false
     (Error_domain.is_retryable (`Auth_error "bad"));
   Alcotest.(check bool)
-    "idle not retryable"
+    "guardrail violation not retryable"
     false
-    (Error_domain.is_retryable (`Idle_detected 3))
+    (Error_domain.is_retryable (`Guardrail_violation ("typed-input", "rejected")))
 ;;
 
 let test_error_domain_context () =
@@ -556,6 +607,10 @@ let () =
             "stream idle pre-token maps to first_token"
             `Quick
             test_timeout_phase_of_stream_idle_state
+        ; Alcotest.test_case
+            "HTTP deadlines without clock are rejected"
+            `Quick
+            test_http_deadlines_without_clock_are_rejected
         ] )
     ; ( "provider_failure"
       , [ Alcotest.test_case "string helpers" `Quick test_provider_failure_string_helpers

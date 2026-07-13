@@ -71,16 +71,6 @@ let test_envelope_preserved_across_variants () =
     ; HandoffCompleted { from_agent = "alpha"; to_agent = "beta"; elapsed = 0.5 }
     ; ElicitationCompleted
         { agent_name = "alpha"; question = "?"; response = Hooks.Declined }
-    ; ContextOverflowImminent
-        { agent_name = "alpha"; estimated_tokens = 1; limit_tokens = 2; ratio = 0.5 }
-    ; ContextCompactStarted { agent_name = "alpha"; trigger = "proactive" }
-    ; ContextCompacted
-        { agent_name = "alpha"
-        ; before_tokens = 100
-        ; after_tokens = 50
-        ; phase = "proactive(50%)"
-        }
-    ; ContentReplacementKept { tool_use_id = "toolu_1"; seen_count_after = 1 }
     ; SlotSchedulerObserved
         { max_slots = 4
         ; active = 4
@@ -152,23 +142,6 @@ let test_event_type_name_mapping () =
     ; ( ElicitationCompleted
           { agent_name = "a"; question = "?"; response = Hooks.Declined }
       , "elicitation.completed" )
-    ; ( ContextOverflowImminent
-          { agent_name = "a"; estimated_tokens = 1; limit_tokens = 2; ratio = 0.5 }
-      , "context.overflow_imminent" )
-    ; ( ContextCompactStarted { agent_name = "a"; trigger = "proactive" }
-      , "context.compact_started" )
-    ; ( ContextCompacted
-          { agent_name = "a"; before_tokens = 1; after_tokens = 1; phase = "x" }
-      , "context.compacted" )
-    ; ( ContentReplacementReplaced
-          { tool_use_id = "toolu_1"
-          ; preview = "short"
-          ; original_chars = 12
-          ; seen_count_after = 1
-          }
-      , "content_replacement.replaced" )
-    ; ( ContentReplacementKept { tool_use_id = "toolu_1"; seen_count_after = 1 }
-      , "content_replacement.kept" )
     ; ( SlotSchedulerObserved
           { max_slots = 4
           ; active = 4

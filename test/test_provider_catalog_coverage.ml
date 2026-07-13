@@ -50,8 +50,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "supports_tools": true,
               "supports_tool_choice": true,
               "supports_parallel_tool_calls": true,
-              "supports_runtime_mcp_tools": true,
-              "supports_runtime_tool_events": true,
               "supports_reasoning": true,
               "supports_extended_thinking": true,
               "supports_reasoning_budget": true,
@@ -112,8 +110,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check bool "supports tools" true caps.supports_tools;
   check bool "supports tool choice" true caps.supports_tool_choice;
   check bool "supports parallel calls" true caps.supports_parallel_tool_calls;
-  check bool "runtime mcp tools" true caps.supports_runtime_mcp_tools;
-  check bool "runtime tool events" true caps.supports_runtime_tool_events;
   check bool "reasoning" true caps.supports_reasoning;
   check bool "extended thinking" true caps.supports_extended_thinking;
   check bool "reasoning budget" true caps.supports_reasoning_budget;
@@ -412,7 +408,15 @@ let test_removed_catalog_aliases_are_rejected () =
   assert_reject
     "modality priority rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"modality_priority":"image_only"}}]}|}
-    "unknown modality_priority"
+    "unknown modality_priority";
+  assert_reject
+    "removed runtime MCP capability rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"supports_runtime_mcp_tools":true}}]}|}
+    "removed provider catalog capability";
+  assert_reject
+    "removed runtime tool-event capability rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"supports_runtime_tool_events":true}}]}|}
+    "removed provider catalog capability"
 ;;
 
 let test_non_list_providers_is_empty_catalog () =
@@ -478,7 +482,7 @@ let test_rejects_schema_version_and_accumulates_entry_errors () =
   | Ok _ -> fail "entry errors should be accumulated"
 ;;
 
-let test_load_file_and_runtime_file_edges () =
+let test_load_file_edges () =
   let valid_path = Filename.temp_file "provider-catalog-coverage" ".json" in
   let invalid_path = Filename.temp_file "provider-catalog-invalid" ".json" in
   Fun.protect
@@ -510,23 +514,10 @@ let test_load_file_and_runtime_file_edges () =
         | Error msg ->
           check bool "parse error mentions path" true (contains ~needle:invalid_path msg)
         | Ok _ -> fail "invalid JSON should fail");
-       (match Provider_catalog.load_file (valid_path ^ ".missing") with
-        | Error msg ->
-          check bool "missing file mentions path" true (contains ~needle:valid_path msg)
-        | Ok _ -> fail "missing file should fail");
-       (match Provider_catalog.load_runtime_file valid_path with
-        | Some catalog ->
-          check
-            bool
-            "runtime load"
-            true
-            (Option.is_some (Provider_catalog.lookup catalog "runtime"))
-        | None -> fail "valid runtime catalog should load");
-       check
-         (option reject)
-         "runtime invalid file returns none"
-         None
-         (Provider_catalog.load_runtime_file invalid_path))
+       match Provider_catalog.load_file (valid_path ^ ".missing") with
+       | Error msg ->
+         check bool "missing file mentions path" true (contains ~needle:valid_path msg)
+       | Ok _ -> fail "missing file should fail")
 ;;
 
 let test_global_override_lifecycle () =
@@ -544,7 +535,8 @@ let test_global_override_lifecycle () =
        true
        (Option.is_some (Provider_catalog.lookup loaded "override"))
    | None -> fail "expected global override");
-  Provider_catalog.clear_global ()
+  Provider_catalog.clear_global ();
+  check (option reject) "clear removes overlay" None (Provider_catalog.global ())
 ;;
 
 let () =
@@ -581,10 +573,7 @@ let () =
             test_removed_auth_types_are_rejected
         ] )
     ; ( "load"
-      , [ test_case
-            "load_file and load_runtime_file edges"
-            `Quick
-            test_load_file_and_runtime_file_edges
+      , [ test_case "load_file edges" `Quick test_load_file_edges
         ; test_case "global override lifecycle" `Quick test_global_override_lifecycle
         ] )
     ]

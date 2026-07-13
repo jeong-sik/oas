@@ -5,9 +5,9 @@ open Llm_provider
 
 let gemini_config
       ?(model_id = "gemini-2.5-flash")
-      ?(thinking = false)
       ?enable_thinking
-      ?(budget = 10000)
+      ?thinking_budget
+      ?reasoning_effort
       ?(tools = [])
       ?(json_mode = false)
       ?output_schema
@@ -15,11 +15,6 @@ let gemini_config
       ()
   =
   ignore tools;
-  let enable_thinking =
-    match enable_thinking with
-    | Some _ as explicit -> explicit
-    | None -> if thinking then Some true else None
-  in
   Provider_config.make
     ~kind:Gemini
     ~model_id
@@ -29,8 +24,8 @@ let gemini_config
     ~max_tokens:4096
     ~temperature:0.7
     ?enable_thinking
-    ?thinking_budget:
-      (if thinking || Option.is_some enable_thinking then Some budget else None)
+    ?thinking_budget
+    ?reasoning_effort
     ~response_format_json:json_mode
     ?output_schema
     ?system_prompt:(if system = "" then None else Some system)
@@ -68,6 +63,58 @@ let test_basic_request () =
     (gen |> member "temperature" |> Yojson.Safe.Util.to_float)
 ;;
 
+let test_explicit_supported_seed () =
+  let capabilities = { Capabilities.gemini_capabilities with supports_seed = true } in
+  let config =
+    Provider_config.make
+      ~kind:Gemini
+      ~model_id:"seed-capable-gemini"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta"
+      ~model_capabilities_override:capabilities
+      ~seed:42
+      ()
+  in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi" ] () in
+  let seed = parse_body body |> member "generationConfig" |> member "seed" |> to_int in
+  check int "explicit seed" 42 seed
+;;
+
+let test_omitted_seed_stays_omitted () =
+  let capabilities = { Capabilities.gemini_capabilities with supports_seed = true } in
+  let config =
+    Provider_config.make
+      ~kind:Gemini
+      ~model_id:"seed-capable-gemini"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta"
+      ~model_capabilities_override:capabilities
+      ()
+  in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi" ] () in
+  let seed = parse_body body |> member "generationConfig" |> member "seed" in
+  check bool "seed omitted" true (seed = `Null)
+;;
+
+let test_unsupported_explicit_seed_is_rejected () =
+  let config =
+    Provider_config.make
+      ~kind:Gemini
+      ~model_id:"seed-unsupported-gemini"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta"
+      ~model_capabilities_override:Capabilities.gemini_capabilities
+      ~seed:42
+      ()
+  in
+  match Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi" ] () with
+  | _ -> fail "expected unsupported seed rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Backend_gemini.build_request: model \"seed-unsupported-gemini\" does not support \
+       seed"
+      message
+;;
+
 let test_system_instruction () =
   let config = gemini_config ~system:"You are helpful." () in
   let messages = [ Types.user_msg "Hi" ] in
@@ -98,7 +145,7 @@ let test_system_from_messages () =
 ;;
 
 let test_thinking_config () =
-  let config = gemini_config ~thinking:true ~budget:8000 () in
+  let config = gemini_config ~enable_thinking:true ~thinking_budget:8000 () in
   let messages = [ Types.user_msg "Think about this." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -109,14 +156,19 @@ let test_thinking_config () =
   check bool "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
 ;;
 
-let test_thinking_disabled_uses_budget_zero () =
+let test_thinking_disabled_requires_exact_numeric_wire () =
   let config = gemini_config ~enable_thinking:false () in
   let messages = [ Types.user_msg "Keep it short." ] in
-  let body = Backend_gemini.build_request ~config ~messages () in
-  let json = parse_body body in
-  let tc = json |> member "generationConfig" |> member "thinkingConfig" in
-  check int "thinkingBudget=0" 0 (tc |> member "thinkingBudget" |> to_int);
-  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
+  match Backend_gemini.build_request ~config ~messages () with
+  | _ -> fail "expected exact numeric-wire rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Backend_gemini.build_request: enable_thinking=false has no exact Gemini boolean \
+       wire; pass an explicit thinking_budget only when the selected model supports that \
+       numeric value"
+      message
 ;;
 
 let test_gemini3_uses_thinking_level () =
@@ -124,7 +176,7 @@ let test_gemini3_uses_thinking_level () =
     gemini_config
       ~model_id:"gemini-3.5-flash"
       ~enable_thinking:true
-      ~budget:Reasoning_effort.low_budget_max_tokens
+      ~reasoning_effort:Reasoning_effort.Low
       ()
   in
   let body =
@@ -136,36 +188,19 @@ let test_gemini3_uses_thinking_level () =
   check bool "includeThoughts true" true (tc |> member "includeThoughts" |> to_bool)
 ;;
 
-let test_gemini3_disable_uses_low_level () =
-  (* gemini-3-flash-preview does not expose the [minimal] level (official thinking
-     docs, 2026-06-29); a disabled turn falls back to the lowest valid level. *)
-  let config = gemini_config ~model_id:"gemini-3-flash" ~enable_thinking:false () in
-  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
-  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
-  check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string);
-  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
-;;
-
-let test_gemini31_flash_lite_disable_uses_minimal_level () =
-  (* gemini-3.1-flash-lite is the only family that accepts [minimal] (and it is
-     the default there), so a disabled turn maps to [minimal]. The config value
-     is intentionally raw-cased/padded: backend_gemini must not reclassify model
-     strings itself; [Capabilities.gemini_thinking_control_of_id] owns the
-     normalization boundary. *)
+let test_gemini3_disable_is_rejected () =
   let config =
-    gemini_config ~model_id:" Gemini-3.1-Flash-Lite " ~enable_thinking:false ()
+    gemini_config ~model_id:"gemini-3-flash-preview" ~enable_thinking:false ()
   in
-  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
-  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
-  check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
-  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
-;;
-
-let test_gemini31_pro_disable_uses_low_level () =
-  let config = gemini_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false () in
-  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
-  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
-  check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string)
+  match Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () with
+  | _ -> fail "expected exact-representation rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Backend_gemini.build_request: enable_thinking=false has no exact Gemini \
+       thinkingLevel representation"
+      message
 ;;
 
 let test_tools () =
@@ -1598,23 +1633,21 @@ let () =
     "backend_gemini"
     [ ( "build_request"
       , [ test_case "basic" `Quick test_basic_request
+        ; test_case "explicit supported seed" `Quick test_explicit_supported_seed
+        ; test_case "omitted seed stays omitted" `Quick test_omitted_seed_stays_omitted
+        ; test_case
+            "unsupported explicit seed is rejected"
+            `Quick
+            test_unsupported_explicit_seed_is_rejected
         ; test_case "system instruction from config" `Quick test_system_instruction
         ; test_case "system from messages" `Quick test_system_from_messages
         ; test_case "thinking config" `Quick test_thinking_config
         ; test_case
-            "thinking disabled uses budget zero"
+            "thinking disabled requires exact numeric wire"
             `Quick
-            test_thinking_disabled_uses_budget_zero
+            test_thinking_disabled_requires_exact_numeric_wire
         ; test_case "gemini 3 uses thinkingLevel" `Quick test_gemini3_uses_thinking_level
-        ; test_case "gemini 3 disable uses low" `Quick test_gemini3_disable_uses_low_level
-        ; test_case
-            "gemini 3.1 flash-lite disable uses minimal"
-            `Quick
-            test_gemini31_flash_lite_disable_uses_minimal_level
-        ; test_case
-            "gemini 3.1 pro disable uses low"
-            `Quick
-            test_gemini31_pro_disable_uses_low_level
+        ; test_case "gemini 3 disable is rejected" `Quick test_gemini3_disable_is_rejected
         ; test_case "tools" `Quick test_tools
         ; test_case
             "disable_parallel dropped"

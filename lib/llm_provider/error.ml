@@ -181,8 +181,6 @@ let to_string = function
 let of_retry_api_error ?provider err =
   let provider = provider_name provider in
   match err with
-  | Retry.RateLimited r when Retry.is_hard_quota err ->
-    HardQuota { provider; retry_after = r.retry_after; detail = r.message }
   | Retry.RateLimited r ->
     RateLimit { provider; retry_after = r.retry_after; detail = r.message }
   | Retry.Overloaded r ->
@@ -202,11 +200,7 @@ let of_retry_api_error ?provider err =
   | Retry.AuthError r -> AuthError { provider; detail = r.message }
   | Retry.AuthorizationError r -> AuthorizationError { provider; detail = r.message }
   | Retry.PaymentRequired r ->
-    (* HTTP 402 is a hard billing-exhaustion signal by status code alone —
-       map directly onto the existing [HardQuota] provider_error rather than
-       [InvalidRequest], so downstream consumers (health trackers) see the
-       same "stop retrying, apply long cooldown" signal a hard-quota 429
-       would produce. *)
+    (* HTTP 402 is a typed payment boundary by status code alone. *)
     HardQuota { provider; retry_after = None; detail = r.message }
   | Retry.InvalidRequest r -> InvalidRequest { provider; reason = r.message }
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
@@ -311,12 +305,6 @@ let of_http_error ?provider = function
   | Http_client.AcceptRejected { reason } ->
     InvalidRequest
       { provider = provider_name provider; reason = "accept rejected: " ^ reason }
-  | Http_client.ProviderTerminal { kind = Http_client.Max_turns r; message } ->
-    ProviderTerminal
-      { provider = provider_name provider
-      ; reason = Printf.sprintf "max_turns:%d/%d" r.turns r.limit
-      ; detail = message
-      }
   | Http_client.ProviderTerminal { kind = Http_client.Session_conflict; message } ->
     ProviderTerminal
       { provider = provider_name provider; reason = "session_conflict"; detail = message }

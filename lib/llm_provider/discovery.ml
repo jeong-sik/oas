@@ -1,4 +1,4 @@
-(** LLM endpoint discovery -- probes local llama-server instances.
+(** LLM endpoint discovery -- probes explicit typed endpoint declarations.
 
     @since 0.53.0 *)
 
@@ -28,7 +28,6 @@ type server_props = Discovery_parse.server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
-  ; supports_tools : bool option
   }
 
 type slot_status = Discovery_parse.slot_status =
@@ -37,13 +36,34 @@ type slot_status = Discovery_parse.slot_status =
   ; idle : int
   }
 
+type endpoint_protocol =
+  | Openai_compatible
+  | Ollama_native
+
+type endpoint =
+  { url : string
+  ; protocol : endpoint_protocol
+  ; capabilities : Capabilities.capabilities
+  }
+
+let endpoint ~protocol ~capabilities url =
+  { url = String.trim url; protocol; capabilities }
+;;
+
+type probe_failure =
+  { phase : string
+  ; detail : string
+  }
+
 type endpoint_status =
   { url : string
+  ; protocol : endpoint_protocol
   ; healthy : bool
   ; models : model_info list
   ; props : server_props option
   ; slots : slot_status option
   ; capabilities : Capabilities.capabilities
+  ; failures : probe_failure list
   }
 
 let local_llm_url_env_var = "OAS_LOCAL_LLM_URL"
@@ -73,24 +93,12 @@ let parse_llm_endpoints_env ?(getenv = fun name -> Cli_common_env.get name) () =
   | None -> []
 ;;
 
-let endpoints_from_env ?(getenv = fun name -> Cli_common_env.get name) () =
-  let explicit =
-    match parse_llm_endpoints_env ~getenv () with
-    | [] -> [ resolve_default_endpoint ~getenv () ]
-    | urls -> urls
-  in
-  (* Include Ollama endpoint if not already listed.
-     Discovery handles both llama-server and Ollama probe paths. *)
-  let ollama_endpoint = resolve_ollama_endpoint ~getenv () in
-  if List.mem ollama_endpoint explicit then explicit else explicit @ [ ollama_endpoint ]
-;;
-
 (* HTTP helpers moved to {!Discovery_http} so the exhaustive
    [Http_client.http_error] pattern match lives in one place.
    Re-export keeps the in-file probe call sites
    (lines ~250, 480, 487, 510) unchanged. *)
 let get_json = Discovery_http.get_json
-let get_ok = Discovery_http.get_ok
+let probe_liveness = Discovery_http.probe_liveness
 
 (* Parsers moved to {!Discovery_parse}; re-export so the in-file
    [probe_endpoint] call sites still type-check unchanged. *)
@@ -98,332 +106,151 @@ let parse_models = Discovery_parse.parse_models
 let parse_props = Discovery_parse.parse_props
 let parse_slots = Discovery_parse.parse_slots
 
-(* ── Ollama fallback ────────────────────────────────────── *)
+(** Parse Ollama's typed [/api/tags] model list.
 
-(** Search for context_length in an Ollama model_info JSON object.
-    Ollama uses model-specific key prefixes (e.g. "qwen3_5.context_length")
-    rather than the generic "general.context_length".  Apply deterministic
-    precedence when multiple keys are present: prefer "context_length",
-    then "general.context_length", then take the maximum value across any
-    remaining keys ending with ".context_length".  Returns 0 if none. *)
-let find_context_length (model_info : Yojson.Safe.t) : int =
-  let int_value = function
-    | `Int n -> Some n
-    | `Float f -> Some (int_of_float f)
+    The parser deliberately does not inspect chat templates, model names, or
+    provider prose. A malformed item makes the endpoint probe fail explicitly
+    instead of silently removing the model from discovery. *)
+let parse_ollama_models tags_json =
+  let models_json =
+    match tags_json with
+    | `Assoc fields -> List.assoc_opt "models" fields
     | _ -> None
   in
-  match model_info with
-  | `Assoc pairs ->
-    let preferred key =
-      List.find_map (fun (k, value) -> if k = key then int_value value else None) pairs
+  match models_json with
+  | None -> Error "response must be a JSON object with a models field"
+  | Some (`List items) ->
+    let model_name = function
+      | `Assoc fields ->
+        (match List.assoc_opt "name" fields with
+         | Some (`String name) when String.trim name <> "" -> Ok name
+         | Some (`String _) -> Error "name must be non-empty"
+         | Some _ -> Error "name must be a string"
+         | None -> Error "name is missing")
+      | _ -> Error "model entry must be a JSON object"
     in
-    (match preferred "context_length" with
-     | Some n -> n
-     | None ->
-       (match preferred "general.context_length" with
-        | Some n -> n
-        | None ->
-          pairs
-          |> List.filter_map (fun (key, value) ->
-            if String.ends_with ~suffix:".context_length" key
-            then int_value value
-            else None)
-          |> List.fold_left max 0))
-  | _ -> 0
+    let rec loop index acc = function
+      | [] -> Ok (List.rev acc)
+      | item :: rest ->
+        (match model_name item with
+         | Ok name ->
+           loop
+             (index + 1)
+             ({ id = name; owned_by = Provider_kind.to_string Provider_kind.Ollama }
+              :: acc)
+             rest
+         | Error detail -> Error (Printf.sprintf "models[%d].%s" index detail))
+    in
+    loop 0 [] items
+  | Some _ -> Error "models must be a JSON list"
 ;;
 
-(** Detect tool-calling support from a chat template string.
-    Checks for tool-related keywords and special tokens used by
-    various model families (DashScope, Llama, Mistral, etc.). *)
-let template_has_tool_support (template : string) : bool =
-  let has_tool_keyword =
-    Retry.contains_case_insensitive ~haystack:template ~needle:"tools"
-    || Retry.contains_case_insensitive ~haystack:template ~needle:"Tool"
-  in
-  let has_tool_call_token =
-    List.exists
-      (fun needle -> Retry.contains_case_insensitive ~haystack:template ~needle)
-      [ "<|tool_call|>"
-      ; "<|tool_calls|>"
-      ; ".tool_call"
-      ; "<|im_tool|>"
-      ; "<|function_call"
-      ]
-  in
-  has_tool_call_token || (String.index_opt template '{' <> None && has_tool_keyword)
-;;
-
-(** Try to detect Ollama via /api/tags and retrieve actual context size
-    via /api/show. Returns synthetic server_props on success. *)
-let probe_ollama_context ~sw ~net base_url =
+let probe_ollama_models ~sw ~net base_url =
   match get_json ~sw ~net (base_url ^ "/api/tags") with
-  | Error detail ->
-    warn_probe_failure ~url:base_url ~phase:"ollama_tags" detail;
-    None
-  | Ok tags_json ->
-    let open Yojson.Safe.Util in
-    let models =
-      match member "models" tags_json with
-      | `List items -> items
-      | _ -> []
-    in
-    let first_name =
-      List.find_map
-        (fun item ->
-           match member "name" item |> to_string_option with
-           | Some name when name <> "" -> Some name
-           | _ -> None)
-        models
-    in
-    (match first_name with
-     | None -> None
-     | Some model_name ->
-       let body = Yojson.Safe.to_string (`Assoc [ "name", `String model_name ]) in
-       let headers = [ "content-type", "application/json" ] in
-       (match
-          Http_client.post_sync ~sw ~net ~url:(base_url ^ "/api/show") ~headers ~body ()
-        with
-        | Ok (code, resp_body) when code >= 200 && code < 300 ->
-          (try
-             let json = Yojson.Safe.from_string resp_body in
-             let model_info = member "model_info" json in
-             let ctx = find_context_length model_info in
-             if ctx > 0
-             then (
-               let template =
-                 match member "template" json with
-                 | `String s -> s
-                 | _ -> ""
-               in
-               let has_tools = template_has_tool_support template in
-               Some
-                 { total_slots = 1
-                 ; ctx_size = ctx
-                 ; model = model_name
-                 ; supports_tools = Some has_tools
-                 })
-             else (
-               warn_probe_failure
-                 ~url:base_url
-                 ~phase:"ollama_show"
-                 "model_info contained no usable context length";
-               None)
-           with
-           | Yojson.Json_error msg ->
-             warn_probe_failure ~url:base_url ~phase:"ollama_show_json" msg;
-             None
-           | Yojson.Safe.Util.Type_error (msg, _) ->
-             warn_probe_failure ~url:base_url ~phase:"ollama_show_parse" msg;
-             None)
-        | Ok (code, _) ->
-          warn_probe_failure
-            ~url:base_url
-            ~phase:"ollama_show_http"
-            (Printf.sprintf "HTTP %d" code);
-          None
-        | Error err ->
-          let detail =
-            match err with
-            | Http_client.HttpError { code; body } ->
-              Printf.sprintf "HTTP %d: %s" code body
-            | Http_client.NetworkError { message; _ } -> message
-            | Http_client.TimeoutError { message; _ } -> message
-            | Http_client.AcceptRejected { reason } -> reason
-            | Http_client.ProviderTerminal { message; _ } -> message
-            | Http_client.ProviderFailure { kind; message } ->
-              Http_client.provider_failure_to_string ~kind ~message
-          in
-          warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
-          None))
+  | Error detail -> Error detail
+  | Ok tags_json -> parse_ollama_models tags_json
 ;;
 
-(* ── Capability inference ────────────────────────────────── *)
-
-(** Overlay Ollama native [/api/chat] [think] behavior onto a capability record
-    returned by a model-specific lookup ([for_model_id]). Vendor identity
-    (which endpoint, which model) is decided by the caller; this function only
-    encodes the endpoint wire-format consequence. *)
-let apply_ollama_think_overlay (caps : Capabilities.capabilities)
-  : Capabilities.capabilities
-  =
-  { caps with
-    supports_seed = true
-  ; supports_seed_with_images = true
-  ; supports_tool_choice = false
-  ; supports_required_tool_choice = false
-  ; supports_named_tool_choice = false
-  ; thinking_control_format = Capabilities.Ollama_think
-  }
-;;
-
-(** Infer capabilities from model info and server props.
-    Non-Ollama discovery probes generic OpenAI-compatible endpoints, so
-    [/v1/models] names are not enough evidence to import provider-specific
-    thinking/reasoning/tool dialects. When [uses_ollama_think] is [true] the
-    endpoint speaks Ollama native [/api/chat] [think] format, so
-    {!apply_ollama_think_overlay} is layered on top of the model-specific lookup
-    result, or [ollama_capabilities] is used as the fallback base when no lookup
-    match exists. *)
-let infer_capabilities ~uses_ollama_think models props =
-  let from_lookup =
-    if uses_ollama_think
-    then List.find_map (fun (m : model_info) -> Capabilities.for_model_id m.id) models
-    else None
-  in
-  let base =
-    match from_lookup with
-    | Some caps ->
-      (* Overlay Ollama endpoint flags while keeping model-specific
-         context-window and reasoning metadata. *)
-      apply_ollama_think_overlay caps
-    | None ->
-      if uses_ollama_think
-      then
-        (* Ollama native base: inherits extended reasoning, top_k/min_p, and
-           the seed/tool_choice/[think] flags that travel with this wire
-           format. Dynamic tool support from /api/show template analysis is
-           merged below via props handling in step 3. *)
-        Capabilities.ollama_capabilities
-      else Capabilities.openai_compat_chat_capabilities
-  in
-  (* Merge endpoint-declared context/tool facts from /props into capabilities. *)
+let capabilities_with_props base props =
   match props with
-  | Some (p : server_props) ->
-    let c = Capabilities.with_context_size base ~ctx_size:p.ctx_size in
-    (match p.supports_tools with
-     | Some t -> Capabilities.with_tool_support c ~supports_tools:t
-     | None -> c)
+  | Some (p : server_props) -> Capabilities.with_context_size base ~ctx_size:p.ctx_size
   | None -> base
 ;;
 
 (* ── Probe ───────────────────────────────────────────────── *)
 
-(** Extract the [host:port] authority from a URL string, ignoring
-    userinfo, path, query, and fragment.  Returns [Some port] only when
-    a numeric port is present in the authority section.  Used by
-    {!url_is_ollama}; see that function for the matching contract. *)
-let port_of_url (url : string) : int option =
-  let s = String.trim url in
-  let len = String.length s in
-  (* Skip scheme:// if present *)
-  let start =
-    match String.index_opt s ':' with
-    | Some i when i + 2 < len && s.[i + 1] = '/' && s.[i + 2] = '/' -> i + 3
-    | _ -> 0
+let probe_endpoint ~sw ~net (declared : endpoint) =
+  let base = declared.url in
+  let failure phase detail =
+    warn_probe_failure ~url:base ~phase detail;
+    { phase; detail }
   in
-  (* Authority ends at first '/', '?' or '#'. *)
-  let stop =
-    let rec scan i =
-      if i >= len
-      then len
-      else (
-        match s.[i] with
-        | '/' | '?' | '#' -> i
-        | _ -> scan (i + 1))
-    in
-    scan start
-  in
-  let authority = String.sub s start (stop - start) in
-  (* Strip userinfo (everything before the LAST '@' inside authority). *)
-  let host_port =
-    match String.rindex_opt authority '@' with
-    | Some i -> String.sub authority (i + 1) (String.length authority - i - 1)
-    | None -> authority
-  in
-  (* IPv6 literal: [::1]:11434 — host is in brackets, port follows ']'. *)
-  let port_str =
-    if String.length host_port > 0 && host_port.[0] = '['
-    then (
-      match String.index_opt host_port ']' with
-      | Some i when i + 1 < String.length host_port && host_port.[i + 1] = ':' ->
-        Some (String.sub host_port (i + 2) (String.length host_port - i - 2))
-      | _ -> None)
-    else (
-      match String.rindex_opt host_port ':' with
-      | Some i -> Some (String.sub host_port (i + 1) (String.length host_port - i - 1))
-      | None -> None)
-  in
-  Option.bind port_str int_of_string_opt
-;;
-
-(** Heuristic: does this URL look like an Ollama endpoint?
-    Used to skip llama.cpp-only probe paths (/props, /slots) that always
-    return 404 on Ollama and pollute logs. Matches when:
-    - the URL's authority port is exactly 11434 (Ollama default), OR
-    - the trimmed URL equals the configured [ollama_endpoint]
-      (env [OLLAMA_HOST] or default)
-    The port match is intentionally strict — substring matching on
-    ":11434" gives false positives on userinfo (user:11434@host),
-    paths (/api/:11434), and query strings (?p=:11434). *)
-let url_is_ollama ?(getenv = fun name -> Cli_common_env.get name) (url : string) : bool =
-  match port_of_url url with
-  | Some 11434 -> true
-  | _ -> String.equal (String.trim url) (String.trim (resolve_ollama_endpoint ~getenv ()))
-;;
-
-let probe_endpoint ~sw ~net url =
-  let base = String.trim url in
-  let warn phase detail = warn_probe_failure ~url:base ~phase detail in
-  let capture_json phase parse target =
-    match get_json ~sw ~net target with
-    | Ok json -> parse json
-    | Error detail ->
-      warn phase detail;
-      None
-  in
-  (* Try /health first (llama.cpp), fall back to / (Ollama returns 200) *)
-  let healthy = get_ok ~sw ~net (base ^ "/health") || get_ok ~sw ~net base in
-  if not healthy
-  then
+  let status ~healthy ~models ~props ~slots ~failures =
     { url = base
-    ; healthy = false
-    ; models = []
-    ; props = None
-    ; slots = None
-    ; capabilities = Capabilities.default_capabilities
+    ; protocol = declared.protocol
+    ; healthy
+    ; models
+    ; props
+    ; slots
+    ; capabilities = capabilities_with_props declared.capabilities props
+    ; failures
     }
+  in
+  if base = ""
+  then
+    status
+      ~healthy:false
+      ~models:[]
+      ~props:None
+      ~slots:None
+      ~failures:[ failure "declaration" "endpoint URL is empty" ]
   else (
-    let is_ollama = url_is_ollama base in
-    (* Fetch models, props, and slots concurrently via Eio fibers.
-       Skip /props and /slots probes for Ollama endpoints — those are
-       llama.cpp-only paths and always 404 on Ollama, polluting logs.
-       Ollama context is recovered via probe_ollama_context below. *)
-    let models_ref = ref [] in
-    let props_ref = ref None in
-    let slots_ref = ref None in
-    let fibers =
-      [ (fun () ->
-          models_ref
-          := match get_json ~sw ~net (base ^ "/v1/models") with
-             | Ok json -> parse_models json
-             | Error detail ->
-               warn "models" detail;
-               [])
-      ]
-      @
-      if is_ollama
-      then []
-      else
-        [ (fun () -> props_ref := capture_json "props" parse_props (base ^ "/props"))
-        ; (fun () -> slots_ref := capture_json "slots" parse_slots (base ^ "/slots"))
-        ]
-    in
-    Eio.Fiber.all fibers;
-    let models = !models_ref in
-    let slots = !slots_ref in
-    (* Ollama fallback: if /props failed (or was skipped), try /api/tags + /api/show *)
-    let props =
-      match !props_ref with
-      | Some _ as p -> p
-      | None -> probe_ollama_context ~sw ~net base
-    in
-    (* Vendor-to-behavior mapping: Ollama endpoints currently speak the
-       reasoning_effort wire format. [is_ollama] stays the local probe
-       result (used above for /props /slots skipping — a *protocol*
-       routing concern), but it is mapped to the behavior axis at the
-       capability-inference boundary. *)
-    let capabilities = infer_capabilities ~uses_ollama_think:is_ollama models props in
-    { url = base; healthy; models; props; slots; capabilities })
+    match declared.protocol with
+    | Ollama_native ->
+      (match probe_ollama_models ~sw ~net base with
+       | Ok models -> status ~healthy:true ~models ~props:None ~slots:None ~failures:[]
+       | Error detail ->
+         status
+           ~healthy:false
+           ~models:[]
+           ~props:None
+           ~slots:None
+           ~failures:[ failure "ollama_tags" detail ])
+    | Openai_compatible ->
+      let liveness =
+        match probe_liveness ~sw ~net (base ^ "/health") with
+        | Ok () -> Ok ()
+        | Error health_detail ->
+          (match probe_liveness ~sw ~net base with
+           | Ok () -> Ok ()
+           | Error root_detail ->
+             Error (Printf.sprintf "/health: %s; /: %s" health_detail root_detail))
+      in
+      (match liveness with
+       | Error detail ->
+         status
+           ~healthy:false
+           ~models:[]
+           ~props:None
+           ~slots:None
+           ~failures:[ failure "health" detail ]
+       | Ok () ->
+         let probe parse target =
+           match get_json ~sw ~net target with
+           | Error _ as error -> error
+           | Ok json -> parse json
+         in
+         let models_result, resolve_models = Eio.Promise.create () in
+         let props_result, resolve_props = Eio.Promise.create () in
+         let slots_result, resolve_slots = Eio.Promise.create () in
+         Eio.Fiber.all
+           [ (fun () ->
+               Eio.Promise.resolve
+                 resolve_models
+                 (probe parse_models (base ^ "/v1/models")))
+           ; (fun () ->
+               Eio.Promise.resolve resolve_props (probe parse_props (base ^ "/props")))
+           ; (fun () ->
+               Eio.Promise.resolve resolve_slots (probe parse_slots (base ^ "/slots")))
+           ];
+         let models_result = Eio.Promise.await models_result in
+         let props_result = Eio.Promise.await props_result in
+         let slots_result = Eio.Promise.await slots_result in
+         let models, models_valid, models_failure =
+           match models_result with
+           | Ok models -> models, true, None
+           | Error detail -> [], false, Some (failure "models" detail)
+         in
+         let optional phase = function
+           | Ok value -> Some value, None
+           | Error detail -> None, Some (failure phase detail)
+         in
+         let props, props_failure = optional "props" props_result in
+         let slots, slots_failure = optional "slots" slots_result in
+         let failures =
+           List.filter_map Fun.id [ models_failure; props_failure; slots_failure ]
+         in
+         status ~healthy:models_valid ~models ~props ~slots ~failures))
 ;;
 
 (* ── Shared discovered context state ──────────────────────── *)
@@ -494,9 +321,7 @@ let first_discovered_model_id_for_url (url : string) : string option =
     snap.model_endpoints
 ;;
 
-let discover ~sw ~net ~endpoints =
-  Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
-;;
+let discover ~sw ~net ~endpoints = Eio.Fiber.List.map (probe_endpoint ~sw ~net) endpoints
 
 let refresh_and_sync ~sw ~net ~endpoints =
   let statuses = discover ~sw ~net ~endpoints in
@@ -532,92 +357,6 @@ let refresh_and_sync ~sw ~net ~endpoints =
   statuses
 ;;
 
-let builtin_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
-let valid_tcp_port p = p >= 1 && p <= 65535
-let discovery_ports_env = "OAS_DISCOVERY_PORTS"
-let discovery_diag_context = "discovery"
-
-type invalid_scan_port_reason =
-  | Not_an_integer
-  | Outside_tcp_port_range
-
-type invalid_scan_port =
-  { token : string
-  ; reason : invalid_scan_port_reason
-  }
-
-let invalid_scan_port_reason_to_string = function
-  | Not_an_integer -> "not an integer"
-  | Outside_tcp_port_range -> "outside TCP port range 1-65535"
-;;
-
-let warn_invalid_discovery_port ~env_var ~diag_context ~token ~reason =
-  Diag.warn
-    diag_context
-    "%s token %S ignored: %s"
-    env_var
-    token
-    (invalid_scan_port_reason_to_string reason)
-;;
-
-let missing_invalid_port_handler ~token ~reason =
-  invalid_arg
-    (Printf.sprintf
-       "parse_ports_env invalid token %S: %s"
-       token
-       (invalid_scan_port_reason_to_string reason))
-;;
-
-let parse_ports_env_result s =
-  String.split_on_char ',' s
-  |> List.fold_left
-       (fun (ports, invalids) raw ->
-          let trimmed = String.trim raw in
-          match int_of_string_opt trimmed with
-          | None when trimmed = "" ->
-            (* Empty tokens make trailing/repeated separators harmless. *)
-            ports, invalids
-          | Some p when valid_tcp_port p && not (List.mem p ports) -> p :: ports, invalids
-          | Some p when valid_tcp_port p ->
-            (* Keep the first occurrence so user-provided probe order is stable. *)
-            ports, invalids
-          | Some _ ->
-            ports, { token = trimmed; reason = Outside_tcp_port_range } :: invalids
-          | None -> ports, { token = trimmed; reason = Not_an_integer } :: invalids)
-       ([], [])
-  |> fun (ports, invalids) -> List.rev ports, List.rev invalids
-;;
-
-let parse_ports_env ?(on_invalid = missing_invalid_port_handler) s =
-  let ports, invalids = parse_ports_env_result s in
-  List.iter (fun { token; reason } -> on_invalid ~token ~reason) invalids;
-  ports
-;;
-
-let default_scan_ports () =
-  match Cli_common_env.get discovery_ports_env with
-  | Some s ->
-    (match
-       parse_ports_env
-         ~on_invalid:
-           (warn_invalid_discovery_port
-              ~env_var:discovery_ports_env
-              ~diag_context:discovery_diag_context)
-         s
-     with
-     | [] -> builtin_scan_ports
-     | ps -> ps)
-  | None -> builtin_scan_ports
-;;
-
-let scan_local_endpoints ?(ports = default_scan_ports ()) ~sw ~net () =
-  let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in
-  let statuses = discover ~sw ~net ~endpoints:candidates in
-  List.filter_map
-    (fun (s : endpoint_status) -> if s.healthy then Some s.url else None)
-    statuses
-;;
-
 (* ── JSON serialization ──────────────────────────────────── *)
 
 let model_info_to_json (m : model_info) =
@@ -646,12 +385,23 @@ let capabilities_to_json (c : Capabilities.capabilities) =
     ]
 ;;
 
+let endpoint_protocol_to_json = function
+  | Openai_compatible -> `String "openai_compatible"
+  | Ollama_native -> `String "ollama_native"
+;;
+
+let probe_failure_to_json failure =
+  `Assoc [ "phase", `String failure.phase; "detail", `String failure.detail ]
+;;
+
 let endpoint_status_to_json (e : endpoint_status) =
   let fields =
     [ "url", `String e.url
+    ; "protocol", endpoint_protocol_to_json e.protocol
     ; "healthy", `Bool e.healthy
     ; "models", `List (List.map model_info_to_json e.models)
     ; "capabilities", capabilities_to_json e.capabilities
+    ; "failures", `List (List.map probe_failure_to_json e.failures)
     ]
   in
   let fields =
@@ -748,128 +498,6 @@ let%test "parse_llm_endpoints_env preserves order and trims" =
   res = [ "http://a:8080"; "http://b:8081" ]
 ;;
 
-(* --- endpoints_from_env --- *)
-
-let%test "endpoints_from_env default when unset" =
-  let eps = endpoints_from_env ~getenv:no_env () in
-  List.hd eps = default_endpoint && List.mem ollama_endpoint eps
-;;
-
-let%test "endpoints_from_env parses comma-separated" =
-  let eps =
-    endpoints_from_env
-      ~getenv:(getenv_with_llm_endpoints "http://a:8080,http://b:8081")
-      ()
-  in
-  List.mem "http://a:8080" eps
-  && List.mem "http://b:8081" eps
-  && List.mem ollama_endpoint eps
-;;
-
-let%test "endpoints_from_env trims whitespace" =
-  let eps =
-    endpoints_from_env
-      ~getenv:(getenv_with_llm_endpoints "  http://a:8080 , http://b:8081  ")
-      ()
-  in
-  List.mem "http://a:8080" eps && List.mem "http://b:8081" eps
-;;
-
-let%test "endpoints_from_env filters empty parts" =
-  let eps =
-    endpoints_from_env ~getenv:(getenv_with_llm_endpoints "http://a,,http://b,") ()
-  in
-  List.mem "http://a" eps && List.mem "http://b" eps
-;;
-
-let%test "endpoints_from_env empty string returns default" =
-  let eps = endpoints_from_env ~getenv:(getenv_with_llm_endpoints "") () in
-  List.hd eps = default_endpoint
-;;
-
-(* --- url_is_ollama --- *)
-
-let%test "url_is_ollama matches default ollama port" =
-  url_is_ollama "http://127.0.0.1:11434"
-;;
-
-let%test "url_is_ollama matches localhost variant" =
-  url_is_ollama "http://localhost:11434"
-;;
-
-let%test "url_is_ollama trims whitespace" = url_is_ollama "  http://127.0.0.1:11434  "
-let%test "url_is_ollama matches IPv6 literal" = url_is_ollama "http://[::1]:11434"
-
-let%test "url_is_ollama matches with trailing path" =
-  url_is_ollama "http://127.0.0.1:11434/api/tags"
-;;
-
-let%test "url_is_ollama rejects llama-server port" =
-  not (url_is_ollama "http://127.0.0.1:8085")
-;;
-
-let%test "url_is_ollama rejects unrelated port" =
-  not (url_is_ollama "http://127.0.0.1:8086")
-;;
-
-(* Codex review #793: confirm false-positive substring matches no longer fire. *)
-let%test "url_is_ollama rejects :11434 in userinfo" =
-  not (url_is_ollama "http://user:11434@example.com/v1")
-;;
-
-let%test "url_is_ollama rejects :11434 in path" =
-  not (url_is_ollama "http://example.com/api/:11434")
-;;
-
-let%test "url_is_ollama rejects :11434 in query" =
-  not (url_is_ollama "http://example.com:8080/?next=:11434")
-;;
-
-(* Codex review: cover the bare ":11434 in query" case with no other port. *)
-let%test "url_is_ollama rejects :11434 in query (no other port)" =
-  not (url_is_ollama "http://example.com/?next=:11434")
-;;
-
-let%test "url_is_ollama rejects :11434 in fragment" =
-  not (url_is_ollama "http://example.com:8080/path#:11434")
-;;
-
-let%test "url_is_ollama rejects :11434 in fragment (no other port)" =
-  not (url_is_ollama "http://example.com/path#frag:11434")
-;;
-
-let%test "url_is_ollama rejects port suffix collision (:111434)" =
-  not (url_is_ollama "http://example.com:111434/")
-;;
-
-let%test "url_is_ollama rejects hostname starting with 11434" =
-  not (url_is_ollama "http://11434.example.com/api")
-;;
-
-(* --- port_of_url --- *)
-
-let%test "port_of_url default scheme://host:port" =
-  port_of_url "http://127.0.0.1:8085" = Some 8085
-;;
-
-let%test "port_of_url no port returns None" = port_of_url "http://example.com/path" = None
-
-let%test "port_of_url skips userinfo" =
-  port_of_url "http://user:pass@example.com:9000/api" = Some 9000
-;;
-
-let%test "port_of_url ipv6 literal" = port_of_url "http://[::1]:8086" = Some 8086
-let%test "port_of_url stops at path" = port_of_url "http://h:8085/x:9999" = Some 8085
-
-let%test "endpoints_from_env does not duplicate ollama" =
-  let eps =
-    endpoints_from_env
-      ~getenv:(getenv_with_llm_endpoints (ollama_endpoint ^ ",http://a:8085"))
-      ()
-  in
-  List.length (List.filter (( = ) ollama_endpoint) eps) = 1
-;;
-
 (* --- parse_models --- *)
 
 let%test "parse_models valid" =
@@ -882,34 +510,34 @@ let%test "parse_models valid" =
             ] )
       ]
   in
-  let models = parse_models json in
-  List.length models = 2 && (List.hd models).id = "dashscope-3.5-35b"
+  match parse_models json with
+  | Ok models -> List.length models = 2 && (List.hd models).id = "dashscope-3.5-35b"
+  | Error _ -> false
 ;;
 
 let%test "parse_models empty data" =
   let json = `Assoc [ "data", `List [] ] in
-  parse_models json = []
+  parse_models json = Ok []
 ;;
 
-let%test "parse_models missing data" =
+let%test "parse_models rejects missing data" =
   let json = `Assoc [] in
-  parse_models json = []
+  Result.is_error (parse_models json)
 ;;
 
-let%test "parse_models non-list data" =
+let%test "parse_models rejects non-list data" =
   let json = `Assoc [ "data", `String "bad" ] in
-  parse_models json = []
+  Result.is_error (parse_models json)
 ;;
 
-let%test "parse_models missing id skipped" =
+let%test "parse_models rejects missing id instead of dropping the entry" =
   let json = `Assoc [ "data", `List [ `Assoc [ "owned_by", `String "local" ] ] ] in
-  parse_models json = []
+  Result.is_error (parse_models json)
 ;;
 
-let%test "parse_models owned_by defaults to unknown" =
+let%test "parse_models rejects missing owned_by" =
   let json = `Assoc [ "data", `List [ `Assoc [ "id", `String "model1" ] ] ] in
-  let models = parse_models json in
-  List.length models = 1 && (List.hd models).owned_by = "unknown"
+  Result.is_error (parse_models json)
 ;;
 
 (* --- parse_props --- *)
@@ -923,49 +551,43 @@ let%test "parse_props valid" =
       ]
   in
   match parse_props json with
-  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "dashscope-3.5"
-  | None -> false
+  | Ok p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "dashscope-3.5"
+  | Error _ -> false
 ;;
 
-let%test "parse_props missing total_slots" =
+let%test "parse_props rejects missing total_slots" =
   let json = `Assoc [] in
-  parse_props json = None
+  Result.is_error (parse_props json)
 ;;
 
-let%test "parse_props total_slots not int" =
+let%test "parse_props rejects non-integer total_slots" =
   let json = `Assoc [ "total_slots", `String "4" ] in
-  parse_props json = None
+  Result.is_error (parse_props json)
 ;;
 
-let%test "parse_props missing dgs" =
+let%test "parse_props rejects missing generation settings" =
   let json = `Assoc [ "total_slots", `Int 2 ] in
-  match parse_props json with
-  | Some p -> p.total_slots = 2 && p.ctx_size = 0 && p.model = ""
-  | None -> false
+  Result.is_error (parse_props json)
 ;;
 
-let%test "parse_props dgs missing n_ctx" =
+let%test "parse_props rejects missing n_ctx" =
   let json =
     `Assoc
       [ "total_slots", `Int 1
       ; "default_generation_settings", `Assoc [ "model", `String "m" ]
       ]
   in
-  match parse_props json with
-  | Some p -> p.ctx_size = 0 && p.model = "m"
-  | None -> false
+  Result.is_error (parse_props json)
 ;;
 
-let%test "parse_props dgs missing model" =
+let%test "parse_props rejects missing model" =
   let json =
     `Assoc
       [ "total_slots", `Int 1
       ; "default_generation_settings", `Assoc [ "n_ctx", `Int 4096 ]
       ]
   in
-  match parse_props json with
-  | Some p -> p.model = "" && p.ctx_size = 4096
-  | None -> false
+  Result.is_error (parse_props json)
 ;;
 
 (* --- parse_slots --- *)
@@ -979,87 +601,35 @@ let%test "parse_slots valid" =
       ]
   in
   match parse_slots json with
-  | Some s -> s.total = 3 && s.busy = 1 && s.idle = 2
-  | None -> false
+  | Ok s -> s.total = 3 && s.busy = 1 && s.idle = 2
+  | Error _ -> false
 ;;
 
-let%test "parse_slots empty list" = parse_slots (`List []) = None
-let%test "parse_slots non-list" = parse_slots (`String "bad") = None
-
-let%test "parse_slots state-based busy detection" =
-  let json = `List [ `Assoc [ "state", `Int 1 ]; `Assoc [ "state", `Int 0 ] ] in
-  match parse_slots json with
-  | Some s -> s.busy = 1 && s.idle = 1
-  | None -> false
+let%test "parse_slots empty list is explicit zero capacity" =
+  parse_slots (`List []) = Ok { total = 0; busy = 0; idle = 0 }
 ;;
 
-let%test "parse_slots neither is_processing nor state defaults to idle" =
+let%test "parse_slots rejects non-list" = Result.is_error (parse_slots (`String "bad"))
+
+let%test "parse_slots rejects an entry without is_processing" =
   let json = `List [ `Assoc [] ] in
-  match parse_slots json with
-  | Some s -> s.busy = 0 && s.idle = 1
-  | None -> false
+  Result.is_error (parse_slots json)
 ;;
 
-(* --- contains_case_insensitive (via Retry SSOT) --- *)
+(* --- declared capabilities --- *)
 
-let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"DashScope_3.5-35B" ~needle:"dashscope" = true
-;;
-
-let%test "contains_case_insensitive no match" =
-  Retry.contains_case_insensitive ~haystack:"nous" ~needle:"dashscope" = false
-;;
-
-let%test "contains_case_insensitive needle longer than haystack" =
-  Retry.contains_case_insensitive ~haystack:"ab" ~needle:"abcdef" = false
-;;
-
-let%test "contains_case_insensitive empty needle" =
-  Retry.contains_case_insensitive ~haystack:"anything" ~needle:"" = true
-;;
-
-let%test "contains_case_insensitive exact match" =
-  Retry.contains_case_insensitive ~haystack:"DASHSCOPE" ~needle:"dashscope" = true
-;;
-
-(* --- infer_capabilities --- *)
-
-let%test "infer_capabilities non-ollama dashscope name stays generic compat" =
-  let models = [ { id = "DashScope_3.5-35B-A3B"; owned_by = "local" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:false models None in
-  caps.supports_tools = true
-  && caps.supports_reasoning = false
-  && caps.supports_extended_thinking = false
-  && caps.supports_top_k = false
-  && caps.supports_min_p = false
-;;
-
-let%test "infer_capabilities unknown model gets basic openai" =
-  let models = [ { id = "my-custom-model"; owned_by = "local" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:false models None in
-  caps.supports_tools = true && caps.supports_reasoning = false
-;;
-
-let%test "infer_capabilities non-ollama known provider name stays generic compat" =
-  let models = [ { id = "claude-opus-4-20260320"; owned_by = "anthropic" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:false models None in
-  caps.supports_tools = true
-  && caps.supports_computer_use = false
-  && caps.thinking_control_format = Capabilities.No_thinking_control
-;;
-
-let%test "infer_capabilities merges ctx_size from props" =
-  let models = [ { id = "my-model"; owned_by = "local" } ] in
-  let props =
-    Some { total_slots = 4; ctx_size = 32768; model = "my-model"; supports_tools = None }
+let%test "endpoint preserves catalog-declared capabilities" =
+  let declared = Capabilities.openai_compat_chat_extended_capabilities in
+  let endpoint =
+    endpoint ~protocol:Openai_compatible ~capabilities:declared "http://local:9000"
   in
-  let caps = infer_capabilities ~uses_ollama_think:false models props in
-  caps.max_context_tokens = Some 32768
+  endpoint.capabilities = declared
 ;;
 
-let%test "infer_capabilities no models defaults" =
-  let caps = infer_capabilities ~uses_ollama_think:false [] None in
-  caps.supports_tools = true
+let%test "capabilities_with_props merges objective ctx_size" =
+  let props = Some { total_slots = 4; ctx_size = 32768; model = "my-model" } in
+  let caps = capabilities_with_props Capabilities.openai_compat_chat_capabilities props in
+  caps.max_context_tokens = Some 32768
 ;;
 
 (* --- JSON serialization --- *)
@@ -1073,8 +643,7 @@ let%test "model_info_to_json" =
 
 let%test "server_props_to_json" =
   let json =
-    server_props_to_json
-      { total_slots = 4; ctx_size = 8192; model = "dashscope"; supports_tools = None }
+    server_props_to_json { total_slots = 4; ctx_size = 8192; model = "dashscope" }
   in
   let open Yojson.Safe.Util in
   json |> member "total_slots" |> to_int = 4 && json |> member "ctx_size" |> to_int = 8192
@@ -1095,11 +664,13 @@ let%test "capabilities_to_json" =
 let%test "endpoint_status_to_json without props and slots" =
   let es =
     { url = Constants.Endpoints.default_url_localhost
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   let json = endpoint_status_to_json es in
@@ -1111,12 +682,13 @@ let%test "endpoint_status_to_json without props and slots" =
 let%test "endpoint_status_to_json with props and slots" =
   let es =
     { url = Constants.Endpoints.default_url_localhost
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = [ { id = "m1"; owned_by = "local" } ]
-    ; props =
-        Some { total_slots = 4; ctx_size = 8192; model = "m1"; supports_tools = None }
+    ; props = Some { total_slots = 4; ctx_size = 8192; model = "m1" }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   let json = endpoint_status_to_json es in
@@ -1136,18 +708,22 @@ let%test "summary_to_json empty endpoints" =
 let%test "summary_to_json with slots" =
   let eps =
     [ { url = "a"
+      ; protocol = Openai_compatible
       ; healthy = true
       ; models = []
       ; props = None
       ; slots = Some { total = 4; busy = 1; idle = 3 }
       ; capabilities = Capabilities.default_capabilities
+      ; failures = []
       }
     ; { url = "b"
+      ; protocol = Openai_compatible
       ; healthy = true
       ; models = []
       ; props = None
       ; slots = Some { total = 2; busy = 2; idle = 0 }
       ; capabilities = Capabilities.default_capabilities
+      ; failures = []
       }
     ]
   in
@@ -1161,11 +737,13 @@ let%test "summary_to_json with slots" =
 let%test "summary_to_json endpoint without slots ignored" =
   let eps =
     [ { url = "a"
+      ; protocol = Openai_compatible
       ; healthy = false
       ; models = []
       ; props = None
       ; slots = None
       ; capabilities = Capabilities.default_capabilities
+      ; failures = []
       }
     ]
   in
@@ -1179,12 +757,13 @@ let%test "summary_to_json endpoint without slots ignored" =
 let%test "max_context_of_status from props" =
   let status =
     { url = "http://localhost"
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = []
-    ; props =
-        Some { total_slots = 4; ctx_size = 32768; model = "m"; supports_tools = None }
+    ; props = Some { total_slots = 4; ctx_size = 32768; model = "m" }
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   max_context_of_status status = Some 32768
@@ -1194,11 +773,13 @@ let%test "max_context_of_status from capabilities when no props" =
   let caps = { Capabilities.default_capabilities with max_context_tokens = Some 16384 } in
   let status =
     { url = "http://localhost"
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = caps
+    ; failures = []
     }
   in
   max_context_of_status status = Some 16384
@@ -1207,11 +788,13 @@ let%test "max_context_of_status from capabilities when no props" =
 let%test "max_context_of_status None when no info" =
   let status =
     { url = "http://localhost"
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = []
     ; props = None
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
+    ; failures = []
     }
   in
   max_context_of_status status = None
@@ -1221,167 +804,44 @@ let%test "max_context_of_status prefers props over capabilities" =
   let caps = { Capabilities.default_capabilities with max_context_tokens = Some 8192 } in
   let status =
     { url = "http://localhost"
+    ; protocol = Openai_compatible
     ; healthy = true
     ; models = []
-    ; props =
-        Some { total_slots = 2; ctx_size = 65536; model = "m"; supports_tools = None }
+    ; props = Some { total_slots = 2; ctx_size = 65536; model = "m" }
     ; slots = None
     ; capabilities = caps
+    ; failures = []
     }
   in
   max_context_of_status status = Some 65536
 ;;
 
-(* --- scan port parsing --- *)
+(* --- typed Ollama model parser --- *)
 
-let%test "builtin_scan_ports includes Ollama 11434" = List.mem 11434 builtin_scan_ports
-
-let%test "parse_ports_env handles comma-separated list" =
-  parse_ports_env "9000,9001,9002" = [ 9000; 9001; 9002 ]
-;;
-
-let%test "parse_ports_env trims whitespace" =
-  parse_ports_env " 9000 , 9001 ,9002 " = [ 9000; 9001; 9002 ]
-;;
-
-let%test "parse_ports_env skips empty tokens" =
-  parse_ports_env "9000,,9001," = [ 9000; 9001 ]
-;;
-
-let%test "parse_ports_env reports non-numeric tokens" =
-  let ports, invalids = parse_ports_env_result "9000,abc,9001" in
-  ports = [ 9000; 9001 ] && invalids = [ { token = "abc"; reason = Not_an_integer } ]
-;;
-
-let%test "parse_ports_env reports invalid TCP ports" =
-  let ports, invalids = parse_ports_env_result "-1,0,1,65535,65536" in
-  ports = [ 1; 65535 ]
-  && invalids
-     = [ { token = "-1"; reason = Outside_tcp_port_range }
-       ; { token = "0"; reason = Outside_tcp_port_range }
-       ; { token = "65536"; reason = Outside_tcp_port_range }
-       ]
-;;
-
-let%test "parse_ports_env deduplicates while preserving order" =
-  parse_ports_env "9000,9001,9000,9002,9001" = [ 9000; 9001; 9002 ]
-;;
-
-(* --- find_context_length --- *)
-
-let%test "find_context_length with general.context_length" =
-  let mi = `Assoc [ "general.context_length", `Int 131072 ] in
-  find_context_length mi = 131072
-;;
-
-let%test "find_context_length with model-specific prefix" =
-  let mi =
+let%test "parse_ollama_models accepts exact tags schema" =
+  let json =
     `Assoc
-      [ "qwen3_5.embedding_length", `Int 3584; "qwen3_5.context_length", `Int 262144 ]
+      [ ( "models"
+        , `List
+            [ `Assoc [ "name", `String "qwen3.5" ]; `Assoc [ "name", `String "phi4" ] ] )
+      ]
   in
-  find_context_length mi = 262144
+  match parse_ollama_models json with
+  | Ok models -> List.map (fun model -> model.id) models = [ "qwen3.5"; "phi4" ]
+  | Error _ -> false
 ;;
 
-let%test "find_context_length prefers context_length over general" =
-  let mi = `Assoc [ "general.context_length", `Int 8192; "context_length", `Int 4096 ] in
-  find_context_length mi = 4096
+let%test "parse_ollama_models rejects malformed item instead of dropping it" =
+  let json = `Assoc [ "models", `List [ `Assoc [ "model", `String "qwen3.5" ] ] ] in
+  match parse_ollama_models json with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
-let%test "find_context_length prefers general.context_length over model-specific" =
-  let mi =
-    `Assoc [ "qwen3_5.context_length", `Int 262144; "general.context_length", `Int 8192 ]
-  in
-  find_context_length mi = 8192
-;;
-
-let%test "find_context_length takes max of model-specific keys" =
-  let mi =
-    `Assoc [ "nous.context_length", `Int 8192; "qwen3_5.context_length", `Int 262144 ]
-  in
-  find_context_length mi = 262144
-;;
-
-let%test "find_context_length with float value" =
-  let mi = `Assoc [ "nous.context_length", `Float 131072.0 ] in
-  find_context_length mi = 131072
-;;
-
-let%test "find_context_length returns 0 when no matching key" =
-  let mi = `Assoc [ "qwen3_5.embedding_length", `Int 3584 ] in
-  find_context_length mi = 0
-;;
-
-let%test "find_context_length returns 0 for non-assoc" = find_context_length `Null = 0
-
-let%test "find_context_length bare key without prefix" =
-  let mi = `Assoc [ "context_length", `Int 4096 ] in
-  find_context_length mi = 4096
-;;
-
-(* --- probe_ollama_context parser (unit, no network) --- *)
-
-let%test "infer_capabilities uses ollama context when props present" =
-  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
-  let props =
-    Some
-      { total_slots = 1
-      ; ctx_size = 8192
-      ; model = "dashscope-3.5:latest"
-      ; supports_tools = None
-      }
-  in
-  let caps = infer_capabilities ~uses_ollama_think:true models props in
-  caps.max_context_tokens = Some 8192
-;;
-
-let%test "infer_capabilities defaults to 262K when no props for dashscope" =
-  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:true models None in
-  caps.max_context_tokens = Some 262_144
-;;
-
-(* --- infer_capabilities Ollama native thinking behavior class --- *)
-
-let%test "infer_capabilities ollama unknown model gets ollama_think format" =
-  let models = [ { id = "llama3.3"; owned_by = "ollama" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:true models None in
-  caps.thinking_control_format = Capabilities.Ollama_think
-;;
-
-let%test "infer_capabilities ollama unknown model gets seed and conservative tool_choice" =
-  let models = [ { id = "phi4"; owned_by = "ollama" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:true models None in
-  caps.thinking_control_format = Capabilities.Ollama_think
-  && caps.supports_seed = true
-  && caps.supports_tool_choice = false
-;;
-
-let%test "infer_capabilities ollama tool support propagated from api_show template" =
-  let models = [ { id = "phi4"; owned_by = "ollama" } ] in
-  let props =
-    Some { total_slots = 1; ctx_size = 65536; model = "phi4"; supports_tools = Some true }
-  in
-  let caps = infer_capabilities ~uses_ollama_think:true models props in
-  caps.thinking_control_format = Capabilities.Ollama_think
-  && caps.supports_tools = true
-  && caps.max_context_tokens = Some 65536
-;;
-
-let%test
-    "infer_capabilities ollama known model lookup preserves context and overlays ollama \
-     flags"
-  =
-  (* dashscope-3.5-35b is in for_model_id with 262K context and supports_reasoning.
-     On an Ollama native endpoint, the overlay should add seed support +
-     thinking_control_format = Ollama_think while preserving the model-specific
-     context window and reasoning fields. *)
-  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
-  let caps = infer_capabilities ~uses_ollama_think:true models None in
-  caps.thinking_control_format = Capabilities.Ollama_think
-  && caps.supports_seed = true
-  && caps.max_context_tokens = Some 262_144
-  && caps.supports_reasoning = true
-  && caps.supports_tool_choice = false
+let%test "parse_ollama_models rejects a non-object response explicitly" =
+  match parse_ollama_models (`List []) with
+  | Error detail -> String.length detail > 0
+  | Ok _ -> false
 ;;
 
 (* --- discovered context state (atomic snapshot) --- *)
@@ -1627,46 +1087,4 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
        = Some "dashscope-3.5-9b-local"
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
           = Some "dashscope-3.5:9b-nvfp4")
-;;
-
-(* --- template_has_tool_support tests --- *)
-
-let%test "template_has_tool_support detects tools keyword" =
-  template_has_tool_support "{{ .Tools }}"
-;;
-
-let%test "template_has_tool_support detects Tool keyword" =
-  template_has_tool_support "{% for tool in Tools %}{{ tool }}{% endfor %}"
-;;
-
-let%test "template_has_tool_support detects <|tool_call|> token" =
-  template_has_tool_support "<|im_start|>assistant\n<|tool_call|>\n"
-;;
-
-let%test "template_has_tool_support detects <|tool_calls|> token" =
-  template_has_tool_support "<|im_start|>assistant<|tool_calls|>["
-;;
-
-let%test "template_has_tool_support detects .tool_call token" =
-  template_has_tool_support "{% if .tool_call %}{{ .tool_call }}{% endif %}"
-;;
-
-let%test "template_has_tool_support detects <|im_tool|> token" =
-  template_has_tool_support "<|im_start|><|im_tool|>result"
-;;
-
-let%test "template_has_tool_support detects <|function_call token" =
-  template_has_tool_support "<|im_start|>assistant\n<|function_call|>{"
-;;
-
-let%test "template_has_tool_support rejects template without braces" =
-  not (template_has_tool_support "no template markers here")
-;;
-
-let%test "template_has_tool_support rejects empty string" =
-  not (template_has_tool_support "")
-;;
-
-let%test "template_has_tool_support rejects braces without tool signals" =
-  not (template_has_tool_support "{{ .Content }}")
 ;;

@@ -80,17 +80,23 @@ val capabilities_for_provider_config
   :  Llm_provider.Provider_config.t
   -> Llm_provider.Capabilities.capabilities
 
-(** Resolve the model that should be used for a binding. [requested_model]
-    wins when non-empty, with Anthropic bindings normalizing known model
-    aliases through {!Model_registry.resolve_model_id}; unknown requested
-    models still pass through unchanged. Empty requested models fall back to
-    the binding catalog default, then OAS provider defaults. *)
-val resolve_model : t -> requested_model:string option -> string
+(** Resolve an exact caller model or the binding's catalog-declared default.
+    Missing model identity is an explicit configuration error; OAS never
+    invents a provider-specific model or expands aliases. *)
+val resolve_model : t -> requested_model:string option -> (string, Error.sdk_error) result
+
+(** Resolve an exact provider id or catalog-declared alias together with the
+    public Agent SDK provider configuration. Unknown selectors return [None];
+    this function does not invent a fallback provider or reinterpret model
+    aliases as provider selectors. *)
+val resolve
+  :  ?model:string
+  -> string
+  -> (t * Provider.config, Error.sdk_error) result option
 
 (** Convert a binding into the low-level provider config used by OAS
     transports. *)
-val to_provider_config : ?model:string -> t -> Llm_provider.Provider_config.t
-
-(** Whether a binding resolves to a local loopback endpoint for the selected
-    model. *)
-val is_local : ?model:string -> t -> bool
+val to_provider_config
+  :  ?model:string
+  -> t
+  -> (Llm_provider.Provider_config.t, Error.sdk_error) result

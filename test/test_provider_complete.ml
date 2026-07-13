@@ -85,7 +85,7 @@ let test_anthropic_with_thinking () =
       ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:true
-      ~thinking_budget:5000
+      ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
   let body = BA.build_request ~config ~messages:[ user_msg "think" ] () in
@@ -106,29 +106,24 @@ let test_anthropic_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
-let test_anthropic_disabled_thinking_omits_adaptive_effort () =
-  (* A turn hook may disable thinking while a thinking_budget is still set. The
-     adaptive effort must be gated on thinking being enabled, otherwise
-     output_config.effort leaks without an accompanying thinking block. *)
+let test_anthropic_disabled_thinking_rejects_effort () =
   let config =
     PC.make
       ~kind:Anthropic
       ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:false
-      ~thinking_budget:5000
+      ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
-  let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  Alcotest.(check bool) "thinking omitted" true (json |> member "thinking" = `Null);
-  (* With thinking disabled and no output schema, output_config carries no
-     fields, so the whole object is omitted rather than leaking a bare effort. *)
-  Alcotest.(check bool)
-    "output_config omitted (no leaked effort)"
-    true
-    (json |> member "output_config" = `Null)
+  match BA.build_request ~config ~messages:[ user_msg "hi" ] () with
+  | _ -> Alcotest.fail "expected conflicting effort rejection"
+  | exception Invalid_argument message ->
+    Alcotest.(check string)
+      "rejection"
+      "Backend_anthropic.build_request: reasoning_effort conflicts with \
+       enable_thinking=false"
+      message
 ;;
 
 let test_anthropic_sonnet5_explicit_disable_is_serialized () =
@@ -1030,52 +1025,6 @@ let test_config_custom_path () =
   Alcotest.(check string) "custom path" "/custom" cfg.request_path
 ;;
 
-(* ── Retry config ────────────────────────────────────── *)
-
-let test_default_retry_config () =
-  let cfg = Llm_provider.Complete.default_retry_config in
-  Alcotest.(check int) "max_retries" 3 cfg.max_retries;
-  Alcotest.(check (float 0.01)) "initial_delay" 1.0 cfg.initial_delay_sec;
-  Alcotest.(check (float 0.01)) "max_delay" 30.0 cfg.max_delay_sec;
-  Alcotest.(check (float 0.01)) "backoff" 2.0 cfg.backoff_multiplier
-;;
-
-let test_is_retryable () =
-  let open Llm_provider in
-  (* Retryable status codes *)
-  Alcotest.(check bool)
-    "429 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 429; body = "" }));
-  Alcotest.(check bool)
-    "503 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 503; body = "" }));
-  Alcotest.(check bool)
-    "529 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 529; body = "" }));
-  (* Network errors *)
-  Alcotest.(check bool)
-    "network retryable"
-    true
-    (Complete.is_retryable
-       (Http_client.NetworkError { message = "timeout"; kind = Unknown }));
-  (* Non-retryable *)
-  Alcotest.(check bool)
-    "400 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 400; body = "" }));
-  Alcotest.(check bool)
-    "401 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 401; body = "" }));
-  Alcotest.(check bool)
-    "404 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
-;;
-
 let usage =
   Some
     { input_tokens = 1
@@ -1303,10 +1252,6 @@ let test_stream_acc_text () =
     ; MessageStop
     ]
   in
-  (* Use the internal accumulator via a module alias *)
-  let module C = Llm_provider.Complete in
-  ignore C.default_retry_config;
-  (* force link *)
   (* We can't call the internal functions directly, but we can test
      that the event types compose correctly *)
   Alcotest.(check int) "7 events" 7 (List.length events)
@@ -1457,9 +1402,9 @@ let () =
         ; test_case "with system" `Quick test_anthropic_with_system
         ; test_case "with thinking" `Quick test_anthropic_with_thinking
         ; test_case
-            "disabled thinking omits adaptive effort"
+            "disabled thinking rejects adaptive effort"
             `Quick
-            test_anthropic_disabled_thinking_omits_adaptive_effort
+            test_anthropic_disabled_thinking_rejects_effort
         ; test_case
             "Sonnet 5 explicit disable is serialized"
             `Quick
@@ -1564,10 +1509,6 @@ let () =
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path
-        ] )
-    ; ( "retry"
-      , [ test_case "default config" `Quick test_default_retry_config
-        ; test_case "is_retryable" `Quick test_is_retryable
         ] )
     ; ( "cli_transport_guard"
       , [ test_case

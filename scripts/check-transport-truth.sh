@@ -12,7 +12,7 @@
 #
 # Prior audits (see planning/task-118/origin-report.md, 2026-04-16) found
 # that the Gemini/Codex CLI transport mli files declared
-# fields (max_turns / allowed_tools / mcp_config / permission_mode) whose
+# fields (allowed_tools / mcp_config) whose
 # behavior only existed as a warn-and-drop. The .mli comments claimed
 # "Gemini has no equivalent flag" — a claim that was false by 2026-04
 # (Gemini CLI 0.38+ exposes --allowed-mcp-server-names, --approval-mode,

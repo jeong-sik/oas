@@ -71,7 +71,7 @@ let test_tokens_accumulate_across_turns () =
         Ok { content = "ok"; _meta = None })
     in
     let options = { Agent.default_options with base_url } in
-    let config = { default_config with max_turns = 5 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -92,7 +92,9 @@ let test_single_turn_usage () =
   in
   with_mock_server ~port:18302 handler (fun ~sw ~net ~base_url ->
     let options = { Agent.default_options with base_url } in
-    let agent = Agent.create ~net ~options () in
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
     let st = Agent.state agent in
@@ -111,7 +113,7 @@ let test_report_zero_division () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 0
     ; estimated_cost_usd = 0.0
-    ; unpriced_model = None
+    ; pricing_gap = None
     }
   in
   let r = Cost_tracker.report usage in
@@ -126,7 +128,7 @@ let test_report_format () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 5
     ; estimated_cost_usd = 0.05
-    ; unpriced_model = None
+    ; pricing_gap = None
     }
   in
   let r = Cost_tracker.report usage in

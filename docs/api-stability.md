@@ -53,7 +53,7 @@ Rules:
 
 All public-facing `.mli` files in `lib/` carry an explicit stability tier.
 
-### Stable (14 modules)
+### Stable modules
 
 Core types and interfaces that downstream consumers depend on.
 
@@ -67,12 +67,10 @@ Core types and interfaces that downstream consumers depend on.
 | Tool_set | `lib/tool_set.mli` |
 | Hooks | `lib/hooks.mli` |
 | Provider | `lib/provider.mli` |
-| Guardrails | `lib/guardrails.mli` |
 | Raw_trace | `lib/raw_trace.mli` |
 | Checkpoint | `lib/checkpoint.mli` |
 | Checkpoint_store | `lib/checkpoint_store.mli` |
 | Context | `lib/context.mli` |
-| Context_reducer | `lib/context_reducer.mli` |
 
 ### Evolving modules
 
@@ -85,7 +83,6 @@ Representative modules:
 |--------|------|--------|
 | Runtime | `lib/runtime.mli` | Runtime protocol types are still evolving |
 | Memory | `lib/memory.mli` | Memory system is under active development |
-| Policy | `lib/policy.mli` | Rule engine surface is still settling |
 
 CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as

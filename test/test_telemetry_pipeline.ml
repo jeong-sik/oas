@@ -21,15 +21,6 @@ let contains_substring ~sub text =
   loop 0
 ;;
 
-let find_context_window_usage events =
-  List.find_map
-    (function
-      | Llm_provider.Telemetry_event.Context_window_usage r ->
-        Some (r.agent_name, r.turn, r.estimated_tokens, r.limit_tokens, r.usage_ratio)
-      | _ -> None)
-    events
-;;
-
 let make_mock_transport () : Llm_provider.Llm_transport.t =
   let response : Types.api_response =
     { id = "telemetry-pipeline-mock"
@@ -110,7 +101,7 @@ let make_sequence_transport responses : Llm_provider.Llm_transport.t =
 ;;
 
 let make_agent ~net ~transport () =
-  let event_bus = Event_bus.create ~buffer_size:256 () in
+  let event_bus = Event_bus.create () in
   let options =
     { Agent.default_options with
       transport = Some transport
@@ -124,26 +115,16 @@ let make_agent ~net ~transport () =
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "telemetry-pipeline-test"
     ; model = "mock-model"
-    ; max_turns = 1
     }
   in
   let agent = Agent.create ~net ~config ~options () in
   agent, event_bus
 ;;
 
-let make_checkpoint_agent
-      ?event_bus
-      ?journal
-      ~net
-      ~transport
-      ~checkpoint_sink
-      ~max_turns
-      ~tools
-      ()
-  =
+let make_checkpoint_agent ?event_bus ?journal ~net ~transport ~checkpoint_sink ~tools () =
   let options =
     { Agent.default_options with
       transport = Some transport
@@ -158,10 +139,9 @@ let make_checkpoint_agent
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "turn-checkpoint-test"
     ; model = "mock-model"
-    ; max_turns
     }
   in
   Agent.create ~net ~config ~tools ~options ~checkpoint_sink ()
@@ -181,7 +161,7 @@ let test_run_stream_emits_telemetry_via_pipeline () =
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected stream success: " ^ Error.to_string err));
   let events = Telemetry_bus.drain sub in
-  Alcotest.(check int) "telemetry events received" 2 (List.length events);
+  Alcotest.(check int) "telemetry events received" 1 (List.length events);
   (match
      List.find_opt
        (function
@@ -193,41 +173,6 @@ let test_run_stream_emits_telemetry_via_pipeline () =
      Alcotest.(check string) "provider" "mock-provider" provider;
      Alcotest.(check string) "model" "mock-model" model
    | _ -> Alcotest.fail "expected Streaming_first_chunk event");
-  (match find_context_window_usage events with
-   | Some (agent_name, turn, _estimated_tokens, limit_tokens, usage_ratio) ->
-     Alcotest.(check string) "usage agent" "telemetry-pipeline-test" agent_name;
-     Alcotest.(check int) "usage turn" 0 turn;
-     Alcotest.(check bool) "usage limit positive" true (limit_tokens > 0);
-     Alcotest.(check bool) "usage ratio non-negative" true (usage_ratio >= 0.0)
-   | None -> Alcotest.fail "expected Context_window_usage event");
-  Telemetry_bus.unsubscribe telemetry_bus sub
-;;
-
-let test_run_emits_context_window_usage () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let net = Eio.Stdenv.net env in
-  let transport = make_sequence_transport [ text_response "ok" ] in
-  let agent, event_bus = make_agent ~net ~transport () in
-  let telemetry_bus = Telemetry_bus.of_event_bus event_bus in
-  let sub = Telemetry_bus.subscribe telemetry_bus in
-  (match Agent.run ~sw agent "capture context usage" with
-   | Ok _ -> ()
-   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
-  let events = Telemetry_bus.drain sub in
-  (match find_context_window_usage events with
-   | Some (agent_name, turn, estimated_tokens, limit_tokens, usage_ratio) ->
-     Alcotest.(check string) "usage agent" "telemetry-pipeline-test" agent_name;
-     Alcotest.(check int) "usage turn" 0 turn;
-     Alcotest.(check bool) "usage estimated positive" true (estimated_tokens > 0);
-     Alcotest.(check bool) "usage limit positive" true (limit_tokens > 0);
-     Alcotest.(check (float 0.001))
-       "usage ratio"
-       (float_of_int estimated_tokens /. float_of_int limit_tokens)
-       usage_ratio
-   | None -> Alcotest.fail "expected Context_window_usage event");
   Telemetry_bus.unsubscribe telemetry_bus sub
 ;;
 
@@ -250,10 +195,9 @@ let test_run_stream_without_event_bus_skips_telemetry () =
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "telemetry-pipeline-no-bus"
     ; model = "mock-model"
-    ; max_turns = 1
     }
   in
   (* No event_bus configured → on_telemetry passed to transport should be None. *)
@@ -291,13 +235,7 @@ let test_checkpoint_sink_after_assistant_collect () =
   in
   let transport = make_sequence_transport [ text_response "ok" ] in
   let agent =
-    make_checkpoint_agent
-      ~net:env#net
-      ~transport
-      ~checkpoint_sink
-      ~max_turns:1
-      ~tools:[]
-      ()
+    make_checkpoint_agent ~net:env#net ~transport ~checkpoint_sink ~tools:[] ()
   in
   (match Agent.run ~sw agent "capture this turn" with
    | Ok _ -> ()
@@ -351,13 +289,7 @@ let test_checkpoint_sink_after_tool_feedback () =
       (fun _input -> Ok { Types.content = "12:00 UTC"; _meta = None })
   in
   let agent =
-    make_checkpoint_agent
-      ~net:env#net
-      ~transport
-      ~checkpoint_sink
-      ~max_turns:3
-      ~tools:[ time_tool ]
-      ()
+    make_checkpoint_agent ~net:env#net ~transport ~checkpoint_sink ~tools:[ time_tool ] ()
   in
   (match Agent.run ~sw agent "what time is it?" with
    | Ok _ -> ()
@@ -399,7 +331,7 @@ let test_checkpoint_sink_failure_fails_turn () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let event_bus = Event_bus.create ~buffer_size:32 () in
+  let event_bus = Event_bus.create () in
   let event_sub = Event_bus.subscribe event_bus in
   let journal = Durable_event.create () in
   let checkpoint_sink _snapshot = Error "disk full" in
@@ -411,7 +343,6 @@ let test_checkpoint_sink_failure_fails_turn () =
       ~net:env#net
       ~transport
       ~checkpoint_sink
-      ~max_turns:1
       ~tools:[]
       ()
   in
@@ -468,13 +399,7 @@ let test_checkpoint_sink_does_not_clobber_intervening_state () =
   in
   let transport = make_sequence_transport [ text_response "ok" ] in
   let agent =
-    make_checkpoint_agent
-      ~net:env#net
-      ~transport
-      ~checkpoint_sink
-      ~max_turns:1
-      ~tools:[]
-      ()
+    make_checkpoint_agent ~net:env#net ~transport ~checkpoint_sink ~tools:[] ()
   in
   agent_ref := Some agent;
   (match Agent.run ~sw agent "capture this turn" with
@@ -519,10 +444,6 @@ let () =
             "run_stream skips telemetry without event_bus"
             `Quick
             test_run_stream_without_event_bus_skips_telemetry
-        ; Alcotest.test_case
-            "run emits context-window usage"
-            `Quick
-            test_run_emits_context_window_usage
         ; Alcotest.test_case
             "checkpoint after assistant collect"
             `Quick

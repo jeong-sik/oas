@@ -6,14 +6,13 @@ open Agent_sdk
 (* ── of_json ────────────────────────────────────────────── *)
 
 let test_minimal_config () =
-  let json = `Assoc [ "name", `String "test" ] in
+  let json = `Assoc [ "name", `String "test"; "model", `String "exact-model" ] in
   match Agent_config.of_json json with
   | Ok cfg ->
     check string "name" "test" cfg.name;
-    check string "model" "claude-sonnet-4-6" cfg.model;
+    check string "model" "exact-model" cfg.model;
     check (option string) "no prompt" None cfg.system_prompt;
     check (option int) "no max_tokens" None cfg.max_tokens;
-    check (option int) "no max_turns" None cfg.max_turns;
     check int "no tools" 0 (List.length cfg.tools);
     check int "no mcp" 0 (List.length cfg.mcp_servers)
   | Error e -> fail (Error.to_string e)
@@ -26,7 +25,6 @@ let test_full_config () =
       ; "model", `String "claude-opus-4-6"
       ; "system_prompt", `String "You are helpful."
       ; "max_tokens", `Int 8192
-      ; "max_turns", `Int 20
       ; ( "mcp_servers"
         , `List
             [ `Assoc
@@ -43,7 +41,6 @@ let test_full_config () =
     check string "model" "claude-opus-4-6" cfg.model;
     check (option string) "prompt" (Some "You are helpful.") cfg.system_prompt;
     check (option int) "max_tokens" (Some 8192) cfg.max_tokens;
-    check (option int) "max_turns" (Some 20) cfg.max_turns;
     check int "tools" 0 (List.length cfg.tools);
     check int "mcp" 1 (List.length cfg.mcp_servers);
     (match List.hd cfg.mcp_servers with
@@ -54,13 +51,26 @@ let test_full_config () =
   | Error e -> fail (Error.to_string e)
 ;;
 
-let test_defaults () =
+let test_missing_model_rejected () =
   let json = `Assoc [] in
   match Agent_config.of_json json with
+  | Error (Error.Config (InvalidConfig { field = "model"; _ })) -> ()
+  | Error error -> fail (Error.to_string error)
+  | Ok _ -> fail "missing model must be rejected"
+;;
+
+let test_reasoning_effort_max () =
+  let json =
+    `Assoc [ "model", `String "exact-model"; "reasoning_effort", `String "max" ]
+  in
+  match Agent_config.of_json json with
   | Ok cfg ->
-    check string "default name" "agent" cfg.name;
-    check string "default model" "claude-sonnet-4-6" cfg.model
-  | Error e -> fail (Error.to_string e)
+    check
+      (option string)
+      "typed reasoning effort"
+      (Some "max")
+      (Option.map Llm_provider.Reasoning_effort.to_string cfg.reasoning_effort)
+  | Error error -> fail (Error.to_string error)
 ;;
 
 let expect_invalid_config_field field json =
@@ -72,6 +82,12 @@ let expect_invalid_config_field field json =
 ;;
 
 let test_rejects_non_object_config () = expect_invalid_config_field "<root>" (`List [])
+
+let test_rejects_unknown_field () =
+  expect_invalid_config_field
+    "removed_lifecycle_knob"
+    (`Assoc [ "removed_lifecycle_knob", `Int 1 ])
+;;
 
 let test_rejects_non_list_tools () =
   expect_invalid_config_field "tools" (`Assoc [ "tools", `Assoc [] ])
@@ -109,6 +125,12 @@ let test_rejects_non_string_http_headers () =
                   ]
               ] )
         ])
+;;
+
+let test_rejects_unknown_reasoning_effort () =
+  expect_invalid_config_field
+    "reasoning_effort"
+    (`Assoc [ "reasoning_effort", `String "urgent" ])
 ;;
 
 (* ── load ───────────────────────────────────────────────── *)
@@ -158,21 +180,27 @@ let test_to_builder () =
     ; model = "claude-sonnet-4-6"
     ; system_prompt = Some "test prompt"
     ; max_tokens = Some 2048
-    ; max_turns = Some 5
     ; tools = []
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = Some Llm_provider.Reasoning_effort.Max
     ; provider = None
-    ; base_url = None
     }
   in
-  let builder = Agent_config.to_builder ~net cfg in
+  let builder = Result.get_ok (Agent_config.to_builder ~net cfg) in
   match Builder.build_safe builder with
   | Ok agent ->
     let card = Agent.card agent in
-    check string "agent name" "builder-test" card.name
+    check string "agent name" "builder-test" card.name;
+    check
+      (option string)
+      "reasoning effort"
+      (Some "max")
+      (Option.map
+         Llm_provider.Reasoning_effort.to_string
+         (Agent.state agent).config.reasoning_effort)
   | Error e -> fail (Error.to_string e)
 ;;
 
@@ -185,22 +213,19 @@ let test_to_builder_rejects_direct_inline_tools () =
     ; model = "claude-sonnet-4-6"
     ; system_prompt = None
     ; max_tokens = None
-    ; max_turns = None
     ; tools = [ { name = "echo"; description = "Echo"; parameters = [] } ]
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; provider = None
-    ; base_url = None
     }
   in
-  check_raises
-    "inline config tools rejected"
-    (Invalid_argument
-       "Agent_config.to_builder: inline config tools have no executable runner; use \
-        mcp_servers or register typed tools in code")
-    (fun () -> ignore (Agent_config.to_builder ~net cfg))
+  match Agent_config.to_builder ~net cfg with
+  | Error (Error.Config (InvalidConfig { field = "tools"; _ })) -> ()
+  | Error error -> fail (Error.to_string error)
+  | Ok _ -> fail "inline config tools must be rejected"
 ;;
 
 let test_to_builder_no_tools () =
@@ -212,17 +237,16 @@ let test_to_builder_no_tools () =
     ; model = "claude-sonnet-4-6"
     ; system_prompt = None
     ; max_tokens = None
-    ; max_turns = None
     ; tools = []
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; provider = None
-    ; base_url = None
     }
   in
-  let builder = Agent_config.to_builder ~net cfg in
+  let builder = Result.get_ok (Agent_config.to_builder ~net cfg) in
   match Builder.build_safe builder with
   | Ok _ -> ()
   | Error e -> fail (Error.to_string e)
@@ -251,17 +275,16 @@ let test_to_builder_all_models () =
          ; model = model_str
          ; system_prompt = None
          ; max_tokens = None
-         ; max_turns = None
          ; enable_thinking = None
          ; preserve_thinking = None
          ; thinking_budget = None
+         ; reasoning_effort = None
          ; provider = None
-         ; base_url = None
          ; tools = []
          ; mcp_servers = []
          }
        in
-       let builder = Agent_config.to_builder ~net cfg in
+       let builder = Result.get_ok (Agent_config.to_builder ~net cfg) in
        match Builder.build_safe builder with
        | Ok _ -> ()
        | Error e -> fail (Printf.sprintf "model %s: %s" model_str (Error.to_string e)))
@@ -274,6 +297,7 @@ let test_mcp_defaults () =
   let json =
     `Assoc
       [ "name", `String "test"
+      ; "model", `String "exact-model"
       ; "mcp_servers", `List [ `Assoc [ "command", `String "node" ] ]
       ]
   in
@@ -293,6 +317,7 @@ let test_mcp_with_env () =
   let json =
     `Assoc
       [ "name", `String "test"
+      ; "model", `String "exact-model"
       ; ( "mcp_servers"
         , `List
             [ `Assoc
@@ -354,6 +379,7 @@ let test_http_mcp_config () =
   let json =
     `Assoc
       [ "name", `String "test"
+      ; "model", `String "exact-model"
       ; ( "mcp_servers"
         , `List
             [ `Assoc
@@ -383,6 +409,7 @@ let test_http_mcp_defaults () =
   let json =
     `Assoc
       [ "name", `String "test"
+      ; "model", `String "exact-model"
       ; "mcp_servers", `List [ `Assoc [ "url", `String "http://example.com/mcp" ] ]
       ]
   in
@@ -401,6 +428,7 @@ let test_mixed_mcp_config () =
   let json =
     `Assoc
       [ "name", `String "test"
+      ; "model", `String "exact-model"
       ; ( "mcp_servers"
         , `List
             [ `Assoc
@@ -437,7 +465,8 @@ let () =
     [ ( "of_json"
       , [ test_case "minimal" `Quick test_minimal_config
         ; test_case "full" `Quick test_full_config
-        ; test_case "defaults" `Quick test_defaults
+        ; test_case "missing model rejected" `Quick test_missing_model_rejected
+        ; test_case "reasoning effort max" `Quick test_reasoning_effort_max
         ; test_case "mcp defaults" `Quick test_mcp_defaults
         ; test_case "mcp with env" `Quick test_mcp_with_env
         ; test_case "reject tool param types" `Quick test_tool_param_types
@@ -446,6 +475,7 @@ let () =
         ; test_case "http mcp defaults" `Quick test_http_mcp_defaults
         ; test_case "mixed mcp" `Quick test_mixed_mcp_config
         ; test_case "reject non-object config" `Quick test_rejects_non_object_config
+        ; test_case "reject unknown field" `Quick test_rejects_unknown_field
         ; test_case "reject non-list tools" `Quick test_rejects_non_list_tools
         ; test_case "reject inline config tools" `Quick test_rejects_inline_config_tools
         ; test_case "reject non-list mcp_servers" `Quick test_rejects_non_list_mcp_servers
@@ -454,6 +484,10 @@ let () =
             "reject non-string http headers"
             `Quick
             test_rejects_non_string_http_headers
+        ; test_case
+            "reject unknown reasoning effort"
+            `Quick
+            test_rejects_unknown_reasoning_effort
         ] )
     ; ( "load"
       , [ test_case "nonexistent" `Quick test_load_nonexistent

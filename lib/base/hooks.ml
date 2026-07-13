@@ -13,23 +13,23 @@ open Types
 type turn_params =
   { temperature : float option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; tool_choice : tool_choice option
   ; extra_system_context : string option
   ; system_prompt_override : string option
-  ; tool_filter_override : Guardrails.tool_filter option
   }
 
 let default_turn_params =
   { temperature = None
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; enable_thinking = None
   ; preserve_thinking = None
   ; tool_choice = None
   ; extra_system_context = None
   ; system_prompt_override = None
-  ; tool_filter_override = None
   }
 ;;
 
@@ -49,22 +49,8 @@ type tool_schedule =
   { planned_index : int
   ; batch_index : int
   ; batch_size : int
-  ; concurrency_class : string
-  ; batch_kind : string
+  ; execution_mode : Tool.execution_mode
   }
-
-module Idle_severity = struct
-  type t =
-    | Nudge
-    | Final_warning
-    | Skip
-
-  let to_string = function
-    | Nudge -> "nudge"
-    | Final_warning -> "final_warning"
-    | Skip -> "skip"
-  ;;
-end
 
 (** Extract structured reasoning summary from message list.
     This only preserves provider-emitted Thinking blocks; it does not infer
@@ -100,7 +86,6 @@ type hook_event =
       }
   | BeforeTurnParams of
       { turn : int
-      ; max_turns : int
       ; messages : message list
       ; last_tool_results : tool_result list
       ; current_params : turn_params
@@ -138,15 +123,6 @@ type hook_event =
       { reason : stop_reason
       ; response : api_response
       }
-  | OnIdle of
-      { consecutive_idle_turns : int
-      ; tool_names : string list
-      }
-  | OnIdleEscalated of
-      { severity : Idle_severity.t
-      ; consecutive_idle_turns : int
-      ; tool_names : string list
-      }
   | OnError of
       { detail : string
       ; context : string
@@ -154,24 +130,6 @@ type hook_event =
   | OnToolError of
       { tool_name : string
       ; error : string
-      }
-  | PreCompact of
-      { messages : message list
-      ; estimated_tokens : int
-      ; budget_tokens : int
-      }
-  | PostCompact of
-      { before_messages : message list
-      ; after_messages : message list
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
-      }
-  | OnContextCompacted of
-      { agent_name : string
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
       }
 
 (** Elicitation: structured request for user input during agent execution.
@@ -194,16 +152,12 @@ type elicitation_callback = elicitation_request -> elicitation_response
 (** Decision returned by a hook *)
 type hook_decision =
   | Continue
-  | Skip
-  (** PreToolUse: skip this tool execution; OnIdle: gracefully stop the agent run *)
-  | Override of string (** PreToolUse only: return this value instead *)
   | ApprovalRequired
   (** PreToolUse only: signals that tool needs approval before execution *)
   | AdjustParams of turn_params
   (** BeforeTurnParams only: override params for this turn *)
   | ElicitInput of elicitation_request (** Request user input before proceeding *)
-  | Nudge of string
-  (** OnIdle and BeforeTurn: inject a nudge message into the conversation as a User-role message and continue execution. On OnIdle the idle counter is preserved (deliberate: lets the host hook escalate via Skip). On BeforeTurn the message is appended before tool preparation and reaches the model in the same turn. *)
+  | Nudge of string (** BeforeTurn: inject a user-role message before tool preparation. *)
   | HookFailed of
       { stage : string
       ; detail : string
@@ -215,19 +169,15 @@ type hook_decision =
   (** PreToolUse only: intentional policy rejection. The host executes no tool
       and produces an [is_error=true] tool result ([Non_retryable_tool_error],
       [Deterministic]) whose content is the string payload verbatim. Distinct
-      from [Override] (soft nudge, [is_error=false]) and [HookFailed]
-      (unintentional infra failure). Use this when a guard forbids the call
-      unconditionally, regardless of any approval callback. *)
+      from [HookFailed], which represents an unintentional hook failure. Use
+      this when a guard forbids the call unconditionally, regardless of any
+      approval callback. *)
 
 (** Decision from approval callback *)
 type approval_decision =
   | Approve (** Proceed with original input *)
   | Reject of string (** Block execution with reason *)
   | Edit of Yojson.Safe.t (** Proceed with modified input *)
-
-type missing_approval_callback_policy =
-  | Execute_without_callback
-  | Reject_without_callback
 
 (** Approval callback: called when a hook returns ApprovalRequired.
     Receives tool name and input, returns approval decision. *)
@@ -245,13 +195,8 @@ type hooks =
   ; post_tool_use : hook option
   ; post_tool_use_failure : hook option
   ; on_stop : hook option
-  ; on_idle : hook option
-  ; on_idle_escalated : hook option
   ; on_error : hook option
   ; on_tool_error : hook option
-  ; pre_compact : hook option
-  ; post_compact : hook option
-  ; on_context_compacted : hook option
   }
 
 (** Empty hooks -- no-op default *)
@@ -263,13 +208,8 @@ let empty =
   ; post_tool_use = None
   ; post_tool_use_failure = None
   ; on_stop = None
-  ; on_idle = None
-  ; on_idle_escalated = None
   ; on_error = None
   ; on_tool_error = None
-  ; pre_compact = None
-  ; post_compact = None
-  ; on_context_compacted = None
   }
 ;;
 
@@ -291,8 +231,6 @@ type context_injector =
     (AdjustParams, ElicitInput carry payloads). *)
 type hook_decision_kind =
   | K_Continue
-  | K_Skip
-  | K_Override
   | K_ApprovalRequired
   | K_AdjustParams
   | K_ElicitInput
@@ -302,8 +240,6 @@ type hook_decision_kind =
 
 let classify_decision = function
   | Continue -> K_Continue
-  | Skip -> K_Skip
-  | Override _ -> K_Override
   | ApprovalRequired -> K_ApprovalRequired
   | AdjustParams _ -> K_AdjustParams
   | ElicitInput _ -> K_ElicitInput
@@ -314,8 +250,6 @@ let classify_decision = function
 
 let decision_kind_to_string = function
   | K_Continue -> "Continue"
-  | K_Skip -> "Skip"
-  | K_Override -> "Override"
   | K_ApprovalRequired -> "ApprovalRequired"
   | K_AdjustParams -> "AdjustParams"
   | K_ElicitInput -> "ElicitInput"
@@ -333,33 +267,24 @@ let stage_of_event = function
   | PostToolUse _ -> "post_tool_use"
   | PostToolUseFailure _ -> "post_tool_use_failure"
   | OnStop _ -> "on_stop"
-  | OnIdle _ -> "on_idle"
-  | OnIdleEscalated _ -> "on_idle_escalated"
   | OnError _ -> "on_error"
   | OnToolError _ -> "on_tool_error"
-  | PreCompact _ -> "pre_compact"
-  | PostCompact _ -> "post_compact"
-  | OnContextCompacted _ -> "on_context_compacted"
 ;;
 
 (** Legal decision matrix.
 
     {v
-    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge | Block
-    ---------------------+----------+------+----------+------------------+--------------+-------------+-------+------
-    before_turn          |    Y     |      |          |                  |              |      Y      |   Y   |
-    before_turn_params   |    Y     |      |          |                  |      Y       |             |       |
-    after_turn           |    Y     |      |          |                  |              |             |       |
-    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |             |       |   Y
-    post_tool_use        |    Y     |      |          |                  |              |             |       |
-    post_tool_use_failure|    Y     |      |          |                  |              |             |       |
-    on_stop              |    Y     |      |          |                  |              |             |       |
-    on_idle              |    Y     |  Y   |          |                  |              |             |   Y   |
-    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y   |
-    on_error             |    Y     |      |          |                  |              |             |       |
-    on_tool_error        |    Y     |      |          |                  |              |             |       |
-    pre_compact          |    Y     |  Y   |          |                  |              |             |       |
-    post_compact         |    Y     |      |          |                  |              |             |       |
+    Stage                | Continue | ApprovalRequired | AdjustParams | ElicitInput | Nudge | Block
+    ---------------------+----------+------------------+--------------+-------------+-------+------
+    before_turn          |    Y     |                  |              |      Y      |   Y   |
+    before_turn_params   |    Y     |                  |      Y       |             |       |
+    after_turn           |    Y     |                  |              |             |       |
+    pre_tool_use         |    Y     |        Y         |              |             |       |   Y
+    post_tool_use        |    Y     |                  |              |             |       |
+    post_tool_use_failure|    Y     |                  |              |             |       |
+    on_stop              |    Y     |                  |              |             |       |
+    on_error             |    Y     |                  |              |             |       |
+    on_tool_error        |    Y     |                  |              |             |       |
     v}
 
     Fail-closed: any decision not explicitly listed is rejected. [Block] is
@@ -369,17 +294,12 @@ let legal_decisions_for_stage stage =
   | "before_turn" -> [ K_Continue; K_ElicitInput; K_Nudge ]
   | "before_turn_params" -> [ K_Continue; K_AdjustParams ]
   | "after_turn" -> [ K_Continue ]
-  | "pre_tool_use" -> [ K_Continue; K_Skip; K_Override; K_ApprovalRequired; K_Block ]
+  | "pre_tool_use" -> [ K_Continue; K_ApprovalRequired; K_Block ]
   | "post_tool_use" -> [ K_Continue ]
   | "post_tool_use_failure" -> [ K_Continue ]
   | "on_stop" -> [ K_Continue ]
-  | "on_idle" -> [ K_Continue; K_Skip; K_Nudge ]
-  | "on_idle_escalated" -> [ K_Continue; K_Skip; K_Nudge ]
   | "on_error" -> [ K_Continue ]
   | "on_tool_error" -> [ K_Continue ]
-  | "pre_compact" -> [ K_Continue; K_Skip ]
-  | "post_compact" -> [ K_Continue ]
-  | "on_context_compacted" -> [ K_Continue ]
   | _ -> [] (* unknown stage: nothing is legal *)
 ;;
 
@@ -487,14 +407,8 @@ let compose ~outer ~inner =
   ; post_tool_use_failure =
       compose_hook outer.post_tool_use_failure inner.post_tool_use_failure
   ; on_stop = compose_hook outer.on_stop inner.on_stop
-  ; on_idle = compose_hook outer.on_idle inner.on_idle
-  ; on_idle_escalated = compose_hook outer.on_idle_escalated inner.on_idle_escalated
   ; on_error = compose_hook outer.on_error inner.on_error
   ; on_tool_error = compose_hook outer.on_tool_error inner.on_tool_error
-  ; pre_compact = compose_hook outer.pre_compact inner.pre_compact
-  ; post_compact = compose_hook outer.post_compact inner.post_compact
-  ; on_context_compacted =
-      compose_hook outer.on_context_compacted inner.on_context_compacted
   }
 ;;
 
@@ -550,33 +464,26 @@ let%test "Block: decision_kind_to_string" = decision_kind_to_string K_Block = "B
 let%test "Block: legal only at pre_tool_use" =
   List.mem K_Block (legal_decisions_for_stage "pre_tool_use")
   && (not (List.mem K_Block (legal_decisions_for_stage "before_turn")))
-  && (not (List.mem K_Block (legal_decisions_for_stage "on_idle")))
-  && (not (List.mem K_Block (legal_decisions_for_stage "post_tool_use")))
-  && not (List.mem K_Block (legal_decisions_for_stage "pre_compact"))
+  && (not (List.mem K_Block (legal_decisions_for_stage "after_turn")))
+  && not (List.mem K_Block (legal_decisions_for_stage "post_tool_use"))
 ;;
 
 let%test "Block: validate_decision accepts at pre_tool_use" =
   validate_decision ~stage:"pre_tool_use" (Block "nope") = Ok (Block "nope")
 ;;
 
-let%test "Block: validate_decision rejects at on_idle" =
-  match validate_decision ~stage:"on_idle" (Block "nope") with
+let%test "Block: validate_decision rejects at after_turn" =
+  match validate_decision ~stage:"after_turn" (Block "nope") with
   | Error msg -> String.length msg > 0
   | Ok _ -> false
 ;;
 
 let%test "Block: invoke_validated coerces illegal Block to HookFailed" =
-  let event = OnIdle { consecutive_idle_turns = 0; tool_names = [] } in
+  let event = BeforeTurn { turn = 0; messages = [] } in
   let blocking _ = Block "forbidden" in
   match invoke_validated (Some blocking) event with
-  | HookFailed { stage = "on_idle"; detail } -> String.length detail > 0
+  | HookFailed { stage = "before_turn"; detail } -> String.length detail > 0
   | HookFailed _ -> false
-  | Continue
-  | Skip
-  | Override _
-  | ApprovalRequired
-  | AdjustParams _
-  | ElicitInput _
-  | Nudge _
-  | Block _ -> false
+  | Continue | ApprovalRequired | AdjustParams _ | ElicitInput _ | Nudge _ | Block _ ->
+    false
 ;;

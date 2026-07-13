@@ -149,10 +149,19 @@ let kind_field ~entry_id toml =
 ;;
 
 let parse_entry provider_toml =
-  match non_empty_string_field ~entry_id:"<unknown>" "id" provider_toml with
+  let id_result =
+    match Otoml.find_opt provider_toml Otoml.get_string [ "id" ] with
+    | None -> Error "provider entry missing required \"id\" field"
+    | Some raw ->
+      let id = String.lowercase_ascii (String.trim raw) in
+      if String.equal id ""
+      then Error "provider entry field \"id\" must not be empty"
+      else Ok id
+    | exception Otoml.Type_error _ -> Error "provider entry field \"id\" expected string"
+  in
+  match id_result with
   | Error _ as e -> e
-  | Ok None -> Error "provider entry missing required \"id\" field"
-  | Ok (Some id) ->
+  | Ok id ->
     let unknown_keys_result = reject_unknown_keys ~entry_id:id provider_toml in
     let kind_result = kind_field ~entry_id:id provider_toml in
     let base_url_result = required_string ~entry_id:id "base_url" provider_toml in

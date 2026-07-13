@@ -33,20 +33,15 @@ let test_turn_started_projection () =
 ;;
 
 let test_llm_request_projection () =
-  let evt =
-    Durable_event.Llm_request
-      { turn = 1; model = "dashscope"; input_tokens = 500; timestamp = ts }
-  in
+  let evt = Durable_event.Llm_request { turn = 1; model = "dashscope"; timestamp = ts } in
   check string "name" "durable.llm_request" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check
-      int
-      "input_tokens"
-      500
-      (match List.assoc_opt "input_tokens" fields with
-       | Some (`Int n) -> n
-       | _ -> -1);
+      bool
+      "input_tokens absent before response"
+      false
+      (List.mem_assoc "input_tokens" fields);
     check
       string
       "model"
@@ -85,10 +80,11 @@ let test_tool_completed_projection () =
 let test_all_variants_project () =
   let variants =
     [ Durable_event.Turn_started { turn = 1; timestamp = ts }
-    ; Llm_request { turn = 1; model = "m"; input_tokens = 10; timestamp = ts }
+    ; Llm_request { turn = 1; model = "m"; timestamp = ts }
     ; Llm_response
         { turn = 1
-        ; output_tokens = 5
+        ; input_tokens = Some 10
+        ; output_tokens = Some 5
         ; stop_reason = "end_turn"
         ; duration_ms = 100.0
         ; timestamp = ts

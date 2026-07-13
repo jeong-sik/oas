@@ -3,13 +3,6 @@
 module Retry = Llm_provider.Retry
 module Http_client = Llm_provider.Http_client
 
-type tool_failure_recovery_stage = Error.tool_failure_recovery_stage =
-  | Round_projection
-  | Episode_detection
-  | Judge_response
-  | Decision_persistence
-  | Resume_restore
-
 type provider_error =
   [ `Rate_limited of float option
   | `Auth_error of string
@@ -31,17 +24,10 @@ type tool_error =
   ]
 
 type agent_error =
-  [ `Max_turns_exceeded of int * int
-  | `Idle_detected of int
-  | `Agent_execution_timeout of float * float * int * int
-  | `Agent_execution_idle_timeout of float * float * int * int
-  | `Guardrail_violation of string * string
+  [ `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
   | `Input_required of string * string
-  | `Tool_failure_recovery_failed of tool_failure_recovery_stage * string
-  | `Tool_failure_recovery_deferred of string * string list
   | `Unrecognized_stop_reason of string
-  | `Exit_condition_met of int
   ]
 
 type config_error =
@@ -137,22 +123,10 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   match err with
   | Error.Api err -> (of_api_error err :> sdk_error_poly)
   | Error.Provider err -> (of_provider_error err :> sdk_error_poly)
-  | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
-  | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
-  | Error.Agent (AgentExecutionTimeout r) ->
-    `Agent_execution_timeout (r.elapsed_sec, r.timeout_sec, r.turn_count, r.max_turns)
-  | Error.Agent (AgentExecutionIdleTimeout r) ->
-    `Agent_execution_idle_timeout
-      (r.idle_sec, r.idle_timeout_sec, r.turn_count, r.max_turns)
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (TripwireViolation r) -> `Tripwire_violation (r.tripwire, r.reason)
   | Error.Agent (InputRequired r) -> `Input_required (r.request_id, r.question)
-  | Error.Agent (ToolFailureRecoveryFailed r) ->
-    `Tool_failure_recovery_failed (r.stage, r.detail)
-  | Error.Agent (ToolFailureRecoveryDeferred r) ->
-    `Tool_failure_recovery_deferred (r.reason, r.tool_names)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
-  | Error.Agent (ExitConditionMet r) -> `Exit_condition_met r.turn
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
   | Error.Config (InvalidConfig r) -> `Invalid_config (r.field, r.detail)
@@ -195,14 +169,6 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
 let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   match err with
   | #provider_error as e -> provider_to_sdk e
-  | `Max_turns_exceeded (turns, limit) -> Error.Agent (MaxTurnsExceeded { turns; limit })
-  | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
-  | `Agent_execution_timeout (elapsed_sec, timeout_sec, turn_count, max_turns) ->
-    Error.Agent
-      (AgentExecutionTimeout { elapsed_sec; timeout_sec; turn_count; max_turns })
-  | `Agent_execution_idle_timeout (idle_sec, idle_timeout_sec, turn_count, max_turns) ->
-    Error.Agent
-      (AgentExecutionIdleTimeout { idle_sec; idle_timeout_sec; turn_count; max_turns })
   | `Guardrail_violation (validator, reason) ->
     Error.Agent (GuardrailViolation { validator; reason })
   | `Tripwire_violation (tripwire, reason) ->
@@ -217,12 +183,7 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
          ; timeout_s = None
          ; created_at = Unix.gettimeofday ()
          })
-  | `Tool_failure_recovery_failed (stage, detail) ->
-    Error.Agent (ToolFailureRecoveryFailed { stage; detail })
-  | `Tool_failure_recovery_deferred (reason, tool_names) ->
-    Error.Agent (ToolFailureRecoveryDeferred { reason; tool_names })
   | `Unrecognized_stop_reason reason -> Error.Agent (UnrecognizedStopReason { reason })
-  | `Exit_condition_met turn -> Error.Agent (ExitConditionMet { turn })
   | `Missing_env_var var -> Error.Config (MissingEnvVar { var_name = var })
   | `Unsupported_provider detail -> Error.Config (UnsupportedProvider { detail })
   | `Invalid_config (field, detail) -> Error.Config (InvalidConfig { field; detail })
@@ -289,17 +250,10 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Payment_required _
   | `Tool_exec_failed _
   | `Tool_timeout _
-  | `Max_turns_exceeded _
-  | `Idle_detected _
-  | `Agent_execution_timeout _
-  | `Agent_execution_idle_timeout _
   | `Guardrail_violation _
   | `Tripwire_violation _
   | `Input_required _
-  | `Tool_failure_recovery_failed _
-  | `Tool_failure_recovery_deferred _
   | `Unrecognized_stop_reason _
-  | `Exit_condition_met _
   | `Missing_env_var _
   | `Unsupported_provider _
   | `Invalid_config _

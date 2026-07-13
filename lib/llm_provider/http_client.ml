@@ -49,15 +49,7 @@ type timeout_phase =
   | Unknown_timeout
 [@@deriving yojson, show]
 
-(* Provider-internal terminal condition reported via structured exit
-   (see .mli for the rationale and the @since note).  Adding a new
-   variant rather than overloading [NetworkError] keeps callers from
-   counting a provider's own [max_turns] hit as a flaky network. *)
 type provider_terminal_kind =
-  | Max_turns of
-      { turns : int
-      ; limit : int
-      }
   | Session_conflict
   | Other of string
 
@@ -217,16 +209,59 @@ let timeout_phase_to_label = function
   | Unknown_timeout -> "unknown_timeout"
 ;;
 
-(** Default wall-clock timeout applied to synchronous HTTP operations
-    when a clock is supplied ([get_sync], [post_sync]).  Streaming
-    variants use this only to bound the connect + initial-response-headers
-    phase; body consumption is governed by the caller. *)
-let default_http_timeout_s = 60.0
+type 'clock explicit_deadline =
+  | Unbounded
+  | Bounded of 'clock * float
 
-let with_optional_timeout ~clock ~timeout_s f =
-  match clock with
-  | Some clk -> Eio.Time.with_timeout_exn clk timeout_s f
-  | None -> f ()
+let resolve_explicit_deadline ~operation ~parameter ~clock ~timeout_s =
+  match timeout_s, clock with
+  | None, _ -> Ok Unbounded
+  | Some seconds, Some clock -> Ok (Bounded (clock, seconds))
+  | Some _, None ->
+    Error
+      (AcceptRejected
+         { reason =
+             Printf.sprintf
+               "%s: %s was supplied without the clock required to enforce it"
+               operation
+               parameter
+         })
+;;
+
+let with_explicit_deadline deadline f =
+  match deadline with
+  | Unbounded -> f ()
+  | Bounded (clock, timeout_s) -> Eio.Time.with_timeout_exn clock timeout_s f
+;;
+
+let%test "explicit deadline: clock alone remains unbounded" =
+  match
+    resolve_explicit_deadline
+      ~operation:"test"
+      ~parameter:"timeout_s"
+      ~clock:(Some ())
+      ~timeout_s:None
+  with
+  | Ok Unbounded -> true
+  | Ok (Bounded _) | Error _ -> false
+;;
+
+let%test "explicit deadline: timeout without clock is rejected" =
+  match
+    resolve_explicit_deadline
+      ~operation:"test"
+      ~parameter:"timeout_s"
+      ~clock:None
+      ~timeout_s:(Some 1.0)
+  with
+  | Error (AcceptRejected _) -> true
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 (* ── Exception → network_error_kind classification ───────── *)
@@ -920,28 +955,21 @@ let with_client ?cache ~sw ~net ~uri f =
          Ok result)
 ;;
 
-let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
+let drain_response_body resp_body =
   let buf = Cstruct.create 4096 in
   let rec drain () =
     let _ = Eio.Flow.single_read resp_body buf in
     drain ()
   in
-  let drain_with_timeout () =
-    match clock with
-    | Some clk -> Eio.Time.with_timeout_exn clk timeout_s drain
-    | None -> drain ()
-  in
-  try drain_with_timeout () with
+  try drain () with
   | End_of_file ->
     Diag.debug "http_client" "drain_response_body: reached End_of_file";
     Ok ()
   | Eio.Time.Timeout ->
-    Diag.debug "http_client" "drain_response_body: timed out after %.1fs" timeout_s;
+    Diag.debug "http_client" "drain_response_body: caller deadline expired";
     Error
       (TimeoutError
-         { message = Printf.sprintf "response body drain timed out after %.1fs" timeout_s
-         ; phase = Non_streaming_body
-         })
+         { message = "response body drain timed out"; phase = Non_streaming_body })
   | Unix.Unix_error (code, _, _) as e ->
     let kind = classify_unix_error code in
     Diag.warn
@@ -980,40 +1008,43 @@ let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
     Error (NetworkError { message; kind = Unknown })
 ;;
 
-let read_response_body_or_drain_error ?clock resp_body =
+let read_response_body_or_drain_error resp_body =
   try
     Ok Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
   with
   | exn ->
-    (match drain_response_body ?clock resp_body with
+    (match drain_response_body resp_body with
      | Ok () -> raise exn
      | Error err -> Error err)
 ;;
 
-let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ()
-  =
+let get_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers () =
+  let* deadline =
+    resolve_explicit_deadline
+      ~operation:"get_sync"
+      ~parameter:"timeout_s"
+      ~clock
+      ~timeout_s
+  in
   catch_network (fun () ->
     let* uri = parse_uri url in
     with_client ?cache ~sw ~net ~uri (fun ~sw client ->
       let hdr = Http.Header.of_list (maybe_add_connection_close ?cache headers) in
-      with_optional_timeout ~clock ~timeout_s (fun () ->
+      with_explicit_deadline deadline (fun () ->
         let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
         let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-        let* body_str = read_response_body_or_drain_error ?clock resp_body in
+        let* body_str = read_response_body_or_drain_error resp_body in
         Ok (code, body_str))))
 ;;
 
-let post_sync
-      ?cache
-      ?clock
-      ?(timeout_s = default_http_timeout_s)
-      ~sw
-      ~net
-      ~url
-      ~headers
-      ~body
-      ()
-  =
+let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
+  let* deadline =
+    resolve_explicit_deadline
+      ~operation:"post_sync"
+      ~parameter:"timeout_s"
+      ~clock
+      ~timeout_s
+  in
   catch_network (fun () ->
     let* uri = parse_uri url in
     with_client ?cache ~sw ~net ~uri (fun ~sw client ->
@@ -1025,7 +1056,7 @@ let post_sync
         :: maybe_add_connection_close ?cache headers
       in
       let hdr = Http.Header.of_list headers_with_length in
-      with_optional_timeout ~clock ~timeout_s (fun () ->
+      with_explicit_deadline deadline (fun () ->
         let resp, resp_body =
           Cohttp_eio.Client.post
             ~sw
@@ -1040,21 +1071,18 @@ let post_sync
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
-        let* body_str = read_response_body_or_drain_error ?clock resp_body in
+        let* body_str = read_response_body_or_drain_error resp_body in
         Ok (code, body_str))))
 ;;
 
-let post_stream
-      ?cache
-      ?clock
-      ?(connect_timeout_s = default_http_timeout_s)
-      ~sw
-      ~net
-      ~url
-      ~headers
-      ~body
-      ()
-  =
+let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body () =
+  let* deadline =
+    resolve_explicit_deadline
+      ~operation:"post_stream"
+      ~parameter:"connect_timeout_s"
+      ~clock
+      ~timeout_s:connect_timeout_s
+  in
   (* Cache is intentionally ignored for the streaming reader variant: the
      returned [Buf_read.t] outlives this function, so we cannot safely park
      the client until consumption finishes. Use [with_post_stream] for
@@ -1071,14 +1099,15 @@ let post_stream
     (* Only the connect + initial response headers are bounded; body
        consumption happens in the returned reader and is the caller's
        responsibility to timebox. *)
-    let resp, resp_body =
-      with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
-        Cohttp_eio.Client.post
-          ~sw
-          client
-          ~headers:hdr
-          ~body:(Cohttp_eio.Body.of_string body)
-          uri)
+    let* resp, resp_body =
+      with_explicit_deadline deadline (fun () ->
+        Ok
+          (Cohttp_eio.Client.post
+             ~sw
+             client
+             ~headers:hdr
+             ~body:(Cohttp_eio.Body.of_string body)
+             uri))
     in
     match Cohttp.Response.status resp with
     | `OK -> Ok (Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body)
@@ -1089,21 +1118,18 @@ let post_stream
         ~code
         ~resp_headers:(Cohttp.Response.headers resp)
         headers_with_length;
-      let* body_str = read_response_body_or_drain_error ?clock resp_body in
+      let* body_str = read_response_body_or_drain_error resp_body in
       Error (HttpError { code; body = body_str }))
 ;;
 
-let with_post_stream
-      ?cache
-      ?clock
-      ?(connect_timeout_s = default_http_timeout_s)
-      ~net
-      ~url
-      ~headers
-      ~body
-      ~f
-      ()
-  =
+let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~f () =
+  let* deadline =
+    resolve_explicit_deadline
+      ~operation:"with_post_stream"
+      ~parameter:"connect_timeout_s"
+      ~clock
+      ~timeout_s:connect_timeout_s
+  in
   Eio.Switch.run
   @@ fun sw ->
   (* When a cache is active, bind the transport to the cache's long-lived
@@ -1146,14 +1172,15 @@ let with_post_stream
       in
       let hdr = Http.Header.of_list headers_with_length in
       try
-        let resp, resp_body =
-          with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
-            Cohttp_eio.Client.post
-              ~sw:request_sw
-              client
-              ~headers:hdr
-              ~body:(Cohttp_eio.Body.of_string body)
-              uri)
+        let* resp, resp_body =
+          with_explicit_deadline deadline (fun () ->
+            Ok
+              (Cohttp_eio.Client.post
+                 ~sw:request_sw
+                 client
+                 ~headers:hdr
+                 ~body:(Cohttp_eio.Body.of_string body)
+                 uri))
         in
         match Cohttp.Response.status resp with
         | `OK ->
@@ -1168,7 +1195,7 @@ let with_post_stream
             ~code
             ~resp_headers:(Cohttp.Response.headers resp)
             headers_with_length;
-          (match read_response_body_or_drain_error ?clock resp_body with
+          (match read_response_body_or_drain_error resp_body with
            | Ok body_str ->
              Eio.Resource.close conn;
              Error (HttpError { code; body = body_str })

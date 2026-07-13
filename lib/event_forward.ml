@@ -58,20 +58,12 @@ let event_type_name (event : Event_bus.event) : string =
   | AgentFailed _ -> "agent.failed"
   | ToolCalled _ -> "tool.called"
   | ToolCompleted _ -> "tool.completed"
-  | ToolFailureEpisodeDetected _ -> "tool_failure.episode_detected"
-  | ToolFailureRecoveryDecided _ -> "tool_failure.recovery_decided"
-  | ToolFailureRecoveryJudgeFailed _ -> "tool_failure.recovery_judge_failed"
   | TurnStarted _ -> "turn.started"
   | TurnReady _ -> "turn.ready"
   | TurnCompleted _ -> "turn.completed"
   | HandoffRequested _ -> "handoff.requested"
   | HandoffCompleted _ -> "handoff.completed"
   | ElicitationCompleted _ -> "elicitation.completed"
-  | ContextCompacted _ -> "context.compacted"
-  | ContextOverflowImminent _ -> "context.overflow_imminent"
-  | ContextCompactStarted _ -> "context.compact_started"
-  | ContentReplacementReplaced _ -> "content_replacement.replaced"
-  | ContentReplacementKept _ -> "content_replacement.kept"
   | SlotSchedulerObserved _ -> "slot_scheduler.observed"
   | InferenceTelemetry _ -> "inference.telemetry"
   | Custom (name, _) -> name
@@ -83,20 +75,13 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | AgentFailed r -> Some r.agent_name
   | ToolCalled r -> Some r.agent_name
   | ToolCompleted r -> Some r.agent_name
-  | ToolFailureEpisodeDetected r -> Some r.agent_name
-  | ToolFailureRecoveryDecided r -> Some r.agent_name
-  | ToolFailureRecoveryJudgeFailed r -> Some r.agent_name
   | TurnStarted r -> Some r.agent_name
   | TurnReady r -> Some r.agent_name
   | TurnCompleted r -> Some r.agent_name
   | HandoffRequested r -> Some r.from_agent
   | HandoffCompleted r -> Some r.from_agent
   | ElicitationCompleted r -> Some r.agent_name
-  | ContextCompacted r -> Some r.agent_name
-  | ContextOverflowImminent r -> Some r.agent_name
-  | ContextCompactStarted r -> Some r.agent_name
-  | ContentReplacementReplaced _ | ContentReplacementKept _ | SlotSchedulerObserved _ ->
-    None
+  | SlotSchedulerObserved _ -> None
   | InferenceTelemetry r -> Some r.agent_name
   | Custom _ -> None
 ;;
@@ -142,27 +127,6 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ; "success", `Bool (Result.is_ok r.output)
         ; "turn", `Int r.turn
         ]
-    | ToolFailureEpisodeDetected r ->
-      `Assoc
-        [ "agent_name", `String r.agent_name
-        ; "turn", `Int r.turn
-        ; ( "episodes"
-          , `List (List.map Tool_failure_episode.observation_to_yojson r.episodes) )
-        ]
-    | ToolFailureRecoveryDecided r ->
-      `Assoc
-        [ "agent_name", `String r.agent_name
-        ; "turn", `Int r.turn
-        ; "decision", Tool_failure_recovery.decision_observation_to_yojson r.decision
-        ]
-    | ToolFailureRecoveryJudgeFailed r ->
-      `Assoc
-        [ "agent_name", `String r.agent_name
-        ; "turn", `Int r.turn
-        ; ( "failure_kind"
-          , `String (Tool_failure_recovery.judge_error_kind_to_string r.kind) )
-        ; "detail_redacted", `Bool true
-        ]
     | TurnStarted r -> `Assoc [ "agent_name", `String r.agent_name; "turn", `Int r.turn ]
     | TurnReady r ->
       `Assoc
@@ -187,36 +151,6 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ]
     | ElicitationCompleted r ->
       `Assoc [ "agent_name", `String r.agent_name; "question", `String r.question ]
-    | ContextCompacted r ->
-      `Assoc
-        [ "agent_name", `String r.agent_name
-        ; "before_tokens", `Int r.before_tokens
-        ; "after_tokens", `Int r.after_tokens
-        ; "phase", `String r.phase
-        ]
-    | ContextOverflowImminent r ->
-      `Assoc
-        [ "agent_name", `String r.agent_name
-        ; "estimated_tokens", `Int r.estimated_tokens
-        ; "limit_tokens", `Int r.limit_tokens
-        ; "ratio", `Float r.ratio
-        ]
-    | ContextCompactStarted r ->
-      `Assoc [ "agent_name", `String r.agent_name; "trigger", `String r.trigger ]
-    | ContentReplacementReplaced r ->
-      `Assoc
-        [ "decision", `String "replaced"
-        ; "tool_use_id", `String r.tool_use_id
-        ; "preview", `String r.preview
-        ; "original_chars", `Int r.original_chars
-        ; "seen_count_after", `Int r.seen_count_after
-        ]
-    | ContentReplacementKept r ->
-      `Assoc
-        [ "decision", `String "kept"
-        ; "tool_use_id", `String r.tool_use_id
-        ; "seen_count_after", `Int r.seen_count_after
-        ]
     | SlotSchedulerObserved r ->
       `Assoc
         [ "max_slots", `Int r.max_slots

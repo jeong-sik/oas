@@ -18,16 +18,7 @@ type ('input, 'output) t =
   ; encode : 'output -> Yojson.Safe.t
   }
 
-let check_descriptor = function
-  | None -> ()
-  | Some d ->
-    (match Tool.validate_descriptor d with
-     | Ok () -> ()
-     | Error msg -> invalid_arg ("Typed_tool: " ^ msg))
-;;
-
 let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  check_descriptor descriptor;
   let schema : Types.tool_schema =
     { name; description; parameters = params; strict = None }
   in
@@ -35,7 +26,6 @@ let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
 ;;
 
 let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  check_descriptor descriptor;
   let schema : Types.tool_schema =
     { name; description; parameters = params; strict = None }
   in

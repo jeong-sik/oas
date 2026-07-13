@@ -179,21 +179,17 @@ let find_builtin_provider name = function
   | [] -> None
 ;;
 
-let first_present_env env_names =
-  let rec loop = function
-    | [] -> None
-    | env_name :: rest ->
-      (match Llm_provider.Cli_common_env.get env_name with
-       | Some value -> Some (env_name, value)
-       | None -> loop rest)
-  in
-  loop env_names
-;;
-
-let kimi_direct_base_url () =
-  match Llm_provider.Cli_common_env.get "KIMI_BASE_URL" with
-  | Some url -> url
-  | None -> "https://api.kimi.com/coding"
+let declared_provider_defaults name =
+  let registry = Llm_provider.Provider_registry.default () in
+  match Llm_provider.Provider_registry.find registry name with
+  | Some entry -> Ok entry.defaults
+  | None ->
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "provider"
+            ; detail = Printf.sprintf "Provider %S has no registry declaration" name
+            }))
 ;;
 
 let kimi_direct_request_path = "/v1/messages"
@@ -226,21 +222,16 @@ let kimi_provider_impl : provider_impl =
       (fun body_str -> Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
   ; resolve =
       (fun cfg ->
-        let env_names =
-          if String.trim cfg.api_key_env <> ""
-          then [ cfg.api_key_env; "KIMI_API_KEY" ]
-          else [ "KIMI_API_KEY" ]
-        in
-        match first_present_env env_names with
-        | Some (_env_name, key) ->
-          Ok (kimi_direct_base_url (), key, kimi_direct_headers key)
-        | None ->
-          let var_name =
-            match env_names with
-            | preferred :: _ -> preferred
-            | [] -> "KIMI_API_KEY"
+        match declared_provider_defaults "kimi" with
+        | Error _ as error -> error
+        | Ok defaults ->
+          let credential_env =
+            let configured = String.trim cfg.api_key_env in
+            if configured = "" then defaults.api_key_env else configured
           in
-          Error (Error.Config (MissingEnvVar { var_name })))
+          (match Llm_provider.Cli_common_env.get credential_env with
+           | Some key -> Ok (defaults.base_url, key, kimi_direct_headers key)
+           | None -> Error (Error.Config (MissingEnvVar { var_name = credential_env }))))
   }
 ;;
 
@@ -271,9 +262,8 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
          live in [Llm_provider.Capabilities.for_model_id] and carry the
          real 1M windows and output-token ceilings. The [Local] and
          [OpenAICompat] branches already consult that table; the
-         Anthropic branch must too, otherwise every Sonnet/Opus 4 agent
-         resolves to the wrong window and proactive compaction fires at
-         ~150K instead of ~750K. *)
+         Anthropic branch must too, otherwise consumers observe the wrong
+         provider capability for every Sonnet/Opus 4 agent. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> anthropic_capabilities)
@@ -312,25 +302,6 @@ let request_path = function
 
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
-;;
-
-(** Resolve a positive [max_context_tokens] from an optional provider
-    config, falling back to [fallback] when the config is [None] or
-    the capability reports [None]/[<= 0]. Shared by
-    [Pipeline.proactive_context_window_tokens] and
-    [Builder.with_context_thresholds] so both call sites agree on the
-    "provider → capabilities → max_context_tokens" resolution step.
-    Callers still own the literal fallback value because the two sites
-    disagree on it intentionally (Pipeline uses a stricter 128K; Builder
-    uses a looser 200K that plays well with broader token caps). *)
-let resolve_max_context_tokens ~fallback (cfg_opt : config option) =
-  match cfg_opt with
-  | Some cfg ->
-    let caps = capabilities_for_config cfg in
-    (match caps.max_context_tokens with
-     | Some n when n > 0 -> n
-     | _ -> fallback)
-  | None -> fallback
 ;;
 
 let validate_inference_contract ~capabilities (contract : inference_contract) =
@@ -432,35 +403,15 @@ let resolve (cfg : config) =
                })))
 ;;
 
-let local_llm () =
-  { provider = Local { base_url = Defaults.resolve_local_llm_url () }
-  ; model_id = "default"
-  ; api_key_env = "DUMMY_KEY"
-  }
+let local_llm ~base_url ~model_id () =
+  { provider = Local { base_url }; model_id; api_key_env = "" }
 ;;
 
-let anthropic_sonnet () =
-  { provider = Anthropic
-  ; model_id = "claude-sonnet-4-6"
-  ; api_key_env = "ANTHROPIC_API_KEY"
-  }
+let anthropic ~model_id () =
+  { provider = Anthropic; model_id; api_key_env = "ANTHROPIC_API_KEY" }
 ;;
 
-let anthropic_haiku () =
-  { provider = Anthropic
-  ; model_id = "claude-haiku-4-5-20251001"
-  ; api_key_env = "ANTHROPIC_API_KEY"
-  }
-;;
-
-let anthropic_opus () =
-  { provider = Anthropic
-  ; model_id = "claude-opus-4-6"
-  ; api_key_env = "ANTHROPIC_API_KEY"
-  }
-;;
-
-let openrouter ?(model_id = "anthropic/claude-sonnet-4-6") () =
+let openrouter ~model_id () =
   { provider =
       OpenAICompat
         { base_url = "https://openrouter.ai/api/v1"
@@ -475,29 +426,9 @@ let openrouter ?(model_id = "anthropic/claude-sonnet-4-6") () =
 
 (* ── Pricing: per-model cost estimation ────────────────────────── *)
 
-(* Pricing is sourced from the external model catalog (models.toml) through
-   [Llm_provider.Pricing] — the same module the live api/streaming/complete
-   cost-annotation path already uses. This module previously carried a parallel
-   hand-maintained [Util.string_contains] cascade over model-id substrings
-   (RFC-OAS-018 §1 names lib/provider.ml as a "13-literal leak site"). That copy
-   duplicated the catalog's pricing data and diverged from it: because
-   string_contains matches anywhere and the branches were hand-ordered, the bare
-   "gpt" branch shadowed "gpt-4.1", mis-pricing it 2.5/10.0 instead of the
-   catalog's 2.0/8.0. Delegating here deletes the duplicate cascade so models.toml
-   is the single source of truth for pricing, fixes the gpt-4.1 shadow, and
-   makes the agent_turn/structured accumulators consistent with the live cost
-   path.
-
-   The delegate now keeps a small built-in fallback table for common cloud
-   models so that installed SDKs without an external catalog still get non-zero
-   pricing (addressing the #2098 review follow-up). The pricing delegate strips
-   OpenRouter-style provider prefixes (e.g. ["anthropic/claude-sonnet-4-6"]) and
-   uses exact or delimiter-anchored matching for catalog/fallback entries so
-   broad aliases such as ["gpt"] do not price unknown future families.
-   Unknown-model behavior is otherwise unchanged: [pricing_for_model_opt]
-   returns [None] for an unrecognized model and [pricing_for_model] still
-   collapses that to [zero_pricing] (the existing $0 contract — RFC-OAS-018
-   Phase 2 fail-closed is deferred). *)
+(* Pricing is sourced exclusively from the model catalog.  Unknown models stay
+   [None]; this boundary does not infer a free price from provider or model-id
+   text. *)
 type pricing = Llm_provider.Pricing.pricing =
   { input_per_million : float
   ; output_per_million : float
@@ -505,50 +436,12 @@ type pricing = Llm_provider.Pricing.pricing =
   ; cache_read_multiplier : float
   }
 
-let zero_pricing = Llm_provider.Pricing.zero_pricing
 let pricing_for_model_opt = Llm_provider.Pricing.pricing_for_model_opt
-let pricing_for_model = Llm_provider.Pricing.pricing_for_model
-
-let pricing_for_provider ~(provider : provider) ~(model_id : string) =
-  match provider with
-  | Local _ -> zero_pricing
-  (* Cloud providers are priced by model id. Enumerated explicitly (no [_]
-     catch-all) so a future provider variant forces a pricing decision at
-     compile time rather than silently inheriting model-id pricing — e.g. a
-     new local-like backend that should be zero-priced. *)
-  | Anthropic | OpenAICompat _ | Custom_registered _ -> pricing_for_model model_id
-;;
-
-let estimate_cost
-      ~(pricing : pricing)
-      ~input_tokens
-      ~output_tokens
-      ?(cache_creation_input_tokens = 0)
-      ?(cache_read_input_tokens = 0)
-      ()
-  =
-  (* Regular input tokens (excluding cache tokens — those are billed separately) *)
-  let regular_input =
-    input_tokens - cache_creation_input_tokens - cache_read_input_tokens
-  in
-  let regular_input = max 0 regular_input in
-  let rate = pricing.input_per_million /. 1_000_000.0 in
-  let input_cost = Float.of_int regular_input *. rate in
-  let cache_write_cost =
-    Float.of_int cache_creation_input_tokens *. rate *. pricing.cache_write_multiplier
-  in
-  let cache_read_cost =
-    Float.of_int cache_read_input_tokens *. rate *. pricing.cache_read_multiplier
-  in
-  let output_cost =
-    Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0
-  in
-  input_cost +. cache_write_cost +. cache_read_cost +. output_cost
-;;
+let estimate_cost = Llm_provider.Pricing.estimate_cost
 
 (* ── Convenience: create config for a Custom_registered provider ── *)
 
-let custom_provider ~name ?(model_id = "custom") ?(api_key_env = "DUMMY_KEY") () =
+let custom_provider ~name ~model_id ?(api_key_env = "") () =
   { provider = Custom_registered { name }; model_id; api_key_env }
 ;;
 
@@ -658,10 +551,9 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     {!Llm_provider.Complete.complete} surface.
 
     Sampling params, tool_choice, thinking controls are pulled from
-    [state.config].  Provider kind, model_id, headers, request_path,
-    and api_key are resolved from [provider_opt] + env vars.  When
-    [provider_opt] is [None], falls back to Anthropic using
-    [ANTHROPIC_API_KEY] (matching {!create_message}'s existing default).
+    [state.config]. Provider kind, model_id, headers, request_path,
+    and api_key are resolved from an explicit [provider_opt]. [None]
+    is a configuration error; this adapter never selects a provider.
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
     legacy {!config} variant does not distinguish arbitrary
@@ -681,7 +573,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     @since 0.161.0 — Custom_registered kind preservation *)
 let provider_config_of_agent
       ~(state : Types.agent_state)
-      ~(base_url : string)
+      ~base_url:_
       (provider_opt : config option)
   : (Llm_provider.Provider_config.t, Error.sdk_error) result
   =
@@ -713,6 +605,7 @@ let provider_config_of_agent
          ?enable_thinking:cfg.enable_thinking
          ?preserve_thinking:cfg.preserve_thinking
          ?thinking_budget:cfg.thinking_budget
+         ?reasoning_effort:cfg.reasoning_effort
          ?tool_choice:cfg.tool_choice
          ?system_prompt:cfg.system_prompt
          ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
@@ -837,21 +730,10 @@ let provider_config_of_agent
             ~model_id:p.model_id
             ()))
   | None ->
-    let fallback_provider : config =
-      { provider = Anthropic
-      ; model_id = Types.model_to_string cfg.model
-      ; api_key_env = "ANTHROPIC_API_KEY"
-      }
-    in
-    (match resolve fallback_provider with
-     | Error e -> Error e
-     | Ok (_resolved_url, api_key, headers) ->
-       build
-         ~kind:Anthropic
-         ~resolved_base_url:base_url
-         ~api_key
-         ~headers
-         ~request_path:(request_path Anthropic)
-         ~model_id:(Types.model_to_string cfg.model)
-         ())
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "provider"
+            ; detail = "An explicit provider configuration is required"
+            }))
 ;;

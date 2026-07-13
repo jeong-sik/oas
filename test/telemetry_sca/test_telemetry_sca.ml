@@ -67,7 +67,7 @@ let test_registry_covers_all_variants () =
     ; "Thinking_complete"
     ; "Timeout"
     ; "Prefill_complete"
-    ; "Context_window_usage"
+    ; "Wire_capture_failure"
     ]
   in
   List.iter

@@ -6,7 +6,7 @@
 
     Design decisions:
     - [api_error] is a type alias for {!Retry.api_error} (no duplication).
-    - [Internal] is reserved for unreachable sentinel handlers (handoff.ml).
+    - [Internal] is reserved for unreachable SDK invariant failures.
     - [to_string] produces human-readable messages compatible with v0.8.x. *)
 
 module Retry = Llm_provider.Retry
@@ -26,50 +26,9 @@ type input_required =
   ; created_at : float
   }
 
-type tool_failure_recovery_stage =
-  | Round_projection
-  | Episode_detection
-  | Judge_response
-  | Decision_persistence
-  | Resume_restore
-
-let tool_failure_recovery_stage_to_string = function
-  | Round_projection -> "round_projection"
-  | Episode_detection -> "episode_detection"
-  | Judge_response -> "judge_response"
-  | Decision_persistence -> "decision_persistence"
-  | Resume_restore -> "resume_restore"
-;;
-
 (** Agent runtime errors. *)
 type agent_error =
-  | MaxTurnsExceeded of
-      { turns : int
-      ; limit : int
-      }
   | UnrecognizedStopReason of { reason : string }
-  | IdleDetected of { consecutive_idle_turns : int }
-  | AgentExecutionTimeout of
-      { elapsed_sec : float
-      ; timeout_sec : float
-      ; turn_count : int
-      ; max_turns : int
-      }
-  | AgentExecutionIdleTimeout of
-      { idle_sec : float
-      ; idle_timeout_sec : float
-      ; turn_count : int
-      ; max_turns : int
-      }
-  (** No execution activity (streamed token or completed turn) was
-          observed for [idle_timeout_sec]. Distinct from
-          [AgentExecutionTimeout], which caps total wall-clock regardless
-          of progress: the idle deadline resets on each unit of progress
-          and fires only on observed silence, so it does not cancel a run
-          that is still streaming output. For non-streaming [run] activity
-          is seen only at turn boundaries, so a long single turn can trip
-          this without the run being hung.
-          @since 0.201.0 *)
   | GuardrailViolation of
       { validator : string
       ; reason : string
@@ -79,15 +38,6 @@ type agent_error =
       ; reason : string
       }
   | InputRequired of input_required
-  | ToolFailureRecoveryFailed of
-      { stage : tool_failure_recovery_stage
-      ; detail : string
-      }
-  | ToolFailureRecoveryDeferred of
-      { reason : string
-      ; tool_names : string list
-      }
-  | ExitConditionMet of { turn : int }
 
 (** MCP client errors. *)
 type mcp_error =
@@ -161,28 +111,8 @@ type sdk_error =
 (* ── Human-readable messages ──────────────────────────────────────── *)
 
 let agent_error_to_string = function
-  | MaxTurnsExceeded r ->
-    Printf.sprintf "Max turns exceeded (turn %d, limit %d)" r.turns r.limit
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
-  | IdleDetected r ->
-    Printf.sprintf
-      "Idle detected: %d consecutive identical tool call turns"
-      r.consecutive_idle_turns
-  | AgentExecutionTimeout r ->
-    Printf.sprintf
-      "Agent execution timed out after %.1fs (max_execution_time_s=%.1fs, turns=%d/%d)"
-      r.elapsed_sec
-      r.timeout_sec
-      r.turn_count
-      r.max_turns
-  | AgentExecutionIdleTimeout r ->
-    Printf.sprintf
-      "Agent stalled: no progress for %.1fs (execution_idle_timeout_s=%.1fs, turns=%d/%d)"
-      r.idle_sec
-      r.idle_timeout_sec
-      r.turn_count
-      r.max_turns
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->
@@ -195,18 +125,6 @@ let agent_error_to_string = function
        | None -> "")
       r.question
       r.request_id
-  | ToolFailureRecoveryFailed r ->
-    Printf.sprintf
-      "Tool failure recovery failed at %s: %s"
-      (tool_failure_recovery_stage_to_string r.stage)
-      r.detail
-  | ToolFailureRecoveryDeferred r ->
-    let tools = String.concat ", " r.tool_names in
-    Printf.sprintf
-      "Tool failure recovery deferred%s: %s"
-      (if String.equal tools "" then "" else Printf.sprintf " for %s" tools)
-      r.reason
-  | ExitConditionMet r -> Printf.sprintf "Exit condition met at turn %d" r.turn
 ;;
 
 let mcp_error_to_string = function

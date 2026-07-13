@@ -1,5 +1,9 @@
 (** Provider resolution for the runtime server.
 
+    Runtime does not own provider aliases or fallbacks. It forwards exact
+    provider ids and catalog-declared aliases to {!Provider_runtime_binding}; a
+    missing or unknown selector is an explicit error.
+
     @stability Internal
     @since 0.93.1 *)
 
@@ -8,16 +12,14 @@ type execution_resolution =
   ; requested_model : string option
   ; resolved_provider : string option
   ; resolved_model : string option
-  ; provider_cfg : Provider.config option
+  ; provider_cfg : Provider.config
   }
-
-val provider_runtime_name : string -> Provider.config option -> string
 
 val resolve_provider
   :  ?provider:string
   -> ?model:string
   -> unit
-  -> (Provider.config option, Error.sdk_error) result
+  -> (Provider.config, Error.sdk_error) result
 
 val resolve_execution
   :  Runtime.session

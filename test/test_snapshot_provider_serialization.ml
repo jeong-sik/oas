@@ -15,10 +15,9 @@
       lookup falls through to per-kind defaults.
     - [supports_tool_choice_override:true] pins whether the OpenAI/GLM
       [tool_choice] field is emitted, independent of any manifest entry.
-    - [keep_alive:"-1"] pins the Ollama [keep_alive] field, independent of
-      the [OAS_OLLAMA_KEEP_ALIVE] env var.
+    - [keep_alive:"-1"] explicitly pins the Ollama [keep_alive] field.
     - No model in this fixture reports [supports_seed], so no [seed] field is
-      injected and [OAS_DEFAULT_SEED] does not affect the output. *)
+      emitted. *)
 
 open Alcotest
 open Llm_provider
@@ -156,7 +155,7 @@ let openai_no_parallel_capability_cfg =
    Completions wire, but provider-specific thinking/tool-choice semantics must
    be declared on raw OpenAI-compatible configs rather than inferred from a bare
    model id. *)
-let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
+let deepseek_cfg ?enable_thinking ?reasoning_effort ~tool_choice () =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"deepseek-v4-flash"
@@ -168,7 +167,7 @@ let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
     ~tool_choice
     ~disable_parallel_tool_use:true
     ?enable_thinking
-    ?thinking_budget
+    ?reasoning_effort
     ()
 ;;
 
@@ -411,8 +410,7 @@ let test_deepseek_required_rejected () =
 let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
   let body =
     Backend_openai_request.build_request
-      ~config:
-        (deepseek_cfg ~enable_thinking:false ~thinking_budget:4096 ~tool_choice:Auto ())
+      ~config:(deepseek_cfg ~enable_thinking:false ~tool_choice:Auto ())
       ~messages
       ~tools:[ tool_decl ]
       ()
@@ -429,10 +427,15 @@ let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
     (contains ~needle:{|"reasoning_effort"|} body)
 ;;
 
-let test_deepseek_zero_budget_omits_reasoning_effort () =
+let test_deepseek_explicit_effort_is_serialized () =
   let body =
     Backend_openai_request.build_request
-      ~config:(deepseek_cfg ~enable_thinking:true ~thinking_budget:0 ~tool_choice:Auto ())
+      ~config:
+        (deepseek_cfg
+           ~enable_thinking:true
+           ~reasoning_effort:Reasoning_effort.High
+           ~tool_choice:Auto
+           ())
       ~messages
       ~tools:[ tool_decl ]
       ()
@@ -444,9 +447,9 @@ let test_deepseek_zero_budget_omits_reasoning_effort () =
     (contains ~needle:{|"thinking":{"type":"enabled"}|} body);
   check
     bool
-    "zero-budget reasoning omits invalid reasoning_effort"
-    false
-    (contains ~needle:{|"reasoning_effort"|} body)
+    "explicit reasoning effort serialized"
+    true
+    (contains ~needle:{|"reasoning_effort":"high"|} body)
 ;;
 
 (* ZAI GLM reached through the OpenAI-compat backend must replay historical
@@ -760,7 +763,7 @@ let test_glm_any () =
 (* ── Ollama (native /api/chat shape) ────────────────── *)
 
 let ollama_any_expected =
-  {|{"options":{"temperature":0.7,"num_predict":1024},"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"keep_alive":-1,"stream":false,"think":false,"model":"oas-snapshot-fixture-model","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Seoul"}}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}]}|}
+  {|{"options":{"temperature":0.7,"num_predict":1024},"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"keep_alive":-1,"stream":false,"model":"oas-snapshot-fixture-model","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Seoul"}}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}]}|}
 ;;
 
 let test_ollama_any () =
@@ -850,9 +853,9 @@ let () =
             `Quick
             test_deepseek_disabled_reasoning_omits_reasoning_effort
         ; test_case
-            "deepseek-v4-flash zero budget omits reasoning_effort"
+            "deepseek-v4-flash explicit effort"
             `Quick
-            test_deepseek_zero_budget_omits_reasoning_effort
+            test_deepseek_explicit_effort_is_serialized
         ; test_case
             "zai-glm-openai-compat replays reasoning when preserve_thinking"
             `Quick

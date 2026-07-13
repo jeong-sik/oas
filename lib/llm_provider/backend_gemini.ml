@@ -47,40 +47,95 @@ let warn_parallel_disable_unsupported ~model_id =
     mark ())
 ;;
 
-let thinking_level_of_budget ~supports_minimal = function
-  | Some n when n <= 0 -> if supports_minimal then "minimal" else "low"
-  | Some n ->
-    (match Reasoning_effort.of_budget n with
-     | Some Reasoning_effort.Low -> "low"
-     | Some Reasoning_effort.Medium -> "medium"
-     | Some Reasoning_effort.High | Some Reasoning_effort.XHigh -> "high"
-     | Some (Reasoning_effort.None_ | Reasoning_effort.Minimal) | None ->
-       if supports_minimal then "minimal" else "low")
-  | None -> "high"
+type thinking_control =
+  | Thinking_budget
+  | Thinking_level of Reasoning_effort.t list
+
+let thinking_control_for_config (config : Provider_config.t) =
+  let caps =
+    match Provider_config.capabilities_for_config_model config with
+    | Some caps -> caps
+    | None ->
+      invalid_arg
+        (Printf.sprintf
+           "Backend_gemini.build_request: model %S has no declared thinking-control \
+            contract"
+           config.model_id)
+  in
+  match caps.accepted_reasoning_efforts, caps.supports_reasoning_budget with
+  | Some [], true -> Thinking_budget
+  | Some (_ :: _ as accepted), false -> Thinking_level accepted
+  | None, _ ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_gemini.build_request: model %S has no declared thinking-control \
+          contract"
+         config.model_id)
+  | Some [], false | Some (_ :: _), true ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_gemini.build_request: model %S has an inconsistent thinking-control \
+          contract"
+         config.model_id)
+;;
+
+let thinking_level_of_effort ~accepted effort =
+  if List.mem effort accepted
+  then Reasoning_effort.to_string effort
+  else
+    invalid_arg
+      (Printf.sprintf
+         "Backend_gemini.build_request: reasoning_effort %S is not declared for this \
+          Gemini thinkingLevel wire"
+         (Reasoning_effort.to_string effort))
 ;;
 
 let thinking_config_of_config (config : Provider_config.t) =
-  match Capabilities.gemini_thinking_control_of_id config.model_id with
-  | Capabilities.Gemini_thinking_level { supports_minimal } ->
-    (match config.enable_thinking with
-     | Some false ->
-       let level = if supports_minimal then "minimal" else "low" in
-       Some (`Assoc [ "thinkingLevel", `String level ])
-     | Some true ->
-       let level = thinking_level_of_budget ~supports_minimal config.thinking_budget in
-       Some (`Assoc [ "thinkingLevel", `String level; "includeThoughts", `Bool true ])
-     | None -> None)
-  | Capabilities.Gemini_thinking_budget | Capabilities.Gemini_unknown_thinking_control ->
-    (match config.enable_thinking with
-     | Some false -> Some (`Assoc [ "thinkingBudget", `Int 0 ])
-     | Some true ->
-       let budget =
-         match config.thinking_budget with
-         | Some b -> b
-         | None -> Constants.Thinking.gemini_budget ()
-       in
-       Some (`Assoc [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
-     | None -> None)
+  match config.enable_thinking, config.thinking_budget, config.reasoning_effort with
+  | None, None, None -> None
+  | _ ->
+    (match thinking_control_for_config config with
+     | Thinking_level accepted ->
+       (match config.enable_thinking, config.thinking_budget, config.reasoning_effort with
+        | _, Some _, _ ->
+          invalid_arg
+            "Backend_gemini.build_request: thinking_budget cannot target a Gemini \
+             thinkingLevel wire; pass reasoning_effort"
+        | Some false, None, _ ->
+          invalid_arg
+            "Backend_gemini.build_request: enable_thinking=false has no exact Gemini \
+             thinkingLevel representation"
+        | Some true, None, Some effort ->
+          Some
+            (`Assoc
+                [ "thinkingLevel", `String (thinking_level_of_effort ~accepted effort)
+                ; "includeThoughts", `Bool true
+                ])
+        | Some true, None, None -> Some (`Assoc [ "includeThoughts", `Bool true ])
+        | None, None, Some effort ->
+          Some
+            (`Assoc
+                [ "thinkingLevel", `String (thinking_level_of_effort ~accepted effort) ])
+        | None, None, None -> None)
+     | Thinking_budget ->
+       (match config.enable_thinking, config.thinking_budget, config.reasoning_effort with
+        | _, _, Some _ ->
+          invalid_arg
+            "Backend_gemini.build_request: reasoning_effort cannot target a Gemini \
+             thinkingBudget wire; pass thinking_budget"
+        | Some false, _, None ->
+          invalid_arg
+            "Backend_gemini.build_request: enable_thinking=false has no exact Gemini \
+             boolean wire; pass an explicit thinking_budget only when the selected model \
+             supports that numeric value"
+        | Some true, Some budget, None ->
+          Some (`Assoc [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
+        | Some true, None, None ->
+          invalid_arg
+            "Backend_gemini.build_request: enable_thinking=true on a thinkingBudget wire \
+             requires an explicit thinking_budget"
+        | None, Some budget, None -> Some (`Assoc [ "thinkingBudget", `Int budget ])
+        | None, None, None -> None))
 ;;
 
 let gemini_role_of_oas = function
@@ -493,11 +548,7 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
 (* ── Message list -> (contents, systemInstruction option) ── *)
 
 let contents_of_messages (messages : message list) =
-  let messages =
-    messages
-    |> Tool_message_pairs.close_for_provider_request
-    |> Api_common.merge_tool_result_followup_user_messages
-  in
+  let messages = Api_common.merge_tool_result_followup_user_messages messages in
   let id_to_name = build_tool_id_to_name messages in
   let system_parts = ref [] in
   let contents = ref [] in
@@ -570,6 +621,9 @@ let build_request_artifact
   =
   ignore stream;
   (* Gemini streaming is URL-based, not body-based *)
+  (match Provider_config.validate_reasoning_effort_request config with
+   | Ok () -> ()
+   | Error reason -> invalid_arg ("Backend_gemini.build_request: " ^ reason));
   let output_token_receipt =
     Backend_openai_request.output_token_receipt
       ~envelope:Types.Gemini_generation_config_max_output_tokens
@@ -619,21 +673,18 @@ let build_request_artifact
    | None -> ());
   (* Seed — Gemini API supports seed in generationConfig *)
   (let caps =
-     match Capabilities.for_model_id config.model_id with
+     match Provider_config.capabilities_for_config_model config with
      | Some c -> c
-     | None -> Capabilities.default_capabilities
+     | None -> Capabilities.gemini_capabilities
    in
-   if caps.supports_seed
-   then (
-     let seed =
-       match config.seed with
-       | Some n -> n
-       | None ->
-         (match Constants.Deterministic.seed_of_env () with
-          | Some n -> n
-          | None -> Constants.Deterministic.default_seed)
-     in
-     gen_config := ("seed", `Int seed) :: !gen_config));
+   match caps.supports_seed, config.seed with
+   | true, Some seed -> gen_config := ("seed", `Int seed) :: !gen_config
+   | false, Some _ ->
+     invalid_arg
+       (Printf.sprintf
+          "Backend_gemini.build_request: model %S does not support seed"
+          config.model_id)
+   | true, None | false, None -> ());
   (* Gemini 3+ uses [thinkingLevel]; Gemini 2.5 uses [thinkingBudget]. *)
   (match thinking_config_of_config config with
    | Some thinking_config ->
@@ -768,10 +819,8 @@ let parse_response json =
       |> Option.value ~default:"STOP"
     in
     let has_tool_use =
-      (* N-of-M followup to PR #1519 / #1521 — same content_block
-         catch-all that was closed in tool_use_recovery.ml and
-         context_reducer_apply.ml. The Gemini backend's stop-reason
-         inference uses the same shape and was missed in those sweeps. *)
+      (* The typed content-block match makes Gemini stop-reason inference
+         exhaustive without relying on provider text. *)
       List.exists
         (fun (block : Types.content_block) ->
            match block with

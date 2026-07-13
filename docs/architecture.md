@@ -19,14 +19,13 @@ Single-agent execution engine.
 | Module | Responsibility |
 |--------|---------------|
 | `Agent` | Lifecycle: create, run, resume |
-| `Pipeline` | 6-stage turn: prep, reduce, route, extract, tools, update |
+| `Pipeline` | Turn preparation, provider routing, extraction, tools, and state update |
 | `Provider` | Multi-provider API dispatch (Anthropic, OpenAI, Ollama) |
 | `Error` | 8-domain structured ADT errors |
 | `Hooks` | BeforeTurn, AfterTurn, PreToolUse, PostToolUse hooks |
 | `Tracing` | TRACER module type, Null/Fmt/OTel implementations |
 | `Metrics` | Counter + histogram collection, OTLP JSON export |
-| `Context_reducer` | Token budget management via message summarization |
-| `Guardrails` | Tool filtering, output validation |
+| `Guardrails_async` / `Guardrail_llm` | Caller-injected content validation and LLM judgment |
 | `Tool_set` | Tool registration, schema generation |
 
 ## Error model
@@ -34,7 +33,7 @@ Single-agent execution engine.
 ```
 sdk_error
 ├── Api of api_error          (7 variants: RateLimited, AuthError, ...)
-├── Agent of agent_error      (4 variants: MaxTurns, TokenBudget, ...)
+├── Agent of agent_error      (typed execution timeout, input, recovery, ...)
 ├── Mcp of mcp_error          (5 variants: ServerStart, Initialize, ...)
 ├── Config of config_error    (3 variants: MissingEnv, Unsupported, ...)
 ├── Serialization of ...      (3 variants: JsonParse, VersionMismatch, ...)

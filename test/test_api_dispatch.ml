@@ -10,7 +10,7 @@ open Agent_sdk
 
 let base_state =
   { Types.config =
-      { Types.default_config with
+      { (Types.default_config ~model:"test-model") with
         name = "test-dispatch"
       ; model = "test-model"
       ; system_prompt = Some "You are a test assistant."
@@ -39,6 +39,12 @@ let json_get key json =
   match json with
   | `Assoc pairs -> List.assoc_opt key pairs
   | _ -> None
+;;
+
+let declared_pricing model_id =
+  match Provider.pricing_for_model_opt model_id with
+  | Some pricing -> pricing
+  | None -> failf "expected catalog pricing for %S" model_id
 ;;
 
 (* ── Anthropic body shape ────────────────────────────────────── *)
@@ -187,16 +193,19 @@ let test_request_kind_routing () =
 (* ── Pricing ─────────────────────────────────────────────────── *)
 
 let test_pricing_known_models () =
-  let p_opus = Provider.pricing_for_model "claude-opus-4-6" in
+  let p_opus = declared_pricing "claude-opus-4-6" in
   check (float 0.01) "opus input" 15.0 p_opus.input_per_million;
-  let p_gpt4o = Provider.pricing_for_model "gpt" in
+  let p_gpt4o = declared_pricing "gpt" in
   check (float 0.01) "gpt4o input" 2.5 p_gpt4o.input_per_million;
-  let p_mini = Provider.pricing_for_model "gpt-mini" in
+  let p_mini = declared_pricing "gpt-mini" in
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
-  let p_local = Provider.pricing_for_model "dashscope-3.5-35b" in
+  let p_local = declared_pricing "dashscope-3.5-35b" in
   check (float 0.01) "local free" 0.0 p_local.input_per_million;
-  let p_llama = Provider.pricing_for_model "llama-3.1-70b" in
-  check (float 0.01) "llama free" 0.0 p_llama.input_per_million
+  check
+    bool
+    "undeclared local model remains unpriced"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "llama-3.1-70b"))
 ;;
 
 let test_pricing_cost_estimation () =
@@ -278,7 +287,7 @@ let test_anthropic_cache_usage_parsing () =
 (* ── Cache-aware cost estimation ─────────────────────────────── *)
 
 let test_cache_cost_calculation () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = declared_pricing "claude-sonnet-4-6" in
   (* Sonnet: 3.0/M input, 15.0/M output, cache_write=1.25x, cache_read=0.1x *)
   let cost =
     Provider.estimate_cost
@@ -297,7 +306,7 @@ let test_cache_cost_calculation () =
 ;;
 
 let test_cache_cost_no_cache_tokens () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = declared_pricing "claude-sonnet-4-6" in
   let cost_with =
     Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
   in
@@ -314,7 +323,7 @@ let test_cache_cost_no_cache_tokens () =
 ;;
 
 let test_cache_multipliers_for_non_anthropic () =
-  let pricing = Provider.pricing_for_model "gpt" in
+  let pricing = declared_pricing "gpt" in
   (* Openai: no cache pricing, multipliers are 1.0 *)
   check (float 0.001) "no cache write discount" 1.0 pricing.cache_write_multiplier;
   check (float 0.001) "no cache read discount" 1.0 pricing.cache_read_multiplier

@@ -17,7 +17,6 @@ type periodic_callback = Agent_types.periodic_callback =
 type checkpoint_stage = Agent_types.checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
-  | After_retry_feedback_appended
 
 val checkpoint_stage_to_string : checkpoint_stage -> string
 
@@ -33,21 +32,14 @@ type checkpoint_sink = Agent_types.checkpoint_sink
 type options = Agent_types.options =
   { base_url : string
   ; provider : Provider.config option
-  ; max_execution_time_s : float option
   ; stream_idle_timeout_s : float option
   ; body_timeout_s : float option
-  ; execution_idle_timeout_s : float option
-  ; max_idle_turns : int
-  ; idle_final_warning_at : int option
   ; hooks : Hooks.hooks
-  ; guardrails : Guardrails.t
   ; guardrails_async : Guardrails_async.t
   ; tracer : Tracing.t
   ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
-  ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
-  ; context_reducer : Context_reducer.t option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -58,19 +50,10 @@ type options = Agent_types.options =
   ; description : string option
   ; periodic_callbacks : periodic_callback list
   ; allowed_paths : string list
-  ; operator_policy : Guardrails.tool_filter option
-  ; policy_channel : Policy_channel.t option
-  ; tool_selector : Tool_selector.strategy option
-  ; disclosure_level : Tool.disclosure_level option
-  ; disclosure_resolver : (Types.tool_result list -> Tool.disclosure_level option) option
-  ; priority : Llm_provider.Request_priority.t option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
-  ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
   ; transport : Llm_provider.Llm_transport.t option
-  ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
-  ; summarizer : (Types.message list -> string) option
   }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =
@@ -81,7 +64,6 @@ type lifecycle_status = Agent_lifecycle.lifecycle_status =
   | Failed
 
 type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot
-type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
 (** Abstract agent type. *)
 type t
@@ -104,32 +86,20 @@ val sdk_version : string
 
 (** {1 Construction} *)
 
-(** [auto_context_overflow_retry] controls whether the turn pipeline performs
-    its built-in compact-and-retry path after a provider [ContextOverflow].
-    It defaults to [true] for standalone agents. Higher-level coordinators
-    that own turn-level retry can pass [false].
-
-    [checkpoint_sink] attaches an optional caller-owned turn-boundary
+(** [checkpoint_sink] attaches an optional caller-owned turn-boundary
     checkpoint sink.  The pipeline builds a post-mutation checkpoint
     snapshot for crash recovery, invokes the sink before advancing the
     live agent state and emitting completion/journal transitions, then
     commits the same turn delta after the sink succeeds.  The sink is
     passed here rather than through {!options} so callers that construct
-    options records remain source-compatible.
-
-    [tool_failure_judge] installs the LLM boundary used after two adjacent
-    typed failed-tool rounds. It is attached outside [options] for the same
-    record-compatibility reason and must be reattached on {!resume}. Installing
-    it enables tool-boundary yielding automatically. *)
+    options records remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?config:Types.agent_config
+  -> config:Types.agent_config
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
-  -> ?auto_context_overflow_retry:bool
   -> ?checkpoint_sink:checkpoint_sink
-  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> unit
   -> t
 
@@ -322,31 +292,11 @@ val resume
   -> ?context:Context.t
   -> ?options:options
   -> ?checkpoint_sink:checkpoint_sink
-  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> ?config:Types.agent_config
-  -> ?auto_context_overflow_retry:bool
   -> unit
   -> t
 
 val checkpoint : ?session_id:string -> ?working_context:Yojson.Safe.t -> t -> Checkpoint.t
-
-(** {1 Turn Budget} *)
-
-(** Build an [extend_turns] tool for external consumers.
-
-    Wraps {!Agent_turn_budget.make_tool} with the public [Agent.t] type
-    so downstream coordinators can use it without accessing
-    the internal [Agent_types.t].
-
-    @param agent_ref Set to [Some agent] after {!run} begins.
-    @param budget Created via {!Agent_turn_budget.create}.
-    @since 0.109.0 *)
-val make_extend_turns_tool
-  :  agent_ref:t option ref
-  -> budget:Agent_turn_budget.t
-  -> ?max_idle_before_extend:int
-  -> unit
-  -> Tool.t
 
 (** {1 Lifecycle} *)
 
@@ -358,7 +308,6 @@ val lifecycle_snapshot : t -> lifecycle_snapshot option
 
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
-val set_consecutive_idle_turns : t -> int -> unit
 
 val set_lifecycle
   :  t
@@ -376,7 +325,6 @@ val set_lifecycle
   -> unit
 
 val base_messages : t -> Types.message list
-val check_loop_guard : t -> Error.sdk_error option
 
 (** Dump the agent's Durable_event journal to [path] as JSONL.
     Returns [Error "no journal"] when the agent was built without

@@ -113,6 +113,11 @@ let expect_binding label =
   | None -> Alcotest.failf "expected provider binding for %S" label
 ;;
 
+let expect_ok = function
+  | Ok value -> value
+  | Error err -> Alcotest.fail (Error.to_string err)
+;;
+
 let test_catalog_alias_default_and_capabilities () =
   with_provider_catalog catalog_json (fun () ->
     let binding = expect_binding " subscriber-alias " in
@@ -130,19 +135,20 @@ let test_catalog_alias_default_and_capabilities () =
     Alcotest.(check string)
       "resolved default"
       "local-model"
-      (Provider_runtime_binding.resolve_model binding ~requested_model:None);
+      (expect_ok (Provider_runtime_binding.resolve_model binding ~requested_model:None));
     Alcotest.(check string)
       "requested model wins"
       "explicit-model"
-      (Provider_runtime_binding.resolve_model
-         binding
-         ~requested_model:(Some " explicit-model ")))
+      (expect_ok
+         (Provider_runtime_binding.resolve_model
+            binding
+            ~requested_model:(Some " explicit-model "))))
 ;;
 
 let test_catalog_to_provider_config () =
   with_provider_catalog catalog_json (fun () ->
     let binding = expect_binding "subscriber-local" in
-    let cfg = Provider_runtime_binding.to_provider_config binding in
+    let cfg = expect_ok (Provider_runtime_binding.to_provider_config binding) in
     Alcotest.(check string) "model id" "local-model" cfg.model_id;
     Alcotest.(check string) "base url" "http://127.0.0.1:8123" cfg.base_url;
     Alcotest.(check string) "request path" "/v1/chat/completions" cfg.request_path;
@@ -269,7 +275,10 @@ let test_catalog_structured_output_capability_projects_to_provider_config () =
   with_provider_catalog catalog_json (fun () ->
     let binding = expect_binding "subscriber-local" in
     let cfg =
-      Provider_runtime_binding.to_provider_config ~model:"qwen/qwen3.6-35b-a3b" binding
+      expect_ok
+        (Provider_runtime_binding.to_provider_config
+           ~model:"qwen/qwen3.6-35b-a3b"
+           binding)
     in
     let schema = `Assoc [ "type", `String "object" ] in
     let cfg =
@@ -659,17 +668,25 @@ let test_find_empty_missing_and_provider_config_fallbacks () =
     | None -> Alcotest.fail "expected normalized endpoint binding")
 ;;
 
-let test_builtin_binding_resolves () =
+let test_builtin_binding_requires_exact_model () =
   let binding = expect_binding "claude" in
   Alcotest.(check string) "builtin id" "claude" binding.id;
   Alcotest.(check bool)
     "builtin kind"
     true
     (binding.kind = Llm_provider.Provider_config.Anthropic);
+  Alcotest.(check bool)
+    "missing model rejected"
+    true
+    (Result.is_error
+       (Provider_runtime_binding.resolve_model binding ~requested_model:None));
   Alcotest.(check string)
-    "fallback model"
-    Model_registry.default_model_id
-    (Provider_runtime_binding.resolve_model binding ~requested_model:None)
+    "exact requested model"
+    "claude-exact-model"
+    (expect_ok
+       (Provider_runtime_binding.resolve_model
+          binding
+          ~requested_model:(Some "claude-exact-model")))
 ;;
 
 let test_builtin_nous_binding_uses_calltime_default_endpoint () =
@@ -685,25 +702,20 @@ let test_builtin_nous_binding_uses_calltime_default_endpoint () =
            binding.base_url))
 ;;
 
-let test_non_claude_builtin_defaults_do_not_use_claude_model () =
+let test_registry_bindings_do_not_invent_model_defaults () =
   [ "gemini"; "glm"; "kimi"; "dashscope"; "deepseek"; "groq"; "openrouter" ]
   |> List.iter (fun provider_id ->
     let binding = expect_binding provider_id in
-    let model = Provider_runtime_binding.resolve_model binding ~requested_model:None in
     Alcotest.(check bool)
-      (provider_id ^ " default is not the Claude default")
+      (provider_id ^ " missing model rejected")
       true
-      (not (String.equal model Model_registry.default_model_id));
-    Alcotest.(check bool)
-      (provider_id ^ " default is not a Claude model id")
-      true
-      (not (String.starts_with ~prefix:"claude-" model)))
+      (Result.is_error
+         (Provider_runtime_binding.resolve_model binding ~requested_model:None)))
 ;;
 
-let test_builtin_aliases_are_canonicalized () =
+let test_builtin_selectors_are_exact () =
   let cases =
-    [ "anthropic", "claude"
-    ; "anthropic", "claude"
+    [ "claude", "claude"
     ; "kimi", "kimi"
     ; "gemini", "gemini"
     ; "glm", "glm"
@@ -715,6 +727,10 @@ let test_builtin_aliases_are_canonicalized () =
        let binding = expect_binding input in
        Alcotest.(check string) input expected_id binding.id)
     cases;
+  Alcotest.(check bool)
+    "undeclared provider alias is absent"
+    true
+    (Option.is_none (Provider_runtime_binding.find "anthropic"));
   Alcotest.(check bool)
     "openai_compat is a kind, not a provider selector"
     true
@@ -811,7 +827,10 @@ let () =
             test_capabilities_host_invariant_local_vs_remote
         ] )
     ; ( "builtins"
-      , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves
+      , [ Alcotest.test_case
+            "builtin requires exact model"
+            `Quick
+            test_builtin_binding_requires_exact_model
         ; Alcotest.test_case
             "nous binding uses call-time default endpoint"
             `Quick
@@ -819,11 +838,11 @@ let () =
         ; Alcotest.test_case
             "non-Claude builtin defaults do not use Claude model"
             `Quick
-            test_non_claude_builtin_defaults_do_not_use_claude_model
+            test_registry_bindings_do_not_invent_model_defaults
         ; Alcotest.test_case
-            "builtin aliases canonicalize"
+            "builtin selectors are exact"
             `Quick
-            test_builtin_aliases_are_canonicalized
+            test_builtin_selectors_are_exact
         ; Alcotest.test_case
             "provider id fallback"
             `Quick

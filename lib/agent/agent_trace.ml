@@ -17,21 +17,6 @@ let record_hook_invocation active_run ~hook_name ~decision ?detail () =
          ())
 ;;
 
-let raw_trace_evidence_role_of_tool_role = function
-  | Tool.File_write -> Raw_trace.File_write
-  | Tool.Verification -> Raw_trace.Verification
-;;
-
-let tool_evidence_role tools tool_name =
-  tools
-  |> List.find_map (fun (tool : Tool.t) ->
-    if String.equal tool.schema.name tool_name
-    then
-      Option.bind (Tool.descriptor tool) (fun descriptor -> descriptor.Tool.evidence_role)
-      |> Option.map raw_trace_evidence_role_of_tool_role
-    else None)
-;;
-
 let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
   Tracing.with_span
     agent.options.tracer
@@ -74,7 +59,7 @@ let execute_tools_with_trace agent active_run tool_uses =
                ~planned_index:schedule.Hooks.planned_index
                ~batch_index:schedule.batch_index
                ~batch_size:schedule.batch_size
-               ~concurrency_class:schedule.concurrency_class))
+               ~execution_mode:schedule.execution_mode))
   in
   let on_tool_execution_finished =
     match active_run with
@@ -95,7 +80,6 @@ let execute_tools_with_trace agent active_run tool_uses =
                ~tool_use_id
                ~tool_name
                ~tool_result:content
-               ?evidence_role:(tool_evidence_role tools tool_name)
                ~tool_error:is_error
                ()))
   in
@@ -113,7 +97,6 @@ let execute_tools_with_trace agent active_run tool_uses =
     ~turn_count:agent.state.turn_count
     ~usage:agent.state.usage
     ~approval:agent.options.approval
-    ~missing_approval_callback_policy:agent.options.missing_approval_callback_policy
     ?correlation_id
     ?run_id
     ?on_tool_execution_started
@@ -231,6 +214,10 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
          ?enable_thinking:agent.state.config.enable_thinking
          ?preserve_thinking:agent.state.config.preserve_thinking
          ?thinking_budget:agent.state.config.thinking_budget
+         ?reasoning_effort:
+           (Option.map
+              Llm_provider.Reasoning_effort.to_string
+              agent.state.config.reasoning_effort)
          ()
      with
      | Error error -> Error (of_sdk_error error)

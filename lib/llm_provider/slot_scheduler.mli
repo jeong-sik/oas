@@ -1,8 +1,7 @@
-(** Priority-aware slot scheduler for LLM requests.
+(** Fair FIFO slot scheduler for LLM requests.
 
-    Replaces FIFO semaphore-based throttling with a priority queue.
-    Higher priority requests (Interactive) are granted slots before
-    lower priority requests (Background) when capacity is constrained.
+    Capacity is the only scheduling constraint. When capacity is exhausted,
+    requests are queued and granted slots in arrival order.
 
     Cancel-safe: if a waiting fiber is cancelled, the slot is not leaked.
 
@@ -14,11 +13,9 @@ type t
     @raise Invalid_argument if [max_slots < 1]. *)
 val create : max_slots:int -> t
 
-(** Run [f] with a permit at the given priority.
-    If all slots are in use, the request is queued by priority.
-    Higher priority requests are dequeued first.
-    Raises the original exception if [f] fails (permit is released). *)
-val with_permit : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a
+(** Run [f] with a permit. If all slots are in use, the request joins the FIFO.
+    Raises the original exception if [f] fails; the permit is still released. *)
+val with_permit : t -> (unit -> 'a) -> 'a
 
 (** Number of unused slots. *)
 val available : t -> int
@@ -32,8 +29,8 @@ val queue_length : t -> int
 (** {2 Capacity Query} *)
 
 (** Point-in-time snapshot of scheduler state.
-    All counts reflect this OAS process only — other clients
-    sharing the same server are not visible. *)
+    All counts reflect this OAS process only; other clients sharing the same
+    provider server are not visible. *)
 type snapshot =
   { max_slots : int
   ; active : int
@@ -46,36 +43,32 @@ val snapshot : t -> snapshot
 
 (** {2 Non-blocking Acquisition} *)
 
-(** Run [f] if a slot is immediately available, returning [Some result].
-    Returns [None] without blocking if all slots are in use.
-    The slot is released automatically when [f] returns or raises. *)
-val try_with_permit : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a option
+(** Run [f] if a slot is immediately available and no older request is queued.
+    Returns [None] without blocking otherwise. The slot is released when [f]
+    returns or raises. *)
+val try_with_permit : t -> (unit -> 'a) -> 'a option
 
 (** {2 Explicit Handle API — Turn-Level Slot Yielding}
 
-    Supports the OpenClaw "Agent exists != LLM slot held" pattern.
-    Agents acquire a permit, yield it during tool execution (releasing
-    the slot for other agents), then resume before the next LLM turn.
+    Agents can release capacity during tool execution and rejoin the FIFO before
+    the next LLM turn.
 
-    Lifecycle: [acquire_permit] -> [yield_permit] -> [resume_permit] -> [release_permit]
+    Lifecycle: [acquire_permit] -> [yield_permit] -> [resume_permit] ->
+    [release_permit]
 
     @since 0.100.0 *)
 
-(** Opaque handle representing a held slot permit. *)
+(** Opaque handle representing a held or yielded slot permit. *)
 type permit
 
-(** Acquire a slot at the given priority. Blocks if all slots are in use.
-    The caller is responsible for calling [release_permit] when done. *)
-val acquire_permit : priority:Request_priority.t -> t -> permit
+(** Acquire a slot, joining the FIFO if capacity is exhausted. The caller must
+    call [release_permit] when done. *)
+val acquire_permit : t -> permit
 
-(** Yield a held permit. Releases the slot so other agents can use it.
-    The permit transitions to a yielded state. Call [resume_permit]
-    to re-acquire before the next LLM turn. *)
+(** Release a held slot temporarily. *)
 val yield_permit : t -> permit -> unit
 
-(** Re-acquire a previously yielded permit at [Resume] priority
-    (higher than Interactive) to prevent starvation of tool-heavy agents.
-    Blocks until a slot is available. *)
+(** Re-acquire a yielded permit through the same FIFO as every other request. *)
 val resume_permit : t -> permit -> unit
 
 (** Permanently release a permit. Must be called exactly once per

@@ -7,8 +7,8 @@ open Agent_sdk
 let broadcast_schema =
   Tool_schema_gen.(
     two
-      (string_field "message" ~required:true ~desc:"Content" ())
-      (string_field "format" ~required:false ~desc:"Output format" ()))
+      (string_field "message" ~desc:"Content" ())
+      (optional_string_field "format" ~desc:"Output format" ()))
 ;;
 
 let test_to_params () =
@@ -26,7 +26,7 @@ let test_parse_valid () =
   match Tool_schema_gen.parse broadcast_schema json with
   | Ok (msg, fmt) ->
     Alcotest.(check string) "message" "hello" msg;
-    Alcotest.(check string) "format" "compact" fmt
+    Alcotest.(check (option string)) "format" (Some "compact") fmt
   | Error errs -> Alcotest.fail (format_errors errs)
 ;;
 
@@ -35,7 +35,7 @@ let test_parse_optional_missing () =
   match Tool_schema_gen.parse broadcast_schema json with
   | Ok (msg, fmt) ->
     Alcotest.(check string) "message" "hello" msg;
-    Alcotest.(check string) "default format" "" fmt
+    Alcotest.(check (option string)) "missing format" None fmt
   | Error errs -> Alcotest.fail (format_errors errs)
 ;;
 
@@ -47,7 +47,19 @@ let test_parse_required_missing () =
     Alcotest.(check bool) "at least one error" true (List.length errs > 0);
     let e = List.hd errs in
     Alcotest.(check string) "path" "message" e.Tool_input_validation.path;
-    Alcotest.(check string) "actual" "missing" e.Tool_input_validation.actual
+    Alcotest.(check bool)
+      "actual missing"
+      true
+      (e.Tool_input_validation.actual = Tool_input_validation.Missing)
+;;
+
+let test_parse_rejects_non_object () =
+  match Tool_schema_gen.parse broadcast_schema (`String "message") with
+  | Error [ error ] ->
+    Alcotest.(check string) "path" "/" error.Tool_input_validation.path;
+    Alcotest.(check string) "expected" "object" error.expected
+  | Error _ -> Alcotest.fail "expected one root type error"
+  | Ok _ -> Alcotest.fail "non-object input must be rejected"
 ;;
 
 let test_to_json_schema () =
@@ -62,7 +74,7 @@ let test_to_json_schema () =
 
 (* ── Single-field schema ────────────────────────────────── *)
 
-let int_schema = Tool_schema_gen.(one (int_field "count" ~required:true ~desc:"Count" ()))
+let int_schema = Tool_schema_gen.(one (int_field "count" ~desc:"Count" ()))
 
 let test_int_parse () =
   match Tool_schema_gen.parse int_schema (`Assoc [ "count", `Int 42 ]) with
@@ -70,10 +82,16 @@ let test_int_parse () =
   | Error errs -> Alcotest.fail (format_errors errs)
 ;;
 
-let test_int_coercion () =
+let test_int_rejects_string () =
   match Tool_schema_gen.parse int_schema (`Assoc [ "count", `String "7" ]) with
-  | Ok n -> Alcotest.(check int) "coerced" 7 n
-  | Error errs -> Alcotest.fail (format_errors errs)
+  | Error [ error ] ->
+    Alcotest.(check string) "expected" "integer" error.expected;
+    Alcotest.(check bool)
+      "actual"
+      true
+      (error.actual = Tool_input_validation.Received {|string("7")|})
+  | Error _ -> Alcotest.fail "expected one type error"
+  | Ok _ -> Alcotest.fail "string input must not be coerced"
 ;;
 
 (* ── Three-field schema ─────────────────────────────────── *)
@@ -81,9 +99,9 @@ let test_int_coercion () =
 let triple =
   Tool_schema_gen.(
     three
-      (string_field "name" ~required:true ~desc:"Name" ())
-      (int_field "age" ~required:true ~desc:"Age" ())
-      (bool_field "active" ~required:false ~desc:"Active" ()))
+      (string_field "name" ~desc:"Name" ())
+      (int_field "age" ~desc:"Age" ())
+      (optional_bool_field "active" ~desc:"Active" ()))
 ;;
 
 let test_triple_parse () =
@@ -92,7 +110,7 @@ let test_triple_parse () =
   | Ok (name, age, active) ->
     Alcotest.(check string) "name" "Alice" name;
     Alcotest.(check int) "age" 30 age;
-    Alcotest.(check bool) "active" true active
+    Alcotest.(check (option bool)) "active" (Some true) active
   | Error errs -> Alcotest.fail (format_errors errs)
 ;;
 
@@ -100,32 +118,32 @@ let test_triple_params () =
   Alcotest.(check int) "3 params" 3 (List.length (Tool_schema_gen.to_params triple))
 ;;
 
-(* ── Four-field schema and coercion/error accumulation ──── *)
+(* ── Four-field schema and error accumulation ───────────── *)
 
 let four_fields =
   Tool_schema_gen.(
     four
-      (string_field "label" ~required:true ~desc:"Label" ())
-      (int_field "count" ~required:true ~desc:"Count" ())
-      (float_field "ratio" ~required:true ~desc:"Ratio" ())
-      (bool_field "enabled" ~required:true ~desc:"Enabled" ()))
+      (string_field "label" ~desc:"Label" ())
+      (int_field "count" ~desc:"Count" ())
+      (float_field "ratio" ~desc:"Ratio" ())
+      (bool_field "enabled" ~desc:"Enabled" ()))
 ;;
 
-let test_four_field_coercion () =
+let test_four_field_parse () =
   let json =
     `Assoc
-      [ "label", `Bool true
-      ; "count", `Intlit "9"
-      ; "ratio", `String "2.5"
-      ; "enabled", `String "false"
+      [ "label", `String "ready"
+      ; "count", `Int 9
+      ; "ratio", `Float 2.5
+      ; "enabled", `Bool false
       ]
   in
   match Tool_schema_gen.parse four_fields json with
   | Ok (label, count, ratio, enabled) ->
-    Alcotest.(check string) "label coerced" "true" label;
-    Alcotest.(check int) "count coerced" 9 count;
-    Alcotest.(check (float 0.0001)) "ratio coerced" 2.5 ratio;
-    Alcotest.(check bool) "enabled coerced" false enabled
+    Alcotest.(check string) "label" "ready" label;
+    Alcotest.(check int) "count" 9 count;
+    Alcotest.(check (float 0.0001)) "ratio" 2.5 ratio;
+    Alcotest.(check bool) "enabled" false enabled
   | Error errs -> Alcotest.fail (format_errors errs)
 ;;
 
@@ -145,8 +163,8 @@ let test_four_field_error_accumulation () =
 let optional_defaults =
   Tool_schema_gen.(
     two
-      (float_field "ratio" ~required:false ~desc:"Ratio" ~default:0.25 ())
-      (bool_field "enabled" ~required:false ~desc:"Enabled" ~default:true ()))
+      (defaulted_float_field "ratio" ~desc:"Ratio" ~default:0.25 ())
+      (defaulted_bool_field "enabled" ~desc:"Enabled" ~default:true ()))
 ;;
 
 let test_optional_custom_defaults () =
@@ -196,18 +214,19 @@ let () =
         ; Alcotest.test_case "parse valid" `Quick test_parse_valid
         ; Alcotest.test_case "optional missing" `Quick test_parse_optional_missing
         ; Alcotest.test_case "required missing" `Quick test_parse_required_missing
+        ; Alcotest.test_case "non-object rejected" `Quick test_parse_rejects_non_object
         ; Alcotest.test_case "json schema" `Quick test_to_json_schema
         ] )
     ; ( "single_field"
       , [ Alcotest.test_case "int parse" `Quick test_int_parse
-        ; Alcotest.test_case "int coercion" `Quick test_int_coercion
+        ; Alcotest.test_case "string rejected" `Quick test_int_rejects_string
         ] )
     ; ( "three_field"
       , [ Alcotest.test_case "parse" `Quick test_triple_parse
         ; Alcotest.test_case "params count" `Quick test_triple_params
         ] )
     ; ( "four_field"
-      , [ Alcotest.test_case "coercion" `Quick test_four_field_coercion
+      , [ Alcotest.test_case "parse" `Quick test_four_field_parse
         ; Alcotest.test_case
             "error accumulation"
             `Quick

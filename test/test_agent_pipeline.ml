@@ -1,6 +1,6 @@
 (** Agent.run full-pipeline tests with mock HTTP server.
     Exercises: pipeline stages, api dispatch, tool execution,
-    streaming, hooks, context reducer, guardrails.
+    streaming, hooks, and context propagation.
     No real LLM — all responses are canned JSON. *)
 
 open Agent_sdk
@@ -74,20 +74,9 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent
-      ~net
-      ?(max_turns = 3)
-      ?(tools = [])
-      ?hooks
-      ?context_reducer
-      ?guardrails
-      ?tool_choice
-      ?runtime_mcp_policy
-      ?(model_id = "mock-model")
-      base_url
-  =
+let make_agent ~net ?(tools = []) ?hooks ?tool_choice ?(model_id = "mock-model") base_url =
   let config =
-    { Types.default_config with name = "test-agent"; max_turns; tool_choice }
+    { (Types.default_config ~model:"test-model") with name = "test-agent"; tool_choice }
   in
   let provider : Provider.config =
     { provider = Provider.Local { base_url }; model_id; api_key_env = "" }
@@ -100,27 +89,9 @@ let make_agent
         (match hooks with
          | Some h -> h
          | None -> Hooks.empty)
-    ; context_reducer
-    ; guardrails =
-        (match guardrails with
-         | Some g -> g
-         | None -> Guardrails.default)
-    ; runtime_mcp_policy
     }
   in
   Agent.create ~net ~config ~tools ~options ()
-;;
-
-let descriptor permission : Tool.descriptor =
-  { kind = None
-  ; mutation_class = None
-  ; concurrency_class = None
-  ; permission = Some permission
-  ; evidence_role = None
-  ; shell = None
-  ; notes = []
-  ; examples = []
-  }
 ;;
 
 let extract_text (resp : Types.api_response) =
@@ -187,7 +158,7 @@ let test_agent_run_tool_use () =
           ]
         (fun _input -> Ok { Types.content = "12:00 UTC"; _meta = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ time_tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ time_tool ] url in
     match Agent.run ~sw agent "what time is it?" with
     | Ok resp ->
       check string "final text" "The time is 12:00 UTC" (extract_text resp);
@@ -197,43 +168,7 @@ let test_agent_run_tool_use () =
   | Exit -> ()
 ;;
 
-(* ── Test 3: Max turns exhaustion ────────────────────── *)
-
-let test_agent_run_max_turns () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    (* Always return tool_use → agent loops until max_turns *)
-    let url =
-      start_multi_mock
-        ~sw
-        ~net:env#net
-        ~port:20003
-        [ openai_tool_use_response "loop_tool" {|{}|} ]
-    in
-    let loop_tool =
-      Tool.create
-        ~name:"loop_tool"
-        ~description:"Always called"
-        ~parameters:[]
-        (fun _input -> Ok { Types.content = "looped"; _meta = None })
-    in
-    let agent = make_agent ~net:env#net ~tools:[ loop_tool ] ~max_turns:2 url in
-    match Agent.run ~sw agent "loop" with
-    | Ok _resp ->
-      (* Should complete with last tool_use response after max_turns *)
-      Eio.Switch.fail sw Exit
-    | Error e ->
-      (* Or might error with max turns — either is ok *)
-      let _ = Error.to_string e in
-      Eio.Switch.fail sw Exit
-  with
-  | Exit -> ()
-;;
-
-let test_agent_run_zero_max_turns_is_unbounded () =
+let test_agent_run_long_tool_sequence_completes () =
   Eio_main.run
   @@ fun env ->
   try
@@ -258,11 +193,11 @@ let test_agent_run_zero_max_turns_is_unbounded () =
           ]
         (fun _input -> Ok { Types.content = "looped"; _meta = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ loop_tool ] ~max_turns:0 url in
-    match Agent.run ~sw agent "loop past default cap" with
+    let agent = make_agent ~net:env#net ~tools:[ loop_tool ] url in
+    match Agent.run ~sw agent "complete a long tool sequence" with
     | Ok resp ->
       check string "final text" "done" (extract_text resp);
-      check bool "turn count passed old default" true ((Agent.state agent).turn_count > 10);
+      check bool "turn count observed" true ((Agent.state agent).turn_count > 10);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -302,31 +237,6 @@ let test_agent_run_with_hooks () =
       check string "text" "hooked" (extract_text resp);
       check bool "before called" true (!before_count > 0);
       check bool "after called" true (!after_count > 0);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-(* ── Test 5: With context reducer ────────────────────── *)
-
-let test_agent_run_with_reducer () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi_mock ~sw ~net:env#net ~port:20005 [ openai_text_response "reduced" ]
-    in
-    let reducer =
-      Context_reducer.compose
-        [ Context_reducer.repair_dangling_tool_calls; Context_reducer.drop_thinking ]
-    in
-    let agent = make_agent ~net:env#net ~context_reducer:reducer url in
-    match Agent.run ~sw agent "reducer test" with
-    | Ok resp ->
-      check string "text" "reduced" (extract_text resp);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -412,7 +322,7 @@ let test_agent_run_tool_error () =
         (fun _input ->
            Error { Types.message = "tool broke"; recoverable = true; error_class = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ fail_tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ fail_tool ] url in
     match Agent.run ~sw agent "trigger error" with
     | Ok resp ->
       check string "recovered" "recovered from tool error" (extract_text resp);
@@ -443,8 +353,10 @@ let test_agent_run_pre_tool_hook () =
         ~parameters:[]
         (fun _input -> Ok { Types.content = "should not run"; _meta = None })
     in
-    let hooks = { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Skip) } in
-    let agent = make_agent ~net:env#net ~tools:[ blocked_tool ] ~hooks ~max_turns:3 url in
+    let hooks =
+      { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Block "blocked") }
+    in
+    let agent = make_agent ~net:env#net ~tools:[ blocked_tool ] ~hooks url in
     match Agent.run ~sw agent "block tool" with
     | Ok _resp -> Eio.Switch.fail sw Exit
     | Error e ->
@@ -517,7 +429,7 @@ let test_agent_run_http_error () =
   | Exit -> ()
 ;;
 
-let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
+let test_agent_run_context_overflow_is_returned_without_retry () =
   Eio_main.run
   @@ fun env ->
   try
@@ -539,27 +451,13 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
       ; api_key_env = ""
       }
     in
-    let pre_compact_seen = ref false in
-    let hooks =
-      { Hooks.empty with
-        pre_compact =
-          Some
-            (function
-              | Hooks.PreCompact _ ->
-                pre_compact_seen := true;
-                Hooks.Continue
-              | _ -> Hooks.Continue)
-      }
-    in
     let config =
-      { Types.default_config with name = "context-overflow-owner"; max_turns = 3 }
+      { (Types.default_config ~model:"test-model") with name = "context-overflow-owner" }
     in
     let options =
-      { Agent.default_options with base_url = url; provider = Some provider; hooks }
+      { Agent.default_options with base_url = url; provider = Some provider }
     in
-    let agent =
-      Agent.create ~net:env#net ~config ~options ~auto_context_overflow_retry:false ()
-    in
+    let agent = Agent.create ~net:env#net ~config ~options () in
     let history =
       [ { Types.role = User
         ; content = [ Text "summarize the large result" ]
@@ -597,289 +495,10 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
     | Ok _ -> fail "expected ContextOverflow"
     | Error (Error.Api (Retry.ContextOverflow _)) ->
       check int "no internal retry" 1 (Atomic.get calls);
-      check bool "pre_compact hook not called" false !pre_compact_seen;
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
   | Exit -> ()
-;;
-
-(* ── Compaction path labels: phase string + checkpoint prefix ── *)
-
-(** History with a large tool result so both Budget_strategy phases
-    (Compact: PruneToolOutputs / Emergency: Summarize_old + prune)
-    actually reduce the estimated token count. *)
-let big_tool_history () =
-  [ { Types.role = User
-    ; content = [ Text "summarize the large result" ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  ; { Types.role = Assistant
-    ; content =
-        [ ToolUse
-            { id = "tool_1"; name = "search"; input = `Assoc [ "q", `String "logs" ] }
-        ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  ; { Types.role = User
-    ; content =
-        [ ToolResult
-            { tool_use_id = "tool_1"
-            ; content = String.make 20000 'x'
-            ; outcome = Tool_succeeded
-            ; json = None
-            ; content_blocks = None
-            }
-        ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  ]
-;;
-
-let compact_checkpoint_ids journal =
-  List.filter_map
-    (function
-      | Durable_event.Checkpoint_saved { checkpoint_id; _ }
-        when String.starts_with ~prefix:"compact-" checkpoint_id -> Some checkpoint_id
-      | _ -> None)
-    (Durable_event.events journal)
-;;
-
-let test_proactive_compaction_phase_and_checkpoint () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi_mock ~sw ~net:env#net ~port:20030 [ openai_text_response "compacted" ]
-    in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url = url }
-      ; model_id = "mock-model"
-      ; api_key_env = ""
-      }
-    in
-    let post_compacts = ref [] in
-    let hooks =
-      { Hooks.empty with
-        post_compact =
-          Some
-            (function
-              | Hooks.PostCompact { phase; before_tokens; _ } ->
-                post_compacts := (phase, before_tokens) :: !post_compacts;
-                Hooks.Continue
-              | _ -> Hooks.Continue)
-      }
-    in
-    let journal = Durable_event.create () in
-    let config =
-      { Types.default_config with
-        name = "proactive-compact-owner"
-      ; max_turns = 3
-      ; context_compact_ratio = Some 0.01
-      }
-    in
-    let options =
-      { Agent.default_options with
-        base_url = url
-      ; provider = Some provider
-      ; hooks
-      ; journal = Some journal
-      }
-    in
-    let agent = Agent.create ~net:env#net ~config ~options () in
-    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
-    (match Agent.run ~sw agent "continue" with
-     | Error e -> fail (Error.to_string e)
-     | Ok _ ->
-       let window =
-         Provider.resolve_max_context_tokens ~fallback:128_000 (Some provider)
-       in
-       check bool "post_compact fired" true (!post_compacts <> []);
-       List.iter
-         (fun (phase, before_tokens) ->
-            let expected =
-              Printf.sprintf
-                "proactive(%.0f%%)"
-                (float_of_int before_tokens /. float_of_int window *. 100.0)
-            in
-            check string "proactive phase label" expected phase)
-         !post_compacts;
-       let ids = compact_checkpoint_ids journal in
-       check bool "compaction checkpoint recorded" true (ids <> []);
-       List.iter
-         (fun id ->
-            check
-              bool
-              (Printf.sprintf "checkpoint id %s has proactive prefix" id)
-              true
-              (String.starts_with ~prefix:"compact-proactive-" id))
-         ids);
-    Eio.Switch.fail sw Exit
-  with
-  | Exit -> ()
-;;
-
-let test_pre_compact_hook_failure_skips_compaction_and_continues () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi_mock ~sw ~net:env#net ~port:20032 [ openai_text_response "continued" ]
-    in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url = url }
-      ; model_id = "mock-model"
-      ; api_key_env = ""
-      }
-    in
-    let post_compact_seen = ref false in
-    let hooks =
-      { Hooks.empty with
-        pre_compact =
-          Some (fun _ -> Hooks.HookFailed { stage = "pre_compact"; detail = "boom" })
-      ; post_compact =
-          Some
-            (function
-              | Hooks.PostCompact _ ->
-                post_compact_seen := true;
-                Hooks.Continue
-              | _ -> Hooks.Continue)
-      }
-    in
-    let config =
-      { Types.default_config with
-        name = "pre-compact-failure-owner"
-      ; max_turns = 3
-      ; context_compact_ratio = Some 0.01
-      }
-    in
-    let options =
-      { Agent.default_options with base_url = url; provider = Some provider; hooks }
-    in
-    let agent = Agent.create ~net:env#net ~config ~options () in
-    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
-    (match Agent.run ~sw agent "continue" with
-     | Error e -> fail (Error.to_string e)
-     | Ok resp ->
-       check string "response text" "continued" (extract_text resp);
-       check bool "post_compact not fired" false !post_compact_seen);
-    Eio.Switch.fail sw Exit
-  with
-  | Exit -> ()
-;;
-
-let test_emergency_compaction_phase_and_checkpoint () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let overflow_body =
-      {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (128)"}}|}
-    in
-    let url, calls =
-      start_status_mock
-        ~sw
-        ~net:env#net
-        ~port:20031
-        [ `Bad_request, overflow_body; `OK, openai_text_response "recovered" ]
-    in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url = url }
-      ; model_id = "mock-model"
-      ; api_key_env = ""
-      }
-    in
-    let post_compacts = ref [] in
-    let hooks =
-      { Hooks.empty with
-        post_compact =
-          Some
-            (function
-              | Hooks.PostCompact { phase; _ } ->
-                post_compacts := phase :: !post_compacts;
-                Hooks.Continue
-              | _ -> Hooks.Continue)
-      }
-    in
-    let journal = Durable_event.create () in
-    let config =
-      { Types.default_config with name = "emergency-compact-owner"; max_turns = 3 }
-    in
-    let options =
-      { Agent.default_options with
-        base_url = url
-      ; provider = Some provider
-      ; hooks
-      ; journal = Some journal
-      }
-    in
-    (* auto_context_overflow_retry defaults to true: the first 400
-       overflow response triggers emergency compaction + retry. *)
-    let agent = Agent.create ~net:env#net ~config ~options () in
-    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
-    (match Agent.run ~sw agent "continue" with
-     | Error e -> fail (Error.to_string e)
-     | Ok _ ->
-       check bool "provider retried after compaction" true (Atomic.get calls >= 2);
-       check bool "post_compact fired" true (!post_compacts <> []);
-       List.iter
-         (fun phase -> check string "emergency phase label" "emergency" phase)
-         !post_compacts;
-       let ids = compact_checkpoint_ids journal in
-       check bool "compaction checkpoint recorded" true (ids <> []);
-       List.iter
-         (fun id ->
-            check
-              bool
-              (Printf.sprintf "checkpoint id %s has emergency prefix" id)
-              true
-              (String.starts_with ~prefix:"compact-emergency-" id))
-         ids);
-    Eio.Switch.fail sw Exit
-  with
-  | Exit -> ()
-;;
-
-(* ── Test 10: Agent with guardrails ──────────────────── *)
-
-let test_agent_run_guardrails () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi_mock ~sw ~net:env#net ~port:20010 [ openai_text_response "guarded" ]
-    in
-    let guardrails =
-      { Guardrails.tool_filter = Guardrails.AllowAll; max_tool_calls_per_turn = Some 5 }
-    in
-    let agent = make_agent ~net:env#net ~guardrails url in
-    match Agent.run ~sw agent "guard test" with
-    | Ok resp ->
-      check string "text" "guarded" (extract_text resp);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-let prompt_token_estimate messages =
-  List.fold_left
-    (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
-    0
-    messages
 ;;
 
 (* ── Runner ──────────────────────────────────────────── *)
@@ -889,16 +508,15 @@ let () =
     "agent_pipeline"
     [ ( "basic"
       , [ test_case "simple text" `Quick test_agent_run_simple
-        ; test_case "max turns" `Quick test_agent_run_max_turns
         ; test_case
-            "zero max_turns is unbounded"
+            "long tool sequence completes"
             `Quick
-            test_agent_run_zero_max_turns_is_unbounded
+            test_agent_run_long_tool_sequence_completes
         ; test_case "http error" `Quick test_agent_run_http_error
         ; test_case
-            "context overflow auto retry can be disabled"
+            "context overflow is returned without retry"
             `Quick
-            test_agent_run_context_overflow_auto_retry_can_be_disabled
+            test_agent_run_context_overflow_is_returned_without_retry
         ] )
     ; ( "tools"
       , [ test_case "tool use cycle" `Quick test_agent_run_tool_use
@@ -908,24 +526,6 @@ let () =
         ; test_case "pre_tool hook" `Quick test_agent_run_pre_tool_hook
         ] )
     ; "streaming", [ test_case "run_stream" `Quick test_agent_run_stream ]
-    ; ( "compaction"
-      , [ test_case
-            "proactive phase and checkpoint labels"
-            `Quick
-            test_proactive_compaction_phase_and_checkpoint
-        ; test_case
-            "pre_compact HookFailed skips compaction"
-            `Quick
-            test_pre_compact_hook_failure_skips_compaction_and_continues
-        ; test_case
-            "emergency phase and checkpoint labels"
-            `Quick
-            test_emergency_compaction_phase_and_checkpoint
-        ] )
-    ; ( "hooks_and_reducers"
-      , [ test_case "hooks" `Quick test_agent_run_with_hooks
-        ; test_case "context reducer" `Quick test_agent_run_with_reducer
-        ; test_case "guardrails" `Quick test_agent_run_guardrails
-        ] )
+    ; "hooks", [ test_case "hooks" `Quick test_agent_run_with_hooks ]
     ]
 ;;

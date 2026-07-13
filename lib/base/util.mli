@@ -56,17 +56,9 @@ val trim_non_empty : string -> string option
 (** [trim_non_empty_opt opt] maps [trim_non_empty] over an option. *)
 val trim_non_empty_opt : string option -> string option
 
-(** [env_or default var] looks up env var [var], trims it, and returns
-    the trimmed value if non-empty, otherwise [default]. *)
-val env_or : string -> string -> string
-
 (** [json_member_str key json] returns the string value for [key] in [json],
     or [""] if missing or wrong type. *)
 val json_member_str : string -> Yojson.Safe.t -> string
-
-(** [json_member_int key json] returns the int value for [key] in [json],
-    or [0] if missing or wrong type. *)
-val json_member_int : string -> Yojson.Safe.t -> int
 
 (** [json_member_bool key json] returns the bool value for [key] in [json],
     or [false] if missing or wrong type. *)
@@ -92,8 +84,3 @@ val string_list_of_json : Yojson.Safe.t list -> string list
 
 (** Serialize (string * string) list to JSON assoc: [[("k","v")]] -> [`Assoc [["k", `String "v"]]]. *)
 val json_of_string_pairs : (string * string) list -> Yojson.Safe.t
-
-(** [int_env_or default var] looks up env var [var], trims it, parses it as a non-negative integer,
-    and returns the integer value if valid, otherwise [default]. Invalid or negative values emit a
-    diagnostic warning before falling back to [default]. *)
-val int_env_or : int -> string -> int

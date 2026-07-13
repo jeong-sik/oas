@@ -10,11 +10,10 @@
         "model": "claude-sonnet-4-6",
         "system_prompt": "You are helpful.",
         "max_tokens": 4096,
-        "max_turns": 10,
-        "provider": "local",
-        "base_url": "http://127.0.0.1:8085",
+        "provider": "llama-server",
         "enable_thinking": true,
         "thinking_budget": 2048,
+        "reasoning_effort": "high",
         "tools": [
           { "name": "get_weather", "description": "Get weather",
             "parameters": [...] }
@@ -26,68 +25,12 @@
       }
     ]}
 
-    Provider values are runtime provider ids or aliases from
-    {!Provider_runtime_binding}; ["local"] remains the built-in llama-server
-    shorthand. Unknown strings are custom provider names unless paired with an
-    explicit [base_url], in which case they are treated as an explicit
-    OpenAI-compatible endpoint using the string as [api_key_env].
+    Provider values are exact runtime provider ids or catalog-declared aliases
+    from {!Provider_runtime_binding}. Endpoint, transport, and authentication
+    facts belong to the provider catalog and are never inferred here.
 *)
 
 open Result_syntax
-
-let bearer_auth_header_for_env api_key_env =
-  if String.trim api_key_env = "" then None else Some "Authorization"
-;;
-
-let string_has_suffix s suffix =
-  let len = String.length s in
-  let suffix_len = String.length suffix in
-  len >= suffix_len && String.sub s (len - suffix_len) suffix_len = suffix
-;;
-
-let string_has_prefix s prefix =
-  let len = String.length s in
-  let prefix_len = String.length prefix in
-  len >= prefix_len && String.sub s 0 prefix_len = prefix
-;;
-
-let trim_trailing_slashes s =
-  let rec loop i =
-    if
-      i > 0
-      && s.[i - 1] = '/'
-      && not (i >= 3 && s.[i - 3] = ':' && s.[i - 2] = '/' && s.[i - 1] = '/')
-    then loop (i - 1)
-    else String.sub s 0 i
-  in
-  loop (String.length s)
-;;
-
-let normalize_request_path path =
-  let path = String.trim path in
-  if path = "" || path.[0] = '/' then path else "/" ^ path
-;;
-
-let normalize_openai_compat_endpoint ~base_url ~path =
-  let base_url = base_url |> String.trim |> trim_trailing_slashes in
-  let path = normalize_request_path path in
-  let path =
-    if string_has_suffix base_url "/v1" && string_has_prefix path "/v1/"
-    then String.sub path 3 (String.length path - 3)
-    else path
-  in
-  base_url, path
-;;
-
-let openai_compat_config ~base_url ~api_key_env ?(path = "/v1/chat/completions") () =
-  let base_url, path = normalize_openai_compat_endpoint ~base_url ~path in
-  Provider.OpenAICompat
-    { base_url
-    ; auth_header = bearer_auth_header_for_env api_key_env
-    ; path
-    ; static_token = None
-    }
-;;
 
 (* ── Tool config ─────────────────────────────────────────── *)
 
@@ -119,12 +62,11 @@ type agent_file_config =
   ; model : string
   ; system_prompt : string option
   ; max_tokens : int option
-  ; max_turns : int option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; provider : string option
-  ; base_url : string option
   ; tools : tool_file_config list
   ; mcp_servers : mcp_file_config list
   }
@@ -132,6 +74,21 @@ type agent_file_config =
 (* ── JSON parsing ────────────────────────────────────────── *)
 
 let root_config_field = "<root>"
+
+let agent_config_fields =
+  [ "name"
+  ; "model"
+  ; "system_prompt"
+  ; "max_tokens"
+  ; "enable_thinking"
+  ; "preserve_thinking"
+  ; "thinking_budget"
+  ; "reasoning_effort"
+  ; "provider"
+  ; "tools"
+  ; "mcp_servers"
+  ]
+;;
 
 let json_pointer_escape s =
   s
@@ -168,6 +125,17 @@ let field_opt field = function
 let require_object ~field = function
   | `Assoc _ -> Ok ()
   | other -> invalid_type ~field ~expected:"object" other
+;;
+
+let reject_unknown_fields ~allowed = function
+  | `Assoc fields ->
+    (match List.find_opt (fun (name, _) -> not (List.mem name allowed)) fields with
+     | None -> Ok ()
+     | Some (field, _) ->
+       Error
+         (Error.Config (InvalidConfig { field; detail = "unknown configuration field" })))
+  | (`Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) as other ->
+    invalid_type ~field:root_config_field ~expected:"object" other
 ;;
 
 let invalid_type_at ~field_path ~expected json =
@@ -291,23 +259,39 @@ let of_json json =
   let open Yojson.Safe.Util in
   try
     let* () = require_object ~field:root_config_field json in
+    let* () = reject_unknown_fields ~allowed:agent_config_fields json in
     let name =
       json |> member "name" |> to_string_option |> Option.value ~default:"agent"
     in
-    let model =
-      json
-      |> member "model"
-      |> to_string_option
-      |> Option.value ~default:"claude-sonnet-4-6"
-    in
     let system_prompt = json |> member "system_prompt" |> to_string_option in
     let max_tokens = json |> member "max_tokens" |> to_int_option in
-    let max_turns = json |> member "max_turns" |> to_int_option in
     let enable_thinking = json |> member "enable_thinking" |> to_bool_option in
     let preserve_thinking = json |> member "preserve_thinking" |> to_bool_option in
     let thinking_budget = json |> member "thinking_budget" |> to_int_option in
+    let* reasoning_effort =
+      match json |> member "reasoning_effort" with
+      | `Null -> Ok None
+      | `String value ->
+        (match Llm_provider.Reasoning_effort.of_string value with
+         | Some effort -> Ok (Some effort)
+         | None ->
+           Error
+             (Error.Config
+                (InvalidConfig
+                   { field = "reasoning_effort"
+                   ; detail =
+                       Printf.sprintf
+                         "unsupported value %S; expected one of %s"
+                         value
+                         Llm_provider.Reasoning_effort.values_for_log
+                   })))
+      | _ ->
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "reasoning_effort"; detail = "must be a string or null" }))
+    in
     let provider = json |> member "provider" |> to_string_option in
-    let base_url = json |> member "base_url" |> to_string_option in
     let* tools_json = parse_optional_list_field ~field:"tools" json in
     let* tools =
       match tools_json with
@@ -336,17 +320,26 @@ let of_json json =
         mcp_json
     in
     let* mcp_servers = mcp_result in
+    let* model =
+      match json |> member "model" with
+      | `String value when String.trim value <> "" -> Ok value
+      | `String _ | `Null ->
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "model"; detail = "exact non-empty model id is required" }))
+      | other -> invalid_type ~field:"model" ~expected:"string" other
+    in
     Ok
       { name
       ; model
       ; system_prompt
       ; max_tokens
-      ; max_turns
       ; enable_thinking
       ; preserve_thinking
       ; thinking_budget
+      ; reasoning_effort
       ; provider
-      ; base_url
       ; tools = List.rev tools
       ; mcp_servers = List.rev mcp_servers
       }
@@ -366,52 +359,16 @@ let load path =
     Error (Error.Io (FileOpFailed { op = "load"; path; detail = "JSON error: " ^ msg }))
 ;;
 
-(** Resolve provider string + optional base_url to a Provider.config. *)
-let provider_config_of_binding ~model_id ?base_url (binding : Provider_runtime_binding.t) =
-  match base_url with
-  | Some url ->
-    { Provider.provider =
-        openai_compat_config
-          ~base_url:url
-          ~api_key_env:binding.api_key_env
-          ~path:binding.request_path
-          ()
-    ; model_id
-    ; api_key_env = binding.api_key_env
-    }
+let resolve_provider ~model_id provider_id =
+  match Provider_runtime_binding.resolve ~model:model_id provider_id with
+  | Some result -> Result.map snd result
   | None ->
-    { Provider.provider = Custom_registered { name = binding.id }
-    ; model_id
-    ; api_key_env = binding.api_key_env
-    }
-;;
-
-let resolve_provider ~model_id provider_str base_url =
-  let normalized = String.lowercase_ascii (String.trim provider_str) in
-  if normalized = "local"
-  then (
-    let url =
-      match base_url with
-      | Some u -> u
-      | None -> Defaults.resolve_local_llm_url ()
-    in
-    { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
-  else (
-    match Provider_runtime_binding.find normalized with
-    | Some binding -> provider_config_of_binding ~model_id ?base_url binding
-    | None ->
-      (match base_url with
-       | Some url ->
-         let api_key_env = String.trim provider_str in
-         { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
-         ; model_id
-         ; api_key_env
-         }
-       | None ->
-         { Provider.provider = Custom_registered { name = normalized }
-         ; model_id
-         ; api_key_env = String.trim provider_str
-         }))
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "provider"
+            ; detail = Printf.sprintf "unknown provider id %S" provider_id
+            }))
 ;;
 
 (** Convert mcp_file_config to a server spec for stdio, or connect HTTP directly. *)
@@ -426,9 +383,7 @@ let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
            | [] -> None)
         env
     in
-    let spec : Mcp.server_spec =
-      { command; args; env = env_pairs; env_policy = Mcp.Minimal; name }
-    in
+    let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
     Mcp.connect_and_load ~sw ~mgr spec
   | Http_mcp { url; headers; name } ->
     let spec : Mcp_http.http_spec = { base_url = url; headers; name } in
@@ -467,7 +422,20 @@ let connect_mcp_servers_required ~sw ~mgr ~net mcp_cfgs =
     When [~sw] and [~mgr] are provided, MCP servers from config are connected
     and their tools are registered.  Without them, MCP servers are skipped. *)
 let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
-  let model = Model_registry.resolve_model_id cfg.model in
+  let* () =
+    match cfg.tools with
+    | [] -> Ok ()
+    | _ :: _ ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "tools"
+              ; detail =
+                  "inline config tools have no executable runner; use mcp_servers or \
+                   register typed tools in code"
+              }))
+  in
+  let model = cfg.model in
   let b = Builder.create ~net ~model in
   let b = Builder.with_name cfg.name b in
   let b =
@@ -478,11 +446,6 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
   let b =
     match cfg.max_tokens with
     | Some n -> Builder.with_max_tokens n b
-    | None -> b
-  in
-  let b =
-    match cfg.max_turns with
-    | Some n -> Builder.with_max_turns n b
     | None -> b
   in
   let b =
@@ -501,23 +464,24 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
     | None -> b
   in
   let b =
-    match cfg.provider with
-    | Some p -> Builder.with_provider (resolve_provider ~model_id:model p cfg.base_url) b
+    match cfg.reasoning_effort with
+    | Some effort -> Builder.with_reasoning_effort effort b
     | None -> b
   in
-  if cfg.tools <> []
-  then
-    invalid_arg
-      "Agent_config.to_builder: inline config tools have no executable runner; use \
-       mcp_servers or register typed tools in code";
+  let* b =
+    match cfg.provider with
+    | Some provider_id ->
+      let* provider = resolve_provider ~model_id:model provider_id in
+      Ok (Builder.with_provider provider b)
+    | None -> Ok b
+  in
   (* Connect MCP servers if sw+mgr provided *)
-  let b =
+  let* b =
     match sw, mgr with
     | Some sw, Some mgr when cfg.mcp_servers <> [] ->
-      (match connect_mcp_servers_required ~sw ~mgr ~net cfg.mcp_servers with
-       | Ok managed -> if managed <> [] then Builder.with_mcp_clients managed b else b
-       | Error err -> invalid_arg (Error.to_string err))
-    | _ -> b
+      let* managed = connect_mcp_servers_required ~sw ~mgr ~net cfg.mcp_servers in
+      Ok (if managed <> [] then Builder.with_mcp_clients managed b else b)
+    | _ -> Ok b
   in
-  b
+  Ok b
 ;;

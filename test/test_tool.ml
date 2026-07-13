@@ -3,21 +3,6 @@
 open Alcotest
 open Agent_sdk
 
-let contains_substring haystack needle =
-  let hlen = String.length haystack
-  and nlen = String.length needle in
-  let rec scan i =
-    if i + nlen > hlen
-    then false
-    else if String.sub haystack i nlen = needle
-    then true
-    else scan (i + 1)
-  in
-  if nlen = 0 then true else scan 0
-;;
-
-let sorted_strings xs = List.sort_uniq String.compare xs
-
 let test_simple_handler_ok () =
   let tool =
     Tool.create
@@ -173,26 +158,9 @@ let test_schema_param_types () =
 let test_descriptor_preserved_and_not_in_schema () =
   let tool =
     Tool.create
-      ~descriptor:
-        { Tool.kind = Some "shell"
-        ; mutation_class = None
-        ; concurrency_class = Some Tool.Exclusive_external
-        ; permission = Some Tool.Destructive
-        ; evidence_role = None
-        ; shell =
-            Some
-              { Tool.single_command_only = true
-              ; shell_metacharacters_allowed = false
-              ; chaining_allowed = false
-              ; redirection_allowed = false
-              ; pipes_allowed = false
-              ; workdir_policy = Some Tool.Recommended
-              }
-        ; notes = [ "Use explicit workdir." ]
-        ; examples = [ "python3 check.py" ]
-        }
+      ~descriptor:{ Tool.execution_mode = Concurrent }
       ~name:"shell_exec"
-      ~description:"Run a constrained shell command"
+      ~description:"Run a command"
       ~parameters:
         [ { Types.name = "command"
           ; description = "Command"
@@ -210,60 +178,10 @@ let test_descriptor_preserved_and_not_in_schema () =
   check bool "descriptor not in wire schema" true (json |> member "descriptor" = `Null);
   check
     string
-    "descriptor json has concurrency_class"
-    (Yojson.Safe.to_string (`List [ `String "Exclusive_external" ]))
-    (Yojson.Safe.to_string (descriptor_json |> member "concurrency_class"));
-  check bool "descriptor json has shell" true (descriptor_json |> member "shell" <> `Null);
-  check
-    bool
-    "descriptor json has examples"
-    true
-    (descriptor_json |> member "examples" <> `Null)
-;;
-
-(* ── Phase 4: descriptor yojson, workdir_policy ────────────────── *)
-
-let test_workdir_policy_yojson_roundtrip () =
-  let variants =
-    [ Tool.Required, "required"
-    ; Tool.Recommended, "recommended"
-    ; Tool.None_expected, "none_expected"
-    ]
-  in
-  List.iter
-    (fun (v, expected_str) ->
-       let json = Tool.workdir_policy_to_yojson v in
-       match Tool.workdir_policy_of_yojson json with
-       | Ok decoded ->
-         check
-           string
-           "roundtrip"
-           (Tool.show_workdir_policy v)
-           (Tool.show_workdir_policy decoded)
-       | Error msg ->
-         fail (Printf.sprintf "workdir_policy roundtrip %s: %s" expected_str msg))
-    variants
-;;
-
-let test_shell_constraints_yojson_roundtrip () =
-  let value : Tool.shell_constraints =
-    { single_command_only = true
-    ; shell_metacharacters_allowed = false
-    ; chaining_allowed = false
-    ; redirection_allowed = true
-    ; pipes_allowed = true
-    ; workdir_policy = Some Tool.Required
-    }
-  in
-  let json = Tool.shell_constraints_to_yojson value in
-  match Tool.shell_constraints_of_yojson json with
-  | Ok decoded ->
-    check
-      string
-      "shell roundtrip"
-      (Tool.show_shell_constraints value)
-      (Tool.show_shell_constraints decoded)
-  | Error msg -> fail ("shell_constraints roundtrip: " ^ msg)
+    "descriptor json has execution_mode"
+    "concurrent"
+    (descriptor_json |> member "execution_mode" |> to_string);
+  check int "one structural field" 1 (descriptor_json |> to_assoc |> List.length)
 ;;
 
 let test_descriptor_to_yojson_none () =
@@ -271,190 +189,32 @@ let test_descriptor_to_yojson_none () =
   check string "null" (Yojson.Safe.to_string `Null) (Yojson.Safe.to_string json)
 ;;
 
-let test_concurrency_class_yojson_roundtrip () =
-  let variants =
-    [ Tool.Parallel_read; Tool.Sequential_workspace; Tool.Exclusive_external ]
-  in
+let test_execution_mode_yojson_roundtrip () =
+  let variants = [ Tool.Concurrent; Tool.Serial ] in
   List.iter
     (fun value ->
-       let json = Tool.concurrency_class_to_yojson value in
-       match Tool.concurrency_class_of_yojson json with
+       let json = Tool.execution_mode_to_yojson value in
+       match Tool.execution_mode_of_yojson json with
        | Ok decoded ->
          check
            string
-           "concurrency roundtrip"
-           (Tool.show_concurrency_class value)
-           (Tool.show_concurrency_class decoded)
-       | Error msg -> fail ("concurrency_class roundtrip: " ^ msg))
+           "execution mode roundtrip"
+           (Tool.show_execution_mode value)
+           (Tool.show_execution_mode decoded)
+       | Error msg -> fail ("execution_mode roundtrip: " ^ msg))
     variants
 ;;
 
-let test_mutation_class_yojson_roundtrip () =
-  let variants =
-    [ Tool.Read_only, "read_only"
-    ; Tool.Workspace, "workspace"
-    ; Tool.Workspace_mutating, "workspace_mutating"
-    ; Tool.Local_mutation, "local_mutation"
-    ; Tool.External, "external"
-    ; Tool.External_effect, "external_effect"
-    ]
+let test_missing_descriptor_defaults_to_serial () =
+  let tool =
+    Tool.create ~name:"plain" ~description:"" ~parameters:[] (fun _ ->
+      Ok { Types.content = "ok"; _meta = None })
   in
-  List.iter
-    (fun (value, expected) ->
-       let json = Tool.mutation_class_to_yojson value in
-       check string "canonical json" expected (Yojson.Safe.Util.to_string json);
-       match Tool.mutation_class_of_yojson json with
-       | Ok decoded ->
-         check
-           string
-           "roundtrip"
-           (Tool.show_mutation_class value)
-           (Tool.show_mutation_class decoded)
-       | Error msg -> fail ("mutation_class roundtrip: " ^ msg))
-    variants
-;;
-
-let test_mutation_class_of_yojson_accepts_legacy_constructor_names () =
-  let cases =
-    [ "Read_only", Tool.Read_only
-    ; "Workspace", Tool.Workspace
-    ; "Workspace_mutating", Tool.Workspace_mutating
-    ; "Local_mutation", Tool.Local_mutation
-    ; "External", Tool.External
-    ; "External_effect", Tool.External_effect
-    ]
-  in
-  List.iter
-    (fun (json_string, expected) ->
-       match Tool.mutation_class_of_yojson (`String json_string) with
-       | Ok decoded ->
-         check
-           string
-           "legacy constructor"
-           (Tool.show_mutation_class expected)
-           (Tool.show_mutation_class decoded)
-       | Error msg -> fail ("legacy mutation_class: " ^ msg))
-    cases
-;;
-
-let test_mutation_class_expected_concurrency_class () =
-  let check_mapping mutation_class expected =
-    check
-      (option string)
-      (Tool.mutation_class_to_string mutation_class)
-      expected
-      (Option.map
-         Tool.concurrency_class_name
-         (Tool.expected_concurrency_class_of_mutation_class mutation_class))
-  in
-  check_mapping Tool.Read_only (Some "parallel_read");
-  check_mapping Tool.Workspace (Some "sequential_workspace");
-  check_mapping Tool.Workspace_mutating (Some "sequential_workspace");
-  check_mapping Tool.Local_mutation (Some "sequential_workspace");
-  check_mapping Tool.External (Some "exclusive_external");
-  check_mapping Tool.External_effect (Some "exclusive_external");
   check
-    (list string)
-    "known mutation classes"
-    (sorted_strings
-       [ "read_only"
-       ; "workspace"
-       ; "workspace_mutating"
-       ; "local_mutation"
-       ; "external"
-       ; "external_effect"
-       ])
-    (sorted_strings Tool.known_mutation_classes)
-;;
-
-let test_create_rejects_inconsistent_descriptor () =
-  check_raises
-    "invalid descriptor"
-    (Invalid_argument
-       "Tool.create: descriptor mismatch: mutation_class=read_only requires \
-        concurrency_class=parallel_read")
-    (fun () ->
-       ignore
-         (Tool.create
-            ~descriptor:
-              { Tool.kind = None
-              ; mutation_class = Some Tool.Read_only
-              ; concurrency_class = Some Tool.Sequential_workspace
-              ; permission = None
-              ; evidence_role = None
-              ; shell = None
-              ; notes = []
-              ; examples = []
-              }
-            ~name:"bad"
-            ~description:"bad"
-            ~parameters:[]
-            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
-;;
-
-let test_create_rejects_workspace_mismatch () =
-  check_raises
-    "workspace mismatch"
-    (Invalid_argument
-       "Tool.create: descriptor mismatch: mutation_class=workspace requires \
-        concurrency_class=sequential_workspace")
-    (fun () ->
-       ignore
-         (Tool.create
-            ~descriptor:
-              { Tool.kind = None
-              ; mutation_class = Some Tool.Workspace
-              ; concurrency_class = Some Tool.Exclusive_external
-              ; permission = None
-              ; evidence_role = None
-              ; shell = None
-              ; notes = []
-              ; examples = []
-              }
-            ~name:"bad"
-            ~description:"bad"
-            ~parameters:[]
-            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
-;;
-
-let test_create_rejects_external_mismatch () =
-  check_raises
-    "external mismatch"
-    (Invalid_argument
-       "Tool.create: descriptor mismatch: mutation_class=external requires \
-        concurrency_class=exclusive_external")
-    (fun () ->
-       ignore
-         (Tool.create
-            ~descriptor:
-              { Tool.kind = None
-              ; mutation_class = Some Tool.External
-              ; concurrency_class = Some Tool.Parallel_read
-              ; permission = None
-              ; evidence_role = None
-              ; shell = None
-              ; notes = []
-              ; examples = []
-              }
-            ~name:"bad"
-            ~description:"bad"
-            ~parameters:[]
-            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
-;;
-
-let test_mutation_class_of_yojson_rejects_unknown () =
-  let expected_classes = Tool.known_mutation_classes in
-  match Tool.mutation_class_of_yojson (`String "nonexistent") with
-  | Ok _ -> fail "expected unknown mutation_class error"
-  | Error msg ->
-    check
-      bool
-      "message mentions unknown mutation_class"
-      true
-      (contains_substring msg "unknown mutation_class: nonexistent");
-    List.iter
-      (fun cls -> check bool ("known class: " ^ cls) true (List.mem cls expected_classes))
-      expected_classes
+    string
+    "serial"
+    (Tool.show_execution_mode Tool.Serial)
+    (Tool.show_execution_mode (Tool.execution_mode tool))
 ;;
 
 let () =
@@ -478,37 +238,12 @@ let () =
             test_descriptor_preserved_and_not_in_schema
         ] )
     ; ( "yojson_roundtrip"
-      , [ test_case "workdir_policy" `Quick test_workdir_policy_yojson_roundtrip
-        ; test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip
-        ; test_case "concurrency_class" `Quick test_concurrency_class_yojson_roundtrip
-        ; test_case "mutation_class" `Quick test_mutation_class_yojson_roundtrip
-        ; test_case
-            "mutation_class legacy constructors"
-            `Quick
-            test_mutation_class_of_yojson_accepts_legacy_constructor_names
+      , [ test_case "execution_mode" `Quick test_execution_mode_yojson_roundtrip
         ; test_case "descriptor None" `Quick test_descriptor_to_yojson_none
-        ] )
-    ; ( "validation"
-      , [ test_case
-            "mutation class expected concurrency"
-            `Quick
-            test_mutation_class_expected_concurrency_class
         ; test_case
-            "create rejects inconsistent descriptor"
+            "missing descriptor is serial"
             `Quick
-            test_create_rejects_inconsistent_descriptor
-        ; test_case
-            "create rejects workspace mismatch"
-            `Quick
-            test_create_rejects_workspace_mismatch
-        ; test_case
-            "create rejects external mismatch"
-            `Quick
-            test_create_rejects_external_mismatch
-        ; test_case
-            "mutation_class_of_yojson rejects unknown"
-            `Quick
-            test_mutation_class_of_yojson_rejects_unknown
+            test_missing_descriptor_defaults_to_serial
         ] )
     ; ( "with_defaults"
       , [ test_case "injects missing args" `Quick (fun () ->
@@ -564,10 +299,5 @@ let () =
               check string "default in ctx handler" "worker-1" content
             | Error _ -> fail "expected Ok")
         ] )
-      (* RFC-OAS-011 OAS-E PR-5: removed the "builtin_descriptor" test group.
-         It exercised Mode_enforcer.builtin_descriptor — the CDAL boundary
-         API that RFC-OAS-009 v2 PR-B/C unwired and PR-6 will delete. The
-         tests were already obsolete after RFC-OAS-009 v2 (descriptor is
-         now consumer-supplied, not builtin-derived). *)
     ]
 ;;

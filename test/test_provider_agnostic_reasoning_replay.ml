@@ -85,7 +85,7 @@ let catalog_model_profile_resolvers
 ;;
 
 let profile_cases () =
-  Model_catalog_test_support.install_repo_model_catalog
+  Model_catalog_test_support.install_packaged_model_catalog
     ~suite:"provider_agnostic_reasoning_replay";
   let catalog_profiles =
     List.map

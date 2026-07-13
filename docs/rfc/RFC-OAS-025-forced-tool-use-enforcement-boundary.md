@@ -113,11 +113,10 @@ call a required tool"; the consumer decides whether to retry.
 - Con: keeps the redundant validation for compliant providers; the public
   contract type stays.
 
-### Option C — Explicit policy toggle (RFC-OAS-021 pattern)
+### Option C — Explicit policy toggle
 
 Add `forced_tool_enforcement : Enforce | Report_only | Off` to `Agent_options`,
-default `Enforce` (compat). Mirrors RFC-OAS-021's
-`missing_approval_callback_policy`.
+default `Enforce` (compat).
 
 - Pro: no breaking change; opt-in; profiles choose.
 - Con: keeps all the code paths; adds config surface rather than removing a

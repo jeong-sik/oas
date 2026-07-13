@@ -4,17 +4,12 @@
     - Defining a tool with parameters and JSON schema
     - Simple handler (pure function)
     - Context-aware handler (stateful via Context.t)
-    - Concurrency classification via [Tool.descriptor]
+    - Caller-declared execution mode via [Tool.descriptor]
 
-    [Tool.descriptor.concurrency_class] tells the OAS runtime how a tool may be
-    batched with other tools in a single turn:
-    - [Parallel_read]    : independent read-only tools can run concurrently.
-    - [Sequential_workspace] : workspace-mutating tools run one at a time.
-    - [Exclusive_external]   : external/network tools run in isolation.
+    [Tool.descriptor.execution_mode] tells the OAS runtime whether calls may be
+    batched concurrently or must execute serially.
 
-    Do NOT mark external API calls as [Parallel_read] even if they are
-    read-only: concurrent requests can hit rate limits or violate provider
-    terms.
+    OAS never derives this structural choice from a tool name or effect.
 
     Prerequisites:
     - A running llama-server on port 8085 (or set provider accordingly)
@@ -25,19 +20,9 @@
 open Agent_sdk
 open Types
 
-(** A pure read-only tool. Safe to run concurrently with other reads. *)
+(** A pure tool whose implementation explicitly permits overlapping calls. *)
 let calculator_tool =
-  let descriptor =
-    { Tool.kind = Some "demo"
-    ; mutation_class = Some Tool.Read_only
-    ; concurrency_class = Some Tool.Parallel_read
-    ; permission = Some Tool.ReadOnly
-    ; evidence_role = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
-  in
+  let descriptor = { Tool.execution_mode = Concurrent } in
   Tool.create
     ~descriptor
     ~name:"calculator"
@@ -62,21 +47,9 @@ let calculator_tool =
            })
 ;;
 
-(** An external HTTP-like tool. Marked [Exclusive_external] so the runtime
-    never fires it concurrently with another tool, protecting provider rate
-    limits even though the call is read-only. *)
+(** An HTTP-like tool whose simulated client must execute serially. *)
 let weather_api_tool =
-  let descriptor =
-    { Tool.kind = Some "demo"
-    ; mutation_class = Some Tool.External_effect
-    ; concurrency_class = Some Tool.Exclusive_external
-    ; permission = Some Tool.ReadOnly
-    ; evidence_role = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
-  in
+  let descriptor = { Tool.execution_mode = Serial } in
   Tool.create
     ~descriptor
     ~name:"weather"
@@ -97,19 +70,9 @@ let weather_api_tool =
            })
 ;;
 
-(** A workspace-mutating tool. Context state survives checkpoints. *)
+(** A stateful tool whose context updates must retain call order. *)
 let counter_tool =
-  let descriptor =
-    { Tool.kind = Some "demo"
-    ; mutation_class = Some Tool.Workspace_mutating
-    ; concurrency_class = Some Tool.Sequential_workspace
-    ; permission = Some Tool.Write
-    ; evidence_role = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
-  in
+  let descriptor = { Tool.execution_mode = Serial } in
   Tool.create_with_context
     ~descriptor
     ~name:"counter"
@@ -132,11 +95,10 @@ let () =
   Eio.Switch.run
   @@ fun sw ->
   let config =
-    { default_config with
+    { (default_config ~model:"claude-sonnet-4-6") with
       name = "tool-demo"
     ; system_prompt =
         Some "You have access to a calculator, a weather API, and a counter. Use them."
-    ; max_turns = 3
     }
   in
   let agent =

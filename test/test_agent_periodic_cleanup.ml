@@ -46,10 +46,9 @@ let make_agent ?on_run_complete ?raw_trace ~net ~transport ?(periodic_callbacks 
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "periodic-cleanup"
     ; model = "mock-model"
-    ; max_turns = 1
     }
   in
   Agent.create ~net ~config ~options ()

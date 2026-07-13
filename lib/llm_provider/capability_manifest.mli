@@ -21,17 +21,16 @@
       }
     ]}
 
-    Set [OAS_CAPABILITY_MANIFEST] to the file path to load it at
-    runtime.  The manifest layer sits below the model catalog used by
-    [Capabilities.for_model_id]; catalog rows remain the authoritative
-    model capability source when both layers match the same model.
-    When no catalog row matches, the manifest can supply capabilities
-    for custom deployments.
+    Embedding applications load a file with {!load_file} and explicitly install
+    it with {!set_global}. The manifest layer sits below the model catalog used
+    by [Capabilities.for_model_id]; catalog rows remain the authoritative model
+    capability source when both layers match the same model. When no catalog
+    row matches, the manifest can supply capabilities for custom deployments.
 
     Priority (highest first):
     + 1. Model catalog row matching by [id_prefix] (case-insensitive prefix)
     + 2. Manifest entry matching by [id_prefix] (case-insensitive prefix)
-    + 3. Discovery-based inference / caller-provided default
+    + 3. [None] when neither source declares the model
 
     @since 0.188.0 *)
 
@@ -140,10 +139,6 @@ val of_json : Yojson.Safe.t -> (t, string) result
     path.  Returns [Error msg] on I/O or JSON parse errors. *)
 val load_file : string -> (t, string) result
 
-(** [load_runtime_file path] reads a manifest for runtime use and emits
-    operator diagnostics for success or failure. *)
-val load_runtime_file : string -> t option
-
 (** [lookup t model_id] returns the first entry whose [id_prefix] is a
     case-insensitive prefix of [model_id].  Returns [None] when no
     entry matches. *)
@@ -151,25 +146,17 @@ val lookup : t -> string -> entry option
 
 (** The currently active manifest.
 
-    Resolution order (highest priority first):
-    + 1. Runtime override set by {!set_global} — embedding hosts
-        (e.g. the embedding host loading its declarative manifest) install
-        a programmatic manifest at boot.
-    + 2. [OAS_CAPABILITY_MANIFEST] env var pointing at a JSON file
-        (cached after first load when no runtime override is installed).
-
-    Returns [None] when neither source supplies a manifest. *)
+    Returns only the manifest explicitly installed with {!set_global}; [None]
+    means no manifest is active. OAS never discovers a manifest from the
+    process environment. *)
 val global : unit -> t option
 
-val preload_global : unit -> unit
-
-(** [set_global m] installs [m] as the runtime-override manifest,
-    shadowing any [OAS_CAPABILITY_MANIFEST]-loaded entries until
+(** [set_global m] installs [m] as the process-wide manifest until
     {!clear_global} is called.
 
-    catalog (e.g. the embedding host's declarative manifest) and want
-    OAS to consume the same capability data without round-tripping
-    through a JSON file.
+    Use this when the embedding host already holds a parsed declarative
+    manifest and wants OAS to consume the same capability data without
+    round-tripping through another file.
 
     Safe under multi-domain concurrency via [Atomic.t] internally;
     concurrent [set_global]/[clear_global]/[global] are race-free but
@@ -179,8 +166,8 @@ val preload_global : unit -> unit
     @since 0.194.0 *)
 val set_global : t -> unit
 
-(** [clear_global ()] removes the runtime override and lets
-    {!global} fall back to the env-var-loaded manifest (or [None]).
+(** [clear_global ()] removes the installed manifest, after which {!global}
+    returns [None].
 
     @since 0.194.0 *)
 val clear_global : unit -> unit

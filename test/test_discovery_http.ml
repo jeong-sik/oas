@@ -45,7 +45,7 @@ let test_get_json_success_and_parse_error () =
     | Ok _ -> fail "expected parse error")
 ;;
 
-let test_get_json_http_error_and_get_ok () =
+let test_get_json_http_error_and_liveness () =
   let handler _conn req body =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     match Uri.path (Cohttp.Request.uri req) with
@@ -57,12 +57,13 @@ let test_get_json_http_error_and_get_ok () =
      | Error "HTTP 500" -> ()
      | Error err -> fail ("unexpected error: " ^ err)
      | Ok _ -> fail "expected HTTP 500");
-    check bool "get_ok true" true (Discovery_http.get_ok ~sw ~net (endpoint ^ "/healthy"));
-    check
-      bool
-      "get_ok false"
-      false
-      (Discovery_http.get_ok ~sw ~net (endpoint ^ "/broken")))
+    (match Discovery_http.probe_liveness ~sw ~net (endpoint ^ "/healthy") with
+     | Ok () -> ()
+     | Error detail -> fail ("healthy probe failed: " ^ detail));
+    match Discovery_http.probe_liveness ~sw ~net (endpoint ^ "/broken") with
+    | Error "HTTP 500" -> ()
+    | Error detail -> fail ("unexpected liveness error: " ^ detail)
+    | Ok () -> fail "broken endpoint passed liveness probe")
 ;;
 
 let () =
@@ -73,7 +74,10 @@ let () =
             "json success and parse error"
             `Quick
             test_get_json_success_and_parse_error
-        ; test_case "http error and ok probe" `Quick test_get_json_http_error_and_get_ok
+        ; test_case
+            "http error and liveness probe"
+            `Quick
+            test_get_json_http_error_and_liveness
         ] )
     ]
 ;;

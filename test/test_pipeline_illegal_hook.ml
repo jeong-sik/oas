@@ -38,13 +38,13 @@ let is_illegal_hook_error = function
   | _ -> false
 ;;
 
-let test_before_turn_skip_returns_error () =
+let test_before_turn_approval_returns_error () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
-  let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Skip) } in
+  let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.ApprovalRequired) } in
   let options =
     { Agent_types.default_options with
       hooks
@@ -52,11 +52,13 @@ let test_before_turn_skip_returns_error () =
     ; transport = Some mock_transport
     }
   in
-  let config = { Types.default_config with name = "illegal-hook-test"; max_turns = 1 } in
+  let config =
+    { (Types.default_config ~model:"test-model") with name = "illegal-hook-test" }
+  in
   let agent = Agent.create ~net ~config ~options () in
   let result = Agent.run ~sw agent "hello" in
   Alcotest.(check bool)
-    "before_turn Skip returns illegal-hook error"
+    "before_turn ApprovalRequired returns illegal-hook error"
     true
     (is_illegal_hook_error result)
 ;;
@@ -66,9 +68,9 @@ let () =
     "Pipeline_illegal_hook"
     [ ( "before_turn"
       , [ Alcotest.test_case
-            "Skip returns typed error"
+            "ApprovalRequired returns typed error"
             `Quick
-            test_before_turn_skip_returns_error
+            test_before_turn_approval_returns_error
         ] )
     ]
 ;;

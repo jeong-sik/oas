@@ -48,7 +48,7 @@ let start_mock ~sw ~net ~clock response_text =
 ;;
 
 let make_agent ~net base_url name =
-  let config = { Types.default_config with name; max_turns = 1 } in
+  let config = { (Types.default_config ~model:"test-model") with name } in
   let options = { Agent.default_options with base_url } in
   Agent.create ~net ~config ~options ()
 ;;

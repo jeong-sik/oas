@@ -52,18 +52,6 @@ let () =
             let md = "---\ndisallowed-tools: Bash\ndisallowed_tools: Write\n---\nbody" in
             let spec = Subagent.of_markdown md in
             check int "combined count" 2 (List.length spec.disallowed_tools))
-        ; test_case "max-turns" `Quick (fun () ->
-            let md = "---\nmax-turns: 5\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" (Some 5) spec.max_turns)
-        ; test_case "max_turns underscore" `Quick (fun () ->
-            let md = "---\nmax_turns: 10\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" (Some 10) spec.max_turns)
-        ; test_case "max_turns invalid -> None" `Quick (fun () ->
-            let md = "---\nmax-turns: abc\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" None spec.max_turns)
         ; test_case "skill_refs" `Quick (fun () ->
             let md = "---\nskills: helper.md, reviewer.md\n---\nbody" in
             let spec = Subagent.of_markdown md in
@@ -442,13 +430,7 @@ let () =
     ; ( "handoff"
       , [ test_case "to_handoff_target with model" `Quick (fun () ->
             let md =
-              "---\n\
-               name: helper\n\
-               description: Helps out\n\
-               model: haiku\n\
-               max-turns: 3\n\
-               ---\n\
-               You help."
+              "---\nname: helper\ndescription: Helps out\nmodel: haiku\n---\nYou help."
             in
             let spec = Subagent.of_markdown md in
             let tools =
@@ -458,14 +440,13 @@ let () =
             in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:tools
                 spec
             in
             check string "name" "helper" target.name;
             check string "desc" "Helps out" target.description;
             check bool "model" true (target.config.model = "claude-haiku-4-5-20251001");
-            check int "max_turns" 3 target.config.max_turns;
             check
               (option string)
               "system_prompt"
@@ -476,7 +457,7 @@ let () =
             let spec = Subagent.of_markdown md in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:[]
                 spec
             in
@@ -484,10 +465,12 @@ let () =
               bool
               "inherited model"
               true
-              (target.config.model = Types.default_config.model))
+              (target.config.model = (Types.default_config ~model:"test-model").model))
         ; test_case "to_handoff_target empty prompt inherits parent" `Quick (fun () ->
             let parent =
-              { Types.default_config with system_prompt = Some "Parent prompt" }
+              { (Types.default_config ~model:"test-model") with
+                system_prompt = Some "Parent prompt"
+              }
             in
             let spec = Subagent.of_markdown "" in
             let target =
@@ -502,18 +485,11 @@ let () =
             let spec = Subagent.of_markdown "---\nname: x\n---\nbody" in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:[]
                 spec
             in
             check string "desc fallback" "Subagent" target.description)
-        ; test_case "to_handoff_target no max_turns inherits parent" `Quick (fun () ->
-            let parent = { Types.default_config with max_turns = 20 } in
-            let spec = Subagent.of_markdown "body" in
-            let target =
-              Subagent.to_handoff_target ~parent_config:parent ~base_tools:[] spec
-            in
-            check int "parent turns" 20 target.config.max_turns)
         ] )
     ]
 ;;

@@ -1,7 +1,8 @@
 (** Explicit runtime contract helpers.
 
-    Packages system prompt, tools, MCP clients, guardrails, context,
-    and skill bundles into a first-class contract.
+    Packages prompt/context composition and skill bundles into a first-class
+    contract. Tool availability is the exact typed tool set supplied by the
+    caller and is never filtered by this module.
 
     @stability Evolving
     @since 0.93.1 *)
@@ -25,9 +26,6 @@ type t =
   ; trigger : trigger option
   ; instruction_layers : instruction_layer list
   ; skills : Skill.t list
-  ; tool_grants : string list option
-  ; mcp_tool_allowlist : string list option
-  ; quota_allocations : Llm_provider.Request_priority.quota_allocation list option
   }
 
 val context_key : string
@@ -59,24 +57,6 @@ val with_skill : Skill.t -> t -> t
     path or name) and rendered into the system prompt. *)
 val with_skills : Skill.t list -> t -> t
 
-val with_tool_grants : string list -> t -> t
-val with_mcp_tool_allowlist : string list -> t -> t
-
-(** Attach declarative quota allocation metadata to the contract.
-
-    OAS carries the quota specification only. Distributed counters, lease
-    expiry, adaptive multipliers, and provider-specific rate-limit managers
-    remain downstream responsibilities.
-
-    Passing [[]] records an explicit empty quota specification. This allows a
-    right-hand contract to clear inherited quota metadata during {!merge}. *)
-val with_quota_allocations : Llm_provider.Request_priority.quota_allocation list -> t -> t
-
-val with_default_quota_allocations
-  :  total_requests_per_minute:int
-  -> t
-  -> (t, Llm_provider.Request_priority.quota_allocation_error) result
-
 (** {1 Operations} *)
 
 val merge : t -> t -> t
@@ -89,9 +69,4 @@ val to_json : t -> Yojson.Safe.t
 (** {1 Rendering} *)
 
 val compose_system_prompt : ?base:string -> t -> string option
-
-(** {1 Filtering} *)
-
-val filter_tools : t -> Tool.t list -> Tool.t list
-val filter_mcp_clients : t -> Mcp.managed list -> Mcp.managed list
 val context_with_contract : ?context:Context.t -> t -> Context.t option
