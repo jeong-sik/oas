@@ -131,9 +131,9 @@ type receipt_error =
   | Receipt_decision_invalid of decision_error
 [@@deriving show]
 
-(** Add a versioned receipt to the latest-run result message containing every
-    current episode id. Existing metadata is preserved; a duplicate receipt is
-    an explicit error. *)
+(** Add the current v2 receipt to the latest-run result message containing every
+    current episode id. Existing metadata is preserved; any existing recovery
+    receipt is an explicit error. *)
 val attach_receipt
   :  messages:Types.message list
   -> episodes:Tool_failure_episode.t list
@@ -141,7 +141,11 @@ val attach_receipt
   -> (Types.message list, receipt_error) result
 
 (** Read a receipt only from the latest-run message containing a [ToolResult].
-    An older receipt is never reused after a run or tool boundary. *)
+    Current v2 is the sole write format. Exact legacy v1 receipts are read
+    compatibly by lifting their singular previous tool-use id into a singleton
+    group. Multiple recovery receipts on one message are rejected as
+    [Duplicate_receipt_metadata], including a v1/v2 pair. An older receipt is
+    never reused after a run or tool boundary. *)
 val latest_receipt : Types.message list -> (receipt option, receipt_error) result
 
 (** Validate a restored receipt against reconstructed adjacent episodes. *)
