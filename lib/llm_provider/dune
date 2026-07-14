@@ -4,13 +4,13 @@
  (name llm_provider)
  (public_name agent_sdk.llm_provider)
  (private_modules
+  model_catalog_embedded
   provider_http_codec
   output_token_wire_internal
   request_artifact_internal)
  (libraries
   yojson
   otoml
-  dune-site
   ppx_deriving_yojson.runtime
   eio
   eio.unix
@@ -29,7 +29,12 @@
  (instrumentation
   (backend bisect_ppx)))
 
-(generate_sites_module
- (module model_catalog_sites)
- (sourceroot)
- (sites agent_sdk))
+(rule
+ (target model_catalog_embedded.ml)
+ (deps ../../models.toml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    model_catalog_embed_gen/model_catalog_embed_gen.exe
+    %{dep:../../models.toml}))))

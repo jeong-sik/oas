@@ -87,18 +87,14 @@ val provider_entries : t -> provider_entry list
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 
-(** Candidate locations for the packaged default [models.toml].
+(** Load the build-time embedded default [models.toml].
 
-    The paths come from Dune's site metadata and, for uninstalled development
-    builds, Dune's source-root metadata. The list preserves missing candidates
-    so {!load_default} can report exactly what it tried. *)
-val default_catalog_paths : unit -> string list
-
-(** Load the packaged default [models.toml].
-
-    Returns [Error] when the default catalog cannot be found or parsed; callers
-    that require catalog-backed capability decisions should propagate that error
-    rather than falling back silently. *)
+    The embedded value is generated directly from the OAS-owned root
+    [models.toml], so linked consumers do not depend on a working directory,
+    installation prefix, or host filesystem layout. Returns [Error] when the
+    embedded TOML cannot be parsed; callers that require catalog-backed
+    capability decisions should propagate that error rather than falling back
+    silently. *)
 val load_default : unit -> (t, string) result
 
 (** Longest-prefix lookup for catalog model IDs.
@@ -143,9 +139,7 @@ val provider_label_for_endpoint
     Resolution order:
     - runtime override installed with {!set_global}
     - [OAS_MODEL_CATALOG], when set to a non-empty path
-    - packaged default [models.toml] installed through the agent_sdk
-      [model_catalog] Dune site, or the source-root [models.toml] when running
-      from an uninstalled Dune build
+    - build-time embedded OAS [models.toml]
 
     The ambient result is cached after the first load. {!clear_global} clears
     the runtime override and the ambient cache. *)

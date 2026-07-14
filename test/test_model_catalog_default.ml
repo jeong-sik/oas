@@ -2,12 +2,6 @@ open Alcotest
 module Capabilities = Llm_provider.Capabilities
 module Model_catalog = Llm_provider.Model_catalog
 
-let id_prefixes catalog =
-  catalog
-  |> Model_catalog.model_entries
-  |> List.map (fun (entry : Model_catalog.model_entry) -> entry.id_prefix)
-;;
-
 let first_id_prefix ~suite catalog =
   match Model_catalog.model_entries catalog with
   | [] -> failf "%s: repo model catalog should not be empty" suite
@@ -35,10 +29,12 @@ let test_load_default_catalog () =
   | Error msg -> failf "default model catalog should load: %s" msg
   | Ok catalog ->
     check
-      (list string)
-      "default catalog id_prefixes match repo catalog"
-      (id_prefixes expected)
-      (id_prefixes catalog)
+      bool
+      "embedded default is exactly the OAS models.toml catalog"
+      true
+      (Model_catalog.model_entries expected = Model_catalog.model_entries catalog
+       && Model_catalog.provider_entries expected = Model_catalog.provider_entries catalog
+      )
 ;;
 
 let test_global_loads_default_catalog_for_capabilities () =
@@ -62,10 +58,10 @@ let test_global_loads_default_catalog_for_capabilities () =
 let () =
   run
     "model catalog default"
-    [ ( "packaged catalog"
+    [ ( "embedded catalog"
       , [ test_case "load_default" `Quick test_load_default_catalog
         ; test_case
-            "global uses packaged default"
+            "global uses embedded default"
             `Quick
             test_global_loads_default_catalog_for_capabilities
         ] )

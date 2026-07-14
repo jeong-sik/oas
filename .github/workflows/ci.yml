@@ -26,9 +26,6 @@ jobs:
           - ocaml-compiler: '5.5.0'
             experimental: true
       fail-fast: false
-    env:
-      OAS_MODEL_CATALOG: ${{ github.workspace }}/models.toml
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -44,6 +41,9 @@ jobs:
 
       - name: Build
         run: opam exec -- dune build @all
+
+      - name: Standalone embedded model catalog smoke
+        run: opam exec -- bash scripts/check-model-catalog-embedded.sh
 
       - name: Test
         env:

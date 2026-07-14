@@ -28,11 +28,12 @@ Resolution order:
 2. `OAS_PROVIDER_CATALOG`
 3. Built-in provider seed data
 
-The packaged `models.toml` can also carry shareable provider identity rows under
-`[[providers]]`. Those rows are data, not OCaml vendor branches: OAS uses them
-to register default provider entries and to resolve exact endpoint identity
-without hardcoded host lists. External products can read the same TOML file and
-project the same provider/model catalog into their runtime config.
+The OAS-owned `models.toml` also carries shareable provider identity rows under
+`[[providers]]`. Those rows are data, not OCaml vendor branches: OAS embeds that
+file at build time and uses it to register default provider entries and resolve
+exact endpoint identity without hardcoded host lists. Linked applications need
+no catalog file beside their executable. An operator who deliberately supplies
+`OAS_MODEL_CATALOG` replaces the embedded default with that explicit file.
 
 Catalog entries overwrite built-in provider ids when ids collide. Aliases are
 registered as additional lookup keys for the same entry.
