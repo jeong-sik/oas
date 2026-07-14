@@ -121,10 +121,88 @@ let test_rejects_non_string_http_headers () =
         ])
 ;;
 
+let expect_invalid_mcp_field expected json =
+  match Agent_config.parse_mcp json with
+  | Error (Error.Config (InvalidConfig { field; _ })) ->
+    check string "invalid MCP field" expected field
+  | Error error -> fail (Error.to_string error)
+  | Ok _ -> fail "expected invalid MCP configuration"
+;;
+
+let test_rejects_wrong_typed_mcp_transport_and_name_fields () =
+  let cases =
+    [ "url", `Assoc [ "url", `Int 1 ]
+    ; "name", `Assoc [ "url", `String "http://example.test/mcp"; "name", `Int 1 ]
+    ; "name", `Assoc [ "command", `String "node"; "name", `Bool true ]
+    ]
+  in
+  List.iter (fun (field, json) -> expect_invalid_mcp_field field json) cases
+;;
+
+let test_rejects_ambiguous_or_missing_mcp_transport () =
+  expect_invalid_mcp_field
+    "mcp_server"
+    (`Assoc [ "url", `String "http://example.test/mcp"; "command", `String "node" ]);
+  expect_invalid_mcp_field "mcp_server" (`Assoc [ "name", `String "missing-transport" ])
+;;
+
+let test_rejects_fields_from_the_other_mcp_variant () =
+  expect_invalid_mcp_field
+    "args"
+    (`Assoc [ "url", `String "http://example.test/mcp"; "args", `List [] ]);
+  expect_invalid_mcp_field
+    "headers"
+    (`Assoc [ "command", `String "node"; "headers", `Assoc [] ])
+;;
+
 let test_rejects_unknown_reasoning_effort () =
   expect_invalid_config_field
     "reasoning_effort"
     (`Assoc [ "reasoning_effort", `String "urgent" ])
+;;
+
+let test_optional_fields_accept_null_as_absent () =
+  let json =
+    `Assoc
+      [ "model", `String "exact-model"
+      ; "name", `Null
+      ; "system_prompt", `Null
+      ; "max_tokens", `Null
+      ; "enable_thinking", `Null
+      ; "preserve_thinking", `Null
+      ; "thinking_budget", `Null
+      ; "provider", `Null
+      ]
+  in
+  match Agent_config.of_json json with
+  | Error error -> fail (Error.to_string error)
+  | Ok cfg ->
+    check string "null name uses documented default" "agent" cfg.name;
+    check (option string) "null system_prompt" None cfg.system_prompt;
+    check (option int) "null max_tokens" None cfg.max_tokens;
+    check (option bool) "null enable_thinking" None cfg.enable_thinking;
+    check (option bool) "null preserve_thinking" None cfg.preserve_thinking;
+    check (option int) "null thinking_budget" None cfg.thinking_budget;
+    check (option string) "null provider" None cfg.provider
+;;
+
+let test_optional_fields_reject_present_wrong_types () =
+  let cases =
+    [ "name", `Bool true
+    ; "system_prompt", `Int 1
+    ; "max_tokens", `String "4096"
+    ; "enable_thinking", `Int 1
+    ; "preserve_thinking", `String "true"
+    ; "thinking_budget", `Bool false
+    ; "provider", `List []
+    ]
+  in
+  List.iter
+    (fun (field, wrong_value) ->
+       expect_invalid_config_field
+         field
+         (`Assoc [ "model", `String "exact-model"; field, wrong_value ]))
+    cases
 ;;
 
 (* ── load ───────────────────────────────────────────────── *)
@@ -542,9 +620,29 @@ let () =
             `Quick
             test_rejects_non_string_http_headers
         ; test_case
+            "reject wrong-typed MCP transport and name fields"
+            `Quick
+            test_rejects_wrong_typed_mcp_transport_and_name_fields
+        ; test_case
+            "reject ambiguous or missing MCP transport"
+            `Quick
+            test_rejects_ambiguous_or_missing_mcp_transport
+        ; test_case
+            "reject fields from the other MCP variant"
+            `Quick
+            test_rejects_fields_from_the_other_mcp_variant
+        ; test_case
             "reject unknown reasoning effort"
             `Quick
             test_rejects_unknown_reasoning_effort
+        ; test_case
+            "optional fields accept null as absent"
+            `Quick
+            test_optional_fields_accept_null_as_absent
+        ; test_case
+            "optional fields reject present wrong types"
+            `Quick
+            test_optional_fields_reject_present_wrong_types
         ] )
     ; ( "load"
       , [ test_case "nonexistent" `Quick test_load_nonexistent

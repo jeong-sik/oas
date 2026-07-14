@@ -196,9 +196,87 @@ let is_alive t =
 ;;
 
 (** Close the MCP client and terminate the subprocess. *)
+let close_with_release ~close_client ~release ~report_release_failure =
+  match close_client () with
+  | () -> release ()
+  | exception primary_exception ->
+    let primary_backtrace = Printexc.get_raw_backtrace () in
+    (match release () with
+     | () -> ()
+     | exception release_exception ->
+       let release_backtrace = Printexc.get_raw_backtrace () in
+       (match report_release_failure release_exception release_backtrace with
+        | () -> ()
+        | exception reporter_exception ->
+          let reporter_backtrace = Printexc.get_raw_backtrace () in
+          Eio.traceln
+            "mcp: close release failure reporter raised: %s\n%s; release failure: %s\n%s"
+            (Printexc.to_string reporter_exception)
+            (Printexc.raw_backtrace_to_string reporter_backtrace)
+            (Printexc.to_string release_exception)
+            (Printexc.raw_backtrace_to_string release_backtrace)));
+    Printexc.raise_with_backtrace primary_exception primary_backtrace
+;;
+
+let report_release_failure exception_ backtrace =
+  Llm_provider.Diag.error
+    "mcp"
+    "client close failed and process release also raised: %s\n%s"
+    (Printexc.to_string exception_)
+    (Printexc.raw_backtrace_to_string backtrace)
+;;
+
 let close t =
-  Sdk_client.close t.client;
-  t.kill ()
+  close_with_release
+    ~close_client:(fun () -> Sdk_client.close t.client)
+    ~release:t.kill
+    ~report_release_failure
+;;
+
+let%test "close attempts process release and preserves the client-close exception" =
+  let exception Client_close_raised in
+  let exception Release_raised in
+  let previous_backtrace_status = Printexc.backtrace_status () in
+  Printexc.record_backtrace true;
+  Fun.protect
+    ~finally:(fun () -> Printexc.record_backtrace previous_backtrace_status)
+    (fun () ->
+       let calls = ref [] in
+       let expected_backtrace = ref None in
+       let observed_release = ref None in
+       let close_client () =
+         calls := "client" :: !calls;
+         try raise Client_close_raised with
+         | exn ->
+           let backtrace = Printexc.get_raw_backtrace () in
+           expected_backtrace := Some (Printexc.raw_backtrace_to_string backtrace);
+           Printexc.raise_with_backtrace exn backtrace
+       in
+       let primary_backtrace =
+         match
+           close_with_release
+             ~close_client
+             ~release:(fun () ->
+               calls := "release" :: !calls;
+               raise Release_raised)
+             ~report_release_failure:(fun exception_ backtrace ->
+               observed_release := Some (exception_, backtrace))
+         with
+         | () -> None
+         | exception Client_close_raised ->
+           Some (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ()))
+         | exception _ -> None
+       in
+       List.rev !calls = [ "client"; "release" ]
+       && (match !observed_release with
+           | Some (Release_raised, backtrace) ->
+             String.length (Printexc.raw_backtrace_to_string backtrace) > 0
+           | Some _ | None -> false)
+       &&
+       match !expected_backtrace, primary_backtrace with
+       | Some expected, Some observed ->
+         String.length expected > 0 && String.starts_with ~prefix:expected observed
+       | None, _ | _, None -> false)
 ;;
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)
