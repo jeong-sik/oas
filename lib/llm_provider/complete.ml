@@ -145,7 +145,9 @@ let complete
        let result = ensure_nonempty_completion result in
        (match result with
         | Ok resp ->
-          let resp = Pricing.annotate_response_cost resp in
+          let resp =
+            Pricing.annotate_response_cost ?provider_id:config.provider_id resp
+          in
           let resp = patch_telemetry resp ~config latency_ms in
           m.on_request_end ~model_id ~latency_ms;
           emit_tool_call_metrics
@@ -296,7 +298,7 @@ let complete_stream
     Result.map
       (fun resp ->
          let latency_ms = latency_ms_int latency_counter in
-         let resp = Pricing.annotate_response_cost resp in
+         let resp = Pricing.annotate_response_cost ?provider_id:config.provider_id resp in
          let existing_telemetry = resp.telemetry in
          let ttfrc_ms = Option.bind existing_telemetry (fun t -> t.ttfrc_ms) in
          let prefill_ms = Option.bind existing_telemetry (fun t -> t.prefill_ms) in

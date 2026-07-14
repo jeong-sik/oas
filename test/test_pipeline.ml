@@ -867,7 +867,9 @@ let test_accumulate_usage_with_response () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:None
+      ~response_model:None
       ~response_usage:resp_usage
   in
   Alcotest.(check int) "input tokens" 100 result.total_input_tokens;
@@ -884,7 +886,12 @@ let test_accumulate_usage_no_response () =
     }
   in
   let result =
-    Agent_turn.accumulate_usage ~current_usage:current ~provider:None ~response_usage:None
+    Agent_turn.accumulate_usage
+      ~current_usage:current
+      ~provider_config:None
+      ~provider:None
+      ~response_model:None
+      ~response_usage:None
   in
   Alcotest.(check int) "api_calls incremented" 3 result.api_calls;
   Alcotest.(check int) "input tokens preserved" 500 result.total_input_tokens;
@@ -913,11 +920,18 @@ let test_accumulate_usage_cumulative () =
   let after1 =
     Agent_turn.accumulate_usage
       ~current_usage:Types.empty_usage
+      ~provider_config:None
       ~provider:None
+      ~response_model:None
       ~response_usage:u1
   in
   let after2 =
-    Agent_turn.accumulate_usage ~current_usage:after1 ~provider:None ~response_usage:u2
+    Agent_turn.accumulate_usage
+      ~current_usage:after1
+      ~provider_config:None
+      ~provider:None
+      ~response_model:None
+      ~response_usage:u2
   in
   Alcotest.(check int) "cumulative input" 80 after2.total_input_tokens;
   Alcotest.(check int) "cumulative output" 30 after2.total_output_tokens;

@@ -518,7 +518,9 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
         { default_options with
           base_url = agent.options.base_url
         ; provider = agent.options.provider
+        ; transport = agent.options.transport
         }
+      ?provider_config:agent.provider_config
       ()
   in
   let result = run ~sw ?clock sub prompt in
@@ -581,10 +583,16 @@ let resume
       ?(tools = [])
       ?context
       ?(options = default_options)
+      ?provider_config
       ?checkpoint_sink
       ?config
       ()
   =
+  let options =
+    match provider_config with
+    | Some _ -> { options with provider = None }
+    | None -> options
+  in
   let { Agent_checkpoint.state; context = ctx } =
     Agent_checkpoint.build_resume ~checkpoint ~eio_context:true ?config ?context ()
   in
@@ -595,6 +603,7 @@ let resume
   ; net
   ; context = ctx
   ; options
+  ; provider_config
   ; checkpoint_sink
   }
 ;;

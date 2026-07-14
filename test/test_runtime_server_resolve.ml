@@ -25,6 +25,14 @@ let with_provider_catalog f =
           "auth": {"type": "none"},
           "default_model": "runtime-b-model",
           "capabilities_base": "openai_chat"
+        },
+        {
+          "id": "runtime-no-default",
+          "kind": "openai_compat",
+          "base_url": "https://runtime-no-default.invalid",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "capabilities_base": "openai_chat"
         }
       ]
     }|}
@@ -100,6 +108,23 @@ let test_explicit_model_is_preserved () =
     | Error err -> Alcotest.fail (Error.to_string err))
 ;;
 
+let test_provider_identity_does_not_require_model () =
+  with_provider_catalog (fun () ->
+    match
+      Runtime_server_resolve.validate_provider_identity ~provider:"runtime-no-default"
+    with
+    | Ok () -> ()
+    | Error err -> Alcotest.fail (Error.to_string err))
+;;
+
+let test_provider_resolution_still_requires_model () =
+  with_provider_catalog (fun () ->
+    match Runtime_server_resolve.resolve_provider ~provider:"runtime-no-default" () with
+    | Error (Error.Config (InvalidConfig { field = "model"; _ })) -> ()
+    | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
+    | Ok _ -> Alcotest.fail "execution resolution must require an exact model")
+;;
+
 let test_missing_provider_is_explicit_error () =
   match Runtime_server_resolve.resolve_provider () with
   | Error (Error.Config (InvalidConfig { field = "provider"; _ })) -> ()
@@ -169,6 +194,14 @@ let () =
       , [ Alcotest.test_case "exact provider" `Quick test_exact_catalog_provider
         ; Alcotest.test_case "catalog alias" `Quick test_catalog_alias
         ; Alcotest.test_case "explicit model" `Quick test_explicit_model_is_preserved
+        ; Alcotest.test_case
+            "provider identity does not require model"
+            `Quick
+            test_provider_identity_does_not_require_model
+        ; Alcotest.test_case
+            "execution resolution requires model"
+            `Quick
+            test_provider_resolution_still_requires_model
         ; Alcotest.test_case
             "missing provider"
             `Quick

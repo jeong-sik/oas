@@ -56,41 +56,70 @@ let prepare_turn ~tools ~messages ~turn_params () =
 
 (* ── Usage accumulation ───────────────────────────────────────── *)
 
-let accumulate_usage ~current_usage ~provider ~response_usage =
+let pricing_identity ~provider ~provider_config ~response_model =
+  let provider_id, configured_model =
+    match provider_config with
+    | Some config ->
+      ( config.Llm_provider.Provider_config.provider_id
+      , Util.trim_non_empty_opt (Some config.Llm_provider.Provider_config.model_id) )
+    | None ->
+      (match provider with
+       | Some (config : Provider.config) ->
+         ( Some (Provider_runtime_binding.provider_id_of_config config)
+         , Util.trim_non_empty_opt (Some config.model_id) )
+       | None -> None, None)
+  in
+  let response_model = Util.trim_non_empty_opt response_model in
+  provider_id, Util.first_some response_model configured_model
+;;
+
+let with_pricing_gap usage model_id =
+  match usage.pricing_gap with
+  | Some _ -> usage
+  | None ->
+    { usage with
+      pricing_gap =
+        Some
+          (match model_id with
+           | Some model_id -> Pricing_unavailable model_id
+           | None -> Model_identity_unavailable)
+    }
+;;
+
+let accumulate_usage
+      ~current_usage
+      ~provider_config
+      ~provider
+      ~response_model
+      ~response_usage
+  =
   match response_usage with
   | Some u ->
     let base = add_usage current_usage u in
     (match u.cost_usd with
      | Some cost -> { base with estimated_cost_usd = base.estimated_cost_usd +. cost }
      | None ->
-       let model_id =
-         match provider with
-         | Some (cfg : Provider.config) when cfg.model_id <> "" -> Some cfg.model_id
-         | Some _ | None -> None
+       let provider_id, model_id =
+         pricing_identity ~provider ~provider_config ~response_model
        in
-       (match Option.bind model_id Provider.pricing_for_model_opt with
-        | Some pricing ->
-          let turn_cost =
-            Provider.estimate_cost
-              ~pricing
-              ~input_tokens:u.input_tokens
-              ~output_tokens:u.output_tokens
-              ~cache_creation_input_tokens:u.cache_creation_input_tokens
-              ~cache_read_input_tokens:u.cache_read_input_tokens
-              ()
-          in
-          { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
-        | None ->
-          let pricing_gap =
-            match base.pricing_gap with
-            | Some _ as already -> already
-            | None ->
-              Some
-                (match model_id with
-                 | Some model_id -> Pricing_unavailable model_id
-                 | None -> Model_identity_unavailable)
-          in
-          { base with pricing_gap }))
+       (match model_id with
+        | None -> with_pricing_gap base None
+        | Some model_id ->
+          (match Provider.pricing_for_model_opt ?provider_id model_id with
+           | None -> with_pricing_gap base (Some model_id)
+           | Some pricing ->
+             (match
+                Provider.estimate_cost
+                  ~pricing
+                  ~input_tokens:u.input_tokens
+                  ~output_tokens:u.output_tokens
+                  ~cache_creation_input_tokens:u.cache_creation_input_tokens
+                  ~cache_read_input_tokens:u.cache_read_input_tokens
+                  ()
+              with
+              | Provider.Estimated turn_cost ->
+                { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
+              | Provider.Incomplete _ -> with_pricing_gap base (Some model_id)))))
   | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
 ;;
 

@@ -92,6 +92,7 @@ val build_snapshot
   :  agent_name:string
   -> provider:Provider.config option
   -> model:Types.model
+  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?previous:lifecycle_snapshot
   -> ?current_run_id:string
   -> ?worker_id:string

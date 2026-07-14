@@ -283,6 +283,302 @@ let test_with_provider () =
     (Option.is_some (Agent.options agent).provider)
 ;;
 
+let exact_provider_config () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let capabilities =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_tools = true
+    ; supports_structured_output = true
+    }
+  in
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.Ollama
+    ~provider_id:"ollama"
+    ~model_id:"builder-exact-model"
+    ~base_url:"https://builder-exact.invalid/api"
+    ~api_key:"builder-exact-secret"
+    ~headers:[ "Content-Type", "application/json"; "x-builder-tenant", "exact" ]
+    ~request_path:"/exact/chat"
+    ~max_tokens:111
+    ~max_context:65536
+    ~temperature:0.75
+    ~top_p:0.8
+    ~top_k:32
+    ~min_p:0.05
+    ~system_prompt:"exact provider prompt"
+    ~enable_thinking:true
+    ~preserve_thinking:true
+    ~thinking_budget:4096
+    ~clear_thinking:false
+    ~tool_stream:true
+    ~tool_choice:Types.Auto
+    ~response_format:(Types.JsonSchema schema)
+    ~cache_system_prompt:true
+    ~supports_tool_choice_override:true
+    ~supports_structured_output_override:true
+    ~model_capabilities_override:capabilities
+    ~keep_alive:"-1"
+    ~num_ctx:32768
+    ~seed:2590
+    ~previous_response_id:"response-before-builder"
+    ~connect_timeout_s:12.5
+    ()
+;;
+
+let test_with_provider_config_reaches_dispatch_losslessly () =
+  with_net
+  @@ fun net ->
+  let observed = ref None in
+  let response : Types.api_response =
+    { id = "builder-exact-response"
+    ; model = "builder-exact-model"
+    ; stop_reason = Types.EndTurn
+    ; content = [ Types.Text "ok" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          observed := Some request.Llm_provider.Llm_transport.config;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let provider_config = exact_provider_config () in
+  let legacy =
+    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
+  in
+  let agent =
+    Builder.create ~net ~model:"initial-model"
+    |> Builder.with_provider legacy
+    |> Builder.with_provider_config provider_config
+    |> Builder.with_max_tokens 777
+    |> Builder.with_temperature 0.25
+    |> Builder.with_response_format Types.JsonMode
+    |> Builder.with_transport transport
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "typed selection clears legacy provider"
+    true
+    (Option.is_none (Agent.options agent).provider);
+  Alcotest.(check bool)
+    "exact carrier retained"
+    true
+    (Option.is_some (Agent.provider_config agent));
+  Alcotest.(check (list string))
+    "agent card observes canonical provider identity"
+    [ "ollama" ]
+    (Agent.card agent).supported_providers;
+  let result = Eio.Switch.run (fun sw -> Agent.run ~sw agent "hello") in
+  (match result with
+   | Ok _ -> ()
+   | Error error -> Alcotest.fail (Error.to_string error));
+  (match Agent.lifecycle agent with
+   | Some snapshot ->
+     Alcotest.(check (option string))
+       "lifecycle observes canonical provider identity"
+       (Some "ollama")
+       snapshot.requested_provider
+   | None -> Alcotest.fail "completed agent has no lifecycle snapshot");
+  let dispatched =
+    match !observed with
+    | Some config -> config
+    | None -> Alcotest.fail "transport did not observe a provider config"
+  in
+  Alcotest.(check bool) "wire kind" true (dispatched.kind = provider_config.kind);
+  Alcotest.(check (option string))
+    "provider identity"
+    provider_config.provider_id
+    dispatched.provider_id;
+  Alcotest.(check string) "endpoint" provider_config.base_url dispatched.base_url;
+  Alcotest.(check string)
+    "request path"
+    provider_config.request_path
+    dispatched.request_path;
+  Alcotest.(check string)
+    "credential"
+    (provider_config.api_key :> string)
+    (dispatched.api_key :> string);
+  Alcotest.(check (list (pair string string)))
+    "headers"
+    provider_config.headers
+    dispatched.headers;
+  Alcotest.(check (option bool))
+    "tool choice override"
+    provider_config.supports_tool_choice_override
+    dispatched.supports_tool_choice_override;
+  Alcotest.(check (option bool))
+    "structured output override"
+    provider_config.supports_structured_output_override
+    dispatched.supports_structured_output_override;
+  Alcotest.(check bool)
+    "capability override"
+    true
+    (match dispatched.model_capabilities_override with
+     | Some capabilities ->
+       capabilities.supports_tools && capabilities.supports_structured_output
+     | None -> false);
+  Alcotest.(check (option string)) "keep alive" (Some "-1") dispatched.keep_alive;
+  Alcotest.(check (option int)) "num ctx" (Some 32768) dispatched.num_ctx;
+  Alcotest.(check (option int)) "seed" (Some 2590) dispatched.seed;
+  Alcotest.(check (option string))
+    "previous response id"
+    (Some "response-before-builder")
+    dispatched.previous_response_id;
+  Alcotest.(check (option (float 0.001)))
+    "connect timeout"
+    (Some 12.5)
+    dispatched.connect_timeout_s;
+  Alcotest.(check string)
+    "model seeded from exact config"
+    "builder-exact-model"
+    dispatched.model_id;
+  Alcotest.(check (option int))
+    "later max_tokens setter wins"
+    (Some 777)
+    dispatched.max_tokens;
+  Alcotest.(check (option (float 0.001)))
+    "later temperature setter wins"
+    (Some 0.25)
+    dispatched.temperature;
+  Alcotest.(check string)
+    "later response format setter wins"
+    (Types.show_response_format Types.JsonMode)
+    (Types.show_response_format dispatched.response_format);
+  Alcotest.(check bool)
+    "changed response format clears stale output schema"
+    true
+    (Option.is_none dispatched.output_schema)
+;;
+
+let test_handoff_inherits_injected_transport () =
+  with_net
+  @@ fun net ->
+  let response ~id ~stop_reason content : Types.api_response =
+    { id
+    ; model = "builder-exact-model"
+    ; stop_reason
+    ; content
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let responses =
+    ref
+      [ response
+          ~id:"parent-handoff"
+          ~stop_reason:Types.StopToolUse
+          [ Types.ToolUse
+              { id = "handoff-tool"
+              ; name = "researcher"
+              ; input = `Assoc [ "prompt", `String "inspect" ]
+              }
+          ]
+      ; response
+          ~id:"subagent-complete"
+          ~stop_reason:Types.EndTurn
+          [ Types.Text "sub ok" ]
+      ; response
+          ~id:"parent-complete"
+          ~stop_reason:Types.EndTurn
+          [ Types.Text "parent done" ]
+      ]
+  in
+  let calls = ref 0 in
+  let transport_error () =
+    Llm_provider.Http_client.NetworkError
+      { message = "scripted transport exhausted"; kind = Unknown }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          incr calls;
+          match !responses with
+          | next :: rest ->
+            responses := rest;
+            { response = Ok next; latency_ms = Some 0 }
+          | [] -> { response = Error (transport_error ()); latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _request -> Error (transport_error ()))
+    }
+  in
+  let target =
+    Subagent.to_handoff_target
+      ~parent_config:(Types.default_config ~model:"parent-model")
+      ~base_tools:[]
+      (Subagent.of_markdown
+         "---\n\
+          name: researcher\n\
+          description: Inspect the requested subject\n\
+          model: subagent-model\n\
+          ---\n\
+          Inspect the request.")
+  in
+  let agent =
+    Builder.create ~net ~model:"parent-model"
+    |> Builder.with_provider_config (exact_provider_config ())
+    |> Builder.with_transport transport
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  let result =
+    Eio.Switch.run (fun sw ->
+      Agent.run_with_handoffs ~sw agent ~targets:[ target ] "delegate")
+  in
+  (match result with
+   | Ok response ->
+     Alcotest.(check string)
+       "parent completes"
+       "parent done"
+       (Types.visible_text_of_response response)
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check int) "parent and subagent use one transport" 3 !calls;
+  Alcotest.(check int) "all scripted responses consumed" 0 (List.length !responses)
+;;
+
+let test_provider_selection_last_setter_wins () =
+  with_net
+  @@ fun net ->
+  let exact = exact_provider_config () in
+  let legacy =
+    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
+  in
+  let legacy_last =
+    Builder.create ~net ~model:"initial"
+    |> Builder.with_provider_config exact
+    |> Builder.with_provider legacy
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "legacy selection clears exact carrier"
+    true
+    (Option.is_none (Agent.provider_config legacy_last));
+  Alcotest.(check bool)
+    "legacy selection retained"
+    true
+    (Option.is_some (Agent.options legacy_last).provider);
+  let exact_last =
+    Builder.create ~net ~model:"initial"
+    |> Builder.with_provider legacy
+    |> Builder.with_provider_config exact
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "exact selection clears legacy provider"
+    true
+    (Option.is_none (Agent.options exact_last).provider);
+  Alcotest.(check bool)
+    "exact selection retained"
+    true
+    (Option.is_some (Agent.provider_config exact_last))
+;;
+
 (* --- 15. with_base_url --- *)
 
 let test_with_base_url () =
@@ -654,6 +950,18 @@ let () =
         ; Alcotest.test_case "transport" `Quick test_with_transport
         ; Alcotest.test_case "context" `Quick test_with_context
         ; Alcotest.test_case "provider" `Quick test_with_provider
+        ; Alcotest.test_case
+            "exact provider config reaches dispatch losslessly"
+            `Quick
+            test_with_provider_config_reaches_dispatch_losslessly
+        ; Alcotest.test_case
+            "handoff inherits injected transport"
+            `Quick
+            test_handoff_inherits_injected_transport
+        ; Alcotest.test_case
+            "provider selection last setter wins"
+            `Quick
+            test_provider_selection_last_setter_wins
         ; Alcotest.test_case "base_url" `Quick test_with_base_url
         ; Alcotest.test_case "mcp_clients" `Quick test_with_mcp_clients
         ; Alcotest.test_case

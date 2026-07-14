@@ -1090,6 +1090,24 @@ let fake_transport response : Llm_provider.Llm_transport.t =
   }
 ;;
 
+let with_model_catalog_toml contents f =
+  let original = Llm_provider.Model_catalog.global () in
+  match
+    Llm_provider.Model_catalog.of_toml_string
+      ~source:"test_provider_complete provider pricing"
+      contents
+  with
+  | Error message -> Alcotest.fail message
+  | Ok catalog ->
+    Llm_provider.Model_catalog.set_global catalog;
+    Fun.protect
+      ~finally:(fun () ->
+        match original with
+        | Some catalog -> Llm_provider.Model_catalog.set_global catalog
+        | None -> Llm_provider.Model_catalog.clear_global ())
+      f
+;;
+
 let complete_with_captured_diag ~config ~response =
   let entries = ref [] in
   let run () =
@@ -1264,6 +1282,85 @@ let test_annotate_response_cost_gpt55 () =
   | { usage = Some { cost_usd = Some cost; _ }; _ } ->
     Alcotest.(check (float 0.001)) "gpt-5.5 cost" 35.0 cost
   | _ -> Alcotest.fail "expected gpt-5.5 annotated response cost"
+;;
+
+let test_complete_propagates_exact_provider_to_cost_annotation () =
+  let catalog =
+    {|
+[[models]]
+id_prefix = "shared-priced-model"
+base = "openai_chat"
+input_per_million = 9.0
+output_per_million = 90.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "shared-priced-model"
+provider_name = "pricing-provider"
+base = "openai_chat"
+input_per_million = 1.0
+output_per_million = 2.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+|}
+  in
+  let response : api_response =
+    { id = "provider-priced-response"
+    ; model = "shared-priced-model"
+    ; stop_reason = EndTurn
+    ; content = [ Text "ok" ]
+    ; usage =
+        Some
+          { input_tokens = 1_000_000
+          ; output_tokens = 1_000_000
+          ; cache_creation_input_tokens = 0
+          ; cache_read_input_tokens = 0
+          ; cost_usd = None
+          }
+    ; telemetry = None
+    }
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~provider_id:"pricing-provider"
+      ~model_id:"shared-priced-model"
+      ~base_url:"https://example.invalid/v1"
+      ()
+  in
+  let check_cost label = function
+    | Ok { usage = Some { cost_usd = Some cost; _ }; _ } ->
+      Alcotest.(check (float 0.001)) label 3.0 cost
+    | Ok _ -> Alcotest.failf "%s: expected annotated cost" label
+    | Error _ -> Alcotest.failf "%s: fake completion should succeed" label
+  in
+  with_model_catalog_toml catalog (fun () ->
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let net = Eio.Stdenv.net env in
+    let transport = fake_transport response in
+    check_cost
+      "sync exact provider price"
+      (Llm_provider.Complete.complete
+         ~sw
+         ~net
+         ~transport
+         ~config
+         ~messages:[ user_msg "hi" ]
+         ());
+    check_cost
+      "stream exact provider price"
+      (Llm_provider.Complete.complete_stream
+         ~sw
+         ~net
+         ~transport
+         ~config
+         ~messages:[ user_msg "hi" ]
+         ~on_event:(fun _ -> ())
+         ()))
 ;;
 
 (* ── Stream accumulator ──────────────────────────────── *)
@@ -1586,6 +1683,10 @@ let () =
             "annotate gpt-5.5 response cost"
             `Quick
             test_annotate_response_cost_gpt55
+        ; test_case
+            "complete propagates exact provider to cost annotation"
+            `Quick
+            test_complete_propagates_exact_provider_to_cost_annotation
         ] )
     ; ( "stream_acc"
       , [ test_case "text events" `Quick test_stream_acc_text
