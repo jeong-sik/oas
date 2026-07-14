@@ -177,6 +177,100 @@ let test_handle_initialize_status_events_report_prove_shutdown () =
   | Error err -> Alcotest.fail (Error.to_string err)
 ;;
 
+let test_initialize_provider_then_start_session_model () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_store
+  @@ fun root _store ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let provider =
+    match Provider_runtime_binding.find "claude" with
+    | Some provider -> provider
+    | None -> Alcotest.fail "expected builtin claude provider identity"
+  in
+  Alcotest.(check (option string))
+    "provider has no invented default model"
+    None
+    provider.default_model;
+  let init : Runtime.init_request =
+    { session_root = Some root
+    ; provider = Some "claude"
+    ; model = None
+    ; include_partial_messages = false
+    ; setting_sources = []
+    ; resume_session = None
+    ; cwd = None
+    }
+  in
+  (match Runtime_server.handle_request ~sw state (Runtime.Initialize init) with
+   | Ok (Runtime.Initialized _) -> ()
+   | Ok _ -> Alcotest.fail "expected Initialized"
+   | Error err -> Alcotest.fail (Error.to_string err));
+  let start : Runtime.start_request =
+    { session_id = Some "rt-session-model"
+    ; goal = "use a session-level exact model"
+    ; participants = [ "worker" ]
+    ; provider = None
+    ; model = Some "claude-exact-session-model"
+    ; system_prompt = None
+    ; workdir = None
+    }
+  in
+  match Runtime_server.handle_request ~sw state (Runtime.Start_session start) with
+  | Ok (Runtime.Session_started_response session) ->
+    Alcotest.(check (option string)) "inherited provider" (Some "claude") session.provider;
+    Alcotest.(check (option string))
+      "session model"
+      (Some "claude-exact-session-model")
+      session.model;
+    let spawn : Runtime.spawn_agent_request =
+      { participant_name = "worker"
+      ; role = None
+      ; prompt = "work"
+      ; provider = None
+      ; model = None
+      ; system_prompt = None
+      }
+    in
+    (match Runtime_server_resolve.resolve_execution session spawn with
+     | Ok resolution ->
+       Alcotest.(check (option string))
+         "resolved model"
+         (Some "claude-exact-session-model")
+         resolution.resolved_model
+     | Error err -> Alcotest.fail (Error.to_string err))
+  | Ok _ -> Alcotest.fail "expected Session_started_response"
+  | Error err -> Alcotest.fail (Error.to_string err)
+;;
+
+let test_initialize_unknown_provider_remains_uninitialized () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let init : Runtime.init_request =
+    { session_root = None
+    ; provider = Some "unknown-runtime-provider"
+    ; model = None
+    ; include_partial_messages = false
+    ; setting_sources = []
+    ; resume_session = None
+    ; cwd = None
+    }
+  in
+  (match Runtime_server.handle_request ~sw state (Runtime.Initialize init) with
+   | Error (Error.Config (UnsupportedProvider _)) -> ()
+   | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "unknown provider must fail initialization");
+  Alcotest.(check bool)
+    "state remains uninitialized"
+    false
+    (Runtime_server_types.is_initialized state)
+;;
+
 let test_apply_command_public_paths_and_errors () =
   Eio_main.run
   @@ fun env ->
@@ -477,6 +571,14 @@ let () =
             "initialize status events report prove shutdown"
             `Quick
             test_handle_initialize_status_events_report_prove_shutdown
+        ; Alcotest.test_case
+            "provider at initialize and model at session start"
+            `Quick
+            test_initialize_provider_then_start_session_model
+        ; Alcotest.test_case
+            "unknown provider leaves runtime uninitialized"
+            `Quick
+            test_initialize_unknown_provider_remains_uninitialized
         ; Alcotest.test_case
             "shutdown waits for participant lanes"
             `Quick

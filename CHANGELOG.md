@@ -56,6 +56,21 @@ original tag dates. `0.100.4` was never tagged or released.
   Agent pipeline now perform exactly one provider attempt and return the typed
   result unchanged; callers own any later asynchronous attempt or runtime
   rotation.
+* **agent provider configuration:** remove the lossy
+  `Provider.config_of_provider_config` adapter and its orphan
+  `Provider.default_api_key_env_of_kind` helper. `Builder.with_provider_config`
+  now carries the exact typed provider identity, wire kind, endpoint,
+  credential, headers, request path, and capability overrides through Agent
+  dispatch without catalog, URL, model-name, or environment reinterpretation.
+  `Builder.with_provider` and `Builder.with_provider_config` replace one another;
+  the last setter selects the active provider representation.
+* **pricing observation:** preserve absent cache multipliers as `float option`
+  and make `Provider.estimate_cost`/`Llm_provider.Pricing.estimate_cost` return
+  `Estimated | Incomplete` instead of inventing a multiplier. Pricing lookup
+  accepts an optional exact provider identity, and `Agent_turn.accumulate_usage`
+  now receives the typed provider config and returned model identity explicitly.
+  These values remain telemetry only and never gate execution. See the
+  [0.212 provider/pricing migration guide](docs/migrations/0.212-explicit-provider-pricing.md).
 * **implicit recovery:** remove `Lenient_json`, `Correction_pipeline`,
   `Tool_use_recovery`, `Tool_failure_episode`, `Tool_failure_recovery`, and
   `Reflexion`. OAS no longer repairs malformed model JSON/tool calls, detects

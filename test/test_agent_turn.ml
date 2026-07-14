@@ -241,7 +241,9 @@ let test_accumulate_usage_with_response () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:(Some provider_cfg)
+      ~response_model:(Some "claude-sonnet-4-6")
       ~response_usage:(Some response_usage)
   in
   Alcotest.(check int) "input tokens" 100 result.total_input_tokens;
@@ -252,7 +254,12 @@ let test_accumulate_usage_with_response () =
 let test_accumulate_usage_none_response () =
   let current = { Types.empty_usage with api_calls = 2 } in
   let result =
-    Agent_turn.accumulate_usage ~current_usage:current ~provider:None ~response_usage:None
+    Agent_turn.accumulate_usage
+      ~current_usage:current
+      ~provider_config:None
+      ~provider:None
+      ~response_model:None
+      ~response_usage:None
   in
   Alcotest.(check int) "api_calls incremented" 3 result.api_calls
 ;;
@@ -276,7 +283,9 @@ let test_accumulate_usage_local_pricing () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:(Some provider_cfg)
+      ~response_model:(Some "dashscope-3.5")
       ~response_usage:(Some response_usage)
   in
   Alcotest.(check (float 0.001)) "local is free" 0.0 result.estimated_cost_usd
@@ -298,10 +307,75 @@ let test_accumulate_usage_prefers_response_cost () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:(Some provider_cfg)
+      ~response_model:(Some "claude-sonnet-4-6")
       ~response_usage:(Some response_usage)
   in
   Alcotest.(check (float 0.0001)) "uses response cost" 0.4321 result.estimated_cost_usd
+;;
+
+let test_accumulate_usage_uses_typed_provider_and_response_model () =
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~provider_id:"deepseek"
+      ~model_id:"configured-model-before-provider-rotation"
+      ~base_url:"https://api.deepseek.com"
+      ()
+  in
+  let response_usage : Types.api_usage =
+    { input_tokens = 1_000_000
+    ; output_tokens = 1_000_000
+    ; cache_creation_input_tokens = 0
+    ; cache_read_input_tokens = 0
+    ; cost_usd = None
+    }
+  in
+  let result =
+    Agent_turn.accumulate_usage
+      ~current_usage:Types.empty_usage
+      ~provider_config:(Some provider_config)
+      ~provider:None
+      ~response_model:(Some "deepseek-v4-pro")
+      ~response_usage:(Some response_usage)
+  in
+  Alcotest.(check (float 0.0001))
+    "exact provider and returned model price"
+    1.305
+    result.estimated_cost_usd;
+  Alcotest.(check (option reject)) "no pricing gap" None result.pricing_gap
+;;
+
+let test_accumulate_usage_records_incomplete_cache_pricing () =
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:DashScope
+      ~model_id:"dashscope-3.5"
+      ~base_url:"https://dashscope.invalid"
+      ()
+  in
+  let response_usage : Types.api_usage =
+    { input_tokens = 100
+    ; output_tokens = 10
+    ; cache_creation_input_tokens = 0
+    ; cache_read_input_tokens = 50
+    ; cost_usd = None
+    }
+  in
+  let result =
+    Agent_turn.accumulate_usage
+      ~current_usage:Types.empty_usage
+      ~provider_config:(Some provider_config)
+      ~provider:None
+      ~response_model:(Some "dashscope-3.5")
+      ~response_usage:(Some response_usage)
+  in
+  Alcotest.(check (float 0.0001)) "no invented cost" 0.0 result.estimated_cost_usd;
+  match result.pricing_gap with
+  | Some (Types.Pricing_unavailable "dashscope-3.5") -> ()
+  | Some gap -> Alcotest.failf "unexpected pricing gap: %s" (Types.show_pricing_gap gap)
+  | None -> Alcotest.fail "missing explicit pricing gap"
 ;;
 
 (* ── make_tool_results tests ─────────────────────────────── *)
@@ -360,7 +434,9 @@ let test_accumulate_usage_no_provider () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:None
+      ~response_model:None
       ~response_usage:(Some response_usage)
   in
   Alcotest.(check int) "input" 200 result.total_input_tokens;
@@ -390,7 +466,9 @@ let test_accumulate_usage_cumulative () =
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
+      ~provider_config:None
       ~provider:None
+      ~response_model:None
       ~response_usage:(Some response_usage)
   in
   Alcotest.(check int) "cumulative input" 300 result.total_input_tokens;
@@ -669,6 +747,14 @@ let () =
             "prefers response cost"
             `Quick
             test_accumulate_usage_prefers_response_cost
+        ; Alcotest.test_case
+            "typed provider and response model"
+            `Quick
+            test_accumulate_usage_uses_typed_provider_and_response_model
+        ; Alcotest.test_case
+            "incomplete cache pricing"
+            `Quick
+            test_accumulate_usage_records_incomplete_cache_pricing
         ; Alcotest.test_case "no provider" `Quick test_accumulate_usage_no_provider
         ; Alcotest.test_case "cumulative" `Quick test_accumulate_usage_cumulative
         ] )

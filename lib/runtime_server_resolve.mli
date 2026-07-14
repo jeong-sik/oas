@@ -15,6 +15,11 @@ type execution_resolution =
   ; provider_cfg : Provider.config
   }
 
+(** Validate only the exact runtime provider identity. This deliberately does
+    not require a model: initialization and session settings are defaults, and
+    the exact model may be supplied by a later session or participant request. *)
+val validate_provider_identity : provider:string -> (unit, Error.sdk_error) result
+
 val resolve_provider
   :  ?provider:string
   -> ?model:string

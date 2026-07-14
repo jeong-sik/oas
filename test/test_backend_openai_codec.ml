@@ -101,6 +101,12 @@ let to_string json = Yojson.Safe.Util.to_string json
 let to_int json = Yojson.Safe.Util.to_int json
 let to_list json = Yojson.Safe.Util.to_list json
 
+let require_model_capabilities model_id =
+  match Capabilities.for_model_id model_id with
+  | Some capabilities -> capabilities
+  | None -> Alcotest.failf "missing declared capabilities for %S" model_id
+;;
+
 let rec find_repo_root dir =
   if Sys.file_exists (Filename.concat dir "dune-project")
   then dir
@@ -1714,6 +1720,7 @@ let test_responses_build_request_round_trips_tool_result_items () =
       ~request_path:"/v1/responses"
       ~enable_thinking:true
       ~max_tokens:128
+      ~model_capabilities_override:(require_model_capabilities "gpt-5.5")
       ()
   in
   let tool =

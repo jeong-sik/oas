@@ -185,6 +185,7 @@ let create_message_detailed
        Error (Provider_failure_attribution.of_provider_configuration_error error)
      | Ok (base_url, api_key, header_list) ->
        let provider_cfg = provider in
+       let provider_id = Provider_runtime_binding.provider_id_of_config provider_cfg in
        let model_spec = Provider.model_spec_of_config provider_cfg in
        let binding =
          Binding_identity.of_resolved_provider
@@ -342,7 +343,7 @@ let create_message_detailed
                    in
                    Result.map
                      (fun resp ->
-                        Llm_provider.Pricing.annotate_response_cost resp
+                        Llm_provider.Pricing.annotate_response_cost ~provider_id resp
                         |> fun response ->
                         Llm_provider.Complete_common.patch_telemetry
                           response

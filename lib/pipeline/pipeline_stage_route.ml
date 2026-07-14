@@ -13,6 +13,17 @@ let binding_identity_for_call agent provider_config =
   Binding_identity.of_provider_config ~transport provider_config
 ;;
 
+let provider_config_for_turn ~turn_config agent =
+  match agent.provider_config with
+  | Some provider_config ->
+    Ok (Provider.provider_config_with_agent_config ~config:turn_config provider_config)
+  | None ->
+    Provider.provider_config_of_agent
+      ~state:{ agent.state with config = turn_config }
+      ~base_url:agent.options.base_url
+      agent.options.provider
+;;
+
 let dispatch_sync
       ~sw
       ?clock
@@ -23,12 +34,7 @@ let dispatch_sync
       (prep : Agent_turn.turn_preparation)
   =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
-  match
-    Provider.provider_config_of_agent
-      ~state:{ agent.state with config = turn_config }
-      ~base_url:agent.options.base_url
-      agent.options.provider
-  with
+  match provider_config_for_turn ~turn_config agent with
   | Error error ->
     let detailed = Provider_failure_attribution.of_provider_configuration_error error in
     notify_attribution on_provider_failure detailed.provider_failure;
@@ -72,12 +78,7 @@ let dispatch_stream
       ()
   =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
-  match
-    Provider.provider_config_of_agent
-      ~state:{ agent.state with config = turn_config }
-      ~base_url:agent.options.base_url
-      agent.options.provider
-  with
+  match provider_config_for_turn ~turn_config agent with
   | Error error ->
     let detailed = Provider_failure_attribution.of_provider_configuration_error error in
     notify_attribution on_provider_failure detailed.provider_failure;

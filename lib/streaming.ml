@@ -55,7 +55,7 @@ let map_stream_finalize_result = function
      | Error err -> Error (map_http_error err))
 ;;
 
-let map_stream_finalize_result_detailed ~binding ~provider_config = function
+let map_stream_finalize_result_detailed ~binding ~provider_id ~provider_config = function
   | Error error -> Error (Provider_failure_attribution.of_http_error ~binding error)
   | Ok result ->
     let result =
@@ -65,7 +65,7 @@ let map_stream_finalize_result_detailed ~binding ~provider_config = function
     (match result with
      | Ok response ->
        Ok
-         (Llm_provider.Pricing.annotate_response_cost response
+         (Llm_provider.Pricing.annotate_response_cost ~provider_id response
           |> fun response ->
           Llm_provider.Complete_common.patch_telemetry
             response
@@ -126,6 +126,7 @@ let create_message_stream_detailed
     Error (Provider_failure_attribution.of_provider_configuration_error error)
   | Ok (base_url, api_key, resolved_headers) ->
     let provider_cfg = provider in
+    let provider_id = Provider_runtime_binding.provider_id_of_config provider_cfg in
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let binding =
       Binding_identity.of_resolved_provider
@@ -209,6 +210,7 @@ let create_message_stream_detailed
                ()
              |> map_stream_finalize_result_detailed
                   ~binding
+                  ~provider_id
                   ~provider_config:response_provider_config)
         | Provider.Openai_chat_completions ->
           (* OpenAI-compatible SSE streaming. *)
@@ -297,6 +299,7 @@ let create_message_stream_detailed
                ()
              |> map_stream_finalize_result_detailed
                   ~binding
+                  ~provider_id
                   ~provider_config:response_provider_config)
         | Provider.Custom name ->
           let error =

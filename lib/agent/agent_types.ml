@@ -131,6 +131,7 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
+  ; provider_config : Llm_provider.Provider_config.t option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -140,6 +141,7 @@ let lifecycle t = t.lifecycle
 let tools t = t.tools
 let context t = t.context
 let options t = t.options
+let provider_config t = t.provider_config
 let net t = t.net
 
 (** Mutex-protected write to [state].  All mutations of [t.state] should
@@ -166,11 +168,16 @@ let provider_name (cfg : Provider.config) =
   | Provider.Custom_registered { name } -> name
 ;;
 
+let typed_provider_name (cfg : Llm_provider.Provider_config.t) =
+  Provider_runtime_binding.provider_id_of_provider_config cfg
+;;
+
 let card t =
   let supported_providers =
-    match t.options.provider with
-    | Some p -> [ provider_name p ]
-    | None -> [ "anthropic" ]
+    match t.provider_config, t.options.provider with
+    | Some config, _ -> [ typed_provider_name config ]
+    | None, Some provider -> [ provider_name provider ]
+    | None, None -> [ "anthropic" ]
   in
   let skills =
     match t.options.skill_registry with
@@ -241,6 +248,7 @@ let set_lifecycle
               ~agent_name:agent.state.config.name
               ~provider:agent.options.provider
               ~model:agent.state.config.model
+              ?provider_config:agent.provider_config
               ?previous:agent.lifecycle
               ?current_run_id
               ?worker_id
@@ -261,9 +269,15 @@ let create
       ?(tools = [])
       ?context
       ?(options = default_options)
+      ?provider_config
       ?checkpoint_sink
       ()
   =
+  let options =
+    match provider_config with
+    | Some _ -> { options with provider = None }
+    | None -> options
+  in
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
@@ -283,6 +297,7 @@ let create
   ; net
   ; context = ctx
   ; options
+  ; provider_config
   ; checkpoint_sink
   }
 ;;
@@ -303,6 +318,7 @@ let clone ?(copy_context = false) agent =
   ; net = agent.net
   ; context = ctx
   ; options = agent.options
+  ; provider_config = agent.provider_config
   ; checkpoint_sink = agent.checkpoint_sink
   }
 ;;

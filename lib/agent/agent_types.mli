@@ -145,6 +145,7 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
+  ; provider_config : Llm_provider.Provider_config.t option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -159,6 +160,7 @@ val lifecycle : t -> lifecycle_snapshot option
 val tools : t -> Tool_set.t
 val context : t -> Context.t
 val options : t -> options
+val provider_config : t -> Llm_provider.Provider_config.t option
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
@@ -176,6 +178,7 @@ val create
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t

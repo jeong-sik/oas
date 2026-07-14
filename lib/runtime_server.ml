@@ -1166,9 +1166,7 @@ let handle_request ~sw state request =
       else (
         match Util.trim_non_empty_opt detail.provider with
         | None -> Ok ()
-        | Some provider ->
-          let* _resolved = resolve_provider ~provider ?model:detail.model () in
-          Ok ())
+        | Some provider -> validate_provider_identity ~provider)
     in
     let* _initialized = initialize state detail in
     Ok

@@ -29,6 +29,7 @@ type t =
   ; context : Context.t option
   ; base_url : string
   ; provider : Provider.config option
+  ; provider_config : Llm_provider.Provider_config.t option
   ; stream_idle_timeout_s : float option
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks
@@ -77,6 +78,7 @@ let create ~net ~model =
   ; context = None
   ; base_url = Api.default_base_url
   ; provider = None
+  ; provider_config = None
   ; stream_idle_timeout_s = None
   ; body_timeout_s = None
   ; hooks = Hooks.empty
@@ -153,8 +155,30 @@ let with_tracer tracer b = { b with tracer }
 let with_trace_link trace_link b = { b with trace_link }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_context ctx b = { b with context = Some ctx }
-let with_provider provider b = { b with provider = Some provider }
-let with_provider_config pc b = with_provider (Provider.config_of_provider_config pc) b
+let with_provider provider b = { b with provider = Some provider; provider_config = None }
+
+let with_provider_config (pc : Llm_provider.Provider_config.t) b =
+  { b with
+    model = pc.model_id
+  ; system_prompt = pc.system_prompt
+  ; max_tokens = pc.max_tokens
+  ; temperature = pc.temperature
+  ; top_p = pc.top_p
+  ; top_k = pc.top_k
+  ; min_p = pc.min_p
+  ; enable_thinking = pc.enable_thinking
+  ; preserve_thinking = pc.preserve_thinking
+  ; response_format = pc.response_format
+  ; thinking_budget = pc.thinking_budget
+  ; reasoning_effort = pc.reasoning_effort
+  ; tool_choice = pc.tool_choice
+  ; disable_parallel_tool_use = pc.disable_parallel_tool_use
+  ; cache_system_prompt = pc.cache_system_prompt
+  ; provider = None
+  ; provider_config = Some pc
+  }
+;;
+
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
@@ -259,6 +283,7 @@ let build b =
     ~tools:(Tool_set.to_list tools)
     ?context
     ~options
+    ?provider_config:b.provider_config
     ?checkpoint_sink:b.checkpoint_sink
     ()
 ;;

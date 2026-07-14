@@ -51,6 +51,11 @@ let declared_pricing model_id =
   | None -> Alcotest.failf "expected catalog pricing for %S" model_id
 ;;
 
+let require_estimated_cost = function
+  | Provider.Estimated cost -> cost
+  | Provider.Incomplete _ -> Alcotest.fail "expected an exact cost estimate"
+;;
+
 let with_empty_capability_sources f =
   let original_catalog = Llm_provider.Model_catalog.global () in
   let original_manifest = Llm_provider.Capability_manifest.global () in
@@ -656,23 +661,36 @@ let test_pricing_sonnet () =
   let p = declared_pricing "claude-sonnet-4-6-20250514" in
   Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 15.0 p.output_per_million;
-  Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
-  Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
+  Alcotest.(check (option (float 0.001)))
+    "cache_write"
+    (Some 1.25)
+    p.cache_write_multiplier;
+  Alcotest.(check (option (float 0.001))) "cache_read" (Some 0.1) p.cache_read_multiplier
 ;;
 
 let test_pricing_gpt55 () =
   let p = declared_pricing "gpt-5.5" in
   Alcotest.(check (float 0.001)) "input/M" 5.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 30.0 p.output_per_million;
-  Alcotest.(check (float 0.001)) "cache_write" 1.0 p.cache_write_multiplier;
-  Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
+  Alcotest.(check (option (float 0.001)))
+    "cache_write"
+    (Some 1.0)
+    p.cache_write_multiplier;
+  Alcotest.(check (option (float 0.001))) "cache_read" (Some 0.1) p.cache_read_multiplier
 ;;
 
-let test_incomplete_catalog_pricing_remains_absent () =
+let test_incomplete_cache_pricing_remains_declared () =
   Alcotest.(check bool)
-    "cache multipliers are not invented"
+    "base price remains observable without inventing cache multipliers"
     true
-    (Option.is_none (Provider.pricing_for_model_opt "dashscope-3.5-35b-a3b"))
+    (match Provider.pricing_for_model_opt "dashscope-3.5-35b-a3b" with
+     | Some
+         { input_per_million = 0.0
+         ; output_per_million = 0.0
+         ; cache_write_multiplier = None
+         ; cache_read_multiplier = None
+         } -> true
+     | Some _ | None -> false)
 ;;
 
 let test_pricing_unknown () =
@@ -692,90 +710,9 @@ let test_estimate_cost () =
       ~cache_creation_input_tokens:100_000
       ~cache_read_input_tokens:200_000
       ()
+    |> require_estimated_cost
   in
   Alcotest.(check bool) "cost > 0" true (cost > 0.0)
-;;
-
-let test_config_of_provider_config_localhost_boundary () =
-  let cfg =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
-      ~model_id:"test-model"
-      ~base_url:"http://localhostevil.com:8080"
-      ()
-  in
-  match Provider.config_of_provider_config cfg with
-  | { provider = Provider.OpenAICompat _; _ } -> ()
-  | { provider = Provider.Local _; _ } ->
-    Alcotest.fail "localhostevil.com must not be treated as local"
-  | _ -> Alcotest.fail "unexpected provider kind"
-;;
-
-let test_config_of_provider_config_typed_ollama_is_not_inferred_local () =
-  let cfg =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.Ollama
-      ~model_id:"test-model"
-      ~base_url:"http://localhost:11434"
-      ()
-  in
-  match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Custom_registered { name }; _ } ->
-    Alcotest.(check string) "typed provider identity" "ollama" name
-  | { provider = Provider.Local _; _ } ->
-    Alcotest.fail "localhost URL must not replace the typed Ollama identity"
-  | _ -> Alcotest.fail "expected typed Ollama identity to be preserved"
-;;
-
-let test_config_of_provider_config_explicit_id_is_not_inferred_local () =
-  let cfg =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
-      ~provider_id:"Explicit-Localhost-Provider"
-      ~model_id:"test-model"
-      ~base_url:"  HTTP://LOCALHOST:11434/v1  "
-      ()
-  in
-  match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Custom_registered { name }; _ } ->
-    Alcotest.(check string)
-      "explicit provider identity"
-      "explicit-localhost-provider"
-      name
-  | { provider = Provider.Local _; _ } ->
-    Alcotest.fail "localhost URL must not replace the explicit provider identity"
-  | _ -> Alcotest.fail "expected explicit provider identity to be preserved"
-;;
-
-let test_config_of_provider_config_openai_compat_is_not_inferred_local () =
-  let cfg =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
-      ~model_id:"test-model"
-      ~base_url:"http://localhost?foo=bar"
-      ()
-  in
-  match Provider.config_of_provider_config cfg with
-  | { provider = Provider.OpenAICompat { base_url; _ }; _ } ->
-    Alcotest.(check string) "base_url preserved" "http://localhost?foo=bar" base_url
-  | { provider = Provider.Local _; _ } ->
-    Alcotest.fail "localhost URL must not replace the typed OpenAI-compatible identity"
-  | _ -> Alcotest.fail "expected OpenAI-compatible identity to be preserved"
-;;
-
-let test_config_of_provider_config_kimi_uses_custom_provider () =
-  let cfg =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.Kimi
-      ~model_id:"kimi-for-coding"
-      ~base_url:"https://api.kimi.com/coding"
-      ()
-  in
-  match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
-    Alcotest.(check string) "provider name" "kimi" name;
-    Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
-  | _ -> Alcotest.fail "expected kimi config to round-trip through Custom_registered"
 ;;
 
 let test_openai_compat_static_token () =
@@ -1582,31 +1519,11 @@ let () =
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
         ; Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55
         ; Alcotest.test_case
-            "incomplete catalog pricing remains absent"
+            "incomplete cache pricing remains declared"
             `Quick
-            test_incomplete_catalog_pricing_remains_absent
+            test_incomplete_cache_pricing_remains_declared
         ; Alcotest.test_case "unknown model" `Quick test_pricing_unknown
         ; Alcotest.test_case "estimate cost" `Quick test_estimate_cost
-        ; Alcotest.test_case
-            "provider_config localhost boundary"
-            `Quick
-            test_config_of_provider_config_localhost_boundary
-        ; Alcotest.test_case
-            "provider_config typed ollama is not URL-local"
-            `Quick
-            test_config_of_provider_config_typed_ollama_is_not_inferred_local
-        ; Alcotest.test_case
-            "provider_config explicit id is not URL-local"
-            `Quick
-            test_config_of_provider_config_explicit_id_is_not_inferred_local
-        ; Alcotest.test_case
-            "provider_config OpenAI compatibility is not URL-local"
-            `Quick
-            test_config_of_provider_config_openai_compat_is_not_inferred_local
-        ; Alcotest.test_case
-            "provider_config kimi custom"
-            `Quick
-            test_config_of_provider_config_kimi_uses_custom_provider
         ] )
     ; ( "openai_compat"
       , [ Alcotest.test_case "static token" `Quick test_openai_compat_static_token

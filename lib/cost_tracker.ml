@@ -65,5 +65,5 @@ let report_to_string (r : cost_report) : string =
   | Some Types.Model_identity_unavailable ->
     summary ^ " | Pricing incomplete: model identity unavailable"
   | Some (Types.Pricing_unavailable model_id) ->
-    summary ^ Printf.sprintf " | Pricing incomplete: no catalog entry for %s" model_id
+    summary ^ Printf.sprintf " | Pricing incomplete for model %s" model_id
 ;;

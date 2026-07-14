@@ -74,6 +74,7 @@ val lifecycle : t -> lifecycle_snapshot option
 val tools : t -> Tool_set.t
 val context : t -> Context.t
 val options : t -> options
+val provider_config : t -> Llm_provider.Provider_config.t option
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
 
@@ -90,13 +91,18 @@ val sdk_version : string
     after successful context injection. A sink failure is returned before the
     pipeline advances to the next mutation stage. The sink is passed here
     rather than through {!options} so callers that construct options records
-    remain source-compatible. *)
+    remain source-compatible.
+
+    [provider_config] is the exact typed provider carrier. When supplied it
+    replaces [options.provider]; endpoint, credential, request path, headers,
+    and capability overrides are not reconstructed from the legacy option. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -300,13 +306,15 @@ val run_with_handoffs_blocks_detailed
     non-persisted runtime fields use those defaults. The optional sink is the same caller-owned
     turn-boundary checkpoint sink used by {!create}. It is not stored in
     {!options}; pass it explicitly when resumed turns should continue emitting
-    crash-recovery checkpoints. *)
+    crash-recovery checkpoints. An explicit [provider_config] replaces
+    [options.provider] under the same exact-carrier contract as {!create}. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit
