@@ -35,10 +35,11 @@ let tool_use_response : Types.api_response =
   }
 ;;
 
-let sequence_transport responses =
+let sequence_transport ?(on_call = ignore) responses =
   let remaining = ref responses in
   let call_count = ref 0 in
   let next () =
+    on_call ();
     incr call_count;
     match !remaining with
     | response :: rest ->
@@ -75,7 +76,10 @@ let make_agent
     }
   in
   let config =
-    { (Types.default_config ~model:"mock-model") with name = "advanced-boundary-test" }
+    { (Types.default_config ~model:"mock-model") with
+      name = "advanced-boundary-test"
+    ; yield_on_tool = true
+    }
   in
   Agent.create ~net ~config ~tools:[ tool ] ~options ~checkpoint_sink ()
 ;;
@@ -154,7 +158,12 @@ let test_yield_after_context_checkpoint () =
       }
   in
   let completions = ref [] in
-  let transport, call_count = sequence_transport [ tool_use_response ] in
+  let lease_events = ref [] in
+  let transport, call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ tool_use_response ]
+  in
   let agent =
     make_agent
       ~net:env#net
@@ -167,6 +176,7 @@ let test_yield_after_context_checkpoint () =
   in
   let callback_count = ref 0 in
   let on_tool_boundary (boundary : Agent.Advanced.tool_boundary) =
+    lease_events := "boundary" :: !lease_events;
     incr callback_count;
     Alcotest.(check bool) "tool completed before callback" true !tool_executed;
     Alcotest.(check bool) "context injected before callback" true !context_injected;
@@ -184,9 +194,18 @@ let test_yield_after_context_checkpoint () =
       (boundary.checkpoint_stage = Agent.After_context_injection);
     Agent.Advanced.Yield
   in
+  let on_yield () =
+    Alcotest.(check bool)
+      "checkpoint persisted before provider lease release"
+      true
+      (not (List.is_empty !persisted));
+    lease_events := "yield" :: !lease_events
+  in
   (match
      Agent.Advanced.run_blocks
        ~sw
+       ~on_yield
+       ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
        ~api_strategy:Agent.Sync
        ~on_tool_boundary
        agent
@@ -206,6 +225,10 @@ let test_yield_after_context_checkpoint () =
        true
        (messages_contain_text "projected context" yielded.checkpoint.messages));
   Alcotest.(check int) "callback count" 1 !callback_count;
+  Alcotest.(check (list string))
+    "yield releases before boundary and does not resume"
+    [ "provider"; "yield"; "boundary" ]
+    (List.rev !lease_events);
   Alcotest.(check int) "provider call count" 1 !call_count;
   Alcotest.(check (list bool)) "not terminal-complete" [] !completions;
   (match Agent.lifecycle agent with
@@ -232,8 +255,11 @@ let test_continue_reaches_terminal_completion () =
   let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
   let checkpoint_sink _snapshot = Ok () in
   let completions = ref [] in
+  let lease_events = ref [] in
   let transport, call_count =
-    sequence_transport [ tool_use_response; text_response "done" ]
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ tool_use_response; text_response "done" ]
   in
   let agent =
     make_agent
@@ -247,6 +273,7 @@ let test_continue_reaches_terminal_completion () =
   in
   let callback_count = ref 0 in
   let on_tool_boundary (boundary : Agent.Advanced.tool_boundary) =
+    lease_events := "boundary" :: !lease_events;
     incr callback_count;
     Alcotest.(check bool)
       "base tool-result checkpoint boundary"
@@ -257,6 +284,8 @@ let test_continue_reaches_terminal_completion () =
   (match
      Agent.Advanced.run_blocks
        ~sw
+       ~on_yield:(fun () -> lease_events := "yield" :: !lease_events)
+       ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
        ~api_strategy:Agent.Sync
        ~on_tool_boundary
        agent
@@ -270,6 +299,10 @@ let test_continue_reaches_terminal_completion () =
        "done"
        (Types.visible_text_of_response response));
   Alcotest.(check int) "callback count" 1 !callback_count;
+  Alcotest.(check (list string))
+    "continue release-boundary-resume ordering"
+    [ "provider"; "yield"; "boundary"; "resume"; "provider" ]
+    (List.rev !lease_events);
   Alcotest.(check int) "provider call count" 2 !call_count;
   Alcotest.(check (list bool)) "terminal callback" [ true ] !completions;
   (match Agent.lifecycle agent with
@@ -339,6 +372,41 @@ let test_checkpoint_failure_prevents_callback () =
   Alcotest.(check (option string)) "no yield stop reason" None record.stop_reason
 ;;
 
+let test_unpaired_lease_callback_is_rejected () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count = sequence_transport [ text_response "unused" ] in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _snapshot -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:(time_tool ignore)
+  in
+  (match
+     Agent.Advanced.run_blocks
+       ~sw
+       ~on_yield:ignore
+       ~api_strategy:Agent.Sync
+       ~on_tool_boundary:(fun _boundary -> Agent.Advanced.Continue)
+       agent
+       [ Types.Text "must not reach provider" ]
+   with
+   | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
+     Alcotest.(check string) "callback pair field" "on_yield/on_resume" field
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "expected unpaired callback validation error");
+  Alcotest.(check int) "provider not called" 0 !call_count
+;;
+
 let () =
   Alcotest.run
     "Agent advanced cooperative execution"
@@ -355,6 +423,10 @@ let () =
             "checkpoint failure prevents callback"
             `Quick
             test_checkpoint_failure_prevents_callback
+        ; Alcotest.test_case
+            "unpaired provider lease callback is rejected"
+            `Quick
+            test_unpaired_lease_callback_is_rejected
         ] )
     ]
 ;;

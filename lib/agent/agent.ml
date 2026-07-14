@@ -212,6 +212,22 @@ type provider_lease =
   | Held
   | Released
 
+let release_provider_lease ~yield_enabled ~on_yield = function
+  | Released -> Released
+  | Held when yield_enabled ->
+    Option.iter (fun callback -> callback ()) on_yield;
+    Released
+  | Held -> Held
+;;
+
+let acquire_provider_lease ~yield_enabled ~on_resume = function
+  | Held -> Held
+  | Released when yield_enabled ->
+    Option.iter (fun callback -> callback ()) on_resume;
+    Held
+  | Released -> Held
+;;
+
 let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_blocks =
   let user_blocks = append_user_input agent user_blocks in
   let trace_prompt = trace_prompt_of_blocks user_blocks in
@@ -222,23 +238,9 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
     trace_prompt
   @@ fun raw_trace_run ->
   let yield_enabled = agent.state.config.yield_on_tool in
-  let release_lease = function
-    | Released -> Released
-    | Held when yield_enabled ->
-      Option.iter (fun callback -> callback ()) on_yield;
-      Released
-    | Held -> Held
-  in
-  let acquire_lease = function
-    | Held -> Held
-    | Released when yield_enabled ->
-      Option.iter (fun callback -> callback ()) on_resume;
-      Held
-    | Released -> Held
-  in
   let run_start = Unix.gettimeofday () in
   let rec loop lease =
-    let lease = acquire_lease lease in
+    let lease = acquire_provider_lease ~yield_enabled ~on_resume lease in
     let turn_index = agent.state.turn_count + 1 in
     let turn_start = Unix.gettimeofday () in
     let result = run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent in
@@ -266,7 +268,7 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
         ~turn_index
         ~model:agent.state.config.model
         ~stop:"tools_executed";
-      loop (release_lease lease)
+      loop (release_provider_lease ~yield_enabled ~on_yield lease)
   in
   loop Held
 ;;
@@ -655,7 +657,16 @@ module Advanced = struct
     | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
   ;;
 
-  let run_loop_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
+  let run_loop_detailed
+        ~sw
+        ?clock
+        ~api_strategy
+        ?on_yield
+        ?on_resume
+        ~on_tool_boundary
+        agent
+        user_blocks
+    =
     let user_blocks = append_user_input agent user_blocks in
     let trace_prompt = trace_prompt_of_blocks user_blocks in
     with_raw_trace_run_classified_result
@@ -665,8 +676,10 @@ module Advanced = struct
       agent
       trace_prompt
     @@ fun raw_trace_run ->
+    let yield_enabled = agent.state.config.yield_on_tool in
     let run_start = Unix.gettimeofday () in
-    let rec loop () =
+    let rec loop lease =
+      let lease = acquire_provider_lease ~yield_enabled ~on_resume lease in
       let turn_index = agent.state.turn_count + 1 in
       let turn_start = Unix.gettimeofday () in
       match run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent with
@@ -693,9 +706,10 @@ module Advanced = struct
           ~turn_index
           ~model:agent.state.config.model
           ~stop:"tools_executed";
+        let lease = release_provider_lease ~yield_enabled ~on_yield lease in
         let boundary = completed_tool_boundary agent checkpoint_stage in
         (match on_tool_boundary boundary with
-         | Continue -> loop ()
+         | Continue -> loop lease
          | Yield ->
            let checkpoint = checkpoint agent in
            Ok
@@ -705,19 +719,56 @@ module Advanced = struct
                 ; checkpoint
                 }))
     in
-    loop ()
+    loop Held
   ;;
 
-  let run_blocks_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
+  let run_blocks_detailed
+        ~sw
+        ?clock
+        ?on_yield
+        ?on_resume
+        ~api_strategy
+        ~on_tool_boundary
+        agent
+        user_blocks
+    =
     match validate_user_input_blocks user_blocks with
     | Error error -> Error (detailed_error_of_sdk_error error)
     | Ok () ->
-      with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
-        run_loop_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks)
+      (match validate_run_callbacks ~on_yield ~on_resume with
+       | Error error -> Error (detailed_error_of_sdk_error error)
+       | Ok () ->
+         with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
+           run_loop_detailed
+             ~sw
+             ?clock
+             ~api_strategy
+             ?on_yield
+             ?on_resume
+             ~on_tool_boundary
+             agent
+             user_blocks))
   ;;
 
-  let run_blocks ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
-    run_blocks_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks
+  let run_blocks
+        ~sw
+        ?clock
+        ?on_yield
+        ?on_resume
+        ~api_strategy
+        ~on_tool_boundary
+        agent
+        user_blocks
+    =
+    run_blocks_detailed
+      ~sw
+      ?clock
+      ?on_yield
+      ?on_resume
+      ~api_strategy
+      ~on_tool_boundary
+      agent
+      user_blocks
     |> project_detailed_error
   ;;
 end

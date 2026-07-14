@@ -164,6 +164,13 @@ module Advanced : sig
       host state and return a decision; blocking work belongs after a [Yielded]
       return.
 
+      [on_yield] and [on_resume] preserve the regular run API's provider-lease
+      callbacks and must be supplied together or both omitted.  When
+      [agent_config.yield_on_tool] is enabled, [on_yield] runs after the typed
+      tool boundary has succeeded and before [on_tool_boundary].  [Continue]
+      invokes [on_resume] before the next provider turn; [Yield] returns with
+      the lease released and does not invoke [on_resume] in this call.
+
       [Yielded] is a successful host outcome: it is not an SDK error, does not
       consume or enforce a turn/time/cost budget, and leaves the agent lifecycle
       [Ready].  Its [checkpoint] is captured only after the callback chooses
@@ -171,6 +178,8 @@ module Advanced : sig
   val run_blocks_detailed
     :  sw:Eio.Switch.t
     -> ?clock:_ Eio.Time.clock
+    -> ?on_yield:(unit -> unit)
+    -> ?on_resume:(unit -> unit)
     -> api_strategy:api_strategy
     -> on_tool_boundary:(tool_boundary -> boundary_decision)
     -> t
@@ -181,6 +190,8 @@ module Advanced : sig
   val run_blocks
     :  sw:Eio.Switch.t
     -> ?clock:_ Eio.Time.clock
+    -> ?on_yield:(unit -> unit)
+    -> ?on_resume:(unit -> unit)
     -> api_strategy:api_strategy
     -> on_tool_boundary:(tool_boundary -> boundary_decision)
     -> t
