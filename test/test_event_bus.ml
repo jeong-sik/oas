@@ -98,6 +98,28 @@ let test_unsubscribe_count () =
   check int "zero after unsub" 0 (Event_bus.subscriber_count bus)
 ;;
 
+let test_unsubscribe_and_drain_preserves_pending_fifo () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = subscribe_routing bus in
+  Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 2 }));
+  let pending = Event_bus.unsubscribe_and_drain bus sub in
+  check int "subscriber removed" 0 (Event_bus.subscriber_count bus);
+  (match List.map (fun (event : Event_bus.event) -> event.payload) pending with
+   | [ TurnStarted first; TurnStarted second ] ->
+     check int "first pending turn" 1 first.turn;
+     check int "second pending turn" 2 second.turn
+   | _ -> fail "expected both pending events in FIFO order");
+  Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 3 }));
+  check
+    int
+    "cancelled subscription accepts no later event"
+    0
+    (List.length (Event_bus.drain sub))
+;;
+
 (* ── publish / drain ──────────────────────────────────────────────── *)
 
 let test_publish_received () =
@@ -1130,6 +1152,10 @@ let () =
     ; ( "subscribe"
       , [ test_case "count" `Quick test_subscribe_count
         ; test_case "unsubscribe" `Quick test_unsubscribe_count
+        ; test_case
+            "unsubscribe and drain preserves pending FIFO"
+            `Quick
+            test_unsubscribe_and_drain_preserves_pending_fifo
         ] )
     ; ( "publish"
       , [ test_case "received" `Quick test_publish_received

@@ -329,6 +329,19 @@ val subscribe
 
 val unsubscribe : t -> subscription -> unit
 
+(** Stop accepting events for [subscription], remove it from [t], and return
+    every event still queued at cancellation in FIFO order.
+
+    The cancellation and final drain synchronize with in-flight publishers:
+    an in-flight publish either finishes before the drain (subject to the
+    subscription's overflow contract) or observes cancellation. No event can
+    be enqueued after this function returns.
+    Unlike {!unsubscribe}, pending events are counted as drained rather than
+    discarded.
+
+    @since 0.212.0 *)
+val unsubscribe_and_drain : t -> subscription -> event list
+
 (** {2 Publish and drain} *)
 
 val publish : t -> event -> unit
@@ -346,7 +359,8 @@ val subscriber_count : t -> int
     - [depth] — events currently queued in the subscriber's stream.
     - [published_total] — events that passed the filter and were
       offered to this subscriber (before any drop).
-    - [drained_total] — events removed via {!drain}.
+    - [drained_total] — events removed via {!drain} or
+      {!unsubscribe_and_drain}.
     - [dropped_total] — events discarded by [Drop_oldest] or [Drop_newest].
     @since 0.160.0 *)
 type subscription_stats =

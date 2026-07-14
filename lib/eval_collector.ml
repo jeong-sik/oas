@@ -38,68 +38,66 @@ let wrap_run ~bus ~subscription ~agent_name ~run_id () =
   }
 ;;
 
-let process_events t =
-  let events = Event_bus.drain t.sub in
-  List.iter
-    (fun (event : Event_bus.event) ->
-       match event.payload with
-       | TurnStarted _ -> ignore (Atomic.fetch_and_add t.turn_count 1 : int)
-       | ToolCalled _ -> ignore (Atomic.fetch_and_add t.tool_calls 1 : int)
-       | ToolCompleted _ -> ignore (Atomic.fetch_and_add t.tool_completions 1 : int)
-       | AgentCompleted r ->
-         Eval.record
-           t.collector
-           { Eval.name = "elapsed_s"
-           ; value = Float_val r.elapsed
-           ; unit_ = Some "seconds"
-           ; tags = []
-           };
-         Eval.record
-           t.collector
-           { Eval.name = "success"
-           ; value = Bool_val (Result.is_ok r.result)
-           ; unit_ = None
-           ; tags = []
-           };
-         (match r.result with
-          | Ok (response : Types.api_response) ->
-            (match Option.bind response.usage (fun u -> u.cost_usd) with
-             | Some cost ->
-               Eval.record
-                 t.collector
-                 { Eval.name = "cost_usd"
-                 ; value = Float_val cost
-                 ; unit_ = Some "USD"
-                 ; tags = []
-                 }
-             | None -> ())
-          | Error _ -> ())
-       | AgentFailed r ->
-         (* AgentFailed fires alongside AgentCompleted on error paths; the
-         success=false metric is already recorded via AgentCompleted. *)
-         Eval.record
-           t.collector
-           { Eval.name = "error_elapsed_s"
-           ; value = Float_val r.elapsed
-           ; unit_ = Some "seconds"
-           ; tags = [ "error", Error.to_string r.error ]
-           }
-       (* Lifecycle events — observed but not metered here.
-       Downstream consumers can subscribe for richer metrics. *)
-       | AgentStarted _
-       | TurnReady _
-       | TurnCompleted _
-       | HandoffRequested _
-       | HandoffCompleted _
-       | ElicitationCompleted _
-       | InferenceTelemetry _
-       | Custom _ -> ())
-    events
+let process_event t (event : Event_bus.event) =
+  match event.payload with
+  | TurnStarted _ -> ignore (Atomic.fetch_and_add t.turn_count 1 : int)
+  | ToolCalled _ -> ignore (Atomic.fetch_and_add t.tool_calls 1 : int)
+  | ToolCompleted _ -> ignore (Atomic.fetch_and_add t.tool_completions 1 : int)
+  | AgentCompleted r ->
+    Eval.record
+      t.collector
+      { Eval.name = "elapsed_s"
+      ; value = Float_val r.elapsed
+      ; unit_ = Some "seconds"
+      ; tags = []
+      };
+    Eval.record
+      t.collector
+      { Eval.name = "success"
+      ; value = Bool_val (Result.is_ok r.result)
+      ; unit_ = None
+      ; tags = []
+      };
+    (match r.result with
+     | Ok (response : Types.api_response) ->
+       (match Option.bind response.usage (fun u -> u.cost_usd) with
+        | Some cost ->
+          Eval.record
+            t.collector
+            { Eval.name = "cost_usd"
+            ; value = Float_val cost
+            ; unit_ = Some "USD"
+            ; tags = []
+            }
+        | None -> ())
+     | Error _ -> ())
+  | AgentFailed r ->
+    (* AgentFailed fires alongside AgentCompleted on error paths; the
+       success=false metric is already recorded via AgentCompleted. *)
+    Eval.record
+      t.collector
+      { Eval.name = "error_elapsed_s"
+      ; value = Float_val r.elapsed
+      ; unit_ = Some "seconds"
+      ; tags = [ "error", Error.to_string r.error ]
+      }
+  (* Lifecycle events — observed but not metered here.
+     Downstream consumers can subscribe for richer metrics. *)
+  | AgentStarted _
+  | TurnReady _
+  | TurnCompleted _
+  | HandoffRequested _
+  | HandoffCompleted _
+  | ElicitationCompleted _
+  | InferenceTelemetry _
+  | Custom _ -> ()
 ;;
 
+let process_event_list t events = List.iter (process_event t) events
+let process_events t = Event_bus.drain t.sub |> process_event_list t
+
 let finalize t =
-  Event_bus.unsubscribe t.bus t.sub;
-  process_events t;
+  Event_bus.unsubscribe_and_drain t.bus t.sub |> process_event_list t;
   let elapsed = Unix.gettimeofday () -. t.start_time in
   (* Record aggregated metrics *)
   Eval.record

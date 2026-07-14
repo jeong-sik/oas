@@ -323,13 +323,28 @@ let subscribe ~(config : subscription_config) ?(filter = accept_all) ?purpose bu
     sub)
 ;;
 
-let unsubscribe bus sub =
-  Atomic.set sub.cancelled true;
+let remove_subscription bus sub =
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let before = List.length bus.subscribers in
     bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
     let after = List.length bus.subscribers in
-    if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ());
+    if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ())
+;;
+
+let drain_locked sub =
+  let rec collect acc =
+    match Eio.Stream.take_nonblocking sub.stream with
+    | Some event ->
+      Atomic.incr sub.drained_total;
+      collect (event :: acc)
+    | None -> List.rev acc
+  in
+  collect []
+;;
+
+let unsubscribe bus sub =
+  Atomic.set sub.cancelled true;
+  remove_subscription bus sub;
   Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
     let rec discard_pending () =
       match Eio.Stream.take_nonblocking sub.stream with
@@ -337,6 +352,12 @@ let unsubscribe bus sub =
       | None -> ()
     in
     discard_pending ())
+;;
+
+let unsubscribe_and_drain bus sub =
+  Atomic.set sub.cancelled true;
+  remove_subscription bus sub;
+  Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () -> drain_locked sub)
 ;;
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
@@ -376,17 +397,7 @@ let publish bus event =
 
 (* ── Drain ────────────────────────────────────────────────────────── *)
 
-let drain sub =
-  Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
-    let rec collect acc =
-      match Eio.Stream.take_nonblocking sub.stream with
-      | Some event ->
-        Atomic.incr sub.drained_total;
-        collect (event :: acc)
-      | None -> List.rev acc
-    in
-    collect [])
-;;
+let drain sub = Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () -> drain_locked sub)
 
 (* ── Queries ──────────────────────────────────────────────────────── *)
 
