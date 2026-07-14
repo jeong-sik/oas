@@ -101,13 +101,19 @@ let thinking_config_for_config mode (config : Provider_config.t) =
 ;;
 
 let validate_thinking_controls mode (config : Provider_config.t) =
-  match mode, config.enable_thinking with
-  | Capabilities.Anthropic_always_adaptive, Some false ->
+  match mode, config.enable_thinking, config.reasoning_effort with
+  | _, Some false, Some effort ->
+    Error
+      (Printf.sprintf
+         "model %S cannot set reasoning_effort %S when enable_thinking=false"
+         config.model_id
+         (Reasoning_effort.to_string effort))
+  | Capabilities.Anthropic_always_adaptive, Some false, _ ->
     Error
       (Printf.sprintf
          "model %S cannot disable always-on adaptive thinking"
          config.model_id)
-  | _, _ ->
+  | _, _, _ ->
     (match mode, config.thinking_budget with
      | Capabilities.Anthropic_manual_budget, Some _
        when config.enable_thinking = Some true ->

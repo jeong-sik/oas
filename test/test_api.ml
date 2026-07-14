@@ -445,6 +445,27 @@ let test_build_body_with_enable_thinking_rejects_unspecified_budget () =
       message
 ;;
 
+let test_build_body_disabled_thinking_rejects_reasoning_effort () =
+  let config = make_manual_thinking_state ~enable_thinking:false () in
+  let config =
+    { config with
+      config =
+        { config.config with
+          reasoning_effort = Some Llm_provider.Reasoning_effort.Medium
+        }
+    }
+  in
+  match Api.build_body_assoc ~config ~messages:[] ~stream:false () with
+  | _ -> fail "expected disabled-thinking reasoning-effort rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Api_anthropic.build_body_assoc: model \"claude-opus-4-5\" cannot set \
+       reasoning_effort \"medium\" when enable_thinking=false"
+      message
+;;
+
 let test_build_body_adaptive_thinking () =
   let config = make_adaptive_thinking_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
@@ -2439,6 +2460,10 @@ let () =
             "enable_thinking rejects unspecified budget"
             `Quick
             test_build_body_with_enable_thinking_rejects_unspecified_budget
+        ; test_case
+            "disabled thinking rejects reasoning effort"
+            `Quick
+            test_build_body_disabled_thinking_rejects_reasoning_effort
         ; test_case "adaptive thinking" `Quick test_build_body_adaptive_thinking
         ; test_case
             "adaptive output_config preserves format"

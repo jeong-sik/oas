@@ -49,42 +49,22 @@ type model_spec =
 
 let default_openai_compat_capabilities () = openai_compat_chat_capabilities
 
-let uses_native_glm_capabilities ~base_url ~model_id =
-  Llm_provider.Provider_config.is_zai_glm_config
-    (Llm_provider.Provider_config.make
-       ~kind:Llm_provider.Provider_config.OpenAI_compat
-       ~model_id
-       ~base_url
-       ())
-;;
-
-(* Shared by the [Local] and [OpenAICompat] branches of [capabilities_for_model]:
-   both send requests over the OpenAI-compatible envelope and must resolve
-   capabilities identically. [Provider_config.catalog_entry_requires_endpoint_declaration]
-   now treats catalog entries whose [base_label] is ["glm"] as requiring an
-   endpoint declaration, so a raw OpenAI-compatible or [Local] endpoint can no
-   longer inherit GLM reasoning/tool capabilities from a bare model-id match.
-   Declared Z.AI GLM endpoints are detected via
-   [Provider_config.is_zai_glm_config] (endpoint + model id, typed SSOT) and
-   keep the full catalog capabilities. *)
+(* Shared by the raw [Local] and [OpenAICompat] compatibility constructors.
+   An explicit model-catalog row wins; otherwise these constructors retain the
+   generic OpenAI-compatible chat-envelope contract. This fallback does not
+   select a vendor dialect. Native GLM callers carry [Provider_config.Glm]
+   through the declared-provider binding and never reach this raw path. *)
 let openai_compat_capabilities_for ~base_url ~model_id =
-  let is_native_glm = uses_native_glm_capabilities ~base_url ~model_id in
-  if is_native_glm
-  then (
-    match Llm_provider.Capabilities.for_model_id model_id with
-    | Some caps -> caps
-    | None -> default_openai_compat_capabilities ())
-  else (
-    let config =
-      Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.OpenAI_compat
-        ~model_id
-        ~base_url
-        ()
-    in
-    match Llm_provider.Provider_config.capabilities_for_config_model config with
-    | Some caps -> caps
-    | None -> default_openai_compat_capabilities ())
+  let config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id
+      ~base_url
+      ()
+  in
+  match Llm_provider.Provider_config.capabilities_for_config_model config with
+  | Some caps -> caps
+  | None -> default_openai_compat_capabilities ()
 ;;
 
 let provider_name = function

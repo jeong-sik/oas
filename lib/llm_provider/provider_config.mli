@@ -347,8 +347,10 @@ val capability_provider_label : t -> string
     then a provider-independent catalog row. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
-(** True when [config] targets Z.AI GLM semantics, either through the native
-    [Glm] kind or an OpenAI-compatible Z.AI endpoint with a GLM model id. *)
+(** [true] exactly when [config.kind = Glm]. An [OpenAI_compat] config is never
+    promoted to GLM semantics from its provider id, endpoint URL, or model id;
+    callers targeting the native Z.AI contract must select the typed [Glm]
+    kind explicitly. *)
 val is_zai_glm_config : t -> bool
 
 (** Derive a provider-safe schema name for native structured-output APIs

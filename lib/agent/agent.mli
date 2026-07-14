@@ -133,10 +133,24 @@ val run_detailed
   -> string
   -> (Types.api_response, detailed_error) result
 
-(** Run agent to completion. [on_yield] is called when the agent enters
-    tool execution and [on_resume] before the next LLM turn, allowing
-    callers to release/re-acquire provider capacity.
-    Only invoked when [agent_config.yield_on_tool = true].
+(** Run the agent until a provider returns a terminal response or a typed error.
+    The tool loop is unbounded: OAS does not stop it because of turn count,
+    idle-turn count, tool-round count, accumulated cost, or token usage. Those
+    values are observations only.
+
+    The caller owns the lifetime of the run through Eio structured
+    concurrency. Use a caller-owned child switch or cancellation scope to stop
+    one run without cancelling unrelated lanes, and wrap that scope in an
+    objective deadline when a whole-run timeout is required. Supplying [clock]
+    does not create such a deadline; it supplies time to periodic callbacks and
+    to explicitly configured provider body or stream-idle timeouts.
+    Caller-initiated [Eio.Cancel.Cancelled] propagates and is not converted into
+    an agent result.
+
+    [on_yield] is called when the agent enters tool execution and [on_resume]
+    before the next LLM turn, allowing callers to release/re-acquire provider
+    capacity. They are invoked only when
+    [agent_config.yield_on_tool = true].
     @since 0.100.0 *)
 val run
   :  sw:Eio.Switch.t

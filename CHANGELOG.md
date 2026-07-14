@@ -41,9 +41,10 @@ original tag dates. `0.100.4` was never tagged or released.
   removed implementation or a compatibility shim would preserve heuristic
   string matching and a silent model-error fallback.
 * **agent:** remove numeric lifecycle ceilings, repeated-call idle heuristics,
-  exit predicates, and their errors/hooks. Turn and tool counts remain
-  telemetry; callers retain explicit Eio cancellation and objective wall-clock
-  or inactivity timeouts.
+  exit predicates, and their errors/hooks. `Agent.run` has no turn, idle-turn,
+  tool-round, cost, or token-budget stop gate; those counters remain telemetry.
+  Callers own whole-run Eio cancellation/deadlines, while provider body and
+  stream-idle deadlines apply only when explicitly configured.
 * **runtime:** remove turn ceilings from runtime, session, and subagent
   contracts. Turn counts remain observations and never stop a lane.
 * **scheduling:** remove request-priority classes, numeric ranks, implicit
@@ -55,9 +56,16 @@ original tag dates. `0.100.4` was never tagged or released.
   Agent pipeline now perform exactly one provider attempt and return the typed
   result unchanged; callers own any later asynchronous attempt or runtime
   rotation.
+* **implicit recovery:** remove `Lenient_json`, `Correction_pipeline`,
+  `Tool_use_recovery`, `Tool_failure_episode`, `Tool_failure_recovery`, and
+  `Reflexion`. OAS no longer repairs malformed model JSON/tool calls, detects
+  repeated-failure episodes, asks a hidden judge for a retry plan, or runs a
+  convergence loop. Model content and typed tool failures stay on the ordinary
+  provider/tool path without a second recovery decision layer.
 * **tool results:** remove implicit call-time stubbing, relocation/offload
-  stores, replacement events, and MCP output truncation. Tool and MCP content
-  now reaches the provider unchanged.
+  stores (`Context_offload`, `Tool_result_store`, and
+  `Content_replacement_state`), replacement events, and MCP output truncation.
+  Tool and MCP content now reaches the provider unchanged.
 * **tool surface:** remove selector, index, progressive-disclosure, and schema-
   disclosure layers. Every registered tool is sent with its full schema, and
   dispatch uses the exact registered name.
@@ -67,23 +75,25 @@ original tag dates. `0.100.4` was never tagged or released.
 * **governance:** remove the standalone approval pipeline, approval callback,
   `ApprovalRequired` hook decision, priority-rule policy
   engine, score-to-risk judge facade, parent-to-child policy channel, and its
-  tool-set operation algebra, along with the product-governance boundary lint.
-  HITL and model judgment remain caller-owned callbacks over the generic
-  hook/provider surfaces.
-* **context:** remove `Budget_strategy`, automatic compaction, threshold-based
-  preparation, and overflow retry. Exact message and tool content is the
-  default; a provider `ContextOverflow` is returned unchanged after one
-  request. A caller that needs pruning or repair transforms its input before
-  invoking OAS or handles the typed overflow outside OAS.
+  `Tool_op` tool-set operation algebra, along with the product-governance
+  boundary lint. HITL and model judgment remain caller-owned callbacks over
+  the generic hook/provider surfaces.
+* **context:** remove `Context_reducer`, `Budget_strategy`, the
+  `Agent.options.context_reducer` extension point, automatic compaction,
+  threshold-based preparation, and overflow retry. Exact message and tool
+  content is the default; a provider `ContextOverflow` is returned unchanged
+  after one request. A caller that needs pruning or repair transforms its input
+  before invoking OAS or handles the typed overflow outside OAS.
 * **handoff:** make each target's exact name a normal tool backed by a real
-  delegate closure. Remove prefixed aliases, stub handlers, transcript scans,
-  and post-execution result replacement.
+  delegate closure. Remove `Agent_handoff`, `Agent_tool_name_alias`,
+  `Succession`, prefixed aliases, stub handlers, transcript scans, compressed
+  successor-DNA generation, and post-execution result replacement.
 * **tool descriptors:** remove permission risk levels, mutation aliases,
   shell/workdir constraints, evidence roles, kinds, notes, examples, and the
-  three-class concurrency taxonomy. A descriptor now contains only a
-  caller-declared `Concurrent` or `Serial` execution mode; absence means
-  `Serial`. Raw trace v2 and session tool catalogs expose only that structural
-  mode and reject the removed fields.
+  `Typed_tool_safe` permission facade and three-class concurrency taxonomy. A
+  descriptor now contains only a caller-declared `Concurrent` or `Serial`
+  execution mode; absence means `Serial`. Raw trace v2 and session tool
+  catalogs expose only that structural mode and reject the removed fields.
 * **events:** each subscriber owns a bounded FIFO with an explicit validated
   capacity and either drop-oldest or drop-newest behavior. There is no hidden
   capacity, default loss policy, or publisher-blocking mode. Queue depth,
@@ -93,22 +103,26 @@ original tag dates. `0.100.4` was never tagged or released.
   `decode_failure` evidence instead of disappearing from the observation
   stream.
 * **event projections:** remove `Event_forward`,
-  `Slot_scheduler_event_bridge`, and the orphan `SlotSchedulerObserved`
-  payload. OAS retains the typed Event_bus and provider slot snapshot; external
-  file/custom delivery and product scheduler projection belong to caller-owned
-  connectors.
+  `Relay_delivery`, `Slot_scheduler_event_bridge`, and the orphan
+  `SlotSchedulerObserved` payload. OAS retains the typed Event_bus and provider
+  slot snapshot; external file/custom delivery and product scheduler projection
+  belong to caller-owned connectors.
 * **runtime control:** remove the orphan SDK-client permission taxonomy, session
-  policy snapshot, and Runtime permission/hook control channel. Session start,
-  spawn, and finalize no longer wait on implicit control requests or a fixed
-  timeout; a caller may still reject a tool explicitly with the generic typed
-  `Hooks.Block` decision. Runtime stdio now accepts only canonical protocol
-  envelopes. This hard cut is reported as Runtime protocol version
-  `oas-runtime-0.2`.
+  policy snapshot, `Sdk_client_types`, and Runtime permission/hook control
+  channel. Session start, spawn, and finalize no longer wait on implicit control
+  requests or a fixed timeout; a caller may still reject a tool explicitly with
+  the generic typed `Hooks.Block` decision. Runtime stdio now accepts only
+  canonical protocol envelopes. This hard cut is reported as Runtime protocol
+  version `oas-runtime-0.2`.
 * **runtime MCP:** remove the request policy carrier that no provider transport
   consumed. It no longer changes cache keys or advertises tool names that were
   absent from the actual provider request.
-* **harness:** keep turn counts as observations only; remove turn-count
-  pass/fail assertions and performance ceilings.
+* **heuristic evaluation:** remove `Uncertain`, `Response_harness`, and
+  `Checkpoint_validation`. Their confidence defaults, free-form first-number
+  score extraction, and compressed-text token-overlap/marker grading are no
+  longer SDK behavior.
+* **harness:** keep turn counts as observations only; remove `Sandbox_runner`,
+  turn/tool-count pass/fail assertions, and performance ceilings.
 * **experiments:** remove `Code_snippet_eval` and its
   `OAS_EXPERIMENTAL_CODE_SNIPPET` environment gate. OAS no longer owns an
   arbitrary numeric adoption verdict for a caller's tool strategy.
@@ -125,15 +139,23 @@ original tag dates. `0.100.4` was never tagged or released.
   OAS model catalog is the default; callers install explicit model, provider,
   or capability overrides through the typed `load_file`/`set_global` APIs.
 * **catalog identity:** remove dot-qualified model-id rewriting and provider
-  registry alias/case normalization. Model catalog selection uses declared
-  prefixes, and runtime provider binding accepts the exact registered provider
-  id. Provider-catalog aliases remain local to explicit catalog lookup and are
-  never registered as runtime provider identities.
+  registry alias/case normalization, including the legacy `Model_registry`
+  facade. Model catalog selection uses declared prefixes, and runtime provider
+  binding accepts the exact registered provider id. Provider-catalog aliases
+  remain local to explicit catalog lookup and are never registered as runtime
+  provider identities.
 * **environment configuration:** remove the unused numeric, boolean, list, and
-  key-value policy parsers from `Llm_provider.Cli_common_env` and retire the
-  stale config-externalization guide. Runtime behavior belongs in explicit
-  typed configuration; the module retains only provider-bootstrap string lookup
-  and trimming helpers.
+  key-value policy parsers from `Llm_provider.Cli_common_env`, remove the
+  environment-backed `Defaults` facade, and retire the stale
+  config-externalization guide. Runtime behavior belongs in explicit typed
+  configuration; the module retains only provider-bootstrap string lookup and
+  trimming helpers.
+* **durable workflows:** remove the separate `Durable` typed step-chain engine.
+  `Durable_event` remains the generic append/replay journal; callers own job and
+  workflow orchestration.
+* **test support:** remove the production `Provider_mock` module and top-level
+  re-export. Scripted provider responses remain test-only code, not an SDK
+  runtime provider.
 
 ### Bug Fixes
 

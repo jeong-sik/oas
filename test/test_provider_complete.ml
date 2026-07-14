@@ -106,7 +106,7 @@ let test_anthropic_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
-let test_anthropic_explicit_effort_is_not_derived_from_thinking_toggle () =
+let test_anthropic_disabled_thinking_rejects_reasoning_effort () =
   let config =
     PC.make
       ~kind:Anthropic
@@ -116,15 +116,14 @@ let test_anthropic_explicit_effort_is_not_derived_from_thinking_toggle () =
       ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
-  let json =
-    BA.build_request ~config ~messages:[ user_msg "hi" ] () |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  Alcotest.(check bool) "thinking omitted" true (json |> member "thinking" = `Null);
-  Alcotest.(check string)
-    "explicit effort preserved"
-    "medium"
-    (json |> member "output_config" |> member "effort" |> to_string)
+  match BA.build_request ~config ~messages:[ user_msg "hi" ] () with
+  | _ -> Alcotest.fail "expected disabled-thinking reasoning-effort rejection"
+  | exception Invalid_argument message ->
+    Alcotest.(check string)
+      "rejection"
+      "Backend_anthropic.build_request: model \"claude-sonnet-4-6\" cannot set \
+       reasoning_effort \"medium\" when enable_thinking=false"
+      message
 ;;
 
 let test_anthropic_sonnet5_explicit_disable_is_serialized () =
@@ -1404,9 +1403,9 @@ let () =
         ; test_case "with system" `Quick test_anthropic_with_system
         ; test_case "with thinking" `Quick test_anthropic_with_thinking
         ; test_case
-            "explicit effort is independent of thinking toggle"
+            "disabled thinking rejects reasoning effort"
             `Quick
-            test_anthropic_explicit_effort_is_not_derived_from_thinking_toggle
+            test_anthropic_disabled_thinking_rejects_reasoning_effort
         ; test_case
             "Sonnet 5 explicit disable is serialized"
             `Quick
