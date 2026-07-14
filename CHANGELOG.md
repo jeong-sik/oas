@@ -247,6 +247,24 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.212.0](https://github.com/jeong-sik/oas/compare/v0.211.10...v0.212.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* lifecycle caps, approval/governance APIs, automatic retries/context rewriting, tool disclosure/alias layers, runtime control messages, and ambient catalog bootstrap are removed.
+* **catalog:** embed the OAS model catalog ([#2592](https://github.com/jeong-sik/oas/issues/2592))
+
+### Bug Fixes
+
+* preserve exact provider and pricing contracts ([#2596](https://github.com/jeong-sik/oas/issues/2596)) ([ac5fd31](https://github.com/jeong-sik/oas/commit/ac5fd31d640ca47961e14606ea67288f12e2579a))
+
+
+### Code Refactoring
+
+* **catalog:** embed the OAS model catalog ([#2592](https://github.com/jeong-sik/oas/issues/2592)) ([0025652](https://github.com/jeong-sik/oas/commit/002565272c2806a31883e47e0d1af94ed23449bc))
+* hard-cut implicit agent governance ([#2590](https://github.com/jeong-sik/oas/issues/2590)) ([6f3648d](https://github.com/jeong-sik/oas/commit/6f3648d61a25181f1d53bcaaef9b96f7ec885178))
+
 ## [0.211.10](https://github.com/jeong-sik/oas/compare/v0.211.9...v0.211.10) (2026-07-13)
 
 
