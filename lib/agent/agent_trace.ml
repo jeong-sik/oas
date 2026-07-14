@@ -154,6 +154,13 @@ let final_text_of_response response =
   if String.trim text = "" then None else Some text
 ;;
 
+type trace_success =
+  | Run_completed of
+      { final_text : string option
+      ; stop_reason : string option
+      }
+  | Run_yielded of { stop_reason : string }
+
 let%test "raw trace final_text excludes thinking blocks" =
   let response =
     { Types.id = "resp"
@@ -183,10 +190,39 @@ let%test "raw trace final_text is absent for thinking-only responses" =
   final_text_of_response response = None
 ;;
 
-let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f =
+let with_raw_trace_run_classified_result
+      ~of_sdk_error
+      ~error_to_string
+      ~classify_success
+      agent
+      user_prompt
+      f
+  =
   (* Reset lifecycle so each run() starts fresh — allows agent reuse
      after Completed/Failed without hitting invalid transition. *)
   Eio.Mutex.use_rw ~protect:true agent.mu (fun () -> agent.lifecycle <- None);
+  let set_lifecycle_for_result result =
+    match result with
+    | Error err ->
+      set_lifecycle
+        agent
+        ~finished_at:(Unix.gettimeofday ())
+        ~last_error:(error_to_string err)
+        Failed
+    | Ok value ->
+      (match classify_success value with
+       | Run_completed _ ->
+         set_lifecycle agent ~finished_at:(Unix.gettimeofday ()) Completed
+       | Run_yielded _ -> set_lifecycle agent ~ready_at:(Unix.gettimeofday ()) Ready)
+  in
+  let invoke_completion_for_result result =
+    match result with
+    | Error _ -> invoke_on_run_complete agent ~ok:false
+    | Ok value ->
+      (match classify_success value with
+       | Run_completed _ -> invoke_on_run_complete agent ~ok:true
+       | Run_yielded _ -> ())
+  in
   match agent.options.raw_trace with
   | None ->
     let ts = Unix.gettimeofday () in
@@ -196,11 +232,11 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
        updated, so completion hooks observe the pre-terminal run state.
        Reserved exceptions (e.g. Eio.Cancel.Cancelled) still propagate, but the
        terminal lifecycle transition must not be skipped. *)
-    (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
+    (try invoke_completion_for_result result with
      | exn ->
-       set_terminal_lifecycle ~error_to_string agent result;
+       set_lifecycle_for_result result;
        raise exn);
-    set_terminal_lifecycle ~error_to_string agent result;
+    set_lifecycle_for_result result;
     result
   | Some sink ->
     (match
@@ -231,10 +267,10 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
        let finalize result =
          let final_text, stop_reason, error =
            match result with
-           | Ok response ->
-             ( final_text_of_response response
-             , Some (Types.show_stop_reason response.stop_reason)
-             , None )
+           | Ok value ->
+             (match classify_success value with
+              | Run_completed { final_text; stop_reason } -> final_text, stop_reason, None
+              | Run_yielded { stop_reason } -> None, Some stop_reason, None)
            | Error err -> None, None, Some (error_to_string err)
          in
          (* Raw trace is finished first (so a reserved exception re-raised from the
@@ -242,11 +278,11 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
          the lifecycle transition per the agent_types.mli contract. *)
          match Raw_trace.finish_run active ~final_text ~stop_reason ~error with
          | Ok _ ->
-           (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
+           (try invoke_completion_for_result result with
             | exn ->
-              set_terminal_lifecycle ~error_to_string agent result;
+              set_lifecycle_for_result result;
               raise exn);
-           set_terminal_lifecycle ~error_to_string agent result;
+           set_lifecycle_for_result result;
            result
          | Error err ->
            let trace_error = Error (of_sdk_error err) in
@@ -286,6 +322,20 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
             ~last_error:error_msg
             Failed;
           Printexc.raise_with_backtrace exn backtrace))
+;;
+
+let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f =
+  with_raw_trace_run_classified_result
+    ~of_sdk_error
+    ~error_to_string
+    ~classify_success:(fun response ->
+      Run_completed
+        { final_text = final_text_of_response response
+        ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+        })
+    agent
+    user_prompt
+    f
 ;;
 
 let with_raw_trace_run agent user_prompt f =

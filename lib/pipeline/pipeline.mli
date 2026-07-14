@@ -19,7 +19,7 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted
+  | ToolsExecuted of Agent_types.checkpoint_stage
 
 (** Persist [state] using the same pre-commit checkpoint transaction as turn
     collection. The live agent state is not changed by this function. *)

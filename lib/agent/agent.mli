@@ -129,6 +129,65 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
+(** Advanced host-driven execution.  The regular {!run}, {!run_blocks}, and
+    streaming entry points remain the simple run-to-completion API. *)
+module Advanced : sig
+  type tool_boundary =
+    { turn : int
+    ; checkpoint_stage : checkpoint_stage
+    }
+
+  type boundary_decision =
+    | Continue
+    | Yield
+
+  type yielded =
+    { turn : int
+    ; checkpoint_stage : checkpoint_stage
+    ; checkpoint : Checkpoint.t
+    }
+
+  type run_outcome =
+    | Completed of Types.api_response
+    | Yielded of yielded
+
+  (** Run from one caller-authored input until terminal completion or until
+      [on_tool_boundary] requests a cooperative yield.
+
+      The callback is evaluated only after all tool executions for the turn,
+      optional context injection, and the final configured checkpoint-sink
+      call have succeeded.  [checkpoint_stage] identifies that typed boundary.
+      When no checkpoint sink is configured, crossing the stage is an in-memory
+      boundary and does not claim durable persistence.
+
+      The callback runs synchronously on the agent fiber and should only inspect
+      host state and return a decision; blocking work belongs after a [Yielded]
+      return.
+
+      [Yielded] is a successful host outcome: it is not an SDK error, does not
+      consume or enforce a turn/time/cost budget, and leaves the agent lifecycle
+      [Ready].  Its [checkpoint] is captured only after the callback chooses
+      [Yield], avoiding checkpoint-copy overhead on [Continue]. *)
+  val run_blocks_detailed
+    :  sw:Eio.Switch.t
+    -> ?clock:_ Eio.Time.clock
+    -> api_strategy:api_strategy
+    -> on_tool_boundary:(tool_boundary -> boundary_decision)
+    -> t
+    -> Types.content_block list
+    -> (run_outcome, detailed_error) result
+
+  (** Exact error projection of {!run_blocks_detailed}. *)
+  val run_blocks
+    :  sw:Eio.Switch.t
+    -> ?clock:_ Eio.Time.clock
+    -> api_strategy:api_strategy
+    -> on_tool_boundary:(tool_boundary -> boundary_decision)
+    -> t
+    -> Types.content_block list
+    -> (run_outcome, Error.sdk_error) result
+end
+
 (** Detailed counterpart of {!run}. *)
 val run_detailed
   :  sw:Eio.Switch.t

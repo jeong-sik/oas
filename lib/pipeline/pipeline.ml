@@ -40,7 +40,7 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted
+  | ToolsExecuted of checkpoint_stage
 
 let persist_turn_checkpoint_for_state agent stage state =
   match agent.checkpoint_sink with
@@ -407,7 +407,7 @@ let stage_execute ?raw_trace_run agent tool_uses_nonempty =
          Printexc.raise_with_backtrace exception_ backtrace
        | None ->
          (match agent.options.context_injector with
-          | None -> Ok ToolsExecuted
+          | None -> Ok (ToolsExecuted After_tool_results_appended)
           | Some injector ->
             let* messages =
               Agent_turn.apply_context_injection
@@ -433,7 +433,7 @@ let stage_execute ?raw_trace_run agent tool_uses_nonempty =
                 After_context_injection
                 injected_state
             in
-            Ok ToolsExecuted))
+            Ok (ToolsExecuted After_context_injection)))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)

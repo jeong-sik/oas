@@ -70,7 +70,8 @@ let run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent =
            agent
        with
        | Ok (Pipeline.Complete response) -> Ok (`Complete response)
-       | Ok Pipeline.ToolsExecuted -> Ok `ToolsExecuted
+       | Ok (Pipeline.ToolsExecuted checkpoint_stage) ->
+         Ok (`ToolsExecuted checkpoint_stage)
        | Error error -> Error { error; provider_failure = !provider_failure })
 ;;
 
@@ -258,7 +259,7 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
         ~model:response.model
         ~stop:(stop_reason_label response.stop_reason);
       Ok response
-    | Ok `ToolsExecuted ->
+    | Ok (`ToolsExecuted _) ->
       log_turn
         ~run_start
         ~turn_start
@@ -619,12 +620,117 @@ let checkpoint ?(session_id = "") ?working_context agent =
     ()
 ;;
 
+module Advanced = struct
+  type tool_boundary =
+    { turn : int
+    ; checkpoint_stage : checkpoint_stage
+    }
+
+  type boundary_decision =
+    | Continue
+    | Yield
+
+  type yielded =
+    { turn : int
+    ; checkpoint_stage : checkpoint_stage
+    ; checkpoint : Checkpoint.t
+    }
+
+  type run_outcome =
+    | Completed of Types.api_response
+    | Yielded of yielded
+
+  let raw_trace_yield_stop_reason = "cooperative_tool_boundary_yield"
+
+  let completed_tool_boundary agent checkpoint_stage =
+    { turn = agent.state.turn_count; checkpoint_stage }
+  ;;
+
+  let classify_trace_success = function
+    | Completed response ->
+      Run_completed
+        { final_text = final_text_of_response response
+        ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+        }
+    | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
+  ;;
+
+  let run_loop_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
+    let user_blocks = append_user_input agent user_blocks in
+    let trace_prompt = trace_prompt_of_blocks user_blocks in
+    with_raw_trace_run_classified_result
+      ~of_sdk_error:detailed_error_of_sdk_error
+      ~error_to_string:(fun detailed -> Error.to_string detailed.error)
+      ~classify_success:classify_trace_success
+      agent
+      trace_prompt
+    @@ fun raw_trace_run ->
+    let run_start = Unix.gettimeofday () in
+    let rec loop () =
+      let turn_index = agent.state.turn_count + 1 in
+      let turn_start = Unix.gettimeofday () in
+      match run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent with
+      | Error error ->
+        log_turn
+          ~run_start
+          ~turn_start
+          ~turn_index
+          ~model:agent.state.config.model
+          ~stop:("error:" ^ Error.to_string error.error);
+        Error error
+      | Ok (`Complete response) ->
+        log_turn
+          ~run_start
+          ~turn_start
+          ~turn_index
+          ~model:response.model
+          ~stop:(stop_reason_label response.stop_reason);
+        Ok (Completed response)
+      | Ok (`ToolsExecuted checkpoint_stage) ->
+        log_turn
+          ~run_start
+          ~turn_start
+          ~turn_index
+          ~model:agent.state.config.model
+          ~stop:"tools_executed";
+        let boundary = completed_tool_boundary agent checkpoint_stage in
+        (match on_tool_boundary boundary with
+         | Continue -> loop ()
+         | Yield ->
+           let checkpoint = checkpoint agent in
+           Ok
+             (Yielded
+                { turn = boundary.turn
+                ; checkpoint_stage = boundary.checkpoint_stage
+                ; checkpoint
+                }))
+    in
+    loop ()
+  ;;
+
+  let run_blocks_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
+    match validate_user_input_blocks user_blocks with
+    | Error error -> Error (detailed_error_of_sdk_error error)
+    | Ok () ->
+      with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
+        run_loop_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks)
+  ;;
+
+  let run_blocks ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks =
+    run_blocks_detailed ~sw ?clock ~api_strategy ~on_tool_boundary agent user_blocks
+    |> project_detailed_error
+  ;;
+end
+
 let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent =
   run_turn_core_detailed
     ~sw
     ?clock
     ~api_strategy:(Stream { on_event; on_telemetry })
     agent
+  |> Result.map (function
+    | `Complete response -> `Complete response
+    | `ToolsExecuted _ -> `ToolsExecuted)
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
