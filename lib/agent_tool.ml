@@ -21,7 +21,6 @@ type config =
   ; description : string
   ; runner : agent_runner
   ; output_summarizer : (string -> string) option
-  ; input_parameters : tool_param list
   }
 
 (* ── Text extraction ─────────────────────────────────────────── *)
@@ -139,7 +138,7 @@ let prompt_param =
   }
 ;;
 
-let parameters config = prompt_param :: config.input_parameters
+let parameters = [ prompt_param ]
 
 let prompt_of_input = function
   | `Assoc fields ->
@@ -147,9 +146,7 @@ let prompt_of_input = function
      | Some (`String s) -> Ok s
      | Some _ -> Error "Agent_tool prompt must be a string"
      | None -> Error "Agent_tool input requires a prompt field")
-  | `String s -> Ok s
-  | json ->
-    Error ("Agent_tool input must be an object or string: " ^ Yojson.Safe.to_string json)
+  | json -> Error ("Agent_tool input must be an object: " ^ Yojson.Safe.to_string json)
 ;;
 
 let make_handler config : Tool.tool_handler =
@@ -198,7 +195,7 @@ let create config =
   Tool.create
     ~name:config.name
     ~description:config.description
-    ~parameters:(parameters config)
+    ~parameters
     (make_handler config)
 ;;
 
@@ -206,7 +203,7 @@ let create_typed config =
   Typed_tool.create
     ~name:config.name
     ~description:config.description
-    ~params:(parameters config)
+    ~params:parameters
     ~parse:parse_child_invocation
     ~handler:(make_typed_handler config)
     ~encode:child_output_to_json
@@ -216,7 +213,7 @@ let create_typed config =
 let create_typed_untyped config = config |> create_typed |> Typed_tool.to_untyped
 
 let create_simple ~name ~description runner =
-  create { name; description; runner; output_summarizer = None; input_parameters = [] }
+  create { name; description; runner; output_summarizer = None }
 ;;
 
 [@@@coverage off]
@@ -252,11 +249,11 @@ let%test "handler returns agent text" =
   | Error _ -> false
 ;;
 
-let%test "handler with string input" =
+let%test "handler rejects string input outside its schema" =
   let tool = create_simple ~name:"t" ~description:"d" (mock_runner "ok") in
   match Tool.execute tool (`String "direct prompt") with
-  | Ok { content; _meta = _ } -> content = "ok"
-  | Error _ -> false
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "handler propagates error" =
@@ -273,7 +270,6 @@ let%test "output_summarizer applied" =
       ; description = "d"
       ; runner = mock_runner "long output text here"
       ; output_summarizer = Some (fun s -> String.sub s 0 4)
-      ; input_parameters = []
       }
   in
   match Tool.execute tool (`Assoc [ "prompt", `String "q" ]) with
@@ -281,21 +277,14 @@ let%test "output_summarizer applied" =
   | Error _ -> false
 ;;
 
-let%test "extra input_parameters included" =
+let%test "declared inputs exactly match the consumed prompt" =
   let tool =
     create
       { name = "t"
       ; description = "d"
       ; runner = mock_runner "ok"
       ; output_summarizer = None
-      ; input_parameters =
-          [ { name = "context"
-            ; description = "extra"
-            ; param_type = String
-            ; required = false
-            }
-          ]
       }
   in
-  List.length tool.schema.parameters = 2
+  tool.schema.parameters = [ prompt_param ]
 ;;
