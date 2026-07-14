@@ -13,18 +13,20 @@ open Types
 (** Build response with specific token counts for cost tracking. *)
 let text_body_with_usage ~input_tokens ~output_tokens text =
   Printf.sprintf
-    {|{"id":"c1","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":%d,"output_tokens":%d}}|}
+    {|{"id":"c1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d}}|}
     text
     input_tokens
     output_tokens
+    (input_tokens + output_tokens)
 ;;
 
 let tool_body_with_usage ~input_tokens ~output_tokens ~tool_name =
   Printf.sprintf
-    {|{"id":"c2","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"tu_c","name":"%s","input":{}}],"stop_reason":"tool_use","usage":{"input_tokens":%d,"output_tokens":%d}}|}
+    {|{"id":"c2","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"tu_c","type":"function","function":{"name":"%s","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d}}|}
     tool_name
     input_tokens
     output_tokens
+    (input_tokens + output_tokens)
 ;;
 
 let with_mock_server ~port handler f =
@@ -51,6 +53,15 @@ let with_mock_server ~port handler f =
   | Exit -> ()
 ;;
 
+let local_provider ~base_url : Provider.config =
+  { provider = Provider.Local { base_url }; model_id = "mock-model"; api_key_env = "" }
+;;
+
+let require_run_success label = function
+  | Ok _ -> ()
+  | Error error -> Alcotest.failf "%s: %s" label (Error.to_string error)
+;;
+
 (* ── Token accumulation tests ────────────────────────── *)
 
 let test_tokens_accumulate_across_turns () =
@@ -70,11 +81,12 @@ let test_tokens_accumulate_across_turns () =
       Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _input ->
         Ok { content = "ok"; _meta = None })
     in
-    let options = { Agent.default_options with base_url } in
+    let options =
+      { Agent.default_options with provider = Some (local_provider ~base_url) }
+    in
     let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ | Error _ -> ());
+    Agent.run ~sw agent "test" |> require_run_success "cost accumulation run";
     let st = Agent.state agent in
     (* 3 API calls: tool, tool, text — each with 100 input + 50 output *)
     Alcotest.(check int) "api calls" 3 st.usage.api_calls;
@@ -91,12 +103,13 @@ let test_single_turn_usage () =
     Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
   in
   with_mock_server ~port:18302 handler (fun ~sw ~net ~base_url ->
-    let options = { Agent.default_options with base_url } in
-    let agent =
-      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+    let options =
+      { Agent.default_options with provider = Some (local_provider ~base_url) }
     in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ | Error _ -> ());
+    let agent =
+      Agent.create ~config:(Types.default_config ~model:"mock-model") ~net ~options ()
+    in
+    Agent.run ~sw agent "test" |> require_run_success "single-turn cost run";
     let st = Agent.state agent in
     Alcotest.(check int) "1 api call" 1 st.usage.api_calls;
     Alcotest.(check int) "input" 200 st.usage.total_input_tokens;
@@ -141,8 +154,6 @@ let test_report_format () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Cost_Integration"

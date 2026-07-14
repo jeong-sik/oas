@@ -85,7 +85,7 @@ let test_build_snapshot_with_provider () =
   in
   Alcotest.(check (option string))
     "requested_provider"
-    (Some "claude")
+    (Some "anthropic")
     snap.requested_provider;
   Alcotest.(check (option string))
     "resolved_model"
@@ -120,8 +120,8 @@ let test_runtime_name_anthropic () =
     { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
   in
   Alcotest.(check (option string))
-    "claude"
-    (Some "claude")
+    "anthropic"
+    (Some "anthropic")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 

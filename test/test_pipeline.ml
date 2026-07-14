@@ -461,18 +461,13 @@ let test_pipeline_output_rejects_unmatched_tool_stop () =
   | Ok _ -> Alcotest.fail "expected malformed tool-stop rejection"
 ;;
 
-let test_pipeline_glm_text_tool_intent_remains_text () =
+let test_pipeline_text_tool_intent_remains_text () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
-  let provider : Provider.config =
-    { provider = Provider.Custom_registered { name = "glm" }
-    ; model_id = "glm-5"
-    ; api_key_env = "ZAI_API_KEY"
-    }
-  in
+  let provider = Provider_mock.to_provider_config () in
   let agent = make_text_tool_intent_test_agent ~net ~provider in
   match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
   | Ok (Internal_pipeline.Complete response) ->
@@ -480,30 +475,7 @@ let test_pipeline_glm_text_tool_intent_remains_text () =
      | [ Text _ ] -> ()
      | _ -> Alcotest.fail "expected text to remain unpromoted")
   | Ok Internal_pipeline.ToolsExecuted ->
-    Alcotest.fail "text must not be promoted for GLM providers"
-  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
-;;
-
-let test_pipeline_openai_compat_text_tool_intent_remains_text () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let net = Eio.Stdenv.net env in
-  let provider =
-    Provider.local_llm
-      ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
-      ~model_id:"test-model"
-      ()
-  in
-  let agent = make_text_tool_intent_test_agent ~net ~provider in
-  match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
-  | Ok (Internal_pipeline.Complete response) ->
-    (match response.content with
-     | [ Text _ ] -> ()
-     | _ -> Alcotest.fail "expected text to remain unpromoted")
-  | Ok Internal_pipeline.ToolsExecuted ->
-    Alcotest.fail "expected OpenAI-compatible text tool intent to fail closed"
+    Alcotest.fail "text content must not be promoted into a tool call"
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
 
@@ -1119,13 +1091,9 @@ let () =
             `Quick
             test_pipeline_output_rejects_unmatched_tool_stop
         ; Alcotest.test_case
-            "glm text tool intent remains text"
+            "text tool intent remains text"
             `Quick
-            test_pipeline_glm_text_tool_intent_remains_text
-        ; Alcotest.test_case
-            "openai compat text tool intent remains text"
-            `Quick
-            test_pipeline_openai_compat_text_tool_intent_remains_text
+            test_pipeline_text_tool_intent_remains_text
         ; Alcotest.test_case
             "repeated validation error without judge continues"
             `Quick
