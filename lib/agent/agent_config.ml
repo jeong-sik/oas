@@ -10,15 +10,10 @@
         "model": "claude-sonnet-4-6",
         "system_prompt": "You are helpful.",
         "max_tokens": 4096,
-        "max_turns": 10,
-        "provider": "local",
-        "base_url": "http://127.0.0.1:8085",
+        "provider": "llama-server",
         "enable_thinking": true,
         "thinking_budget": 2048,
-        "tools": [
-          { "name": "get_weather", "description": "Get weather",
-            "parameters": [...] }
-        ],
+        "reasoning_effort": "high",
         "mcp_servers": [
           { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"],
             "name": "everything" }
@@ -26,76 +21,14 @@
       }
     ]}
 
-    Provider values are runtime provider ids or aliases from
-    {!Provider_runtime_binding}; ["local"] remains the built-in llama-server
-    shorthand. Unknown strings are custom provider names unless paired with an
-    explicit [base_url], in which case they are treated as an explicit
-    OpenAI-compatible endpoint using the string as [api_key_env].
+    Provider values are exact runtime provider ids or catalog-declared aliases
+    from {!Provider_runtime_binding}. Endpoint, transport, and authentication
+    facts belong to the provider catalog and are never inferred here.
 *)
 
 open Result_syntax
 
-let bearer_auth_header_for_env api_key_env =
-  if String.trim api_key_env = "" then None else Some "Authorization"
-;;
-
-let string_has_suffix s suffix =
-  let len = String.length s in
-  let suffix_len = String.length suffix in
-  len >= suffix_len && String.sub s (len - suffix_len) suffix_len = suffix
-;;
-
-let string_has_prefix s prefix =
-  let len = String.length s in
-  let prefix_len = String.length prefix in
-  len >= prefix_len && String.sub s 0 prefix_len = prefix
-;;
-
-let trim_trailing_slashes s =
-  let rec loop i =
-    if
-      i > 0
-      && s.[i - 1] = '/'
-      && not (i >= 3 && s.[i - 3] = ':' && s.[i - 2] = '/' && s.[i - 1] = '/')
-    then loop (i - 1)
-    else String.sub s 0 i
-  in
-  loop (String.length s)
-;;
-
-let normalize_request_path path =
-  let path = String.trim path in
-  if path = "" || path.[0] = '/' then path else "/" ^ path
-;;
-
-let normalize_openai_compat_endpoint ~base_url ~path =
-  let base_url = base_url |> String.trim |> trim_trailing_slashes in
-  let path = normalize_request_path path in
-  let path =
-    if string_has_suffix base_url "/v1" && string_has_prefix path "/v1/"
-    then String.sub path 3 (String.length path - 3)
-    else path
-  in
-  base_url, path
-;;
-
-let openai_compat_config ~base_url ~api_key_env ?(path = "/v1/chat/completions") () =
-  let base_url, path = normalize_openai_compat_endpoint ~base_url ~path in
-  Provider.OpenAICompat
-    { base_url
-    ; auth_header = bearer_auth_header_for_env api_key_env
-    ; path
-    ; static_token = None
-    }
-;;
-
-(* ── Tool config ─────────────────────────────────────────── *)
-
-type tool_file_config =
-  { name : string
-  ; description : string
-  ; parameters : Types.tool_param list
-  }
+let _log = Log.create ~module_name:"agent_config" ()
 
 (* ── MCP server config ───────────────────────────────────── *)
 
@@ -119,19 +52,31 @@ type agent_file_config =
   ; model : string
   ; system_prompt : string option
   ; max_tokens : int option
-  ; max_turns : int option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; provider : string option
-  ; base_url : string option
-  ; tools : tool_file_config list
   ; mcp_servers : mcp_file_config list
   }
 
 (* ── JSON parsing ────────────────────────────────────────── *)
 
 let root_config_field = "<root>"
+
+let agent_config_fields =
+  [ "name"
+  ; "model"
+  ; "system_prompt"
+  ; "max_tokens"
+  ; "enable_thinking"
+  ; "preserve_thinking"
+  ; "thinking_budget"
+  ; "reasoning_effort"
+  ; "provider"
+  ; "mcp_servers"
+  ]
+;;
 
 let json_pointer_escape s =
   s
@@ -170,8 +115,49 @@ let require_object ~field = function
   | other -> invalid_type ~field ~expected:"object" other
 ;;
 
+let reject_unknown_fields ~allowed = function
+  | `Assoc fields ->
+    (match List.find_opt (fun (name, _) -> not (List.mem name allowed)) fields with
+     | None -> Ok ()
+     | Some (field, _) ->
+       Error
+         (Error.Config (InvalidConfig { field; detail = "unknown configuration field" })))
+  | (`Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) as other ->
+    invalid_type ~field:root_config_field ~expected:"object" other
+;;
+
 let invalid_type_at ~field_path ~expected json =
   invalid_type ~field:(field_path_to_string field_path) ~expected json
+;;
+
+let parse_optional_string_field ~field json =
+  match field_opt field json with
+  | None | Some `Null -> Ok None
+  | Some (`String value) -> Ok (Some value)
+  | Some other -> invalid_type ~field ~expected:"string or null" other
+;;
+
+let parse_optional_int_field ~field json =
+  match field_opt field json with
+  | None | Some `Null -> Ok None
+  | Some (`Int value) -> Ok (Some value)
+  | Some other -> invalid_type ~field ~expected:"integer or null" other
+;;
+
+let parse_optional_bool_field ~field json =
+  match field_opt field json with
+  | None | Some `Null -> Ok None
+  | Some (`Bool value) -> Ok (Some value)
+  | Some other -> invalid_type ~field ~expected:"boolean or null" other
+;;
+
+let parse_required_string_field ~field json =
+  match field_opt field json with
+  | None ->
+    Error
+      (Error.Config (InvalidConfig { field; detail = "required string field is missing" }))
+  | Some (`String value) -> Ok value
+  | Some other -> invalid_type ~field ~expected:"string" other
 ;;
 
 let parse_optional_list_field ~field json =
@@ -201,127 +187,88 @@ let parse_optional_string_list_field ~field json =
   |> Result.map List.rev
 ;;
 
-let parse_param json =
-  let open Yojson.Safe.Util in
-  try
-    let name = json |> member "name" |> to_string in
-    let description = Util.json_member_str "description" json in
-    let* param_type =
-      match json |> member "type" with
-      | `String type_name ->
-        (match Mcp.json_schema_type_to_param_type_result type_name with
-         | Ok param_type -> Ok param_type
-         | Error detail ->
-           Error (Error.Config (InvalidConfig { field = "parameter.type"; detail })))
-      | `Null ->
-        Error
-          (Error.Config
-             (InvalidConfig
-                { field = "parameter.type"; detail = "missing required field" }))
-      | other -> invalid_type ~field:"parameter.type" ~expected:"string" other
-    in
-    let required = Util.json_member_bool "required" json in
-    Ok { Types.name; description; param_type; required }
-  with
-  | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "parameter"; detail = msg }))
-;;
-
-let parse_tool json =
-  let open Yojson.Safe.Util in
-  try
-    let name = json |> member "name" |> to_string in
-    let description = Util.json_member_str "description" json in
-    let* params_json = parse_optional_list_field ~field:"parameters" json in
-    let params_result =
-      List.fold_left
-        (fun acc j ->
-           match acc with
-           | Error _ as e -> e
-           | Ok ps ->
-             (match parse_param j with
-              | Ok p -> Ok (p :: ps)
-              | Error e -> Error e))
-        (Ok [])
-        params_json
-    in
-    let* parameters = params_result in
-    Ok { name; description; parameters = List.rev parameters }
-  with
-  | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "tool"; detail = msg }))
-;;
-
 let parse_mcp json =
-  let open Yojson.Safe.Util in
-  try
-    match json |> member "url" |> to_string_option with
-    | Some url ->
-      (* HTTP MCP: { "url": "...", "name": "...", "headers": {...} } *)
-      let name = json |> member "name" |> to_string_option |> Option.value ~default:url in
-      let* header_fields = parse_optional_object_field ~field:"headers" json in
-      let* headers =
-        List.fold_left
-          (fun acc (k, v) ->
-             match acc, v with
-             | (Error _ as e), _ -> e
-             | Ok headers, `String value -> Ok ((k, value) :: headers)
-             | Ok _, other ->
-               invalid_type_at ~field_path:[ "headers"; k ] ~expected:"string" other)
-          (Ok [])
-          header_fields
-        |> Result.map List.rev
-      in
-      Ok (Http_mcp { url; headers; name })
-    | None ->
-      (* Stdio MCP: { "command": "...", "args": [...], ... } *)
-      let command = json |> member "command" |> to_string in
-      let* args = parse_optional_string_list_field ~field:"args" json in
-      let name =
-        json |> member "name" |> to_string_option |> Option.value ~default:command
-      in
-      let* env = parse_optional_string_list_field ~field:"env" json in
-      Ok (Stdio_mcp { command; args; name; env })
-  with
-  | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "mcp_server"; detail = msg }))
+  let* () = require_object ~field:"mcp_server" json in
+  match field_opt "url" json, field_opt "command" json with
+  | Some _, Some _ ->
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "mcp_server"
+            ; detail = "exactly one transport field is allowed: url or command"
+            }))
+  | None, None ->
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "mcp_server"
+            ; detail = "exactly one transport field is required: url or command"
+            }))
+  | Some _, None ->
+    let* () = reject_unknown_fields ~allowed:[ "url"; "name"; "headers" ] json in
+    let* url = parse_required_string_field ~field:"url" json in
+    let* configured_name = parse_optional_string_field ~field:"name" json in
+    let name = Option.value ~default:url configured_name in
+    let* header_fields = parse_optional_object_field ~field:"headers" json in
+    let* headers =
+      List.fold_left
+        (fun acc (k, v) ->
+           match acc, v with
+           | (Error _ as e), _ -> e
+           | Ok headers, `String value -> Ok ((k, value) :: headers)
+           | Ok _, other ->
+             invalid_type_at ~field_path:[ "headers"; k ] ~expected:"string" other)
+        (Ok [])
+        header_fields
+      |> Result.map List.rev
+    in
+    Ok (Http_mcp { url; headers; name })
+  | None, Some _ ->
+    let* () = reject_unknown_fields ~allowed:[ "command"; "args"; "name"; "env" ] json in
+    let* command = parse_required_string_field ~field:"command" json in
+    let* args = parse_optional_string_list_field ~field:"args" json in
+    let* configured_name = parse_optional_string_field ~field:"name" json in
+    let name = Option.value ~default:command configured_name in
+    let* env = parse_optional_string_list_field ~field:"env" json in
+    Ok (Stdio_mcp { command; args; name; env })
 ;;
 
 let of_json json =
   let open Yojson.Safe.Util in
   try
     let* () = require_object ~field:root_config_field json in
-    let name =
-      json |> member "name" |> to_string_option |> Option.value ~default:"agent"
-    in
-    let model =
-      json
-      |> member "model"
-      |> to_string_option
-      |> Option.value ~default:"claude-sonnet-4-6"
-    in
-    let system_prompt = json |> member "system_prompt" |> to_string_option in
-    let max_tokens = json |> member "max_tokens" |> to_int_option in
-    let max_turns = json |> member "max_turns" |> to_int_option in
-    let enable_thinking = json |> member "enable_thinking" |> to_bool_option in
-    let preserve_thinking = json |> member "preserve_thinking" |> to_bool_option in
-    let thinking_budget = json |> member "thinking_budget" |> to_int_option in
-    let provider = json |> member "provider" |> to_string_option in
-    let base_url = json |> member "base_url" |> to_string_option in
-    let* tools_json = parse_optional_list_field ~field:"tools" json in
-    let* tools =
-      match tools_json with
-      | [] -> Ok []
-      | _ :: _ ->
+    let* () = reject_unknown_fields ~allowed:agent_config_fields json in
+    let* name = parse_optional_string_field ~field:"name" json in
+    let name = Option.value ~default:"agent" name in
+    let* system_prompt = parse_optional_string_field ~field:"system_prompt" json in
+    let* max_tokens = parse_optional_int_field ~field:"max_tokens" json in
+    let* enable_thinking = parse_optional_bool_field ~field:"enable_thinking" json in
+    let* preserve_thinking = parse_optional_bool_field ~field:"preserve_thinking" json in
+    let* thinking_budget = parse_optional_int_field ~field:"thinking_budget" json in
+    let* reasoning_effort =
+      match json |> member "reasoning_effort" with
+      | `Null -> Ok None
+      | `String value ->
+        (match Llm_provider.Reasoning_effort.of_string value with
+         | Some effort -> Ok (Some effort)
+         | None ->
+           Error
+             (Error.Config
+                (InvalidConfig
+                   { field = "reasoning_effort"
+                   ; detail =
+                       Printf.sprintf
+                         "unsupported value %S; expected one of %s"
+                         value
+                         Llm_provider.Reasoning_effort.values_for_log
+                   })))
+      | _ ->
         Error
           (Error.Config
              (InvalidConfig
-                { field = "tools"
-                ; detail =
-                    "inline config tools have no executable runner; use mcp_servers or \
-                     register typed tools in code"
-                }))
+                { field = "reasoning_effort"; detail = "must be a string or null" }))
     in
+    let* provider = parse_optional_string_field ~field:"provider" json in
     let* mcp_json = parse_optional_list_field ~field:"mcp_servers" json in
     let mcp_result =
       List.fold_left
@@ -336,18 +283,26 @@ let of_json json =
         mcp_json
     in
     let* mcp_servers = mcp_result in
+    let* model =
+      match json |> member "model" with
+      | `String value when String.trim value <> "" -> Ok value
+      | `String _ | `Null ->
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "model"; detail = "exact non-empty model id is required" }))
+      | other -> invalid_type ~field:"model" ~expected:"string" other
+    in
     Ok
       { name
       ; model
       ; system_prompt
       ; max_tokens
-      ; max_turns
       ; enable_thinking
       ; preserve_thinking
       ; thinking_budget
+      ; reasoning_effort
       ; provider
-      ; base_url
-      ; tools = List.rev tools
       ; mcp_servers = List.rev mcp_servers
       }
   with
@@ -366,70 +321,44 @@ let load path =
     Error (Error.Io (FileOpFailed { op = "load"; path; detail = "JSON error: " ^ msg }))
 ;;
 
-(** Resolve provider string + optional base_url to a Provider.config. *)
-let provider_config_of_binding ~model_id ?base_url (binding : Provider_runtime_binding.t) =
-  match base_url with
-  | Some url ->
-    { Provider.provider =
-        openai_compat_config
-          ~base_url:url
-          ~api_key_env:binding.api_key_env
-          ~path:binding.request_path
-          ()
-    ; model_id
-    ; api_key_env = binding.api_key_env
-    }
+let resolve_provider ~model_id provider_id =
+  match Provider_runtime_binding.resolve ~model:model_id provider_id with
+  | Some result -> Result.map snd result
   | None ->
-    { Provider.provider = Custom_registered { name = binding.id }
-    ; model_id
-    ; api_key_env = binding.api_key_env
-    }
-;;
-
-let resolve_provider ~model_id provider_str base_url =
-  let normalized = String.lowercase_ascii (String.trim provider_str) in
-  if normalized = "local"
-  then (
-    let url =
-      match base_url with
-      | Some u -> u
-      | None -> Defaults.resolve_local_llm_url ()
-    in
-    { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
-  else (
-    match Provider_runtime_binding.find normalized with
-    | Some binding -> provider_config_of_binding ~model_id ?base_url binding
-    | None ->
-      (match base_url with
-       | Some url ->
-         let api_key_env = String.trim provider_str in
-         { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
-         ; model_id
-         ; api_key_env
-         }
-       | None ->
-         { Provider.provider = Custom_registered { name = normalized }
-         ; model_id
-         ; api_key_env = String.trim provider_str
-         }))
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "provider"
+            ; detail = Printf.sprintf "unknown provider id %S" provider_id
+            }))
 ;;
 
 (** Convert mcp_file_config to a server spec for stdio, or connect HTTP directly. *)
-let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
+let connect_mcp_server ~sw ?mgr ~net mcp_cfg =
   match mcp_cfg with
   | Stdio_mcp { command; args; name; env } ->
-    let env_pairs =
-      List.filter_map
-        (fun entry ->
-           match String.split_on_char '=' entry with
-           | k :: rest -> Some (k, String.concat "=" rest)
-           | [] -> None)
-        env
-    in
-    let spec : Mcp.server_spec =
-      { command; args; env = env_pairs; env_policy = Mcp.Minimal; name }
-    in
-    Mcp.connect_and_load ~sw ~mgr spec
+    (match mgr with
+     | None ->
+       Error
+         (Error.Config
+            (InvalidConfig
+               { field = "mcp_servers"
+               ; detail =
+                   Printf.sprintf
+                     "stdio MCP server %S requires ~mgr; process manager is missing"
+                     name
+               }))
+     | Some mgr ->
+       let env_pairs =
+         List.filter_map
+           (fun entry ->
+              match String.split_on_char '=' entry with
+              | k :: rest -> Some (k, String.concat "=" rest)
+              | [] -> None)
+           env
+       in
+       let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
+       Mcp.connect_and_load ~sw ~mgr spec)
   | Http_mcp { url; headers; name } ->
     let spec : Mcp_http.http_spec = { base_url = url; headers; name } in
     Mcp_http.connect_and_load_managed ~sw ~net spec
@@ -437,37 +366,280 @@ let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
 
 (** Connect all MCP servers from config.  Config-declared servers are required:
     dropping a failed server silently removes tools from the agent surface. *)
-let connect_mcp_servers_required ~sw ~mgr ~net mcp_cfgs =
+let mcp_server_name = function
+  | Stdio_mcp { name; _ } -> name
+  | Http_mcp { name; _ } -> name
+;;
+
+let required_mcp_connection_error cfg error =
+  Error.Config
+    (InvalidConfig
+       { field = "mcp_servers"
+       ; detail =
+           Printf.sprintf
+             "required MCP server %S failed to connect: %s"
+             (mcp_server_name cfg)
+             (Error.to_string error)
+       })
+;;
+
+type 'a cleanup_failure =
+  { resource : 'a
+  ; exception_ : exn
+  ; backtrace : Printexc.raw_backtrace
+  }
+
+let rollback_connected ~close connected =
   List.fold_left
-    (fun acc cfg ->
-       match connect_mcp_server ~sw ~mgr ~net cfg with
-       | Ok managed -> Result.map (fun manageds -> managed :: manageds) acc
-       | Error e ->
-         let name =
-           match cfg with
-           | Stdio_mcp { name; _ } -> name
-           | Http_mcp { name; _ } -> name
-         in
-         Error
-           (Error.Config
-              (InvalidConfig
-                 { field = "mcp_servers"
-                 ; detail =
-                     Printf.sprintf
-                       "required MCP server %S failed to connect: %s"
-                       name
-                       (Error.to_string e)
-                 })))
-    (Ok [])
+    (fun failures resource ->
+       match close resource with
+       | () -> failures
+       | exception exception_ ->
+         let backtrace = Printexc.get_raw_backtrace () in
+         { resource; exception_; backtrace } :: failures)
+    []
+    connected
+  |> List.rev
+;;
+
+let connect_mcp_servers_transactionally ~connect ~close ~report_cleanup_failures mcp_cfgs =
+  let rollback connected =
+    Eio.Cancel.protect (fun () ->
+      match rollback_connected ~close connected with
+      | [] -> ()
+      | failures ->
+        (match report_cleanup_failures failures with
+         | () -> ()
+         | exception reporter_exception ->
+           let reporter_backtrace = Printexc.get_raw_backtrace () in
+           let cleanup_diagnostics =
+             List.mapi
+               (fun index { exception_; backtrace; _ } ->
+                  Printf.sprintf
+                    "cleanup[%d]: %s\n%s"
+                    index
+                    (Log.redact (Printexc.to_string exception_))
+                    (Printexc.raw_backtrace_to_string backtrace))
+               failures
+             |> String.concat "\n"
+           in
+           Eio.traceln
+             "agent_config: MCP cleanup failure reporter raised: %s\n%s\n%s"
+             (Log.redact (Printexc.to_string reporter_exception))
+             (Printexc.raw_backtrace_to_string reporter_backtrace)
+             cleanup_diagnostics))
+  in
+  let rec loop connected = function
+    | [] -> Ok (List.rev connected)
+    | cfg :: remaining ->
+      let connection =
+        try connect cfg with
+        | exn ->
+          let raw_backtrace = Printexc.get_raw_backtrace () in
+          rollback connected;
+          Printexc.raise_with_backtrace exn raw_backtrace
+      in
+      (match connection with
+       | Ok managed -> loop (managed :: connected) remaining
+       | Error error ->
+         rollback connected;
+         Error (required_mcp_connection_error cfg error))
+  in
+  loop [] mcp_cfgs
+;;
+
+let close_mcp_managed_for_rollback (managed : Mcp.managed) =
+  match managed.transport with
+  | Stdio { client; _ } -> Mcp.close client
+  | Http { close_fn; _ } -> close_fn ()
+;;
+
+let report_mcp_cleanup_failures failures =
+  let failures_json =
+    List.map
+      (fun { resource = (managed : Mcp.managed); exception_; backtrace } ->
+         `Assoc
+           [ "server", `String managed.name
+           ; "error", `String (Printexc.to_string exception_)
+           ; "backtrace", `String (Printexc.raw_backtrace_to_string backtrace)
+           ])
+      failures
+  in
+  Log.error
+    _log
+    "MCP transactional rollback could not close every connected server"
+    [ Log.J ("failures", `List failures_json) ]
+;;
+
+let connect_mcp_servers_required ~sw ?mgr ~net mcp_cfgs =
+  connect_mcp_servers_transactionally
+    ~connect:(connect_mcp_server ~sw ?mgr ~net)
+    ~close:close_mcp_managed_for_rollback
+    ~report_cleanup_failures:report_mcp_cleanup_failures
     mcp_cfgs
-  |> Result.map List.rev
+;;
+
+let%test "required MCP connection stops at the first error and closes prior successes" =
+  let first = Stdio_mcp { command = "first"; args = []; name = "first"; env = [] } in
+  let second = Stdio_mcp { command = "second"; args = []; name = "second"; env = [] } in
+  let third = Stdio_mcp { command = "third"; args = []; name = "third"; env = [] } in
+  let fourth = Stdio_mcp { command = "fourth"; args = []; name = "fourth"; env = [] } in
+  let connection_error =
+    Error.Mcp (ServerStartFailed { command = "third"; detail = "boom" })
+  in
+  let outcomes =
+    ref
+      [ Ok "connected-first"
+      ; Ok "connected-second"
+      ; Error connection_error
+      ; Ok "not-attempted"
+      ]
+  in
+  let connect _cfg =
+    match !outcomes with
+    | outcome :: remaining ->
+      outcomes := remaining;
+      outcome
+    | [] -> failwith "connector called more times than configured outcomes"
+  in
+  let closed = ref [] in
+  let cleanup_failures = ref [] in
+  let result =
+    Eio_main.run
+    @@ fun _env ->
+    connect_mcp_servers_transactionally
+      ~connect
+      ~close:(fun connected -> closed := connected :: !closed)
+      ~report_cleanup_failures:(fun failures -> cleanup_failures := failures)
+      [ first; second; third; fourth ]
+  in
+  let exact_error =
+    match result with
+    | Error (Error.Config (InvalidConfig { field; detail })) ->
+      String.equal field "mcp_servers"
+      && String.equal
+           detail
+           "required MCP server \"third\" failed to connect: Failed to start MCP server \
+            'third': boom"
+    | Error error ->
+      failwith ("unexpected MCP transaction error: " ^ Error.to_string error)
+    | Ok _ -> false
+  in
+  exact_error
+  && List.rev !closed = [ "connected-second"; "connected-first" ]
+  && !cleanup_failures = []
+  && !outcomes = [ Ok "not-attempted" ]
+;;
+
+let%test "required MCP connection does not attempt a server after an initial error" =
+  let first = Http_mcp { url = "first"; headers = []; name = "first" } in
+  let second = Http_mcp { url = "second"; headers = []; name = "second" } in
+  let connection_error = Error.Mcp (InitializeFailed { detail = "first failed" }) in
+  let outcomes = ref [ Error connection_error; Ok "not-attempted" ] in
+  let connect _cfg =
+    match !outcomes with
+    | outcome :: remaining ->
+      outcomes := remaining;
+      outcome
+    | [] -> failwith "connector called more times than configured outcomes"
+  in
+  let close_calls = ref 0 in
+  let result =
+    Eio_main.run
+    @@ fun _env ->
+    connect_mcp_servers_transactionally
+      ~connect
+      ~close:(fun _connected -> incr close_calls)
+      ~report_cleanup_failures:(fun _ -> failwith "unexpected cleanup failure")
+      [ first; second ]
+  in
+  Result.is_error result && !close_calls = 0 && !outcomes = [ Ok "not-attempted" ]
+;;
+
+let%test "required MCP rollback survives cancellation and preserves every failure" =
+  let exception Connector_raised of int ref in
+  let exception Cleanup_raised of string in
+  let exception Reporter_raised in
+  let first = Http_mcp { url = "first"; headers = []; name = "first" } in
+  let second = Http_mcp { url = "second"; headers = []; name = "second" } in
+  let third = Http_mcp { url = "third"; headers = []; name = "third" } in
+  let payload = ref 42 in
+  let outcomes = ref [ Ok "connected-first"; Ok "connected-second" ] in
+  let previous_backtrace_status = Printexc.backtrace_status () in
+  Printexc.record_backtrace true;
+  Fun.protect
+    ~finally:(fun () -> Printexc.record_backtrace previous_backtrace_status)
+    (fun () ->
+       Eio_main.run
+       @@ fun _env ->
+       Eio.Cancel.sub
+       @@ fun cancel_context ->
+       let expected_backtrace = ref None in
+       let connect _cfg =
+         match !outcomes with
+         | outcome :: remaining ->
+           outcomes := remaining;
+           outcome
+         | [] ->
+           Eio.Cancel.cancel cancel_context Exit;
+           (try raise (Connector_raised payload) with
+            | exn ->
+              let backtrace = Printexc.get_raw_backtrace () in
+              expected_backtrace := Some (Printexc.raw_backtrace_to_string backtrace);
+              Printexc.raise_with_backtrace exn backtrace)
+       in
+       let closed = ref [] in
+       let reported = ref [] in
+       let observed_backtrace =
+         match
+           connect_mcp_servers_transactionally
+             ~connect
+             ~close:(fun connected ->
+               closed := connected :: !closed;
+               Eio.Fiber.yield ();
+               raise (Cleanup_raised connected))
+             ~report_cleanup_failures:(fun failures ->
+               reported := failures;
+               raise Reporter_raised)
+             [ first; second; third ]
+         with
+         | Ok _ | Error _ -> None
+         | exception Connector_raised actual_payload when actual_payload == payload ->
+           Some (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ()))
+         | exception _ -> None
+       in
+       let reported_resources = List.map (fun { resource; _ } -> resource) !reported in
+       let reported_exceptions =
+         List.map
+           (fun { exception_; backtrace; _ } ->
+              match exception_ with
+              | Cleanup_raised resource ->
+                resource, Printexc.raw_backtrace_to_string backtrace
+              | _ -> "unexpected", "")
+           !reported
+       in
+       let original_backtrace_preserved =
+         match !expected_backtrace, observed_backtrace with
+         | Some expected, Some observed ->
+           String.length expected > 0 && String.starts_with ~prefix:expected observed
+         | None, _ | _, None -> false
+       in
+       original_backtrace_preserved
+       && List.rev !closed = [ "connected-second"; "connected-first" ]
+       && reported_resources = [ "connected-second"; "connected-first" ]
+       && List.for_all
+            (fun (resource, backtrace) ->
+               List.mem resource [ "connected-second"; "connected-first" ]
+               && String.length backtrace > 0)
+            reported_exceptions)
 ;;
 
 (** Convert a loaded config to a Builder.t.
-    When [~sw] and [~mgr] are provided, MCP servers from config are connected
-    and their tools are registered.  Without them, MCP servers are skipped. *)
+    Every configured MCP server requires [~sw].  Stdio servers additionally
+    require [~mgr].  Missing runtime resources are rejected instead of silently
+    dropping the configured tool surface. *)
 let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
-  let model = Model_registry.resolve_model_id cfg.model in
+  let model = cfg.model in
   let b = Builder.create ~net ~model in
   let b = Builder.with_name cfg.name b in
   let b =
@@ -478,11 +650,6 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
   let b =
     match cfg.max_tokens with
     | Some n -> Builder.with_max_tokens n b
-    | None -> b
-  in
-  let b =
-    match cfg.max_turns with
-    | Some n -> Builder.with_max_turns n b
     | None -> b
   in
   let b =
@@ -501,23 +668,44 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
     | None -> b
   in
   let b =
-    match cfg.provider with
-    | Some p -> Builder.with_provider (resolve_provider ~model_id:model p cfg.base_url) b
+    match cfg.reasoning_effort with
+    | Some effort -> Builder.with_reasoning_effort effort b
     | None -> b
   in
-  if cfg.tools <> []
-  then
-    invalid_arg
-      "Agent_config.to_builder: inline config tools have no executable runner; use \
-       mcp_servers or register typed tools in code";
-  (* Connect MCP servers if sw+mgr provided *)
-  let b =
-    match sw, mgr with
-    | Some sw, Some mgr when cfg.mcp_servers <> [] ->
-      (match connect_mcp_servers_required ~sw ~mgr ~net cfg.mcp_servers with
-       | Ok managed -> if managed <> [] then Builder.with_mcp_clients managed b else b
-       | Error err -> invalid_arg (Error.to_string err))
-    | _ -> b
+  let* b =
+    match cfg.provider with
+    | Some provider_id ->
+      let* provider = resolve_provider ~model_id:model provider_id in
+      Ok (Builder.with_provider provider b)
+    | None -> Ok b
   in
-  b
+  let* b =
+    match cfg.mcp_servers, sw with
+    | [], _ -> Ok b
+    | _ :: _, None ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "mcp_servers"
+              ; detail = "configured MCP servers require ~sw; runtime switch is missing"
+              }))
+    | mcp_servers, Some sw
+      when Option.is_none mgr
+           && List.exists
+                (function
+                  | Stdio_mcp _ -> true
+                  | Http_mcp _ -> false)
+                mcp_servers ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "mcp_servers"
+              ; detail =
+                  "configured stdio MCP servers require ~mgr; process manager is missing"
+              }))
+    | mcp_servers, Some sw ->
+      let* managed = connect_mcp_servers_required ~sw ?mgr ~net mcp_servers in
+      Ok (Builder.with_mcp_clients managed b)
+  in
+  Ok b
 ;;

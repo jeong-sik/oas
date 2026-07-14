@@ -8,9 +8,7 @@ let notify_attribution callback attribution =
 
 let binding_identity_for_call agent provider_config =
   let transport =
-    Binding_identity.transport_for_call
-      ~injected:(Option.is_some agent.options.transport)
-      provider_config
+    Binding_identity.transport_for_call ~injected:(Option.is_some agent.options.transport)
   in
   Binding_identity.of_provider_config ~transport provider_config
 ;;
@@ -20,13 +18,14 @@ let dispatch_sync
       ?clock
       ?(trace_context = [])
       ?on_provider_failure
+      ~turn_config
       agent
       (prep : Agent_turn.turn_preparation)
   =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   match
     Provider.provider_config_of_agent
-      ~state:agent.state
+      ~state:{ agent.state with config = turn_config }
       ~base_url:agent.options.base_url
       agent.options.provider
   with
@@ -36,34 +35,17 @@ let dispatch_sync
     Error detailed.error
   | Ok pc ->
     let call () =
-      match clock with
-      | Some clock ->
-        Llm_provider.Complete.complete_with_retry
-          ~sw
-          ~net:agent.net
-          ?transport:agent.options.transport
-          ~clock
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
-          ~trace_context
-          ?priority:agent.options.priority
-          ?body_timeout_s:agent.options.body_timeout_s
-          ()
-      | None ->
-        Llm_provider.Complete.complete
-          ~sw
-          ~net:agent.net
-          ?transport:agent.options.transport
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
-          ~trace_context
-          ?priority:agent.options.priority
-          ?body_timeout_s:agent.options.body_timeout_s
-          ()
+      Llm_provider.Complete.complete
+        ~sw
+        ~net:agent.net
+        ?clock
+        ?transport:agent.options.transport
+        ~config:pc
+        ~messages:prep.Agent_turn.effective_messages
+        ~tools
+        ~trace_context
+        ?body_timeout_s:agent.options.body_timeout_s
+        ()
     in
     (match call () with
      | Ok resp ->
@@ -79,9 +61,11 @@ let dispatch_sync
 let dispatch_stream
       ~sw
       ?clock
+      ~turn_config
       agent
       (prep : Agent_turn.turn_preparation)
       ~on_event
+      ?capture_id
       ?(trace_context = [])
       ?on_telemetry
       ?on_provider_failure
@@ -90,7 +74,7 @@ let dispatch_stream
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   match
     Provider.provider_config_of_agent
-      ~state:agent.state
+      ~state:{ agent.state with config = turn_config }
       ~base_url:agent.options.base_url
       agent.options.provider
   with
@@ -100,38 +84,20 @@ let dispatch_stream
     Error detailed.error
   | Ok pc ->
     let call () =
-      match clock with
-      | Some clock ->
-        Llm_provider.Complete.complete_stream_with_retry
-          ~sw
-          ~net:agent.net
-          ?transport:agent.options.transport
-          ~clock
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
-          ~trace_context
-          ~on_event
-          ?on_telemetry
-          ?priority:agent.options.priority
-          ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
-          ()
-      | None ->
-        Llm_provider.Complete.complete_stream
-          ~sw
-          ~net:agent.net
-          ?transport:agent.options.transport
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
-          ~trace_context
-          ~on_event
-          ?on_telemetry
-          ?priority:agent.options.priority
-          ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
-          ()
+      Llm_provider.Complete.complete_stream
+        ~sw
+        ~net:agent.net
+        ?clock
+        ?transport:agent.options.transport
+        ?capture_id
+        ~config:pc
+        ~messages:prep.Agent_turn.effective_messages
+        ~tools
+        ~trace_context
+        ~on_event
+        ?on_telemetry
+        ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+        ()
     in
     (match call () with
      | Ok resp ->

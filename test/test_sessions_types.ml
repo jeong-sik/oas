@@ -308,46 +308,48 @@ let test_hook_summary () =
 (* ── tool_contract ─────────────────────────────────────────────── *)
 
 let test_tool_contract () =
-  let with_shell : Sessions.tool_contract =
+  let concurrent : Sessions.tool_contract =
     { name = "bash"
     ; description = "Shell"
     ; origin = Some "builtin"
-    ; kind = Some "shell"
-    ; shell =
-        Some
-          { Tool.single_command_only = true
-          ; shell_metacharacters_allowed = false
-          ; chaining_allowed = false
-          ; redirection_allowed = true
-          ; pipes_allowed = true
-          ; workdir_policy = Some Tool.Required
-          }
-    ; notes = [ "caution" ]
-    ; examples = [ "ls -la" ]
+    ; execution_mode = Tool.Concurrent
     }
   in
   roundtrip
     ~to_yojson:Sessions.tool_contract_to_yojson
     ~of_yojson:Sessions.tool_contract_of_yojson
     ~show:Sessions.show_tool_contract
-    ~name:"tool_contract_shell"
-    with_shell;
+    ~name:"tool_contract_concurrent"
+    concurrent;
   let minimal : Sessions.tool_contract =
-    { name = "read"
-    ; description = "Read"
-    ; origin = None
-    ; kind = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
+    { name = "read"; description = "Read"; origin = None; execution_mode = Tool.Serial }
   in
   roundtrip
     ~to_yojson:Sessions.tool_contract_to_yojson
     ~of_yojson:Sessions.tool_contract_of_yojson
     ~show:Sessions.show_tool_contract
     ~name:"tool_contract_minimal"
-    minimal
+    minimal;
+  let removed_shape =
+    `Assoc
+      [ "name", `String "read"
+      ; "description", `String "Read"
+      ; "origin", `Null
+      ; "execution_mode", `String "serial"
+      ; "kind", `String "local"
+      ]
+  in
+  Alcotest.(check bool)
+    "removed fields rejected"
+    true
+    (Result.is_error (Sessions.tool_contract_of_yojson removed_shape));
+  let missing_mode =
+    `Assoc [ "name", `String "read"; "description", `String "Read"; "origin", `Null ]
+  in
+  Alcotest.(check bool)
+    "missing execution mode rejected"
+    true
+    (Result.is_error (Sessions.tool_contract_of_yojson missing_mode))
 ;;
 
 (* ── worker_status ─────────────────────────────────────────────── *)
@@ -379,7 +381,6 @@ let test_worker_run () =
     ; model = Some "sonnet-4-6"
     ; requested_provider = Some "anthropic"
     ; requested_model = Some "sonnet-4-6"
-    ; requested_policy = Some "best"
     ; resolved_provider = Some "anthropic"
     ; resolved_model = Some "sonnet-4-6-20250514"
     ; status = Sessions.Running
@@ -396,10 +397,7 @@ let test_worker_run () =
     ; started_at = Some 1.7e9
     ; finished_at = None
     ; last_progress_at = Some 1.7e9
-    ; policy_snapshot = Some "t1"
     ; paired_tool_result_count = 12
-    ; has_file_write = true
-    ; verification_pass_after_file_write = true
     }
   in
   roundtrip
@@ -420,7 +418,6 @@ let test_worker_run () =
     ; model = None
     ; requested_provider = None
     ; requested_model = None
-    ; requested_policy = None
     ; resolved_provider = None
     ; resolved_model = None
     ; status = Sessions.Planned
@@ -437,10 +434,7 @@ let test_worker_run () =
     ; started_at = None
     ; finished_at = None
     ; last_progress_at = None
-    ; policy_snapshot = None
     ; paired_tool_result_count = 0
-    ; has_file_write = false
-    ; verification_pass_after_file_write = false
     }
   in
   roundtrip

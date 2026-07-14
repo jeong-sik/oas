@@ -2,43 +2,15 @@
 
     This is a defence-in-depth layer: secrets should never be written to
     traces/logs in the first place, but if they leak in via user prompts,
-    tool arguments, or provider error bodies, the redactor scrubs common
-    patterns before persistence or emission.
+    tool arguments, or provider error bodies, the redactor scrubs generic
+    credential contexts before persistence or emission. It deliberately does
+    not classify bare strings from provider-specific token formats.
 
     The scanner is intentionally simple (allocation-conscious string scanning)
     to avoid pulling in a regex library and to keep latency predictable in the
     hot trace path.
 
     @since 0.207.0 *)
-
-let is_shell_meta ch =
-  match ch with
-  | ';'
-  | '|'
-  | '&'
-  | '$'
-  | '`'
-  | '('
-  | ')'
-  | '{'
-  | '}'
-  | '<'
-  | '>'
-  | '*'
-  | '?'
-  | '#'
-  | '!'
-  | '~'
-  | '\\'
-  | '"'
-  | '\''
-  | '\n'
-  | '\r'
-  | '\t' -> true
-  | _ -> false
-;;
-
-let has_shell_meta s = String.exists is_shell_meta s
 
 let is_token_char ch =
   match ch with
@@ -264,52 +236,10 @@ let redact_private_key_block s =
 
 let builtin_prefixes = [ "Bearer "; "api-key: "; "x-api-key: "; "Authorization:"; "key=" ]
 
-let is_alphanum ch =
-  match ch with
-  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' -> true
-  | _ -> false
-;;
-
-let all_alphanum s pos len =
-  let rec check i =
-    if i >= pos + len then true else if is_alphanum s.[i] then check (i + 1) else false
-  in
-  check pos
-;;
-
-let redact_known_tokens s =
-  let len = String.length s in
-  let buf = Buffer.create len in
-  let rec loop pos =
-    if pos >= len
-    then ()
-    else if has_prefix_at s pos "AKIA" && pos + 20 <= len && all_alphanum s (pos + 4) 16
-    then (
-      Buffer.add_string buf redaction_marker;
-      loop (pos + 20))
-    else if has_prefix_at s pos "sk-"
-    then (
-      let tok_len = token_len s (pos + 3) in
-      Buffer.add_string buf redaction_marker;
-      loop (pos + 3 + tok_len))
-    else if has_prefix_at s pos "ghp_"
-    then (
-      let tok_len = token_len s (pos + 4) in
-      Buffer.add_string buf redaction_marker;
-      loop (pos + 4 + tok_len))
-    else (
-      Buffer.add_char buf s.[pos];
-      loop (pos + 1))
-  in
-  loop 0;
-  Buffer.contents buf
-;;
-
 let redact_common_tokens s =
   let s = redact_url_userinfo s in
   let s = redact_private_key_block s in
-  let s = redact_prefixes s builtin_prefixes in
-  redact_known_tokens s
+  redact_prefixes s builtin_prefixes
 ;;
 
 let redact_string s =
@@ -326,19 +256,11 @@ let rec redact_json = function
 ;;
 
 let%test "redact_string masks Bearer token" =
-  redact_string "Authorization: Bearer sk-abc123" = "Authorization: Bearer [REDACTED]"
+  redact_string "Authorization: Bearer opaque-token" = "Authorization: Bearer [REDACTED]"
 ;;
 
 let%test "redact_string masks api-key header" =
-  redact_string "x-api-key: sk-ant-xyz" = "x-api-key: [REDACTED]"
-;;
-
-let%test "redact_string masks AWS access key id" =
-  redact_string "AKIAIOSFODNN7EXAMPLE" = "[REDACTED]"
-;;
-
-let%test "redact_string masks GitHub token" =
-  redact_string "ghp_xxxxxxxxxxxx" = "[REDACTED]"
+  redact_string "x-api-key: opaque-token" = "x-api-key: [REDACTED]"
 ;;
 
 let%test "redact_string masks URL userinfo" =
@@ -362,10 +284,10 @@ let%test "redact_string collapses base64 media data url" =
   = "data:image/png;base64,[REDACTED_MEDIA]"
 ;;
 
-let%test "redact_string still masks tokens in media data url header" =
+let%test "redact_string preserves ordinary media metadata" =
   let payload = String.make (128 * 1024) 'A' in
-  redact_string ("data:image/png;name=sk-media-secret;base64," ^ payload)
-  = "data:image/png;name=[REDACTED];base64,[REDACTED_MEDIA]"
+  redact_string ("data:image/png;name=opaque-label;base64," ^ payload)
+  = "data:image/png;name=opaque-label;base64,[REDACTED_MEDIA]"
 ;;
 
 let%test "redact_string collapses embedded base64 media data url" =
@@ -400,4 +322,8 @@ let%test "redact_string preserves large non-secret payload" =
 
 let%test "redact_string leaves ordinary text alone" =
   redact_string "hello world" = "hello world"
+;;
+
+let%test "redact_string does not infer credential meaning from a bare identifier" =
+  redact_string "opaque_prefix_0123456789" = "opaque_prefix_0123456789"
 ;;

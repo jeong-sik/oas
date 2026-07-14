@@ -3,9 +3,8 @@
     Decomposes a high-level goal into ordered steps, tracks progress,
     and supports re-planning when steps fail or conditions change.
 
-    Complementary to {!Durable}: Plan handles {i what} to do
-    (goal decomposition, re-planning), while Durable handles
-    {i how} to execute reliably (crash recovery, journaling).
+    Plan handles typed goal decomposition and re-planning without owning the
+    agent execution lifecycle.
 
     @since 0.77.0
 

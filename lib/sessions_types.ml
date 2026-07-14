@@ -118,12 +118,73 @@ type tool_contract =
   { name : string
   ; description : string
   ; origin : string option
-  ; kind : string option
-  ; shell : Tool.shell_constraints option
-  ; notes : string list
-  ; examples : string list
+  ; execution_mode : Tool.execution_mode
   }
-[@@deriving yojson, show]
+[@@deriving show]
+
+let tool_contract_to_yojson contract =
+  `Assoc
+    [ "name", `String contract.name
+    ; "description", `String contract.description
+    ; ( "origin"
+      , match contract.origin with
+        | Some origin -> `String origin
+        | None -> `Null )
+    ; "execution_mode", Tool.execution_mode_to_yojson contract.execution_mode
+    ]
+;;
+
+let tool_contract_of_yojson json =
+  let ( let* ) = Result.bind in
+  match json with
+  | `Assoc fields ->
+    let allowed = [ "name"; "description"; "origin"; "execution_mode" ] in
+    let rec validate_names seen = function
+      | [] -> Ok ()
+      | (name, _) :: _ when not (List.mem name allowed) ->
+        Error (Printf.sprintf "tool contract field %S is not supported" name)
+      | (name, _) :: _ when List.mem name seen ->
+        Error (Printf.sprintf "tool contract field %S is duplicated" name)
+      | (name, _) :: rest -> validate_names (name :: seen) rest
+    in
+    let required_string name =
+      match List.assoc_opt name fields with
+      | Some (`String value) -> Ok value
+      | Some value ->
+        Error
+          (Printf.sprintf
+             "tool contract field %S must be a string, got %s"
+             name
+             (Yojson.Safe.to_string value))
+      | None -> Error (Printf.sprintf "tool contract field %S is required" name)
+    in
+    let* () = validate_names [] fields in
+    let* name = required_string "name" in
+    let* description = required_string "description" in
+    let* origin =
+      match List.assoc_opt "origin" fields with
+      | Some (`String value) -> Ok (Some value)
+      | Some `Null -> Ok None
+      | Some value ->
+        Error
+          (Printf.sprintf
+             "tool contract field %S must be a string or null, got %s"
+             "origin"
+             (Yojson.Safe.to_string value))
+      | None -> Error "tool contract field \"origin\" is required"
+    in
+    let* execution_mode =
+      match List.assoc_opt "execution_mode" fields with
+      | Some value -> Tool.execution_mode_of_yojson value
+      | None -> Error "tool contract field \"execution_mode\" is required"
+    in
+    Ok { name; description; origin; execution_mode }
+  | value ->
+    Error
+      (Printf.sprintf
+         "tool contract must be an object, got %s"
+         (Yojson.Safe.to_string value))
+;;
 
 type raw_trace_run = Raw_trace.run_ref [@@deriving yojson, show]
 type raw_trace_summary = Raw_trace.run_summary [@@deriving yojson, show]
@@ -160,7 +221,6 @@ type worker_run =
   ; model : string option
   ; requested_provider : string option
   ; requested_model : string option
-  ; requested_policy : string option
   ; resolved_provider : string option
   ; resolved_model : string option
   ; status : worker_status
@@ -177,10 +237,7 @@ type worker_run =
   ; started_at : float option
   ; finished_at : float option
   ; last_progress_at : float option
-  ; policy_snapshot : string option
   ; paired_tool_result_count : int
-  ; has_file_write : bool
-  ; verification_pass_after_file_write : bool
   }
 [@@deriving yojson, show]
 
@@ -418,14 +475,7 @@ let%test "show_missing_file non-empty" =
 (* -- tool_contract round-trip -- *)
 let%test "tool_contract round-trip" =
   let v : tool_contract =
-    { name = "t"
-    ; description = "d"
-    ; origin = Some "o"
-    ; kind = Some "k"
-    ; shell = None
-    ; notes = [ "n1" ]
-    ; examples = [ "e1" ]
-    }
+    { name = "t"; description = "d"; origin = Some "o"; execution_mode = Tool.Concurrent }
   in
   tool_contract_of_yojson (tool_contract_to_yojson v) = Ok v
 ;;
@@ -444,7 +494,6 @@ let%test "worker_run minimal round-trip" =
     ; model = None
     ; requested_provider = None
     ; requested_model = None
-    ; requested_policy = None
     ; resolved_provider = None
     ; resolved_model = None
     ; status = Planned
@@ -461,10 +510,7 @@ let%test "worker_run minimal round-trip" =
     ; started_at = None
     ; finished_at = None
     ; last_progress_at = None
-    ; policy_snapshot = None
     ; paired_tool_result_count = 0
-    ; has_file_write = false
-    ; verification_pass_after_file_write = false
     }
   in
   worker_run_of_yojson (worker_run_to_yojson v) = Ok v

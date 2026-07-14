@@ -10,11 +10,11 @@ open Alcotest
 
 let quick_response text =
   Printf.sprintf
-    {|{"id":"m","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+    {|{"id":"m","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|}
     text
 ;;
 
-(** Start a mock Anthropic API server. Returns base_url.
+(** Start a test-only OpenAI-compatible server. Returns base_url.
     Optionally delays [delay_sec] before responding. *)
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
@@ -50,9 +50,14 @@ let start_mock ~sw ~net ~clock ?(delay_sec = 0.0) response_text =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent ?max_execution_time_s ~net base_url name =
-  let config = { Types.default_config with name; max_turns = 1 } in
-  let options = { Agent.default_options with base_url; max_execution_time_s } in
+let make_agent ~net base_url name =
+  let config =
+    { (Types.default_config ~model:"test-model") with name; model = "mock-model" }
+  in
+  let provider : Provider.config =
+    { provider = Provider.Local { base_url }; model_id = "mock-model"; api_key_env = "" }
+  in
+  let options = { Agent.default_options with base_url; provider = Some provider } in
   Agent.create ~net ~config ~options ()
 ;;
 
@@ -309,42 +314,6 @@ let test_all_order () =
   | Exit -> ()
 ;;
 
-let test_all_timeout_is_per_agent () =
-  Eio_main.run
-  @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url_fast_1 = start_mock ~sw ~net:env#net ~clock "fast-1" in
-    let url_slow = start_mock ~sw ~net:env#net ~clock ~delay_sec:1.0 "too-slow" in
-    let url_fast_2 = start_mock ~sw ~net:env#net ~clock "fast-2" in
-    let fast_1 = make_agent ~net:env#net url_fast_1 "all-fast-1" in
-    let slow = make_agent ~max_execution_time_s:0.2 ~net:env#net url_slow "all-slow" in
-    let fast_2 = make_agent ~net:env#net url_fast_2 "all-fast-2" in
-    let results =
-      Async_agent.all ~sw ~clock ~max_fibers:3 [ fast_1, "go"; slow, "go"; fast_2, "go" ]
-    in
-    let lookup name = List.assoc name results in
-    (match lookup "all-fast-1" with
-     | Ok resp -> check string "first sibling completed" "fast-1" (extract_text resp)
-     | Error e -> fail (Printf.sprintf "first sibling failed: %s" (Error.to_string e)));
-    (match lookup "all-slow" with
-     | Error
-         (Error.Agent
-            (Error.AgentExecutionTimeout { timeout_sec; turn_count; max_turns; _ })) ->
-       Alcotest.(check bool) "timeout budget preserved" true (timeout_sec <= 0.21);
-       Alcotest.(check bool) "turn count captured" true (turn_count <= max_turns)
-     | Ok _ -> fail "slow branch should time out"
-     | Error e -> fail (Printf.sprintf "wrong slow error: %s" (Error.to_string e)));
-    (match lookup "all-fast-2" with
-     | Ok resp -> check string "second sibling completed" "fast-2" (extract_text resp)
-     | Error e -> fail (Printf.sprintf "second sibling failed: %s" (Error.to_string e)));
-    Eio.Switch.fail sw Exit
-  with
-  | Exit -> ()
-;;
-
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -374,7 +343,6 @@ let () =
     ; ( "all"
       , [ test_case "collects_all" `Quick test_all_collects
         ; test_case "preserves_order" `Quick test_all_order
-        ; test_case "timeout_is_per_agent" `Quick test_all_timeout_is_per_agent
         ] )
     ]
 ;;

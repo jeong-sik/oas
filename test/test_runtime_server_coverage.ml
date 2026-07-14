@@ -10,17 +10,6 @@ let contains label ~needle text =
   Alcotest.(check bool) label true (Util.string_contains ~needle text)
 ;;
 
-let source_path path =
-  if Filename.is_relative path
-  then (
-    match Sys.getenv_opt "DUNE_SOURCEROOT" with
-    | Some root -> Filename.concat root path
-    | None -> path)
-  else path
-;;
-
-let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
-
 let with_temp_store f =
   let root =
     Filename.concat
@@ -35,8 +24,18 @@ let with_temp_store f =
 ;;
 
 let make_state env root =
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
-  state.session_root <- Some root;
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let init : Runtime.init_request =
+    { session_root = Some root
+    ; provider = None
+    ; model = None
+    ; include_partial_messages = false
+    ; setting_sources = []
+    ; resume_session = None
+    ; cwd = None
+    }
+  in
+  ignore (Runtime_server_types.initialize state init |> expect_ok "initialize state");
   state
 ;;
 
@@ -44,11 +43,9 @@ let start_request ?(session_id = "rt-cov") () : Runtime.start_request =
   { session_id = Some session_id
   ; goal = "cover runtime server"
   ; participants = [ "worker" ]
-  ; provider = Some "mock"
-  ; model = Some "mock-model"
-  ; permission_mode = Some "ask"
+  ; provider = Some "local"
+  ; model = Some "test-model"
   ; system_prompt = Some "session prompt"
-  ; max_turns = Some 4
   ; workdir = Some "/tmp/oas"
   }
 ;;
@@ -76,28 +73,49 @@ let test_handle_initialize_status_events_report_prove_shutdown () =
   @@ fun root store ->
   Eio.Switch.run
   @@ fun sw ->
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
   let init : Runtime.init_request =
     { session_root = Some ("  " ^ root ^ "  ")
-    ; provider = Some "mock"
-    ; model = Some "mock-model"
-    ; permission_mode = Some "ask"
+    ; provider = None
+    ; model = Some "test-model"
     ; include_partial_messages = false
     ; setting_sources = [ "test" ]
     ; resume_session = None
     ; cwd = Some "/tmp/oas"
     }
   in
+  (match
+     Runtime_server.handle_request ~sw state (Runtime.Status { session_id = "pre-init" })
+   with
+   | Error (Error.Config (InvalidConfig { field = "runtime.initialize"; _ })) -> ()
+   | Error err -> Alcotest.failf "unexpected pre-init error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "requests before Initialize must fail explicitly");
   (match Runtime_server.handle_request ~sw state (Runtime.Initialize init) with
    | Ok (Runtime.Initialized response) ->
      Alcotest.(check string) "sdk" "agent_sdk" response.sdk_name;
-     Alcotest.(check string) "root" root (Option.value ~default:"" state.session_root);
+     let initialized_store =
+       Runtime_server_types.store_of_state state |> expect_ok "initialized store"
+     in
+     Alcotest.(check string) "root" root initialized_store.Runtime_store.root;
      Alcotest.(check bool)
        "capability"
        true
        (List.mem "apply_command" response.capabilities)
    | Ok _ -> Alcotest.fail "expected Initialized"
    | Error err -> Alcotest.fail (Error.to_string err));
+  (match Runtime_server.handle_request ~sw state (Runtime.Initialize init) with
+   | Error (Error.Config (InvalidConfig { field = "runtime.initialize"; _ })) -> ()
+   | Error err -> Alcotest.failf "unexpected reinitialize error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "Initialize must be one-shot");
+  let conflicting_init = { init with session_root = Some (root ^ "-other") } in
+  (match
+     Runtime_server.handle_request ~sw state (Runtime.Initialize conflicting_init)
+   with
+   | Error (Error.Config (InvalidConfig { field = "runtime.initialize"; detail })) ->
+     contains "conflicting reinitialize" ~needle:"different settings" detail
+   | Error err ->
+     Alcotest.failf "unexpected conflicting init error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "conflicting reinitialization must fail explicitly");
   let session = mk_session () in
   save_session store session;
   let session =
@@ -221,8 +239,7 @@ let test_apply_command_public_paths_and_errors () =
         state
         store
         session
-        (Runtime.Update_session_settings
-           { model = Some "new-model"; permission_mode = Some "never" })
+        (Runtime.Update_session_settings { model = Some "new-model" })
     with
     | Ok (Runtime.Command_applied session) ->
       Alcotest.(check (option string)) "model updated" (Some "new-model") session.model;
@@ -237,14 +254,10 @@ let test_apply_command_public_paths_and_errors () =
         state
         store
         session
-        (Runtime.Update_session_settings { model = None; permission_mode = None })
+        (Runtime.Update_session_settings { model = None })
     with
     | Ok (Runtime.Command_applied session) ->
       Alcotest.(check (option string)) "model preserved" (Some "new-model") session.model;
-      Alcotest.(check (option string))
-        "permission preserved"
-        (Some "never")
-        session.permission_mode;
       session
     | Ok _ -> Alcotest.fail "expected settings preservation response"
     | Error err -> Alcotest.fail (Error.to_string err)
@@ -370,37 +383,90 @@ let test_finalize_session_active_and_terminal () =
   | Error err -> Alcotest.fail (Error.to_string err)
 ;;
 
-let test_control_channel_uses_stdio_router_not_blocking_stdin () =
-  let control_source = read_source "lib/runtime_server_control.ml" in
-  let server_source = read_source "lib/runtime_server.ml" in
+let test_spawn_unknown_provider_records_explicit_failure_without_control_roundtrip () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_store
+  @@ fun root store ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = make_state env root in
+  let session = mk_session ~session_id:"rt-spawn-no-control" () in
+  save_session store session;
+  let detail : Runtime.spawn_agent_request =
+    { participant_name = "worker"
+    ; role = Some "reviewer"
+    ; prompt = "review"
+    ; provider = Some "unknown-runtime-provider"
+    ; model = None
+    ; system_prompt = None
+    }
+  in
+  let session =
+    match
+      Runtime_server.apply_command ~sw state store session (Runtime.Spawn_agent detail)
+    with
+    | Ok (Runtime.Command_applied session) -> session
+    | Ok _ -> Alcotest.fail "expected Command_applied"
+    | Error err -> Alcotest.fail (Error.to_string err)
+  in
+  Alcotest.(check int) "requested plus failed events" 2 session.last_seq;
+  let events = read_events store session.session_id in
   Alcotest.(check bool)
-    "control helper must not read stdin directly"
-    false
-    (Util.string_contains ~needle:"input_line stdin" control_source);
-  contains
-    "control helper awaits promise with timeout"
-    ~needle:"Eio.Time.with_timeout_exn"
-    control_source;
-  contains
-    "stdio router delivers control response"
-    ~needle:"deliver_control_response"
-    server_source;
-  contains
-    "request handling forked so stdin router keeps running"
-    ~needle:"Eio.Fiber.fork"
-    server_source
+    "spawn requested persisted"
+    true
+    (event_exists
+       (function
+         | Runtime.Agent_spawn_requested _ -> true
+         | _ -> false)
+       events);
+  Alcotest.(check bool)
+    "unsupported provider persisted explicitly"
+    true
+    (event_exists
+       (function
+         | Runtime.Agent_failed { failure_cause = Runtime.Execution_error detail; _ } ->
+           Util.string_contains ~needle:"unknown-runtime-provider" detail
+         | Runtime.Agent_failed _ | _ -> false)
+       events)
 ;;
 
-let test_agent_config_uses_resolved_provider_model () =
-  let server_source = read_source "lib/runtime_server.ml" in
-  contains
-    "agent config reads provider resolution model id"
-    ~needle:"provider.Provider.model_id"
-    server_source;
-  contains
-    "spawn path passes resolution to agent config"
-    ~needle:"agent_config_of_session session resolution detail"
-    server_source
+let test_shutdown_ack_waits_for_participant_lanes () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let started, started_resolver = Eio.Promise.create () in
+  let cancelled, cancelled_resolver = Eio.Promise.create () in
+  let blocker, _blocker_resolver = Eio.Promise.create () in
+  let run () =
+    Eio.Promise.resolve started_resolver ();
+    match Eio.Promise.await blocker with
+    | () -> ()
+    | exception (Eio.Cancel.Cancelled _ as exn) ->
+      ignore (Eio.Promise.try_resolve cancelled_resolver ());
+      raise exn
+  in
+  (match
+     Runtime_server_types.fork_participant_lane
+       ~sw
+       state
+       ~session_id:"shutdown-session"
+       ~participant_name:"shutdown-worker"
+       run
+   with
+   | Ok () -> ()
+   | Error err -> Alcotest.fail (Error.to_string err));
+  Eio.Promise.await started;
+  (match Runtime_server.handle_request ~sw state Runtime.Shutdown with
+   | Ok Runtime.Shutdown_ack -> ()
+   | Ok _ -> Alcotest.fail "expected Shutdown_ack"
+   | Error err -> Alcotest.fail (Error.to_string err));
+  Alcotest.(check bool)
+    "participant settled before ack"
+    true
+    (Option.is_some (Eio.Promise.peek cancelled))
 ;;
 
 let () =
@@ -411,6 +477,10 @@ let () =
             "initialize status events report prove shutdown"
             `Quick
             test_handle_initialize_status_events_report_prove_shutdown
+        ; Alcotest.test_case
+            "shutdown waits for participant lanes"
+            `Quick
+            test_shutdown_ack_waits_for_participant_lanes
         ] )
     ; ( "commands"
       , [ Alcotest.test_case
@@ -424,15 +494,11 @@ let () =
             `Quick
             test_finalize_session_active_and_terminal
         ] )
-    ; ( "control"
+    ; ( "spawn"
       , [ Alcotest.test_case
-            "stdio router owns control responses"
+            "unknown provider fails explicitly without control roundtrip"
             `Quick
-            test_control_channel_uses_stdio_router_not_blocking_stdin
-        ; Alcotest.test_case
-            "agent config uses resolved provider model"
-            `Quick
-            test_agent_config_uses_resolved_provider_model
+            test_spawn_unknown_provider_records_explicit_failure_without_control_roundtrip
         ] )
     ]
 ;;

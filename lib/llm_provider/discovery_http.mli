@@ -7,10 +7,9 @@
     inlines [Http_client.http_error] pattern matching that has to be
     kept exhaustive twice.
 
-    {!Discovery} keeps the [get_json] / [get_ok] names via simple
-    [let] rebinds for the 5 internal call sites in [discovery.ml]
-    (lines 254, 481, 488, 510, +1).  Neither helper was previously
-    exposed in [discovery.mli], so external surface is unaffected. *)
+    {!Discovery} binds these result-returning helpers for its protocol-specific
+    probes. No boolean liveness helper exists: losing transport error context
+    would create a silent diagnostic boundary. *)
 
 (** GET [url] and decode the body as JSON.  Returns [Error msg] for
     non-2xx responses, transport errors, parser errors, and the
@@ -25,11 +24,11 @@ val get_json
   -> string
   -> (Yojson.Safe.t, string) result
 
-(** GET [url] and return [true] iff the response status is 2xx.
-    Discards body and error context — used for liveness probes only
-    (e.g. [/health], [/]). *)
-val get_ok
+(** GET [url] and return [Ok ()] iff the response status is 2xx. Non-2xx and
+    transport failures retain explicit error context for endpoint-local
+    observability. *)
+val probe_liveness
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> string
-  -> bool
+  -> (unit, string) result

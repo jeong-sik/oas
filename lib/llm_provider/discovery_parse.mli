@@ -24,7 +24,6 @@ type server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
-  ; supports_tools : bool option
   }
 
 (** Slot utilization from [/slots]. *)
@@ -35,18 +34,16 @@ type slot_status =
   }
 
 (** OpenAI-compatible [/v1/models] response → list of [{ id; owned_by }].
-    Returns the empty list on missing/non-list [data], or when no item
-    has a string [id].  [owned_by] defaults to ["unknown"] when absent. *)
-val parse_models : Yojson.Safe.t -> model_info list
+    Empty [data] is valid. Missing fields, wrong types, blank identifiers, and
+    malformed entries return an explicit schema error; entries are never
+    silently dropped. *)
+val parse_models : Yojson.Safe.t -> (model_info list, string) result
 
-(** llama-server [/props] response → typed {!server_props}.  Requires a
-    numeric [total_slots]; falls back to [0] for missing [n_ctx] and
-    to [""] for missing [model].  Returns [None] when [total_slots] is
-    missing or non-numeric. *)
-val parse_props : Yojson.Safe.t -> server_props option
+(** llama-server [/props] response → typed {!server_props}. Required fields
+    must have their declared types and positive numeric values. *)
+val parse_props : Yojson.Safe.t -> (server_props, string) result
 
-(** llama-server [/slots] response → typed {!slot_status}.  Counts a
-    slot as busy when [is_processing] is [true] OR when [state] is a
-    non-zero integer.  Returns [None] when the input is not a non-empty
-    list. *)
-val parse_slots : Yojson.Safe.t -> slot_status option
+(** llama-server [/slots] response → typed {!slot_status}. Each slot must
+    declare a boolean [is_processing]; malformed entries are explicit schema
+    errors. *)
+val parse_slots : Yojson.Safe.t -> (slot_status, string) result

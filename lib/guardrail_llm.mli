@@ -41,8 +41,3 @@ val make_output_validator
   -> policy_prompt:string
   -> judge:judge
   -> Guardrails_async.output_validator
-
-(** {1 Utilities} *)
-
-(** Parse a judge response in "PASS" / "FAIL: reason" format. *)
-val parse_judge_response : string -> (bool * string, string) result

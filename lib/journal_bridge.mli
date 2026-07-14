@@ -22,7 +22,13 @@ val projection_of_event : Durable_event.event -> string * Yojson.Safe.t
     is published with that envelope so it joins the same trace as the
     surrounding agent run.  If omitted, each event gets a fresh
     envelope, which is fine for standalone journals but breaks
-    correlation-based querying in multi-agent sessions. *)
+    correlation-based querying in multi-agent sessions.
+
+    The callback does not absorb publication failures. When installed as
+    {!Durable_event.create}'s [on_append], the journal event is already
+    committed: ordinary publication exceptions are returned by
+    {!Durable_event.append}, while reserved runtime exceptions and cancellation
+    propagate with their original backtrace. *)
 val make
   :  bus:Event_bus.t
   -> ?correlation_id:string

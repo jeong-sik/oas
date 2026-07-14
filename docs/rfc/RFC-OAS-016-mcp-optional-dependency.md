@@ -59,7 +59,6 @@ Grep `rg -l 'Mcp_protocol' lib/` returns nothing outside `lib/protocol/`. The fo
 | `lib/agent/agent_types.ml:308, :359` | `Mcp.close_all` calls |
 | `lib/agent/agent.mli:41` | `Mcp.managed` in the public Agent signature |
 | `lib/agent/builder.ml:51`, `builder.mli:60` | `Mcp.managed` in Builder API |
-| `lib/agent/agent_config.ml:86` | `Mcp.json_schema_type_to_param_type` called from `parse_param` — on the **default `oas.json` parse path**, regardless of whether the config mentions `mcp_servers` |
 | `lib/agent/agent_config.ml:366-370, :455` | `Mcp.connect_and_load`, `Mcp_http.connect_and_load_managed` — gated by `when cfg.mcp_servers <> []` (dormant by default) |
 | `lib/checkpoint.ml:34, :79` | `Mcp_session.info` in checkpoint record + `Replace_mcp_sessions` codec op |
 | `lib/checkpoint_codec.ml:182, :309, :408, :496` | `Mcp_session.info` round-trip in checkpoint serialization |
@@ -70,7 +69,7 @@ Grep `rg -l 'Mcp_protocol' lib/` returns nothing outside `lib/protocol/`. The fo
 
 ### 2.3 Runtime dormancy
 
-`mcp_clients` defaults to `[]` (`agent_types.ml:156`, `builder.ml:123`). `agent_config.ml:455` only invokes `Mcp.connect_and_load*` when `cfg.mcp_servers <> []`. So the actual **MCP network/spawn code path is dormant by default** — but the *types* and `Mcp.json_schema_type_to_param_type` (a pure JSON-schema helper that happens to live in `Mcp`) are always linked, and that's enough to require the fork.
+`mcp_clients` defaults to `[]` (`agent_types.ml:156`, `builder.ml:123`). `agent_config.ml` only invokes `Mcp.connect_and_load*` when `cfg.mcp_servers <> []`. So the actual **MCP network/spawn code path is dormant by default** — but the embedded MCP types are always linked, and that is enough to require the fork.
 
 ## 3. Options
 
@@ -132,7 +131,7 @@ Drop `module Mcp = Mcp` etc. from `agent_sdk.ml` so the **public facade** doesn'
 **Phase 4.1** — move pure helpers out of `Mcp` (no behavior change, no API break):
 - `Mcp.json_schema_type_to_param_type` → `lib/base/json_schema.ml` (or similar, in `agent_sdk_base`)
 - `Mcp_schema.json_schema_to_params` → same target
-- Update one caller each: `agent_config.ml:86`, `tool_middleware.ml:32`
+- Update the remaining caller in `tool_middleware.ml`.
 - Acceptance: `rg 'Mcp\.json_schema\|Mcp_schema\.json_schema' lib/` returns `lib/protocol/mcp*` and the new home only.
 
 **Phase 4.2** — introduce `Mcp_handle.managed` / `session_info` abstract types in `agent_sdk_base`:

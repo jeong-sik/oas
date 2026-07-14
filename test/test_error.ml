@@ -30,11 +30,6 @@ let test_api_auth_error () =
   check string "auth error message" "Auth error: bad key" (Error.to_string err)
 ;;
 
-let test_agent_max_turns () =
-  let err = Error.Agent (MaxTurnsExceeded { turns = 10; limit = 10 }) in
-  check string "max turns" "Max turns exceeded (turn 10, limit 10)" (Error.to_string err)
-;;
-
 let test_provider_timeout_phase () =
   let err =
     Error.Provider
@@ -54,25 +49,30 @@ let test_provider_timeout_phase () =
     (Error.to_string err)
 ;;
 
-let test_agent_execution_timeout () =
-  let err =
-    Error.Agent
-      (AgentExecutionTimeout
-         { elapsed_sec = 12.3; timeout_sec = 10.0; turn_count = 4; max_turns = 8 })
-  in
-  check
-    string
-    "agent execution timeout"
-    "Agent execution timed out after 12.3s (max_execution_time_s=10.0s, turns=4/8)"
-    (Error.to_string err)
-;;
-
 let test_agent_stop_reason () =
   let err = Error.Agent (UnrecognizedStopReason { reason = "unknown_42" }) in
   check
     string
     "stop reason"
     "Unrecognized stop_reason from API: unknown_42"
+    (Error.to_string err)
+;;
+
+let test_agent_hook_execution_failed () =
+  let err =
+    Error.Agent
+      (HookExecutionFailed
+         { hook_name = "post_tool_use"
+         ; stage = "post_tool_use"
+         ; tool_name = Some "write"
+         ; tool_use_id = Some "tool-1"
+         ; detail = "observer failed"
+         })
+  in
+  check
+    string
+    "hook failure retains typed context projection"
+    "Hook post_tool_use failed at post_tool_use for tool write (tool-1): observer failed"
     (Error.to_string err)
 ;;
 
@@ -188,7 +188,9 @@ let test_retryable_api_server_error () =
 ;;
 
 let test_retryable_agent () =
-  let err = Error.Agent (MaxTurnsExceeded { turns = 5; limit = 5 }) in
+  let err =
+    Error.Agent (GuardrailViolation { validator = "typed-input"; reason = "rejected" })
+  in
   check bool "agent error not retryable" false (Error.is_retryable err)
 ;;
 
@@ -248,9 +250,8 @@ let () =
       , [ test_case "Api RateLimited" `Quick test_api_rate_limited
         ; test_case "Api AuthError" `Quick test_api_auth_error
         ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
-        ; test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns
-        ; test_case "Agent AgentExecutionTimeout" `Quick test_agent_execution_timeout
         ; test_case "Agent UnrecognizedStopReason" `Quick test_agent_stop_reason
+        ; test_case "Agent HookExecutionFailed" `Quick test_agent_hook_execution_failed
         ; test_case "Mcp ServerStartFailed" `Quick test_mcp_server_start
         ; test_case "Mcp InitializeFailed" `Quick test_mcp_init_failed
         ; test_case "Mcp ToolListFailed" `Quick test_mcp_tool_list

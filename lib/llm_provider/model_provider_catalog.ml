@@ -5,10 +5,17 @@
     reusable provider/model catalog surface instead of adding provider-specific
     branches to model capability lookup. *)
 
+module Result_syntax = struct
+  let ( let* ) = Result.bind
+end
+
+open Result_syntax
+
 type entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_kind.t
+  ; identity_kinds : Provider_kind.t list
   ; base_url : string
   ; base_url_env : string option
   ; request_path : string
@@ -89,7 +96,14 @@ let string_list_field ~entry_id key toml =
                "provider entry %S field %S must not contain empty strings"
                entry_id
                key)
-        else loop (trimmed :: acc) rest
+        else if raw <> trimmed
+        then
+          Error
+            (Printf.sprintf
+               "provider entry %S field %S must not contain padded strings"
+               entry_id
+               key)
+        else loop (raw :: acc) rest
     in
     loop [] values
   | None -> Ok None
@@ -101,6 +115,7 @@ let known_keys =
   [ "id"
   ; "aliases"
   ; "kind"
+  ; "identity_kinds"
   ; "base_url"
   ; "base_url_env"
   ; "request_path"
@@ -133,6 +148,22 @@ let required_string ~entry_id key toml =
   | Error _ as e -> e
 ;;
 
+let required_exact_string_allow_empty ~entry_id key toml =
+  match find_string_field ~entry_id key toml with
+  | Error _ as error -> error
+  | Ok None ->
+    Error (Printf.sprintf "provider entry %S missing required %S field" entry_id key)
+  | Ok (Some raw) ->
+    if raw <> String.trim raw
+    then
+      Error
+        (Printf.sprintf
+           "provider entry %S field %S must not have leading or trailing whitespace"
+           entry_id
+           key)
+    else Ok raw
+;;
+
 let kind_field ~entry_id toml =
   match required_string ~entry_id "kind" toml with
   | Error _ as e -> e
@@ -148,78 +179,79 @@ let kind_field ~entry_id toml =
             (String.concat ", " (List.map Provider_kind.to_string Provider_kind.all))))
 ;;
 
+let identity_kinds_field ~entry_id ~default toml =
+  match string_list_field ~entry_id "identity_kinds" toml with
+  | Error _ as error -> error
+  | Ok None -> Ok [ default ]
+  | Ok (Some []) ->
+    Error
+      (Printf.sprintf
+         "provider entry %S field \"identity_kinds\" must not be empty"
+         entry_id)
+  | Ok (Some values) ->
+    let rec loop acc = function
+      | [] -> Ok (List.rev acc)
+      | raw :: rest ->
+        (match Provider_kind.of_string raw with
+         | Some kind -> loop (kind :: acc) rest
+         | None ->
+           Error
+             (Printf.sprintf
+                "provider entry %S field \"identity_kinds\" has unknown value %S \
+                 (canonical: %s)"
+                entry_id
+                raw
+                (String.concat ", " (List.map Provider_kind.to_string Provider_kind.all))))
+    in
+    loop [] values
+;;
+
 let parse_entry provider_toml =
-  match non_empty_string_field ~entry_id:"<unknown>" "id" provider_toml with
-  | Error _ as e -> e
-  | Ok None -> Error "provider entry missing required \"id\" field"
-  | Ok (Some id) ->
-    let unknown_keys_result = reject_unknown_keys ~entry_id:id provider_toml in
-    let kind_result = kind_field ~entry_id:id provider_toml in
-    let base_url_result = required_string ~entry_id:id "base_url" provider_toml in
-    let request_path_result = required_string ~entry_id:id "request_path" provider_toml in
-    let api_key_env_result = required_string ~entry_id:id "api_key_env" provider_toml in
-    let base_url_env_result =
-      exact_non_empty_string_field ~entry_id:id "base_url_env" provider_toml
-    in
-    let default_model_result =
-      exact_non_empty_string_field ~entry_id:id "default_model" provider_toml
-    in
-    let capabilities_base_result =
-      canonical_string_opt
-        ~entry_id:id
-        "capabilities_base"
-        ~allowed:Capability_vocab.base_label_values
-        provider_toml
-    in
-    let aliases_result = string_list_field ~entry_id:id "aliases" provider_toml in
-    let identity_hosts_result =
-      string_list_field ~entry_id:id "identity_hosts" provider_toml
-    in
-    (match
-       ( unknown_keys_result
-       , kind_result
-       , base_url_result
-       , request_path_result
-       , api_key_env_result
-       , base_url_env_result
-       , default_model_result
-       , capabilities_base_result
-       , aliases_result
-       , identity_hosts_result )
-     with
-     | (Error _ as e), _, _, _, _, _, _, _, _, _
-     | _, (Error _ as e), _, _, _, _, _, _, _, _
-     | _, _, (Error _ as e), _, _, _, _, _, _, _
-     | _, _, _, (Error _ as e), _, _, _, _, _, _
-     | _, _, _, _, (Error _ as e), _, _, _, _, _
-     | _, _, _, _, _, (Error _ as e), _, _, _, _
-     | _, _, _, _, _, _, (Error _ as e), _, _, _
-     | _, _, _, _, _, _, _, (Error _ as e), _, _
-     | _, _, _, _, _, _, _, _, (Error _ as e), _
-     | _, _, _, _, _, _, _, _, _, (Error _ as e) -> e
-     | ( Ok ()
-       , Ok kind
-       , Ok base_url
-       , Ok request_path
-       , Ok api_key_env
-       , Ok base_url_env
-       , Ok default_model
-       , Ok capabilities_base
-       , Ok aliases
-       , Ok identity_hosts ) ->
-       Ok
-         { id
-         ; aliases = Option.value aliases ~default:[]
-         ; kind
-         ; base_url
-         ; base_url_env
-         ; request_path
-         ; api_key_env
-         ; default_model
-         ; capabilities_base
-         ; identity_hosts =
-             Option.value identity_hosts ~default:[] |> List.map String.lowercase_ascii
-         })
+  let* id =
+    match exact_non_empty_string_field ~entry_id:"<unknown>" "id" provider_toml with
+    | Error _ -> Error "provider entry field \"id\" expected exact non-empty string"
+    | Ok None -> Error "provider entry missing required \"id\" field"
+    | Ok (Some id) -> Ok (String.lowercase_ascii id)
+  in
+  let* () = reject_unknown_keys ~entry_id:id provider_toml in
+  let* kind = kind_field ~entry_id:id provider_toml in
+  let* identity_kinds = identity_kinds_field ~entry_id:id ~default:kind provider_toml in
+  let* base_url = required_string ~entry_id:id "base_url" provider_toml in
+  let* request_path =
+    required_exact_string_allow_empty ~entry_id:id "request_path" provider_toml
+  in
+  let* api_key_env =
+    required_exact_string_allow_empty ~entry_id:id "api_key_env" provider_toml
+  in
+  let* base_url_env =
+    exact_non_empty_string_field ~entry_id:id "base_url_env" provider_toml
+  in
+  let* default_model =
+    exact_non_empty_string_field ~entry_id:id "default_model" provider_toml
+  in
+  let* capabilities_base =
+    canonical_string_opt
+      ~entry_id:id
+      "capabilities_base"
+      ~allowed:Capability_vocab.base_label_values
+      provider_toml
+  in
+  let* aliases = string_list_field ~entry_id:id "aliases" provider_toml in
+  let* identity_hosts = string_list_field ~entry_id:id "identity_hosts" provider_toml in
+  Ok
+    { id
+    ; aliases = Option.value aliases ~default:[]
+    ; kind
+    ; identity_kinds
+    ; base_url
+    ; base_url_env
+    ; request_path
+    ; api_key_env
+    ; default_model
+    ; capabilities_base
+    ; identity_hosts =
+        Option.value identity_hosts ~default:[] |> List.map String.lowercase_ascii
+    }
 ;;
 
 let normalize_url value =
@@ -242,16 +274,19 @@ let host_of_url value =
   | Some host -> Some (String.lowercase_ascii host)
 ;;
 
+let resolved_base_url ?getenv entry =
+  match entry.base_url_env with
+  | None -> entry.base_url
+  | Some env_name ->
+    (match Cli_common_env.get ?getenv env_name with
+     | Some value when String.trim value <> "" -> value
+     | Some _ | None -> entry.base_url)
+;;
+
 let base_url_matches ?getenv entry base_url =
   let normalized = normalize_url base_url in
   String.equal (normalize_url entry.base_url) normalized
-  ||
-  match entry.base_url_env with
-  | None -> false
-  | Some env_name ->
-    (match Cli_common_env.get ?getenv env_name with
-     | None -> false
-     | Some override -> String.equal (normalize_url override) normalized)
+  || String.equal (normalize_url (resolved_base_url ?getenv entry)) normalized
 ;;
 
 let host_matches entry base_url =
@@ -269,7 +304,7 @@ let provider_label_for_base_url ?getenv entries ~kind ~base_url =
   match
     List.find_opt
       (fun entry ->
-         entry.kind = kind
+         List.mem kind entry.identity_kinds
          && (base_url_matches ?getenv entry base_url || host_matches entry base_url))
       entries
   with
@@ -282,7 +317,7 @@ let provider_label_for_endpoint ?getenv entries ~kind ~base_url ~request_path =
   match
     List.find_opt
       (fun entry ->
-         entry.kind = kind
+         List.mem kind entry.identity_kinds
          && String.equal (String.trim entry.request_path) request_path
          && (base_url_matches ?getenv entry base_url || host_matches entry base_url))
       entries

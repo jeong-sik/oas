@@ -21,7 +21,6 @@ type toggle_wire =
 type effort_alias_policy =
   | Preserve_effort
   | Deepseek_high_or_max
-  | Anthropic_output_max
 
 type sampling_policy =
   { ignored_always : Capabilities.sampling_parameter list
@@ -284,16 +283,14 @@ let reasoning_output_fields dialect ~enable_thinking =
 
 let normalize_effort_value dialect effort =
   match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
+  | Deepseek_high_or_max, Reasoning_effort.High -> Some "high"
+  | Deepseek_high_or_max, Reasoning_effort.Max -> Some "max"
   | ( Deepseek_high_or_max
-    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
-    Some "high"
-  | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
-  | Deepseek_high_or_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
-  | Anthropic_output_max, Reasoning_effort.XHigh -> Some "max"
-  | ( Anthropic_output_max
-    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
-    Some (Reasoning_effort.to_string effort)
-  | Anthropic_output_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
+    , ( Reasoning_effort.None_
+      | Reasoning_effort.Minimal
+      | Reasoning_effort.Low
+      | Reasoning_effort.Medium
+      | Reasoning_effort.XHigh ) ) -> None
   | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
 ;;
 
@@ -306,13 +303,32 @@ let request_control_fields
       ?zai_glm_clear_thinking
       ()
   =
+  (match thinking_budget, dialect.toggle_wire with
+   | None, _ | Some _, Enable_thinking -> ()
+   | Some _, _ ->
+     invalid_arg
+       "Reasoning_dialect.request_control_fields: thinking_budget is unsupported by the \
+        selected provider wire");
+  (match reasoning_effort, dialect.toggle_wire with
+   | None, _
+   | Some _, Reasoning_effort
+   | Some _, Thinking_object { includes_reasoning_effort = true } -> ()
+   | Some _, _ ->
+     invalid_arg
+       "Reasoning_dialect.request_control_fields: reasoning_effort is unsupported by the \
+        selected provider wire");
   let output_fields = reasoning_output_fields dialect ~enable_thinking in
   let normalized_effort_field () =
     match reasoning_effort with
     | Some effort ->
       (match normalize_effort_value dialect effort with
        | Some normalized -> [ "reasoning_effort", `String normalized ]
-       | None -> [])
+       | None ->
+         invalid_arg
+           (Printf.sprintf
+              "Reasoning_dialect.request_control_fields: reasoning_effort %S is not \
+               supported by the selected provider wire"
+              (Reasoning_effort.to_string effort)))
     | None -> []
   in
   match dialect.toggle_wire with
@@ -389,33 +405,41 @@ let request_control_fields
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
 
-let for_provider_config (config : Provider_config.t) =
+let base_for_provider_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic ->
     { default with
       toggle_wire = Anthropic_thinking
     ; replay_policy = Preserve_always
     ; streaming = Delta_field "thinking_delta"
-    ; effort_alias_policy = Anthropic_output_max
     }
   | Gemini ->
     { default with
       toggle_wire = Gemini_thinking_config
-    ; replay_policy = Drop_without_tool_preserve_with_tool
+    ; (* GenerateContent is stateless. Signed parts must remain attached to the
+         exact model response part and be returned unchanged. *)
+      replay_policy = Preserve_always
     ; streaming = Delta_field "thought"
     }
   | Kimi | OpenAI_compat | Ollama | Glm ->
-    let dialect =
-      match Provider_config.capabilities_for_config_model config with
-      | Some caps ->
-        of_capabilities caps
-        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-      | None ->
-        let caps = provider_capabilities_of_kind config.kind in
-        of_capabilities caps
-        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-    in
-    (* RFC-OAS-029 S3.1 + RFC-OAS-030: GLM reasoning replay is
+    (match Provider_config.capabilities_for_config_model config with
+     | Some caps -> of_capabilities caps
+     | None -> provider_capabilities_of_kind config.kind |> of_capabilities)
+  | DashScope ->
+    (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
+       the model catalog. *)
+    of_capabilities Capabilities.dashscope_capabilities
+;;
+
+let for_provider_config (config : Provider_config.t) =
+  let dialect =
+    base_for_provider_config config
+    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+  in
+  let dialect =
+    match config.kind with
+    | Kimi | OpenAI_compat | Ollama | Glm ->
+      (* RFC-OAS-029 S3.1: GLM reasoning replay is
        clear_thinking-conditional (Preserved Thinking = thinking active AND
        clear_thinking=false). The GLM capability profile carries
        [No_thinking_control]/[No_preserve_thinking_control], so it resolves to
@@ -425,36 +449,70 @@ let for_provider_config (config : Provider_config.t) =
        typed policy (via [should_replay_reasoning]) instead of re-deriving
        GLM-ness with [is_glm_request]/[glm_should_replay_reasoning] at
        serialize time (S3.1: replay is typed, one source). *)
-    if Provider_config.is_zai_glm_config config
-    then
-      { dialect with
-        replay_policy =
-          (if Provider_config.glm_should_replay_reasoning config
-           then Preserve_always
-           else No_replay)
-      }
-    else dialect
-  | DashScope ->
-    (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
-       the model catalog. Backend_openai_request.capabilities_of_config is
-       provider-first for DashScope (always dashscope_capabilities); resolve it
-       provider-first here too so the reported toggle_wire matches the bytes the
-       request builder sends. Grouping DashScope with the model-catalog-first
-       providers above made a DashScope Qwen config report Chat_template_kwargs
-       while the builder emitted enable_thinking. *)
-    of_capabilities Capabilities.dashscope_capabilities
-    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+      if Provider_config.is_zai_glm_config config
+      then
+        { dialect with
+          replay_policy =
+            (if Provider_config.glm_should_replay_reasoning config
+             then Preserve_always
+             else No_replay)
+        }
+      else dialect
+    | Anthropic | Gemini | DashScope -> dialect
+  in
+  match Provider_http_codec.of_config config with
+  | Provider_http_codec.Openai_responses ->
+    { dialect with replay_policy = Provider_hidden_replay }
+  | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat ->
+    dialect
 ;;
 
-let normalize_effort dialect raw =
-  let normalized = String.lowercase_ascii (String.trim raw) in
-  match normalized with
-  | "none" | "off" | "disabled" | "" -> None
-  | "max" -> Some "max"
-  | _ ->
-    (match Reasoning_effort.of_string raw with
-     | Some effort -> normalize_effort_value dialect effort
-     | None -> None)
+let replay_contract dialect : Reasoning_replay_contract.t =
+  let replay_policy =
+    match dialect.replay_policy with
+    | No_replay -> Reasoning_replay_contract.No_replay
+    | Drop_without_tool_preserve_with_tool -> Tool_call_assistant_messages_all_history
+    | Preserve_always -> All_assistant_messages
+    | Provider_hidden_replay -> Provider_opaque_state
+  in
+  let streaming =
+    match dialect.streaming with
+    | No_streaming_reasoning -> Reasoning_replay_contract.No_streaming_reasoning
+    | Delta_field field -> Delta_field field
+    | Delta_reasoning_details -> Delta_reasoning_details
+    | Template_parser -> Template_parser
+  in
+  let output_wire =
+    match dialect.output_wire with
+    | No_output_control -> Reasoning_replay_contract.No_output_control
+    | Reasoning_split -> Reasoning_split
+  in
+  { replay_policy; streaming; output_wire }
+;;
+
+let reasoning_source_for_provider_config config =
+  (* Artifact compatibility is derived from the stable provider/model codec.
+     Request-local replay selection (for example [preserve_thinking] or GLM
+     [clear_thinking]) is applied by [for_provider_config] at the consuming
+     boundary and must not rewrite the identity of an already-produced
+     artifact. The HTTP codec is part of the stable shape, hence the explicit
+     Responses override below. *)
+  let dialect = base_for_provider_config config in
+  let dialect =
+    match Provider_http_codec.of_config config with
+    | Provider_http_codec.Openai_responses ->
+      { dialect with replay_policy = Provider_hidden_replay }
+    | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat
+      -> dialect
+  in
+  Types.Reasoning_source.create
+    ~provider_kind:config.Provider_config.kind
+    ~provider_instance:
+      (Types.Reasoning_source.provider_instance
+         ~base_url:config.base_url
+         ~request_path:config.request_path)
+    ~canonical_model_id:config.model_id
+    ~replay_contract:(replay_contract dialect)
 ;;
 
 let sampling_params_ignored_when_thinking dialect =
@@ -613,7 +671,7 @@ let%test "request_control_fields emits qwen chat_template kwargs" =
     ]
 ;;
 
-let%test "request_control_fields emits deepseek thinking object and normalized effort" =
+let%test "request_control_fields emits thinking object with explicitly supported effort" =
   let dialect =
     of_capabilities
       { Capabilities.default_capabilities with
@@ -625,8 +683,8 @@ let%test "request_control_fields emits deepseek thinking object and normalized e
     dialect
     ~enable_thinking:(Some true)
     ~preserve_thinking:None
-    ~thinking_budget:(Some 4096)
-    ~reasoning_effort:(Some Reasoning_effort.Medium)
+    ~thinking_budget:None
+    ~reasoning_effort:(Some Reasoning_effort.High)
     ()
   = [ "thinking", `Assoc [ "type", `String "enabled" ]
     ; "reasoning_effort", `String "high"

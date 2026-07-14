@@ -6,9 +6,6 @@ let fail message =
 ;;
 
 let () =
-  (match Sys.getenv_opt "OAS_MODEL_CATALOG" with
-   | None | Some "" -> ()
-   | Some _ -> fail "OAS_MODEL_CATALOG must be unset for the standalone smoke test");
   Model_catalog.clear_global ();
   match Model_catalog.global () with
   | None -> fail "embedded default catalog was unavailable"

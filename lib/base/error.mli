@@ -26,43 +26,15 @@ type input_required =
   ; created_at : float
   }
 
-type tool_failure_recovery_stage =
-  | Round_projection
-  | Episode_detection
-  | Judge_response
-  | Decision_persistence
-  | Resume_restore
-
-val tool_failure_recovery_stage_to_string : tool_failure_recovery_stage -> string
-
 type agent_error =
-  | MaxTurnsExceeded of
-      { turns : int
-      ; limit : int
-      }
   | UnrecognizedStopReason of { reason : string }
-  | IdleDetected of { consecutive_idle_turns : int }
-  | AgentExecutionTimeout of
-      { elapsed_sec : float
-      ; timeout_sec : float
-      ; turn_count : int
-      ; max_turns : int
+  | HookExecutionFailed of
+      { hook_name : string
+      ; stage : string
+      ; tool_name : string option
+      ; tool_use_id : string option
+      ; detail : string
       }
-  | AgentExecutionIdleTimeout of
-      { idle_sec : float
-      ; idle_timeout_sec : float
-      ; turn_count : int
-      ; max_turns : int
-      }
-  (** No execution activity (streamed token or completed turn) was
-          observed for [idle_timeout_sec]. Distinct from
-          [AgentExecutionTimeout], which caps total wall-clock regardless
-          of progress: the idle deadline resets on each unit of progress
-          and fires only on observed silence, so it does not cancel a run
-          that is still streaming output. For non-streaming [run] activity
-          is seen only at turn boundaries, so a long single turn can trip
-          this without the run being hung.
-          @since 0.201.0 *)
   | GuardrailViolation of
       { validator : string
       ; reason : string
@@ -72,15 +44,6 @@ type agent_error =
       ; reason : string
       }
   | InputRequired of input_required
-  | ToolFailureRecoveryFailed of
-      { stage : tool_failure_recovery_stage
-      ; detail : string
-      }
-  | ToolFailureRecoveryDeferred of
-      { reason : string
-      ; tool_names : string list
-      }
-  | ExitConditionMet of { turn : int }
 
 type mcp_error =
   | ServerStartFailed of

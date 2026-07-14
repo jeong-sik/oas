@@ -29,6 +29,10 @@ let check_auth_headers label expected (pc : Llm_provider.Provider_config.t) =
        ~api_key:((pc.api_key :> string) :> string))
 ;;
 
+let check_provider_id label expected (pc : Llm_provider.Provider_config.t) =
+  Alcotest.(check (option string)) label (Some expected) pc.provider_id
+;;
+
 let with_provider_catalog json f =
   match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
   | Error msg -> Alcotest.fail msg
@@ -37,8 +41,14 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
 ;;
 
-let install_repo_model_catalog () =
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"provider"
+let install_embedded_model_catalog () =
+  Model_catalog_test_support.install_embedded_model_catalog ~suite:"provider"
+;;
+
+let declared_pricing model_id =
+  match Provider.pricing_for_model_opt model_id with
+  | Some pricing -> pricing
+  | None -> Alcotest.failf "expected catalog pricing for %S" model_id
 ;;
 
 let with_empty_capability_sources f =
@@ -292,7 +302,10 @@ let test_model_spec_openrouter_capabilities () =
 ;;
 
 let test_inference_contract_anthropic_multimodal () =
-  let contract = Provider.inference_contract_of_config (Provider.anthropic_sonnet ()) in
+  let contract =
+    Provider.inference_contract_of_config
+      (Provider.anthropic ~model_id:"claude-sonnet-4-6" ())
+  in
   Alcotest.(check string)
     "modality"
     "multimodal"
@@ -331,8 +344,8 @@ let test_capabilities_task_catalog_declared () =
 let test_inference_contract_task_catalog_declared () =
   with_catalog_toml task_catalog_toml (fun () ->
     (* The [Anthropic] branch of [capabilities_for_model] consults the model
-       catalog without the raw-endpoint declaration gate, so this exercises
-       the full config -> capabilities -> contract threading. *)
+       catalog, so this exercises the full config -> capabilities -> contract
+       threading. *)
     let cfg : Provider.config =
       { provider = Anthropic
       ; model_id = "acme-transcribe-1"
@@ -390,7 +403,7 @@ let test_inference_contract_task_never_inferred_from_model_id () =
          "cogvideox-2"))
 ;;
 
-let test_zai_glm5v_capabilities_include_image_input () =
+let test_raw_zai_like_openai_compat_stays_generic () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -408,7 +421,15 @@ let test_zai_glm5v_capabilities_include_image_input () =
   Alcotest.(check bool)
     "supports multimodal inputs"
     true
-    capabilities.supports_multimodal_inputs
+    capabilities.supports_multimodal_inputs;
+  Alcotest.(check bool)
+    "does not infer GLM reasoning"
+    false
+    capabilities.supports_reasoning;
+  Alcotest.(check bool)
+    "does not infer GLM thinking dialect"
+    true
+    (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control)
 ;;
 
 let non_glm_prefixed_glm_catalog_toml =
@@ -420,7 +441,7 @@ max_context_tokens = 999999
 |}
 ;;
 
-let test_non_zai_glm_capabilities_stay_openai_compat () =
+let test_raw_openai_compat_does_not_infer_glm_from_model_or_host () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -434,19 +455,16 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
     }
   in
   let capabilities = Provider.capabilities_for_config cfg in
-  Alcotest.(check bool) "reasoning disabled" false capabilities.supports_reasoning;
+  Alcotest.(check bool) "reasoning not inferred" false capabilities.supports_reasoning;
   Alcotest.(check bool)
-    "extended thinking disabled"
+    "extended thinking not inferred"
     false
     capabilities.supports_extended_thinking
 ;;
 
-(* Regression for the provider.ml model-id classifier removal: a catalog entry
-   with [base = "glm"] but no "glm-" model-id prefix must be gated by endpoint
-   declaration, not by a model-id substring check. A raw OpenAI-compatible
-   endpoint must fall back to generic defaults even when the entry declares no
-   capability that triggers [capability_requires_endpoint_declaration]. *)
-let test_glm_base_requires_endpoint_declaration_not_model_id_prefix () =
+(* A raw compatibility provider has no vendor identity, so an unscoped model
+   row cannot replace its generic wire capability contract. *)
+let test_raw_openai_compat_ignores_provider_independent_catalog_row () =
   with_catalog_toml non_glm_prefixed_glm_catalog_toml (fun () ->
     let cfg : Provider.config =
       { provider =
@@ -461,10 +479,10 @@ let test_glm_base_requires_endpoint_declaration_not_model_id_prefix () =
       }
     in
     let capabilities = Provider.capabilities_for_config cfg in
-    Alcotest.(check (option int))
-      "non-zai endpoint does not inherit glm base context window"
-      (Some 128_000)
-      capabilities.max_context_tokens)
+    Alcotest.(check bool)
+      "unscoped model row does not replace generic capabilities"
+      true
+      (capabilities.max_context_tokens <> Some 999_999))
 ;;
 
 let test_validate_inference_contract_rejects_unsupported_modality () =
@@ -498,7 +516,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
   | Ok () -> Alcotest.fail "expected unsupported modality validation to fail"
 ;;
 
-let test_raw_openai_compat_does_not_infer_extended_capabilities () =
+let test_raw_openai_compat_does_not_infer_dashscope_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -533,7 +551,7 @@ let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
     Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p)
 ;;
 
-let test_raw_openai_compat_does_not_infer_minimax_from_model_id () =
+let test_raw_openai_compat_does_not_infer_minimax_model_contract () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -556,7 +574,7 @@ let test_raw_openai_compat_does_not_infer_minimax_from_model_id () =
     capabilities.supports_reasoning_budget
 ;;
 
-let test_local_compat_does_not_infer_dialect_from_model_id () =
+let test_local_compat_does_not_infer_model_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:(Provider.Local { base_url = "http://127.0.0.1:8085" })
@@ -572,7 +590,7 @@ let test_local_compat_does_not_infer_dialect_from_model_id () =
     false
     capabilities.supports_reasoning_budget;
   Alcotest.(check bool)
-    "no thinking control"
+    "declared thinking control"
     true
     (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control);
   Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
@@ -586,9 +604,9 @@ let test_anthropic_capabilities_consults_for_model_id () =
      Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
      a 1M window in that table; this test pins that the config path
      now picks them up. *)
-  let opus = Provider.anthropic_opus () in
-  let sonnet = Provider.anthropic_sonnet () in
-  let haiku = Provider.anthropic_haiku () in
+  let opus = Provider.anthropic ~model_id:"claude-opus-4-6" () in
+  let sonnet = Provider.anthropic ~model_id:"claude-sonnet-4-6" () in
+  let haiku = Provider.anthropic ~model_id:"claude-haiku-4-5-20251001" () in
   let opus_caps = Provider.capabilities_for_config opus in
   let sonnet_caps = Provider.capabilities_for_config sonnet in
   let haiku_caps = Provider.capabilities_for_config haiku in
@@ -635,7 +653,7 @@ let test_anthropic_capabilities_unknown_model_id_falls_back () =
 (* ── Phase 6: pricing, ollama, static_token ─────────────────────── *)
 
 let test_pricing_sonnet () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6-20250514" in
+  let p = declared_pricing "claude-sonnet-4-6-20250514" in
   Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 15.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
@@ -643,30 +661,29 @@ let test_pricing_sonnet () =
 ;;
 
 let test_pricing_gpt55 () =
-  let p = Provider.pricing_for_model "gpt-5.5" in
+  let p = declared_pricing "gpt-5.5" in
   Alcotest.(check (float 0.001)) "input/M" 5.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 30.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.0 p.cache_write_multiplier;
   Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
 ;;
 
-let test_pricing_local () =
-  let p =
-    Provider.pricing_for_provider
-      ~provider:(Local { base_url = "http://127.0.0.1:8085" })
-      ~model_id:"dashscope-3.5-35b-a3b"
-  in
-  Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
-  Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
+let test_incomplete_catalog_pricing_remains_absent () =
+  Alcotest.(check bool)
+    "cache multipliers are not invented"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "dashscope-3.5-35b-a3b"))
 ;;
 
 let test_pricing_unknown () =
-  let p = Provider.pricing_for_model "future-model-xyz" in
-  Alcotest.(check (float 0.001)) "zero" 0.0 p.input_per_million
+  Alcotest.(check bool)
+    "unpriced"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "future-model-xyz"))
 ;;
 
 let test_estimate_cost () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let p = declared_pricing "claude-sonnet-4-6" in
   let cost =
     Provider.estimate_cost
       ~pricing:p
@@ -694,7 +711,7 @@ let test_config_of_provider_config_localhost_boundary () =
   | _ -> Alcotest.fail "unexpected provider kind"
 ;;
 
-let test_config_of_provider_config_local_ollama_delegates_to_ssot () =
+let test_config_of_provider_config_typed_ollama_is_not_inferred_local () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.Ollama
@@ -703,26 +720,34 @@ let test_config_of_provider_config_local_ollama_delegates_to_ssot () =
       ()
   in
   match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Local { base_url }; _ } ->
-    Alcotest.(check string) "base_url" "http://localhost:11434" base_url
-  | _ -> Alcotest.fail "expected localhost ollama config to resolve as local"
+  | { provider = Provider.Custom_registered { name }; _ } ->
+    Alcotest.(check string) "typed provider identity" "ollama" name
+  | { provider = Provider.Local _; _ } ->
+    Alcotest.fail "localhost URL must not replace the typed Ollama identity"
+  | _ -> Alcotest.fail "expected typed Ollama identity to be preserved"
 ;;
 
-let test_config_of_provider_config_uppercase_localhost_delegates_to_ssot () =
+let test_config_of_provider_config_explicit_id_is_not_inferred_local () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~provider_id:"Explicit-Localhost-Provider"
       ~model_id:"test-model"
       ~base_url:"  HTTP://LOCALHOST:11434/v1  "
       ()
   in
   match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Local { base_url }; _ } ->
-    Alcotest.(check string) "base_url preserved" "  HTTP://LOCALHOST:11434/v1  " base_url
-  | _ -> Alcotest.fail "expected uppercase localhost config to resolve as local"
+  | { provider = Provider.Custom_registered { name }; _ } ->
+    Alcotest.(check string)
+      "explicit provider identity"
+      "explicit-localhost-provider"
+      name
+  | { provider = Provider.Local _; _ } ->
+    Alcotest.fail "localhost URL must not replace the explicit provider identity"
+  | _ -> Alcotest.fail "expected explicit provider identity to be preserved"
 ;;
 
-let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
+let test_config_of_provider_config_openai_compat_is_not_inferred_local () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -731,9 +756,11 @@ let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
       ()
   in
   match Provider.config_of_provider_config cfg with
-  | { provider = Provider.Local { base_url }; _ } ->
+  | { provider = Provider.OpenAICompat { base_url; _ }; _ } ->
     Alcotest.(check string) "base_url preserved" "http://localhost?foo=bar" base_url
-  | _ -> Alcotest.fail "expected localhost query config to resolve as local"
+  | { provider = Provider.Local _; _ } ->
+    Alcotest.fail "localhost URL must not replace the typed OpenAI-compatible identity"
+  | _ -> Alcotest.fail "expected OpenAI-compatible identity to be preserved"
 ;;
 
 let test_config_of_provider_config_kimi_uses_custom_provider () =
@@ -799,7 +826,7 @@ let test_openai_compat_no_auth () =
 
 let agent_state_with_params () : Types.agent_state =
   let cfg =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model = "claude-test"
     ; max_tokens = Some 4096
     ; temperature = Some 0.7
@@ -919,33 +946,19 @@ let test_provider_config_of_agent_missing_env () =
   | Ok _ -> Alcotest.fail "should fail when env var missing"
 ;;
 
-let test_provider_config_of_agent_none_fallback () =
-  (* None provider with ANTHROPIC_API_KEY present = Anthropic default *)
-  Unix.putenv "ANTHROPIC_API_KEY" "sk-ant-default-fallback";
+let test_provider_config_of_agent_none_is_rejected () =
   let state = agent_state_with_params () in
   match
     Provider.provider_config_of_agent ~state ~base_url:"https://api.anthropic.com" None
   with
-  | Ok pc ->
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "provider" field;
     Alcotest.(check string)
-      "defaults to anthropic"
-      "anthropic"
-      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
-    Alcotest.(check string)
-      "uses fallback key"
-      "sk-ant-default-fallback"
-      (pc.api_key :> string);
-    Alcotest.(check string)
-      "preserves caller base_url"
-      "https://api.anthropic.com"
-      pc.base_url;
-    Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
-    check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
-    check_auth_headers
-      "x-api-key auth header derived"
-      [ "x-api-key", "sk-ant-default-fallback" ]
-      pc
-  | Error e -> Alcotest.fail (Error.to_string e)
+      "explicit error"
+      "An explicit provider configuration is required"
+      detail
+  | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+  | Ok _ -> Alcotest.fail "missing provider must not be reinterpreted as Anthropic"
 ;;
 
 let test_provider_config_of_agent_local_keeps_empty_api_key () =
@@ -995,6 +1008,7 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
       "kind preserves Gemini"
       true
       (pc.kind = Llm_provider.Provider_config.Gemini);
+    check_provider_id "registered provider id" "gemini" pc;
     Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
@@ -1017,6 +1031,7 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
       "kind preserves Kimi"
       true
       (pc.kind = Llm_provider.Provider_config.Kimi);
+    check_provider_id "registered provider id" "kimi" pc;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
     check_auth_headers
@@ -1030,7 +1045,7 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
-let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default () =
+let test_provider_config_of_agent_custom_registered_nous_uses_declaration () =
   with_env "LLM_ENDPOINTS" (Some "") (fun () ->
     with_env
       Llm_provider.Discovery.local_llm_url_env_var
@@ -1047,9 +1062,10 @@ let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default (
            Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
          with
          | Ok pc ->
+           check_provider_id "registered provider id" "nous" pc;
            Alcotest.(check string)
              "custom nous base_url"
-             "http://127.0.0.1:19013"
+             Llm_provider.Discovery.default_endpoint
              pc.base_url
          | Error e ->
            Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
@@ -1073,6 +1089,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
           "kind preserves Ollama"
           true
           (pc.kind = Llm_provider.Provider_config.Ollama);
+        check_provider_id "registered provider id" "ollama_cloud" pc;
         Alcotest.(check string) "base_url" "https://ollama.com" pc.base_url;
         Alcotest.(check string) "request_path" "/api/chat" pc.request_path;
         Alcotest.(check string)
@@ -1091,7 +1108,8 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
         Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
 ;;
 
-let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback () =
+let test_provider_config_of_agent_custom_registered_ollama_cloud_does_not_infer_api_key ()
+  =
   with_env "OLLAMA_CLOUD_API_KEY" None (fun () ->
     with_env "OLLAMA_API_KEY" (Some "ollama-api-fallback-key") (fun () ->
       let cfg : Provider.config =
@@ -1104,21 +1122,15 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
       match
         Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
       with
-      | Ok pc ->
+      | Error (Error.Config (MissingEnvVar { var_name })) ->
         Alcotest.(check string)
-          "uses OLLAMA_API_KEY fallback"
-          "ollama-api-fallback-key"
-          (pc.api_key :> string);
-        check_no_header
-          "authorization omitted from config headers"
-          "Authorization"
-          pc.headers;
-        check_auth_headers
-          "authorization auth header derived"
-          [ "Authorization", "Bearer ollama-api-fallback-key" ]
-          pc
+          "only the declared credential is accepted"
+          "OLLAMA_CLOUD_API_KEY"
+          var_name
       | Error e ->
-        Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
+        Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+      | Ok _ ->
+        Alcotest.fail "undeclared OLLAMA_API_KEY must not satisfy OLLAMA_CLOUD_API_KEY"))
 ;;
 
 let agent_state_with_schema schema : Types.agent_state =
@@ -1130,9 +1142,10 @@ let agent_state_with_schema schema : Types.agent_state =
 let test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_json_mode
       ()
   =
-  (* Custom_registered ollama_cloud must resolve the provider-qualified model
-     row. devstral-2:123b advertises JSON mode, but #2499 correctly removed the
-     stronger native-schema guarantee from the Ollama Cloud /v1 boundary. *)
+  (* Custom_registered ollama_cloud must resolve the explicit
+     (provider_name, model_id) catalog tuple. devstral-2:123b advertises JSON
+     mode, but #2499 correctly removed the stronger native-schema guarantee
+     from the Ollama Cloud /v1 boundary. *)
   with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
     let schema = `Assoc [ "type", `String "object" ] in
     let cfg : Provider.config =
@@ -1146,6 +1159,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_j
       Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
     with
     | Ok pc ->
+      check_provider_id "registered provider id" "ollama_cloud" pc;
       Alcotest.(check bool)
         "row is authoritative: no model_capabilities_override"
         true
@@ -1168,7 +1182,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_j
            "row does not advertise native structured output"
            false
            caps.supports_structured_output
-       | None -> Alcotest.fail "provider-qualified catalog row was not resolved");
+       | None -> Alcotest.fail "provider/model catalog tuple was not resolved");
       Alcotest.(check bool)
         "native schema rejected because JSON mode is not structured output"
         true
@@ -1193,6 +1207,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so 
       Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
     with
     | Ok pc ->
+      check_provider_id "registered provider id" "ollama_cloud" pc;
       Alcotest.(check bool)
         "row is authoritative: no model_capabilities_override"
         true
@@ -1210,9 +1225,9 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so 
 ;;
 
 let test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_default () =
-  (* When no provider-qualified model catalog row exists, the named provider path
-     should still project the registry default capabilities (the pre-#2440
-     behavior for explicit Provider_catalog endpoints), not leave capabilities
+  (* When no provider/model catalog tuple exists, the named provider path should
+     still project the registry default capabilities (the pre-#2440 behavior
+     for explicit Provider_catalog endpoints), not leave capabilities
      unconstrained. *)
   with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
     let schema = `Assoc [ "type", `String "object" ] in
@@ -1227,6 +1242,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_de
       Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
     with
     | Ok pc ->
+      check_provider_id "registered provider id" "ollama_cloud" pc;
       Alcotest.(check bool)
         "registry default override is present when no row exists"
         true
@@ -1238,7 +1254,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_de
     | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
 ;;
 
-let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration () =
+let test_provider_config_of_agent_model_row_precedes_provider_capabilities () =
   with_provider_catalog
     {|
 {
@@ -1247,13 +1263,12 @@ let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
     {
       "id": "runpod-qwen36",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1",
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
       "capabilities_base": "openai_chat",
       "capabilities": {
-        "supports_structured_output": true,
+        "supports_structured_output": false,
         "supports_reasoning": true,
         "supports_extended_thinking": true,
         "supports_reasoning_budget": true,
@@ -1265,101 +1280,197 @@ let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
 }
 |}
     (fun () ->
-       let model_id = "qwen/qwen3.6-35b-a3b" in
-       let schema = `Assoc [ "type", `String "object" ] in
-       let state = agent_state_with_params () in
-       let declared_cfg : Provider.config =
-         { provider = Custom_registered { name = "runpod-qwen36" }
-         ; model_id
-         ; api_key_env = ""
-         }
-       in
-       let declared_pc =
-         match
-           Provider.provider_config_of_agent
-             ~state
-             ~base_url:"unused-fallback"
-             (Some declared_cfg)
-         with
-         | Ok pc ->
-           { pc with
-             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-           ; output_schema = Some schema
-           }
-         | Error e ->
-           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
-       in
-       Alcotest.(check (option bool))
-         "catalog endpoint declaration projected"
-         (Some true)
-         declared_pc.supports_structured_output_override;
+       with_catalog_toml
+         {|
+[[models]]
+id_prefix = "qwen/qwen3.6-35b-a3b"
+base = "openai_chat"
+provider_name = "runpod-qwen36"
+supports_structured_output = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
+|}
+         (fun () ->
+            let model_id = "qwen/qwen3.6-35b-a3b" in
+            let schema = `Assoc [ "type", `String "object" ] in
+            let state = agent_state_with_params () in
+            let declared_cfg : Provider.config =
+              { provider = Custom_registered { name = "runpod-qwen36" }
+              ; model_id
+              ; api_key_env = ""
+              }
+            in
+            let declared_pc =
+              match
+                Provider.provider_config_of_agent
+                  ~state
+                  ~base_url:"unused-fallback"
+                  (Some declared_cfg)
+              with
+              | Ok pc ->
+                { pc with
+                  Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+                ; output_schema = Some schema
+                }
+              | Error e ->
+                Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+            in
+            check_provider_id "canonical provider id" "runpod-qwen36" declared_pc;
+            Alcotest.(check (option bool))
+              "provider-level structured-output flag does not mask model row"
+              None
+              declared_pc.supports_structured_output_override;
+            Alcotest.(check bool)
+              "provider-level capability record does not mask model row"
+              true
+              (Option.is_none declared_pc.model_capabilities_override);
+            let declared_caps =
+              Llm_provider.Provider_config.capabilities_for_config_model declared_pc
+            in
+            Alcotest.(check bool)
+              "model row uses chat_template_kwargs"
+              true
+              (match declared_caps with
+               | Some caps ->
+                 caps.Llm_provider.Capabilities.thinking_control_format
+                 = Llm_provider.Capabilities.Chat_template_kwargs
+                 && caps.preserve_thinking_control_format
+                    = Llm_provider.Capabilities.Chat_template_kwargs_preserve_thinking
+               | None -> false);
+            Alcotest.(check bool)
+              "model row validates schema output despite provider default"
+              true
+              (Result.is_ok
+                 (Llm_provider.Provider_config.validate_output_schema_request declared_pc));
+            let raw_cfg : Provider.config =
+              { provider =
+                  OpenAICompat
+                    { base_url = "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
+                    ; auth_header = None
+                    ; path = "/v1/chat/completions"
+                    ; static_token = None
+                    }
+              ; model_id
+              ; api_key_env = ""
+              }
+            in
+            let raw_pc =
+              match
+                Provider.provider_config_of_agent
+                  ~state
+                  ~base_url:"unused-fallback"
+                  (Some raw_cfg)
+              with
+              | Ok pc ->
+                { pc with
+                  Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+                ; output_schema = Some schema
+                }
+              | Error e ->
+                Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+            in
+            Alcotest.(check (option bool))
+              "raw OpenAICompat does not invent endpoint declaration"
+              None
+              raw_pc.supports_structured_output_override;
+            Alcotest.(check bool)
+              "raw OpenAICompat has no endpoint capability override"
+              true
+              (Option.is_none raw_pc.model_capabilities_override);
+            Alcotest.(check bool)
+              "raw OpenAICompat does not resolve the provider-independent model row"
+              true
+              (Option.is_none
+                 (Llm_provider.Provider_config.capabilities_for_config_model raw_pc));
+            Alcotest.(check bool)
+              "raw compatibility schema request fails closed"
+              true
+              (Result.is_error
+                 (Llm_provider.Provider_config.validate_output_schema_request raw_pc))))
+;;
+
+let test_provider_config_of_agent_runtime_only_registration () =
+  let provider_name = "runtime-only-provider-contract-2590-7f3b1" in
+  let model_id = "runtime-only-model-contract-2590-7f3b1" in
+  let capabilities : Provider.capabilities =
+    { Provider.default_capabilities with
+      supports_tools = true
+    ; supports_response_format_json = true
+    ; supports_structured_output = true
+    }
+  in
+  let impl : Provider.provider_impl =
+    { name = provider_name
+    ; provider_kind = Llm_provider.Provider_config.Anthropic
+    ; request_kind = Provider.Anthropic_messages
+    ; request_path = "/runtime-only/messages"
+    ; capabilities
+    ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
+    ; parse_response =
+        (fun _body ->
+          { Types.id = "runtime-only-response"
+          ; model = model_id
+          ; stop_reason = Types.EndTurn
+          ; content = [ Types.Text "runtime-only" ]
+          ; usage = None
+          ; telemetry = None
+          })
+    ; resolve =
+        (fun _cfg ->
+          Ok
+            ( "https://runtime-only-provider.invalid/api"
+            , "runtime-only-secret"
+            , [ "Content-Type", "application/json"; "x-runtime-provider", "2590" ] ))
+    }
+  in
+  Provider.register_provider impl;
+  let cfg : Provider.config =
+    { provider = Custom_registered { name = provider_name }
+    ; model_id
+    ; api_key_env = "RUNTIME_ONLY_PROVIDER_UNUSED_KEY"
+    }
+  in
+  let state = agent_state_with_params () in
+  match
+    Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+  with
+  | Ok pc ->
+    check_provider_id "runtime-only provider id" provider_name pc;
+    Alcotest.(check bool)
+      "runtime request kind maps to Anthropic"
+      true
+      (pc.kind = Llm_provider.Provider_config.Anthropic);
+    Alcotest.(check string)
+      "runtime endpoint"
+      "https://runtime-only-provider.invalid/api"
+      pc.base_url;
+    Alcotest.(check string)
+      "runtime request path"
+      "/runtime-only/messages"
+      pc.request_path;
+    Alcotest.(check string)
+      "runtime resolver credential"
+      "runtime-only-secret"
+      (pc.api_key :> string);
+    Alcotest.(check (list (pair string string)))
+      "runtime resolver headers"
+      [ "Content-Type", "application/json"; "x-runtime-provider", "2590" ]
+      pc.headers;
+    (match pc.model_capabilities_override with
+     | Some projected ->
        Alcotest.(check bool)
-         "catalog capability declaration projected"
+         "runtime capabilities preserve tools"
          true
-         (Option.is_some declared_pc.model_capabilities_override);
-       let declared_caps =
-         Llm_provider.Provider_config.capabilities_for_config_model declared_pc
-       in
+         projected.supports_tools;
        Alcotest.(check bool)
-         "catalog capability uses chat_template_kwargs"
+         "runtime capabilities preserve structured output"
          true
-         (match declared_caps with
-          | Some caps ->
-            caps.Llm_provider.Capabilities.thinking_control_format
-            = Llm_provider.Capabilities.Chat_template_kwargs
-            && caps.preserve_thinking_control_format
-               = Llm_provider.Capabilities.Chat_template_kwargs_preserve_thinking
-          | None -> false);
-       Alcotest.(check bool)
-         "catalog-declared endpoint validates schema output"
-         true
-         (Result.is_ok
-            (Llm_provider.Provider_config.validate_output_schema_request declared_pc));
-       let raw_cfg : Provider.config =
-         { provider =
-             OpenAICompat
-               { base_url = "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
-               ; auth_header = None
-               ; path = "/v1/chat/completions"
-               ; static_token = None
-               }
-         ; model_id
-         ; api_key_env = ""
-         }
-       in
-       let raw_pc =
-         match
-           Provider.provider_config_of_agent
-             ~state
-             ~base_url:"unused-fallback"
-             (Some raw_cfg)
-         with
-         | Ok pc ->
-           { pc with
-             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-           ; output_schema = Some schema
-           }
-         | Error e ->
-           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
-       in
-       Alcotest.(check (option bool))
-         "raw OpenAICompat does not invent endpoint declaration"
-         None
-         raw_pc.supports_structured_output_override;
-       Alcotest.(check bool)
-         "raw OpenAICompat has no endpoint capability override"
-         true
-         (Option.is_none raw_pc.model_capabilities_override);
-       Alcotest.(check bool)
-         "raw OpenAICompat does not inherit qwen capability fallback"
-         true
-         (Option.is_none
-            (Llm_provider.Provider_config.capabilities_for_config_model raw_pc));
-       Alcotest.(check bool)
-         "raw OpenAICompat endpoint remains fail-closed"
-         true
-         (Result.is_error
-            (Llm_provider.Provider_config.validate_output_schema_request raw_pc)))
+         projected.supports_structured_output
+     | None -> Alcotest.fail "runtime-only capabilities were not projected")
+  | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
 let test_provider_config_of_agent_custom_registered_unknown_name () =
@@ -1375,16 +1486,17 @@ let test_provider_config_of_agent_custom_registered_unknown_name () =
   with
   | Error (Error.Config (InvalidConfig { field; detail })) ->
     Alcotest.(check string) "field" "provider" field;
-    Alcotest.(check bool)
-      "detail mentions not found"
-      true
-      (Util.contains_substring_ci ~haystack:detail ~needle:"not found")
+    Alcotest.(check string)
+      "explicit declaration/runtime registration diagnostic"
+      "Custom_registered provider 'nonexistent-provider-xyz' is neither declared nor \
+       registered at runtime"
+      detail
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
   | Ok _ -> Alcotest.fail "should error on unregistered name"
 ;;
 
 let () =
-  install_repo_model_catalog ();
+  install_embedded_model_catalog ();
   Alcotest.run
     "Provider"
     [ ( "resolve"
@@ -1426,37 +1538,37 @@ let () =
             `Quick
             test_inference_contract_task_never_inferred_from_model_id
         ; Alcotest.test_case
-            "zai glm-5v image capabilities"
+            "raw ZAI-like OpenAI compatibility stays generic"
             `Quick
-            test_zai_glm5v_capabilities_include_image_input
+            test_raw_zai_like_openai_compat_stays_generic
         ; Alcotest.test_case
-            "non-zai glm stays openai compat"
+            "raw OpenAI compatibility does not infer GLM"
             `Quick
-            test_non_zai_glm_capabilities_stay_openai_compat
+            test_raw_openai_compat_does_not_infer_glm_from_model_or_host
         ; Alcotest.test_case
-            "glm base requires endpoint declaration not model-id prefix"
+            "raw OpenAI compatibility ignores provider-independent model row"
             `Quick
-            test_glm_base_requires_endpoint_declaration_not_model_id_prefix
+            test_raw_openai_compat_ignores_provider_independent_catalog_row
         ; Alcotest.test_case
             "invalid modality gets actionable error"
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "raw OpenAI-compatible does not infer extended capabilities"
+            "raw OpenAI-compatible does not infer DashScope capabilities"
             `Quick
-            test_raw_openai_compat_does_not_infer_extended_capabilities
+            test_raw_openai_compat_does_not_infer_dashscope_capabilities
         ; Alcotest.test_case
             "raw openai_compat does not infer dashscope"
             `Quick
             test_raw_openai_compat_does_not_infer_dashscope_from_model_id
         ; Alcotest.test_case
-            "raw openai_compat does not infer minimax"
+            "raw openai_compat does not infer MiniMax contract"
             `Quick
-            test_raw_openai_compat_does_not_infer_minimax_from_model_id
+            test_raw_openai_compat_does_not_infer_minimax_model_contract
         ; Alcotest.test_case
-            "local compat does not infer dialect"
+            "local compat does not infer model capabilities"
             `Quick
-            test_local_compat_does_not_infer_dialect_from_model_id
+            test_local_compat_does_not_infer_model_capabilities
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick
@@ -1469,7 +1581,10 @@ let () =
     ; ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
         ; Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55
-        ; Alcotest.test_case "local free" `Quick test_pricing_local
+        ; Alcotest.test_case
+            "incomplete catalog pricing remains absent"
+            `Quick
+            test_incomplete_catalog_pricing_remains_absent
         ; Alcotest.test_case "unknown model" `Quick test_pricing_unknown
         ; Alcotest.test_case "estimate cost" `Quick test_estimate_cost
         ; Alcotest.test_case
@@ -1477,17 +1592,17 @@ let () =
             `Quick
             test_config_of_provider_config_localhost_boundary
         ; Alcotest.test_case
-            "provider_config local ollama"
+            "provider_config typed ollama is not URL-local"
             `Quick
-            test_config_of_provider_config_local_ollama_delegates_to_ssot
+            test_config_of_provider_config_typed_ollama_is_not_inferred_local
         ; Alcotest.test_case
-            "provider_config uppercase localhost"
+            "provider_config explicit id is not URL-local"
             `Quick
-            test_config_of_provider_config_uppercase_localhost_delegates_to_ssot
+            test_config_of_provider_config_explicit_id_is_not_inferred_local
         ; Alcotest.test_case
-            "provider_config localhost query"
+            "provider_config OpenAI compatibility is not URL-local"
             `Quick
-            test_config_of_provider_config_localhost_query_delegates_to_ssot
+            test_config_of_provider_config_openai_compat_is_not_inferred_local
         ; Alcotest.test_case
             "provider_config kimi custom"
             `Quick
@@ -1511,9 +1626,9 @@ let () =
             `Quick
             test_provider_config_of_agent_missing_env
         ; Alcotest.test_case
-            "none falls back to ANTHROPIC_API_KEY"
+            "none is rejected explicitly"
             `Quick
-            test_provider_config_of_agent_none_fallback
+            test_provider_config_of_agent_none_is_rejected
         ; Alcotest.test_case
             "local keeps empty api key"
             `Quick
@@ -1527,17 +1642,17 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_kimi_preserves_headers
         ; Alcotest.test_case
-            "custom registered nous uses call-time default"
+            "custom registered nous uses declaration"
             `Quick
-            test_provider_config_of_agent_custom_registered_nous_uses_calltime_default
+            test_provider_config_of_agent_custom_registered_nous_uses_declaration
         ; Alcotest.test_case
             "custom registered ollama_cloud adds auth header"
             `Quick
             test_provider_config_of_agent_custom_registered_ollama_cloud_headers
         ; Alcotest.test_case
-            "custom registered ollama_cloud falls back to OLLAMA_API_KEY"
+            "custom registered ollama_cloud uses only its declared key"
             `Quick
-            test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback
+            test_provider_config_of_agent_custom_registered_ollama_cloud_does_not_infer_api_key
         ; Alcotest.test_case
             "custom registered ollama_cloud row separates JSON mode from schema"
             `Quick
@@ -1551,9 +1666,13 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_ollama_cloud_unknown_uses_default
         ; Alcotest.test_case
-            "catalog structured output endpoint declaration"
+            "model row precedes provider capabilities"
             `Quick
-            test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
+            test_provider_config_of_agent_model_row_precedes_provider_capabilities
+        ; Alcotest.test_case
+            "runtime-only registration maps exact provider contract"
+            `Quick
+            test_provider_config_of_agent_runtime_only_registration
         ; Alcotest.test_case
             "custom registered unknown name errors"
             `Quick

@@ -5,7 +5,7 @@
     2. Parse   — BeforeTurnParams hook, context reduction, tool preparation
     3. Route   — provider selection, API call dispatch (sync/stream)
     4. Collect — usage accumulation, AfterTurn hook, events, message append
-    5. Execute — tool execution on StopToolUse (idle detection, guardrails)
+    5. Execute — exact-name tool execution on StopToolUse
     6. Output  — stop reason → turn_outcome
 
     [Output] ([stage_output]) dispatches [Execute] ([stage_execute]) internally
@@ -13,72 +13,20 @@
     between Collect and Output. This matches the dataflow diagram in
     pipeline.mli: [Input] -> [Parse] -> [Route] -> [Collect] -> [Output]. *)
 
-module Retry = Llm_provider.Retry
 open Types
 open Agent_types
 open Agent_trace
 
 let _log = Log.create ~module_name:"pipeline" ()
 
-let hook_failed_sdk_error ~hook_name ~stage ~detail =
-  Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
-;;
-
-let illegal_hook_decision ~stage ~decision =
-  Error.Internal
-    (Printf.sprintf
-       "illegal hook decision %s in %s"
-       (Agent_lifecycle.hook_decision_to_string decision)
-       stage)
-;;
-
 (* Shared with Pipeline_stage_prepare via Pipeline_common (re-raises Eio
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 
-let should_recover_text_tool_use (response : Types.api_response) =
-  match response.telemetry with
-  | Some
-      { provider_kind =
-          Some (Llm_provider.Provider_kind.Glm | Llm_provider.Provider_kind.Ollama)
-      ; _
-      } -> true
-  | Some _ | None -> false
-;;
-
-(* ── Context compaction watermark ───────────────────── *)
-
-(** Default ratio at which proactive compaction fires (0.9 = 90% of context).
-    The agent config's [context_compact_ratio] is the SSOT; there is no env
-    override.  Hard floor prevents silent pass-through that caused CTX 101%
-    overrun (#7083). Values outside (0.0, 1.0) are rejected.
-    @since 0.185.0 *)
-let is_valid_compact_watermark = Types.valid_context_ratio
-
-(** Single resolver for the proactive compaction watermark. Config ratios are
-    already validated at construction time by the builder and reducer; this
-    function remains as a fail-soft guard for direct [agent_config]
-    construction, checkpoint reload, or any other path that bypasses the
-    builder boundary. *)
-let proactive_watermark agent =
-  match agent.state.config.context_compact_ratio with
-  | Some ratio when Types.valid_context_ratio ratio -> ratio
-  | Some ratio ->
-    Log.warn
-      _log
-      "invalid context_compact_ratio; using default proactive watermark"
-      [ Log.S ("agent", agent.state.config.name)
-      ; Log.F ("value", ratio)
-      ; Log.F ("default", Types.default_context_compact_ratio)
-      ];
-    Types.default_context_compact_ratio
-  | None -> Types.default_context_compact_ratio
-;;
-
-let context_window_usage_ratio ~estimated_tokens ~limit_tokens =
-  if limit_tokens <= 0
-  then 0.0
-  else float_of_int estimated_tokens /. float_of_int limit_tokens
+let append_journal journal event =
+  match Durable_event.append journal event with
+  | Ok () -> ()
+  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
 ;;
 
 open Result_syntax
@@ -92,8 +40,7 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted of Tool_failure_episode.completed_round option
-  | IdleSkipped
+  | ToolsExecuted
 
 let persist_turn_checkpoint_for_state agent stage state =
   match agent.checkpoint_sink with
@@ -115,7 +62,7 @@ let persist_turn_checkpoint_for_state agent stage state =
      | Ok () ->
        (match agent.options.journal with
         | Some journal ->
-          Durable_event.append
+          append_journal
             journal
             (Checkpoint_saved
                { checkpoint_id = Printf.sprintf "%s-%d" stage_label turn; timestamp })
@@ -153,19 +100,11 @@ let last_tool_results_from = Pipeline_stage_prepare.last_tool_results_from
 
 (** Prepare the turn using current [agent.state.messages] and the given
     [turn_params].  Centralises the [Agent_turn.prepare_turn] parameter
-    list to avoid duplication between [stage_parse] and post-compaction
-    re-preparation (Stage 2.3). *)
+    list to keep preparation behind one typed boundary. *)
 let prepare_turn_for_agent = Pipeline_stage_prepare.prepare_turn_for_agent
 
-let total_prompt_tokens_for_agent agent messages =
-  List.fold_left
-    (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
-    0
-    messages
-;;
-
-(** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
-    Returns (turn_preparation, original_config, turn_params). *)
+(** Invoke BeforeTurnParams hook and prepare the immutable per-turn config and
+    tools. Returns (turn_preparation, turn_config, turn_params). *)
 let stage_parse = Pipeline_stage_prepare.stage_parse
 
 (* ── Stage 3: Route ──────────────────────────────────────── *)
@@ -175,7 +114,8 @@ let stage_parse = Pipeline_stage_prepare.stage_parse
     Pipeline/Retry/ContextOverflow handling source-compatible while the
     Sync dispatch migrates to {!Llm_provider.Complete.complete}.
 
-    HTTP status codes are re-classified via {!Retry.classify_error} so
+    HTTP status codes are re-classified via
+    {!Llm_provider.Retry.classify_error} so
     ContextOverflow/RateLimited/etc. still map to the same variants. *)
 let sdk_error_of_http_error = Pipeline_stage_route.sdk_error_of_http_error
 
@@ -189,7 +129,16 @@ let dispatch_sync = Pipeline_stage_route.dispatch_sync
 let dispatch_stream = Pipeline_stage_route.dispatch_stream
 
 (** Dispatch the API call via the chosen strategy (sync or stream). *)
-let stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep =
+let stage_route
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ~turn_config
+      agent
+      prep
+  =
   match api_strategy with
   | Sync ->
     Tracing.with_span
@@ -203,8 +152,16 @@ let stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep =
       }
       (fun tracer ->
          let trace_context = Tracing.trace_context_headers tracer in
-         dispatch_sync ~sw ?clock ~trace_context ?on_provider_failure agent prep)
+         dispatch_sync
+           ~sw
+           ?clock
+           ~trace_context
+           ?on_provider_failure
+           ~turn_config
+           agent
+           prep)
   | Stream { on_event; on_telemetry } ->
+    let capture_id = Option.map Raw_trace.active_run_id raw_trace_run in
     Tracing.with_span
       agent.options.tracer
       { kind = Api_call
@@ -219,10 +176,12 @@ let stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep =
          dispatch_stream
            ~sw
            ?clock
+           ~turn_config
            ~trace_context
            agent
            prep
            ~on_event
+           ?capture_id
            ?on_telemetry
            ?on_provider_failure
            ())
@@ -231,8 +190,8 @@ let stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep =
 (* ── Stage 4: Collect ────────────────────────────────────── *)
 
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
-    assistant message, increment turn_count.  Restores original_config. *)
-let stage_collect ?raw_trace_run ?clock agent ~original_config response =
+    assistant message, and increment turn_count. *)
+let stage_collect ?raw_trace_run ?clock agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -243,7 +202,6 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
     ; links = []
     }
     (fun _tracer ->
-       update_state agent (fun s -> { s with config = original_config });
        let ts = Pipeline_common.timestamp_now ?clock () in
        (* Preserve an already-recorded first_progress_at (e.g. from streaming
           first-token or tool-execution events). Overwriting it with the
@@ -272,18 +230,30 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
          match after_decision with
          | Hooks.Continue -> Ok ()
          | Hooks.HookFailed { stage; detail } ->
-           Error (hook_failed_sdk_error ~hook_name:"after_turn" ~stage ~detail)
-         | decision ->
-           let detail =
-             Printf.sprintf
-               "illegal after_turn decision escaped validation: %s"
-               (Hooks.decision_kind_to_string (Hooks.classify_decision decision))
-           in
            Error
-             (hook_failed_sdk_error ~hook_name:"after_turn" ~stage:"after_turn" ~detail)
+             (Pipeline_common.hook_failed_sdk_error
+                ~hook_name:"after_turn"
+                ~stage
+                ~tool_name:None
+                ~tool_use_id:None
+                ~detail)
+         | decision ->
+           Error
+             (Pipeline_common.illegal_hook_decision_sdk_error
+                ~hook_name:"after_turn"
+                ~stage:Hooks.After_turn
+                ~decision)
        in
        let completed_turn = agent.state.turn_count in
-       let assistant_message = make_message ~role:Assistant response.content in
+       let* assistant_message =
+         match Types.assistant_message_of_response response with
+         | Ok message -> Ok message
+         | Error error ->
+           Error
+             (Error.Internal
+                ("assistant response has invalid reasoning provenance: "
+                 ^ Types.show_assistant_message_error error))
+       in
        let checkpoint_state =
          { agent.state with
            messages = Util.snoc agent.state.messages assistant_message
@@ -365,7 +335,7 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
                   })));
        (match agent.options.journal with
         | Some j ->
-          Durable_event.append
+          append_journal
             j
             (State_transition
                { from_state = "turn_running"
@@ -379,8 +349,8 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
 
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
-(** Handle tool execution: idle detection, guardrails, context injection. *)
-let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses_nonempty =
+(** Handle tool execution and context injection. *)
+let stage_execute ?raw_trace_run agent tool_uses_nonempty =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -397,247 +367,77 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails ~response tool_uses
     ; links = []
     }
     (fun _tracer ->
-       let resolved_idle_skip_at =
-         let skip_at = agent.options.max_idle_turns in
-         if skip_at > 0 then Some skip_at else None
+       let results, failure =
+         match execute_tools_with_trace agent raw_trace_run tool_uses with
+         | Ok results -> results, None
+         | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
+           completed_results, Some cause
        in
-       let resolved_idle_final_warning_at =
-         match agent.options.idle_final_warning_at, resolved_idle_skip_at with
-         | Some n, _ when n > 0 -> Some n
-         | Some _, _ -> None
-         | None, Some skip_at when skip_at > 1 -> Some (skip_at - 1)
-         | None, _ -> None
+       let tool_results = Agent_turn.make_tool_results results in
+       let* () =
+         match tool_results with
+         | [] -> Ok ()
+         | _ ->
+           (* Commit completed effects before surfacing a terminal hook or
+              observer failure.  Updating memory first prevents same-process
+              replay even when the caller-owned checkpoint sink itself fails;
+              the checkpoint then makes the same invariant durable. *)
+           update_state agent (fun state ->
+             { state with
+               messages = Util.snoc state.messages (make_message ~role:Tool tool_results)
+             });
+           let base_state = agent.state in
+           persist_turn_checkpoint_for_state agent After_tool_results_appended base_state
        in
-       let classify_idle_severity consecutive_idle_turns =
-         match resolved_idle_skip_at, resolved_idle_final_warning_at with
-         | Some skip_at, _ when consecutive_idle_turns >= skip_at ->
-           Hooks.Idle_severity.Skip
-         | _, Some final_at when consecutive_idle_turns >= final_at ->
-           Hooks.Idle_severity.Final_warning
-         | _ -> Hooks.Idle_severity.Nudge
-       in
-       let tool_index = Agent_tools.build_index (Tool_set.to_list agent.tools) in
-       let registered_tool name =
-         Option.is_some (Agent_tools.find_in_index tool_index name)
-       in
-       let normalize_tool_call ~name ~input =
-         if registered_tool name
-         then name, input
-         else (
-           match Agent_tool_name_alias.resolve ~requested:name ~input with
-           | Some (canonical_name, canonical_input) when registered_tool canonical_name ->
-             canonical_name, canonical_input
-           | Some _ | None -> name, input)
-       in
-       let idle_result =
-         Agent_turn.update_idle_detection_with_normalizer
-           ~normalize_tool_call
-           ~idle_state:
-             { last_tool_calls = agent.last_tool_calls
-             ; consecutive_idle_turns = agent.consecutive_idle_turns
-             }
-           ~tool_uses
-       in
-       Agent_types.set_idle_state agent idle_result.new_state;
-       let idle_skip = ref false in
-       let idle_handled = ref false in
-       let idle_hook_failed = ref None in
-       (* true when Nudge or Skip handled idle *)
-       (* Nudge text is captured here and later delivered as a separate
-          role:User message appended AFTER the role:Tool results message (see
-          the snoc at the tool-results append below), never as a standalone
-          message before tool execution. A message placed before the tool
-          results would sit between the assistant tool_calls message and its
-          results; the OpenAI-compat serializer's strip_orphaned_tool_results
-          treats that gap as an orphan boundary and drops every tool result of
-          the turn, so the model never sees the outcome of the calls it is
-          being nudged about — locking in the repetition the nudge is meant to
-          break. *)
-       let pending_nudge = ref None in
-       if idle_result.is_idle
-       then (
-         let tool_names =
-           List.filter_map
-             (fun (block : content_block) ->
-                match block with
-                | ToolUse { name; _ } -> Some name
-                | Text _
-                | Thinking _
-                | ReasoningDetails _
-                | RedactedThinking _
-                | ToolResult _
-                | Image _
-                | Document _
-                | Audio _ -> None)
-             tool_uses
-         in
-         let consecutive_idle_turns = agent.consecutive_idle_turns in
-         let idle_decision =
-           match agent.options.hooks.on_idle_escalated with
-           | Some hook ->
-             let severity = classify_idle_severity consecutive_idle_turns in
-             invoke_hook_with_trace
-               agent
-               ?raw_trace_run
-               ~hook_name:"on_idle_escalated"
-               (Some hook)
-               (Hooks.OnIdleEscalated { severity; consecutive_idle_turns; tool_names })
-           | None ->
-             invoke_hook_with_trace
-               agent
-               ?raw_trace_run
-               ~hook_name:"on_idle"
-               agent.options.hooks.on_idle
-               (Hooks.OnIdle { consecutive_idle_turns; tool_names })
-         in
-         match idle_decision with
-         | Hooks.Skip ->
-           idle_skip := true;
-           idle_handled := true
-         | Hooks.Nudge nudge_msg ->
-           (* Stash the nudge and leave the idle counter unchanged, so
-              repeated idle turns continue to accumulate toward later
-              escalation. With accumulation, repeated idle turns can
-              continue to nudge until the on_idle hook eventually decides
-              to Skip (for example, at a configured threshold). *)
-           pending_nudge := Some nudge_msg;
-           idle_handled := true
-         | Hooks.Continue -> ()
-         | Hooks.HookFailed { stage; detail } -> idle_hook_failed := Some (stage, detail)
-         | Hooks.Override _
-         | Hooks.ApprovalRequired
-         | Hooks.AdjustParams _
-         | Hooks.ElicitInput _
-         | Hooks.Block _ ->
-           (* Reject illegal hook decisions with a typed error instead of crashing.
-              Stash the failure so the existing idle-hook error path returns it.
-              [Block] is legal only at pre_tool_use, so it is illegal here. *)
-           idle_hook_failed
-           := Some
-                ( "illegal_decision"
-                , Printf.sprintf
-                    "illegal hook decision %s in on_idle"
-                    (Agent_lifecycle.hook_decision_to_string idle_decision) ));
-       (* Early exit: skip tool execution when on_idle hook says Skip.
-          Prevents executing redundant tools and avoids further counter drift. *)
-       match !idle_hook_failed with
-       | Some (stage, detail) ->
+       match failure with
+       | Some
+           (Agent_tools.Hook_failure
+              (Agent_tools.Hook_execution_failed
+                 { hook_name; stage; tool_name; tool_use_id; detail })) ->
          Error
-           (Error.Internal (Printf.sprintf "hook on_idle failed at %s: %s" stage detail))
-       | None when !idle_skip -> Ok IdleSkipped
+           (Pipeline_common.hook_failed_sdk_error
+              ~hook_name
+              ~stage
+              ~tool_name:(Some tool_name)
+              ~tool_use_id:(Some tool_use_id)
+              ~detail)
+       | Some (Agent_tools.Observer_failure { exception_; backtrace }) ->
+         Printexc.raise_with_backtrace exception_ backtrace
        | None ->
-         let count = List.length tool_uses in
-         (match Guardrails.exceeds_limit effective_guardrails count with
-          | true ->
-            let msg =
-              Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count
+         (match agent.options.context_injector with
+          | None -> Ok ToolsExecuted
+          | Some injector ->
+            let* messages =
+              Agent_turn.apply_context_injection
+                ~context:agent.context
+                ~messages:agent.state.messages
+                ~injector
+                ~tool_uses
+                ~results
+              |> Result.map_error (fun error ->
+                Error.Internal
+                  (Printf.sprintf
+                     "context injector failed%s: %s"
+                     (match error.Agent_turn.tool_name with
+                      | Some name -> " for tool " ^ name
+                      | None -> "")
+                     error.detail))
             in
-            let content =
-              match !pending_nudge with
-              | Some nudge -> [ Text msg; Text nudge ]
-              | None -> [ Text msg ]
-            in
-            update_state agent (fun s ->
-              { s with messages = Util.snoc s.messages (make_message ~role:User content) });
-            let* () = persist_turn_checkpoint agent After_tool_results_appended in
-            Ok (ToolsExecuted None)
-          | false ->
-            let results =
-              try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
-              | Raw_trace.Trace_error err -> Error err
-            in
-            let* results = results in
-            let tool_result_event_envelope = Pipeline_common.event_envelope agent in
-            let tool_results =
-              Agent_turn.make_tool_results
-                ?event_bus:agent.options.event_bus
-                ~correlation_id:tool_result_event_envelope.correlation_id
-                ~run_id:tool_result_event_envelope.run_id
-                ?relocation:agent.options.tool_result_relocation
-                results
-            in
-            let* completed_round, completed_round_metadata =
-              match agent.tool_failure_judge with
-              | None -> Ok (None, [])
-              | Some _ ->
-                let executions =
-                  List.map
-                    (fun (result : Agent_tools.tool_execution_result) ->
-                       { Tool_failure_episode.tool_use_id = result.tool_use_id
-                       ; tool_name = result.tool_name
-                       ; input = result.input
-                       })
-                    results
-                in
-                (match Tool_failure_episode.project ~executions ~tool_results with
-                 | Ok round ->
-                   Ok
-                     ( Some round
-                     , [ Tool_failure_episode.completed_round_metadata executions ] )
-                 | Error error ->
-                   Error
-                     (Error.Agent
-                        (Error.ToolFailureRecoveryFailed
-                           { stage = Error.Round_projection
-                           ; detail = Tool_failure_episode.show_error error
-                           })))
-            in
-            (* Persist CRS to context after tool result processing so that
-            checkpoint captures the current replacement decisions. *)
-            (match agent.options.tool_result_relocation with
-             | Some (_, crs) ->
-               Content_replacement_state.persist_to_context agent.context crs
-             | None -> ());
-            let checkpoint_state =
-              let s = agent.state in
-              let messages =
-                match tool_results with
-                | [] -> s.messages
-                | _ ->
-                  Util.snoc
-                    s.messages
-                    (make_message
-                       ~metadata:completed_round_metadata
-                       ~role:Tool
-                       tool_results)
-              in
-              let messages =
-                match !pending_nudge with
-                | None -> messages
-                | Some text -> Util.snoc messages (make_message ~role:User [ Text text ])
-              in
-              let messages =
-                match agent.options.context_injector with
-                | None -> messages
-                | Some injector ->
-                  Agent_turn.apply_context_injection
-                    ~context:agent.context
-                    ~messages
-                    ~injector
-                    ~tool_uses
-                    ~results
-              in
-              { s with messages }
-            in
+            let injected_state = { agent.state with messages } in
+            set_state agent injected_state;
             let* () =
               persist_turn_checkpoint_for_state
                 agent
-                After_tool_results_appended
-                checkpoint_state
+                After_context_injection
+                injected_state
             in
-            set_state agent checkpoint_state;
-            (* A caller-installed idle nudge remains an explicit policy hook and
-               is appended after ToolResult. The former default repeat-count
-               User warning and canned Assistant terminal response are removed;
-               typed recovery owns repeated failed-tool judgment. *)
-            ignore idle_handled;
-            Ok (ToolsExecuted completed_round)))
+            Ok ToolsExecuted))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
-let stage_output ?raw_trace_run agent ~effective_guardrails response =
+let stage_output ?raw_trace_run agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -673,31 +473,16 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                practice; if a future parser regresses it fails closed with a
                typed error instead of silently returning [ToolsExecuted] and
                re-issuing the identical Thinking turn forever. *)
-            Agent_types.reset_idle_state agent;
             Error
               (Error.Agent
                  (UnrecognizedStopReason
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
-            let result =
-              stage_execute
-                ?raw_trace_run
-                agent
-                ~effective_guardrails
-                ~response
-                tool_uses_nonempty
-            in
-            (match result with
-             | Ok IdleSkipped ->
-               (* on_idle hook returned Skip: stop gracefully with the current response *)
-               Agent_types.reset_idle_state agent;
-               Ok (Complete response)
-             | other -> other))
+            stage_execute ?raw_trace_run agent tool_uses_nonempty)
        | UnmatchedToolCalls ->
          (* The wire boundary has already classified this response shape as
             malformed. Keep rejecting it; arbitrary provider terminal reasons
             remain fail-closed in their own branch below. *)
-         Agent_types.reset_idle_state agent;
          Error
            (Error.Agent
               (UnrecognizedStopReason
@@ -711,9 +496,6 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | PauseTurn
        | Compaction
        | ContextWindowExceeded ->
-         (* Invoke on_stop before resetting idle counters, so observers
-            (hooks, tracers, telemetry callbacks) can read the actual
-            consecutive_idle_turns value that drove this turn's behavior. *)
          let stop_decision =
            invoke_hook_with_trace
              agent
@@ -723,235 +505,23 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
          (match stop_decision with
+          | Hooks.Continue -> Ok (Complete response)
           | Hooks.HookFailed { stage; detail } ->
-            Error (hook_failed_sdk_error ~hook_name:"on_stop" ~stage ~detail)
-          | _ ->
-            Agent_types.reset_idle_state agent;
-            Ok (Complete response))
-       | Unknown reason ->
-         Agent_types.reset_idle_state agent;
-         Error (Error.Agent (UnrecognizedStopReason { reason })))
-;;
-
-(* ── Proactive watermark compaction (Phase 2) ───────────── *)
-
-(** Context-window size for proactive compaction.
-
-    This is the model's per-request context-window size, resolved from
-    provider/model capabilities, with a conservative default fallback. *)
-let proactive_context_window_tokens agent =
-  Provider.resolve_max_context_tokens ~fallback:128_000 agent.options.provider
-;;
-
-let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
-  match agent.options.event_bus with
-  | None -> ()
-  | Some bus ->
-    let usage_ratio = context_window_usage_ratio ~estimated_tokens ~limit_tokens in
-    Telemetry_bus.publish
-      (Telemetry_bus.of_event_bus bus)
-      (Llm_provider.Telemetry_event.Context_window_usage
-         { agent_name = agent.state.config.name
-         ; turn = agent.state.turn_count
-         ; estimated_tokens
-         ; limit_tokens
-         ; usage_ratio
-         })
-;;
-
-(** Shared compaction body for {!proactive_compact} and
-    {!emergency_compact}.  Runs the common chain:
-
-    PreCompact hook → [Budget_strategy.reduce_for_budget] →
-    [Agent_turn.apply_context_reducer] → after-tokens guard →
-    state update → PostCompact hook → [ContextCompacted] publish →
-    [on_context_compacted] hook → journal [Checkpoint_saved] append.
-
-    The two call sites differ only in:
-    - [strategy_ratio]: usage ratio handed to [Budget_strategy]
-      (watermark-remapped for proactive, [1.0] for emergency);
-    - [budget_tokens]: budget reported in the PreCompact payload;
-    - [phase]: label carried by PostCompact / ContextCompacted /
-      OnContextCompacted;
-    - [checkpoint_prefix]: journal checkpoint id is
-      ["compact-<prefix>-<turn>"].
-
-    Fires PreCompact hook; respects Skip.  Returns [true] if messages
-    were actually reduced. *)
-let compact_messages
-      ?raw_trace_run
-      ?clock
-      agent
-      ~strategy_ratio
-      ~budget_tokens
-      ~phase
-      ~checkpoint_prefix
-      ()
-  =
-  let messages = agent.state.messages in
-  let est_tokens = total_prompt_tokens_for_agent agent messages in
-  let hook_decision =
-    invoke_hook_with_trace
-      agent
-      ?raw_trace_run
-      ~hook_name:"pre_compact"
-      agent.options.hooks.pre_compact
-      (Hooks.PreCompact { messages; estimated_tokens = est_tokens; budget_tokens })
-  in
-  let run_compaction () =
-    let reduced =
-      Budget_strategy.reduce_for_budget
-        ~preserve_thinking:(agent.state.config.preserve_thinking = Some true)
-        ?summarizer:agent.options.summarizer
-        ~usage_ratio:strategy_ratio
-        ~messages
-        ()
-    in
-    let reduced =
-      Agent_turn.apply_context_reducer
-        ~preserve_thinking:(agent.state.config.preserve_thinking = Some true)
-        ~messages:reduced
-        ~context_reducer:agent.options.context_reducer
-    in
-    let after_tokens = total_prompt_tokens_for_agent agent reduced in
-    if after_tokens >= est_tokens
-    then false
-    else (
-      update_state agent (fun s -> { s with messages = reduced });
-      ignore
-        (invoke_hook_with_trace
-           agent
-           ?raw_trace_run
-           ~hook_name:"post_compact"
-           agent.options.hooks.post_compact
-           (Hooks.PostCompact
-              { before_messages = messages
-              ; after_messages = reduced
-              ; before_tokens = est_tokens
-              ; after_tokens
-              ; phase
-              }));
-      (match agent.options.event_bus with
-       | Some bus ->
-         safe_publish
-           bus
-           { meta = Pipeline_common.event_envelope agent
-           ; payload =
-               ContextCompacted
-                 { agent_name = agent.state.config.name
-                 ; before_tokens = est_tokens
-                 ; after_tokens
-                 ; phase
-                 }
-           }
-       | None -> ());
-      let _ : Hooks.hook_decision =
-        Hooks.invoke
-          agent.options.hooks.on_context_compacted
-          (Hooks.OnContextCompacted
-             { agent_name = agent.state.config.name
-             ; before_tokens = est_tokens
-             ; after_tokens
-             ; phase
-             })
-      in
-      (match agent.options.journal with
-       | Some j ->
-         Durable_event.append
-           j
-           (Checkpoint_saved
-              { checkpoint_id =
-                  Printf.sprintf "compact-%s-%d" checkpoint_prefix agent.state.turn_count
-              ; timestamp = Pipeline_common.timestamp_now ?clock ()
-              })
-       | None -> ());
-      true)
-  in
-  match hook_decision with
-  | Hooks.Skip -> Ok false
-  | Hooks.Continue -> Ok (run_compaction ())
-  | Hooks.HookFailed { stage; detail } ->
-    Log.error
-      _log
-      "pre_compact hook failed; skipping compaction"
-      [ Log.S ("stage", stage); Log.S ("detail", detail) ];
-    Ok false
-  | Hooks.Override _
-  | Hooks.ApprovalRequired
-  | Hooks.AdjustParams _
-  | Hooks.ElicitInput _
-  | Hooks.Nudge _
-  | Hooks.Block _ ->
-    (* Reject illegal hook decisions with a typed error instead of crashing.
-       [Block] is legal only at pre_tool_use, so it is illegal here. *)
-    Error (illegal_hook_decision ~stage:"pre_compact" ~decision:hook_decision)
-;;
-
-(** Apply proactive compaction when context usage exceeds the configured
-    watermark ratio, BEFORE hitting the provider limit.  Uses
-    [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
-    that matches the current usage.  Fires PreCompact hook; respects
-    Skip.  Returns [true] if messages were actually reduced.
-
-    The raw usage ratio is remapped from [watermark, 1.0] → [0.5, 1.0]
-    before being passed to [Budget_strategy], so that crossing the
-    watermark always corresponds to the Compact phase (≥ 0.5) regardless
-    of how low the configured watermark is.
-
-    @param watermark  Ratio (0.0-1.0) at which to begin compacting.
-                      Typical value: 0.7 (= 70 % of context window).
-    @since Phase 2 — proactive compaction *)
-let proactive_compact ?raw_trace_run ?clock agent ~watermark () =
-  let messages = agent.state.messages in
-  let est_tokens = total_prompt_tokens_for_agent agent messages in
-  let context_window_tokens = proactive_context_window_tokens agent in
-  let usage_ratio = float_of_int est_tokens /. float_of_int context_window_tokens in
-  if usage_ratio < watermark
-  then Ok false
-  else (
-    (* Remap [watermark, 1.0] → [0.5, 1.0] so Budget_strategy always picks
-       at least the Compact phase when the watermark is crossed.  Without
-       this, a watermark < 0.5 would never trigger Budget_strategy because
-       phase_of_usage_ratio returns Full for ratios below 0.5. *)
-    let scaled_ratio =
-      let watermark_range = 1.0 -. watermark in
-      if watermark_range <= 0.0
-      then 1.0
-      else 0.5 +. (0.5 *. (usage_ratio -. watermark) /. watermark_range)
-    in
-    let phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) in
-    compact_messages
-      ?raw_trace_run
-      ?clock
-      agent
-      ~strategy_ratio:scaled_ratio
-      ~budget_tokens:context_window_tokens
-      ~phase
-      ~checkpoint_prefix:"proactive"
-      ())
-;;
-
-(* ── Emergency compaction ────────────────────────────────── *)
-
-(** Apply emergency compaction to stored messages when context overflow
-    is detected. Uses Budget_strategy Emergency phase (Summarize_old +
-    aggressive tool pruning). Fires PreCompact hook; respects Skip.
-    Returns [true] if messages were actually reduced. *)
-let emergency_compact ?raw_trace_run ?clock agent ?limit () =
-  let budget_tokens =
-    match limit with
-    | Some l -> l
-    | None -> total_prompt_tokens_for_agent agent agent.state.messages
-  in
-  compact_messages
-    ?raw_trace_run
-    ?clock
-    agent
-    ~strategy_ratio:1.0
-    ~budget_tokens
-    ~phase:"emergency"
-    ~checkpoint_prefix:"emergency"
-    ()
+            Error
+              (Pipeline_common.hook_failed_sdk_error
+                 ~hook_name:"on_stop"
+                 ~stage
+                 ~tool_name:None
+                 ~tool_use_id:None
+                 ~detail)
+          | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _ | Hooks.Block _)
+            as decision ->
+            Error
+              (Pipeline_common.illegal_hook_decision_sdk_error
+                 ~hook_name:"on_stop"
+                 ~stage:Hooks.On_stop
+                 ~decision))
+       | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Pipeline coordinator ────────────────────────────────── *)
@@ -971,18 +541,7 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn
-      ~sw
-      ?clock
-      ~api_strategy
-      ?raw_trace_run
-      ?recovery_context
-      ?on_provider_failure
-      agent
-  =
-  let clear_provider_failure () =
-    Option.iter (fun notify -> notify None) on_provider_failure
-  in
+let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent =
   (* Stage 1: Input *)
   let* () =
     Tracing.with_span
@@ -997,7 +556,7 @@ let run_turn
       (fun _tracer -> stage_input ?raw_trace_run ?clock agent |> tag_error "input")
   in
   (* Stage 2: Parse *)
-  let* prep, original_config, turn_params =
+  let* prep, turn_config, turn_params =
     Tracing.with_span
       agent.options.tracer
       { kind = Hook_invoke
@@ -1007,64 +566,7 @@ let run_turn
       ; extra = []
       ; links = []
       }
-      (fun _tracer ->
-         stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse")
-  in
-  let context_window = proactive_context_window_tokens agent in
-  let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
-  publish_context_window_usage
-    agent
-    ~estimated_tokens:est_tokens
-    ~limit_tokens:context_window;
-  (* Stage 2.3: Proactive watermark compaction — compact before overflow.
-     Runs before async input validation so that validators operate on the
-     already-compacted message set.  Re-prepares the turn via
-     Agent_turn.prepare_turn directly (not stage_parse) to avoid emitting
-     TurnStarted a second time or re-invoking before_turn_params.
-
-     Hard budget gate (OAS-2): when context_compact_ratio is not configured
-     or is invalid, a ratio >= Types.default_context_compact_ratio still
-     triggers compaction.
-     This prevents the silent pass-through that caused a downstream consumer's
-     CTX 101% overrun (observed in upstream issue #7083). *)
-  let* prep =
-    let watermark = proactive_watermark agent in
-    let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
-    let context_window = proactive_context_window_tokens agent in
-    let ratio =
-      context_window_usage_ratio ~estimated_tokens:est_tokens ~limit_tokens:context_window
-    in
-    if ratio >= watermark
-    then (
-      (* Emit ContextOverflowImminent before compaction *)
-      (match agent.options.event_bus with
-       | Some bus ->
-         safe_publish
-           bus
-           { meta = Pipeline_common.event_envelope agent
-           ; payload =
-               ContextOverflowImminent
-                 { agent_name = agent.state.config.name
-                 ; estimated_tokens = est_tokens
-                 ; limit_tokens = context_window
-                 ; ratio
-                 }
-           }
-       | None -> ());
-      (* Emit ContextCompactStarted *)
-      (match agent.options.event_bus with
-       | Some bus ->
-         safe_publish
-           bus
-           { meta = Pipeline_common.event_envelope agent
-           ; payload =
-               ContextCompactStarted
-                 { agent_name = agent.state.config.name; trigger = "proactive" }
-           }
-       | None -> ());
-      let* compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
-      if compacted then Ok (prepare_turn_for_agent agent ~turn_params) else Ok prep)
-    else Ok prep
+      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent |> tag_error "parse")
   in
   (* Stage 2.5: Async input validation *)
   let async_guard = agent.options.guardrails_async in
@@ -1074,137 +576,65 @@ let run_turn
       prep.Agent_turn.effective_messages
   with
   | Guardrails_async.Fail { validator_name; reason } ->
-    update_state agent (fun s -> { s with config = original_config });
     Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
   | Guardrails_async.Pass ->
-    (* Stage 2.7: Proactive watermark compaction — post-validation pass.
-     Same hard budget gate as 2.3 — if context still exceeds watermark
-     after validation (validators can inject messages), compact again. *)
-    let* prep =
-      let watermark = proactive_watermark agent in
-      let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
-      let context_window = proactive_context_window_tokens agent in
-      let ratio =
-        context_window_usage_ratio
-          ~estimated_tokens:est_tokens
-          ~limit_tokens:context_window
-      in
-      if ratio >= watermark
-      then
-        let* compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
-        if compacted
-        then (
-          update_state agent (fun s -> { s with config = original_config });
-          let* prep', _, _ =
-            stage_parse ?raw_trace_run ?clock ?recovery_context agent |> tag_error "parse"
-          in
-          Ok prep')
-        else Ok prep
-      else Ok prep
+    (* Stage 3: Route exactly once. Provider [ContextOverflow] remains a typed
+       error; OAS does not mutate the transcript or retry implicitly. *)
+    (match agent.options.journal with
+     | Some j ->
+       append_journal
+         j
+         (Llm_request
+            { turn = agent.state.turn_count
+            ; model = turn_config.model
+            ; timestamp = Pipeline_common.timestamp_now ?clock ()
+            })
+     | None -> ());
+    let t0 = Pipeline_common.timestamp_now ?clock () in
+    let api_result =
+      stage_route
+        ~sw
+        ?clock
+        ~api_strategy
+        ?raw_trace_run
+        ?on_provider_failure
+        ~turn_config
+        agent
+        prep
+      |> tag_error "route"
     in
-    (* Stage 3: Route — with compact-and-retry on context overflow *)
-    let rec attempt_route ~prep ~compact_attempts =
-      let est_input =
-        List.fold_left
-          (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
-          0
-          prep.Agent_turn.effective_messages
-      in
-      (match agent.options.journal with
-       | Some j ->
-         Durable_event.append
-           j
-           (Llm_request
-              { turn = agent.state.turn_count
-              ; model = agent.state.config.model
-              ; input_tokens = est_input
-              ; timestamp = Pipeline_common.timestamp_now ?clock ()
-              })
-       | None -> ());
-      let t0 = Pipeline_common.timestamp_now ?clock () in
-      let api_result =
-        stage_route ~sw ?clock ~api_strategy ?on_provider_failure agent prep
-        |> tag_error "route"
-      in
-      let duration_ms = (Pipeline_common.timestamp_now ?clock () -. t0) *. 1000.0 in
-      (match agent.options.journal, api_result with
-       | Some j, Ok response ->
-         let out_tokens =
-           match response.usage with
-           | Some u -> u.output_tokens
-           | None -> 0
-         in
-         Durable_event.append
-           j
-           (Llm_response
-              { turn = agent.state.turn_count
-              ; output_tokens = out_tokens
-              ; stop_reason = Types.show_stop_reason response.stop_reason
-              ; duration_ms
-              ; timestamp = Pipeline_common.timestamp_now ?clock ()
-              })
-       | Some j, Error err ->
-         Durable_event.append
-           j
-           (Error_occurred
-              { turn = agent.state.turn_count
-              ; error_domain = "Api"
-              ; detail = Error.to_string err
-              ; timestamp = Pipeline_common.timestamp_now ?clock ()
-              })
-       | None, _ -> ());
-      match api_result with
-      | Error (Error.Api (Retry.ContextOverflow { limit; _ }))
-        when agent.auto_context_overflow_retry && compact_attempts < 2 ->
-        (match agent.options.event_bus with
-         | Some bus ->
-           safe_publish
-             bus
-             { meta = Pipeline_common.event_envelope agent
-             ; payload =
-                 ContextCompactStarted
-                   { agent_name = agent.state.config.name; trigger = "emergency" }
-             }
-         | None -> ());
-        (match emergency_compact ?raw_trace_run ?clock agent ?limit () with
-         | Error error ->
-           clear_provider_failure ();
-           Error error
-         | Ok compacted ->
-           if not compacted
-           then api_result
-           else (
-             update_state agent (fun s -> { s with config = original_config });
-             match
-               stage_parse ?raw_trace_run ?clock ?recovery_context agent
-               |> tag_error "parse"
-             with
-             | Error error ->
-               clear_provider_failure ();
-               Error error
-             | Ok (prep', _, _) ->
-               attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1)))
-      | other -> other
-    in
-    let api_result = attempt_route ~prep ~compact_attempts:0 in
+    let duration_ms = (Pipeline_common.timestamp_now ?clock () -. t0) *. 1000.0 in
+    (match agent.options.journal, api_result with
+     | Some j, Ok response ->
+       let input_tokens, output_tokens =
+         match response.usage with
+         | Some u -> Some u.input_tokens, Some u.output_tokens
+         | None -> None, None
+       in
+       append_journal
+         j
+         (Llm_response
+            { turn = agent.state.turn_count
+            ; input_tokens
+            ; output_tokens
+            ; stop_reason = Types.show_stop_reason response.stop_reason
+            ; duration_ms
+            ; timestamp = Pipeline_common.timestamp_now ?clock ()
+            })
+     | Some j, Error err ->
+       append_journal
+         j
+         (Error_occurred
+            { turn = agent.state.turn_count
+            ; error_domain = "Api"
+            ; detail = Error.to_string err
+            ; timestamp = Pipeline_common.timestamp_now ?clock ()
+            })
+     | None, _ -> ());
     (* Stage 4+5+6: Collect, Execute/Output *)
     (match api_result with
-     | Error e ->
-       update_state agent (fun s -> { s with config = original_config });
-       Error e
-     | Ok raw_response ->
-       (* Stage 3.4: Strict provider-gated tool-use recovery.
-       GLM and Ollama-family responses may return tool-call intent as text
-       content instead of a ToolUse content block. Only typed provider telemetry
-       can enable this fallback; unknown or unrelated providers fail closed and
-       keep Text unchanged. *)
-       let response =
-         if should_recover_text_tool_use raw_response
-         then (
-           let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
-           Tool_use_recovery.recover_response ~valid_tool_names raw_response)
-         else raw_response
-       in
+     | Error e -> Error e
+     | Ok response ->
        (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
           [tool_choice] is enforced server-side by the provider, so the SDK no
           longer validates the response against a completion contract nor retries
@@ -1214,19 +644,12 @@ let run_turn
        (* Stage 3.5: Async output validation *)
        (match Guardrails_async.run_output async_guard.output_validators response with
         | Guardrails_async.Fail { validator_name; reason } ->
-          update_state agent (fun s -> { s with config = original_config });
           Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
         | Guardrails_async.Pass ->
           let* () =
-            stage_collect ?raw_trace_run ?clock agent ~original_config response
-            |> tag_error "collect"
+            stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
           in
-          stage_output
-            ?raw_trace_run
-            agent
-            ~effective_guardrails:prep.effective_guardrails
-            response
-          |> tag_error "output"))
+          stage_output ?raw_trace_run agent response |> tag_error "output"))
 ;;
 
 [@@@coverage off]
@@ -1267,7 +690,8 @@ let%test "last_tool_results_from finds tool results in last tool message" =
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "error msg"
-              ; outcome = Legacy_unclassified_failure
+              ; outcome =
+                  Tool_failed { failure_kind = Reported_tool_error; error_class = None }
               ; json = None
               ; content_blocks = None
               }
@@ -1430,7 +854,8 @@ let%test "last_tool_results_from error tool result" =
           [ ToolResult
               { tool_use_id = "t1"
               ; content = "fail msg"
-              ; outcome = Legacy_unclassified_failure
+              ; outcome =
+                  Tool_failed { failure_kind = Reported_tool_error; error_class = None }
               ; json = None
               ; content_blocks = None
               }
@@ -1504,7 +929,8 @@ let%test "last_tool_results_from multiple tool results in one message" =
           ; ToolResult
               { tool_use_id = "t3"
               ; content = "r3"
-              ; outcome = Legacy_unclassified_failure
+              ; outcome =
+                  Tool_failed { failure_kind = Reported_tool_error; error_class = None }
               ; json = None
               ; content_blocks = None
               }
@@ -1557,15 +983,3 @@ let%test "tag_error with Mcp error" =
 
 let%test "tag_error Ok unit" = tag_error "collect" (Ok ()) = Ok ()
 let%test "tag_error Ok list" = tag_error "output" (Ok [ 1; 2; 3 ]) = Ok [ 1; 2; 3 ]
-
-(* --- Proactive compaction: phase selection is tested via
-   Budget_strategy inline tests; integration tested via consumer agent
-   turns that set context_compact_ratio in agent config. --- *)
-
-let%test "compact watermark accepts only open interval ratios" =
-  is_valid_compact_watermark 0.5
-  && (not (is_valid_compact_watermark 0.0))
-  && (not (is_valid_compact_watermark 1.0))
-  && (not (is_valid_compact_watermark (-0.1)))
-  && not (is_valid_compact_watermark 1.1)
-;;

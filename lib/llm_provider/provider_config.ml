@@ -28,26 +28,6 @@ let request_path_default_for_kind = function
   | DashScope -> "/chat/completions"
 ;;
 
-(** Default connect + initial-response-headers wall-clock timeout (seconds)
-    for a provider kind. Ollama is local: a cold model load or a queued
-    request waiting for admission can hold the response headers well past
-    the 60s bound that is reasonable for cloud providers, so it gets a
-    generous default. See RFC-OAS-026 — this bounds the connect/headers
-    phase only, not total stream duration. *)
-let default_connect_timeout_s = function
-  | Ollama -> 600.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
-;;
-
-(** Default inter-chunk idle timeout (seconds) for a provider kind. For
-    Ollama the same generous bound also covers the first-token (prefill)
-    wait on large local models, which routinely exceeds the 60s cloud
-    default. Cloud providers keep 60s as a generation-stall detector. *)
-let default_stream_idle_timeout_s = function
-  | Ollama -> 600.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
-;;
-
 (** [output_schema] derived from [response_format] when no explicit
     schema is supplied. Centralised so [make] and direct record-literal
     callers stay aligned: a config that carries
@@ -65,6 +45,7 @@ let output_schema_of_response_format ?override (response_format : Types.response
 
 type t =
   { kind : provider_kind
+  ; provider_id : string option
   ; model_id : string
   ; base_url : string
   ; api_key : Secret.t
@@ -80,6 +61,7 @@ type t =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Reasoning_effort.t option
   ; clear_thinking : bool option
   ; tool_stream : bool
   ; tool_choice : Types.tool_choice option
@@ -102,6 +84,7 @@ let make
       ~kind
       ~model_id
       ~base_url
+      ?provider_id
       ?(api_key = "")
       ?(headers = [ "Content-Type", "application/json" ])
       ?request_path
@@ -115,6 +98,7 @@ let make
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
+      ?reasoning_effort
       ?clear_thinking
       ?(tool_stream = false)
       ?tool_choice
@@ -148,7 +132,22 @@ let make
     | Some p -> p
     | None -> request_path_default_for_kind kind
   in
+  let provider_id =
+    Option.map
+      (fun raw ->
+         let trimmed = String.trim raw in
+         if trimmed = ""
+         then invalid_arg "Provider_config.make: provider_id must not be empty"
+         else if raw <> trimmed
+         then
+           invalid_arg
+             "Provider_config.make: provider_id must not have leading or trailing \
+              whitespace"
+         else String.lowercase_ascii raw)
+      provider_id
+  in
   { kind
+  ; provider_id
   ; model_id
   ; base_url
   ; api_key = Secret.of_string api_key
@@ -164,6 +163,7 @@ let make
   ; enable_thinking
   ; preserve_thinking
   ; thinking_budget
+  ; reasoning_effort
   ; clear_thinking
   ; tool_stream
   ; tool_choice
@@ -197,122 +197,7 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let capability_provider_label (config : t) =
-  Provider_endpoint_identity.capability_provider_label
-    ~kind:config.kind
-    ~base_url:config.base_url
-;;
-
-let raw_openai_compat_without_builtin_source config provider_label =
-  Provider_endpoint_identity.raw_openai_compat_without_builtin_source
-    ~kind:config.kind
-    ~base_url:config.base_url
-    ~provider_label
-;;
-
-let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) =
-  let open Capabilities in
-  caps.supports_tools
-  || caps.supports_tool_choice
-  || caps.supports_required_tool_choice
-  || caps.supports_named_tool_choice
-  || caps.supports_parallel_tool_calls
-  || caps.supports_runtime_mcp_tools
-  || caps.supports_runtime_tool_events
-  || (match caps.assistant_tool_content_format with
-      | Assistant_tool_content_null -> false
-      | Assistant_tool_content_empty_string -> true)
-  || caps.supports_reasoning
-  || caps.supports_extended_thinking
-  || caps.supports_reasoning_budget
-  || (match caps.accepted_reasoning_efforts with
-      | Some (_ :: _) -> true
-      | Some [] | None -> false)
-  || (match caps.thinking_control_format with
-      | No_thinking_control -> false
-      | Thinking_object
-      | Thinking_object_adaptive
-      | Thinking_object_only
-      | Chat_template_kwargs
-      | Chat_template_token _
-      | Ollama_think
-      | Reasoning_effort
-      | Enable_thinking -> true)
-  || (match caps.preserve_thinking_control_format with
-      | No_preserve_thinking_control -> false
-      | Thinking_object_keep_all
-      | Chat_template_kwargs_preserve_thinking
-      | Top_level_preserve_thinking
-      | Always_preserved_thinking -> true)
-  || (match caps.reasoning_output_format with
-      | No_reasoning_output_format -> false
-      | Split_reasoning_fields -> true)
-  || (match caps.reasoning_streaming_format with
-      | Default_reasoning_streaming | No_reasoning_streaming -> false
-      | Delta_reasoning_field _ | Template_reasoning_streaming -> true)
-  || (match caps.reasoning_replay_override with
-      | Default_reasoning_replay -> false
-      | Force_no_replay
-      | Force_drop_without_tool_preserve_with_tool
-      | Force_preserve_always -> true)
-  || caps.supports_response_format_json
-  || caps.supports_structured_output
-  || caps.supports_multimodal_inputs
-  || caps.supports_image_input
-  || caps.supports_audio_input
-  || caps.supports_video_input
-  || caps.supports_top_k
-  || caps.supports_min_p
-  || caps.supports_seed
-  || caps.supports_seed_with_images
-  || caps.ignored_sampling_parameters <> []
-  || caps.supports_computer_use
-  || caps.supports_code_execution
-;;
-
-let catalog_entry_for_model_id model_id =
-  match Model_catalog.global () with
-  | Some catalog -> Model_catalog.lookup catalog model_id
-  | None -> None
-;;
-
-let normalized_catalog_label = function
-  | Some raw -> Some (String.lowercase_ascii (String.trim raw))
-  | None -> None
-;;
-
-let catalog_entry_requires_endpoint_declaration (entry : Model_catalog.model_entry) =
-  match
-    ( normalized_catalog_label entry.base_label
-    , normalized_catalog_label entry.provider_name )
-  with
-  | Some ("openai_chat" | "openai_chat_extended"), Some _ -> false
-  | Some ("openai_chat" | "openai_chat_extended"), None -> true
-  (* GLM capabilities (reasoning, tools, thinking dialects) require a declared
-     Z.AI GLM endpoint. A raw OpenAI-compatible or local endpoint serving a
-     model id that merely matches a GLM catalog prefix must not inherit them. *)
-  | Some "glm", _ -> true
-  | Some _, _ -> true
-  | None, Some _ -> false
-  | None, None -> true
-;;
-
-let catalog_entry_explicitly_declared_by_model_id
-      config
-      (entry : Model_catalog.model_entry)
-  =
-  match normalized_catalog_label entry.provider_name with
-  | Some provider_label ->
-    Capabilities.model_id_has_provider_label ~provider_label ~model_id:config.model_id
-  | None -> false
-;;
-
-let raw_openai_compat_requires_endpoint_declaration config caps =
-  match catalog_entry_for_model_id config.model_id with
-  | Some entry when catalog_entry_explicitly_declared_by_model_id config entry -> false
-  | Some entry ->
-    capability_requires_endpoint_declaration caps
-    || catalog_entry_requires_endpoint_declaration entry
-  | None -> capability_requires_endpoint_declaration caps
+  Option.value config.provider_id ~default:(Provider_kind.to_string config.kind)
 ;;
 
 let capabilities_for_config_model (config : t) =
@@ -320,25 +205,15 @@ let capabilities_for_config_model (config : t) =
   | Some caps -> Some caps
   | None ->
     let provider_label = capability_provider_label config in
-    if raw_openai_compat_without_builtin_source config provider_label
-    then (
-      match
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label
-          ~model_id:config.model_id
-      with
-      | Some _ as caps -> caps
-      | None ->
-        (match Capabilities.for_model_id config.model_id with
-         | Some caps when raw_openai_compat_requires_endpoint_declaration config caps ->
-           None
-         | other -> other))
-    else
-      Capabilities.for_provider_model_id
-        ~allow_bare_fallback:true
-        ~provider_label
-        ~model_id:config.model_id
+    let allow_bare_fallback =
+      match config.provider_id, config.kind with
+      | Some _, _ | None, OpenAI_compat -> false
+      | None, (Anthropic | Kimi | Ollama | Gemini | Glm | DashScope) -> true
+    in
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback
+      ~provider_label
+      ~model_id:config.model_id
 ;;
 
 (** Compute auth headers from a provider kind and secret. This is the core
@@ -377,20 +252,6 @@ let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   auth_headers_for_kind_and_secret ~kind ~api_key:(Secret.of_string api_key)
 ;;
 
-let max_turns_hard_cap = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
-;;
-
-let clamp_max_turns kind requested =
-  match max_turns_hard_cap kind with
-  | Some cap -> min requested cap
-  | None -> requested
-;;
-
-let default_attempt_timeout_s = function
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
-;;
-
 type reasoning_effort = Reasoning_effort.t =
   | None_
   | Minimal
@@ -398,77 +259,11 @@ type reasoning_effort = Reasoning_effort.t =
   | Medium
   | High
   | XHigh
+  | Max
 
 let all_reasoning_efforts = Reasoning_effort.all
 let reasoning_effort_to_string = Reasoning_effort.to_string
 let reasoning_effort_of_string = Reasoning_effort.of_string
-let default_reasoning_effort_env = "OAS_DEFAULT_REASONING_EFFORT"
-let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
-
-(** Default reasoning effort level when thinking is enabled but no budget
-    is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
-    Accepted values: "none", "minimal", "low", "medium", "high", "xhigh". Invalid
-    values fall back to "medium".
-    @since 0.185.0 *)
-let default_reasoning_effort_value ?(getenv = fun name -> Cli_common_env.get name) () =
-  match getenv default_reasoning_effort_env with
-  | Some v ->
-    (match reasoning_effort_of_string v with
-     | Some effort -> effort
-     | None ->
-       Diag.warn
-         "provider_config"
-         "%s=%S invalid (expected %s), using medium"
-         default_reasoning_effort_env
-         v
-         reasoning_effort_values_for_log;
-       Medium)
-  | None -> Medium
-;;
-
-let effort_of_thinking_config_value
-      ?getenv
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-      ()
-  : reasoning_effort option
-  =
-  match enable_thinking with
-  | Some false | None -> None
-  | Some true ->
-    (match thinking_budget with
-     | Some n -> Reasoning_effort.of_budget n
-     | None -> Some (default_reasoning_effort_value ?getenv ()))
-;;
-
-(** Compatibility wrapper for callers that still consume wire strings. *)
-let effort_of_thinking_config
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : string
-  =
-  match effort_of_thinking_config_value ~enable_thinking ~thinking_budget () with
-  | None -> "none"
-  | Some effort -> reasoning_effort_to_string effort
-;;
-
-let reasoning_effort_request_value_typed
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : reasoning_effort option
-  =
-  effort_of_thinking_config_value ~enable_thinking ~thinking_budget ()
-;;
-
-let reasoning_effort_request_value
-      ~(enable_thinking : bool option)
-      ~(thinking_budget : int option)
-  : string option
-  =
-  Option.map
-    reasoning_effort_to_string
-    (reasoning_effort_request_value_typed ~enable_thinking ~thinking_budget)
-;;
 
 (* GLM (Z.AI) Preserved-Thinking gate (SSOT).
 
@@ -534,10 +329,7 @@ let glm_should_replay_reasoning (config : t) =
 let is_zai_glm_config (config : t) =
   match config.kind with
   | Glm -> true
-  | OpenAI_compat ->
-    Zai_catalog.is_zai_base_url config.base_url
-    && Zai_catalog.is_glm_model_id config.model_id
-  | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
+  | OpenAI_compat | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
 ;;
 
 type tool_choice_request_rejection =
@@ -684,6 +476,11 @@ type reasoning_effort_request_rejection =
       ; effort : reasoning_effort
       ; accepted : reasoning_effort list
       }
+  | Undeclared_reasoning_effort_capability of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      }
 
 let reasoning_effort_list_to_message values =
   values |> List.map reasoning_effort_to_string |> String.concat "/"
@@ -691,20 +488,29 @@ let reasoning_effort_list_to_message values =
 
 let reasoning_effort_request_rejection_to_message = function
   | Unsupported_reasoning_effort { provider_kind; model_id; effort; accepted } ->
+    if accepted = []
+    then
+      Printf.sprintf
+        "%s model %S does not accept categorical reasoning effort"
+        (string_of_provider_kind provider_kind)
+        model_id
+    else
+      Printf.sprintf
+        "%s model %S does not accept reasoning effort %S; accepted values: %s"
+        (string_of_provider_kind provider_kind)
+        model_id
+        (reasoning_effort_to_string effort)
+        (reasoning_effort_list_to_message accepted)
+  | Undeclared_reasoning_effort_capability { provider_kind; model_id; effort } ->
     Printf.sprintf
-      "%s model %S does not accept reasoning effort %S; accepted values: %s"
+      "%s model %S has no declared categorical reasoning-effort contract; cannot send %S"
       (string_of_provider_kind provider_kind)
       model_id
       (reasoning_effort_to_string effort)
-      (reasoning_effort_list_to_message accepted)
 ;;
 
 let validate_reasoning_effort_request_typed (config : t) =
-  match
-    reasoning_effort_request_value_typed
-      ~enable_thinking:config.enable_thinking
-      ~thinking_budget:config.thinking_budget
-  with
+  match config.reasoning_effort with
   | None -> Ok ()
   | Some effort ->
     let caps = request_capabilities_for_config config in
@@ -713,26 +519,17 @@ let validate_reasoning_effort_request_typed (config : t) =
        Error
          (Unsupported_reasoning_effort
             { provider_kind = config.kind; model_id = config.model_id; effort; accepted })
-     | Some _ | None -> Ok ())
+     | Some _ -> Ok ()
+     | None ->
+       Error
+         (Undeclared_reasoning_effort_capability
+            { provider_kind = config.kind; model_id = config.model_id; effort }))
 ;;
 
 let validate_reasoning_effort_request config =
   Result.map_error
     reasoning_effort_request_rejection_to_message
     (validate_reasoning_effort_request_typed config)
-;;
-
-(** Compute reasoning_effort for a provider config.
-    Returns [None] for non-Ollama providers.
-    @since 0.114.0 *)
-let reasoning_effort_of_config (config : t) : string option =
-  match config.kind with
-  | Ollama ->
-    Some
-      (effort_of_thinking_config
-         ~enable_thinking:config.enable_thinking
-         ~thinking_budget:config.thinking_budget)
-  | _ -> None
 ;;
 
 let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
@@ -782,14 +579,6 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   in
   let trimmed = trim_bounds normalized in
   if trimmed = "" then default_name else trimmed
-;;
-
-let endpoint_supports_openai_compat_output_schema (config : t) =
-  match config.supports_structured_output_override with
-  | Some supported -> supported
-  | None ->
-    Provider_endpoint_identity.openai_compat_endpoint_declared_for_output_schema_gate
-      config.base_url
 ;;
 
 (** A native-schema request is in effect when either field carries one.
@@ -853,15 +642,7 @@ let validate_output_schema_request (config : t) =
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
      | Kimi -> validate_model_structured_output_capability config
-     | OpenAI_compat ->
-       if endpoint_supports_openai_compat_output_schema config
-       then validate_model_structured_output_capability config
-       else
-         Error
-           (Printf.sprintf
-              "native structured output is only wired for declared OpenAI-compatible \
-               endpoints, got %s"
-              config.base_url))
+     | OpenAI_compat -> validate_model_structured_output_capability config)
 ;;
 
 let has_host_prefix ~url ~prefix =

@@ -242,6 +242,103 @@ let test_post_stream_invalid_url_returns_network_error () =
   | Ok _ -> Alcotest.fail "expected invalid URL to fail before opening a stream"
 ;;
 
+let test_http_deadlines_without_clock_are_rejected () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let check label parameter = function
+    | Error (Http_client.AcceptRejected { reason }) ->
+      Alcotest.(check bool)
+        label
+        true
+        (Util.contains_substring_ci ~haystack:reason ~needle:parameter)
+    | Error _ -> Alcotest.failf "%s returned the wrong typed error" label
+    | Ok _ -> Alcotest.failf "%s silently ignored its deadline" label
+  in
+  check
+    "get_sync"
+    "timeout_s"
+    (Http_client.get_sync ~timeout_s:1.0 ~sw ~net:env#net ~url:"http://" ~headers:[] ());
+  check
+    "post_sync"
+    "timeout_s"
+    (Http_client.post_sync
+       ~timeout_s:1.0
+       ~sw
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ());
+  check
+    "post_stream"
+    "connect_timeout_s"
+    (Http_client.post_stream
+       ~connect_timeout_s:1.0
+       ~sw
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ());
+  check
+    "with_post_stream"
+    "connect_timeout_s"
+    (Http_client.with_post_stream
+       ~connect_timeout_s:1.0
+       ~net:env#net
+       ~url:"http://"
+       ~headers:[]
+       ~body:"{}"
+       ~f:(fun _reader -> ())
+       ())
+;;
+
+let test_explicit_deadline_requires_finite_positive_timeout () =
+  let invalid_cases =
+    [ "zero", 0.0, "test: body_timeout_s must be finite and greater than zero, got 0"
+    ; ( "negative"
+      , -1.0
+      , "test: body_timeout_s must be finite and greater than zero, got -1" )
+    ; ( "nan"
+      , Float.nan
+      , "test: body_timeout_s must be finite and greater than zero, got nan" )
+    ; ( "positive infinity"
+      , Float.infinity
+      , "test: body_timeout_s must be finite and greater than zero, got inf" )
+    ; ( "negative infinity"
+      , Float.neg_infinity
+      , "test: body_timeout_s must be finite and greater than zero, got -inf" )
+    ]
+  in
+  List.iter
+    (fun (label, timeout_s, expected_reason) ->
+       match
+         Http_client.resolve_explicit_deadline
+           ~operation:"test"
+           ~parameter:"body_timeout_s"
+           ~clock:(Some ())
+           ~timeout_s:(Some timeout_s)
+       with
+       | Error (Http_client.AcceptRejected { reason }) ->
+         Alcotest.(check string) label expected_reason reason
+       | Error _ -> Alcotest.failf "%s returned the wrong typed error" label
+       | Ok _ -> Alcotest.failf "%s accepted an invalid timeout" label)
+    invalid_cases;
+  match
+    Http_client.resolve_explicit_deadline
+      ~operation:"test"
+      ~parameter:"body_timeout_s"
+      ~clock:(Some ())
+      ~timeout_s:(Some 1.25)
+  with
+  | Ok (Http_client.Bounded ((), timeout_s)) ->
+    Alcotest.(check (float 0.0)) "positive timeout is preserved" 1.25 timeout_s
+  | Ok Http_client.Unbounded -> Alcotest.fail "positive timeout became unbounded"
+  | Error _ -> Alcotest.fail "positive timeout was rejected"
+;;
+
 let test_timeout_phase_policy_labels () =
   let cases =
     [ Http_client.Admission, "admission"
@@ -256,7 +353,6 @@ let test_timeout_phase_policy_labels () =
       , "stream_idle:streaming_thinking" )
     ; Http_client.Provider_step, "provider_step"
     ; Http_client.Cli_stdout_idle, "cli_stdout_idle"
-    ; Http_client.Caller_budget, "caller_budget"
     ; Http_client.Unknown_timeout, "unknown_timeout"
     ]
   in
@@ -328,6 +424,8 @@ let test_provider_failure_string_helpers () =
       , "cli_startup_failed:executable_unavailable" )
     ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
+    ; ( Http_client.Response_body_too_large { limit_bytes = 1024 }
+      , "response_body_too_large:1024" )
     ; ( Http_client.Empty_completion { stop_reason = Types.EndTurn }
       , "empty_completion:end_turn" )
     ; ( Http_client.Empty_completion { stop_reason = Types.MaxTokens }
@@ -423,12 +521,10 @@ let test_error_domain_full_roundtrip () =
     [ Agent_sdk.Error.Api (Retry.RateLimited { retry_after = Some 2.0; message = "slow" })
     ; Agent_sdk.Error.Api (Retry.AuthError { message = "bad key" })
     ; Agent_sdk.Error.Api (Retry.ServerError { status = 500; message = "internal" })
-    ; Agent_sdk.Error.Agent (MaxTurnsExceeded { turns = 5; limit = 3 })
-    ; Agent_sdk.Error.Agent (IdleDetected { consecutive_idle_turns = 3 })
     ; Agent_sdk.Error.Config (MissingEnvVar { var_name = "API_KEY" })
     ; Agent_sdk.Error.Config (UnsupportedProvider { detail = "unknown" })
     ; Agent_sdk.Error.Config
-        (InvalidConfig { field = "max_turns"; detail = "must be >= 0, got -1" })
+        (InvalidConfig { field = "model"; detail = "must not be empty" })
     ; Agent_sdk.Error.Mcp (ServerStartFailed { command = "node"; detail = "not found" })
     ; Agent_sdk.Error.Mcp (InitializeFailed { detail = "timeout" })
     ; Agent_sdk.Error.Mcp (ToolListFailed { detail = "parse" })
@@ -479,9 +575,9 @@ let test_error_domain_retryable () =
     false
     (Error_domain.is_retryable (`Auth_error "bad"));
   Alcotest.(check bool)
-    "idle not retryable"
+    "guardrail violation not retryable"
     false
-    (Error_domain.is_retryable (`Idle_detected 3))
+    (Error_domain.is_retryable (`Guardrail_violation ("typed-input", "rejected")))
 ;;
 
 let test_error_domain_context () =
@@ -556,6 +652,14 @@ let () =
             "stream idle pre-token maps to first_token"
             `Quick
             test_timeout_phase_of_stream_idle_state
+        ; Alcotest.test_case
+            "HTTP deadlines without clock are rejected"
+            `Quick
+            test_http_deadlines_without_clock_are_rejected
+        ; Alcotest.test_case
+            "explicit deadlines require finite positive values"
+            `Quick
+            test_explicit_deadline_requires_finite_positive_timeout
         ] )
     ; ( "provider_failure"
       , [ Alcotest.test_case "string helpers" `Quick test_provider_failure_string_helpers

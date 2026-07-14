@@ -32,10 +32,11 @@ OAS is not allowed to name, depend on, or adapt to any specific coordinator.
    terms such as "handoff" must own a typed classifier and its failure policy.
    OAS intentionally provides no heuristic compatibility adapter.
 
-5. **Provider catalogs stay generic.** `OAS_PROVIDER_CATALOG` entries may
-   describe provider ids, transport, auth mode, endpoint, default model, and
-   capabilities. They must not encode coordinator-owned routing concepts such
-   as keeper, room, tier-group, board, governance queue, or dashboard policy.
+5. **Provider catalogs stay generic.** Explicitly installed
+   `Provider_catalog` entries may describe provider ids, transport, auth mode,
+   endpoint, default model, and capabilities. They must not encode
+   coordinator-owned routing concepts such as keeper, room, tier-group, board,
+   governance queue, or dashboard policy.
 
 ## Module ownership (this repository only)
 
@@ -45,23 +46,17 @@ coordinator wraps these in is intentionally outside this document.
 | Module | Owner |
 |--------|-------|
 | `Contract`, `Completion_contract` | OAS |
-| `Policy`, `Guardrails`, `Guardrail_*` | OAS |
+| `Guardrails_async`, `Guardrail_*` | OAS |
 | `Runtime`, `Runtime_evidence` | OAS |
 | `Raw_trace`, `Sessions` | OAS |
 
-If a coordinator builds its own contract module (for example a CDAL contract
-or a CDAL judge), that module belongs to the coordinator's repository, not
-to OAS, and is not tracked here.
-
-CDAL/proof OCaml modules such as `Risk_contract`, `Cdal_proof`,
-`Execution_mode`, `Risk_class`, `Mode_enforcer`, and `Proof_capture` are not
-OAS-owned surfaces after the 0.193.0 migration. Versioned JSON schemas under
-`docs/schemas/` may remain as cross-repo interoperability contracts, but they
-do not imply an `Agent_sdk` OCaml module.
+Product-specific governance, adjudication, and proof modules belong to the
+calling product's repository. OAS does not model or track those concepts.
 
 ## Enforcement
 
-- CI: `grep -rn` for a maintained blocklist of coordinator-specific terms in `lib/`.
+- CI: the unbounded-agent contract ratchet prevents deleted runtime-policy
+  surfaces from re-entering executable SDK code.
 - Code review: query-intent keyword scoring and silent fallback classifiers do
   not belong in OAS.
 - README and top-level docs must not mention any specific external coordinator

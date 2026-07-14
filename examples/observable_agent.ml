@@ -197,7 +197,13 @@ let resolve_provider ~sw ~net =
   if force_mock
   then None
   else (
-    let endpoints = Llm_provider.Discovery.endpoints_from_env () in
+    let endpoints =
+      Llm_provider.Discovery.parse_llm_endpoints_env ()
+      |> List.map
+           (Llm_provider.Discovery.endpoint
+              ~protocol:Llm_provider.Discovery.Openai_compatible
+              ~capabilities:Llm_provider.Capabilities.default_capabilities)
+    in
     let statuses = Llm_provider.Discovery.discover ~sw ~net ~endpoints in
     List.find_map
       (fun (s : Llm_provider.Discovery.endpoint_status) ->
@@ -245,7 +251,16 @@ let () =
     Printf.eprintf "\n";
     (* 2. Event Bus + subscriber *)
     let bus = Event_bus.create () in
-    let sub = Event_bus.subscribe bus in
+    let subscription_config =
+      match
+        Event_bus.subscription_config ~capacity:256 ~overflow:Event_bus.Drop_oldest
+      with
+      | Ok config -> config
+      | Error (Event_bus.Non_positive_capacity capacity) ->
+        invalid_arg
+          (Printf.sprintf "observable_agent: invalid subscriber capacity %d" capacity)
+    in
+    let sub = Event_bus.subscribe ~config:subscription_config bus in
     Eio.Fiber.fork ~sw (fun () ->
       while true do
         List.iter print_event (Event_bus.drain sub);
@@ -260,11 +275,9 @@ let () =
       }
     in
     let config =
-      { default_config with
+      { (default_config ~model:model_label) with
         name = "observable"
-      ; model = model_label
       ; system_prompt = Some "You have tools. Use them to answer."
-      ; max_turns = 5
       }
     in
     let agent =

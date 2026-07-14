@@ -323,42 +323,14 @@ let telemetry_of_openai_json json =
         ; cache_n = (if t = `Null then None else member_int_fallback t [ "cache_n" ])
         }
   in
-  let reasoning_tokens, reasoning_tokens_estimated =
-    let from_details =
-      if usage = `Null
+  let reasoning_tokens =
+    if usage = `Null
+    then None
+    else (
+      let details = usage |> member "completion_tokens_details" in
+      if details = `Null
       then None
-      else (
-        let details = usage |> member "completion_tokens_details" in
-        if details = `Null
-        then None
-        else details |> member "reasoning_tokens" |> to_int_option)
-    in
-    match from_details with
-    | Some _ -> from_details, false
-    | None ->
-      let msg =
-        match json |> member "choices" with
-        | `List (choice :: _) -> choice |> member "message"
-        | `List []
-        | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> `Null
-      in
-      let reasoning_text =
-        let texts =
-          if msg = `Null
-          then []
-          else (
-            match reasoning_content_blocks_of_message_result msg with
-            | Ok blocks -> List.concat_map reasoning_texts_of_block blocks
-            | Error (_msg : string) -> [])
-        in
-        match texts with
-        | [] -> None
-        | texts -> Some (String.concat "" texts)
-      in
-      (match reasoning_text with
-       | Some s ->
-         Some (max 1 (String.length s / Constants.Token_estimation.chars_per_token)), true
-       | None -> None, false)
+      else details |> member "reasoning_tokens" |> to_int_option)
   in
   let peak_memory_gb =
     first_some
@@ -370,7 +342,6 @@ let telemetry_of_openai_json json =
       system_fingerprint
     ; timings
     ; reasoning_tokens
-    ; reasoning_tokens_estimated
     ; peak_memory_gb
     }
 ;;

@@ -1,3 +1,0 @@
-(test
- (name test_complete_retry)
- (libraries llm_provider alcotest eio eio_main))

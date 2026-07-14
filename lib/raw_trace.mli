@@ -12,11 +12,6 @@ type record_type =
   | Run_finished
 [@@deriving yojson, show]
 
-type evidence_role =
-  | File_write
-  | Verification
-[@@deriving yojson, show]
-
 type run_ref =
   { worker_run_id : string
   ; path : string
@@ -41,6 +36,7 @@ type run_summary =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : string option
   ; thinking_block_count : int
   ; text_block_count : int
   ; tool_use_block_count : int
@@ -63,23 +59,12 @@ type validation_check =
   }
 [@@deriving yojson, show]
 
-type evidence_role_summary =
-  { evidence_role : evidence_role
-  ; record_count : int
-  ; successful_finished_count : int
-  ; last_success_seq : int option
-  }
-[@@deriving yojson, show]
-
 type run_validation =
   { run_ref : run_ref
   ; ok : bool
   ; checks : validation_check list
   ; evidence : string list
   ; paired_tool_result_count : int
-  ; evidence_roles : evidence_role_summary list [@default []]
-  ; has_file_write : bool
-  ; verification_pass_after_file_write : bool
   ; final_text : string option
   ; tool_names : string list
   ; stop_reason : string option
@@ -101,6 +86,7 @@ type record =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : string option
   ; block_index : int option
   ; block_kind : string option
   ; assistant_block : Yojson.Safe.t option
@@ -110,8 +96,7 @@ type record =
   ; tool_planned_index : int option
   ; tool_batch_index : int option
   ; tool_batch_size : int option
-  ; tool_concurrency_class : string option
-  ; evidence_role : evidence_role option [@default None]
+  ; tool_execution_mode : Tool.execution_mode option
   ; tool_result : string option
   ; tool_error : bool option
   ; hook_name : string option
@@ -121,7 +106,7 @@ type record =
   ; stop_reason : string option
   ; error : string option
   }
-[@@deriving yojson, show]
+[@@deriving show]
 
 type t
 type active_run
@@ -131,10 +116,9 @@ exception Trace_error of Error.sdk_error
 val safe_name : string -> string
 val record_type_to_string : record_type -> string
 val record_type_of_string : string -> (record_type, Error.sdk_error) result
-val evidence_role_to_string : evidence_role -> string
-val evidence_role_of_string : string -> (evidence_role, Error.sdk_error) result
-val record_evidence_role : record -> evidence_role option
 val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
+val record_to_yojson : record -> Yojson.Safe.t
+val record_of_yojson : Yojson.Safe.t -> (record, string) result
 val trace_version : int
 
 val create
@@ -168,6 +152,7 @@ val start_run
   -> ?enable_thinking:bool
   -> ?preserve_thinking:bool
   -> ?thinking_budget:int
+  -> ?reasoning_effort:string
   -> unit
   -> (active_run, Error.sdk_error) result
 
@@ -185,7 +170,7 @@ val record_tool_execution_started
   -> planned_index:int
   -> batch_index:int
   -> batch_size:int
-  -> concurrency_class:string
+  -> execution_mode:Tool.execution_mode
   -> (unit, Error.sdk_error) result
 
 val record_tool_execution_finished
@@ -193,7 +178,6 @@ val record_tool_execution_finished
   -> tool_use_id:string
   -> tool_name:string
   -> tool_result:string
-  -> ?evidence_role:evidence_role
   -> tool_error:bool
   -> unit
   -> (unit, Error.sdk_error) result

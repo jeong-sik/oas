@@ -11,8 +11,6 @@ val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val strip_json_markdown_fences : string -> string
 val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
 val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
-val strip_orphaned_tool_results : Types.message list -> Types.message list
-val close_tool_message_pairs_for_request : Types.message list -> Types.message list
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 
 (** Parse an OpenAI-compatible JSON response. See

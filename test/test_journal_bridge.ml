@@ -3,6 +3,7 @@
 open Alcotest
 open Agent_sdk
 
+let append_ok journal event = Durable_event.append journal event |> Result.get_ok
 let ts = 1711234567.0
 
 let projection_name evt =
@@ -33,20 +34,15 @@ let test_turn_started_projection () =
 ;;
 
 let test_llm_request_projection () =
-  let evt =
-    Durable_event.Llm_request
-      { turn = 1; model = "dashscope"; input_tokens = 500; timestamp = ts }
-  in
+  let evt = Durable_event.Llm_request { turn = 1; model = "dashscope"; timestamp = ts } in
   check string "name" "durable.llm_request" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check
-      int
-      "input_tokens"
-      500
-      (match List.assoc_opt "input_tokens" fields with
-       | Some (`Int n) -> n
-       | _ -> -1);
+      bool
+      "input_tokens absent before response"
+      false
+      (List.mem_assoc "input_tokens" fields);
     check
       string
       "model"
@@ -85,10 +81,11 @@ let test_tool_completed_projection () =
 let test_all_variants_project () =
   let variants =
     [ Durable_event.Turn_started { turn = 1; timestamp = ts }
-    ; Llm_request { turn = 1; model = "m"; input_tokens = 10; timestamp = ts }
+    ; Llm_request { turn = 1; model = "m"; timestamp = ts }
     ; Llm_response
         { turn = 1
-        ; output_tokens = 5
+        ; input_tokens = Some 10
+        ; output_tokens = Some 5
         ; stop_reason = "end_turn"
         ; duration_ms = 100.0
         ; timestamp = ts
@@ -131,10 +128,14 @@ let test_make_publishes_to_bus () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:2 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let journal = Durable_event.create ~on_append:(Journal_bridge.make ~bus ()) () in
-  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
+  append_ok journal (Turn_started { turn = 1; timestamp = ts });
+  append_ok
     journal
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
   let events = Event_bus.drain sub in
@@ -154,7 +155,11 @@ let test_make_preserves_envelope () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:2 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let corr = "corr-42" in
   let run_id = "run-42" in
   let journal =
@@ -162,8 +167,8 @@ let test_make_preserves_envelope () =
       ~on_append:(Journal_bridge.make ~bus ~correlation_id:corr ~run_id ())
       ()
   in
-  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
+  append_ok journal (Turn_started { turn = 1; timestamp = ts });
+  append_ok
     journal
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
   let events = Event_bus.drain sub in

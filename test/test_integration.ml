@@ -89,7 +89,13 @@ let test_simple_conversation () =
       { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
     in
     let options = { Agent.default_options with base_url; provider = Some provider } in
-    let agent = Agent.create ~net:env#net ~options () in
+    let agent =
+      Agent.create
+        ~config:(Types.default_config ~model:"test-model")
+        ~net:env#net
+        ~options
+        ()
+    in
     match Agent.run ~sw agent "ping" with
     | Ok response ->
       let text =
@@ -137,7 +143,14 @@ let test_tool_use () =
       { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
     in
     let options = { Agent.default_options with base_url; provider = Some provider } in
-    let agent = Agent.create ~net:env#net ~tools:[ calc_tool ] ~options () in
+    let agent =
+      Agent.create
+        ~config:(Types.default_config ~model:"test-model")
+        ~net:env#net
+        ~tools:[ calc_tool ]
+        ~options
+        ()
+    in
     match Agent.run ~sw agent "use_tool" with
     | Ok response ->
       let text =

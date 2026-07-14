@@ -128,8 +128,6 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
-  ; supports_runtime_mcp_tools : bool
-  ; supports_runtime_tool_events : bool
   ; assistant_tool_content_format : assistant_tool_content_format
   ; supports_reasoning : bool
   ; supports_extended_thinking : bool
@@ -191,20 +189,6 @@ val modality_of_capabilities : capabilities -> modality
 val default_capabilities : capabilities
 val capabilities_for_model : provider:provider -> model_id:string -> capabilities
 val capabilities_for_config : config -> capabilities
-
-(** Resolve the provider's declared context window from an optional
-    [config], falling back to [~fallback] when the config is [None] or
-    the capability reports [None]/[<= 0].
-
-    Shared by [Pipeline.proactive_context_window_tokens] and
-    [Builder.with_context_thresholds] so both agree on the
-    "provider → capabilities → max_context_tokens" step. The two call
-    sites pass different [~fallback] values intentionally (Pipeline is
-    stricter at 128K, Builder more permissive at 200K).
-
-    @since 0.123.0 *)
-val resolve_max_context_tokens : fallback:int -> config option -> int
-
 val inference_contract_of_model_spec : model_spec -> inference_contract
 val inference_contract_of_config : config -> inference_contract
 
@@ -228,13 +212,12 @@ val auth_headers_only_for_kind
   -> api_key:string
   -> (string * string) list
 
-(** Pre-built provider configs *)
-val local_llm : unit -> config
+(** Explicit provider configs. These constructors never consult ambient
+    endpoint/model settings and never choose a model alias. *)
+val local_llm : base_url:string -> model_id:string -> unit -> config
 
-val anthropic_sonnet : unit -> config
-val anthropic_haiku : unit -> config
-val anthropic_opus : unit -> config
-val openrouter : ?model_id:string -> unit -> config
+val anthropic : model_id:string -> unit -> config
+val openrouter : model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
 
@@ -247,10 +230,7 @@ type pricing = Llm_provider.Pricing.pricing =
   ; cache_read_multiplier : float
   }
 
-val zero_pricing : pricing
 val pricing_for_model_opt : string -> pricing option
-val pricing_for_model : string -> pricing
-val pricing_for_provider : provider:provider -> model_id:string -> pricing
 
 val estimate_cost
   :  pricing:pricing
@@ -265,6 +245,7 @@ val estimate_cost
 
 type provider_impl =
   { name : string
+  ; provider_kind : Llm_provider.Provider_config.provider_kind
   ; request_kind : request_kind
   ; request_path : string
   ; capabilities : capabilities
@@ -284,7 +265,7 @@ val registered_providers : unit -> string list
 
 val custom_provider
   :  name:string
-  -> ?model_id:string
+  -> model_id:string
   -> ?api_key_env:string
   -> unit
   -> config
@@ -303,10 +284,11 @@ val default_api_key_env_of_kind : Llm_provider.Provider_config.provider_kind -> 
 val config_of_provider_config : Llm_provider.Provider_config.t -> config
 
 (** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
-    agent state and optional {!config}.  Sampling params, tool_choice,
+    agent state and optional {!config}. Sampling params, tool_choice,
     thinking controls come from [state.config]; provider kind,
-    headers, request_path, and api_key come from [provider_opt]
-    (or the [ANTHROPIC_API_KEY] fallback when [None]).
+    headers, request_path, and api_key come from [provider_opt]. [None]
+    is rejected explicitly; this boundary never selects a default provider,
+    endpoint, model, or credential name.
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
     legacy {!config} variant does not distinguish arbitrary

@@ -10,12 +10,12 @@ type periodic_callback =
 type checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
-  | After_retry_feedback_appended
+  | After_context_injection
 
 let checkpoint_stage_to_string = function
   | After_assistant_collected -> "after_assistant_collected"
   | After_tool_results_appended -> "after_tool_results_appended"
-  | After_retry_feedback_appended -> "after_retry_feedback_appended"
+  | After_context_injection -> "after_context_injection"
 ;;
 
 type checkpoint_snapshot =
@@ -27,41 +27,18 @@ type checkpoint_snapshot =
 
 type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
 
-type recovery_state =
-  { last_completed_round : Tool_failure_episode.completed_round option
-  ; pending_episodes : Tool_failure_episode.t list option
-  ; pending_receipt : Tool_failure_recovery.receipt option
-  ; restore_error : Error.sdk_error option
-  }
-
-let empty_recovery_state =
-  { last_completed_round = None
-  ; pending_episodes = None
-  ; pending_receipt = None
-  ; restore_error = None
-  }
-;;
-
 type options =
   { base_url : string
   ; provider : Provider.config option
-  ; max_execution_time_s : float option
   ; stream_idle_timeout_s : float option
   ; body_timeout_s : float option
-  ; execution_idle_timeout_s : float option
-  ; max_idle_turns : int
-  ; idle_final_warning_at : int option
   ; hooks : Hooks.hooks
-  ; guardrails : Guardrails.t
   ; guardrails_async : Guardrails_async.t
   ; tracer : Tracing.t
   ; trace_link : (string * string) option
     (** Optional (trace_id, span_id) of a parent span to link to.
         Used to connect OAS agent turns to an external trace root. *)
   ; raw_trace : Raw_trace.t option
-  ; approval : Hooks.approval_callback option
-  ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
-  ; context_reducer : Context_reducer.t option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -69,24 +46,6 @@ type options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; allowed_paths : string list
-  ; operator_policy : Guardrails.tool_filter option
-  ; policy_channel : Policy_channel.t option
-  ; tool_selector : Tool_selector.strategy option
-  ; disclosure_level : Tool.disclosure_level option
-  ; disclosure_resolver : (Types.tool_result list -> Tool.disclosure_level option) option
-    (** Optional resolver that decides the disclosure level for the
-        next turn based on the most recent tool results.  When
-        [Some f], it is called before each turn with the latest
-        [Types.tool_result] list extracted from message history.
-        - [f results = Some override] uses [override] for this turn.
-        - [f results = None] falls back to the static
-          [disclosure_level] field.
-        When [None], [disclosure_level] is used as-is.
-        Caller owns the policy (TTL, sticky promotion, session scope);
-        OAS only provides the mechanism.
-        @since 0.195.0 *)
-  ; priority : Llm_provider.Request_priority.t option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
     (** Optional callback invoked when a run finishes.  Receives [true]
@@ -94,12 +53,6 @@ type options =
         updated.  Intended for emitting eval metrics, flushing OTel
         spans, or other end-of-run side effects.  The callback must
         not raise; exceptions are caught and logged. *)
-  ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
-    (** Optional tool result relocation.  When provided,
-        {!Agent_turn.make_tool_results} persists large results to disk
-        and replaces them with previews.  The [Content_replacement_state]
-        freezes replacement decisions for prompt cache stability.
-        @since 0.128.0 *)
   ; journal : Durable_event.journal option
     (** Optional event-sourced journal for crash recovery and replay.
         When provided, lifecycle events are appended alongside
@@ -113,20 +66,6 @@ type options =
         dispatches via {!Llm_provider.Complete.complete} with this
         transport; when [None], the HTTP path is used.
         @since 0.156.0 *)
-  ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
-    (** Optional request-scoped MCP exposure policy for CLI transports.
-        When [Some], the transport may expose runtime MCP tools without
-        relying on inline [Tool.t] schemas.
-        @since 0.164.0 *)
-  ; summarizer : (message list -> string) option
-    (** Optional custom extractive summarizer used by
-        {!Budget_strategy.reduce_for_budget} when the Emergency phase
-        triggers [Summarize_old].  When [None], the built-in
-        [Budget_strategy.default_summarizer] is used (first text block
-        of each message, truncated to 100 chars). Consumers that need
-        application-specific summary semantics can supply a summarizer that
-        transforms messages before they are re-injected as compacted history.
-        @since 0.150.0 *)
   }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -163,21 +102,13 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
 let default_options =
   { base_url = Api.default_base_url
   ; provider = None
-  ; max_execution_time_s = None
   ; stream_idle_timeout_s = None
   ; body_timeout_s = None
-  ; execution_idle_timeout_s = None
-  ; max_idle_turns = 3
-  ; idle_final_warning_at = None
   ; hooks = Hooks.empty
-  ; guardrails = Guardrails.default
   ; guardrails_async = Guardrails_async.empty
   ; tracer = Tracing.null
   ; trace_link = None
   ; raw_trace = None
-  ; approval = None
-  ; missing_approval_callback_policy = Hooks.Execute_without_callback
-  ; context_reducer = Some Defaults.default_context_reducer
   ; context_injector = None
   ; mcp_clients = []
   ; event_bus = None
@@ -185,44 +116,22 @@ let default_options =
   ; elicitation = None
   ; description = None
   ; periodic_callbacks = []
-  ; allowed_paths = []
-  ; operator_policy = None
-  ; policy_channel = None
-  ; tool_selector = None
-  ; disclosure_level = None
-  ; disclosure_resolver = None
-  ; priority = None
   ; slot_id = None
   ; on_run_complete = None
-  ; tool_result_relocation = None
   ; journal = None
   ; transport = None
-  ; runtime_mcp_policy = None
-  ; summarizer = None
   }
 ;;
-
-type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
-
-type idle_state = Agent_turn.idle_state =
-  { last_tool_calls : tool_call_fingerprint list option
-  ; consecutive_idle_turns : int
-  }
 
 type t =
   { mu : Eio.Mutex.t
   ; mutable state : agent_state
   ; mutable lifecycle : lifecycle_snapshot option
-  ; mutable last_tool_calls : tool_call_fingerprint list option
-  ; mutable consecutive_idle_turns : int
-  ; auto_context_overflow_retry : bool
   ; tools : Tool_set.t
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
   ; checkpoint_sink : checkpoint_sink option
-  ; tool_failure_judge : Tool_failure_recovery.judge option
-  ; mutable recovery_state : recovery_state
   }
 
 (* Public accessors — .mli exposes Agent.t as abstract *)
@@ -246,43 +155,7 @@ let update_state t f =
   Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.state <- f t.state)
 ;;
 
-let recovery_state t = Eio.Mutex.use_ro t.mu (fun () -> t.recovery_state)
-
-let set_recovery_state t recovery_state =
-  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.recovery_state <- recovery_state)
-;;
-
-let update_recovery_state t f =
-  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.recovery_state <- f t.recovery_state)
-;;
-
-let recovery_run_boundary_metadata t =
-  if Option.is_some t.tool_failure_judge
-  then Types.Conversation_metadata.run_boundary
-  else []
-;;
-
-let set_consecutive_idle_turns t n =
-  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.consecutive_idle_turns <- n)
-;;
-
-let get_consecutive_idle_turns t =
-  Eio.Mutex.use_ro t.mu (fun () -> t.consecutive_idle_turns)
-;;
-
-(** Mutex-protected atomic update of both idle-detection fields.  Keeps
-    [last_tool_calls] and [consecutive_idle_turns] consistent under
-    concurrent updates from parallel tool-execution fibers or periodic
-    callbacks. *)
-let set_idle_state t (s : Agent_turn.idle_state) =
-  Eio.Mutex.use_rw ~protect:true t.mu (fun () ->
-    t.last_tool_calls <- s.last_tool_calls;
-    t.consecutive_idle_turns <- s.consecutive_idle_turns)
-;;
-
-let reset_idle_state t = set_idle_state t (Agent_turn.reset_idle_detection ()).new_state
 let description t = t.options.description
-let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
 
 let provider_name (cfg : Provider.config) =
@@ -382,23 +255,15 @@ let set_lifecycle
               status))
 ;;
 
-let config_with_tool_failure_judge config = function
-  | None -> config
-  | Some _ -> { config with yield_on_tool = true }
-;;
-
 let create
       ~net
-      ?(config = default_config)
+      ~config
       ?(tools = [])
       ?context
       ?(options = default_options)
-      ?(auto_context_overflow_retry = true)
       ?checkpoint_sink
-      ?tool_failure_judge
       ()
   =
-  let config = config_with_tool_failure_judge config tool_failure_judge in
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
@@ -414,16 +279,11 @@ let create
   { mu = Eio.Mutex.create ()
   ; state
   ; lifecycle = None
-  ; last_tool_calls = None
-  ; consecutive_idle_turns = 0
-  ; auto_context_overflow_retry
   ; tools = all_tools
   ; net
   ; context = ctx
   ; options
   ; checkpoint_sink
-  ; tool_failure_judge
-  ; recovery_state = empty_recovery_state
   }
 ;;
 
@@ -439,16 +299,11 @@ let clone ?(copy_context = false) agent =
   { mu = Eio.Mutex.create ()
   ; state
   ; lifecycle = agent.lifecycle
-  ; last_tool_calls = None
-  ; consecutive_idle_turns = 0
-  ; auto_context_overflow_retry = agent.auto_context_overflow_retry
   ; tools = agent.tools
   ; net = agent.net
   ; context = ctx
   ; options = agent.options
   ; checkpoint_sink = agent.checkpoint_sink
-  ; tool_failure_judge = agent.tool_failure_judge
-  ; recovery_state = agent.recovery_state
   }
 ;;
 

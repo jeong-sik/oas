@@ -8,15 +8,9 @@
 
     @since 0.194.0 *)
 
-type transport =
-  | Http
-  | Managed
-[@@deriving show]
-
 type auth_mode =
   | No_auth
   | Api_key_env of string
-  | Oauth_cached_login
   | Setup_token_env of string
 [@@deriving show]
 
@@ -24,8 +18,6 @@ type entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_config.provider_kind
-  ; transport : transport
-  ; command : string option
   ; base_url : string
   ; request_path : string
   ; api_key_env : string
@@ -36,7 +28,16 @@ type entry =
   ; credential_scope : string option
   }
 
-type t = entry list
+type t
+
+(** Build a catalog from typed entries while enforcing the same closed
+    invariants as the JSON boundary: unique provider ids/aliases, exact
+    endpoint/default-model/auth strings, positive limits, auth/env consistency,
+    and tool-choice capability dependencies. *)
+val of_entries : entry list -> (t, string) result
+
+(** Return catalog entries in declaration order. *)
+val entries : t -> entry list
 
 (** Parse a provider catalog JSON document.
 
@@ -49,7 +50,6 @@ type t = entry list
           {
             "id": "vllm-local",
             "kind": "openai_compat",
-            "transport": "http",
             "base_url": "http://127.0.0.1:8000",
             "request_path": "/v1/chat/completions",
             "auth": {"type": "none"},
@@ -58,39 +58,35 @@ type t = entry list
           }
         ]
       }
-    ]} *)
+    ]}
+
+    Catalog, provider, auth, and capability objects are closed: duplicate and
+    unknown fields are rejected. Optional fields may be absent or [null]; a
+    present value must have its declared type. Integer limits must be positive
+    and fit OCaml's [int], while string-list items must be exact non-empty
+    strings. Capability overrides are accepted only inside the nested
+    [capabilities] object. *)
 val of_json : Yojson.Safe.t -> (t, string) result
 
 val load_file : string -> (t, string) result
-val load_runtime_file : string -> t option
 
 (** Find an entry by id or alias.
 
     Lookup is case-insensitive (id and alias are trimmed + lowercased
-    before comparison). When more than one entry shares the same id or
-    alias, the {b first} matching entry in source order wins; later
-    duplicates are unreachable through this function.
-
-    For catalogs produced by {!of_json}, empty or whitespace-only ids
-    are rejected at parse time and empty aliases are dropped before
-    lookup. Programmatically constructed catalogs must preserve the same
-    non-empty id/alias invariant themselves; [lookup] only normalizes and
-    compares the data it is given. *)
+    before comparison). {!of_entries} and {!of_json} reject empty, padded, or
+    duplicate identities, including collisions between ids and aliases. *)
 val lookup : t -> string -> entry option
 
-(** Return an entry's explicit default model by id or alias.
-
-    Follows the same first-match-wins semantics as {!lookup}. *)
+(** Return an entry's explicit default model by id or alias. *)
 val default_model_for_provider : t -> string -> string option
 
 (** Process-wide catalog overlay.
 
-    Resolution order:
-    + 1. runtime override installed with {!set_global}
-    + 2. [OAS_PROVIDER_CATALOG] JSON file, cached after first load
-    + 3. no overlay *)
+    Returns only the runtime override installed explicitly with {!set_global};
+    [None] means no overlay. OAS never discovers a provider catalog from the
+    process environment. Callers that need a JSON overlay must call
+    {!load_file} and {!set_global}. *)
 val global : unit -> t option
 
-val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

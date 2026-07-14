@@ -55,6 +55,7 @@ let () =
   Eio.Switch.run @@ fun sw ->
   let net = Eio.Stdenv.net env in
   let agent = Agent.create ~net
+    ~config:(Types.default_config ~model:provider_cfg.model_id)
     ~options:{ Agent.default_options with
       provider = Some provider_cfg;
     }
@@ -72,7 +73,7 @@ let () =
 ## How It Works
 
 1. `Provider.register_provider` stores the implementation in a global registry
-2. `Provider.custom_provider ~name:"vllm-local" ()` creates a config with
+2. `Provider.custom_provider ~name:"vllm-local" ~model_id:"my-model" ()` creates a config with
    `Custom_registered { name }` variant
 3. When `api.ml` dispatches, it looks up the registry by name and calls
    `impl.build_body`/`impl.parse_response`

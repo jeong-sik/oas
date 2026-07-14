@@ -67,35 +67,21 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `AgentStarted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle start |
 | `AgentCompleted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle completion |
 | `AgentFailed` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle failure |
-| `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
-| `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
-| `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
+| `TurnStarted` | `pipeline/pipeline_stage_prepare.ml` | Start of a single agent turn |
+| `TurnReady` | `pipeline/pipeline_stage_prepare.ml` | Exact caller-supplied tool surface serialized for this turn |
+| `TurnCompleted` | `pipeline/pipeline.ml` | End of a single agent turn |
 | `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM; carries `tool_use_id` and `turn` |
 | `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available; carries matching `tool_use_id` and `turn` |
-| `HandoffRequested` | `agent/agent_handoff.ml` | Agent delegates control to another agent |
-| `HandoffCompleted` | `agent/agent_handoff.ml` | Handoff target finished |
-| `ElicitationCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | User elicitation round completed |
-| `ContextOverflowImminent` | `pipeline/pipeline.ml` | Projected next-turn tokens will exceed budget |
-| `ContextCompactStarted` | `pipeline/pipeline.ml` | Compaction begun (before completion) |
-| `ContextCompacted` | `pipeline/pipeline.ml`, `pipeline/pipeline_compaction.ml` | Compaction completed (before_tokens → after_tokens) |
-| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
-| `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
-| `InferenceTelemetry` | `pipeline/pipeline_collect.ml` | Per-turn provider timing/token telemetry when reported by the backend |
-| `ToolFailureEpisodeDetected` | `agent/agent.ml` | Two adjacent completed tool rounds contain the same typed failure signature; carries the exact structural episodes selected for recovery judgment |
-| `ToolFailureRecoveryDecided` | `agent/agent.ml` | The recovery judge returned a closed decision that passed episode validation and was durably checkpointed |
-| `ToolFailureRecoveryJudgeFailed` | `agent/agent.ml` | The recovery completion, JSON parse, or decision validation boundary failed explicitly |
+| `HandoffRequested` | `agent/agent.ml` | Agent delegates control to another agent |
+| `HandoffCompleted` | `agent/agent.ml` | Handoff target finished |
+| `ElicitationCompleted` | `pipeline/pipeline_stage_prepare.ml` | User elicitation round completed |
+| `InferenceTelemetry` | `pipeline/pipeline.ml` | Per-turn provider timing/token telemetry when reported by the backend |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 
 **Invariants**:
 - **I1 Provider-agnostic**: every native payload field is meaningful regardless of which provider serves the underlying LLM.
 - **I2 Stable envelope**: envelope field set is identical across providers.
 - **I6 Multi-vendor**: a native variant is only added if its semantic exists in ≥2 vendor SDKs.
-
-The three tool-failure recovery variants are OAS orchestration semantics, not
-provider wire events. They are derived only from canonical `ToolUse` and typed
-`ToolResult` records, so their shape and meaning do not vary by provider or
-model. Hidden reasoning and assistant narration are never inputs to episode
-detection.
 
 ### 2.3 Custom namespaces (reserved)
 
@@ -113,8 +99,7 @@ identifier.** The following prefixes are reserved:
 
 **Downstream publishers SHOULD NOT use OAS's `Event_bus` as a general-
 purpose telemetry channel for their own domain events.** Create your own
-`Event_bus.t` instance for your events and bridge into OAS's where
-necessary via a forwarder.
+typed event surface for downstream product events.
 
 External product/domain events can correlate with OAS via `correlation_id`,
 `run_id`, `caused_by`, raw-trace refs, and OTel trace/span IDs without becoming
@@ -123,12 +108,28 @@ OAS-native taxonomy.
 ### 2.4 Filters, subscriptions, and draining
 
 ```ocaml
-val subscribe : ?filter:filter -> t -> subscription
-val drain     : subscription -> event list
+val subscription_config :
+  capacity:int ->
+  overflow:overflow ->
+  (subscription_config, subscription_config_error) result
+
+val subscribe :
+  config:subscription_config ->
+  ?filter:filter ->
+  ?purpose:string ->
+  t ->
+  subscription
+val drain : subscription -> event list
 ```
 
 Filters compose: `filter_any`, `filter_all`, `filter_agent`,
 `filter_tools_only`, `filter_topic`, `filter_correlation`, `filter_run`.
+
+Each subscription owns an explicitly sized bounded FIFO and chooses
+`Drop_oldest` or `Drop_newest`. `publish` never waits for queue capacity to
+become available; capacity pressure affects only that subscriber and increments
+its `dropped_total`. `stats` exposes the configured capacity and overflow
+behavior, subscriber count, queue depth, and published/drained/drop totals.
 
 ### 2.5 What is **not** in the native taxonomy (by design)
 
@@ -144,7 +145,7 @@ Filters compose: `filter_any`, `filter_all`, `filter_agent`,
 
 ## 3. Surface 2: `Hooks` (synchronous callback)
 
-**Header**: `lib/hooks.mli`. Stability: Evolving.
+**Header**: `lib/base/hooks.mli`. Stability: Evolving.
 
 Hooks are synchronous interception points registered on `Agent` at build
 time. Use Hooks when you need to **audit** or **interfere with** a step;
@@ -154,22 +155,25 @@ Available hooks (post-v0.154.0):
 
 | Hook | Signature | Purpose |
 |------|-----------|---------|
-| `before_turn` | `Types.agent_state -> unit` | Called before a turn starts |
-| `after_turn` | `Types.agent_state -> unit` | Called after a turn completes |
-| `pre_tool_use` | `tool_name:string -> input:Yojson.Safe.t -> tool_policy` | Filter/modify tool invocation |
-| `post_tool_use` | `tool_name:string -> output:Types.tool_result -> unit` | Observe tool result |
-| `on_context_compacted` | `agent_state -> before_tokens:int -> after_tokens:int -> phase:string -> unit` | **New in v0.154.0** — observe compaction for audit/metrics |
-| `elicit` | `question:string -> elicitation_response` | Interactively gather user input |
+| `before_turn` | `hook_event -> hook_decision` | Continue, request caller input, or append a caller nudge |
+| `before_turn_params` | `hook_event -> hook_decision` | Continue or provide exact per-turn parameters |
+| `after_turn` | `hook_event -> hook_decision` | Observe the completed provider response |
+| `pre_tool_use` | `hook_event -> hook_decision` | Continue or explicitly block a tool invocation at the embedding boundary |
+| `post_tool_use` | `hook_event -> hook_decision` | Observe a tool result |
+| `post_tool_use_failure` | `hook_event -> hook_decision` | Observe a typed tool failure |
+| `on_stop` | `hook_event -> hook_decision` | Observe the terminal stop reason |
+| `on_error` | `hook_event -> hook_decision` | Observe an agent error |
+| `on_tool_error` | `hook_event -> hook_decision` | Observe a tool-returned error |
 
-See `lib/hooks.mli` for full contract.
+See `lib/base/hooks.mli` for the full decision contract.
 
 ### 3.1 Hook vs Event decision matrix
 
 | Use Hook when… | Use Event_bus when… |
 |----------------|---------------------|
-| You need to modify the step's behavior (approve/deny/edit) | You are strictly observing |
-| You need synchronous back-pressure | Async fan-out is fine |
-| Call site guarantees delivery | Best-effort delivery is acceptable |
+| You need to adjust a turn or return an exact caller-owned tool rejection | You are strictly observing |
+| The callback must run synchronously at that lifecycle point | A bounded subscriber queue is appropriate |
+| Callback failure must be surfaced to the agent call | Queue loss can be handled from explicit drop statistics |
 | Scope is a single agent | Scope may cross agents/sessions |
 | Failure should abort the agent | Subscriber failure is isolated |
 
@@ -215,6 +219,11 @@ is mirrored to the Event_bus as a `Custom("durable.<kind>", json)` event
 **Correlation**: `Journal_bridge.make` accepts `?correlation_id` and
 `?run_id` so durable events can be attached to the same envelope chain
 as the surrounding agent run.
+
+**Failure contract**: the bridge does not absorb publication exceptions.
+The journal append commits first; an ordinary projection failure is returned
+as `Durable_event.append_error`, while reserved runtime exceptions and
+cancellation propagate with their original backtrace.
 
 ### 4.3 Deduplication advisory
 
@@ -266,11 +275,21 @@ different payload shapes. Disambiguate by Custom name prefix:
 `runtime.agent_completed` vs native `AgentCompleted`.
 
 **Structured completion/failure metadata**:
-- `Runtime.participant_event` now carries optional `raw_trace_run_id`,
-  `stop_reason`, `completion_anomaly`, and `failure_cause`.
+- All three participant lifecycle payloads nest the shared identity and trace
+  fields in one `Runtime.participant_event_common` record under `participant`.
+  `participant_live_event` contains only that common record,
+  `participant_completed_event` adds optional `stop_reason` and
+  `completion_anomaly`, and `participant_failed_event` requires one typed
+  `failure_cause`. Completed-with-failure and failed-without-cause states are
+  not representable and their old flat JSON shapes are rejected.
 - `Runtime.output_delta_event` carries optional `raw_trace_run_id` so streamed
   child-agent text can be joined to the same EventBus `run_id` and telemetry
   row as its final completion event.
+- A non-fatal failure in the EventBus projection, participant terminal-event
+  persistence, or the outer participant lane is emitted on the runtime
+  protocol as an error `System_message`. Such an observation does not invent a
+  durable lifecycle event, roll back an event that already committed, or
+  cancel another participant lane.
 - `Runtime.session.pending_input` carries the resumable `input_request`
   while phase is `Input_required`; `Provide_input` emits
   `Input_provided`, clears the payload, and returns the session to
@@ -384,44 +403,7 @@ provider. Missing credentials / endpoints skip gracefully.
 
 ---
 
-## 9. Event forwarding
-
-**Header**: `lib/event_forward.mli`. Stability: Evolving.
-
-Delivers Event_bus events to external targets (JSONL files, custom
-callbacks) in a separate Eio fiber. Best-effort; failures log a warning.
-
-### 9.1 `event_type` mapping
-
-For each Event_bus event, `Event_forward.event_type_name` returns a flat
-string identifier:
-
-| Event_bus variant | event_type |
-|-------------------|-----------|
-| `AgentStarted` | `agent.started` |
-| `AgentCompleted` | `agent.completed` |
-| `AgentFailed` | `agent.failed` |
-| `TurnStarted` / `TurnReady` / `TurnCompleted` | `turn.started` / `turn.ready` / `turn.completed` |
-| `ToolCalled` / `ToolCompleted` | `tool.called` / `tool.completed` |
-| `HandoffRequested` / `HandoffCompleted` | `handoff.requested` / `handoff.completed` |
-| `ElicitationCompleted` | `elicitation.completed` |
-| `ContextOverflowImminent` | `context.overflow_imminent` |
-| `ContextCompactStarted` / `ContextCompacted` | `context.compact_started` / `context.compacted` |
-| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement.replaced` / `content_replacement.kept` |
-| `SlotSchedulerObserved` | `slot_scheduler.observed` |
-| `InferenceTelemetry` | `inference.telemetry` |
-| `Custom(name, _)` | `name` (unchanged — the name is already a namespaced identifier) |
-
-### 9.2 Targets
-
-| Target | Behavior |
-|--------|---------|
-| `File_append { path }` | Appends one JSON object per line to `path` |
-| `Custom_target { name; deliver }` | Invokes `deliver` for each event |
-
----
-
-## 10. How to add a new event
+## 9. How to add a new event
 
 1. **Decide the surface**. Is this:
    - A general agent lifecycle signal (≥2 providers)? → `Event_bus` native variant.
@@ -437,10 +419,7 @@ string identifier:
 
 3. **Update artifacts**:
    - Add to `Event_bus.mli` with doc comment + `@since`.
-   - Filter branch in `event_bus.ml`.
-   - `event_type_name` arm in `event_forward.ml`.
-   - `agent_name_of_event` arm.
-   - `event_to_payload` arm.
+   - Add the exhaustive `payload_kind` and filter branches in `event_bus.ml`.
    - Emit site(s) in the appropriate module.
    - Add this doc row.
    - Update `test/test_multivendor_events.ml` golden transcript if the new event is part of the standard lifecycle.
@@ -449,7 +428,7 @@ string identifier:
    sites on `Event_bus.payload` cover the new variant (they use explicit
    arms, not `_`, so the compiler will flag omissions).
 
-## 11. How to add a new provider
+## 10. How to add a new provider
 
 1. **Hosted API**: create `lib/api_<name>.ml` implementing the same
    normalized streaming interface (`Types.sse_event` output).
@@ -467,7 +446,7 @@ string identifier:
 
 ---
 
-## 12. Industry comparison
+## 11. Industry comparison
 
 | Concept | OAS | OpenAI Agents SDK | Claude Agent SDK | LangGraph |
 |---------|-----|-------------------|------------------|-----------|
@@ -480,7 +459,7 @@ string identifier:
 
 ---
 
-## 13. Stability
+## 12. Stability
 
 Entries in this catalog carry the stability tier of their module (see
 `docs/api-stability.md`). Breaking changes are tracked in `CHANGELOG.md`

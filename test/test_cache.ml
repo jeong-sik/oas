@@ -8,7 +8,15 @@ open Agent_sdk.Types
 (* ------------------------------------------------------------------ *)
 
 let make_config ?(cache = false) ?system_prompt () =
-  let config = { default_config with system_prompt; cache_system_prompt = cache } in
+  (* These tests inspect system-prompt serialization, so complete the Anthropic
+     request explicitly instead of consulting an ambient model catalog. *)
+  let config =
+    { (default_config ~model:"test-model") with
+      system_prompt
+    ; cache_system_prompt = cache
+    ; max_tokens = Some 1
+    }
+  in
   { config; messages = []; turn_count = 0; usage = empty_usage }
 ;;
 

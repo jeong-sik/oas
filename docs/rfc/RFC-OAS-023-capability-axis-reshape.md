@@ -8,7 +8,7 @@
 | Target | `agent_sdk` (oas) — `lib/llm_provider/`, `lib/provider.ml` |
 | Supersedes (partial) | RFC-0001 vendor purge (naming policy portion) — see §7.1 |
 | Supplements | RFC-OAS-018 catalog externalization (adds axis reshape on top of externalization) — see §7.2 |
-| Sibling | RFC-OAS-009 (tool name ignorance), RFC-OAS-017 (coordinator-shape leak) |
+| Sibling | RFC-OAS-017 (coordinator-shape leak) |
 | Boundary | masc-mcp depends on `Provider_kind.t` variant names (RFC-0174~0177) — see §7.3 |
 
 ## 0. Summary

@@ -1,38 +1,7 @@
-(** Tests for capabilities wiring — discovery, context_reducer, filter. *)
+(** Tests for capabilities wiring — discovery and exact capability filters. *)
 
 open Alcotest
 open Llm_provider
-
-(* ── Discovery: model lookup integration ─────────────── *)
-
-let test_discovery_infers_from_model_name () =
-  (* Simulate: Discovery finds a "dashscope-3.5-35b" model *)
-  let models : Discovery.model_info list =
-    [ { id = "dashscope-3.5-35b-a3b-q4"; owned_by = "local" } ]
-  in
-  let props : Discovery.server_props option =
-    Some
-      { total_slots = 4
-      ; ctx_size = 262144
-      ; model = "dashscope-3.5-35b"
-      ; supports_tools = None
-      }
-  in
-  (* Discovery.infer_capabilities is internal, but we can test via
-     the endpoint_status.capabilities after Discovery.discover.
-     Here we verify the for_model_id lookup + with_context_size pattern. *)
-  let caps =
-    match Capabilities.for_model_id "dashscope-3.5-35b-a3b-q4" with
-    | Some c -> Capabilities.with_context_size c ~ctx_size:262144
-    | None -> Capabilities.default_capabilities
-  in
-  ignore models;
-  ignore props;
-  check (option int) "context from props" (Some 262144) caps.max_context_tokens;
-  check bool "tools from lookup" true caps.supports_tools;
-  check bool "thinking from lookup" true caps.supports_extended_thinking;
-  check bool "top_k from lookup" true caps.supports_top_k
-;;
 
 (* ── Capability filter: new predicates ───────────────── *)
 
@@ -119,57 +88,12 @@ let test_filter_combined () =
   check bool "claude lacks audio" false (need_audio caps)
 ;;
 
-(* ── Context reducer: from_capabilities ──────────────── *)
-
-let test_reducer_from_caps_some () =
-  let caps =
-    { Capabilities.default_capabilities with max_context_tokens = Some 100_000 }
-  in
-  match Agent_sdk.Context_reducer.from_capabilities caps with
-  | Some reducer ->
-    (* Budget should be 80% of 100K = 80K tokens.
-       Test with a message list that fits. *)
-    let msgs =
-      [ { Types.role = Types.User
-        ; content = [ Types.Text "hello" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let reduced = Agent_sdk.Context_reducer.reduce reducer msgs in
-    check int "small message kept" 1 (List.length reduced)
-  | None -> fail "expected Some reducer"
-;;
-
-let test_reducer_from_caps_none () =
-  let caps = Capabilities.default_capabilities in
-  check
-    bool
-    "unknown ctx = None"
-    true
-    (Agent_sdk.Context_reducer.from_capabilities caps = None)
-;;
-
-let test_reducer_custom_margin () =
-  let caps =
-    { Capabilities.default_capabilities with max_context_tokens = Some 10_000 }
-  in
-  match Agent_sdk.Context_reducer.from_capabilities ~margin:0.5 caps with
-  | Some _ -> () (* 50% of 10K = 5K budget *)
-  | None -> fail "expected Some with custom margin"
-;;
-
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
   run
     "Capabilities_Wiring"
-    [ ( "discovery"
-      , [ test_case "infers from model name" `Quick test_discovery_infers_from_model_name
-        ] )
-    ; ( "filter"
+    [ ( "filter"
       , [ test_case "parallel tools" `Quick test_filter_parallel_tools
         ; test_case
             "effective parallel tool disable"
@@ -179,11 +103,6 @@ let () =
         ; test_case "fits context" `Quick test_filter_fits_context
         ; test_case "fits output" `Quick test_filter_fits_output
         ; test_case "combined predicates" `Quick test_filter_combined
-        ] )
-    ; ( "context_reducer"
-      , [ test_case "from_capabilities Some" `Quick test_reducer_from_caps_some
-        ; test_case "from_capabilities None" `Quick test_reducer_from_caps_none
-        ; test_case "custom margin" `Quick test_reducer_custom_margin
         ] )
     ]
 ;;

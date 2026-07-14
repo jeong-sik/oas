@@ -11,11 +11,9 @@
 
 type t
 
-(** Create a telemetry bus.
-
-    - [?buffer_size] — per-subscriber stream capacity (default 256).
-    - [?policy] — backpressure policy (default [Drop_oldest]). *)
-val create : ?buffer_size:int -> ?policy:Event_bus.backpressure_policy -> unit -> t
+(** Create a telemetry bus. Queue ownership is established by each
+    {!subscribe} call. *)
+val create : unit -> t
 
 (** Wrap an existing {!Event_bus.t} as a telemetry bus.
 
@@ -35,10 +33,11 @@ type subscription
 
 (** Subscribe to telemetry events.
 
-    - [?filter] — event predicate (default: accept all).
+    - [config] — validated queue capacity and overflow behavior owned by this
+      subscriber.
     - [?purpose] — free-form label surfaced in stats. *)
 val subscribe
-  :  ?filter:(Llm_provider.Telemetry_event.t -> bool)
+  :  config:Event_bus.subscription_config
   -> ?purpose:string
   -> t
   -> subscription
@@ -47,8 +46,15 @@ val unsubscribe : t -> subscription -> unit
 
 (** {2 Drain} *)
 
-(** Remove and return all queued events for a subscriber. *)
-val drain : subscription -> Llm_provider.Telemetry_event.t list
+type decode_failure =
+  { event : Event_bus.event
+  ; detail : string
+  }
+
+(** Remove and decode all queued events for a subscriber, preserving queue
+    order. A malformed event remains present as [Error decode_failure]; it is
+    never discarded from the observation stream. *)
+val drain : subscription -> (Llm_provider.Telemetry_event.t, decode_failure) result list
 
 (** {2 Queries} *)
 

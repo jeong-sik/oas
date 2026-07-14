@@ -16,73 +16,6 @@ type t =
   ; kill : unit -> unit
   }
 
-(** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
-let output_token_budget () = Util.int_env_or 25_000 "OAS_MCP_OUTPUT_MAX_TOKENS"
-
-(** Scan backward from [at] to the nearest UTF-8 codepoint boundary so a
-    byte-offset truncation never cuts the middle of a multi-byte character.
-    Returns the largest index [<= at] whose byte is NOT a UTF-8 continuation
-    byte ([0x80-0xBF]). A pure-ASCII cut point is already its own boundary;
-    the worst case for well-formed input walks back 1-3 bytes. *)
-let utf8_safe_boundary text at =
-  let len = String.length text in
-  let at = if at > len then len else at in
-  let rec scan i =
-    if i <= 0
-    then 0
-    else (
-      let b = Char.code (String.unsafe_get text i) in
-      if b land 0xC0 <> 0x80 then i else scan (i - 1))
-  in
-  scan at
-;;
-
-(** Truncate [text] when its estimated token count exceeds
-    [output_token_budget ()].
-
-    Delegates token estimation to {!Llm_provider.Text_estimate.estimate_char_tokens}
-    so CJK / emoji content is counted on par with ASCII rather than
-    through the previous "1 token ~= 4 bytes" byte-count approximation
-    — the old formula over-truncated Korean/Japanese/Chinese tool output
-    (3-byte chars × a 4-byte-per-token budget = only half the real
-    character budget reachable).
-
-    When truncation is needed we binary-search for the largest prefix
-    whose estimated tokens are [<= budget], then snap the cut to a
-    UTF-8 codepoint boundary so the output is never a broken
-    half-character. For pure-ASCII inputs this reproduces the previous
-    [budget * 4] behavior exactly because the estimator rounds 4 ASCII
-    chars → 1 token; CJK content now keeps [~budget * 1.5] characters
-    instead of [~budget * 1.33 chars but cut mid-codepoint]. *)
-let truncate_output text =
-  let budget = output_token_budget () in
-  (* A budget of zero (or any non-positive value) is interpreted as
-     "unlimited": the user explicitly accepted 0 as a valid non-negative
-     value, so we must not truncate every non-empty result to the marker. *)
-  if budget <= 0 || Llm_provider.Text_estimate.estimate_char_tokens text <= budget
-  then text
-  else (
-    (* Binary search the largest byte offset whose prefix fits in
-       [budget] tokens. The search is in bytes because we do not have
-       a cheap way to map byte offsets to codepoint counts without
-       scanning, but the per-probe cost is dominated by one call to
-       the estimator which is already linear in bytes anyway. *)
-    let fits k =
-      let safe_k = utf8_safe_boundary text k in
-      let prefix = String.sub text 0 safe_k in
-      Llm_provider.Text_estimate.estimate_char_tokens prefix <= budget
-    in
-    let rec search lo hi =
-      if lo >= hi
-      then utf8_safe_boundary text lo
-      else (
-        let mid = (lo + hi + 1) / 2 in
-        if fits mid then search mid hi else search lo (mid - 1))
-    in
-    let cut = search 0 (String.length text) in
-    String.sub text 0 cut ^ "\n...[oas mcp output truncated]")
-;;
-
 let text_of_tool_result (r : Sdk_types.tool_result) =
   List.filter_map
     (fun (c : Sdk_types.tool_content) ->
@@ -92,7 +25,6 @@ let text_of_tool_result (r : Sdk_types.tool_result) =
          None)
     r.content
   |> String.concat "\n"
-  |> truncate_output
 ;;
 
 (** Connect to an MCP server by spawning a subprocess via Eio.
@@ -203,14 +135,7 @@ let list_resources t =
 let read_resource t ~uri =
   match Sdk_client.read_resource t.client ~uri with
   | Error detail -> Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail }))
-  | Ok contents ->
-    Ok
-      (List.map
-         (fun (content : Sdk_types.resource_contents) ->
-            match content.text with
-            | Some text -> { content with text = Some (truncate_output text) }
-            | None -> content)
-         contents)
+  | Ok contents -> Ok contents
 ;;
 
 let list_prompts t =
@@ -271,32 +196,100 @@ let is_alive t =
 ;;
 
 (** Close the MCP client and terminate the subprocess. *)
+let close_with_release ~close_client ~release ~report_release_failure =
+  match close_client () with
+  | () -> release ()
+  | exception primary_exception ->
+    let primary_backtrace = Printexc.get_raw_backtrace () in
+    (match release () with
+     | () -> ()
+     | exception release_exception ->
+       let release_backtrace = Printexc.get_raw_backtrace () in
+       (match report_release_failure release_exception release_backtrace with
+        | () -> ()
+        | exception reporter_exception ->
+          let reporter_backtrace = Printexc.get_raw_backtrace () in
+          Eio.traceln
+            "mcp: close release failure reporter raised: %s\n%s; release failure: %s\n%s"
+            (Printexc.to_string reporter_exception)
+            (Printexc.raw_backtrace_to_string reporter_backtrace)
+            (Printexc.to_string release_exception)
+            (Printexc.raw_backtrace_to_string release_backtrace)));
+    Printexc.raise_with_backtrace primary_exception primary_backtrace
+;;
+
+let report_release_failure exception_ backtrace =
+  Llm_provider.Diag.error
+    "mcp"
+    "client close failed and process release also raised: %s\n%s"
+    (Printexc.to_string exception_)
+    (Printexc.raw_backtrace_to_string backtrace)
+;;
+
 let close t =
-  Sdk_client.close t.client;
-  t.kill ()
+  close_with_release
+    ~close_client:(fun () -> Sdk_client.close t.client)
+    ~release:t.kill
+    ~report_release_failure
+;;
+
+let%test "close attempts process release and preserves the client-close exception" =
+  let exception Client_close_raised in
+  let exception Release_raised in
+  let previous_backtrace_status = Printexc.backtrace_status () in
+  Printexc.record_backtrace true;
+  Fun.protect
+    ~finally:(fun () -> Printexc.record_backtrace previous_backtrace_status)
+    (fun () ->
+       let calls = ref [] in
+       let expected_backtrace = ref None in
+       let observed_release = ref None in
+       let close_client () =
+         calls := "client" :: !calls;
+         try raise Client_close_raised with
+         | exn ->
+           let backtrace = Printexc.get_raw_backtrace () in
+           expected_backtrace := Some (Printexc.raw_backtrace_to_string backtrace);
+           Printexc.raise_with_backtrace exn backtrace
+       in
+       let primary_backtrace =
+         match
+           close_with_release
+             ~close_client
+             ~release:(fun () ->
+               calls := "release" :: !calls;
+               raise Release_raised)
+             ~report_release_failure:(fun exception_ backtrace ->
+               observed_release := Some (exception_, backtrace))
+         with
+         | () -> None
+         | exception Client_close_raised ->
+           Some (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ()))
+         | exception _ -> None
+       in
+       List.rev !calls = [ "client"; "release" ]
+       && (match !observed_release with
+           | Some (Release_raised, backtrace) ->
+             String.length (Printexc.raw_backtrace_to_string backtrace) > 0
+           | Some _ | None -> false)
+       &&
+       match !expected_backtrace, primary_backtrace with
+       | Some expected, Some observed ->
+         String.length expected > 0 && String.starts_with ~prefix:expected observed
+       | None, _ | _, None -> false)
 ;;
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)
 
-(** Default trust boundary for MCP stdio subprocesses. *)
-type env_policy =
-  | Minimal
-  (** Start the child with a minimal allow-list ([PATH], [LANG],
-          [LC_ALL], [TMPDIR]) plus any keys explicitly listed in [spec.env]. *)
-  | Inherit
-  (** Inherit the full parent environment and apply [spec.env] overrides.
-          Use only when the MCP server is fully trusted. *)
-  | Explicit (** Pass exactly the variables listed in [spec.env]. *)
-
 (** Server start specification.
     [command] is the executable, [args] its arguments.
-    [env] contains extra environment variable overrides applied according to
-    [env_policy].  [name] identifies the server. *)
+    [env] contains explicit overrides applied to the inherited process
+    environment. [name] identifies the server. OAS passes the caller's argv
+    unchanged and does not infer command meaning. *)
 type server_spec =
   { command : string
   ; args : string list
   ; env : (string * string) list
-  ; env_policy : env_policy
   ; name : string
   }
 
@@ -340,145 +333,6 @@ let merge_env extras =
     Array.of_list (base_filtered @ extra_entries))
 ;;
 
-let env_policy_to_string = function
-  | Minimal -> "minimal"
-  | Inherit -> "inherit"
-  | Explicit -> "explicit"
-;;
-
-let env_policy_of_string = function
-  | "minimal" -> Ok Minimal
-  | "inherit" -> Ok Inherit
-  | "explicit" -> Ok Explicit
-  | value -> Error (Printf.sprintf "Unknown env_policy: %s" value)
-;;
-
-let minimal_env_vars = [ "PATH"; "LANG"; "LC_ALL"; "TMPDIR" ]
-
-(** Build a child environment according to [env_policy].  [Minimal] is the
-    safe default and prevents an untrusted MCP server from reading the entire
-    parent environment (which may contain API keys, tokens, SSH agents, etc.). *)
-let build_minimal_env ~policy extras =
-  match policy with
-  | Inherit -> merge_env extras
-  | Explicit -> Array.of_list (List.map (fun (k, v) -> k ^ "=" ^ v) extras)
-  | Minimal ->
-    let extra_keys = List.map fst extras in
-    let keep key = List.mem key minimal_env_vars || List.mem key extra_keys in
-    let base =
-      Array.to_list (Unix.environment ())
-      |> List.filter (fun entry ->
-        match String.split_on_char '=' entry with
-        | k :: _ -> keep k
-        | [] -> false)
-    in
-    let base_filtered =
-      List.filter
-        (fun entry ->
-           match String.split_on_char '=' entry with
-           | k :: _ -> not (List.mem k extra_keys)
-           | [] -> true)
-        base
-    in
-    let extra_entries = List.map (fun (k, v) -> k ^ "=" ^ v) extras in
-    Array.of_list (base_filtered @ extra_entries)
-;;
-
-let is_shell_meta ch =
-  match ch with
-  | ';'
-  | '|'
-  | '&'
-  | '$'
-  | '`'
-  | '('
-  | ')'
-  | '{'
-  | '}'
-  | '<'
-  | '>'
-  | '*'
-  | '?'
-  | '#'
-  | '!'
-  | '~'
-  | '\\'
-  | '"'
-  | '\''
-  | '\n'
-  | '\r'
-  | '\t' -> true
-  | _ -> false
-;;
-
-let has_shell_meta s = String.exists is_shell_meta s
-let interpreters = [ "sh"; "bash"; "zsh"; "python"; "python3"; "node"; "ruby"; "perl" ]
-
-let shell_commands_allowed () =
-  Llm_provider.Cli_common_env.bool ~default:false "OAS_MCP_ALLOW_SHELL_COMMANDS"
-;;
-
-let validate_command_and_args ~command ~args =
-  if has_shell_meta command
-  then
-    Error
-      (Error.Mcp
-         (ServerStartFailed
-            { command; detail = "MCP command contains shell metacharacters" }))
-  else if Filename.is_relative command
-  then
-    Error
-      (Error.Mcp
-         (ServerStartFailed { command; detail = "MCP command must be an absolute path" }))
-  else (
-    let basename = Filename.basename command in
-    if (not (shell_commands_allowed ())) && List.mem basename interpreters
-    then
-      Error
-        (Error.Mcp
-           (ServerStartFailed
-              { command
-              ; detail =
-                  Printf.sprintf
-                    "MCP command is an interpreter (%s); set \
-                     OAS_MCP_ALLOW_SHELL_COMMANDS=1 to allow"
-                    basename
-              }))
-    else (
-      let resolved =
-        try Unix.realpath command with
-        | _ -> command
-      in
-      if not (Sys.file_exists resolved && Sys.is_regular_file resolved)
-      then
-        Error
-          (Error.Mcp
-             (ServerStartFailed
-                { command
-                ; detail = Printf.sprintf "MCP command is not a regular file: %s" resolved
-                }))
-      else (
-        let st = Unix.stat resolved in
-        if st.st_perm land 0o022 <> 0
-        then
-          Error
-            (Error.Mcp
-               (ServerStartFailed
-                  { command
-                  ; detail =
-                      Printf.sprintf
-                        "MCP command is writable by group or other: %s"
-                        resolved
-                  }))
-        else if List.exists has_shell_meta args
-        then
-          Error
-            (Error.Mcp
-               (ServerStartFailed
-                  { command; detail = "MCP args contain shell metacharacters" }))
-        else Ok resolved)))
-;;
-
 (** Close a single managed MCP connection (transport-aware). *)
 let close_managed m =
   match m.transport with
@@ -497,59 +351,47 @@ let close_all managed_list = List.iter close_managed managed_list
 (** Connect to an MCP server, perform the initialize handshake, fetch
     tools, and convert them to SDK [Tool.t] values.
     On any failure the subprocess is closed before returning [Error]. *)
-let connect_and_load ~sw ~mgr spec =
-  match validate_command_and_args ~command:spec.command ~args:spec.args with
+let connect_and_load ~sw ~mgr (spec : server_spec) =
+  Llm_provider.Diag.info "mcp" "spawn %s: args=%d" spec.name (List.length spec.args);
+  let env = merge_env spec.env in
+  match connect ~sw ~mgr ~command:spec.command ~args:spec.args ~env () with
   | Error e -> Error e
-  | Ok resolved_command ->
-    Llm_provider.Diag.info
-      "mcp"
-      "spawn %s: resolved=%s args=%d hash=%d"
-      spec.name
-      resolved_command
-      (List.length spec.args)
-      (Hashtbl.hash spec);
-    let env = build_minimal_env ~policy:spec.env_policy spec.env in
-    (match connect ~sw ~mgr ~command:spec.command ~args:spec.args ~env () with
-     | Error e -> Error e
-     | Ok client ->
-       (try
-          match initialize client with
+  | Ok client ->
+    (try
+       match initialize client with
+       | Error e ->
+         close client;
+         Error e
+       | Ok () ->
+         (match list_tools client with
           | Error e ->
             close client;
             Error e
-          | Ok () ->
-            (match list_tools client with
+          | Ok mcp_tools ->
+            (match to_tools client mcp_tools with
+             | Ok tools ->
+               Ok { tools; name = spec.name; transport = Stdio { client; spec } }
              | Error e ->
                close client;
-               Error e
-             | Ok mcp_tools ->
-               (match to_tools client mcp_tools with
-                | Ok tools ->
-                  Ok { tools; name = spec.name; transport = Stdio { client; spec } }
-                | Error e ->
-                  close client;
-                  Error e))
-        with
-        | Out_of_memory ->
-          close client;
-          raise Out_of_memory
-        | Stack_overflow ->
-          close client;
-          raise Stack_overflow
-        | Sys.Break ->
-          close client;
-          raise Sys.Break
-        | exn ->
-          close client;
-          Error
-            (Error.Mcp
-               (InitializeFailed
-                  { detail =
-                      Printf.sprintf
-                        "MCP server '%s': %s"
-                        spec.name
-                        (Printexc.to_string exn)
-                  }))))
+               Error e))
+     with
+     | Out_of_memory ->
+       close client;
+       raise Out_of_memory
+     | Stack_overflow ->
+       close client;
+       raise Stack_overflow
+     | Sys.Break ->
+       close client;
+       raise Sys.Break
+     | exn ->
+       close client;
+       Error
+         (Error.Mcp
+            (InitializeFailed
+               { detail =
+                   Printf.sprintf "MCP server '%s': %s" spec.name (Printexc.to_string exn)
+               })))
 ;;
 
 (** Connect to multiple MCP servers sequentially.
@@ -602,59 +444,6 @@ let connect_all_best_effort ~sw ~mgr specs =
 [@@@coverage off]
 (* === Inline tests === *)
 
-let%test "output_token_budget returns default 25000" =
-  (* Unset env var to test default *)
-  (match Llm_provider.Cli_common_env.get "OAS_MCP_OUTPUT_MAX_TOKENS" with
-   | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" ""
-   | None -> ());
-  let budget = output_token_budget () in
-  budget = 25_000
-;;
-
-let%test "truncate_output short string unchanged" =
-  (* Ensure default budget *)
-  (match Llm_provider.Cli_common_env.get "OAS_MCP_OUTPUT_MAX_TOKENS" with
-   | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" ""
-   | None -> ());
-  truncate_output "hello" = "hello"
-;;
-
-let%test "truncate_output long string gets truncated" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10";
-  let s = String.make 200 'x' in
-  let result = truncate_output s in
-  (* ~10 tokens worth of bytes, snapped to UTF-8 boundary, plus marker *)
-  String.length result <= 50 + String.length "\n...[oas mcp output truncated]"
-  && String.length result > 0
-;;
-
-let%test "truncate_output CJK under budget is unchanged" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "1000";
-  (* 9 Hangul chars ~= 6 tokens under the CJK-aware estimator,
-     well under 1000. *)
-  let s =
-    "\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94\xEC\x95\x88\xEB\x85\x95\xED\x95\x98"
-  in
-  truncate_output s = s
-;;
-
-let%test "truncate_output CJK over budget snaps to UTF-8 boundary" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "2";
-  (* Many Hangul chars. 3 bytes each; cut must not land mid-codepoint. *)
-  let s = String.concat "" (List.init 40 (fun _ -> "\xEC\x95\x88")) in
-  let result = truncate_output s in
-  let marker = "\n...[oas mcp output truncated]" in
-  let marker_len = String.length marker in
-  let body_len = String.length result - marker_len in
-  (* (a) marker is present at the end *)
-  String.length result >= marker_len
-  && String.sub result body_len marker_len = marker
-  (* (b) body length is a multiple of 3, i.e. no partial Hangul char *)
-  && body_len mod 3 = 0
-  (* (c) we actually truncated (result is shorter than input + marker) *)
-  && body_len < String.length s
-;;
-
 let test_tool_result ?is_error ?structured_content content =
   let fields = [ "content", Sdk_types.tool_content_list_to_yojson content ] in
   let fields =
@@ -673,7 +462,6 @@ let test_tool_result ?is_error ?structured_content content =
 ;;
 
 let%test "text_of_tool_result extracts text content" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
   let r : Sdk_types.tool_result =
     test_tool_result
       [ Sdk_types.TextContent { type_ = "text"; text = "hello"; annotations = None }
@@ -684,9 +472,17 @@ let%test "text_of_tool_result extracts text content" =
 ;;
 
 let%test "text_of_tool_result empty content" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
   let r : Sdk_types.tool_result = test_tool_result [] in
   text_of_tool_result r = ""
+;;
+
+let%test "text_of_tool_result preserves large text exactly" =
+  let text = String.make 100_000 'x' in
+  let r : Sdk_types.tool_result =
+    test_tool_result
+      [ Sdk_types.TextContent { type_ = "text"; text; annotations = None } ]
+  in
+  String.equal (text_of_tool_result r) text
 ;;
 
 let%test "mcp_tool_of_json valid tool" =
@@ -794,70 +590,7 @@ let%test "decode_items propagates decode error" =
   | Ok _ -> false
 ;;
 
-(* --- Additional coverage tests --- *)
-
-let%test "output_token_budget respects env var" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "100";
-  let budget = output_token_budget () in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  budget = 100
-;;
-
-let%test "output_token_budget negative env value falls back to default" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "-5";
-  let budget = output_token_budget () in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  budget = 25_000
-;;
-
-let%test "output_token_budget non-numeric env value falls back to default" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "abc";
-  let budget = output_token_budget () in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  budget = 25_000
-;;
-
-let%test "output_token_budget zero env value is accepted as zero" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "0";
-  let budget = output_token_budget () in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  budget = 0
-;;
-
-let%test "truncate_output with zero budget is unlimited" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "0";
-  let text = String.make 100 'x' in
-  let result = truncate_output text in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  result = text
-;;
-
-let%test "truncate_output exact boundary not truncated" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "5";
-  (* 5 tokens * 4 = 20 chars *)
-  let s = String.make 20 'a' in
-  let result = truncate_output s in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  result = s
-;;
-
-let%test "truncate_output one over boundary is truncated" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "5";
-  let s = String.make 21 'b' in
-  let result = truncate_output s in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  let suffix = "\n...[oas mcp output truncated]" in
-  String.length result < String.length s + String.length suffix
-  && String.length result > 0
-  && String.sub
-       result
-       (String.length result - String.length suffix)
-       (String.length suffix)
-     = suffix
-;;
-
 let%test "text_of_tool_result skips non-text content" =
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
   let r : Sdk_types.tool_result =
     test_tool_result
       [ Sdk_types.ImageContent
@@ -865,9 +598,7 @@ let%test "text_of_tool_result skips non-text content" =
       ; Sdk_types.TextContent { type_ = "text"; text = "only_text"; annotations = None }
       ]
   in
-  let result = text_of_tool_result r in
-  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  result = "only_text"
+  text_of_tool_result r = "only_text"
 ;;
 
 let%test "mcp_tool_of_json description not a string defaults to empty" =

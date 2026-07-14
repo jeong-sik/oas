@@ -8,19 +8,6 @@ type config =
   ; headers : (string * string) list
   }
 
-(** [make_default_config ()] builds a default HTTP MCP transport config, reading
-    [OAS_MCP_HTTP_URL] at call time, defaulting to ["http://localhost:8080/mcp"]. *)
-val make_default_config : unit -> config
-
-(** Default HTTP MCP transport config captured at module init. Equivalent to
-    {!make_default_config} evaluated once when the module loads; kept as a value
-    for backwards-compatible callers. *)
-val default_config : config
-
-(** Environment variable used by {!default_config} to resolve the MCP HTTP
-    endpoint. *)
-val default_endpoint_env_var : string
-
 type t
 
 val connect

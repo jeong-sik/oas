@@ -27,42 +27,10 @@ let decode_json_with decoder raw =
   | Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
 ;;
 
-let workdir_policy_of_string = function
-  | "required" -> Some Tool.Required
-  | "recommended" -> Some Tool.Recommended
-  | "none_expected" -> Some Tool.None_expected
-  | _ -> None
-;;
-
-let shell_constraints_of_json json =
-  let open Yojson.Safe.Util in
-  match json with
-  | `Null -> None
-  | value ->
-    Some
-      { Tool.single_command_only = value |> member "single_command_only" |> to_bool
-      ; shell_metacharacters_allowed =
-          value |> member "shell_metacharacters_allowed" |> to_bool
-      ; chaining_allowed = value |> member "chaining_allowed" |> to_bool
-      ; redirection_allowed = value |> member "redirection_allowed" |> to_bool
-      ; pipes_allowed = value |> member "pipes_allowed" |> to_bool
-      ; workdir_policy =
-          (match value |> member "workdir_policy" |> to_string_option with
-           | Some policy -> workdir_policy_of_string policy
-           | None -> None)
-      }
-;;
-
 let tool_contract_of_json json =
-  let open Yojson.Safe.Util in
-  { name = json |> member "name" |> to_string
-  ; description = json |> member "description" |> to_string
-  ; origin = json |> member "origin" |> to_string_option
-  ; kind = json |> member "kind" |> to_string_option
-  ; shell = shell_constraints_of_json (json |> member "shell")
-  ; notes = json |> member "notes" |> to_list |> List.map to_string
-  ; examples = json |> member "examples" |> to_list |> List.map to_string
-  }
+  match Sessions_types.tool_contract_of_yojson json with
+  | Ok contract -> contract
+  | Error detail -> raise (Yojson.Safe.Util.Type_error (detail, json))
 ;;
 
 let telemetry_of_json json =

@@ -19,16 +19,6 @@ let test_behavioral_tool_selected () =
   Alcotest.(check bool) "tool not found" false verdict2.passed
 ;;
 
-let test_behavioral_completes_within () =
-  let obs : Harness.Behavioral.observation =
-    { tools_called = []; turn_count = 3; final_response = ""; messages = [] }
-  in
-  let verdict = Harness.Behavioral.evaluate obs (CompletesWithin 5) in
-  Alcotest.(check bool) "within limit" true verdict.passed;
-  let verdict2 = Harness.Behavioral.evaluate obs (CompletesWithin 2) in
-  Alcotest.(check bool) "exceeds limit" false verdict2.passed
-;;
-
 let test_behavioral_contains_text () =
   let obs : Harness.Behavioral.observation =
     { tools_called = []
@@ -54,11 +44,13 @@ let test_behavioral_all () =
   let verdict =
     Harness.Behavioral.evaluate
       obs
-      (All [ ToolSelected [ "search" ]; CompletesWithin 5; ContainsText "Found" ])
+      (All [ ToolSelected [ "search" ]; ContainsText "Found" ])
   in
   Alcotest.(check bool) "all pass" true verdict.passed;
   let verdict2 =
-    Harness.Behavioral.evaluate obs (All [ ToolSelected [ "search" ]; CompletesWithin 1 ])
+    Harness.Behavioral.evaluate
+      obs
+      (All [ ToolSelected [ "missing" ]; ContainsText "Found" ])
   in
   Alcotest.(check bool) "one fails" false verdict2.passed
 ;;
@@ -115,9 +107,9 @@ let test_performance_evaluate () =
     ; turn_count = 3
     }
   in
-  let exp = { Harness.Performance.default_expectation with max_turns = Some 5 } in
+  let exp : Harness.Performance.expectation = { max_p95_latency_ms = Some 25.0 } in
   let verdict = Harness.Performance.evaluate obs exp in
-  Alcotest.(check bool) "within budget" true verdict.passed
+  Alcotest.(check bool) "within latency target" true verdict.passed
 ;;
 
 (* ── Regression harness tests ────────────────────────────────── *)
@@ -225,7 +217,6 @@ let () =
     "harness"
     [ ( "behavioral"
       , [ Alcotest.test_case "tool_selected" `Quick test_behavioral_tool_selected
-        ; Alcotest.test_case "completes_within" `Quick test_behavioral_completes_within
         ; Alcotest.test_case "contains_text" `Quick test_behavioral_contains_text
         ; Alcotest.test_case "all" `Quick test_behavioral_all
         ] )

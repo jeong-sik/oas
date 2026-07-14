@@ -19,11 +19,11 @@ catalog row for the same model prefix.
 ## Priority
 
 ```
-Model catalog row (explicit OAS_MODEL_CATALOG or embedded OAS default, prefix match)
+Explicit model catalog override or embedded OAS model catalog row (prefix match)
     ↓ miss
-Manifest entry (OAS_CAPABILITY_MANIFEST, prefix match)
+Explicitly installed manifest entry (prefix match)
     ↓ miss
-Discovery-based inference / caller default
+No declaration (`Capabilities.for_model_id` returns `None`)
 ```
 
 ## Quick Start
@@ -46,10 +46,15 @@ Create `~/.config/oas/caps.json` (or any path):
 }
 ```
 
-Point OAS at it:
+Load and install it during application bootstrap:
 
-```
-export OAS_CAPABILITY_MANIFEST=~/.config/oas/caps.json
+```ocaml
+let manifest =
+  match Capability_manifest.load_file "/home/app/.config/oas/caps.json" with
+  | Ok manifest -> manifest
+  | Error message -> failwith message
+in
+Capability_manifest.set_global manifest
 ```
 
 Any model whose ID starts with `my-llama-q4` (case-insensitive) will now use
@@ -84,7 +89,7 @@ for the full JSON Schema (draft-07).
 | `supports_reasoning` | bool | from base | Any reasoning capability (union). |
 | `supports_extended_thinking` | bool | from base | budget\_tokens-controlled thinking. |
 | `supports_reasoning_budget` | bool | from base | Reasoning effort control. |
-| `accepted_reasoning_efforts` | string[] | from base | Optional model-specific subset of canonical reasoning effort values. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Omit unless verified for that model. |
+| `accepted_reasoning_efforts` | string[] | from base | Optional model-specific subset of canonical reasoning effort values. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Omit unless verified for that model. |
 | `supports_response_format_json` | bool | from base | JSON mode (valid JSON, no schema). |
 | `supports_structured_output` | bool | from base | Provider-native schema output. |
 | `supports_multimodal_inputs` | bool | from base | Any non-text input (union). |
@@ -143,10 +148,13 @@ let manifest = Capability_manifest.load_file "caps.json" |> Result.get_ok
 let caps = Capabilities.for_model_id_with_manifest manifest "my-llama-q4-k4"
 ```
 
-### Global manifest (from env var)
+### Process-wide manifest
 
 ```ocaml
-(* for_model_id automatically checks OAS_CAPABILITY_MANIFEST first *)
+let manifest = Capability_manifest.load_file "caps.json" |> Result.get_ok in
+Capability_manifest.set_global manifest;
+
+(* for_model_id checks the embedded/explicit model catalog first, then this manifest *)
 let caps = Capabilities.for_model_id "my-llama-q4-k4"
 ```
 
@@ -178,12 +186,12 @@ let caps = Capabilities.apply_manifest_entry entry
 ## Bundling with a Model Deployment
 
 For Ollama or llama-server deployments, place a `caps.json` alongside the
-model files and set `OAS_CAPABILITY_MANIFEST` in the service environment:
+model files and have the embedding application load and install it during
+bootstrap:
 
-```
-# docker-compose.yml or systemd unit
-environment:
-  OAS_CAPABILITY_MANIFEST: /models/caps.json
+```ocaml
+let manifest = Capability_manifest.load_file "/models/caps.json" |> Result.get_ok in
+Capability_manifest.set_global manifest
 ```
 
 ## Notes
@@ -192,11 +200,9 @@ environment:
   and the first entry whose `id_prefix` is a prefix of the requested model ID
   is used.  If you need priority control (e.g. a general prefix and a more
   specific one), place the more-specific entry earlier in the list.
-- The manifest is loaded **once** on first use (lazy singleton).  Restart the
-  process to pick up changes.
-- Runtime load errors are logged via `Diag.warn` and the manifest layer is
-  skipped, so a bad manifest file degrades to the built-in table with an
-  operator-visible diagnostic.
-- `for_model_id` from the built-in table remains the fallback, so existing
-  well-known model IDs (Claude, GPT, Gemini, etc.) do not need manifest entries
-  unless you want to override their built-in capabilities.
+- OAS never discovers a manifest from the process environment. File selection,
+  reload policy, and error handling belong to the embedding application.
+- `load_file` returns an explicit `Result`; install only a successfully parsed
+  manifest with `set_global`.
+- The embedded model catalog remains the primary capability source. A manifest
+  supplies facts only when no model-catalog row matches.

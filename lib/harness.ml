@@ -46,7 +46,6 @@ module Behavioral = struct
   (** What we expect from the agent. *)
   type expectation =
     | ToolSelected of string list (** These tools must be called *)
-    | CompletesWithin of int (** Max turn count *)
     | ContainsText of string (** Final response contains this text *)
     | All of expectation list (** All must pass *)
 
@@ -115,23 +114,6 @@ module Behavioral = struct
                      (List.filter
                         (fun t -> not (List.mem t obs.tools_called))
                         expected_tools))))
-      }
-    | CompletesWithin max_turns ->
-      let passed = obs.turn_count <= max_turns in
-      { passed
-      ; score =
-          Some
-            (Float.min
-               1.0
-               (Float.of_int max_turns /. Float.max 1.0 (Float.of_int obs.turn_count)))
-      ; evidence =
-          [ Printf.sprintf "max_turns=%d" max_turns
-          ; Printf.sprintf "actual_turns=%d" obs.turn_count
-          ]
-      ; detail =
-          (if passed
-           then None
-           else Some (Printf.sprintf "Took %d turns (limit: %d)" obs.turn_count max_turns))
       }
     | ContainsText needle ->
       let found =
@@ -261,12 +243,9 @@ module Performance = struct
     ; turn_count : int
     }
 
-  type expectation =
-    { max_p95_latency_ms : float option
-    ; max_turns : int option
-    }
+  type expectation = { max_p95_latency_ms : float option }
 
-  let default_expectation = { max_p95_latency_ms = None; max_turns = None }
+  let default_expectation = { max_p95_latency_ms = None }
 
   (** Calculate p95 from a sorted list of latencies. *)
   let p95 latencies =
@@ -285,12 +264,6 @@ module Performance = struct
          | Some limit ->
            let actual = p95 obs.latencies_ms in
            Some (actual <= limit, Printf.sprintf "p95_ms=%.1f limit=%.1f" actual limit)
-         | None -> None)
-      ; (match exp.max_turns with
-         | Some limit ->
-           Some
-             ( obs.turn_count <= limit
-             , Printf.sprintf "turns=%d limit=%d" obs.turn_count limit )
          | None -> None)
       ]
     in
@@ -476,7 +449,6 @@ module Composability = struct
     | HandoffOccurred of string
     | AllAgentsCompleted
     | ContextPropagated of string
-    | TurnCountBelow of int
 
   type observation =
     { agents_involved : string list
@@ -526,16 +498,6 @@ module Composability = struct
           (if found
            then None
            else Some (Printf.sprintf "Context key '%s' not propagated" key))
-      }
-    | TurnCountBelow limit ->
-      let passed = obs.total_turns < limit in
-      { passed
-      ; score = None
-      ; evidence = [ Printf.sprintf "turns=%d limit=%d" obs.total_turns limit ]
-      ; detail =
-          (if passed
-           then None
-           else Some (Printf.sprintf "Total turns %d >= limit %d" obs.total_turns limit))
       }
   ;;
 end

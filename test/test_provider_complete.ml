@@ -32,10 +32,52 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
-let catalog_capabilities model_id =
-  match Llm_provider.Capabilities.for_model_id model_id with
+let catalog_capabilities ?provider_label model_id =
+  let capabilities =
+    match provider_label with
+    | None -> Llm_provider.Capabilities.for_model_id model_id
+    | Some provider_label ->
+      Llm_provider.Capabilities.for_provider_model_id
+        ~allow_bare_fallback:false
+        ~provider_label
+        ~model_id
+  in
+  match capabilities with
   | Some caps -> caps
-  | None -> Alcotest.failf "expected catalog capabilities for %s" model_id
+  | None ->
+    Alcotest.failf
+      "expected catalog capabilities for %s%s"
+      (match provider_label with
+       | None -> ""
+       | Some provider_label -> provider_label ^ "/")
+      model_id
+;;
+
+let content_has_reasoning =
+  List.exists (function
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+;;
+
+let stamp_reasoning_history config messages =
+  let source =
+    match Llm_provider.Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail -> Alcotest.fail ("invalid reasoning source fixture: " ^ detail)
+  in
+  List.map
+    (fun (message : message) ->
+       match message.role, content_has_reasoning message.content with
+       | Assistant, true ->
+         let metadata =
+           match Reasoning_source.add source message.metadata with
+           | Ok metadata -> metadata
+           | Error detail -> Alcotest.fail ("invalid reasoning fixture: " ^ detail)
+         in
+         { message with metadata }
+       | (Assistant | System | User | Tool), false | (System | User | Tool), true ->
+         message)
+    messages
 ;;
 
 (* ── Anthropic build_request ─────────────────────────── *)
@@ -85,7 +127,7 @@ let test_anthropic_with_thinking () =
       ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:true
-      ~thinking_budget:5000
+      ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
   let body = BA.build_request ~config ~messages:[ user_msg "think" ] () in
@@ -106,29 +148,24 @@ let test_anthropic_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
-let test_anthropic_disabled_thinking_omits_adaptive_effort () =
-  (* A turn hook may disable thinking while a thinking_budget is still set. The
-     adaptive effort must be gated on thinking being enabled, otherwise
-     output_config.effort leaks without an accompanying thinking block. *)
+let test_anthropic_disabled_thinking_rejects_reasoning_effort () =
   let config =
     PC.make
       ~kind:Anthropic
       ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:false
-      ~thinking_budget:5000
+      ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
-  let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  Alcotest.(check bool) "thinking omitted" true (json |> member "thinking" = `Null);
-  (* With thinking disabled and no output schema, output_config carries no
-     fields, so the whole object is omitted rather than leaking a bare effort. *)
-  Alcotest.(check bool)
-    "output_config omitted (no leaked effort)"
-    true
-    (json |> member "output_config" = `Null)
+  match BA.build_request ~config ~messages:[ user_msg "hi" ] () with
+  | _ -> Alcotest.fail "expected disabled-thinking reasoning-effort rejection"
+  | exception Invalid_argument message ->
+    Alcotest.(check string)
+      "rejection"
+      "Backend_anthropic.build_request: model \"claude-sonnet-4-6\" cannot set \
+       reasoning_effort \"medium\" when enable_thinking=false"
+      message
 ;;
 
 let test_anthropic_sonnet5_explicit_disable_is_serialized () =
@@ -254,25 +291,22 @@ let test_anthropic_build_request_preserves_multiturn_thinking_tool_order () =
       ~max_tokens:1024
       ()
   in
-  let body =
-    BA.build_request
-      ~config
-      ~messages:
-        [ msg User [ Text "User message 1" ]
-        ; msg
-            Assistant
-            [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
-        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
-        ; msg
-            Assistant
-            [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
-        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
-        ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
-        ; msg User [ Text "User message 2" ]
-        ]
-      ()
-    |> Yojson.Safe.from_string
+  let messages =
+    [ msg User [ Text "User message 1" ]
+    ; msg
+        Assistant
+        [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
+    ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+    ; msg
+        Assistant
+        [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
+    ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+    ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
+    ; msg User [ Text "User message 2" ]
+    ]
+    |> stamp_reasoning_history config
   in
+  let body = BA.build_request ~config ~messages () |> Yojson.Safe.from_string in
   let open Yojson.Safe.Util in
   let require_string_field key json =
     match member key json with
@@ -817,6 +851,7 @@ let test_kimi_direct_with_tools_and_thinking () =
       ~model_id:"kimi-for-coding"
       ~base_url:"https://api.kimi.com/coding"
       ~enable_thinking:true
+      ~thinking_budget:4096
       ()
   in
   let tool =
@@ -879,6 +914,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
   let body = BA.build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
@@ -897,10 +933,17 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
     "tool_use id preserved"
     "tool_1"
     (block |> member "tool_use_id" |> to_string);
+  let result_content = block |> member "content" |> to_list in
+  Alcotest.(check int) "tool_result content block count" 1 (List.length result_content);
+  let text_block = List.hd result_content in
+  Alcotest.(check string)
+    "tool_result content type"
+    "text"
+    (text_block |> member "type" |> to_string);
   Alcotest.(check string)
     "tool_result content"
     "5"
-    (block |> member "content" |> to_string)
+    (text_block |> member "text" |> to_string)
 ;;
 
 let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
@@ -945,6 +988,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
   let body = BGlm.build_request ~stream:true ~config ~messages () in
   let json = Yojson.Safe.from_string body in
@@ -1030,52 +1074,6 @@ let test_config_custom_path () =
   Alcotest.(check string) "custom path" "/custom" cfg.request_path
 ;;
 
-(* ── Retry config ────────────────────────────────────── *)
-
-let test_default_retry_config () =
-  let cfg = Llm_provider.Complete.default_retry_config in
-  Alcotest.(check int) "max_retries" 3 cfg.max_retries;
-  Alcotest.(check (float 0.01)) "initial_delay" 1.0 cfg.initial_delay_sec;
-  Alcotest.(check (float 0.01)) "max_delay" 30.0 cfg.max_delay_sec;
-  Alcotest.(check (float 0.01)) "backoff" 2.0 cfg.backoff_multiplier
-;;
-
-let test_is_retryable () =
-  let open Llm_provider in
-  (* Retryable status codes *)
-  Alcotest.(check bool)
-    "429 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 429; body = "" }));
-  Alcotest.(check bool)
-    "503 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 503; body = "" }));
-  Alcotest.(check bool)
-    "529 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 529; body = "" }));
-  (* Network errors *)
-  Alcotest.(check bool)
-    "network retryable"
-    true
-    (Complete.is_retryable
-       (Http_client.NetworkError { message = "timeout"; kind = Unknown }));
-  (* Non-retryable *)
-  Alcotest.(check bool)
-    "400 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 400; body = "" }));
-  Alcotest.(check bool)
-    "401 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 401; body = "" }));
-  Alcotest.(check bool)
-    "404 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
-;;
-
 let usage =
   Some
     { input_tokens = 1
@@ -1157,7 +1155,8 @@ let test_model_capability_thinking_drift_remains_warn () =
       ~kind:OpenAI_compat
       ~model_id:"glm-4-flash"
       ~base_url:"https://declared-openai-compat.example/v1"
-      ~model_capabilities_override:(catalog_capabilities "glm-4-flash")
+      ~model_capabilities_override:
+        (catalog_capabilities ~provider_label:"glm" "glm-4-flash")
       ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
@@ -1177,9 +1176,9 @@ let test_model_capability_thinking_drift_remains_warn () =
 let test_declared_glm_model_thinking_uses_model_capability () =
   let config =
     PC.make
-      ~kind:OpenAI_compat
+      ~kind:Glm
       ~model_id:"glm-5"
-      ~base_url:"https://declared-zai-openai-compat.example/v1"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~model_capabilities_override:(catalog_capabilities "glm-5")
       ()
   in
@@ -1303,10 +1302,6 @@ let test_stream_acc_text () =
     ; MessageStop
     ]
   in
-  (* Use the internal accumulator via a module alias *)
-  let module C = Llm_provider.Complete in
-  ignore C.default_retry_config;
-  (* force link *)
   (* We can't call the internal functions directly, but we can test
      that the event types compose correctly *)
   Alcotest.(check int) "7 events" 7 (List.length events)
@@ -1457,9 +1452,9 @@ let () =
         ; test_case "with system" `Quick test_anthropic_with_system
         ; test_case "with thinking" `Quick test_anthropic_with_thinking
         ; test_case
-            "disabled thinking omits adaptive effort"
+            "disabled thinking rejects reasoning effort"
             `Quick
-            test_anthropic_disabled_thinking_omits_adaptive_effort
+            test_anthropic_disabled_thinking_rejects_reasoning_effort
         ; test_case
             "Sonnet 5 explicit disable is serialized"
             `Quick
@@ -1564,10 +1559,6 @@ let () =
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path
-        ] )
-    ; ( "retry"
-      , [ test_case "default config" `Quick test_default_retry_config
-        ; test_case "is_retryable" `Quick test_is_retryable
         ] )
     ; ( "cli_transport_guard"
       , [ test_case

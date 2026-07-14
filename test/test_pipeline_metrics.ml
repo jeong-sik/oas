@@ -65,10 +65,13 @@ let make_empty_agent ~net ~stop_reason ~name =
     { Agent_types.default_options with
       transport = Some (mk_empty_transport stop_reason)
     ; provider = Some (Provider_mock.to_provider_config ())
-    ; guardrails = Guardrails.permissive
     }
   in
-  Agent.create ~net ~config:{ Types.default_config with name; max_turns = 1 } ~options ()
+  Agent.create
+    ~net
+    ~config:{ (Types.default_config ~model:"test-model") with name }
+    ~options
+    ()
 ;;
 
 let check_agent_empty_failure agent = function
@@ -104,7 +107,7 @@ let test_sync_dispatches_via_complete_triggers_metrics () =
   let _agent =
     Agent.create
       ~net
-      ~config:{ Types.default_config with name = "pr-o2-test"; max_turns = 1 }
+      ~config:{ (Types.default_config ~model:"test-model") with name = "pr-o2-test" }
       ~options
       ()
   in
@@ -167,7 +170,8 @@ let test_stage_route_passes_trace_context_headers () =
   let agent =
     Agent.create
       ~net
-      ~config:{ Types.default_config with name = "trace-context-test"; max_turns = 1 }
+      ~config:
+        { (Types.default_config ~model:"test-model") with name = "trace-context-test" }
       ~options
       ()
   in
@@ -252,7 +256,8 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   let agent =
     Agent.create
       ~net
-      ~config:{ Types.default_config with name = "timeout-phase-test"; max_turns = 1 }
+      ~config:
+        { (Types.default_config ~model:"test-model") with name = "timeout-phase-test" }
       ~options
       ()
   in

@@ -1,4 +1,4 @@
-(** Tool call middleware — reusable validation, coercion, and dispatch primitives.
+(** Tool call middleware — reusable strict validation primitives.
 
     Consumers (MCP servers, custom agent loops) use these to build their own
     tool dispatch pipelines without embedding [Agent.run].
@@ -12,7 +12,6 @@
 
 type pre_hook_action =
   | Pass (** This hook has no opinion — continue to next hook or handler. *)
-  | Proceed of Yojson.Safe.t (** Replace args (e.g. after type coercion) and continue. *)
   | Reject of
       { is_error : bool
       ; message : string
@@ -20,30 +19,11 @@ type pre_hook_action =
 
 (** {1 Validation convenience} *)
 
-(** Validate [args] against [schema], returning a {!pre_hook_action}.
-
-    - If the schema has no parameters, returns [Pass].
-    - If validation succeeds with coercion, returns [Proceed coerced_args].
-    - If validation succeeds without coercion, returns [Pass].
-    - If validation fails, returns [Reject] with formatted error message.
-
-    Delegates to {!Tool_input_validation.validate} and
-    {!Tool_input_validation.format_errors}. *)
-val validate_and_coerce
+(** Validate [args] against [schema] without rewriting it. Returns [Pass] for
+    an exact match and [Reject] with structured feedback for invalid input. *)
+val validate_input
   :  tool_name:string
   -> schema:Types.tool_schema
-  -> Yojson.Safe.t
-  -> pre_hook_action
-
-(** Validate a tool input against {!Tool.descriptor.shell} when present.
-
-    The command text is read from a string ["command"] field, falling back to
-    ["cmd"]. Tools without shell constraints, or shell-constrained tools with no
-    command-like field, return {!Pass}; schema validation remains responsible
-    for required-field errors. *)
-val validate_shell_constraints
-  :  tool_name:string
-  -> descriptor:Tool.descriptor
   -> Yojson.Safe.t
   -> pre_hook_action
 
@@ -69,70 +49,14 @@ val tool_schema_of_json_result
   -> Yojson.Safe.t
   -> (Types.tool_schema, string) result
 
-(** {1 Hook factory}
-
-    Build a pre-hook function from a schema lookup.
-    Returns [Pass] for unknown tools (permissive by default). *)
+(** {1 Hook factory} *)
 
 (** Create a validation pre-hook closure.
 
-    The [lookup] function resolves tool names to schemas.
-    Unknown tools (when [lookup] returns [None]) get [Pass]. *)
+    The [lookup] function resolves tool names to schemas. Unknown tools are
+    rejected explicitly. *)
 val make_validation_hook
   :  lookup:(string -> Types.tool_schema option)
   -> name:string
   -> args:Yojson.Safe.t
   -> pre_hook_action
-
-(** {1 Self-Healing Retry Loop}
-
-    Deterministic wrapper around non-deterministic LLM output.
-    Validates tool call args, and on failure re-prompts the LLM
-    with error feedback until the call is valid or retries exhaust.
-
-    @since 0.102.0 *)
-
-(** Result of a healing attempt. *)
-type healing_result =
-  { value : Yojson.Safe.t
-  ; attempts : int (** Total attempts (1 = first try succeeded) *)
-  ; healed : bool (** Whether any retry was needed *)
-  }
-
-(** Reason the healing loop terminated without success. *)
-type healing_failure =
-  | Exhausted of
-      { attempts : int
-      ; limit : int
-      ; last_error : string
-      }
-  | Llm_error of Error.sdk_error
-
-(** LLM re-prompt callback.
-
-    Given conversation history including error feedback,
-    return a new response.  The callback owns API dispatch. *)
-type llm_callback = Types.message list -> (Types.api_response, Error.sdk_error) result
-
-(** Run the self-healing validation loop.
-
-    1. Validate [args] against [schema] via {!validate_and_coerce}.
-    2. If [Pass] or [Proceed]: return immediately.
-    3. If [Reject]: construct error feedback, call [llm], extract the
-       corrected tool call, and repeat from (1).
-
-    @param max_retries Maximum re-prompts (default 3).
-    @param on_retry Observability callback, invoked before each retry.
-    @param tool_use_id ID of the original tool_use block.
-    @param prior_messages Conversation context preceding the tool call. *)
-val heal_tool_call
-  :  tool_name:string
-  -> schema:Types.tool_schema
-  -> tool_use_id:string
-  -> args:Yojson.Safe.t
-  -> prior_messages:Types.message list
-  -> llm:llm_callback
-  -> ?max_retries:int
-  -> ?on_retry:(attempt:int -> error:string -> unit)
-  -> unit
-  -> (healing_result, healing_failure) result

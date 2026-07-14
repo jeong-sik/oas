@@ -1,20 +1,23 @@
 (** Tests for Agent.t mutable-field race condition fix.
 
-    Verifies that concurrent access to Agent.t mutable fields
-    (state, lifecycle, last_tool_calls, consecutive_idle_turns)
-    via the Eio.Mutex is safe under parallel Eio fibers. *)
+    Verifies that concurrent access to Agent.t mutable state and lifecycle
+    fields via the Eio.Mutex is safe under parallel Eio fibers. *)
 
 open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────── *)
 
-let make_agent ?tool_failure_judge env =
+let make_agent env =
   let tools =
     [ Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun input ->
         Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
     ]
   in
-  Agent.create ~net:(Eio.Stdenv.net env) ~tools ?tool_failure_judge ()
+  Agent.create
+    ~config:(Types.default_config ~model:"test-model")
+    ~net:(Eio.Stdenv.net env)
+    ~tools
+    ()
 ;;
 
 let with_log_capture f =
@@ -129,38 +132,6 @@ let test_update_state_cancellation_does_not_poison_mutex () =
   Alcotest.(check int) "mutex usable after cancellation" 7 (Agent.state agent).turn_count
 ;;
 
-(* ── Test: set_consecutive_idle_turns is protected ──────── *)
-
-let test_set_consecutive_idle_protected () =
-  Eio_main.run
-  @@ fun env ->
-  let agent = make_agent env in
-  Agent.set_consecutive_idle_turns agent 5;
-  (* Read back through check_loop_guard which checks consecutive_idle_turns.
-     With max_idle_turns=3 (default) and consecutive_idle_turns=5,
-     it should fire the idle guard. *)
-  let guard = Agent.check_loop_guard agent in
-  match guard with
-  | Some (Error.Agent (Error.IdleDetected _)) -> ()
-  | _ -> Alcotest.fail "expected IdleDetected after setting consecutive_idle_turns=5"
-;;
-
-let test_tool_failure_judge_preserves_idle_guard () =
-  Eio_main.run
-  @@ fun env ->
-  let tool_failure_judge =
-    Tool_failure_recovery.create ~complete:(fun ~sw:_ _request ->
-      Error (Error.Internal "judge must not run from the loop guard"))
-  in
-  let agent = make_agent ~tool_failure_judge env in
-  Agent.set_consecutive_idle_turns agent 5;
-  match Agent.check_loop_guard agent with
-  | Some (Error.Agent (Error.IdleDetected { consecutive_idle_turns = 5 })) -> ()
-  | Some error -> Alcotest.failf "expected IdleDetected, got %s" (Error.to_string error)
-  | None ->
-    Alcotest.fail "tool-failure judge disabled the generic repeated-tool idle guard"
-;;
-
 (* ── Test: lifecycle transitions are ordered ────────────── *)
 
 let test_lifecycle_transition_order () =
@@ -231,14 +202,6 @@ let () =
             "update_state cancellation does not poison mutex"
             `Quick
             test_update_state_cancellation_does_not_poison_mutex
-        ; Alcotest.test_case
-            "set_consecutive_idle protected"
-            `Quick
-            test_set_consecutive_idle_protected
-        ; Alcotest.test_case
-            "tool-failure judge preserves idle guard"
-            `Quick
-            test_tool_failure_judge_preserves_idle_guard
         ; Alcotest.test_case
             "lifecycle transition order"
             `Quick

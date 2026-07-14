@@ -7,7 +7,7 @@
 | Created | 2026-05-08 |
 | Target | `agent_sdk` (oas) v0.193+ |
 | Supersedes | None |
-| Related | RFC-OAS-008 (typed tool identification) |
+| Related | None |
 
 ## 0. Summary
 

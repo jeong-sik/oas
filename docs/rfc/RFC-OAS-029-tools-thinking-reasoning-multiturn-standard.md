@@ -7,12 +7,12 @@
 | Created | 2026-06-29 |
 | Target | `agent_sdk` (oas) — `lib/llm_provider/`, `lib/api_*.ml`, `lib/*tool*.ml`, `lib/streaming.ml`, `docs/design/provider-reasoning-dialects.md` |
 | Keystone dependency | RFC-OAS-023 (capability axis reshape) — the GLM/MiniMax dialect work lands there; see §5 |
-| Supplements | RFC-OAS-008 (typed tool identification), RFC-OAS-009 (tool name ignorance), RFC-OAS-018 (catalog externalization), RFC-OAS-025 (forced-tool-use enforcement boundary) |
+| Supplements | RFC-OAS-018 (catalog externalization), RFC-OAS-025 (forced-tool-use enforcement boundary) |
 | Boundary | OAS exposes typed provider facts; MASC consumes them. OAS MUST NOT depend on MASC. See §6 |
 
 ## 0. Summary (요약)
 
-OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하고 소비자 경계에서 부패**한다. typed dialect 아키텍처(`stop_reason_wire`, `Tool_id`, `Capabilities`/`Reasoning_dialect`의 closed sum types)는 적대적 기준을 통과한다. 위반은 전부 **typed 결정을 string/JSON 휴리스틱으로 재결정하거나 손으로 복제**한 지점에 집중된다.
+OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하고 소비자 경계에서 부패**한다. typed dialect 아키텍처(`stop_reason_wire`, `Capabilities`/`Reasoning_dialect`의 closed sum types)는 적대적 기준을 통과한다. Tool 이름은 OAS가 의미를 추론하지 않고 등록된 이름을 정확히 조회하며, alias는 consumer가 명시적으로 주입한다. 위반은 전부 **typed 결정을 string/JSON 휴리스틱으로 재결정하거나 손으로 복제**한 지점에 집중된다.
 
 본 RFC는 그 위반들을 근거로, 기여자(사람 또는 AI 에이전트)가 Tools/Thinking/Reasoning/Multi-turn 코드를 추가·수정할 때 **반드시 만족해야 하는 검증 가능한 불변식(invariant)** 을 확립한다. 각 규칙은 컴파일러 또는 비-vacuous 테스트 또는 CI grep gate로 강제된다. 아키텍처를 버리지 않는다 — 남은 call site를 기존 typed surface로 라우팅하고 dialect gap 2개(GLM, MiniMax)를 닫는 것이 목표다.
 
@@ -22,14 +22,14 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 
 ### 1.1 Do not regress (검증된 모범)
 - `stop_reason_wire.ml` — wire finish가 typed `wire_finish` + `has_tool_blocks:bool`를 거쳐 매핑되고, `reconcile`은 `Types.stop_reason`에 대해 total(새 variant는 컴파일 깨짐), unknown finish는 raw string을 보존한 채 typed `Unknown`으로 fail-closed. `#2222` infinite-Thinking P0가 cap/string workaround가 아니라 여기서 올바르게 고쳐졌다.
-- `Tool_id` (`lib/base/tool_id.ml`) — closed-variant SSOT (RFC-OAS-008 구현). `typed_tool` / `typed_tool_safe` permission layering은 원칙적.
+- `Agent_tools` tool lookup — 등록된 이름을 exact match하고 consumer-등록 alias만 별도 경계에서 해석한다. OAS core에 builtin tool catalog는 없다.
 - `reasoning_dialect.ml` / `capabilities.ml`의 dialect 축 — `thinking_control_format`, `preserve_thinking_control_format`, `toggle_wire`, `gemini_family`, `anthropic_thinking_control`, `replay_policy` 모두 closed sum, 대체로 exhaustive. `#2228`은 loose toggle match를 typed preserve 축 추가로 *닫은* 진짜 hardening이다 (workaround 아님).
 - Cost는 `annotate_response_cost`로 기록만 되고 `lib/`에서 동작을 gate하지 않는다 — budget 경계가 올바르다. (goal: budget/cost/turn은 집계만.)
 
 ### 1.2 Where it rots (위반의 형태)
 - **이미 drift한 2중/3중 builder.** OpenAI-compat thinking-request body가 `lib/api_openai.ml`과 `lib/llm_provider/backend_openai_request.ml`에 각각 재구현돼 *실질적으로 갈라짐* (`clear_thinking`이 agent_sdk 경로에선 하드코딩 `true`, 다른 경로에선 config-driven). N-of-M workaround 시그니처가 물질화된 사례 — `#2228`이 preserve 축을 *양쪽 모두*에 추가(41+40줄)했지 통합하지 않았다.
 - **typed kind로 1회 승격하지 않고 런타임에 재유도되는 string 분류기.** GLM-ness가 `String.starts_with ~prefix:"glm-"`로 모듈마다 재평가되어 serializer를 분기하고, typed `replay_policy`를 우회한다(GLM은 `No_replay`로 resolve되어 죽은 값).
-- **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** Historical: `tool_use_recovery.ml` used to scrape JSON tool calls from free text and run `Lenient_json` bracket/keyword completion before execution. Current remediation keeps only a strict, provider-telemetry-gated fallback for GLM/Ollama-family responses and leaves ambiguous or repair-needed JSON as `Text`.
+- **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** Historical: `tool_use_recovery.ml` scraped JSON tool calls from free text and ran `Lenient_json` bracket/keyword completion before execution. That recovery surface is now deleted without a replacement fallback: `Text` remains `Text`, and only a provider parser's typed `ToolUse` can reach dispatch.
 - **closed sum이 가능한 자리의 string 판별 + silent `_ -> None` drop.** historical stream finalizer drift는 `content_type` raw-string match + catch-all drop이었다. Current branch ancestry already adds `block_kind`, `Unknown_block`, and typed SSE parse/unknown-event errors, so remaining D3 work must be policy-specific rather than a wholesale redo.
 - **같은 사실의 두 번째 SSOT.** Historical: `lib/streaming.ml` carried a
   duplicate stream accumulator that lacked reconcile + partial-tool-drop fixes.
@@ -60,7 +60,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 
 ### S4 — Tool-call 탐지
 - **S4.1 (typed, fail-closed).** "모델이 tool call을 냈는가?"는 `stop_reason_wire.of_finish` / native typed `ToolUse` block이 결정한다. 자유 텍스트 JSON 긁기를 *주* 결정으로 쓰는 것 금지.
-- **S4.2 (recovery는 gated, 모호함은 거부).** 비준수 backend(GLM/Ollama)용 text→ToolUse fallback은 typed per-provider parse 경로이거나 명시적 capability flag 뒤에 gated돼야 하고, 모호(>1 candidate)하거나 *repair/truncate*된 JSON은 첫 객체를 승격하지 말고 거부해야 한다. Lenient bracket/keyword completion이 tool 인자를 날조하면 안 된다.
+- **S4.2 (Text는 ToolUse가 아니다).** 비준수 backend의 자유 텍스트에서 JSON이나 도구 이름을 추출해 `ToolUse`로 승격하지 않는다. 도구 실행은 provider parser가 만든 native typed `ToolUse`에만 허용하며, 잘못된 tool 인자는 원문 그대로 typed validation failure로 반환한다.
 - **S4.3 (untyped == typed).** untyped handler는 typed parser에 위임하고 그 `Error`를 전파한다. "input 전체를 prompt로 직렬화"하는 fallback 금지.
 
 ### S5 — Forced tool use
@@ -89,10 +89,10 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S9.3 (precedence는 의도적·테스트됨).** capability source precedence(catalog vs host manifest vs preset)는 1회 결정, `.mli` 전반에 일관 문서화, 테스트로 고정.
 
 ### S10 — Observability / determinism
-- **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. recovered id는 결정론적(block index + content hash) 또는 주입된 generator로 유도.
-- **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** block을 drop하면 `repair_dangling_tool_calls`가 synthesized block에 태그하듯 태그한다. counter/log는 typed fix와 함께하는 *alarm*으로만 허용, fix 자체로는 금지(telemetry-as-fix = reject 시그니처).
+- **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. 새 identity가 필요하면 결정론적 입력 또는 주입된 generator에서 유도한다.
+- **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** OAS는 provider history block을 조용히 drop하거나 synthesized replacement로 고치지 않는다. 미래의 typed 변환이 block을 제거해야 한다면 제거된 identity를 결과로 반환해야 한다. counter/log는 typed fix와 함께하는 *alarm*일 뿐 fix 자체가 아니다(telemetry-as-fix = reject 시그니처).
 
-## 3. Evidence — confirmed/historical violations (22 findings: 17 open, 5 resolved in current branch ancestry, 16 refuted/boundary-acceptable)
+## 3. Evidence — confirmed and historical violations
 
 | Sev | ID | Principle | File:line | Standard |
 |---|---|---|---|---|
@@ -105,7 +105,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D4-provider-preset-stale-numeric-limits | hardcode | capabilities.ml:223-255; provider_registry.ml:408; builder.ml:256 | S9.1 |
 | P2 | D2-streaming-reasoning-dialect-dead-and-field-guess | ssot | reasoning_dialect.ml:39-42; streaming.ml:331-335; backend_openai_parse.ml:208-298 | S6.3 |
 | P2 | D4-duplicate-stream-accumulator-missing-reconcile | resolved: legacy surface re-exports Complete_stream_acc | streaming.ml:16-35; streaming.mli:23 | S6.2 |
-| P2 | D-TOOLS-1-recovery-text-scrape-heuristic | historical heuristic, now strict provider-gated fallback | tool_use_recovery.ml:32-237; pipeline.ml:31-39,1124-1134 | S4.2 |
+| ~~P2~~ Resolved | D-TOOLS-1-recovery-text-scrape-heuristic | historical heuristic; recovery surface deleted, no text-to-tool fallback remains | deleted `tool_use_recovery.ml`; current `agent_tools.ml` exact typed dispatch | S4.2 |
 | P2 | D-TOOLS-6-agent_tool-untyped-silent-prompt-fallback | silent_failure | agent_tool.ml:149-161 | S4.3 |
 | P2 | D-TOOLS-9-harness-unknown-schema-type-permissive | silent_failure | backend_tool_call_harness.ml:52-68 | S8.1 |
 | P2 | D6-source-type-ignored-non-anthropic | string_match/silent | backend_openai_serialize.ml:60-82; backend_gemini.ml:161-174; backend_openai_responses.ml:121-137 | S7.1 |
@@ -113,16 +113,16 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D7-thinking-signature-overloaded-string | string_match | complete_stream_acc.ml:147-153; streaming.ml:151-155 | S6.5 |
 | P2 | D4-test-only-normalize-effort-wrapper | string_match | reasoning_dialect.ml:284-292 (+mli:96); test/test_thinking_control_dialects.ml | S9.2 |
 | P3 | D7-gemini-family-leaks-second-string-match | string_match | capabilities.ml:442-463 | S1.3 |
-| P3 | D-TOOLS-8-recovery-impure-nondeterministic-id | mutable | tool_use_recovery.ml:11-12,149-157 | S10.1 |
-| P3 | D3-tool-pair-silent-drop | silent_failure | tool_message_pairs.ml:55-111 | S3.3 |
-| P3 | D4-budget-magic-defaults-silent | hardcode/silent | agent_turn_budget.ml:97-117 | S8.2 |
+| ~~P3~~ Resolved | D-TOOLS-8-recovery-impure-nondeterministic-id | historical mutable recovery identity; deleted with recovery surface | deleted `tool_use_recovery.ml` | S10.1 |
+| ~~P3~~ Resolved | D3-tool-pair-silent-drop | historical standalone repair/filter surface; deleted rather than retained as a silent rewrite | deleted `tool_message_pairs.ml` | S3.3 |
 | P3 | D7-anthropic-prefix-list-literal-duplicates | hardcode | capabilities.ml:189-217 | S1.2 |
 | P3 | D8-manifest-cannot-override-catalog-precedence | ssot | capabilities.ml:826-839 | S9.3 |
 
-Status note: `D-TOOLS-1`, `D-TOOLS-6`, `D-TOOLS-9`, and `D-TOOLS-8` are
-historical confirmed violations but are already fixed in the current branch
-ancestry. They are retained here as evidence for S4.2/S4.3/S8.1/S10.1, not as
-open backlog items.
+Status note: `D-TOOLS-1`, `D-TOOLS-6`, `D-TOOLS-9`, `D-TOOLS-8`, and
+`D3-tool-pair-silent-drop` are historical confirmed violations but are already
+closed in the current branch ancestry. The recovery and standalone tool-pair
+repair modules were deleted; they are retained here only as historical evidence,
+not as current files or open backlog items.
 
 ### 3b. Doc-currency drifts (official 2026-06-29 docs vs OAS)
 
@@ -184,12 +184,16 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold). D2's raw threshold-literal regression surface is now guarded by `scripts/check-reasoning-effort-ssot.sh`; provider-specific alias cleanup remains separate.
 - **Partially closed before this RFC update (do not redo wholesale)**: `D3-finalize` already has the `block_kind` conversion, explicit `Unknown_block` handling, and typed `SSEUnknownEventType`/parse-error propagation in `Complete_stream_acc`; keep only the residual policy/test work listed above.
-- **Closed before this RFC update (do not redo)**: `D-TOOLS-1`(strict provider-gated recovery; no `Lenient_json` repair), `D-TOOLS-6`(agent_tool typed delegation), `D-TOOLS-9`(harness unknown schema type fail-closed), and `D-TOOLS-8`(deterministic recovery id) are historical violations already fixed in the current branch ancestry. They remain evidence for the standard, not open backlog.
-- **Direct, RFC 불필요, 저위험 (언제든)**: `D4-test-only-normalize-effort-wrapper` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
+- **Closed before this RFC update (do not redo)**: `D-TOOLS-1` and `D-TOOLS-8` were removed with the entire recovery module; no provider-gated text-to-tool fallback remains. The standalone `D3-tool-pair-silent-drop` repair/filter module was also deleted. `D-TOOLS-6` now delegates through the typed agent-tool path, and `D-TOOLS-9` rejects unknown harness schema types. These rows remain historical evidence, not open backlog.
+- **Direct, RFC 불필요, 저위험 (언제든)**: `D4-test-only-normalize-effort-wrapper` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
 - `D7-gemini-family-leaks-second-string-match`(P3) + Gemini `supports_medium`/`thoughtSignature` strictness: 단일 Gemini variant reshape로 fold.
 
 ### Backlog 자체의 가드레일
-여러 "root fix"는 그 workaround twin으로 구현하면 안 된다. `D3-tool-pair-silent-drop`은 append-time 불변식 또는 drop된 id 반환으로 고친다 — drop counter 아님(telemetry-as-fix = reject). `D-TOOLS-1`은 typed provider telemetry gate + strict JSON parse로 닫힌 상태를 유지한다 — lenient repair 재도입 금지.
+여러 "root fix"는 그 workaround twin으로 구현하면 안 된다. 삭제된
+`tool_message_pairs` 필터를 drop counter로 복원하지 말고, 필요한 불변식은 typed
+append/result 경계에서 보장한다. 삭제된 `tool_use_recovery` 대신 provider
+telemetry gate나 lenient repair를 추가하지 말고, `Text` → `ToolUse` 승격 금지를
+유지한다.
 
 ## 6. Boundary note (OAS ↔ MASC)
 
@@ -199,7 +203,7 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 
 ## 7. Relationships
 - **RFC-OAS-023** (capability axis reshape) — GLM/MiniMax dialect 작업과 model×transport two-record가 여기 land. 본 RFC는 그 작업이 만족해야 할 표준을 정의한다.
-- **RFC-OAS-008/009** (typed tool id / tool name ignorance) — S4의 typed tool 기반.
+- **`Agent_tools.find_in_index` contract** — S4의 exact registered-name 기반.
 - **RFC-OAS-018** (catalog externalization) — S1.2/S9.1의 catalog-as-SSOT 기반.
 - **RFC-OAS-025** (forced-tool-use enforcement boundary) — S5의 기반.
 - **CLAUDE.md 워크어라운드 거부 기준** — S10.2/§4.4의 enforcement 원천.

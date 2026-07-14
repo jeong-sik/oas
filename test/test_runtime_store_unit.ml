@@ -27,28 +27,6 @@ let with_temp_dir f =
     (fun () -> f dir)
 ;;
 
-let with_env name value f =
-  let previous = Sys.getenv_opt name in
-  Fun.protect
-    ~finally:(fun () ->
-      match previous with
-      | Some old -> Unix.putenv name old
-      | None -> Unix.putenv name "")
-    (fun () ->
-       Unix.putenv name value;
-       f ())
-;;
-
-let contains_substring ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop index =
-    index + needle_len <= haystack_len
-    && (String.sub haystack index needle_len = needle || loop (index + 1))
-  in
-  needle_len = 0 || loop 0
-;;
-
 (* ── save_text / load_text tests ─────────────────────────────── *)
 
 let test_save_load_roundtrip () =
@@ -135,40 +113,26 @@ let test_store_create () =
     | Error e -> Alcotest.fail (Error.to_string e))
 ;;
 
-let test_store_create_requires_explicit_root_or_env () =
-  with_env "OAS_RUNTIME_SESSION_ROOT" "" (fun () ->
-    match Runtime_store.create () with
-    | Ok _ -> Alcotest.fail "expected missing session_root error"
-    | Error (Error.Config (InvalidConfig { field = "session_root"; detail })) ->
-      Alcotest.(check bool)
-        "detail mentions OAS_RUNTIME_SESSION_ROOT"
-        true
-        (contains_substring ~needle:"OAS_RUNTIME_SESSION_ROOT" detail)
-    | Error e -> Alcotest.failf "unexpected error: %s" (Error.to_string e))
+let test_store_create_requires_explicit_root () =
+  match Runtime_store.create () with
+  | Ok _ -> Alcotest.fail "expected missing session_root error"
+  | Error (Error.Config (InvalidConfig { field = "session_root"; detail })) ->
+    Alcotest.(check string)
+      "detail"
+      "missing runtime session root; pass an explicit ~root/session_root"
+      detail
+  | Error e -> Alcotest.failf "unexpected error: %s" (Error.to_string e)
 ;;
 
 let test_store_create_rejects_relative_root () =
-  with_env "OAS_RUNTIME_SESSION_ROOT" "" (fun () ->
-    match Runtime_store.create ~root:"relative/.oas-runtime" () with
-    | Ok _ -> Alcotest.fail "expected relative session_root rejection"
-    | Error (Error.Config (InvalidConfig { field = "session_root"; detail })) ->
-      Alcotest.(check string)
-        "detail"
-        "runtime session root must be an absolute path"
-        detail
-    | Error e -> Alcotest.failf "unexpected error: %s" (Error.to_string e))
-;;
-
-let test_store_create_uses_env_absolute_root () =
-  with_temp_dir (fun dir ->
-    let root = Filename.concat dir "env-store" in
-    with_env "OAS_RUNTIME_SESSION_ROOT" root (fun () ->
-      match Runtime_store.create () with
-      | Error e -> Alcotest.fail (Error.to_string e)
-      | Ok store ->
-        Alcotest.(check string) "root" root store.Runtime_store.root;
-        let sessions_dir_exists = Sys.file_exists (Runtime_store.sessions_dir store) in
-        Alcotest.(check bool) "sessions dir exists" true sessions_dir_exists))
+  match Runtime_store.create ~root:"relative/.oas-runtime" () with
+  | Ok _ -> Alcotest.fail "expected relative session_root rejection"
+  | Error (Error.Config (InvalidConfig { field = "session_root"; detail })) ->
+    Alcotest.(check string)
+      "detail"
+      "runtime session root must be an absolute path"
+      detail
+  | Error e -> Alcotest.failf "unexpected error: %s" (Error.to_string e)
 ;;
 
 (* ── save_session / load_session tests ───────────────────────── *)
@@ -178,14 +142,12 @@ let mk_session ?(session_id = "test-sess") ?(updated_at = 1001.0) () : Runtime.s
   ; goal = "test goal"
   ; title = None
   ; tag = None
-  ; permission_mode = None
   ; phase = Running
   ; created_at = 1000.0
   ; updated_at
   ; provider = Some "anthropic"
   ; model = Some "test-model"
   ; system_prompt = None
-  ; max_turns = 10
   ; workdir = None
   ; planned_participants = [ "agent-1" ]
   ; participants = []
@@ -210,8 +172,7 @@ let test_save_load_session () =
       (match Runtime_store.load_session store "test-sess" with
        | Ok loaded ->
          Alcotest.(check string) "session_id" "test-sess" loaded.session_id;
-         Alcotest.(check string) "goal" "test goal" loaded.goal;
-         Alcotest.(check int) "max_turns" 10 loaded.max_turns
+         Alcotest.(check string) "goal" "test goal" loaded.goal
        | Error e -> Alcotest.fail (Error.to_string e)))
 ;;
 
@@ -578,17 +539,13 @@ let () =
     ; ( "store_create"
       , [ Alcotest.test_case "create" `Quick test_store_create
         ; Alcotest.test_case
-            "requires explicit root or env"
+            "requires explicit root"
             `Quick
-            test_store_create_requires_explicit_root_or_env
+            test_store_create_requires_explicit_root
         ; Alcotest.test_case
             "rejects relative root"
             `Quick
             test_store_create_rejects_relative_root
-        ; Alcotest.test_case
-            "uses env absolute root"
-            `Quick
-            test_store_create_uses_env_absolute_root
         ] )
     ; ( "session"
       , [ Alcotest.test_case "save and load" `Quick test_save_load_session

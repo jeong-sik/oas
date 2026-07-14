@@ -119,12 +119,12 @@ type tool_contract =
   { name : string
   ; description : string
   ; origin : string option
-  ; kind : string option
-  ; shell : Tool.shell_constraints option
-  ; notes : string list
-  ; examples : string list
+  ; execution_mode : Tool.execution_mode
   }
-[@@deriving yojson, show]
+[@@deriving show]
+
+val tool_contract_to_yojson : tool_contract -> Yojson.Safe.t
+val tool_contract_of_yojson : Yojson.Safe.t -> (tool_contract, string) result
 
 type raw_trace_run = Raw_trace.run_ref [@@deriving yojson, show]
 type raw_trace_summary = Raw_trace.run_summary [@@deriving yojson, show]
@@ -161,7 +161,6 @@ type worker_run =
   ; model : string option
   ; requested_provider : string option
   ; requested_model : string option
-  ; requested_policy : string option
   ; resolved_provider : string option
   ; resolved_model : string option
   ; status : worker_status
@@ -178,10 +177,7 @@ type worker_run =
   ; started_at : float option
   ; finished_at : float option
   ; last_progress_at : float option
-  ; policy_snapshot : string option
   ; paired_tool_result_count : int
-  ; has_file_write : bool
-  ; verification_pass_after_file_write : bool
   }
 [@@deriving yojson, show]
 

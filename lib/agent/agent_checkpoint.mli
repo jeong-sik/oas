@@ -15,7 +15,14 @@ type resume_state =
   }
 
 (** Build restored state from a checkpoint.
-    Returns state + context; the caller wraps these into [Agent.t]. *)
+
+    Messages, usage, turn count, and the default context always come from the
+    checkpoint. When [config] is supplied it is the complete caller-owned
+    runtime configuration; no checkpoint configuration field silently
+    overrides it. Without [config], configuration fields represented by the
+    checkpoint are restored over current defaults; non-persisted runtime fields
+    use those defaults. Returns state + context; the caller wraps these into
+    [Agent.t]. *)
 val build_resume
   :  checkpoint:Checkpoint.t
   -> ?eio_context:bool

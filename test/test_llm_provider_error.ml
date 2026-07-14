@@ -181,12 +181,12 @@ let test_provider_terminal () =
   check
     string
     "ProviderTerminal format"
-    "Provider 'claude_code' terminal max_turns:31/31: turn cap hit"
+    "Provider 'claude_code' terminal session_conflict: session lease lost"
     (Error.to_string
        (Error.ProviderTerminal
           { provider = "claude_code"
-          ; reason = "max_turns:31/31"
-          ; detail = "turn cap hit"
+          ; reason = "session_conflict"
+          ; detail = "session lease lost"
           }))
 ;;
 
@@ -204,7 +204,7 @@ let test_retry_rate_limit_mapping () =
   | _ -> fail "expected RateLimit"
 ;;
 
-let test_retry_hard_quota_mapping () =
+let test_retry_rate_limit_prose_mapping () =
   let err =
     Error.of_retry_api_error
       ~provider:"zai"
@@ -214,7 +214,7 @@ let test_retry_hard_quota_mapping () =
          })
   in
   match err with
-  | Error.HardQuota { provider; retry_after; detail } ->
+  | Error.RateLimit { provider; retry_after; detail } ->
     check string "provider" "zai" provider;
     check (option (float 0.001)) "retry_after" (Some 10.0) retry_after;
     check
@@ -222,13 +222,13 @@ let test_retry_hard_quota_mapping () =
       "detail"
       "Insufficient balance or no resource package. Please recharge."
       detail
-  | _ -> fail "expected HardQuota"
+  | _ -> fail "expected RateLimit"
 ;;
 
 let test_retry_payment_required_mapping () =
   (* HTTP 402 (e.g. DeepSeek's "Insufficient Balance") is a hard billing
      signal by status code alone — it maps onto the same [HardQuota]
-     provider_error a hard-quota 429 would produce, not [InvalidRequest]. *)
+     provider_error rather than [InvalidRequest]. *)
   let err =
     Error.of_retry_api_error
       ~provider:"deepseek"
@@ -302,15 +302,13 @@ let test_http_terminal_mapping () =
     Error.of_http_error
       ~provider:"claude_code"
       (Http_client.ProviderTerminal
-         { kind = Http_client.Max_turns { turns = 31; limit = 31 }
-         ; message = "turn cap hit"
-         })
+         { kind = Http_client.Session_conflict; message = "session lease lost" })
   in
   match err with
   | Error.ProviderTerminal { provider; reason; detail } ->
     check string "provider" "claude_code" provider;
-    check string "reason" "max_turns:31/31" reason;
-    check string "detail" "turn cap hit" detail
+    check string "reason" "session_conflict" reason;
+    check string "detail" "session lease lost" detail
   | _ -> fail "expected ProviderTerminal"
 ;;
 
@@ -631,7 +629,7 @@ let () =
         ] )
     ; ( "mapping"
       , [ test_case "Retry RateLimited" `Quick test_retry_rate_limit_mapping
-        ; test_case "Retry hard quota" `Quick test_retry_hard_quota_mapping
+        ; test_case "Retry rate-limit prose" `Quick test_retry_rate_limit_prose_mapping
         ; test_case "Retry payment required" `Quick test_retry_payment_required_mapping
         ; test_case
             "Retry overloaded unknown provider"

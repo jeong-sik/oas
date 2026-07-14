@@ -151,12 +151,6 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
   }
 ;;
 
-(* RFC-OAS-009 v2 PR-C: removed descriptor_for_builtin_tool alias.
-   MCP→SDK Tool conversion no longer consults the CDAL builtin
-   descriptor registry. Consumers are responsible for supplying
-   Tool.descriptor through MCP tool annotation or a post-conversion
-   enrichment hook. *)
-
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
 let mcp_tool_to_sdk_tool_result ~call_fn mcp_tool =
   match json_schema_to_params_result mcp_tool.input_schema with
@@ -278,10 +272,3 @@ let%test "mcp_tool_of_sdk_tool None description becomes empty" =
   let result = mcp_tool_of_sdk_tool sdk_tool in
   result.description = ""
 ;;
-
-(* RFC-OAS-009 v2 PR-C: removed 5 inline tests for descriptor_for_builtin_tool.
-   These tests pinned downstream builtin names into mcp_schema's inline tests,
-   which is the precise layering violation RFC-OAS-009 v2 closes.
-   The descriptor_for_builtin_tool alias itself is also removed (line 63).
-   Behavior of mcp_tool_to_sdk_tool is now: descriptor=None for every MCP tool —
-   consumers supply via Tool.with_descriptor or a post-conversion enrichment. *)

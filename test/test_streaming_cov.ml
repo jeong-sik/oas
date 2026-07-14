@@ -5,9 +5,7 @@
     Focuses on:
     - stream_acc creation and accumulation
     - finalize_stream_acc with various event sequences
-    - accumulate_event for each event type
-    - Complete.default_retry_config
-    - Complete.is_retryable *)
+    - accumulate_event for each event type *)
 
 open Agent_sdk
 
@@ -385,44 +383,6 @@ let test_finalize_multiple_blocks () =
   Alcotest.(check int) "two blocks" 2 (List.length resp.content)
 ;;
 
-(* ── Complete module tests ────────────────────────────────── *)
-
-let test_default_retry_config () =
-  let cfg = Llm_provider.Complete.default_retry_config in
-  Alcotest.(check bool) "max_retries > 0" true (cfg.max_retries > 0);
-  Alcotest.(check bool) "initial_delay > 0" true (cfg.initial_delay_sec > 0.0);
-  Alcotest.(check bool) "max_delay > 0" true (cfg.max_delay_sec > 0.0);
-  Alcotest.(check bool) "backoff > 1" true (cfg.backoff_multiplier > 1.0)
-;;
-
-let test_is_retryable_rate_limit () =
-  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limited" } in
-  Alcotest.(check bool) "429 retryable" true (Llm_provider.Complete.is_retryable err)
-;;
-
-let test_is_retryable_server_errors () =
-  List.iter
-    (fun code ->
-       let err = Llm_provider.Http_client.HttpError { code; body = "" } in
-       Alcotest.(check bool)
-         (Printf.sprintf "%d retryable" code)
-         true
-         (Llm_provider.Complete.is_retryable err))
-    [ 500; 502; 503; 529 ]
-;;
-
-let test_is_retryable_client_error () =
-  let err = Llm_provider.Http_client.HttpError { code = 400; body = "bad request" } in
-  Alcotest.(check bool) "400 not retryable" false (Llm_provider.Complete.is_retryable err)
-;;
-
-let test_is_retryable_network_error () =
-  let err =
-    Llm_provider.Http_client.NetworkError { message = "timeout"; kind = Unknown }
-  in
-  Alcotest.(check bool) "network retryable" true (Llm_provider.Complete.is_retryable err)
-;;
-
 (* ── parse_sse_event re-export ────────────────────────────── *)
 
 let test_parse_sse_event_text_delta () =
@@ -490,13 +450,6 @@ let () =
         ; Alcotest.test_case "unknown type" `Quick test_finalize_unknown_content_type
         ; Alcotest.test_case "invalid tool json" `Quick test_finalize_invalid_tool_json
         ; Alcotest.test_case "multiple blocks" `Quick test_finalize_multiple_blocks
-        ] )
-    ; ( "complete"
-      , [ Alcotest.test_case "default retry config" `Quick test_default_retry_config
-        ; Alcotest.test_case "429 retryable" `Quick test_is_retryable_rate_limit
-        ; Alcotest.test_case "5xx retryable" `Quick test_is_retryable_server_errors
-        ; Alcotest.test_case "400 not retryable" `Quick test_is_retryable_client_error
-        ; Alcotest.test_case "network retryable" `Quick test_is_retryable_network_error
         ] )
     ; ( "sse_re_export"
       , [ Alcotest.test_case "text delta" `Quick test_parse_sse_event_text_delta

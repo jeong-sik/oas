@@ -225,11 +225,9 @@ let test_a2a_resume_fixture_uses_runtime_input_events () =
     { session_id = Some "session-a2a-resume"
     ; goal = "Resume external task"
     ; participants = [ "planner" ]
-    ; provider = Some "mock"
+    ; provider = Some "test-provider"
     ; model = None
-    ; permission_mode = Some "default"
     ; system_prompt = None
-    ; max_turns = Some 3
     ; workdir = None
     }
   in

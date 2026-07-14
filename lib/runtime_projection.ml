@@ -19,7 +19,6 @@ let make_planned_participant name =
   ; runtime_actor = Some name
   ; requested_provider = None
   ; requested_model = None
-  ; requested_policy = None
   ; provider = None
   ; model = None
   ; resolved_provider = None
@@ -42,14 +41,12 @@ let initial_session (request : start_request) =
   ; goal = request.goal
   ; title = None
   ; tag = None
-  ; permission_mode = request.permission_mode
   ; phase = Bootstrapping
   ; created_at = ts
   ; updated_at = ts
   ; provider = request.provider
   ; model = request.model
   ; system_prompt = request.system_prompt
-  ; max_turns = Option.value request.max_turns ~default:Types.default_config.max_turns
   ; workdir = request.workdir
   ; planned_participants = request.participants
   ; participants = List.map make_planned_participant request.participants
@@ -76,7 +73,6 @@ let update_participant (session : session) name f =
               ; runtime_actor = Some name
               ; requested_provider = None
               ; requested_model = None
-              ; requested_policy = None
               ; provider = None
               ; model = None
               ; resolved_provider = None
@@ -112,21 +108,12 @@ let ensure_active_phase session =
     Ok session
 ;;
 
-let failure_cause_message = function
-  | Runtime.Execution_error detail -> detail
-  | Runtime.Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail
-;;
-
 let apply_event (session : session) (event : event) =
   let session = update_session_meta session event in
   match event.kind with
   | Session_started _ -> Ok { session with phase = Running; pending_input = None }
   | Session_settings_updated detail ->
-    Ok
-      { session with
-        model = first_some detail.model session.model
-      ; permission_mode = first_some detail.permission_mode session.permission_mode
-      }
+    Ok { session with model = first_some detail.model session.model }
   | Turn_recorded _ ->
     let* session = ensure_active_phase session in
     Ok { session with turn_count = session.turn_count + 1 }
@@ -165,7 +152,6 @@ let apply_event (session : session) (event : event) =
            role = detail.role
          ; requested_provider = detail.provider
          ; requested_model = detail.model
-         ; requested_policy = detail.permission_mode
          ; provider = first_some detail.provider session.provider
          ; model = first_some detail.model session.model
          ; resolved_provider = first_some detail.provider session.provider
@@ -183,7 +169,7 @@ let apply_event (session : session) (event : event) =
          ; last_progress_at = Some event.ts
          ; last_error = None
          }))
-  | Agent_became_live detail ->
+  | Agent_became_live { participant = detail } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -230,7 +216,7 @@ let apply_event (session : session) (event : event) =
          ; first_progress_at = first_some participant.first_progress_at (Some event.ts)
          ; last_progress_at = Some event.ts
          }))
-  | Agent_completed detail ->
+  | Agent_completed { participant = detail; _ } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -257,7 +243,7 @@ let apply_event (session : session) (event : event) =
          ; last_progress_at = Some event.ts
          ; last_error = None
          }))
-  | Agent_failed detail ->
+  | Agent_failed { participant = detail; failure_cause } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -282,10 +268,7 @@ let apply_event (session : session) (event : event) =
          ; first_progress_at = first_some participant.first_progress_at (Some event.ts)
          ; finished_at = Some event.ts
          ; last_progress_at = Some event.ts
-         ; last_error =
-             first_some
-               detail.error
-               (Option.map failure_cause_message detail.failure_cause)
+         ; last_error = Some (Runtime.failure_cause_to_string failure_cause)
          }))
   | Artifact_attached detail ->
     let artifact =

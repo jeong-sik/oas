@@ -12,15 +12,17 @@ open Runtime_server_types
 (** {1 Server entry point} *)
 
 (** Main server loop: reads protocol messages from [stdin] and processes
-    them until a Shutdown message is received.
+    them until a Shutdown message is received. [Initialize] is processed
+    synchronously and exactly once; every other stateful request before it is
+    rejected. [Shutdown] cancels and joins every registered session participant
+    lane before acknowledging.
 
     [stdin] must be an Eio byte flow (e.g. [Eio_unix.Stdenv.stdin env]).
-    Reading is non-blocking and yields to the Eio scheduler, so timeouts
-    and cancellation propagate correctly. *)
+    Reading is non-blocking and yields to the Eio scheduler, so cancellation
+    propagates correctly. *)
 val serve_stdio
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> clock:float Eio.Time.clock_ty Eio.Resource.t
   -> stdin:_ Eio.Flow.source
   -> unit
   -> unit
@@ -49,20 +51,3 @@ val apply_command
   -> session
   -> command
   -> (response, Error.sdk_error) result
-
-(** {1 Control channel} *)
-
-val read_control_response : state -> string -> (control_response, Error.sdk_error) result
-
-val ask_permission
-  :  state
-  -> action:string
-  -> subject:string
-  -> payload:Yojson.Safe.t
-  -> (control_response, Error.sdk_error) result
-
-val invoke_hook
-  :  state
-  -> hook_name:string
-  -> payload:Yojson.Safe.t
-  -> (control_response, Error.sdk_error) result

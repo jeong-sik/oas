@@ -20,7 +20,6 @@ type t =
   ; tools : string list option (** None = inherit all, Some = allowlist *)
   ; disallowed_tools : string list
   ; model : model_override
-  ; max_turns : int option
   ; skill_refs : string list
   ; skills : Skill.t list
   ; state_isolation : state_isolation
@@ -33,7 +32,7 @@ type t =
 let model_override_of_string s =
   match String.lowercase_ascii s with
   | "inherit" -> Inherit_model
-  | other -> Use_model (Model_registry.resolve_model_id other)
+  | _ -> Use_model (String.trim s)
 ;;
 
 let state_isolation_of_string s =
@@ -41,11 +40,6 @@ let state_isolation_of_string s =
   | "isolated" -> Isolated
   | "selective" -> Selective []
   | _ -> Inherit_all
-;;
-
-let int_opt s =
-  try Some (int_of_string s) with
-  | Failure _ -> None
 ;;
 
 (* --- Constructor from markdown --- *)
@@ -75,13 +69,6 @@ let of_markdown ?path ?(skills = []) markdown =
       (match Skill.frontmatter_value fm "model" with
        | Some v -> model_override_of_string v
        | None -> Inherit_model)
-  ; max_turns =
-      (match Skill.frontmatter_value fm "max-turns" with
-       | Some v -> int_opt v
-       | None ->
-         (match Skill.frontmatter_value fm "max_turns" with
-          | Some v -> int_opt v
-          | None -> None))
   ; skill_refs = Skill.frontmatter_values fm "skills"
   ; skills
   ; state_isolation =
@@ -185,7 +172,6 @@ let to_handoff_target ~(parent_config : Types.agent_config) ~base_tools spec =
         (match spec.model with
          | Inherit_model -> parent_config.model
          | Use_model m -> m)
-    ; max_turns = Option.value spec.max_turns ~default:parent_config.max_turns
     ; system_prompt =
         (match compose_prompt spec with
          | "" -> parent_config.system_prompt

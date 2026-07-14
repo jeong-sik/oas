@@ -78,8 +78,6 @@ type capabilities =
   ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
-  ; supports_runtime_mcp_tools : bool
-  ; supports_runtime_tool_events : bool
   ; assistant_tool_content_format : assistant_tool_content_format
   ; (* Thinking / reasoning *)
     supports_reasoning : bool
@@ -163,9 +161,11 @@ val provider_l_capabilities : capabilities
 
 val sampling_parameter_to_string : sampling_parameter -> string
 
-(** Resolve the exact chat-template token for models whose
-    [thinking_control_format] is [Chat_template_token]. The token is catalog /
-    manifest data, not a hardcoded backend constant. *)
+(** Resolve the chat-template token for an exact normalized provider/model
+    catalog row whose [thinking_control_format] is [Chat_template_token]. A
+    missing exact pair returns [None]; this function never falls back to a
+    provider-independent model family. The token is catalog data, not a
+    hardcoded backend constant. *)
 val thinking_control_token_for_provider_model_id
   :  provider_label:string
   -> model_id:string
@@ -204,68 +204,27 @@ type anthropic_thinking_control =
     neither source declares an Anthropic thinking policy. *)
 val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_control option
 
-(** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
-    used to live as scattered [String.starts_with] calls. Downstream code
-    should switch on this variant rather than re-compare strings.
-
-    @since 0.196.3 *)
-type gemini_family =
-  | Gemini_3_1 (** [gemini-3.1.*] *)
-  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
-  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
-  | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
-
-(** Gemini thinking-control protocol for a model family. Gemini 3+ uses
-    [thinkingLevel], while Gemini 2.5 uses [thinkingBudget]. *)
-type gemini_thinking_control =
-  | Gemini_thinking_budget
-  | Gemini_thinking_level of { supports_minimal : bool }
-  | Gemini_unknown_thinking_control
-
-(** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
-    more specific prefix wins. Input is expected lowercased; callers that
-    cannot lowercase first should normalize via [String.lowercase_ascii] at
-    the boundary. *)
-val gemini_family_of_id : string -> gemini_family
-
-(** Return the documented thinking-control protocol for a Gemini model id.
-    Accepts raw config values; trims and lowercases before delegating to the
-    bounded {!gemini_family_of_id} classifier. *)
-val gemini_thinking_control_of_id : string -> gemini_thinking_control
-
 (** Look up capabilities for [model_id] in the loaded model catalog only
     (no manifest consultation).
 
-    The catalog is resolved by {!Model_catalog.global}, in order: runtime
-    override installed via {!Model_catalog.set_global}, the
-    [OAS_MODEL_CATALOG] environment variable, then the build-time embedded
-    OAS [models.toml]. Ambient discovery is cached after first load; embedding
-    hosts and test harnesses can call [Model_catalog.preload_global], inject
-    [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
-    override.
+    The catalog is resolved by {!Model_catalog.global}: an explicit runtime
+    override installed via {!Model_catalog.set_global}, otherwise the
+    build-time embedded OAS [models.toml]. Embedding hosts and test harnesses
+    can install an explicit runtime override; OAS performs no environment-based
+    catalog discovery.
 
     Returns [None] when no catalog is available or when no catalog entry
     prefix-matches [model_id]; there is no in-code fallback table. *)
 val for_model_id_catalog : string -> capabilities option
 
-(** True when [model_id] explicitly carries [provider_label] using the same
-    provider-qualified separators as {!for_provider_model_id}. This is syntax
-    recognition only; callers still decide whether the declaration is
-    authoritative for their boundary. *)
-val model_id_has_provider_label : provider_label:string -> model_id:string -> bool
-
-(** Look up capabilities for [model_id] with a provider-qualified catalog
-    override first.
-
-    Provider-qualified entries use [<provider_label>/<model_id>],
-    [<provider_label>:<model_id>], or [<provider_label>.<model_id>] prefixes in
-    [models.toml]. The dot form covers embedding runtimes that flatten
-    [provider_label] and [model_id] into one model identifier while keeping the
-    same provider-qualified catalog semantics. When no qualified entry matches,
-    [allow_bare_fallback] controls whether this falls back to {!for_model_id}.
-    This lets transports such as Ollama Cloud override bare model-family entries
-    that are shared with other providers (for example [glm-5] or [kimi-k2.6])
-    without coupling the catalog to any embedding application. *)
+(** Look up capabilities for the explicit provider/model pair. A
+    provider-scoped catalog row matches only when its normalized
+    [provider_name] and complete normalized [id_prefix] equal [provider_label]
+    and [model_id], respectively. OAS never rewrites either value into slash,
+    colon, or dot-qualified candidates, and does not apply family/prefix
+    matching inside the provider scope. When the exact pair is absent,
+    [allow_bare_fallback] controls whether this falls back to a
+    provider-independent {!for_model_id} row. *)
 val for_provider_model_id
   :  allow_bare_fallback:bool
   -> provider_label:string
@@ -333,8 +292,7 @@ val apply_manifest_entry : Capability_manifest.entry -> capabilities
     falling back to the catalog lookup ({!for_model_id_catalog}) on a
     miss.
 
-    Useful for testing the manifest integration path without relying on
-    the [OAS_CAPABILITY_MANIFEST] env var.
+    Useful when the caller does not want to install a process-wide manifest.
 
     @since 0.188.0 *)
 val for_model_id_with_manifest : Capability_manifest.t -> string -> capabilities option

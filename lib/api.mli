@@ -36,6 +36,15 @@ val build_body_assoc
   -> unit
   -> (string * Yojson.Safe.t) list
 
+val build_body_assoc_result_for_resolved_config
+  :  resolved_config:Llm_provider.Provider_config.t
+  -> cache_extended_ttl:bool
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> stream:bool
+  -> unit
+  -> ((string * Yojson.Safe.t) list, string) result
+
 (** {1 Re-exports from Api_openai} *)
 
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
@@ -47,6 +56,14 @@ val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t l
 val build_openai_body_result
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (string, string) result
+
+val build_openai_body_result_for_resolved_config
+  :  resolved_config:Llm_provider.Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?slot_id:int
@@ -72,17 +89,14 @@ val parse_openai_response_result
 
 (** {1 Non-streaming request} *)
 
-(** When [clock] is supplied, the HTTP request is bounded by
-    [request_timeout_s] (default [Api_common.default_request_timeout_s]).
-    A timed-out request is classified as [Retry.Timeout] which is
-    retryable by default. Without a clock no timeout is applied. *)
+(** Send one request to the explicitly selected provider. A timeout is applied
+    only when both [clock] and [request_timeout_s] are supplied. Supplying a
+    timeout without a clock is an explicit configuration error. *)
 val create_message_detailed
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider:Provider.config
   -> ?clock:_ Eio.Time.clock
-  -> ?retry_config:Retry.retry_config
   -> ?request_timeout_s:float
   -> config:Types.agent_state
   -> messages:Types.message list
@@ -94,10 +108,8 @@ val create_message_detailed
 val create_message
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider:Provider.config
   -> ?clock:_ Eio.Time.clock
-  -> ?retry_config:Retry.retry_config
   -> ?request_timeout_s:float
   -> config:Types.agent_state
   -> messages:Types.message list

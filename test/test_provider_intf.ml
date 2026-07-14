@@ -40,7 +40,12 @@ let require_detailed_streaming_provider config =
 (* ── Module type satisfaction ────────────────────────────── *)
 
 let test_of_config_local () =
-  let config = Provider.local_llm () in
+  let config =
+    Provider.local_llm
+      ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
+      ~model_id:"test-model"
+      ()
+  in
   let (module P : Provider_intf.PROVIDER) = require_provider config in
   (* Module was constructed — type check passed at compile time.
      We can't call create_message without a real network, but the
@@ -92,14 +97,19 @@ let test_streaming_resolves_before_capability_projection () =
 (* ── supports_streaming ──────────────────────────────────── *)
 
 let test_anthropic_supports_streaming () =
-  let config = Provider.anthropic_sonnet () in
+  let config = Provider.anthropic ~model_id:"claude-sonnet-4-6" () in
   Alcotest.(check bool) "anthropic streams" true (Provider_intf.supports_streaming config)
 ;;
 
 (* ── of_config_streaming ─────────────────────────────────── *)
 
 let test_streaming_provider_some () =
-  let config = Provider.local_llm () in
+  let config =
+    Provider.local_llm
+      ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
+      ~model_id:"test-model"
+      ()
+  in
   let (module SP : Provider_intf.STREAMING_PROVIDER) =
     require_streaming_provider config
   in
@@ -130,10 +140,8 @@ let user_messages =
 
 let state_for_provider (provider : Provider.config) =
   let config =
-    { default_config with
-      model = provider.model_id
-    ; system_prompt = Some "reply briefly"
-    ; max_turns = 1
+    { (default_config ~model:provider.model_id) with
+      system_prompt = Some "reply briefly"
     ; max_tokens = Some 16
     }
   in
@@ -354,6 +362,7 @@ let test_custom_provider_empty_maps_to_unavailable () =
          in
          let impl : Provider.provider_impl =
            { name
+           ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
            ; request_kind = Provider.Custom name
            ; request_path = "/v1/custom"
            ; capabilities =
@@ -397,6 +406,7 @@ let test_custom_provider_dispatch_uses_registered_impl () =
   with_mock_server handler (fun ~sw ~net ~base_url ->
     let impl : Provider.provider_impl =
       { name = custom_name
+      ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
       ; request_kind = Provider.Custom custom_name
       ; request_path = "/v1/custom"
       ; capabilities =

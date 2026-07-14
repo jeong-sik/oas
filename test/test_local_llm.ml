@@ -23,13 +23,11 @@ let base_url =
 let local_model = provider.model_id
 let options = { Agent.default_options with base_url; provider = Some provider }
 
-let provider_m_config name system_prompt max_tokens max_turns =
-  { default_config with
+let provider_m_config name system_prompt max_tokens =
+  { (default_config ~model:local_model) with
     name
-  ; model = local_model
   ; system_prompt
   ; max_tokens
-  ; max_turns
   ; temperature = Some 0.6
   ; top_p = Some 0.95
   ; top_k = Some 20
@@ -45,7 +43,7 @@ let test_simple_chat () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let config = provider_m_config "test-agent" None (Some 100) 1 in
+  let config = provider_m_config "test-agent" None (Some 100) in
   let agent = Agent.create ~net:env#net ~config ~options () in
   match Agent.run ~sw agent "What is 2+3? Answer with just the number." with
   | Ok response ->
@@ -82,7 +80,6 @@ let test_tool_calling () =
       "tool-agent"
       (Some "You are a helpful assistant. Use the provided tools to answer questions.")
       (Some 200)
-      3
   in
   let calc_tool =
     Tool.create
@@ -134,7 +131,6 @@ let test_multi_tool () =
       "multi-tool-agent"
       (Some "You have access to tools. Use read_file to check file contents.")
       (Some 300)
-      5
   in
   let read_file_tool =
     Tool.create

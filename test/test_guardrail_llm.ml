@@ -48,39 +48,6 @@ let make_response text =
     }
 ;;
 
-(* ── Parse judge response ────────────────────────────────────── *)
-
-let test_parse_pass () =
-  match Guardrail_llm.parse_judge_response "PASS" with
-  | Ok (true, _) -> ()
-  | _ -> Alcotest.fail "expected PASS"
-;;
-
-let test_parse_pass_lowercase () =
-  match Guardrail_llm.parse_judge_response "pass" with
-  | Ok (true, _) -> ()
-  | _ -> Alcotest.fail "expected pass"
-;;
-
-let test_parse_fail_with_reason () =
-  match Guardrail_llm.parse_judge_response "FAIL: contains PII data" with
-  | Ok (false, reason) ->
-    Alcotest.(check bool) "has reason" true (String.length reason > 0)
-  | _ -> Alcotest.fail "expected FAIL"
-;;
-
-let test_parse_fail_no_reason () =
-  match Guardrail_llm.parse_judge_response "FAIL" with
-  | Ok (false, _) -> ()
-  | _ -> Alcotest.fail "expected FAIL"
-;;
-
-let test_parse_unexpected () =
-  match Guardrail_llm.parse_judge_response "MAYBE" with
-  | Error _ -> ()
-  | _ -> Alcotest.fail "expected error"
-;;
-
 (* ── Input validator ─────────────────────────────────────────── *)
 
 let test_input_pass () =
@@ -207,14 +174,7 @@ let test_async_integration () =
 let () =
   Alcotest.run
     "guardrail_llm"
-    [ ( "parse"
-      , [ Alcotest.test_case "pass" `Quick test_parse_pass
-        ; Alcotest.test_case "pass_lower" `Quick test_parse_pass_lowercase
-        ; Alcotest.test_case "fail_reason" `Quick test_parse_fail_with_reason
-        ; Alcotest.test_case "fail_no_reason" `Quick test_parse_fail_no_reason
-        ; Alcotest.test_case "unexpected" `Quick test_parse_unexpected
-        ] )
-    ; ( "input_validator"
+    [ ( "input_validator"
       , [ Alcotest.test_case "pass" `Quick test_input_pass
         ; Alcotest.test_case "fail" `Quick test_input_fail
         ; Alcotest.test_case "judge_error" `Quick test_input_judge_error

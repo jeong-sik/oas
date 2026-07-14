@@ -19,12 +19,12 @@ type event =
   | Llm_request of
       { turn : int
       ; model : string
-      ; input_tokens : int
       ; timestamp : float
       }
   | Llm_response of
       { turn : int
-      ; output_tokens : int
+      ; input_tokens : int option
+      ; output_tokens : int option
       ; stop_reason : string
       ; duration_ms : float
       ; timestamp : float
@@ -68,7 +68,7 @@ type journal =
   { state : (event list * int) Atomic.t
     (** Stored as [(reversed entries, size)]. Atomic pair so reads and writes
         are lock-free and safe when the journal is appended from parallel
-        tool-execution fibers (e.g. [Parallel_batch]). *)
+        concurrent tool-execution fibers. *)
   ; on_append : (event -> unit) option
     (** Optional fan-out callback invoked after every append.
         Used to project journal events onto Event_bus or other sinks. *)
@@ -76,12 +76,10 @@ type journal =
 
 let create ?on_append () = { state = Atomic.make ([], 0); on_append }
 
-let reraise_if_reserved_callback_exception exn =
-  match exn with
-  | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
-    Printexc.raise_with_backtrace exn (Printexc.get_raw_backtrace ())
-  | _ -> ()
-;;
+type append_error =
+  { exception_ : exn
+  ; backtrace : Printexc.raw_backtrace
+  }
 
 let append journal event =
   let rec loop () =
@@ -91,14 +89,21 @@ let append journal event =
     if not (Atomic.compare_and_set journal.state old_state new_state) then loop ()
   in
   loop ();
-  (* Fan-out callbacks must not be able to poison durable state. Ordinary sink
-     failures are ignored after the event is recorded, while cancellation/fatal
-     exceptions still propagate so callers can unwind correctly. *)
-  Option.iter
-    (fun f ->
-       try f event with
-       | exn -> reraise_if_reserved_callback_exception exn)
-    journal.on_append
+  (* The durable state is committed before fan-out. Observer failure is
+     explicit, but never rolls the event back. *)
+  match journal.on_append with
+  | None -> Ok ()
+  | Some callback ->
+    (try
+       callback event;
+       Ok ()
+     with
+     | exception_ ->
+       let backtrace = Printexc.get_raw_backtrace () in
+       (match exception_ with
+        | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
+          Printexc.raise_with_backtrace exception_ backtrace
+        | _ -> Error { exception_; backtrace }))
 ;;
 
 let events journal =
@@ -170,27 +175,32 @@ type replay_summary =
   { last_turn : int
   ; completed_tools : (string * Yojson.Safe.t) list
   ; last_state : string
-  ; total_input_tokens : int
-  ; total_output_tokens : int
+  ; total_input_tokens : int option
+  ; total_output_tokens : int option
   ; error_count : int
   }
 
 (* Fold over entries directly (reverse chronological) — avoids List.rev allocation *)
 let replay_summary journal =
   let entries, _size = Atomic.get journal.state in
+  let add_observed total observed =
+    match total, observed with
+    | Some total, Some observed -> Some (total + observed)
+    | None, _ | _, None -> None
+  in
   let acc =
     List.fold_left
       (fun (lt, ct, ls, it, ot, ec) event ->
          match event with
          | Turn_started { turn; _ } -> max lt turn, ct, ls, it, ot, ec
-         | Llm_request { input_tokens = n; _ } -> lt, ct, ls, it + n, ot, ec
-         | Llm_response { output_tokens = n; _ } -> lt, ct, ls, it, ot + n, ec
+         | Llm_response { input_tokens; output_tokens; _ } ->
+           lt, ct, ls, add_observed it input_tokens, add_observed ot output_tokens, ec
          | Tool_completed { idempotency_key; output_json; _ } ->
            lt, (idempotency_key, output_json) :: ct, ls, it, ot, ec
          | State_transition { to_state; _ } -> lt, ct, to_state, it, ot, ec
          | Error_occurred _ -> lt, ct, ls, it, ot, ec + 1
-         | Tool_called _ | Checkpoint_saved _ -> lt, ct, ls, it, ot, ec)
-      (0, [], "unknown", 0, 0, 0)
+         | Llm_request _ | Tool_called _ | Checkpoint_saved _ -> lt, ct, ls, it, ot, ec)
+      (0, [], "unknown", Some 0, Some 0, 0)
       entries
   in
   let ( last_turn
@@ -262,19 +272,20 @@ let event_to_json = function
   | Turn_started { turn; timestamp } ->
     `Assoc
       [ "type", `String "turn_started"; "turn", `Int turn; "timestamp", `Float timestamp ]
-  | Llm_request { turn; model; input_tokens; timestamp } ->
+  | Llm_request { turn; model; timestamp } ->
     `Assoc
       [ "type", `String "llm_request"
       ; "turn", `Int turn
       ; "model", `String model
-      ; "input_tokens", `Int input_tokens
       ; "timestamp", `Float timestamp
       ]
-  | Llm_response { turn; output_tokens; stop_reason; duration_ms; timestamp } ->
+  | Llm_response
+      { turn; input_tokens; output_tokens; stop_reason; duration_ms; timestamp } ->
     `Assoc
       [ "type", `String "llm_response"
       ; "turn", `Int turn
-      ; "output_tokens", `Int output_tokens
+      ; "input_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) input_tokens
+      ; "output_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) output_tokens
       ; "stop_reason", `String stop_reason
       ; "duration_ms", `Float duration_ms
       ; "timestamp", `Float timestamp
@@ -325,6 +336,18 @@ let event_to_json = function
       ]
 ;;
 
+let required_nullable_int_field json ~event_type field =
+  match json with
+  | `Assoc fields ->
+    (match List.assoc_opt field fields with
+     | None -> Error (Printf.sprintf "%s requires field %S" event_type field)
+     | Some `Null -> Ok None
+     | Some (`Int value) -> Ok (Some value)
+     | Some _ ->
+       Error (Printf.sprintf "%s field %S must be an integer or null" event_type field))
+  | _ -> Error "durable event must be a JSON object"
+;;
+
 let event_of_json json =
   let open Yojson.Safe.Util in
   try
@@ -337,18 +360,30 @@ let event_of_json json =
            ; timestamp = json |> member "timestamp" |> to_float
            })
     | "llm_request" ->
-      Ok
-        (Llm_request
-           { turn = json |> member "turn" |> to_int
-           ; model = json |> member "model" |> to_string
-           ; input_tokens = json |> member "input_tokens" |> to_int
-           ; timestamp = json |> member "timestamp" |> to_float
-           })
+      (match json with
+       | `Assoc fields when List.mem_assoc "input_tokens" fields ->
+         Error "llm_request does not accept legacy field \"input_tokens\""
+       | `Assoc _ ->
+         Ok
+           (Llm_request
+              { turn = json |> member "turn" |> to_int
+              ; model = json |> member "model" |> to_string
+              ; timestamp = json |> member "timestamp" |> to_float
+              })
+       | _ -> Error "durable event must be a JSON object")
     | "llm_response" ->
+      let ( let* ) = Result.bind in
+      let* input_tokens =
+        required_nullable_int_field json ~event_type:"llm_response" "input_tokens"
+      in
+      let* output_tokens =
+        required_nullable_int_field json ~event_type:"llm_response" "output_tokens"
+      in
       Ok
         (Llm_response
            { turn = json |> member "turn" |> to_int
-           ; output_tokens = json |> member "output_tokens" |> to_int
+           ; input_tokens
+           ; output_tokens
            ; stop_reason = json |> member "stop_reason" |> to_string
            ; duration_ms = json |> member "duration_ms" |> to_float
            ; timestamp = json |> member "timestamp" |> to_float

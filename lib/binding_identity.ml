@@ -22,7 +22,6 @@ end
 
 type transport =
   | Http
-  | Managed
   | Injected
 
 type provider_identity =
@@ -32,7 +31,6 @@ type provider_identity =
 type auth_scheme =
   | No_auth
   | Api_key
-  | Oauth_cached_login
   | Setup_token
   | Provider_defined
 
@@ -50,8 +48,11 @@ type t =
 let canonical_uri value = Uri.of_string value |> Uri.canonicalize
 
 let provider_and_binding config =
-  match Provider_runtime_binding.binding_for_provider_config config with
-  | Some binding -> Registered binding.id, Some binding
+  match config.PC.provider_id with
+  | Some provider_id ->
+    (match Provider_runtime_binding.find provider_id with
+     | Some binding -> Registered binding.id, Some binding
+     | None -> Registered (String.trim provider_id |> String.lowercase_ascii), None)
   | None -> Unregistered config.PC.kind, None
 ;;
 
@@ -59,16 +60,10 @@ let auth_scheme_of_binding (binding : Provider_runtime_binding.t) =
   match binding.auth with
   | Provider_runtime_binding.No_auth -> No_auth
   | Provider_runtime_binding.Api_key_env _ -> Api_key
-  | Provider_runtime_binding.Oauth_cached_login -> Oauth_cached_login
   | Provider_runtime_binding.Setup_token_env _ -> Setup_token
 ;;
 
-let transport_for_call ~injected config =
-  match Provider_runtime_binding.binding_for_provider_config config with
-  | Some { transport = Provider_runtime_binding.Managed; _ } -> Managed
-  | Some { transport = Provider_runtime_binding.Http; _ } | None ->
-    if injected then Injected else Http
-;;
+let transport_for_call ~injected = if injected then Injected else Http
 
 let of_provider_config ~transport config =
   let provider, binding = provider_and_binding config in
@@ -180,14 +175,12 @@ let has_credential_identity identity = Option.is_some identity.credential_identi
 
 let transport_to_string = function
   | Http -> "http"
-  | Managed -> "managed"
   | Injected -> "injected"
 ;;
 
 let auth_scheme_to_string = function
   | No_auth -> "none"
   | Api_key -> "api_key"
-  | Oauth_cached_login -> "oauth_cached_login"
   | Setup_token -> "setup_token"
   | Provider_defined -> "provider_defined"
 ;;

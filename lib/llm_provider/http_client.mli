@@ -72,7 +72,6 @@ type timeout_phase =
   | Stream_idle of stream_idle_state
   | Provider_step
   | Cli_stdout_idle
-  | Caller_budget
   | Unknown_timeout
 [@@deriving yojson, show]
 
@@ -81,21 +80,11 @@ type timeout_phase =
     Distinct from {!network_error_kind}: the subprocess/API ran to
     completion and emitted a structured stop reason on stdout.  Burying
     these as [NetworkError] loses the information that downstream
-    callers and per-provider budgets need to handle the condition
-    gracefully (e.g. [Max_turns] should checkpoint and resume on the
-    next cycle rather than fall back to another provider).
+    callers need to handle the condition without treating it as a flaky
+    network failure.
 
     @since 0.178.0 *)
 type provider_terminal_kind =
-  | Max_turns of
-      { turns : int
-      ; limit : int
-      }
-  (** Provider's internal turn budget exhausted.  Maps to
-          {!Error.MaxTurnsExceeded} at the agent runtime layer.  For
-          claude_code 0.x the [limit] equals the CLI default
-          [--max-turns] (currently 31) when the caller does not
-          override it. *)
   | Session_conflict
   (** The managed provider reported that this session cannot continue because
       another owner/process has the same session lease.  This is deliberately
@@ -148,10 +137,14 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Response_body_too_large of { limit_bytes : int }
+  (** The provider response exceeded the explicit in-memory parser boundary.
+      The connection is closed immediately; OAS never drains an unbounded
+      remainder merely to preserve connection reuse. *)
+  | Empty_completion of { stop_reason : Types.stop_reason }
   (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
       The typed stop reason is preserved so downstream policy can distinguish,
       for example, [MaxTokens] from [EndTurn] without parsing diagnostics. *)
-  | Empty_completion of { stop_reason : Types.stop_reason }
   | Unknown_provider_failure of { reason : string option }
 
 (** Transport-level error. *)
@@ -169,19 +162,19 @@ type http_error =
       ; phase : timeout_phase
       }
   | AcceptRejected of { reason : string }
-  (** Provider kind requires a non-HTTP transport (CLI subprocess)
-          but the caller did not inject one.  Distinct from
-          {!NetworkError} so callers can treat it as a configuration
-          bug rather than a transient failure. *)
+  (** The request cannot be accepted because its transport wiring is invalid,
+      such as a CLI provider without an injected subprocess transport or an
+      HTTP deadline without the clock capability required to enforce it.
+      Distinct from {!NetworkError} so callers can treat it as a configuration
+      bug rather than a transient failure. *)
   | ProviderTerminal of
       { kind : provider_terminal_kind
       ; message : string
       }
   (** Provider reported a structured terminal condition on its
           completion stream.  Distinct from {!NetworkError} so callers
-          and the agent runtime can map it to the right semantic
-          ({!Error.MaxTurnsExceeded}, {!Retry.InvalidRequest}, …)
-          rather than treat it as a transient network failure.
+          and the agent runtime can preserve it as provider evidence rather
+          than treat it as a transient network failure.
 
           @since 0.178.0 *)
   | ProviderFailure of
@@ -208,10 +201,35 @@ val stream_idle_state_to_label : stream_idle_state -> string
 val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase
 val timeout_phase_to_label : timeout_phase -> string
 
-(** Default wall-clock timeout (seconds) applied to synchronous HTTP
-    operations when a clock is supplied.  Streaming variants use this
-    only to bound the connect + initial-response-headers phase. *)
-val default_http_timeout_s : float
+(** Canonical resolution of an optional caller-owned deadline.
+
+    [Unbounded] means no timeout was requested and therefore needs no clock.
+    [Bounded] carries the exact clock and timeout supplied by the caller.
+
+    @stability Internal *)
+type 'clock explicit_deadline =
+  | Unbounded
+  | Bounded of 'clock * float
+
+(** Resolve the timeout/clock contract before any operation I/O. [timeout_s =
+    None] returns [Unbounded]. An explicit timeout must be finite and greater
+    than zero; an invalid value or a missing clock returns the typed
+    [AcceptRejected] error instead of silently disarming the deadline.
+
+    @stability Internal *)
+val resolve_explicit_deadline
+  :  operation:string
+  -> parameter:string
+  -> clock:'clock option
+  -> timeout_s:float option
+  -> ('clock explicit_deadline, http_error) result
+
+(** Run [f] unbounded or under the resolved Eio deadline. A bounded expiry
+    raises [Eio.Time.Timeout]; the owning call site must project it to its
+    phase-specific [TimeoutError].
+
+    @stability Internal *)
+val with_explicit_deadline : _ Eio.Time.clock explicit_deadline -> (unit -> 'a) -> 'a
 
 (** {1 Connection cache} *)
 
@@ -262,11 +280,12 @@ val cache_stats : cache -> cache_stats
     When [cache] is supplied the [connection: close] request header is
     omitted so HTTP keep-alive can work.
 
-    When [clock] is supplied the entire operation (connect + response
-    + body read) is bounded by [timeout_s] (default
-    {!default_http_timeout_s}); a timeout owned by this wrapper
-    surfaces as [TimeoutError { phase = Http_operation; _ }] which is
-    classified as retryable by {!Retry.is_retryable}. *)
+    The entire operation (connect + response + body read) is bounded only when
+    [timeout_s] is explicitly supplied. Enforcing that deadline also requires
+    [clock]; supplying [timeout_s] without [clock] returns [AcceptRejected]. A
+    timeout owned by this wrapper surfaces as
+    [TimeoutError { phase = Http_operation; _ }] which is classified as
+    retryable by {!Retry.is_retryable}. *)
 val get_sync
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
@@ -288,10 +307,10 @@ val get_sync
     When [cache] is supplied the [connection: close] request header is
     omitted so HTTP keep-alive can work.
 
-    When [clock] is supplied the entire operation is bounded by
-    [timeout_s] (default {!default_http_timeout_s}); a timeout owned by
-    this wrapper surfaces as
-    [TimeoutError { phase = Http_operation; _ }]. *)
+    The entire operation is bounded only when [timeout_s] is explicitly
+    supplied. Enforcing that deadline also requires [clock]; supplying
+    [timeout_s] without [clock] returns [AcceptRejected]. A timeout owned by
+    this wrapper surfaces as [TimeoutError { phase = Http_operation; _ }]. *)
 val post_sync
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
@@ -316,10 +335,11 @@ val post_sync
     be safely parked until consumption finishes. Use {!with_post_stream}
     for cache-aware streaming.
 
-    When [clock] is supplied only the connect + initial response
-    headers are bounded by [connect_timeout_s] (default
-    {!default_http_timeout_s}); body consumption through the returned
-    reader is the caller's responsibility to timebox. *)
+    Only an explicitly supplied [connect_timeout_s] bounds the connect +
+    initial response headers phase. Enforcing it also requires [clock];
+    supplying [connect_timeout_s] without [clock] returns [AcceptRejected].
+    Body consumption through the returned reader is the caller's
+    responsibility to timebox. *)
 val post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
@@ -341,9 +361,10 @@ val post_stream
     it can be reused across requests. [f] must consume the full response
     body; leaving unread bytes on the reader will corrupt the next reuse.
 
-    [connect_timeout_s] bounds only the connect + initial response
-    headers phase when [clock] is supplied; a stall there surfaces as
-    [TimeoutError { phase = Http_operation; _ }].
+    An explicitly supplied [connect_timeout_s] bounds only the connect +
+    initial response headers phase and requires [clock]. Supplying the
+    deadline without [clock] returns [AcceptRejected]; a stall with both
+    supplied surfaces as [TimeoutError { phase = Http_operation; _ }].
 
     Body consumption in [f] runs OUTSIDE [catch_network]. A body-phase
     [Eio.Time.Timeout] (first-token / prefill wait, inter-chunk idle)

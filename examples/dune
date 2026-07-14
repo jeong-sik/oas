@@ -6,7 +6,7 @@
   streaming
   review_agent
   codegen_agent
-  hooks_and_guardrails
   error_handling
+  observable_agent
   builder_patterns)
  (libraries agent_sdk eio eio_main yojson unix str))

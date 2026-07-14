@@ -1,18 +1,18 @@
 (** Integration tests for new Event_bus native variants (0.154.0):
-    AgentFailed, HandoffRequested, HandoffCompleted, and the
-    Hooks.on_context_compacted callback.
+    AgentFailed, HandoffRequested, and HandoffCompleted.
 
-    These verify that [lib/agent/agent.ml] (run_with_handoffs) and
-    [lib/pipeline/pipeline.ml] actually publish / invoke the new surface
-    end-to-end — not just that the variants typecheck. *)
+    These verify that [lib/agent/agent.ml] (run_with_handoffs) publishes
+    the new surface end-to-end — not just that the variants typecheck. *)
 
 open Alcotest
 open Agent_sdk
 
+let event_kind (event : Event_bus.event) = Event_bus.payload_kind event.payload
+
 (* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
 (* Reuse the same mock wire format as test_handoff: OpenAI-compatible
-   chat.completions that responds with a transfer_to_* tool call on the
+   chat.completions that responds with the exact target tool on the
    first request and a plain text response on the second. *)
 
 let response_for_message body_str =
@@ -31,7 +31,7 @@ let response_for_message body_str =
     in
     if text = "delegate"
     then
-      {|{"id":"chatcmpl-handoff","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"h-1","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"sub\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      {|{"id":"chatcmpl-handoff","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"h-1","type":"function","function":{"name":"researcher","arguments":"{\"prompt\":\"sub\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
     else
       {|{"id":"chatcmpl-sub","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"sub ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}|}
 ;;
@@ -86,10 +86,14 @@ let test_handoff_emits_request_and_completion () =
     Eio.Fiber.fork ~sw (fun () ->
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
     let bus = Event_bus.create () in
-    let sub = Event_bus.subscribe bus in
+    let config =
+      Event_bus.subscription_config ~capacity:16 ~overflow:Event_bus.Drop_newest
+      |> Result.get_ok
+    in
+    let sub = Event_bus.subscribe ~config bus in
     let target =
       Subagent.to_handoff_target
-        ~parent_config:Types.default_config
+        ~parent_config:(Types.default_config ~model:"test-model")
         ~base_tools:[]
         (Subagent.of_markdown
            "---\nname: researcher\ndescription: Research specialist\n---\nResearch.")
@@ -104,44 +108,44 @@ let test_handoff_emits_request_and_completion () =
       ; event_bus = Some bus
       }
     in
-    let agent = Agent.create ~net:env#net ~options () in
+    let agent =
+      Agent.create
+        ~config:(Types.default_config ~model:"test-model")
+        ~net:env#net
+        ~options
+        ()
+    in
     let _ = Agent.run_with_handoffs ~sw agent ~targets:[ target ] "delegate" in
     let events = Event_bus.drain sub in
-    let names = List.map Event_forward.event_type_name events in
-    check bool "handoff.requested emitted" true (List.mem "handoff.requested" names);
-    check bool "handoff.completed emitted" true (List.mem "handoff.completed" names);
+    let names = List.map event_kind events in
+    check bool "handoff requested emitted" true (List.mem "handoff_requested" names);
+    check bool "handoff completed emitted" true (List.mem "handoff_completed" names);
     (* Requested must precede Completed. *)
     let req_idx =
-      List.find_index (( = ) "handoff.requested") names |> Option.value ~default:(-1)
+      List.find_index (( = ) "handoff_requested") names |> Option.value ~default:(-1)
     in
     let done_idx =
-      List.find_index (( = ) "handoff.completed") names |> Option.value ~default:(-1)
+      List.find_index (( = ) "handoff_completed") names |> Option.value ~default:(-1)
     in
     check bool "requested before completed" true (req_idx < done_idx);
     (* Payload checks: from_agent/to_agent flow direction. *)
-    let reqs =
-      List.filter (fun e -> Event_forward.event_type_name e = "handoff.requested") events
-    in
+    let reqs = List.filter (fun e -> event_kind e = "handoff_requested") events in
     (match (List.hd reqs).payload with
      | Event_bus.HandoffRequested { from_agent = _; to_agent; reason } ->
        check string "to_agent" "researcher" to_agent;
-       (* [reason] carries the sub-agent prompt extracted from the
-          transfer_to_* tool call arguments, not the parent prompt. *)
+       (* [reason] carries the sub-agent prompt passed to the target tool,
+          not the parent prompt. *)
        check string "reason carries sub-prompt" "sub" reason
      | _ -> fail "expected HandoffRequested payload");
     (* Causation chain (#877): HandoffCompleted.caused_by must point
        at the HandoffRequested envelope that opened the handoff.
        HandoffRequested itself is the chain root. *)
     let requested =
-      try
-        List.find (fun e -> Event_forward.event_type_name e = "handoff.requested") events
-      with
+      try List.find (fun e -> event_kind e = "handoff_requested") events with
       | Not_found -> fail "HandoffRequested missing"
     in
     let completed =
-      try
-        List.find (fun e -> Event_forward.event_type_name e = "handoff.completed") events
-      with
+      try List.find (fun e -> event_kind e = "handoff_completed") events with
       | Not_found -> fail "HandoffCompleted missing"
     in
     check
@@ -159,70 +163,6 @@ let test_handoff_emits_request_and_completion () =
   | Exit -> ()
 ;;
 
-(* ── B. on_context_compacted hook invocation ─────────────────── *)
-
-(* We verify the hook dispatch at the [Hooks.invoke] seam: if the
-   field is [Some cb], the callback fires with the OnContextCompacted
-   payload and its decision is surfaced; if [None], invoke returns the
-   default decision (Continue). The pipeline call sites in
-   [lib/pipeline/pipeline.ml] read the same field, so this covers the
-   wiring contract.
-   (End-to-end compaction is exercised by test_pipeline / test_agent
-    coverage; adding a second trigger here would duplicate that.) *)
-
-let test_on_context_compacted_hook_fires () =
-  let fired = ref false in
-  let captured_phase = ref "" in
-  let captured_before = ref 0 in
-  let captured_after = ref 0 in
-  let hook_cb : Hooks.hook_event -> Hooks.hook_decision = function
-    | Hooks.OnContextCompacted { agent_name = _; before_tokens; after_tokens; phase } ->
-      fired := true;
-      captured_phase := phase;
-      captured_before := before_tokens;
-      captured_after := after_tokens;
-      Hooks.Continue
-    | _ -> Hooks.Continue
-  in
-  let decision =
-    Hooks.invoke
-      (Some hook_cb)
-      (Hooks.OnContextCompacted
-         { agent_name = "test"
-         ; before_tokens = 1000
-         ; after_tokens = 500
-         ; phase = "proactive(50%)"
-         })
-  in
-  check bool "hook fired" true !fired;
-  check string "phase captured" "proactive(50%)" !captured_phase;
-  check int "before_tokens captured" 1000 !captured_before;
-  check int "after_tokens captured" 500 !captured_after;
-  match decision with
-  | Hooks.Continue -> ()
-  | _ -> fail "expected Continue decision"
-;;
-
-let test_on_context_compacted_hook_none_is_continue () =
-  let decision =
-    Hooks.invoke
-      None
-      (Hooks.OnContextCompacted
-         { agent_name = "test"; before_tokens = 0; after_tokens = 0; phase = "emergency" })
-  in
-  match decision with
-  | Hooks.Continue -> ()
-  | _ -> fail "expected Continue when hook is None"
-;;
-
-let test_on_context_compacted_default_hooks_none () =
-  check
-    bool
-    "Hooks.empty.on_context_compacted = None"
-    true
-    (Hooks.empty.on_context_compacted = None)
-;;
-
 (* ── Entry point ──────────────────────────────────────────────── *)
 
 let () =
@@ -235,20 +175,6 @@ let () =
             "run_with_handoffs emits Requested+Completed"
             `Quick
             test_handoff_emits_request_and_completion
-        ] )
-    ; ( "context_compacted_hook"
-      , [ test_case
-            "Some hook: fires with payload and returns Continue"
-            `Quick
-            test_on_context_compacted_hook_fires
-        ; test_case
-            "None hook: invoke returns Continue default"
-            `Quick
-            test_on_context_compacted_hook_none_is_continue
-        ; test_case
-            "Hooks.empty has no on_context_compacted by default"
-            `Quick
-            test_on_context_compacted_default_hooks_none
         ] )
     ]
 ;;

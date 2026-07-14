@@ -19,4 +19,4 @@ trap cleanup EXIT
 install -m 0755 "${probe_source}" "${isolated_dir}/model-catalog-probe"
 
 cd "${isolated_dir}"
-env -u OAS_MODEL_CATALOG ./model-catalog-probe
+OAS_MODEL_CATALOG="${isolated_dir}/must-not-be-read.toml" ./model-catalog-probe

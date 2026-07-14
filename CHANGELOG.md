@@ -10,6 +10,26 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+* **HTTP deadlines:** remove the implicit 60-second request/connect deadline
+  and 30-second response-drain deadline. `timeout_s` and
+  `connect_timeout_s` are enforced only when explicitly supplied, and a
+  deadline without a clock now returns typed `AcceptRejected` instead of
+  silently running unarmed.
+* **hooks:** remove `Skip`/`K_Skip` and `Override`/`K_Override`. A
+  `PreToolUse` hook now either executes the real tool with `Continue`, rejects
+  it with `Block`; OAS no longer owns approval orchestration or fabricates a
+  successful tool result without executing a tool.
+* **hook failures:** make `HookFailed.stage` a closed `Hooks.hook_stage`, remove
+  the unvalidated `Hooks.invoke` entry point, and make the internal
+  `Agent_tools` execution surface return completed results alongside typed hook
+  or observer failures. A failed post-execution hook is an agent error after
+  the real tool completion has been observed and checkpointed; it is never
+  rewritten as a retryable tool result.
+* **durable journal:** `Durable_event.append` now returns an explicit observer
+  error carrying the original exception and raw backtrace. The event remains
+  committed before callback notification; ordinary callback failures are no
+  longer silently discarded, while cancellation and fatal exceptions still
+  propagate.
 * **hooks:** establish 0.209 as the supported compatibility floor for
   `Hooks.Block` and `K_Block`, which were incorrectly shipped in the 0.208.21
   patch line. Exhaustive matches must handle the new variants; see the
@@ -20,29 +40,197 @@ original tag dates. `0.100.4` was never tagged or released.
   The usual deprecation window is waived as a safety exception: restoring the
   removed implementation or a compatibility shim would preserve heuristic
   string matching and a silent model-error fallback.
+* **agent:** remove numeric lifecycle ceilings, repeated-call idle heuristics,
+  exit predicates, and their errors/hooks. `Agent.run` has no turn, idle-turn,
+  tool-round, cost, or token-budget stop gate; those counters remain telemetry.
+  Callers own whole-run Eio cancellation/deadlines, while provider body and
+  stream-idle deadlines apply only when explicitly configured.
+* **runtime:** remove turn ceilings from runtime, session, and subagent
+  contracts. Turn counts remain observations and never stop a lane.
+* **scheduling:** remove request-priority classes, numeric ranks, implicit
+  defaults, and agent/completion priority fields. Provider capacity scheduling
+  now grants queued requests in FIFO arrival order; resumed permits rejoin the
+  same queue and cannot bypass older work.
+* **provider calls:** remove synchronous automatic retry/backoff APIs and their
+  hidden defaults. `Complete.complete`, `Complete.complete_stream`, and the
+  Agent pipeline now perform exactly one provider attempt and return the typed
+  result unchanged; callers own any later asynchronous attempt or runtime
+  rotation.
+* **implicit recovery:** remove `Lenient_json`, `Correction_pipeline`,
+  `Tool_use_recovery`, `Tool_failure_episode`, `Tool_failure_recovery`, and
+  `Reflexion`. OAS no longer repairs malformed model JSON/tool calls, detects
+  repeated-failure episodes, asks a hidden judge for a retry plan, or runs a
+  convergence loop. Model content and typed tool failures stay on the ordinary
+  provider/tool path without a second recovery decision layer.
+* **tool results:** remove implicit call-time stubbing, relocation/offload
+  stores (`Context_offload`, `Tool_result_store`, and
+  `Content_replacement_state`), replacement events, and MCP output truncation.
+  Tool and MCP content now reaches the provider unchanged.
+* **tool surface:** remove selector, index, progressive-disclosure, and schema-
+  disclosure layers. Every registered tool is sent with its full schema, and
+  dispatch uses the exact registered name.
+* **tool exposure:** remove the synchronous `Guardrails` name-filtering layer,
+  per-turn filter overrides, and `Tool_set.filter`. Every caller-supplied tool
+  reaches the provider unchanged; policy gates belong at the caller boundary.
+* **governance:** remove the standalone approval pipeline, approval callback,
+  `ApprovalRequired` hook decision, priority-rule policy
+  engine, score-to-risk judge facade, parent-to-child policy channel, and its
+  `Tool_op` tool-set operation algebra, along with the product-governance
+  boundary lint. HITL and model judgment remain caller-owned callbacks over
+  the generic hook/provider surfaces.
+* **context:** remove `Context_reducer`, `Budget_strategy`, the
+  `Agent.options.context_reducer` extension point, automatic compaction,
+  threshold-based preparation, and overflow retry. Exact message and tool
+  content is the default; a provider `ContextOverflow` is returned unchanged
+  after one request. A caller that needs pruning or repair transforms its input
+  before invoking OAS or handles the typed overflow outside OAS.
+* **handoff:** make each target's exact name a normal tool backed by a real
+  delegate closure. Remove `Agent_handoff`, `Agent_tool_name_alias`,
+  `Succession`, prefixed aliases, stub handlers, transcript scans, compressed
+  successor-DNA generation, and post-execution result replacement.
+* **tool descriptors:** remove permission risk levels, mutation aliases,
+  shell/workdir constraints, evidence roles, kinds, notes, examples, and the
+  `Typed_tool_safe` permission facade and three-class concurrency taxonomy. A
+  descriptor now contains only a caller-declared `Concurrent` or `Serial`
+  execution mode; absence means `Serial`. Raw trace v2 and session tool
+  catalogs expose only that structural mode and reject the removed fields.
+* **events:** each subscriber owns a bounded FIFO with an explicit validated
+  capacity and either drop-oldest or drop-newest behavior. There is no hidden
+  capacity, default loss policy, or publisher-blocking mode. Queue depth,
+  offered events, drained events, and drops remain observable.
+* **telemetry events:** `Telemetry_bus.drain` now returns one typed decode
+  result per queued event. Malformed telemetry remains in-order as explicit
+  `decode_failure` evidence instead of disappearing from the observation
+  stream.
+* **event projections:** remove `Event_forward`,
+  `Relay_delivery`, `Slot_scheduler_event_bridge`, and the orphan
+  `SlotSchedulerObserved` payload. OAS retains the typed Event_bus and provider
+  slot snapshot; external file/custom delivery and product scheduler projection
+  belong to caller-owned connectors.
+* **runtime control:** remove the orphan SDK-client permission taxonomy, session
+  policy snapshot, `Sdk_client_types`, and Runtime permission/hook control
+  channel. Session start, spawn, and finalize no longer wait on implicit control
+  requests or a fixed timeout; a caller may still reject a tool explicitly with
+  the generic typed `Hooks.Block` decision. Runtime stdio now accepts only
+  canonical protocol envelopes. This hard cut is reported as Runtime protocol
+  version `oas-runtime-0.2`.
+* **runtime MCP:** remove the request policy carrier that no provider transport
+  consumed. It no longer changes cache keys or advertises tool names that were
+  absent from the actual provider request.
+* **heuristic evaluation:** remove `Uncertain`, `Response_harness`, and
+  `Checkpoint_validation`. Their confidence defaults, free-form first-number
+  score extraction, and compressed-text token-overlap/marker grading are no
+  longer SDK behavior.
+* **harness:** keep turn counts as observations only; remove `Sandbox_runner`,
+  turn/tool-count pass/fail assertions, and performance ceilings.
+* **experiments:** remove `Code_snippet_eval` and its
+  `OAS_EXPERIMENTAL_CODE_SNIPPET` environment gate. OAS no longer owns an
+  arbitrary numeric adoption verdict for a caller's tool strategy.
+* **wire observation:** remove OAS-owned capture files, paths, locks, queues,
+  capacities, environment activation, and writer lifecycles. Streaming callers
+  may supply one typed nonblocking offer that receives redacted provider chunks;
+  caller rejection and ordinary callback exceptions become typed telemetry
+  without changing the provider result. Injected transports receive only an
+  OAS-owned raw-chunk sink, not the caller callback, so redaction and failure
+  handling remain inside OAS. Persistence and resource policy remain entirely
+  caller-owned.
+* **catalog bootstrap:** remove ambient `OAS_MODEL_CATALOG`,
+  `OAS_PROVIDER_CATALOG`, and `OAS_CAPABILITY_MANIFEST` discovery. The embedded
+  OAS model catalog is the default; callers install explicit model, provider,
+  or capability overrides through the typed `load_file`/`set_global` APIs.
+* **catalog identity:** remove dot-qualified model-id rewriting and provider
+  registry alias/case normalization, including the legacy `Model_registry`
+  facade. Provider-independent model selection uses declared prefixes, while
+  provider-scoped capability selection requires the complete normalized
+  provider/model pair. Runtime provider binding accepts the exact registered
+  provider id. Provider-catalog aliases remain local to explicit catalog
+  lookup and are never registered as runtime provider identities.
+* **environment configuration:** remove the unused numeric, boolean, list, and
+  key-value policy parsers from `Llm_provider.Cli_common_env`, remove the
+  environment-backed `Defaults` facade, and retire the stale
+  config-externalization guide. Runtime behavior belongs in explicit typed
+  configuration; the module retains only provider-bootstrap string lookup and
+  trimming helpers.
+* **durable workflows:** remove the separate `Durable` typed step-chain engine.
+  `Durable_event` remains the generic append/replay journal; callers own job and
+  workflow orchestration.
+* **test support:** remove the production `Provider_mock` module and top-level
+  re-export. Scripted provider responses remain test-only code, not an SDK
+  runtime provider.
 
 ### Bug Fixes
 
-* **context_offload:** emit a diagnostic warning when tool-result offload write
-  fails before preserving the original content.
-* **defaults:** restore `Context_offload.default_config` and
-  `Mcp_http.default_config` as compatibility values; use
-  `Context_offload.make_default_config ()` or `Mcp_http.make_default_config ()`
-  for call-time environment resolution.
-* **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
-* **tool:** centralize mutation class concurrency policy and preserve `local_mutation` alias ([#2187](https://github.com/jeong-sik/oas/issues/2187))
-
-### Behavioral Changes
-
-* **tool:** unknown `mutation_class` strings are now rejected at `Tool.create` time instead of falling back silently.
-
-### Features
-
-* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or`, `Defaults.int_env_or`/`float_env_or`/`bool_env_or`, and `Tool_result_store` config overrides now delegate to it.
-* **env:** `Defaults` env parsers preserve the historical structured `Log.warn` schema via the new `Cli_common_env` `on_invalid` callback.
-* **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
-* **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
-* **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
+* **eval collection:** atomically cancel and drain event-bus subscriptions
+  before finalizing metrics so already accepted lifecycle and tool events are
+  not discarded.
+* **runtime lifecycle:** reject participant registration on an already closed
+  switch, keep a settlement handle for cancellation races, cancel every
+  snapshotted session lane before joining any one lane, and preserve reserved
+  exceptions across runtime observer boundaries. Non-fatal event-bus,
+  participant-failure persistence, and unexpected participant-lane failures
+  are also emitted as runtime `System_message` observations without rolling
+  back durable events or cancelling unrelated lanes.
+* **checkpoint persistence:** add a finite one-way migration for the closed set
+  of exact released v5/v6 checkpoint JSON shapes before strict v8 decoding.
+  Released v5 had pre-preserve capped, preserve capped, and preserve unbounded
+  top-level shapes without a checkpoint-version bump. Retired cap values are
+  type-checked and removed, missing pre-release fields are filled only with
+  `null`/empty structural values, and partial or cross-era combinations are
+  rejected. Usage pricing gaps, legacy failed tool results, and MCP session
+  records are normalized without inventing model identity, failure provenance,
+  or an HTTP reconnect URL. Legacy MCP sessions are rejected when reconnecting
+  stdio would widen their saved subprocess environment; released HTTP policy
+  metadata is removed because HTTP reconnect never consumed it. Versions 1-4
+  remain unsupported and the v8 domain is not widened; see the [checkpoint
+  migration guide](docs/migrations/checkpoint-v5-v6-to-v8.md).
+* **agent resume:** make an explicitly supplied `Agent.resume ~config` the
+  complete runtime configuration SSOT. Checkpoints still restore conversation,
+  usage, turn count, and context, but can no longer overwrite the caller's
+  current agent name, model, system prompt, sampling, reasoning, or tool-choice
+  configuration. When `~config` is omitted, persisted checkpoint configuration
+  fields are restored over current defaults; runtime fields not represented by
+  the checkpoint use those defaults.
+* **defaults:** restore `Mcp_http.default_config` as a compatibility value; use
+  `Mcp_http.make_default_config ()` for call-time environment resolution.
+* **agent:** reject configured MCP servers explicitly when a required runtime
+  resource is absent instead of silently omitting every server. Every MCP
+  connection requires a switch; only stdio MCP additionally requires a process
+  manager, so HTTP-only configurations remain usable without one. Reject
+  wrong-typed optional config fields and ambiguous MCP transport objects;
+  required MCP connection setup is transactional and rolls back every earlier
+  connection in LIFO order without replacing the primary failure.
+  Remove the inert inline `Agent_config.tools` type and parser surface; tools
+  are executable values registered in code or discovered through configured
+  MCP servers, never schema-only JSON entries that are rejected later.
+* **provider parsing:** reject malformed provider-catalog roots, entries,
+  duplicate/unknown fields, scalar/list types, auth/capability shapes, and
+  malformed Ollama message bodies instead of coercing them to defaults,
+  unauthenticated configs, or empty successful responses.
+* **provider requests:** resolve tool-choice validation and OpenAI-compatible
+  serialization from the same typed provider/model capability projection, so
+  a provider-level default cannot override an exact model declaration.
+* **checkpoint stages:** give the post-context-injection snapshot its own
+  `After_context_injection` stage and checkpoint id instead of overwriting the
+  earlier `After_tool_results_appended` snapshot for the same turn.
+* **tool observability:** emit durable/raw-trace execution lifecycle records
+  only after `PreToolUse` returns `Continue`. `Block` remains model-visible but
+  no longer fabricates `Tool_called`/`Tool_completed` evidence for a tool that
+  did not run. Post-hook and hook-observer failures propagate explicitly after
+  an already completed tool has been recorded.
+* **runtime evidence:** keep participant failure cause and completion anomaly
+  as typed single sources of truth. Live, completed, and failed lifecycle
+  payloads now share one nested common record but expose disjoint outcome
+  fields; a failed event requires a cause and a completed event cannot carry
+  one. Legacy flat/error shapes and non-positive dropped-delta counts are
+  rejected instead of being silently preferred or erased.
+* **HTTP deadlines:** distinguish expiry of the caller-owned non-streaming body
+  deadline from an `Eio.Time.Timeout` raised inside the selected transport. An
+  inner timeout now propagates unchanged instead of being relabelled as the
+  outer body deadline.
+* **harness replay:** preserve an exact zero response-step count instead of
+  fabricating a minimum turn, and fail a live fixture explicitly when its
+  advertised raw trace cannot be read instead of silently grading without the
+  trajectory. Turn counts remain observation-only metrics.
 
 ## [0.211.10](https://github.com/jeong-sik/oas/compare/v0.211.9...v0.211.10) (2026-07-13)
 
@@ -384,7 +572,7 @@ original tag dates. `0.100.4` was never tagged or released.
 * **stream-acc:** replace InputJsonDelta buffer on whole-value re-emit (malformed {}{}) ([#2344](https://github.com/jeong-sik/oas/issues/2344)) ([e4a128a](https://github.com/jeong-sik/oas/commit/e4a128a13777c6b9aa71b1c78bfb6aff232ac686))
 * **streaming:** remove coordinator term from provider comments ([#2321](https://github.com/jeong-sik/oas/issues/2321)) ([15276bd](https://github.com/jeong-sik/oas/commit/15276bd18f66b2023565ae4489702b992cf7caec))
 * **test:** avoid response helper shadowing ([#2340](https://github.com/jeong-sik/oas/issues/2340)) ([66553e2](https://github.com/jeong-sik/oas/commit/66553e2f28c89f4f995c63d6a465cc551b88cbb2))
-* **test:** prefer OAS_MODEL_CATALOG in provider suites ([#2319](https://github.com/jeong-sik/oas/issues/2319)) ([41d64c6](https://github.com/jeong-sik/oas/commit/41d64c6bd3ec52f16f9a5cb32db3ec80cb3f141e))
+* **test:** prefer the packaged model catalog in provider suites ([#2319](https://github.com/jeong-sik/oas/issues/2319)) ([41d64c6](https://github.com/jeong-sik/oas/commit/41d64c6bd3ec52f16f9a5cb32db3ec80cb3f141e))
 
 ## [0.208.2](https://github.com/jeong-sik/oas/compare/v0.208.1...v0.208.2) (2026-06-30)
 
@@ -649,7 +837,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **tool:** centralize mutation class concurrency policy ([#2187](https://github.com/jeong-sik/oas/issues/2187)) ([5f8aecf](https://github.com/jeong-sik/oas/commit/5f8aecfb3c5f217573f21a0f06e9aef490e52c7d))
 * **tools:** input fail-closed + deterministic recovery ids (RFC-OAS-029 S8.1/S4.3/S10.1) ([#2234](https://github.com/jeong-sik/oas/issues/2234)) ([c021f11](https://github.com/jeong-sik/oas/commit/c021f113a7830601a6cb5386428b79f8e99d169f))
 * **tools:** resolve legacy Read to visible ReadFile ([#1800](https://github.com/jeong-sik/oas/issues/1800)) ([17e1408](https://github.com/jeong-sik/oas/commit/17e1408c6849b46fd7139fb79dd28b470e84710a))
-* **typed_tool_safe:** improve result safety in lib/typed_tool_safe.ml ([#2158](https://github.com/jeong-sik/oas/issues/2158)) ([1ad1092](https://github.com/jeong-sik/oas/commit/1ad1092e00596b7c3ffc2f524c025a8643b4f6db))
 * **typed_tool:** improve result safety in lib/typed_tool.ml ([#2159](https://github.com/jeong-sik/oas/issues/2159)) ([022407e](https://github.com/jeong-sik/oas/commit/022407e712334e081e18a444e6d00c92d1284926))
 
 
@@ -919,7 +1106,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **eval_collector:** unsubscribe before final drain ([#2148](https://github.com/jeong-sik/oas/issues/2148)) ([1cefcf3](https://github.com/jeong-sik/oas/commit/1cefcf31c0fff9a1b44930d61034dc0ed824272e))
 * **llm_provider:** reject unsatisfiable thinking-control instead of silent drop ([#2156](https://github.com/jeong-sik/oas/issues/2156)) ([8a30a9a](https://github.com/jeong-sik/oas/commit/8a30a9a25b536216352f2ef5e858da52bdcb5e65))
 * **models:** register minimax-m3 capability entry (librarian thinking control) ([#2155](https://github.com/jeong-sik/oas/issues/2155)) ([7897d49](https://github.com/jeong-sik/oas/commit/7897d4998a101387412ba32beaf896b2a1863552))
-* **typed_tool_safe:** improve result safety in lib/typed_tool_safe.ml ([#2158](https://github.com/jeong-sik/oas/issues/2158)) ([1ad1092](https://github.com/jeong-sik/oas/commit/1ad1092e00596b7c3ffc2f524c025a8643b4f6db))
 * **typed_tool:** improve result safety in lib/typed_tool.ml ([#2159](https://github.com/jeong-sik/oas/issues/2159)) ([022407e](https://github.com/jeong-sik/oas/commit/022407e712334e081e18a444e6d00c92d1284926))
 
 ## [0.207.5](https://github.com/jeong-sik/oas/compare/v0.207.4...v0.207.5) (2026-06-19)
@@ -2187,7 +2373,7 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Documentation
 
-* **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Apply with `OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
+* **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Load with `Capability_manifest.load_file` and install with `Capability_manifest.set_global` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
 
 ## [0.200.6](https://github.com/jeong-sik/oas/compare/v0.200.5...v0.200.6) (2026-05-27)
 
@@ -3811,11 +3997,6 @@ dead surface accumulated alongside the CDAL framework.
 ## [0.190.26] - 2026-05-06
 
 ### Fixed
-- `lib/protocol/mcp_schema.ml`: MCP builtin tool descriptors now route through the centralized `Mode_enforcer` registry instead of carrying their own duplicated permission table (-84 / +5, **net -79 LOC**). Read/write/external MCP-wrapped tools now expose `Tool.permission` so downstream coordinators can decide whether tool use is read-only, workspace-mutating, or externally effectful. Previously MCP-wrapped builtins had mutation/concurrency metadata but no `Tool.permission`, leading strict required-tool and approval policies to treat them as unclassified. (#1438)
-
-### Added
-- `test/test_mcp.ml`: regression coverage proving strict effectful-tool contracts accept MCP write tools and reject MCP read-only tools. (#1438)
-
 ## [0.190.25] - 2026-05-06
 
 ### Fixed
@@ -4036,7 +4217,7 @@ dead surface accumulated alongside the CDAL framework.
 ## [0.189.0] - 2026-05-05
 
 ### Added
-- `Capability_manifest` module: external JSON manifest for runtime model capability overrides (`OAS_CAPABILITY_MANIFEST`). Supports prefix-matching, schema-version gating, and per-model boolean/int overrides for tool-use, structured-output, multimodal, sampling, and reasoning capabilities. (#1347)
+- `Capability_manifest` module: explicitly loaded external JSON manifest for runtime model capability overrides. Supports prefix-matching, schema-version gating, and per-model boolean/int overrides for tool-use, structured-output, multimodal, sampling, and reasoning capabilities. (#1347)
 - `Pricing.pricing_entry` type and dynamic pricing override API:
   `install_pricing_overrides`, `clear_pricing_overrides`,
   `pricing_entry_of_json`, `parse_pricing_entries_json`,
@@ -4567,7 +4748,7 @@ dead surface accumulated alongside the CDAL framework.
 
 ### Added
 
-- **`Event_bus` envelopes carry `caused_by`.** `envelope.caused_by : string option` links every event back to the originating run. Three emitters wire it through: `orchestrator` (`AgentStarted` → `AgentCompleted`/`AgentFailed`, PR #1019), `agent` handoff (`HandoffRequested` → `HandoffCompleted`, PR #1020), `agent_tools` (`ToolCalled` → `ToolCompleted`, PR #1021). `event_forward` surfaces the field on the delivery payload (PR #1028). Enables causation tracing across a single run without re-parsing agent logs.
+- **`Event_bus` envelopes carry `caused_by`.** `envelope.caused_by : string option` links every event back to the originating run. Three emitters wire it through: `orchestrator` (`AgentStarted` → `AgentCompleted`/`AgentFailed`, PR #1019), `agent` handoff (`HandoffRequested` → `HandoffCompleted`, PR #1020), `agent_tools` (`ToolCalled` → `ToolCompleted`, PR #1021). Enables causation tracing across a single run without re-parsing agent logs.
 - **`Tool_retry_policy.error_class` variant** (PR #1027). Contract-first typed classification of tool errors drives retry decisions; replaces string-based pattern matching at callsites.
 - **`Agent_turn.idle_granularity` opt-in variant** (PR #1024). Fine-grained `is_idle` reporting for callers that need sub-turn idle signals without changing the default coarse-grained behavior.
 - **Inference profile exposes `top_p` / `top_k` / `min_p`** (PR #1015). Constants-layer extension so cascade configs can pin sampling parameters without provider-specific escapes.
@@ -4616,7 +4797,6 @@ dead surface accumulated alongside the CDAL framework.
 
 - Gemini CLI has no runtime flag to disable hooks — hook lifecycle remains governed by the `gemini hooks` subcommand, outside transport scope.
 - Codex CLI exposes no dedicated `--no-mcp` / `--no-hooks` flags; every toggle there flows through `-c key=value` TOML overrides.
-- The stale "Gemini CLI does not yet expose flags for any of them" comment in `transport_gemini_cli.ml` was corrected — the parity config fields (`mcp_config` / `allowed_tools` / `max_turns` / `permission_mode`) are still unused because wiring them directly would silently reinterpret existing callers. Use the env vars above instead.
 
 ## [0.157.1] - 2026-04-18
 
@@ -4637,7 +4817,6 @@ dead surface accumulated alongside the CDAL framework.
 ### Added
 
 - **`Content_replacement_event_bridge`.** Observer-only wrappers around `Content_replacement_state.record_replacement` / `record_kept` that publish `Custom("content_replacement_frozen", ...)` after successful state mutation, with an explicit `action` discriminator and `seen_count_after` payload (PR #982).
-- **`Slot_scheduler_event_bridge`.** Stateless publisher that projects `Slot_scheduler.snapshot` onto `Custom("slot_scheduler_queue", ...)` with a derived `state = idle | queued | saturated` discriminator for downstream congestion observers (PR #983).
 - **`Hooks.PostCompact` + `hooks.post_compact`.** Observer-only post-compaction lifecycle surface fired after successful proactive and emergency compaction, preserving the existing Event_bus behavior while exposing the reduced message set to hook consumers (PR #985).
 
 ### Fixed
@@ -4732,10 +4911,6 @@ Event system cleanup + boundary enforcement.
 - **Durable Custom names normalized colon → dot.**
   `durable:turn_started` → `durable.turn_started` (8 names). Matches
   runtime and provider namespace convention.
-- **`Event_forward.event_type_name` drops redundant `"custom."`
-  prefix.** `Custom("runtime.session_started", _)` now maps to
-  `"runtime.session_started"` (was `"custom.runtime.session_started"`).
-  The Custom name itself is already a namespaced identifier.
 - **`Event_bus.TaskStateChanged` removed.** Dead variant from
   v0.31–0.35 A2A roadmap — declared but never emitted, no consumers.
   The SSE-only `A2a_server.task_event` is a separate, unrelated type
@@ -4765,10 +4940,6 @@ variants via explicit arms; expect compile errors against v0.154.0 for:
 - removed variant (delete `TaskStateChanged` arm)
 - `Hooks.hooks` record field addition
 - `Journal_bridge.make` signature
-
-External consumers of `Event_forward` JSONL / HTTP output must update
-`event_type` string matching rules to drop the `"custom."` prefix and
-adopt the dot convention for runtime/durable events.
 
 See `docs/EVENT-CATALOG.md` for the full taxonomy and boundary
 guidance.
@@ -5168,7 +5339,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ### Added
 - Diagnostic logging in `cascade_health_filter.ml` for provider
   filtering decisions (API key drops, cloud-only fallback).
-- Debug log on `event_forward.ml` event_bus unsubscribe failure.
 
 ## [0.126.0] - 2026-04-13
 
@@ -5326,13 +5496,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 - `Mode_enforcer.builtin_descriptor` derives `Tool.descriptor` from the builtin registry. Read-only tools get `Parallel_read`, mutation tools get `Sequential_workspace`, shell/external tools get `Exclusive_external`. Consumers can query descriptors for built-in tools without hardcoding.
 - `agent_tools.concurrency_class_of_tool` now falls back to `builtin_descriptor` when a tool has no attached descriptor, enabling correct parallelization of read-only built-in tools.
 
-## [0.103.0] - 2026-04-06
-
-### Added
-- `Tool.permission` type (`ReadOnly | Write | Destructive`) for per-tool side-effect metadata. Added as optional field on `Tool.descriptor`. Consumers use this to decide approval policy per tool instead of applying uniform approval to all tools.
-- `Tool.permission` and `Tool.is_read_only` accessor functions.
-- `permission` included in `descriptor_to_yojson` output.
-
 ## [0.102.0] - 2026-04-06
 
 ### Added
@@ -5453,13 +5616,11 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 
 ### Fixed
 - Deduplicated `env_or` in `cascade_model_resolve.ml` (2 inline closures → 1 module-level function).
-- Event forward idle-path optimization: skip `List.map`/`rev_append` on empty drain.
 - Replace O(n) structural list comparison with O(1) counter check at loop exit.
 
 ## [0.99.3] - 2026-03-31
 
 ### Fixed
-- O(n²) batch accumulation in `event_forward.ml` — `(@)` replaced with `List.rev_append`.
 - Consolidated duplicate `Sys.getenv_opt` patterns in `review_agent.ml` and `mcp.ml` to use `Defaults` helpers.
 
 ## [0.99.2] - 2026-03-31
@@ -5469,9 +5630,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 - `OAS_MCP_HTTP_URL` env var — configurable MCP HTTP default endpoint.
 - `OAS_REVIEW_MODEL` env var — configurable review agent model selection.
 - `OAS_AGENT_MAX_RETRIES`, `OAS_AGENT_INITIAL_DELAY`, `OAS_AGENT_MAX_DELAY` env vars — configurable swarm retry policy.
-
-### Removed
-- `Event_forward.Webhook` variant — was unimplemented (always `failwith`). Use `Custom_target` for HTTP delivery.
 
 ### Fixed
 - Periodic callback exceptions now logged via `Printf.eprintf` instead of silently swallowed.
@@ -5581,7 +5739,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ## [0.92.1] - 2026-03-27
 
 ### Fixed
-- Replace mutable `event_forward` counters/state with `Atomic.t` and stop reporting unimplemented webhook delivery as success.
 - Improve HTTP client error context for hostname/TLS setup failures and preserve `Eio.Cancel.Cancelled` during socket cleanup.
 - Build MCP tool-result test fixtures via JSON parsing so local newer MCP SDK pins and CI's older schema both pass.
 
@@ -5612,7 +5769,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ### Fixed
 - Temp file resource leak in 6 cascade_config inline tests and 3 test files (Fun.protect pattern).
 - `eval_baseline.load` used failwith instead of direct Result return.
-- `event_forward` batch loop O(n) `List.length` check replaced with O(1) counter.
 - `succession.metrics_of_json` inconsistent float parsing (try-with to to_float_option).
 
 ## [0.89.0] - 2026-03-24
@@ -6203,7 +6359,6 @@ match Builder.build_safe builder with
   - `status`
   - `requested_provider`
   - `requested_model`
-  - `requested_policy`
   - `resolved_provider`
   - `resolved_model`
   - `last_progress_at`
@@ -6261,7 +6416,6 @@ match Builder.build_safe builder with
   - `error`
   - `started_at`
   - `finished_at`
-  - `policy_snapshot`
 - Raw trace validation now includes consumer-friendly verdict details:
   - `paired_tool_result_count`
   - `has_file_write`
@@ -6426,7 +6580,6 @@ match Builder.build_safe builder with
 - Harness-first runtime layer with bundled `oas-runtime` subprocess, file-backed session journal, report/proof generation, and typed runtime protocol
 - High-level `query` / `Client` surface on top of the runtime harness, with low-level `runtime_query` / `Runtime_client` escape hatches
 - Session helpers for listing, reading, renaming, and tagging persisted runtime sessions
-- Control-protocol callback round-trip for permission and hook requests
 - `Contract` module for explicit runtime awareness, trigger context, tool grants, MCP allowlists, and skill bundles
 - Builder helpers for contract-aware assembly: `with_contract`, `with_skill`, `with_skills`, `with_tool_grants`, `with_mcp_tool_allowlist`
 - Long-lived interactive client semantics:
@@ -6438,7 +6591,7 @@ match Builder.build_safe builder with
 ### Changed
 - Default high-level local-first path is now `provider = Some "local-qwen"` and `model = Some "qwen3.5"` for `llama.cpp`-style local runtimes
 - Runtime transport now uses a background reader thread to handle response, control, and event envelopes
-- `set_permission_mode` and `set_model` now persist through runtime session updates instead of mutating SDK-local state only
+- `set_model` now persists through runtime session updates instead of mutating SDK-local state only
 - Builder now compiles explicit contracts into composed system prompts, filtered local tools, filtered MCP tool surfaces, and reserved context metadata
 
 ### Fixed

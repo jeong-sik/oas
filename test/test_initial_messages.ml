@@ -9,7 +9,7 @@ open Types
 (* ── Helper: build an agent with initial_messages ──── *)
 
 let make_agent ~net ?(initial_messages = []) () =
-  let config = { default_config with initial_messages } in
+  let config = { (default_config ~model:"test-model") with initial_messages } in
   Agent.create ~net ~config ()
 ;;
 
@@ -20,7 +20,11 @@ let msg role text =
 (* ── Tests ──────────────────────────────────────────── *)
 
 let test_default_empty () =
-  check int "default empty" 0 (List.length default_config.initial_messages)
+  check
+    int
+    "default empty"
+    0
+    (List.length (default_config ~model:"test-model").initial_messages)
 ;;
 
 let test_base_messages_fresh () =
@@ -99,7 +103,9 @@ let test_builder_initial_messages () =
 
 let test_config_show () =
   (* Verify [@@deriving show] works with initial_messages *)
-  let config = { default_config with initial_messages = [ msg User "test" ] } in
+  let config =
+    { (default_config ~model:"test-model") with initial_messages = [ msg User "test" ] }
+  in
   let s = show_agent_config config in
   check bool "show includes initial" true (String.length s > 0)
 ;;

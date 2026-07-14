@@ -8,8 +8,7 @@
     U+10FFFF are rejected per the Unicode standard. A hand-rolled byte-length
     check cannot reject those classes (e.g. the overlong [0xC0 0x80] has a
     structurally well-formed lead byte and continuation), which is why this
-    delegates to the Stdlib decoder — the same primitive [Tool_index] already
-    uses.
+    delegates to the Stdlib decoder.
 
     Control characters (0x00-0x1F except LF/CR/TAB, plus DEL 0x7F) break LLM
     prompt formatting. Replacing them at the SDK level prevents consumers from

@@ -16,8 +16,8 @@ let with_env key value f =
 
 let test_model_string () =
   Alcotest.(check string)
-    "claude_sonnet"
-    "claude-sonnet-4-20250514"
+    "exact model"
+    "claude-sonnet-4"
     (model_to_string "claude-sonnet-4")
 ;;
 
@@ -49,36 +49,6 @@ let test_simple_tool () =
   | Error _ -> Alcotest.fail "Tool execution failed"
 ;;
 
-let test_consumer_tool_name_alias_registry () =
-  Agent_sdk.Agent_tool_name_alias.register_alias
-    ~alias:"consumer_web_search_for_test"
-    ~canonical:"WebSearch";
-  Alcotest.(check (option string))
-    "registered alias"
-    (Some "WebSearch")
-    (Agent_sdk.Agent_tool_name_alias.resolve_alias "consumer_web_search_for_test");
-  match
-    Agent_sdk.Agent_tool_name_alias.resolve
-      ~requested:"consumer_web_search_for_test"
-      ~input:(`Assoc [ "query", `String "ocaml" ])
-  with
-  | Some ("WebSearch", `Assoc [ ("query", `String "ocaml") ]) -> ()
-  | Some (name, input) ->
-    Alcotest.failf "unexpected alias resolution: %s %s" name (Yojson.Safe.to_string input)
-  | None -> Alcotest.fail "registered alias did not resolve"
-;;
-
-let test_no_builtin_consumer_tool_aliases () =
-  let check_unresolved name =
-    Alcotest.(check bool)
-      ("unregistered alias is not built in: " ^ name)
-      true
-      (Option.is_none
-         (Agent_sdk.Agent_tool_name_alias.resolve ~requested:name ~input:`Null))
-  in
-  List.iter check_unresolved [ "Read"; "Grep"; "Bash"; "execute_command" ]
-;;
-
 let test_extract_text () =
   let content =
     [ Text "Hello"; ToolUse { id = "1"; name = "t"; input = `Null }; Text " World" ]
@@ -98,7 +68,13 @@ let test_agent_create () =
   Eio_main.run
   @@ fun env ->
   let options = { Agent.default_options with base_url = "http://test" } in
-  let agent = Agent.create ~net:env#net ~options () in
+  let agent =
+    Agent.create
+      ~config:(Types.default_config ~model:"test-model")
+      ~net:env#net
+      ~options
+      ()
+  in
   let st = Agent.state agent in
   Alcotest.(check int) "initial turn count" 0 st.turn_count;
   Alcotest.(check int) "initial messages" 0 (List.length st.messages)
@@ -108,7 +84,13 @@ let test_agent_accessors () =
   Eio_main.run
   @@ fun env ->
   let options = { Agent.default_options with base_url = "http://test" } in
-  let agent = Agent.create ~net:env#net ~options () in
+  let agent =
+    Agent.create
+      ~config:(Types.default_config ~model:"test-model")
+      ~net:env#net
+      ~options
+      ()
+  in
   Alcotest.(check int) "no tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check bool) "no lifecycle" true (Option.is_none (Agent.lifecycle agent));
   let opts = Agent.options agent in
@@ -126,25 +108,13 @@ let test_build_safe_valid () =
   let result =
     Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
     |> Builder.with_system_prompt "test"
-    |> Builder.with_max_turns 5
     |> Builder.with_max_tokens 1024
     |> Builder.build_safe
   in
   Alcotest.(check bool) "build_safe ok" true (Result.is_ok result)
 ;;
 
-let test_build_safe_invalid_turns () =
-  Eio_main.run
-  @@ fun env ->
-  let result =
-    Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
-    |> Builder.with_max_turns (-1)
-    |> Builder.build_safe
-  in
-  Alcotest.(check bool) "build_safe error" true (Result.is_error result)
-;;
-
-let test_build_safe_thinking_without_enable () =
+let test_build_safe_explicit_thinking_budget () =
   Eio_main.run
   @@ fun env ->
   let result =
@@ -152,7 +122,7 @@ let test_build_safe_thinking_without_enable () =
     |> Builder.with_thinking_budget 1000
     |> Builder.build_safe
   in
-  Alcotest.(check bool) "thinking_budget without enable" true (Result.is_error result)
+  Alcotest.(check bool) "explicit thinking budget" true (Result.is_ok result)
 ;;
 
 (* --- create_agent coverage --- *)
@@ -160,18 +130,10 @@ let test_build_safe_thinking_without_enable () =
 let test_create_agent_defaults () =
   Eio_main.run
   @@ fun env ->
-  let agent = Agent_sdk.create_agent ~net:env#net () in
+  let agent = Agent_sdk.create_agent ~net:env#net ~model:"exact-test-model" () in
   let st = Agent.state agent in
-  Alcotest.(check int) "initial turn count" 0 st.turn_count
-;;
-
-let test_create_agent_default_model_reads_current_env () =
-  with_env Model_registry.default_model_id_env_var "create-agent-default-model" (fun () ->
-    Eio_main.run
-    @@ fun env ->
-    let agent = Agent_sdk.create_agent ~net:env#net () in
-    let config = (Agent.state agent).config in
-    Alcotest.(check string) "model" "create-agent-default-model" config.model)
+  Alcotest.(check int) "initial turn count" 0 st.turn_count;
+  Alcotest.(check string) "exact model" "exact-test-model" st.config.model
 ;;
 
 let test_create_agent_with_name_model () =
@@ -184,15 +146,13 @@ let test_create_agent_with_name_model () =
       ~model:"claude-haiku-4-5"
       ~system_prompt:"You are helpful."
       ~max_tokens:2048
-      ~max_turns:5
       ()
   in
   let config = (Agent.state agent).config in
   Alcotest.(check string) "name" "test-agent" config.name;
   Alcotest.(check string) "model" "claude-haiku-4-5" config.model;
   Alcotest.(check (option string)) "prompt" (Some "You are helpful.") config.system_prompt;
-  Alcotest.(check (option int)) "max_tokens" (Some 2048) config.max_tokens;
-  Alcotest.(check int) "max_turns" 5 config.max_turns
+  Alcotest.(check (option int)) "max_tokens" (Some 2048) config.max_tokens
 ;;
 
 let test_create_agent_with_provider () =
@@ -204,7 +164,9 @@ let test_create_agent_with_provider () =
     ; api_key_env = ""
     }
   in
-  let agent = Agent_sdk.create_agent ~net:env#net ~provider:provider_cfg () in
+  let agent =
+    Agent_sdk.create_agent ~net:env#net ~model:"test" ~provider:provider_cfg ()
+  in
   let opts = Agent.options agent in
   Alcotest.(check bool) "provider set" true (Option.is_some opts.provider)
 ;;
@@ -215,7 +177,9 @@ let test_create_agent_with_raw_trace () =
   let path = Filename.concat (Filename.get_temp_dir_name ()) "oas-test-trace" in
   match Raw_trace.create ~path () with
   | Ok trace ->
-    let agent = Agent_sdk.create_agent ~net:env#net ~raw_trace:trace () in
+    let agent =
+      Agent_sdk.create_agent ~net:env#net ~model:"test-model" ~raw_trace:trace ()
+    in
     let opts = Agent.options agent in
     Alcotest.(check bool) "raw_trace set" true (Option.is_some opts.raw_trace)
   | Error _ ->
@@ -236,7 +200,12 @@ let test_create_agent_with_provider_and_trace () =
   match Raw_trace.create ~path () with
   | Ok trace ->
     let agent =
-      Agent_sdk.create_agent ~net:env#net ~provider:provider_cfg ~raw_trace:trace ()
+      Agent_sdk.create_agent
+        ~net:env#net
+        ~model:"test"
+        ~provider:provider_cfg
+        ~raw_trace:trace
+        ()
     in
     let opts = Agent.options agent in
     Alcotest.(check bool) "provider set" true (Option.is_some opts.provider);
@@ -247,7 +216,9 @@ let test_create_agent_with_provider_and_trace () =
 let test_create_agent_with_cache () =
   Eio_main.run
   @@ fun env ->
-  let agent = Agent_sdk.create_agent ~net:env#net ~cache_system_prompt:true () in
+  let agent =
+    Agent_sdk.create_agent ~net:env#net ~model:"test-model" ~cache_system_prompt:true ()
+  in
   let config = (Agent.state agent).config in
   Alcotest.(check bool) "cache enabled" true config.cache_system_prompt
 ;;
@@ -260,17 +231,7 @@ let () =
         ; test_case "role_string" `Quick test_role_string
         ; test_case "stop_reason" `Quick test_stop_reason
         ] )
-    ; ( "tool"
-      , [ test_case "simple_tool" `Quick test_simple_tool
-        ; test_case
-            "consumer tool name alias registry"
-            `Quick
-            test_consumer_tool_name_alias_registry
-        ; test_case
-            "no built-in consumer tool aliases"
-            `Quick
-            test_no_builtin_consumer_tool_aliases
-        ] )
+    ; "tool", [ test_case "simple_tool" `Quick test_simple_tool ]
     ; "api", [ test_case "extract_text" `Quick test_extract_text ]
     ; ( "agent"
       , [ test_case "create" `Quick test_agent_create
@@ -279,15 +240,10 @@ let () =
         ] )
     ; ( "builder"
       , [ test_case "build_safe valid" `Quick test_build_safe_valid
-        ; test_case "build_safe invalid turns" `Quick test_build_safe_invalid_turns
-        ; test_case "build_safe thinking" `Quick test_build_safe_thinking_without_enable
+        ; test_case "build_safe thinking" `Quick test_build_safe_explicit_thinking_budget
         ] )
     ; ( "create_agent"
       , [ test_case "defaults" `Quick test_create_agent_defaults
-        ; test_case
-            "default model reads current env"
-            `Quick
-            test_create_agent_default_model_reads_current_env
         ; test_case "with name/model/prompt" `Quick test_create_agent_with_name_model
         ; test_case "with provider" `Quick test_create_agent_with_provider
         ; test_case "with raw_trace" `Quick test_create_agent_with_raw_trace

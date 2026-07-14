@@ -1,6 +1,6 @@
 open Types
 
-let checkpoint_version = 6
+let checkpoint_version = 8
 
 type t =
   { version : int
@@ -23,6 +23,7 @@ type t =
   ; preserve_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; cache_system_prompt : bool
   ; context : Context.t
   ; mcp_sessions : Mcp_session.info list
@@ -50,6 +51,7 @@ type sampling_patch =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   }
 
 type limits_patch =
@@ -79,13 +81,4 @@ type delta =
   ; result_checkpoint_hash : string
   ; created_at : float
   ; operations : delta_op list
-  }
-
-type delta_restore_mode =
-  | Delta_applied
-  | Full_restore
-
-type delta_restore_result =
-  { checkpoint : t
-  ; mode : delta_restore_mode
   }

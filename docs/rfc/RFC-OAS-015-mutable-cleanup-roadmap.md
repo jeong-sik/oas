@@ -22,14 +22,13 @@ OCaml `ref` / `mutable record` / `Hashtbl` 사용지점을 *3 카테고리*로 �
 |---|---|---|
 | `let X = ref Y` | 149 init | 가장 큰 surface |
 | `mutable record field` | 50+ files | metrics + state buffers |
-| `Hashtbl` | 100+ files | tool_index, content_replacement_state, complete_stream_acc |
+| `Hashtbl` | 100+ files | tool_index, complete_stream_acc |
 
 Top files:
 - `lib/streaming.ml`: 17 ref (streaming buffer — *legitimate*)
 - `lib/llm_provider/complete_stream_acc.ml`: 16 ref (stream accumulator — *legitimate*)
 - `lib/llm_provider/transport_codex_cli.ml`: 12 ref (transport state — 검토 필요)
-- `lib/context_reducer_apply.ml`: 12 ref (검토 필요)
-- `lib/proof_store.ml`: 11 ref (RFC-OAS-011에서 cdal_runtime 이주, OAS lib에서 제거됨)
+- `lib/proof_store.ml`: 11 ref (CDAL 제거 때 OAS lib에서 함께 제거됨)
 
 ### 1.2 masc-mcp
 
@@ -236,7 +235,7 @@ masc-mcp 측은 *별 RFC* (RFC-MASC-XXX) 또는 본 RFC 본문 확장.
 |---|---|---|
 | 1 | Category A를 잘못 분류해서 변경 → concurrency 깨짐 | RFC §2의 카테고리 정의를 *grep + caller-context*로 검증 후 PR 생성 |
 | 2 | Category B의 *fold accumulator* 변환이 *closure capture* 가정 깨뜨림 | inline test + property test로 동일성 검증 |
-| 3 | RFC-OAS-011 정신 (workaround rejection bar)와의 정합 | 카테고리 C는 *workaround*에 해당, 정리가 *워크어라운드 거부 bar* 정신 일치 |
+| 3 | workaround rejection bar와의 정합 | 카테고리 C는 *workaround*에 해당, 정리가 *워크어라운드 거부 bar* 정신 일치 |
 
 ## 7. References
 

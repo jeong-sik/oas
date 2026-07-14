@@ -2,9 +2,8 @@
     Inspired by Anthropic SDK's AgentDefinition + Task tool
     and Google ADK's Root/Sub-agent pattern.
 
-    To avoid circular dependency with Agent, handoff defines types and
-    a tool constructor. Actual delegation is done by Agent.run_with_handoffs
-    which intercepts ToolUse blocks matching "transfer_to_*" names. *)
+    To avoid a circular dependency with Agent, this module owns the target
+    type and constructs a normal tool from a caller-supplied delegate closure. *)
 
 (** Handoff target definition *)
 type handoff_target =
@@ -29,79 +28,44 @@ type delegate_fn =
   -> string
   -> (Types.api_response, Error.sdk_error) result
 
-(** Prefix used to identify handoff tools in ToolUse blocks *)
-let handoff_prefix = "transfer_to_"
-
-(** Extract the handoff target name from a tool name, if it is a handoff tool.
-
-    Returns [Some suffix] when [name] starts with [handoff_prefix]; the suffix
-    may be empty, so the bare prefix ["transfer_to_"] yields [Some ""]. Returns
-    [None] otherwise.
-
-    Folding the prefix check and the suffix extraction into one function makes
-    this total: there is no input for which it raises [Invalid_argument]. The
-    earlier split — [is_handoff_tool] (guard) followed by a separate
-    [target_name_of_tool] that called [String.sub] assuming the guard held —
-    re-scanned the prefix and raised on undersized input if ever called without
-    the guard (parse, don't validate). *)
-let target_name_of_tool name =
-  let prefix_len = String.length handoff_prefix in
-  if String.length name >= prefix_len && String.sub name 0 prefix_len = handoff_prefix
-  then Some (String.sub name prefix_len (String.length name - prefix_len))
-  else None
-;;
-
-let%test "target_name_of_tool: extracts suffix after prefix" =
-  target_name_of_tool "transfer_to_researcher" = Some "researcher"
-;;
-
-let%test "target_name_of_tool: bare prefix yields empty suffix" =
-  (* Preserves the prior [is_handoff_tool] [>=] semantics: [name] of exactly
-     the prefix length still matches, with an empty target name. *)
-  target_name_of_tool "transfer_to_" = Some ""
-;;
-
-let%test "target_name_of_tool: non-handoff name is None" =
-  target_name_of_tool "get_weather" = None
-;;
-
-let%test "target_name_of_tool: undersized input is None, never raises" =
-  (* ["x"] is shorter than the 12-char prefix; the previous partial
-     implementation raised [Invalid_argument] on this input. *)
-  target_name_of_tool "x" = None
-;;
-
-let%test "target_name_of_tool: total across the prefix-length boundary" =
-  (* The only prior failure mode was [String.sub] with a negative length when
-     [String.length name < prefix_len]. Sweep lengths spanning the prefix
-     boundary plus near-miss prefixes and assert no input raises. *)
-  let raises s =
-    try
-      ignore (target_name_of_tool s);
-      false
-    with
-    | _ -> true
-  in
-  let samples =
-    List.init 25 (fun n -> String.make n 'a')
-    @ [ ""; handoff_prefix; handoff_prefix ^ "y"; "transfer_to"; "transfer_t" ]
-  in
-  not (List.exists raises samples)
-;;
-
 (** Create a handoff tool visible to the LLM.
-    The handler is a stub -- actual delegation is intercepted
-    by the agent runner before this handler is called. *)
-let make_handoff_tool (target : handoff_target) : Tool.t =
-  let handler _input : Types.tool_result =
-    Error
-      { message = "Handoff tools are intercepted by the agent runner"
-      ; recoverable = false
-      ; error_class = None
-      }
+    [delegate] is the real execution closure. The target name is the exact tool
+    name; no prefix, alias, or post-execution interception is involved. *)
+let make_handoff_tool ~(delegate : string -> Types.tool_result) (target : handoff_target)
+  : Tool.t
+  =
+  let handler input : Types.tool_result =
+    match input with
+    | `Assoc fields ->
+      (match List.assoc_opt "prompt" fields with
+       | Some (`String prompt) -> delegate prompt
+       | Some value ->
+         Error
+           { message =
+               Printf.sprintf
+                 "handoff prompt must be a string, got %s"
+                 (Tool_input_validation.describe_json_value value)
+           ; recoverable = true
+           ; error_class = Some Types.Deterministic
+           }
+       | None ->
+         Error
+           { message = "handoff prompt is required"
+           ; recoverable = true
+           ; error_class = Some Types.Deterministic
+           })
+    | input ->
+      Error
+        { message =
+            Printf.sprintf
+              "handoff input must be an object, got %s"
+              (Tool_input_validation.describe_json_value input)
+        ; recoverable = true
+        ; error_class = Some Types.Deterministic
+        }
   in
   Tool.create
-    ~name:(Printf.sprintf "%s%s" handoff_prefix target.name)
+    ~name:target.name
     ~description:(Printf.sprintf "Hand off to %s: %s" target.name target.description)
     ~parameters:
       [ { Types.name = "prompt"
@@ -111,4 +75,42 @@ let make_handoff_tool (target : handoff_target) : Tool.t =
         }
       ]
     handler
+;;
+
+let inline_test_target =
+  { name = "researcher"
+  ; description = "Research"
+  ; config = Types.default_config ~model:"test-model"
+  ; tools = []
+  }
+;;
+
+let%test "make_handoff_tool uses exact target name and real delegate" =
+  let seen = ref None in
+  let tool =
+    make_handoff_tool
+      ~delegate:(fun prompt ->
+        seen := Some prompt;
+        Ok { Types.content = "delegated"; _meta = None })
+      inline_test_target
+  in
+  tool.schema.name = "researcher"
+  && Tool.execute tool (`Assoc [ "prompt", `String "inspect" ])
+     = Ok { Types.content = "delegated"; _meta = None }
+  && !seen = Some "inspect"
+;;
+
+let%test "make_handoff_tool rejects missing prompt without invoking delegate" =
+  let invoked = ref false in
+  let tool =
+    make_handoff_tool
+      ~delegate:(fun _ ->
+        invoked := true;
+        Ok { Types.content = "unexpected"; _meta = None })
+      inline_test_target
+  in
+  match Tool.execute tool (`Assoc []) with
+  | Error { recoverable = true; error_class = Some Types.Deterministic; _ } ->
+    not !invoked
+  | Ok _ | Error _ -> false
 ;;

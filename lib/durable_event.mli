@@ -4,8 +4,7 @@
     On crash recovery, replays the journal to reconstruct exact state
     without re-executing side-effectful activities.
 
-    Complements {!Durable} (step-level pipelines) with fine-grained
-    agent-loop-level event sourcing inspired by Temporal workflows.
+    Provides fine-grained agent-loop-level event sourcing.
 
     Key properties:
     - Events are append-only (immutable journal)
@@ -47,12 +46,12 @@ type event =
   | Llm_request of
       { turn : int
       ; model : string
-      ; input_tokens : int
       ; timestamp : float
       }
   | Llm_response of
       { turn : int
-      ; output_tokens : int
+      ; input_tokens : int option
+      ; output_tokens : int option
       ; stop_reason : string
       ; duration_ms : float
       ; timestamp : float
@@ -94,6 +93,15 @@ type event =
 
 type journal
 
+(** Ordinary [on_append] observer failure captured after the event was added to
+    the journal.  The original exception and raw backtrace are retained so a
+    caller can surface or re-raise the failure without fabricating a new
+    origin. *)
+type append_error =
+  { exception_ : exn
+  ; backtrace : Printexc.raw_backtrace
+  }
+
 (** Create an empty journal.
     When [~on_append] is provided, it is called after every
     {!append} with the event just recorded.  Intended for
@@ -101,8 +109,13 @@ type journal
     @since 0.133.0 *)
 val create : ?on_append:(event -> unit) -> unit -> journal
 
-(** Append an event to the journal. *)
-val append : journal -> event -> unit
+(** Append an event to the journal, then notify [on_append].
+
+    The append is committed before observer notification. An ordinary observer
+    exception is returned explicitly as [Error] and never rolls back the event.
+    [Out_of_memory], [Stack_overflow], [Sys.Break], and cancellation are
+    re-raised with their original backtrace after the event is committed. *)
+val append : journal -> event -> (unit, append_error) result
 
 (** All events in chronological order. *)
 val events : journal -> event list
@@ -127,8 +140,8 @@ type replay_summary =
   { last_turn : int
   ; completed_tools : (string * Yojson.Safe.t) list (** idempotency_key -> output *)
   ; last_state : string
-  ; total_input_tokens : int
-  ; total_output_tokens : int
+  ; total_input_tokens : int option
+  ; total_output_tokens : int option
   ; error_count : int
   }
 

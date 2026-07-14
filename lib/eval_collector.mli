@@ -6,7 +6,9 @@
 
     Usage:
     {[
-      let collector = Eval_collector.wrap_run ~bus ~agent_name ~run_id () in
+      let collector =
+        Eval_collector.wrap_run ~bus ~subscription ~agent_name ~run_id ()
+      in
       (* ... run agent ...
 
     @stability Evolving
@@ -21,8 +23,15 @@ type t
 
 (** {1 Lifecycle} *)
 
-(** Start collecting events from [bus] for the given agent and run. *)
-val wrap_run : bus:Event_bus.t -> agent_name:string -> run_id:string -> unit -> t
+(** Start collecting events from [bus] for the given agent and run.
+    [subscription] is the caller-owned capacity and overflow contract. *)
+val wrap_run
+  :  bus:Event_bus.t
+  -> subscription:Event_bus.subscription_config
+  -> agent_name:string
+  -> run_id:string
+  -> unit
+  -> t
 
 (** Process any pending events from the bus.
     Called automatically by {!finalize} but can be invoked

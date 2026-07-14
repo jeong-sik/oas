@@ -385,7 +385,9 @@ let finalize_stream_acc (acc : stream_acc) =
                 ; content = text
                 ; outcome =
                     (if is_error
-                     then Types.Legacy_unclassified_failure
+                     then
+                       Types.Tool_failed
+                         { failure_kind = Types.Reported_tool_error; error_class = None }
                      else Types.Tool_succeeded)
                 ; json = (if is_error then None else Types.try_parse_json text)
                 ; content_blocks = None

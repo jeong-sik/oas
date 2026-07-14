@@ -38,10 +38,10 @@ let smart_mock ~sw:_ prompt =
 | Capability | How |
 |-----------|-----|
 | Tool-handling turn loop | Stub tool results and verify follow-up turns |
-| Timeout behavior | Set short time budgets and verify graceful exit |
+| Timeout behavior | Set short wall-clock timeouts and verify graceful exit |
 | Provider error recovery | Return typed `sdk_error` values from mocks |
 | Pipeline behavior | Assert stage-by-stage transformations stay deterministic |
-| Context compaction | Feed large prompts and verify reducer output |
+| Explicit caller-selected context reducer | Feed large prompts and verify reducer output |
 | Hook ordering | Capture side effects in test-local refs |
 
 ## Why this matters

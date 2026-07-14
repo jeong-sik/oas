@@ -1,8 +1,9 @@
-(** LLM endpoint discovery -- probes local llama-server instances.
+(** LLM endpoint discovery -- probes explicit typed endpoint declarations.
 
-    Queries OpenAI-compatible endpoints (/v1/models, /props, /slots, /health)
-    and returns typed status. Consumers can use this to discover
-    available LLM capacity.
+    Protocol-specific probe paths are selected only from {!endpoint_protocol};
+    URLs, ports, model names, response prose, and chat templates never classify
+    the endpoint or its capabilities. Every probe failure remains local to its
+    endpoint status.
 
     @since 0.53.0
 
@@ -23,7 +24,6 @@ type server_props = Discovery_parse.server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
-  ; supports_tools : bool option
   }
 
 (** Slot utilization from /slots — re-exported from
@@ -34,23 +34,61 @@ type slot_status = Discovery_parse.slot_status =
   ; idle : int
   }
 
+(** Wire protocol declared by the endpoint owner.
+
+    Discovery never derives this value from a URL, port, model name, response
+    prose, or chat template. *)
+type endpoint_protocol =
+  | Openai_compatible
+  | Ollama_native
+
+(** Endpoint declaration consumed by discovery.
+
+    [capabilities] is the provider/catalog declaration that discovery starts
+    from. Objective endpoint properties such as a reported context size may be
+    layered onto it, but discovery never guesses model capabilities. *)
+type endpoint =
+  { url : string
+  ; protocol : endpoint_protocol
+  ; capabilities : Capabilities.capabilities
+  }
+
+(** Construct an endpoint declaration. [url] is trimmed. Both protocol and
+    capabilities are mandatory declarations; a transport protocol never grants
+    model capabilities implicitly. *)
+val endpoint
+  :  protocol:endpoint_protocol
+  -> capabilities:Capabilities.capabilities
+  -> string
+  -> endpoint
+
+(** Failure of one endpoint probe. Failures are endpoint-local and never stop
+    other endpoint lanes. *)
+type probe_failure =
+  { phase : string
+  ; detail : string
+  }
+
 (** Full status of a single endpoint *)
 type endpoint_status =
   { url : string
+  ; protocol : endpoint_protocol
   ; healthy : bool
   ; models : model_info list
   ; props : server_props option
   ; slots : slot_status option
   ; capabilities : Capabilities.capabilities
+  ; failures : probe_failure list
   }
 
-(** Probe a list of endpoint URLs and return their current status.
+(** Probe explicitly-declared endpoints and return their current status.
     Non-reachable endpoints are returned with [healthy = false].
-    Does not raise; all errors are captured in the returned records. *)
+    Does not raise for endpoint failures; all probe errors are captured in the
+    corresponding [failures] field. *)
 val discover
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> endpoints:string list
+  -> endpoints:endpoint list
   -> endpoint_status list
 
 (** Environment variable consulted by {!resolve_default_endpoint}. *)
@@ -96,21 +134,16 @@ val resolve_ollama_endpoint : ?getenv:(string -> string option) -> unit -> strin
     [[]] when the variable is unset, empty, or contains only empty
     entries after trimming.
 
-    Single source of truth for [LLM_ENDPOINTS] parsing — consumers
-    needing defaulting (e.g. fall back to {!default_endpoint}) or the
-    Ollama append (see {!endpoints_from_env}) should layer their
-    semantics on top of this raw list.
+    Single source of truth for raw [LLM_ENDPOINTS] parsing. Callers that use
+    these URLs must independently declare the protocol and catalog capability
+    record for every constructed {!endpoint}; this function does not infer
+    either.
 
     [getenv] defaults to {!Cli_common_env.get}; tests may inject it to avoid
     mutating the process environment.
 
     @since 0.161.0 *)
 val parse_llm_endpoints_env : ?getenv:(string -> string option) -> unit -> string list
-
-(** Parse LLM_ENDPOINTS env var (comma-separated) and append the call-time
-    Ollama endpoint if not already included.
-    Falls back to [[resolve_default_endpoint (); resolve_ollama_endpoint ()]]. *)
-val endpoints_from_env : ?getenv:(string -> string option) -> unit -> string list
 
 (** JSON serialization for endpoint_status. *)
 val endpoint_status_to_json : endpoint_status -> Yojson.Safe.t
@@ -121,21 +154,6 @@ val summary_to_json : endpoint_status list -> Yojson.Safe.t
 (** Extract max context size from endpoint status.
     Returns [ctx_size] from [props] if available, else checks [capabilities.max_context_tokens]. *)
 val max_context_of_status : endpoint_status -> int option
-
-(** Scan local ports for healthy llama-server instances.
-    Probes each port via [/health] and returns URLs of healthy endpoints.
-    Default port range: 8085-8090.
-    @since 0.86.0 *)
-
-(** Default ports to scan for local llama-server instances. *)
-val default_scan_ports : unit -> int list
-
-val scan_local_endpoints
-  :  ?ports:int list
-  -> sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> unit
-  -> string list
 
 (** {1 Discovered Context State}
 
@@ -192,5 +210,5 @@ val context_for_model : string -> (string * int) option
 val refresh_and_sync
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> endpoints:string list
+  -> endpoints:endpoint list
   -> endpoint_status list

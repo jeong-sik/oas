@@ -1,7 +1,6 @@
 open Checkpoint_types
 open Result_syntax
 
-let _log = Log.create ~module_name:"checkpoint" ()
 let checkpoint_version = Checkpoint_types.checkpoint_version
 
 let context_diff_is_empty diff =
@@ -105,6 +104,7 @@ let sampling_patch_changed (before : t) (after : t) =
   || before.enable_thinking <> after.enable_thinking
   || before.preserve_thinking <> after.preserve_thinking
   || before.thinking_budget <> after.thinking_budget
+  || before.reasoning_effort <> after.reasoning_effort
 ;;
 
 let limits_patch_changed (before : t) (after : t) =
@@ -113,39 +113,7 @@ let limits_patch_changed (before : t) (after : t) =
   || before.cache_system_prompt <> after.cache_system_prompt
 ;;
 
-let delta_version = 2
-
-let delta_metrics_names =
-  ( "oas.checkpoint.delta_apply_total"
-  , "oas.checkpoint.delta_apply_failures_total"
-  , "oas.checkpoint.delta_size_bytes"
-  , "oas.checkpoint.full_restore_fallback_total" )
-;;
-
-let delta_enabled () = Defaults.bool_env_or false "OAS_DELTA_CHECKPOINT"
-
-let register_delta_metrics metrics =
-  let apply_total_name, apply_failures_name, size_name, fallback_name =
-    delta_metrics_names
-  in
-  ( Metrics.counter metrics ~name:apply_total_name ~unit_:"1"
-  , Metrics.counter metrics ~name:apply_failures_name ~unit_:"1"
-  , Metrics.histogram
-      metrics
-      ~name:size_name
-      ~buckets:[ 128.; 512.; 1024.; 4096.; 16384.; 65536. ]
-  , Metrics.counter metrics ~name:fallback_name ~unit_:"1" )
-;;
-
-let delta_failure_rate_exceeded metrics =
-  let apply_total, apply_failures, _, _ = register_delta_metrics metrics in
-  let total = Metrics.counter_value apply_total () in
-  if total = 0
-  then false
-  else (
-    let failures = Metrics.counter_value apply_failures () in
-    float_of_int failures /. float_of_int total > 0.05)
-;;
+let delta_version = 3
 
 let apply_context_patch ctx diff =
   let next = Context.copy ctx in
@@ -192,6 +160,7 @@ let compute_delta (before : t) (after : t) =
          ; enable_thinking = after.enable_thinking
          ; preserve_thinking = after.preserve_thinking
          ; thinking_budget = after.thinking_budget
+         ; reasoning_effort = after.reasoning_effort
          });
   if limits_patch_changed before after
   then
@@ -260,6 +229,7 @@ let apply_delta base delta =
           ; enable_thinking = patch.enable_thinking
           ; preserve_thinking = patch.preserve_thinking
           ; thinking_budget = patch.thinking_budget
+          ; reasoning_effort = patch.reasoning_effort
           }
       | Replace_limits (patch : limits_patch) ->
         Ok
@@ -287,48 +257,4 @@ let apply_delta base delta =
       Error
         (Error.Io (ValidationFailed { detail = "Checkpoint.delta result hash mismatch" }))
     else Ok checkpoint)
-;;
-
-let restore_with_delta_fallback ?metrics ~base ~delta ~full_checkpoint () =
-  let fallback () =
-    Option.iter
-      (fun metrics ->
-         let _, _, _, fallback_total = register_delta_metrics metrics in
-         Metrics.incr fallback_total 1)
-      metrics;
-    Ok { checkpoint = full_checkpoint; mode = Full_restore }
-  in
-  if not (delta_enabled ())
-  then fallback ()
-  else if
-    match metrics with
-    | Some metrics -> delta_failure_rate_exceeded metrics
-    | None -> false
-  then fallback ()
-  else (
-    Option.iter
-      (fun metrics ->
-         let apply_total, _, size_histogram, _ = register_delta_metrics metrics in
-         Metrics.incr apply_total 1;
-         let payload_len =
-           String.length (Yojson.Safe.to_string (Checkpoint_codec.delta_to_json delta))
-         in
-         Metrics.observe size_histogram (float_of_int payload_len))
-      metrics;
-    match apply_delta base delta with
-    | Ok checkpoint -> Ok { checkpoint; mode = Delta_applied }
-    | Error e ->
-      Log.warn
-        _log
-        "delta application failed, falling back to full restore"
-        [ Log.S ("error", Error.to_string e)
-        ; Log.S ("base_hash", delta.base_checkpoint_hash)
-        ];
-      Option.iter
-        (fun metrics ->
-           let _, apply_failures, _, fallback_total = register_delta_metrics metrics in
-           Metrics.incr apply_failures 1;
-           Metrics.incr fallback_total 1)
-        metrics;
-      Ok { checkpoint = full_checkpoint; mode = Full_restore })
 ;;

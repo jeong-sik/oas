@@ -17,7 +17,6 @@ type info =
   ; command : string
   ; args : string list
   ; env : (string * string) list
-  ; env_policy : Mcp.env_policy
   ; http_base_url : string option
   ; http_headers : (string * string) list
   ; tool_schemas : tool_schema list

@@ -2,8 +2,8 @@
 
     Covers: Adversarial.ErrorContains, Performance edge cases,
     Regression.StructuralMatch / FuzzyMatch boundary, Swiss_cheese
-    empty layers, Composability.AllAgentsCompleted / TurnCountBelow,
-    Behavioral score aggregation, and verdict detail messages. *)
+    empty layers, Composability.AllAgentsCompleted, Behavioral score
+    aggregation, and verdict detail messages. *)
 
 open Agent_sdk
 
@@ -113,7 +113,7 @@ let test_performance_p95_unsorted () =
   Alcotest.(check (float 0.001)) "p95 of unsorted" 70.0 p
 ;;
 
-let test_performance_all_constraints () =
+let test_performance_latency_failure () =
   let obs : Harness.Performance.observation =
     { latencies_ms = [ 10.0; 20.0; 30.0; 40.0; 50.0 ]
     ; total_tokens = 2000
@@ -121,12 +121,10 @@ let test_performance_all_constraints () =
     ; turn_count = 8
     }
   in
-  let exp : Harness.Performance.expectation =
-    { max_p95_latency_ms = Some 45.0; max_turns = Some 5 }
-  in
+  let exp : Harness.Performance.expectation = { max_p95_latency_ms = Some 35.0 } in
   let v = Harness.Performance.evaluate obs exp in
-  Alcotest.(check bool) "multiple failures" false v.passed;
-  (* p95 50 > 45, turns 8 > 5 *)
+  Alcotest.(check bool) "latency failure" false v.passed;
+  (* p95 40 > 35 *)
   Alcotest.(check bool) "detail lists failures" true (Option.is_some v.detail)
 ;;
 
@@ -151,9 +149,7 @@ let test_performance_latency_only () =
     ; turn_count = 1
     }
   in
-  let exp =
-    { Harness.Performance.default_expectation with max_p95_latency_ms = Some 25.0 }
-  in
+  let exp : Harness.Performance.expectation = { max_p95_latency_ms = Some 25.0 } in
   let v = Harness.Performance.evaluate obs exp in
   (* p95 of [10;20;30] sorted, idx=int(2*0.95)=1 -> 20.0. 20 <= 25 -> pass *)
   Alcotest.(check bool) "latency within limit" true v.passed
@@ -334,27 +330,6 @@ let test_composability_all_agents_completed_false () =
      | None -> false)
 ;;
 
-let test_composability_turn_count_below () =
-  let obs : Harness.Composability.observation =
-    { agents_involved = [ "a" ]
-    ; handoffs_observed = []
-    ; all_completed = true
-    ; context_keys = []
-    ; total_turns = 3
-    }
-  in
-  let v_pass = Harness.Composability.evaluate obs (TurnCountBelow 5) in
-  Alcotest.(check bool) "3 < 5" true v_pass.passed;
-  let v_fail = Harness.Composability.evaluate obs (TurnCountBelow 3) in
-  Alcotest.(check bool) "3 not < 3" false v_fail.passed;
-  Alcotest.(check bool)
-    "detail mentions limit"
-    true
-    (match v_fail.detail with
-     | Some d -> Util.string_contains ~needle:"limit" d
-     | None -> false)
-;;
-
 let test_composability_context_not_propagated () =
   let obs : Harness.Composability.observation =
     { agents_involved = [ "a" ]
@@ -376,7 +351,7 @@ let test_composability_context_not_propagated () =
 
 (* ── Behavioral: score aggregation in All ──────────────────── *)
 
-let test_behavioral_all_score_aggregation () =
+let test_behavioral_all_without_scores () =
   let obs : Harness.Behavioral.observation =
     { tools_called = [ "search" ]
     ; turn_count = 2
@@ -384,17 +359,13 @@ let test_behavioral_all_score_aggregation () =
     ; messages = []
     }
   in
-  (* CompletesWithin produces a score, ToolSelected and ContainsText do not *)
   let v =
     Harness.Behavioral.evaluate
       obs
-      (All [ ToolSelected [ "search" ]; CompletesWithin 5; ContainsText "Found" ])
+      (All [ ToolSelected [ "search" ]; ContainsText "Found" ])
   in
   Alcotest.(check bool) "all pass" true v.passed;
-  (* Score should be the average of scores from checks that have scores.
-     Only CompletesWithin has a score: min(1.0, 5/max(1,2)) = min(1.0, 2.5) = 1.0 *)
-  Alcotest.(check bool) "score present" true (Option.is_some v.score);
-  Alcotest.(check (float 0.01)) "avg score = 1.0" 1.0 (Option.get v.score)
+  Alcotest.(check bool) "no numeric score" true (Option.is_none v.score)
 ;;
 
 let test_behavioral_all_empty () =
@@ -404,22 +375,6 @@ let test_behavioral_all_empty () =
   let v = Harness.Behavioral.evaluate obs (All []) in
   Alcotest.(check bool) "empty All -> pass" true v.passed;
   Alcotest.(check bool) "no score for empty" true (Option.is_none v.score)
-;;
-
-let test_behavioral_completes_within_score () =
-  let obs : Harness.Behavioral.observation =
-    { tools_called = []; turn_count = 10; final_response = ""; messages = [] }
-  in
-  let v = Harness.Behavioral.evaluate obs (CompletesWithin 5) in
-  Alcotest.(check bool) "exceeded" false v.passed;
-  (* score = min(1.0, 5 / max(1, 10)) = 0.5 *)
-  Alcotest.(check (float 0.01)) "score = 0.5" 0.5 (Option.get v.score);
-  Alcotest.(check bool)
-    "detail mentions turns"
-    true
-    (match v.detail with
-     | Some d -> Util.string_contains ~needle:"10 turns" d
-     | None -> false)
 ;;
 
 let test_behavioral_tool_selected_evidence () =
@@ -443,14 +398,14 @@ let test_behavioral_all_partial_failure_count () =
   let v =
     Harness.Behavioral.evaluate
       obs
-      (All [ ToolSelected [ "missing" ]; CompletesWithin 1; ContainsText "nope" ])
+      (All [ ToolSelected [ "missing" ]; ContainsText "nope" ])
   in
   Alcotest.(check bool) "all fail" false v.passed;
   Alcotest.(check bool)
-    "detail says 3/3"
+    "detail says 2/2"
     true
     (match v.detail with
-     | Some d -> Util.string_contains ~needle:"3/3" d
+     | Some d -> Util.string_contains ~needle:"2/2" d
      | None -> false)
 ;;
 
@@ -485,10 +440,7 @@ let () =
       , [ Alcotest.test_case "p95 empty" `Quick test_performance_p95_empty
         ; Alcotest.test_case "p95 single" `Quick test_performance_p95_single
         ; Alcotest.test_case "p95 unsorted" `Quick test_performance_p95_unsorted
-        ; Alcotest.test_case
-            "all constraints fail"
-            `Quick
-            test_performance_all_constraints
+        ; Alcotest.test_case "latency failure" `Quick test_performance_latency_failure
         ; Alcotest.test_case "no constraints" `Quick test_performance_no_constraints
         ; Alcotest.test_case "latency only" `Quick test_performance_latency_only
         ] )
@@ -538,7 +490,6 @@ let () =
             "all_completed false"
             `Quick
             test_composability_all_agents_completed_false
-        ; Alcotest.test_case "turn_count_below" `Quick test_composability_turn_count_below
         ; Alcotest.test_case
             "context not propagated"
             `Quick
@@ -546,14 +497,10 @@ let () =
         ] )
     ; ( "behavioral-deep"
       , [ Alcotest.test_case
-            "all score aggregation"
+            "all without scores"
             `Quick
-            test_behavioral_all_score_aggregation
+            test_behavioral_all_without_scores
         ; Alcotest.test_case "all empty" `Quick test_behavioral_all_empty
-        ; Alcotest.test_case
-            "completes_within score"
-            `Quick
-            test_behavioral_completes_within_score
         ; Alcotest.test_case
             "tool_selected evidence"
             `Quick
