@@ -10,6 +10,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+* **agent-as-tool inputs:** remove `Agent_tool.config.input_parameters` and
+  scalar-string invocation. The advertised and consumed input contract is now
+  exactly one required object field, `prompt`; see the
+  [0.213 migration guide](docs/migrations/0.213-agent-tool-input.md).
 * **HTTP deadlines:** remove the implicit 60-second request/connect deadline
   and 30-second response-drain deadline. `timeout_s` and
   `connect_timeout_s` are enforced only when explicitly supplied, and a

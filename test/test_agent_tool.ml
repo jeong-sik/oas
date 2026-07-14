@@ -88,9 +88,12 @@ let test_execute_with_prompt () =
 let test_execute_with_string_input () =
   let tool = Agent_tool.create_simple ~name:"echo" ~description:"d" echo_runner in
   match Tool.execute tool (`String "direct string") with
-  | Ok { content; _meta = _ } ->
-    Alcotest.(check string) "echo" "echo: direct string" content
-  | Error { message; _ } -> Alcotest.failf "error: %s" message
+  | Error { message; _ } ->
+    Alcotest.(check string)
+      "object contract"
+      {|Agent_tool input must be an object: "direct string"|}
+      message
+  | Ok _ -> Alcotest.fail "string input is outside the declared tool schema"
 ;;
 
 let test_execute_error_propagation () =
@@ -134,7 +137,6 @@ let test_output_summarizer () =
       ; runner = mock_runner "this is a very long response from the agent"
       ; output_summarizer =
           Some (fun s -> if String.length s > 10 then String.sub s 0 10 ^ "..." else s)
-      ; input_parameters = []
       }
   in
   match Tool.execute tool (`Assoc [ "prompt", `String "q" ]) with
@@ -143,31 +145,19 @@ let test_output_summarizer () =
   | Error { message; _ } -> Alcotest.failf "error: %s" message
 ;;
 
-(* ── Extra parameters ────────────────────────────────────────── *)
+(* ── Schema/parser SSOT ──────────────────────────────────────── *)
 
-let test_extra_parameters () =
+let test_declared_inputs_match_parser () =
   let tool =
     Agent_tool.create
       { name = "t"
       ; description = "d"
       ; runner = mock_runner "ok"
       ; output_summarizer = None
-      ; input_parameters =
-          [ { name = "style"
-            ; description = "Output style"
-            ; param_type = Types.String
-            ; required = false
-            }
-          ; { name = "max_length"
-            ; description = "Max chars"
-            ; param_type = Types.Integer
-            ; required = false
-            }
-          ]
       }
   in
-  (* prompt + 2 extra = 3 params *)
-  Alcotest.(check int) "3 params" 3 (List.length tool.schema.parameters)
+  Alcotest.(check int) "one consumed input" 1 (List.length tool.schema.parameters);
+  Alcotest.(check string) "prompt" "prompt" (List.hd tool.schema.parameters).name
 ;;
 
 (* ── Multi-content response ──────────────────────────────────── *)
@@ -197,7 +187,6 @@ let typed_config runner =
   ; description = "Typed child agent"
   ; runner
   ; output_summarizer = None
-  ; input_parameters = []
   }
 ;;
 
@@ -289,7 +278,9 @@ let () =
             test_execute_untyped_malformed_input_errors
         ] )
     ; "summarizer", [ Alcotest.test_case "truncate" `Quick test_output_summarizer ]
-    ; "params", [ Alcotest.test_case "extra" `Quick test_extra_parameters ]
+    ; ( "params"
+      , [ Alcotest.test_case "schema parser SSOT" `Quick test_declared_inputs_match_parser
+        ] )
     ; "multi_content", [ Alcotest.test_case "joined" `Quick test_multi_content ]
     ; ( "typed_child"
       , [ Alcotest.test_case "schema" `Quick test_create_typed_schema

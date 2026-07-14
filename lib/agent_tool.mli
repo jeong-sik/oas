@@ -36,8 +36,6 @@ type config =
   ; runner : agent_runner (** Closure that captures the child agent and runs it. *)
   ; output_summarizer : (string -> string) option
     (** Optional post-processing of agent output before returning. *)
-  ; input_parameters : Types.tool_param list
-    (** Extra structured parameters beyond the default "prompt". *)
   }
 
 (** {1 Construction} *)
