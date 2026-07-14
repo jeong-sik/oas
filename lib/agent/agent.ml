@@ -40,7 +40,14 @@ let project_detailed_error result =
 (** Run a single turn via the 6-stage pipeline.
     Converts Pipeline.turn_outcome to the polymorphic variant interface
     expected by run_loop and the public API. *)
-let run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent =
+let run_turn_core_detailed
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?before_tool_execution
+      agent
+  =
   let provider_failure = ref None in
   Tracing.with_span
     agent.options.tracer
@@ -66,6 +73,7 @@ let run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent =
            ?clock
            ~api_strategy:api_strat
            ?raw_trace_run
+           ?before_tool_execution
            ~on_provider_failure:(fun attribution -> provider_failure := attribution)
            agent
        with
@@ -212,12 +220,15 @@ type provider_lease =
   | Held
   | Released
 
-let release_provider_lease ~yield_enabled ~on_yield = function
-  | Released -> Released
-  | Held when yield_enabled ->
-    Option.iter (fun callback -> callback ()) on_yield;
-    Released
-  | Held -> Held
+type provider_lease_release =
+  { after : provider_lease
+  ; before_tool_execution : (unit -> unit) option
+  }
+
+let plan_provider_lease_release ~yield_enabled ~on_yield = function
+  | Released -> { after = Released; before_tool_execution = None }
+  | Held when yield_enabled -> { after = Released; before_tool_execution = on_yield }
+  | Held -> { after = Held; before_tool_execution = None }
 ;;
 
 let acquire_provider_lease ~yield_enabled ~on_resume = function
@@ -241,9 +252,18 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
   let run_start = Unix.gettimeofday () in
   let rec loop lease =
     let lease = acquire_provider_lease ~yield_enabled ~on_resume lease in
+    let release = plan_provider_lease_release ~yield_enabled ~on_yield lease in
     let turn_index = agent.state.turn_count + 1 in
     let turn_start = Unix.gettimeofday () in
-    let result = run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent in
+    let result =
+      run_turn_core_detailed
+        ~sw
+        ?clock
+        ~api_strategy
+        ?raw_trace_run
+        ?before_tool_execution:release.before_tool_execution
+        agent
+    in
     match result with
     | Error e ->
       log_turn
@@ -268,7 +288,7 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
         ~turn_index
         ~model:agent.state.config.model
         ~stop:"tools_executed";
-      loop (release_provider_lease ~yield_enabled ~on_yield lease)
+      loop release.after
   in
   loop Held
 ;;
@@ -680,9 +700,18 @@ module Advanced = struct
     let run_start = Unix.gettimeofday () in
     let rec loop lease =
       let lease = acquire_provider_lease ~yield_enabled ~on_resume lease in
+      let release = plan_provider_lease_release ~yield_enabled ~on_yield lease in
       let turn_index = agent.state.turn_count + 1 in
       let turn_start = Unix.gettimeofday () in
-      match run_turn_core_detailed ~sw ?clock ~api_strategy ?raw_trace_run agent with
+      match
+        run_turn_core_detailed
+          ~sw
+          ?clock
+          ~api_strategy
+          ?raw_trace_run
+          ?before_tool_execution:release.before_tool_execution
+          agent
+      with
       | Error error ->
         log_turn
           ~run_start
@@ -706,10 +735,9 @@ module Advanced = struct
           ~turn_index
           ~model:agent.state.config.model
           ~stop:"tools_executed";
-        let lease = release_provider_lease ~yield_enabled ~on_yield lease in
         let boundary = completed_tool_boundary agent checkpoint_stage in
         (match on_tool_boundary boundary with
-         | Continue -> loop lease
+         | Continue -> loop release.after
          | Yield ->
            let checkpoint = checkpoint agent in
            Ok

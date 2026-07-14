@@ -166,10 +166,12 @@ module Advanced : sig
 
       [on_yield] and [on_resume] preserve the regular run API's provider-lease
       callbacks and must be supplied together or both omitted.  When
-      [agent_config.yield_on_tool] is enabled, [on_yield] runs after the typed
-      tool boundary has succeeded and before [on_tool_boundary].  [Continue]
-      invokes [on_resume] before the next provider turn; [Yield] returns with
-      the lease released and does not invoke [on_resume] in this call.
+      [agent_config.yield_on_tool] is enabled, [on_yield] runs after assistant
+      collection and its checkpoint have succeeded but before tool execution.
+      [on_tool_boundary] remains after tool execution, optional context
+      injection, and the final checkpoint sink. [Continue] invokes [on_resume]
+      before the next provider turn; [Yield] returns with the lease released
+      and does not invoke [on_resume] in this call.
 
       [Yielded] is a successful host outcome: it is not an SDK error, does not
       consume or enforce a turn/time/cost budget, and leaves the agent lifecycle
@@ -223,9 +225,11 @@ val run_detailed
     Caller-initiated [Eio.Cancel.Cancelled] propagates and is not converted into
     an agent result.
 
-    [on_yield] is called when the agent enters tool execution and [on_resume]
-    before the next LLM turn, allowing callers to release/re-acquire provider
-    capacity. They are invoked only when
+    [on_yield] is called after a non-empty tool batch and the collected
+    assistant checkpoint have been validated, immediately before the first
+    tool hook or implementation starts. [on_resume] is called before the next
+    LLM turn, allowing callers to release/re-acquire provider capacity. They
+    must be supplied together or both omitted and are invoked only when
     [agent_config.yield_on_tool = true].
     @since 0.100.0 *)
 val run

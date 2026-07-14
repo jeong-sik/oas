@@ -172,7 +172,10 @@ let test_yield_after_context_checkpoint () =
       ~checkpoint_sink
       ~context_injector:(Some context_injector)
       ~on_run_complete:(Some (fun completed -> completions := completed :: !completions))
-      ~tool:(time_tool (fun () -> tool_executed := true))
+      ~tool:
+        (time_tool (fun () ->
+           tool_executed := true;
+           lease_events := "tool" :: !lease_events))
   in
   let callback_count = ref 0 in
   let on_tool_boundary (boundary : Agent.Advanced.tool_boundary) =
@@ -195,10 +198,14 @@ let test_yield_after_context_checkpoint () =
     Agent.Advanced.Yield
   in
   let on_yield () =
-    Alcotest.(check bool)
-      "checkpoint persisted before provider lease release"
-      true
-      (not (List.is_empty !persisted));
+    Alcotest.(check bool) "tool not started at lease release" false !tool_executed;
+    (match !persisted with
+     | latest :: _ ->
+       Alcotest.(check bool)
+         "assistant checkpoint persisted before provider lease release"
+         true
+         (latest.Agent.stage = Agent.After_assistant_collected)
+     | [] -> Alcotest.fail "lease released before assistant checkpoint");
     lease_events := "yield" :: !lease_events
   in
   (match
@@ -227,7 +234,7 @@ let test_yield_after_context_checkpoint () =
   Alcotest.(check int) "callback count" 1 !callback_count;
   Alcotest.(check (list string))
     "yield releases before boundary and does not resume"
-    [ "provider"; "yield"; "boundary" ]
+    [ "provider"; "yield"; "tool"; "boundary" ]
     (List.rev !lease_events);
   Alcotest.(check int) "provider call count" 1 !call_count;
   Alcotest.(check (list bool)) "not terminal-complete" [] !completions;
@@ -269,7 +276,7 @@ let test_continue_reaches_terminal_completion () =
       ~checkpoint_sink
       ~context_injector:None
       ~on_run_complete:(Some (fun completed -> completions := completed :: !completions))
-      ~tool:(time_tool ignore)
+      ~tool:(time_tool (fun () -> lease_events := "tool" :: !lease_events))
   in
   let callback_count = ref 0 in
   let on_tool_boundary (boundary : Agent.Advanced.tool_boundary) =
@@ -301,7 +308,7 @@ let test_continue_reaches_terminal_completion () =
   Alcotest.(check int) "callback count" 1 !callback_count;
   Alcotest.(check (list string))
     "continue release-boundary-resume ordering"
-    [ "provider"; "yield"; "boundary"; "resume"; "provider" ]
+    [ "provider"; "yield"; "tool"; "boundary"; "resume"; "provider" ]
     (List.rev !lease_events);
   Alcotest.(check int) "provider call count" 2 !call_count;
   Alcotest.(check (list bool)) "terminal callback" [ true ] !completions;
@@ -317,7 +324,7 @@ let test_continue_reaches_terminal_completion () =
     record.stop_reason
 ;;
 
-let test_checkpoint_failure_prevents_callback () =
+let test_context_checkpoint_failure_prevents_boundary_and_resume () =
   with_temp_trace
   @@ fun trace_path ->
   Eio_main.run
@@ -333,7 +340,13 @@ let test_checkpoint_failure_prevents_callback () =
   let context_injector ~tool_name:_ ~input:_ ~output:_ =
     Some { Hooks.context_updates = []; extra_messages = [] }
   in
-  let transport, _call_count = sequence_transport [ tool_use_response ] in
+  let lease_events = ref [] in
+  let tool_executed = ref false in
+  let transport, _call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ tool_use_response ]
+  in
   let agent =
     make_agent
       ~net:env#net
@@ -342,12 +355,17 @@ let test_checkpoint_failure_prevents_callback () =
       ~checkpoint_sink
       ~context_injector:(Some context_injector)
       ~on_run_complete:None
-      ~tool:(time_tool ignore)
+      ~tool:
+        (time_tool (fun () ->
+           tool_executed := true;
+           lease_events := "tool" :: !lease_events))
   in
   let callback_count = ref 0 in
   let outcome =
     Agent.Advanced.run_blocks
       ~sw
+      ~on_yield:(fun () -> lease_events := "yield" :: !lease_events)
+      ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
       ~api_strategy:Agent.Sync
       ~on_tool_boundary:(fun _boundary ->
         incr callback_count;
@@ -360,6 +378,11 @@ let test_checkpoint_failure_prevents_callback () =
    | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
    | Ok _ -> Alcotest.fail "expected checkpoint failure");
   Alcotest.(check int) "callback suppressed" 0 !callback_count;
+  Alcotest.(check bool) "tool ran after lease release" true !tool_executed;
+  Alcotest.(check (list string))
+    "context checkpoint failure does not reacquire provider lease"
+    [ "provider"; "yield"; "tool" ]
+    (List.rev !lease_events);
   (match Agent.lifecycle agent with
    | Some snapshot ->
      Alcotest.(check bool) "lifecycle failed" true (snapshot.status = Agent.Failed)
@@ -370,6 +393,161 @@ let test_checkpoint_failure_prevents_callback () =
     true
     (Option.is_some record.error);
   Alcotest.(check (option string)) "no yield stop reason" None record.stop_reason
+;;
+
+let test_assistant_checkpoint_failure_suppresses_release_and_tool () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let checkpoint_sink (snapshot : Agent.checkpoint_snapshot) =
+    match snapshot.stage with
+    | Agent.After_assistant_collected -> Error "assistant checkpoint rejected"
+    | Agent.After_tool_results_appended | Agent.After_context_injection -> Ok ()
+  in
+  let lease_events = ref [] in
+  let tool_executed = ref false in
+  let transport, call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ tool_use_response ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:(time_tool (fun () -> tool_executed := true))
+  in
+  let boundary_count = ref 0 in
+  let outcome =
+    Agent.Advanced.run_blocks
+      ~sw
+      ~on_yield:(fun () -> lease_events := "yield" :: !lease_events)
+      ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
+      ~api_strategy:Agent.Sync
+      ~on_tool_boundary:(fun _boundary ->
+        incr boundary_count;
+        Agent.Advanced.Continue)
+      agent
+      [ Types.Text "what time is it?" ]
+  in
+  (match outcome with
+   | Error (Error.Internal _) -> ()
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "expected assistant checkpoint failure");
+  Alcotest.(check int) "one provider call" 1 !call_count;
+  Alcotest.(check int) "boundary suppressed" 0 !boundary_count;
+  Alcotest.(check bool) "tool suppressed" false !tool_executed;
+  Alcotest.(check (list string))
+    "lease release suppressed"
+    [ "provider" ]
+    (List.rev !lease_events)
+;;
+
+let test_release_callback_failure_prevents_tool_execution () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let tool_executed = ref false in
+  let boundary_count = ref 0 in
+  let resume_count = ref 0 in
+  let transport, _call_count = sequence_transport [ tool_use_response ] in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _snapshot -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:(time_tool (fun () -> tool_executed := true))
+  in
+  let callback_failed =
+    match
+      Agent.Advanced.run_blocks
+        ~sw
+        ~on_yield:(fun () -> raise (Failure "provider lease release failed"))
+        ~on_resume:(fun () -> incr resume_count)
+        ~api_strategy:Agent.Sync
+        ~on_tool_boundary:(fun _boundary ->
+          incr boundary_count;
+          Agent.Advanced.Continue)
+        agent
+        [ Types.Text "what time is it?" ]
+    with
+    | Ok _ | Error _ -> false
+    | exception Failure _ -> true
+  in
+  Alcotest.(check bool) "release callback failure propagated" true callback_failed;
+  Alcotest.(check bool) "tool did not start" false !tool_executed;
+  Alcotest.(check int) "boundary did not run" 0 !boundary_count;
+  Alcotest.(check int) "lease was not reacquired" 0 !resume_count;
+  match Agent.lifecycle agent with
+  | Some snapshot ->
+    Alcotest.(check bool) "lifecycle failed" true (snapshot.status = Agent.Failed)
+  | None -> Alcotest.fail "missing lifecycle snapshot"
+;;
+
+let test_regular_run_releases_before_tool_execution () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let lease_events = ref [] in
+  let tool_executed = ref false in
+  let transport, call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ tool_use_response; text_response "done" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _snapshot -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool (fun () ->
+           tool_executed := true;
+           lease_events := "tool" :: !lease_events))
+  in
+  (match
+     Agent.run_blocks
+       ~sw
+       ~on_yield:(fun () ->
+         Alcotest.(check bool) "tool not started" false !tool_executed;
+         lease_events := "yield" :: !lease_events)
+       ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
+       agent
+       [ Types.Text "what time is it?" ]
+   with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check string)
+       "visible response"
+       "done"
+       (Types.visible_text_of_response response));
+  Alcotest.(check int) "two provider calls" 2 !call_count;
+  Alcotest.(check (list string))
+    "regular run release-tool-resume ordering"
+    [ "provider"; "yield"; "tool"; "resume"; "provider" ]
+    (List.rev !lease_events)
 ;;
 
 let test_unpaired_lease_callback_is_rejected () =
@@ -420,9 +598,21 @@ let () =
             `Quick
             test_continue_reaches_terminal_completion
         ; Alcotest.test_case
-            "checkpoint failure prevents callback"
+            "context checkpoint failure prevents boundary and resume"
             `Quick
-            test_checkpoint_failure_prevents_callback
+            test_context_checkpoint_failure_prevents_boundary_and_resume
+        ; Alcotest.test_case
+            "assistant checkpoint failure suppresses release and tool"
+            `Quick
+            test_assistant_checkpoint_failure_suppresses_release_and_tool
+        ; Alcotest.test_case
+            "release callback failure prevents tool execution"
+            `Quick
+            test_release_callback_failure_prevents_tool_execution
+        ; Alcotest.test_case
+            "regular run releases before tool execution"
+            `Quick
+            test_regular_run_releases_before_tool_execution
         ; Alcotest.test_case
             "unpaired provider lease callback is rejected"
             `Quick

@@ -352,7 +352,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution and context injection. *)
-let stage_execute ?raw_trace_run agent tool_uses_nonempty =
+let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -369,6 +369,7 @@ let stage_execute ?raw_trace_run agent tool_uses_nonempty =
     ; links = []
     }
     (fun _tracer ->
+       Option.iter (fun callback -> callback ()) before_tool_execution;
        let results, failure =
          match execute_tools_with_trace agent raw_trace_run tool_uses with
          | Ok results -> results, None
@@ -439,7 +440,7 @@ let stage_execute ?raw_trace_run agent tool_uses_nonempty =
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
-let stage_output ?raw_trace_run agent response =
+let stage_output ?raw_trace_run ?before_tool_execution agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -480,7 +481,7 @@ let stage_output ?raw_trace_run agent response =
                  (UnrecognizedStopReason
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
-            stage_execute ?raw_trace_run agent tool_uses_nonempty)
+            stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty)
        | UnmatchedToolCalls ->
          (* The wire boundary has already classified this response shape as
             malformed. Keep rejecting it; arbitrary provider terminal reasons
@@ -543,7 +544,15 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent =
+let run_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ?before_tool_execution
+      agent
+  =
   (* Stage 1: Input *)
   let* () =
     Tracing.with_span
@@ -651,7 +660,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent 
           let* () =
             stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
           in
-          stage_output ?raw_trace_run agent response |> tag_error "output"))
+          stage_output ?raw_trace_run ?before_tool_execution agent response
+          |> tag_error "output"))
 ;;
 
 [@@@coverage off]
