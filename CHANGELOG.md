@@ -140,10 +140,11 @@ original tag dates. `0.100.4` was never tagged or released.
   or capability overrides through the typed `load_file`/`set_global` APIs.
 * **catalog identity:** remove dot-qualified model-id rewriting and provider
   registry alias/case normalization, including the legacy `Model_registry`
-  facade. Model catalog selection uses declared prefixes, and runtime provider
-  binding accepts the exact registered provider id. Provider-catalog aliases
-  remain local to explicit catalog lookup and are never registered as runtime
-  provider identities.
+  facade. Provider-independent model selection uses declared prefixes, while
+  provider-scoped capability selection requires the complete normalized
+  provider/model pair. Runtime provider binding accepts the exact registered
+  provider id. Provider-catalog aliases remain local to explicit catalog
+  lookup and are never registered as runtime provider identities.
 * **environment configuration:** remove the unused numeric, boolean, list, and
   key-value policy parsers from `Llm_provider.Cli_common_env`, remove the
   environment-backed `Defaults` facade, and retire the stale
@@ -159,6 +160,9 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Bug Fixes
 
+* **eval collection:** atomically cancel and drain event-bus subscriptions
+  before finalizing metrics so already accepted lifecycle and tool events are
+  not discarded.
 * **runtime lifecycle:** reject participant registration on an already closed
   switch, keep a settlement handle for cancellation races, cancel every
   snapshotted session lane before joining any one lane, and preserve reserved
@@ -191,7 +195,10 @@ original tag dates. `0.100.4` was never tagged or released.
 * **agent:** reject configured MCP servers explicitly when a required runtime
   resource is absent instead of silently omitting every server. Every MCP
   connection requires a switch; only stdio MCP additionally requires a process
-  manager, so HTTP-only configurations remain usable without one.
+  manager, so HTTP-only configurations remain usable without one. Reject
+  wrong-typed optional config fields and ambiguous MCP transport objects;
+  required MCP connection setup is transactional and rolls back every earlier
+  connection in LIFO order without replacing the primary failure.
   Remove the inert inline `Agent_config.tools` type and parser surface; tools
   are executable values registered in code or discovered through configured
   MCP servers, never schema-only JSON entries that are rejected later.
@@ -199,6 +206,9 @@ original tag dates. `0.100.4` was never tagged or released.
   duplicate/unknown fields, scalar/list types, auth/capability shapes, and
   malformed Ollama message bodies instead of coercing them to defaults,
   unauthenticated configs, or empty successful responses.
+* **provider requests:** resolve tool-choice validation and OpenAI-compatible
+  serialization from the same typed provider/model capability projection, so
+  a provider-level default cannot override an exact model declaration.
 * **checkpoint stages:** give the post-context-injection snapshot its own
   `After_context_injection` stage and checkpoint id instead of overwriting the
   earlier `After_tool_results_appended` snapshot for the same turn.
