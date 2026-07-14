@@ -1241,21 +1241,12 @@ let thinking_control_token_for_provider_model_id
       ~(provider_label : string)
       ~(model_id : string)
   =
-  let provider_catalog_match =
-    match Model_catalog.global () with
-    | None -> None
-    | Some catalog ->
-      Option.map
-        (fun entry ->
-           token_of_declared_format entry.Model_catalog.thinking_control_format)
-        (Model_catalog.lookup_for_provider
-           catalog
-           ~provider_name:provider_label
-           ~model_id)
-  in
-  match provider_catalog_match with
-  | Some token -> token
-  | None -> thinking_control_token_for_model_id model_id
+  match Model_catalog.global () with
+  | None -> None
+  | Some catalog ->
+    Option.bind
+      (Model_catalog.lookup_for_provider catalog ~provider_name:provider_label ~model_id)
+      (fun entry -> token_of_declared_format entry.Model_catalog.thinking_control_format)
 ;;
 
 [@@@coverage off]
@@ -1267,28 +1258,6 @@ let%test "for_model_id glm-4.5 has reasoning" =
     && c.supports_extended_thinking
     && c.max_context_tokens = Some 128_000
     && c.max_output_tokens = Some 96_000
-  | None -> false
-;;
-
-let%test "for_provider_model_id glm-4 no reasoning" =
-  match
-    for_provider_model_id
-      ~allow_bare_fallback:true
-      ~provider_label:"glm"
-      ~model_id:"glm-4-chat"
-  with
-  | Some c -> (not c.supports_reasoning) && c.max_context_tokens = Some 128_000
-  | None -> false
-;;
-
-let%test "for_provider_model_id glm-4v has vision" =
-  match
-    for_provider_model_id
-      ~allow_bare_fallback:true
-      ~provider_label:"glm"
-      ~model_id:"glm-4v-flash"
-  with
-  | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
 

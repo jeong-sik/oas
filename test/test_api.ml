@@ -1149,40 +1149,6 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
   | Ok _ -> fail "expected Result.Error for unsupported GLM named tool_choice"
 ;;
 
-(* A provider-independent model-catalog row is still an explicit declaration.
-   The request therefore applies the exact [glm-5] tool-choice contract even
-   when no provider config is supplied; no endpoint or provider-name synthesis
-   is needed to discover it. *)
-let test_build_openai_body_bare_glm_uses_catalog_tool_choice_contract () =
-  let state =
-    { Types.config =
-        { (Types.default_config ~model:"test-model") with
-          model = "glm-5"
-        ; enable_thinking = Some true
-        ; tool_choice = Some (Types.Tool "calculator")
-        }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let tool_json =
-    `Assoc
-      [ "name", `String "calculator"
-      ; "description", `String "math"
-      ; "input_schema", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  match
-    Api.build_openai_body_result ~config:state ~messages:[] ~tools:[ tool_json ] ()
-  with
-  | Error reason ->
-    check bool "mentions tool_choice" true (contains_substring ~sub:"tool_choice" reason);
-    check bool "mentions tool name" true (contains_substring ~sub:"calculator" reason)
-  | Ok _ ->
-    fail "expected the declared glm-5 catalog contract to reject named tool_choice"
-;;
-
 (* Complement of [test_build_openai_body_glm_preserves_reasoning_content]: the
    same Preserved-Thinking configuration WITHOUT a declared Z.AI endpoint gets
    no GLM dialect behavior. Before the typed-dialect reshape, the prefix-only
@@ -2541,10 +2507,6 @@ let () =
             "glm rejects unsupported forced tool choice"
             `Quick
             test_build_openai_body_rejects_glm_forced_tool_choice
-        ; test_case
-            "bare glm uses catalog tool choice contract"
-            `Quick
-            test_build_openai_body_bare_glm_uses_catalog_tool_choice_contract
         ; test_case
             "bare glm gets no glm dialect"
             `Quick

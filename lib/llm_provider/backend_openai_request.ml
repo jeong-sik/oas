@@ -148,16 +148,7 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.Glm -> Capabilities.glm_capabilities
         | Provider_config.Gemini -> Capabilities.gemini_capabilities
         | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
-        | Provider_config.OpenAI_compat ->
-          (* A ZAI-GLM config routed as [OpenAI_compat] (ZAI base URL + glm-
-             model id) with no catalog row still has GLM wire semantics — notably
-             the empty-string tool-only assistant content shape. Resolve it to
-             [glm_capabilities] at this single caps boundary so the typed dialect
-             serializer emits the same shape the dedicated GLM serializer did
-             (RFC-OAS-029 S3.1, S9.2). *)
-          if Provider_config.is_zai_glm_config config
-          then Capabilities.glm_capabilities
-          else Capabilities.default_capabilities
+        | Provider_config.OpenAI_compat -> Capabilities.openai_compat_chat_capabilities
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 

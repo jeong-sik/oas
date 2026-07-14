@@ -112,9 +112,14 @@ val load_default : unit -> (t, string) result
     exact declared [id_prefix] syntax. Provider-scoped rows are excluded. *)
 val lookup : t -> string -> model_entry option
 
-(** Longest-prefix lookup across rows whose declared [provider_name] exactly
-    matches [provider_name]. The provider and model remain separate values;
-    OAS never synthesizes slash, colon, or dot-qualified model ids. *)
+(** Exact normalized lookup across provider-scoped rows. Both
+    [provider_name] and the complete [model_id] must equal the row's declared
+    [provider_name] and [id_prefix], respectively, after ASCII case-folding and
+    trimming. There is no family/prefix match on the model identity. The
+    provider and model remain separate values; OAS never synthesizes slash,
+    colon, or dot-qualified model ids.
+
+    Provider-independent family matching remains exclusively in {!lookup}. *)
 val lookup_for_provider
   :  t
   -> provider_name:string

@@ -343,8 +343,12 @@ val glm_should_replay_reasoning : t -> bool
     model-id syntax never participate. *)
 val capability_provider_label : t -> string
 
-(** Resolve model capabilities using the explicit provider/model pair first,
-    then a provider-independent catalog row. *)
+(** Resolve model capabilities using the explicit provider/model pair. A
+    config with [provider_id] only accepts an exact provider-scoped row. Without
+    [provider_id], native typed provider kinds may use a provider-independent
+    model row; [OpenAI_compat] never does, because its wire kind alone cannot
+    select a vendor/model dialect. Generic compatibility callers can provide
+    [model_capabilities_override] or an exact [provider_id]. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
 (** [true] exactly when [config.kind = Glm]. An [OpenAI_compat] config is never

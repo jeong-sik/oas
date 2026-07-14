@@ -735,12 +735,15 @@ let lookup t model_id =
 
 let lookup_for_provider t ~provider_name ~model_id =
   let provider_name = String.lowercase_ascii (String.trim provider_name) in
-  t.models
-  |> List.filter (fun entry ->
-    Option.exists
-      (fun declared -> String.equal provider_name (String.lowercase_ascii declared))
-      entry.provider_name)
-  |> fun entries -> lookup_entries entries model_id
+  let model_id = String.lowercase_ascii (String.trim model_id) in
+  List.find_opt
+    (fun entry ->
+       match entry.provider_name with
+       | None -> false
+       | Some declared ->
+         String.equal provider_name (String.lowercase_ascii (String.trim declared))
+         && String.equal model_id (String.lowercase_ascii (String.trim entry.id_prefix)))
+    t.models
 ;;
 
 let provider_label_for_base_url ?getenv t ~kind ~base_url =

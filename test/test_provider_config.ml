@@ -261,7 +261,24 @@ let test_output_schema_of_response_format () =
        (Provider_config.output_schema_of_response_format ~override:schema Types.JsonMode))
 ;;
 
-let test_validate_output_schema_openai_official () =
+let test_validate_output_schema_openai_explicit_capability () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1"
+      ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "explicit OpenAI capability accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_openai_bare_model_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -272,38 +289,23 @@ let test_validate_output_schema_openai_official () =
       ()
   in
   check_bool
-    "official openai accepted"
+    "bare OpenAI model does not select an unscoped catalog row"
     true
-    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_openai_official_catalog_model () =
-  let cfg =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o"
-      ~base_url:"https://api.openai.com/v1"
-      ~response_format_json:true
-      ~output_schema:(`Assoc [ "type", `String "object" ])
-      ()
-  in
-  check_bool
-    "official OpenAI catalog model accepted"
-    true
-    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
-;;
-
-let test_validate_output_schema_declared_model_capability_is_host_independent () =
+let test_validate_output_schema_explicit_model_capability_is_host_independent () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"gpt"
       ~base_url:"https://openrouter.ai/api/v1"
+      ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "declared gpt capability is independent of the compatible endpoint host"
+    "explicit gpt capability is independent of the compatible endpoint host"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -611,7 +613,7 @@ let test_validate_output_schema_capability_rejected () =
   | Ok () -> Alcotest.fail "expected model capability rejection"
 ;;
 
-let test_openai_compat_raw_qwen_uses_declared_bare_capability () =
+let test_openai_compat_raw_qwen_does_not_infer_bare_capability () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -619,17 +621,13 @@ let test_openai_compat_raw_qwen_uses_declared_bare_capability () =
       ~base_url:"https://unknown-openai-compatible.example/v1"
       ()
   in
-  match Provider_config.capabilities_for_config_model cfg with
-  | Some caps ->
-    check_bool "declared bare Qwen capability keeps tools" true caps.supports_tools;
-    check_bool
-      "declared bare Qwen capability keeps reasoning"
-      true
-      caps.supports_reasoning
-  | None -> Alcotest.fail "declared bare Qwen capability should resolve"
+  check_bool
+    "raw compatibility config does not select bare Qwen capabilities"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
-let test_openai_compat_raw_minimax_uses_declared_bare_reasoning_dialect () =
+let test_openai_compat_raw_minimax_does_not_infer_bare_reasoning_dialect () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -637,13 +635,10 @@ let test_openai_compat_raw_minimax_uses_declared_bare_reasoning_dialect () =
       ~base_url:"https://unknown-openai-compatible.example/v1"
       ()
   in
-  match Provider_config.capabilities_for_config_model cfg with
-  | Some caps ->
-    check_bool
-      "declared bare MiniMax capability keeps adaptive thinking"
-      true
-      (caps.thinking_control_format = Capabilities.Thinking_object_adaptive)
-  | None -> Alcotest.fail "declared bare MiniMax capability should resolve"
+  check_bool
+    "raw compatibility config does not select bare MiniMax capabilities"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
 let with_model_catalog_toml contents f =
@@ -667,7 +662,7 @@ let with_model_catalog_toml contents f =
          Fun.protect f ~finally:restore)
 ;;
 
-let test_openai_compat_bare_tool_capability_is_endpoint_independent () =
+let test_openai_compat_bare_tool_capability_is_not_inferred () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -684,13 +679,13 @@ supports_tool_choice = true
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
-       match Provider_config.capabilities_for_config_model cfg with
-       | Some caps ->
-         check_bool "bare catalog row keeps tool capability" true caps.supports_tools
-       | None -> Alcotest.fail "provider-independent tool capability should resolve")
+       check_bool
+         "raw compatibility config does not select a bare tool capability"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-let test_openai_compat_bare_template_dialect_is_endpoint_independent () =
+let test_openai_compat_bare_template_dialect_is_not_inferred () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -710,13 +705,10 @@ thinking_control_format = "chat_template_kwargs"
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
-       match Provider_config.capabilities_for_config_model cfg with
-       | Some caps ->
-         check_bool
-           "bare catalog row keeps template thinking dialect"
-           true
-           (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
-       | None -> Alcotest.fail "provider-independent template capability should resolve")
+       check_bool
+         "raw compatibility config does not select a bare template dialect"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
 let test_openai_compat_declared_provider_and_bare_model_resolve_catalog_row () =
@@ -817,9 +809,9 @@ supports_tools = true
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-(* A provider-independent row is a deliberate bare fallback. Its capability is
-   model data and therefore remains independent of endpoint placement. *)
-let test_bare_capabilities_are_invariant_across_host () =
+(* Raw OpenAI compatibility is a generic wire declaration. Endpoint placement
+   never turns an unscoped model row into a vendor capability declaration. *)
+let test_bare_capabilities_are_not_inferred_across_hosts () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -842,25 +834,12 @@ thinking_control_format = "chat_template_kwargs"
        let runpod = caps_for "https://abc123.proxy.runpod.net/v1" in
        let arbitrary = caps_for "https://mybox.example.com/v1" in
        let localhost = caps_for "http://127.0.0.1:8085/v1" in
-       match runpod, arbitrary, localhost with
-       | Some on_runpod, Some on_arbitrary, Some on_localhost ->
-         check_bool
-           "capability identical on RunPod host and arbitrary domain"
-           true
-           (on_runpod = on_arbitrary);
-         check_bool
-           "capability identical on remote host and localhost"
-           true
-           (on_arbitrary = on_localhost);
-         (* The resolved capability is the real serving-contract row, not an
-            empty default — so the invariance above is over a non-trivial set. *)
-         check_bool "resolved row keeps tools" true on_runpod.supports_tools;
-         check_bool "resolved row keeps reasoning" true on_runpod.supports_reasoning;
-         check_bool
-           "resolved row keeps chat_template_kwargs dialect"
-           true
-           (on_runpod.thinking_control_format = Capabilities.Chat_template_kwargs)
-       | _ -> Alcotest.fail "provider-independent model row must resolve on every host")
+       check_bool "unscoped row is absent on RunPod" true (Option.is_none runpod);
+       check_bool
+         "unscoped row is absent on an arbitrary remote host"
+         true
+         (Option.is_none arbitrary);
+       check_bool "unscoped row is absent on localhost" true (Option.is_none localhost))
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -1202,11 +1181,17 @@ let test_validate_reasoning_effort_subset_rejects_unsupported () =
   in
   Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
     Capability_manifest.set_global manifest;
+    let declared_capabilities =
+      match Capabilities.for_model_id "effort-subset-model" with
+      | Some capabilities -> capabilities
+      | None -> Alcotest.fail "reasoning effort fixture capability was not declared"
+    in
     let cfg reasoning_effort =
       Provider_config.make
         ~kind:OpenAI_compat
         ~model_id:"effort-subset-model"
         ~base_url:"https://api.openai.com/v1"
+        ~model_capabilities_override:declared_capabilities
         ~reasoning_effort
         ()
     in
@@ -1316,7 +1301,7 @@ let with_repository_model_catalog f =
        Fun.protect f ~finally:restore)
 ;;
 
-let test_validate_output_schema_openai_official_catalog () =
+let test_validate_output_schema_openai_unscoped_catalog_not_inferred () =
   with_repository_model_catalog (fun () ->
     let cfg =
       Provider_config.make
@@ -1328,9 +1313,9 @@ let test_validate_output_schema_openai_official_catalog () =
         ()
     in
     check_bool
-      "catalog OpenAI official host accepts json_schema"
+      "official endpoint does not promote an unscoped OpenAI catalog row"
       true
-      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+      (Result.is_error (Provider_config.validate_output_schema_request cfg)))
 ;;
 
 let test_validate_output_schema_ollama_cloud_catalog_minimax_rejected () =
@@ -1429,7 +1414,7 @@ let test_validate_output_schema_mimo_json_schema_rejected () =
     | Ok () -> Alcotest.fail "expected MiMo json_schema request to fail closed")
 ;;
 
-let test_validate_output_schema_endpoint_identity_does_not_override_model_capability () =
+let test_validate_output_schema_endpoint_identity_does_not_establish_capability () =
   with_repository_model_catalog (fun () ->
     let cfg =
       Provider_config.make
@@ -1441,9 +1426,9 @@ let test_validate_output_schema_endpoint_identity_does_not_override_model_capabi
         ()
     in
     check_bool
-      "declared gpt-4o capability is not re-keyed by endpoint host"
+      "endpoint and recognizable model text do not establish a capability"
       true
-      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+      (Result.is_error (Provider_config.validate_output_schema_request cfg)))
 ;;
 
 let test_connect_timeout_s_default_none () =
@@ -2148,21 +2133,21 @@ let () =
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
-            "official openai"
+            "explicit openai capability"
             `Quick
-            test_validate_output_schema_openai_official
+            test_validate_output_schema_openai_explicit_capability
         ; Alcotest.test_case
-            "official openai catalog model"
+            "bare openai model rejected"
             `Quick
-            test_validate_output_schema_openai_official_catalog_model
+            test_validate_output_schema_openai_bare_model_rejected
         ; Alcotest.test_case
-            "official openai catalog"
+            "unscoped openai catalog is not inferred"
             `Quick
-            test_validate_output_schema_openai_official_catalog
+            test_validate_output_schema_openai_unscoped_catalog_not_inferred
         ; Alcotest.test_case
-            "declared model capability is host independent"
+            "explicit model capability is host independent"
             `Quick
-            test_validate_output_schema_declared_model_capability_is_host_independent
+            test_validate_output_schema_explicit_model_capability_is_host_independent
         ; Alcotest.test_case
             "unknown compat rejected"
             `Quick
@@ -2252,25 +2237,25 @@ let () =
             `Quick
             test_validate_output_schema_mimo_json_schema_rejected
         ; Alcotest.test_case
-            "endpoint identity does not override model capability"
+            "endpoint identity does not establish model capability"
             `Quick
-            test_validate_output_schema_endpoint_identity_does_not_override_model_capability
+            test_validate_output_schema_endpoint_identity_does_not_establish_capability
         ; Alcotest.test_case
-            "raw compat qwen uses declared bare capability"
+            "raw compat qwen does not infer bare capability"
             `Quick
-            test_openai_compat_raw_qwen_uses_declared_bare_capability
+            test_openai_compat_raw_qwen_does_not_infer_bare_capability
         ; Alcotest.test_case
-            "raw compat minimax uses declared bare reasoning dialect"
+            "raw compat minimax does not infer bare reasoning dialect"
             `Quick
-            test_openai_compat_raw_minimax_uses_declared_bare_reasoning_dialect
+            test_openai_compat_raw_minimax_does_not_infer_bare_reasoning_dialect
         ; Alcotest.test_case
-            "bare tool capability is endpoint independent"
+            "bare tool capability is not inferred"
             `Quick
-            test_openai_compat_bare_tool_capability_is_endpoint_independent
+            test_openai_compat_bare_tool_capability_is_not_inferred
         ; Alcotest.test_case
-            "bare template dialect is endpoint independent"
+            "bare template dialect is not inferred"
             `Quick
-            test_openai_compat_bare_template_dialect_is_endpoint_independent
+            test_openai_compat_bare_template_dialect_is_not_inferred
         ; Alcotest.test_case
             "declared provider and bare model resolve catalog row"
             `Quick
@@ -2284,9 +2269,9 @@ let () =
             `Quick
             test_openai_compat_encoded_model_id_does_not_synthesize_provider
         ; Alcotest.test_case
-            "bare capabilities are invariant across endpoint host"
+            "bare capabilities are not inferred across endpoint hosts"
             `Quick
-            test_bare_capabilities_are_invariant_across_host
+            test_bare_capabilities_are_not_inferred_across_hosts
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick

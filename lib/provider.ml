@@ -49,24 +49,6 @@ type model_spec =
 
 let default_openai_compat_capabilities () = openai_compat_chat_capabilities
 
-(* Shared by the raw [Local] and [OpenAICompat] compatibility constructors.
-   An explicit model-catalog row wins; otherwise these constructors retain the
-   generic OpenAI-compatible chat-envelope contract. This fallback does not
-   select a vendor dialect. Native GLM callers carry [Provider_config.Glm]
-   through the declared-provider binding and never reach this raw path. *)
-let openai_compat_capabilities_for ~base_url ~model_id =
-  let config =
-    Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
-      ~model_id
-      ~base_url
-      ()
-  in
-  match Llm_provider.Provider_config.capabilities_for_config_model config with
-  | Some caps -> caps
-  | None -> default_openai_compat_capabilities ()
-;;
-
 let provider_name = function
   | Local _ -> "local"
   | Anthropic -> "anthropic"
@@ -247,14 +229,12 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> anthropic_capabilities)
-  | Local { base_url } ->
+  | Local _ ->
     (* Local llama-server/vLLM/LM Studio endpoints use the OpenAI-compatible
-       request envelope, but a bare model id is not an endpoint declaration for
-       thinking/reasoning/tool/schema dialects. Route through the same helper
-       as [OpenAICompat] so local compat endpoints get identical fail-closed
-       and GLM-native-detection treatment as raw OpenAICompat providers. *)
-    openai_compat_capabilities_for ~base_url ~model_id
-  | OpenAICompat { base_url; _ } -> openai_compat_capabilities_for ~base_url ~model_id
+       request envelope, but a bare model id does not declare a vendor-specific
+       thinking/reasoning/tool/schema dialect. *)
+    default_openai_compat_capabilities ()
+  | OpenAICompat _ -> default_openai_compat_capabilities ()
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.capabilities
@@ -643,7 +623,7 @@ let provider_config_of_agent
                 let model_capabilities_override =
                   match
                     Llm_provider.Capabilities.for_provider_model_id
-                      ~allow_bare_fallback:true
+                      ~allow_bare_fallback:false
                       ~provider_label:name
                       ~model_id:p.model_id
                   with
@@ -678,7 +658,7 @@ let provider_config_of_agent
           let registry_caps_override =
             match
               Llm_provider.Capabilities.for_provider_model_id
-                ~allow_bare_fallback:true
+                ~allow_bare_fallback:false
                 ~provider_label:entry.name
                 ~model_id:p.model_id
             with

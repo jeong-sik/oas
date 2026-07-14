@@ -118,30 +118,15 @@ let gemini_cfg =
 let glm_cfg = cfg ~kind:Glm ~base_url:"https://open.bigmodel.cn/api/paas/v4"
 let ollama_cfg = cfg ~kind:Ollama ~base_url:"http://127.0.0.1:11434"
 
-let deepseek_v4_capabilities =
-  { Capabilities.openai_compat_chat_capabilities with
-    max_context_tokens = Some 1_000_000
-  ; max_output_tokens = Some 384_000
-  ; supports_tools = true
-  ; supports_tool_choice = true
-  ; supports_required_tool_choice = false
-  ; supports_named_tool_choice = false
-  ; supports_reasoning = true
-  ; supports_extended_thinking = true
-  ; supports_reasoning_budget = true
-  ; thinking_control_format = Capabilities.Thinking_object
-  ; supports_response_format_json = true
-  ; supports_native_streaming = true
-  ; supports_caching = true
-  ; supports_prompt_caching = false
-  }
-;;
-
 let openai_no_parallel_capability_cfg =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"unknown-no-parallel-tools"
     ~base_url:"https://api.openai.com/v1"
+    ~model_capabilities_override:
+      { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+        supports_parallel_tool_calls = false
+      }
     ~api_key:"test-key"
     ~max_tokens:1024
     ~temperature:0.7
@@ -150,18 +135,17 @@ let openai_no_parallel_capability_cfg =
 ;;
 
 (* RFC-OAS-023 fixture. Unlike the shared [cfg] above, this one uses the real
-   provider model id ([deepseek-v4-flash]) and an explicit catalog capability
-   declaration. DeepSeek's direct API speaks the OpenAI-compatible Chat
-   Completions wire, but provider-specific thinking/tool-choice semantics must
-   be declared on raw OpenAI-compatible configs rather than inferred from a bare
-   model id. *)
+   provider/model identity ([deepseek]/[deepseek-v4-flash]). DeepSeek's direct
+   API speaks the OpenAI-compatible Chat Completions wire, but provider-specific
+   thinking/tool-choice semantics must come from that exact catalog tuple rather
+   than a duplicated test record or a bare model id. *)
 let deepseek_cfg ?enable_thinking ?reasoning_effort ~tool_choice () =
   Provider_config.make
     ~kind:OpenAI_compat
+    ~provider_id:"deepseek"
     ~model_id:"deepseek-v4-flash"
     ~base_url:"https://api.deepseek.com"
     ~api_key:"test-key"
-    ~model_capabilities_override:deepseek_v4_capabilities
     ~max_tokens:1024
     ~temperature:0.7
     ~tool_choice
@@ -452,15 +436,11 @@ let test_deepseek_explicit_effort_is_serialized () =
     (contains ~needle:{|"reasoning_effort":"high"|} body)
 ;;
 
-(* ZAI GLM reached through the OpenAI-compat backend must replay historical
-   reasoning_content when it asks the provider to preserve thinking
-   (clear_thinking=false). Regression fence for the review follow-up from
-   PR #2023. *)
-let zai_glm_openai_compat_cfg
-      ?(enable_thinking = Some true)
-      ?(preserve_thinking = true)
-      ()
-  =
+(* A raw OpenAI-compatible config is only a generic wire declaration. Even when
+   its endpoint and model text resemble Z.AI, it must not acquire native GLM
+   thinking/replay semantics. Native GLM behavior is covered by the typed
+   [kind:Glm] fixtures below. *)
+let raw_zai_openai_compat_cfg () =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"glm-5"
@@ -470,8 +450,8 @@ let zai_glm_openai_compat_cfg
     ~temperature:0.7
     ~tool_choice:Auto
     ~disable_parallel_tool_use:true
-    ?enable_thinking
-    ~preserve_thinking
+    ~enable_thinking:true
+    ~preserve_thinking:true
     ()
 ;;
 
@@ -483,70 +463,29 @@ let zai_glm_messages_with_reasoning =
   ]
 ;;
 
-let test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking () =
+let test_raw_openai_compat_does_not_infer_glm_thinking_or_replay () =
   let body =
     Backend_openai_request.build_request
-      ~config:(zai_glm_openai_compat_cfg ())
+      ~config:(raw_zai_openai_compat_cfg ())
       ~messages:zai_glm_messages_with_reasoning
       ()
   in
-  check_thinking_enabled_clear "thinking enabled with clear_thinking=false" false body;
-  check_reasoning_content "assistant message replays reasoning_content" true body
-;;
-
-let test_zai_glm_openai_compat_drops_reasoning_without_preserve () =
-  let body =
-    Backend_openai_request.build_request
-      ~config:(zai_glm_openai_compat_cfg ~preserve_thinking:false ())
-      ~messages:zai_glm_messages_with_reasoning
-      ()
-  in
-  check_thinking_enabled_clear "thinking enabled with clear_thinking=true" true body;
-  check_reasoning_content
-    "assistant message omits reasoning_content when not preserving"
-    false
-    body
-;;
-
-let test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled () =
-  let body =
-    Backend_openai_request.build_request
-      ~config:
-        (zai_glm_openai_compat_cfg
-           ~enable_thinking:(Some false)
-           ~preserve_thinking:true
-           ())
-      ~messages:zai_glm_messages_with_reasoning
-      ()
-  in
-  let open Yojson.Safe.Util in
   check
-    string
-    "thinking disabled"
-    "disabled"
-    (body |> json_body |> member "thinking" |> member "type" |> to_string);
-  check_reasoning_content "disabled thinking does not replay reasoning_content" false body
-;;
-
-let test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent () =
-  let body =
-    Backend_openai_request.build_request
-      ~config:(zai_glm_openai_compat_cfg ~enable_thinking:None ~preserve_thinking:true ())
-      ~messages:zai_glm_messages_with_reasoning
-      ()
-  in
-  check bool "thinking object omitted" false (body |> json_body |> has_field "thinking");
+    bool
+    "generic compat omits GLM thinking object"
+    false
+    (body |> json_body |> has_field "thinking");
   check_reasoning_content
-    "absent thinking control does not replay reasoning_content"
+    "generic compat does not replay GLM reasoning_content"
     false
     body
 ;;
 
-(* Native [kind:Glm] reasoning_content replay gate (oas#2236). The native GLM
-   provider-client path must mirror the OpenAI_compat ZAI path above: replay
-   historical reasoning_content only under Preserved Thinking
-   (clear_thinking=false). Before the gate the native path replayed
-   unconditionally, contradicting the default clear_thinking=true contract. *)
+(* Native [kind:Glm] reasoning_content replay gate (oas#2236). Typed [Glm] is
+   the sole positive native GLM path: replay historical reasoning_content only
+   under Preserved Thinking (clear_thinking=false). Before the gate the native
+   path replayed unconditionally, contradicting the default
+   clear_thinking=true contract. *)
 let native_glm_cfg ?(enable_thinking = Some true) ?preserve_thinking ?clear_thinking () =
   Provider_config.make
     ~kind:Glm
@@ -857,21 +796,9 @@ let () =
             `Quick
             test_deepseek_explicit_effort_is_serialized
         ; test_case
-            "zai-glm-openai-compat replays reasoning when preserve_thinking"
+            "raw openai-compat does not infer GLM thinking/replay"
             `Quick
-            test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking
-        ; test_case
-            "zai-glm-openai-compat drops reasoning without preserve_thinking"
-            `Quick
-            test_zai_glm_openai_compat_drops_reasoning_without_preserve
-        ; test_case
-            "zai-glm-openai-compat drops reasoning when thinking disabled"
-            `Quick
-            test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled
-        ; test_case
-            "zai-glm-openai-compat drops reasoning when thinking absent"
-            `Quick
-            test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent
+            test_raw_openai_compat_does_not_infer_glm_thinking_or_replay
         ; test_case
             "native-glm replays reasoning when preserve_thinking"
             `Quick

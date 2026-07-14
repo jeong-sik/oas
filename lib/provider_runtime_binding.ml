@@ -371,7 +371,7 @@ let to_provider_config ?model binding =
        let provider_capabilities_override =
          match
            Llm_provider.Capabilities.for_provider_model_id
-             ~allow_bare_fallback:true
+             ~allow_bare_fallback:false
              ~provider_label:binding.id
              ~model_id
          with

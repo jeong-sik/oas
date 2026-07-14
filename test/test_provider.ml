@@ -403,7 +403,7 @@ let test_inference_contract_task_never_inferred_from_model_id () =
          "cogvideox-2"))
 ;;
 
-let test_zai_glm5v_capabilities_include_image_input () =
+let test_raw_zai_like_openai_compat_stays_generic () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -421,7 +421,15 @@ let test_zai_glm5v_capabilities_include_image_input () =
   Alcotest.(check bool)
     "supports multimodal inputs"
     true
-    capabilities.supports_multimodal_inputs
+    capabilities.supports_multimodal_inputs;
+  Alcotest.(check bool)
+    "does not infer GLM reasoning"
+    false
+    capabilities.supports_reasoning;
+  Alcotest.(check bool)
+    "does not infer GLM thinking dialect"
+    true
+    (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control)
 ;;
 
 let non_glm_prefixed_glm_catalog_toml =
@@ -433,7 +441,7 @@ max_context_tokens = 999999
 |}
 ;;
 
-let test_declared_glm_model_capabilities_do_not_depend_on_endpoint_host () =
+let test_raw_openai_compat_does_not_infer_glm_from_model_or_host () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -447,17 +455,16 @@ let test_declared_glm_model_capabilities_do_not_depend_on_endpoint_host () =
     }
   in
   let capabilities = Provider.capabilities_for_config cfg in
-  Alcotest.(check bool) "reasoning declared" true capabilities.supports_reasoning;
+  Alcotest.(check bool) "reasoning not inferred" false capabilities.supports_reasoning;
   Alcotest.(check bool)
-    "extended thinking declared"
-    true
+    "extended thinking not inferred"
+    false
     capabilities.supports_extended_thinking
 ;;
 
-(* A provider-independent catalog row is an explicit model declaration. Its
-   capabilities apply by exact model id without consulting endpoint text or
-   manufacturing a composite provider/model string. *)
-let test_provider_independent_catalog_row_applies_without_endpoint_guessing () =
+(* A raw compatibility provider has no vendor identity, so an unscoped model
+   row cannot replace its generic wire capability contract. *)
+let test_raw_openai_compat_ignores_provider_independent_catalog_row () =
   with_catalog_toml non_glm_prefixed_glm_catalog_toml (fun () ->
     let cfg : Provider.config =
       { provider =
@@ -472,10 +479,10 @@ let test_provider_independent_catalog_row_applies_without_endpoint_guessing () =
       }
     in
     let capabilities = Provider.capabilities_for_config cfg in
-    Alcotest.(check (option int))
-      "exact catalog row supplies its context window"
-      (Some 999_999)
-      capabilities.max_context_tokens)
+    Alcotest.(check bool)
+      "unscoped model row does not replace generic capabilities"
+      true
+      (capabilities.max_context_tokens <> Some 999_999))
 ;;
 
 let test_validate_inference_contract_rejects_unsupported_modality () =
@@ -509,7 +516,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
   | Ok () -> Alcotest.fail "expected unsupported modality validation to fail"
 ;;
 
-let test_raw_openai_compat_uses_declared_model_capabilities () =
+let test_raw_openai_compat_does_not_infer_dashscope_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -521,9 +528,9 @@ let test_raw_openai_compat_uses_declared_model_capabilities () =
            })
       ~model_id:"dashscope-3.5-35b-a3b-ud-q8-xl"
   in
-  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
-  Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
-  Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p
 ;;
 
 let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
@@ -544,7 +551,7 @@ let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
     Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p)
 ;;
 
-let test_raw_openai_compat_uses_declared_minimax_model_contract () =
+let test_raw_openai_compat_does_not_infer_minimax_model_contract () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -556,10 +563,10 @@ let test_raw_openai_compat_uses_declared_minimax_model_contract () =
            })
       ~model_id:"minimax-m3"
   in
-  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
   Alcotest.(check bool)
     "supports extended thinking"
-    true
+    false
     capabilities.supports_extended_thinking;
   Alcotest.(check bool)
     "supports reasoning budget"
@@ -567,27 +574,27 @@ let test_raw_openai_compat_uses_declared_minimax_model_contract () =
     capabilities.supports_reasoning_budget
 ;;
 
-let test_local_compat_uses_declared_model_capabilities () =
+let test_local_compat_does_not_infer_model_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:(Provider.Local { base_url = "http://127.0.0.1:8085" })
       ~model_id:"dashscope-3.5-35b"
   in
-  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
   Alcotest.(check bool)
     "supports extended thinking"
-    true
+    false
     capabilities.supports_extended_thinking;
   Alcotest.(check bool)
     "supports reasoning budget"
-    true
+    false
     capabilities.supports_reasoning_budget;
   Alcotest.(check bool)
     "declared thinking control"
     true
-    (capabilities.thinking_control_format = Llm_provider.Capabilities.Chat_template_kwargs);
-  Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
-  Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
+    (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control);
+  Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p
 ;;
 
 let test_anthropic_capabilities_consults_for_model_id () =
@@ -1273,102 +1280,116 @@ let test_provider_config_of_agent_model_row_precedes_provider_capabilities () =
 }
 |}
     (fun () ->
-       let model_id = "qwen/qwen3.6-35b-a3b" in
-       let schema = `Assoc [ "type", `String "object" ] in
-       let state = agent_state_with_params () in
-       let declared_cfg : Provider.config =
-         { provider = Custom_registered { name = "runpod-qwen36" }
-         ; model_id
-         ; api_key_env = ""
-         }
-       in
-       let declared_pc =
-         match
-           Provider.provider_config_of_agent
-             ~state
-             ~base_url:"unused-fallback"
-             (Some declared_cfg)
-         with
-         | Ok pc ->
-           { pc with
-             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-           ; output_schema = Some schema
-           }
-         | Error e ->
-           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
-       in
-       check_provider_id "canonical provider id" "runpod-qwen36" declared_pc;
-       Alcotest.(check (option bool))
-         "provider-level structured-output flag does not mask model row"
-         None
-         declared_pc.supports_structured_output_override;
-       Alcotest.(check bool)
-         "provider-level capability record does not mask model row"
-         true
-         (Option.is_none declared_pc.model_capabilities_override);
-       let declared_caps =
-         Llm_provider.Provider_config.capabilities_for_config_model declared_pc
-       in
-       Alcotest.(check bool)
-         "model row uses chat_template_kwargs"
-         true
-         (match declared_caps with
-          | Some caps ->
-            caps.Llm_provider.Capabilities.thinking_control_format
-            = Llm_provider.Capabilities.Chat_template_kwargs
-            && caps.preserve_thinking_control_format
-               = Llm_provider.Capabilities.Chat_template_kwargs_preserve_thinking
-          | None -> false);
-       Alcotest.(check bool)
-         "model row validates schema output despite provider default"
-         true
-         (Result.is_ok
-            (Llm_provider.Provider_config.validate_output_schema_request declared_pc));
-       let raw_cfg : Provider.config =
-         { provider =
-             OpenAICompat
-               { base_url = "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
-               ; auth_header = None
-               ; path = "/v1/chat/completions"
-               ; static_token = None
-               }
-         ; model_id
-         ; api_key_env = ""
-         }
-       in
-       let raw_pc =
-         match
-           Provider.provider_config_of_agent
-             ~state
-             ~base_url:"unused-fallback"
-             (Some raw_cfg)
-         with
-         | Ok pc ->
-           { pc with
-             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-           ; output_schema = Some schema
-           }
-         | Error e ->
-           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
-       in
-       Alcotest.(check (option bool))
-         "raw OpenAICompat does not invent endpoint declaration"
-         None
-         raw_pc.supports_structured_output_override;
-       Alcotest.(check bool)
-         "raw OpenAICompat has no endpoint capability override"
-         true
-         (Option.is_none raw_pc.model_capabilities_override);
-       Alcotest.(check bool)
-         "raw OpenAICompat resolves the provider-independent model row"
-         true
-         (Option.is_some
-            (Llm_provider.Provider_config.capabilities_for_config_model raw_pc));
-       Alcotest.(check bool)
-         "declared model capability validates schema output"
-         true
-         (Result.is_ok
-            (Llm_provider.Provider_config.validate_output_schema_request raw_pc)))
+       with_catalog_toml
+         {|
+[[models]]
+id_prefix = "qwen/qwen3.6-35b-a3b"
+base = "openai_chat"
+provider_name = "runpod-qwen36"
+supports_structured_output = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
+|}
+         (fun () ->
+            let model_id = "qwen/qwen3.6-35b-a3b" in
+            let schema = `Assoc [ "type", `String "object" ] in
+            let state = agent_state_with_params () in
+            let declared_cfg : Provider.config =
+              { provider = Custom_registered { name = "runpod-qwen36" }
+              ; model_id
+              ; api_key_env = ""
+              }
+            in
+            let declared_pc =
+              match
+                Provider.provider_config_of_agent
+                  ~state
+                  ~base_url:"unused-fallback"
+                  (Some declared_cfg)
+              with
+              | Ok pc ->
+                { pc with
+                  Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+                ; output_schema = Some schema
+                }
+              | Error e ->
+                Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+            in
+            check_provider_id "canonical provider id" "runpod-qwen36" declared_pc;
+            Alcotest.(check (option bool))
+              "provider-level structured-output flag does not mask model row"
+              None
+              declared_pc.supports_structured_output_override;
+            Alcotest.(check bool)
+              "provider-level capability record does not mask model row"
+              true
+              (Option.is_none declared_pc.model_capabilities_override);
+            let declared_caps =
+              Llm_provider.Provider_config.capabilities_for_config_model declared_pc
+            in
+            Alcotest.(check bool)
+              "model row uses chat_template_kwargs"
+              true
+              (match declared_caps with
+               | Some caps ->
+                 caps.Llm_provider.Capabilities.thinking_control_format
+                 = Llm_provider.Capabilities.Chat_template_kwargs
+                 && caps.preserve_thinking_control_format
+                    = Llm_provider.Capabilities.Chat_template_kwargs_preserve_thinking
+               | None -> false);
+            Alcotest.(check bool)
+              "model row validates schema output despite provider default"
+              true
+              (Result.is_ok
+                 (Llm_provider.Provider_config.validate_output_schema_request declared_pc));
+            let raw_cfg : Provider.config =
+              { provider =
+                  OpenAICompat
+                    { base_url = "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
+                    ; auth_header = None
+                    ; path = "/v1/chat/completions"
+                    ; static_token = None
+                    }
+              ; model_id
+              ; api_key_env = ""
+              }
+            in
+            let raw_pc =
+              match
+                Provider.provider_config_of_agent
+                  ~state
+                  ~base_url:"unused-fallback"
+                  (Some raw_cfg)
+              with
+              | Ok pc ->
+                { pc with
+                  Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+                ; output_schema = Some schema
+                }
+              | Error e ->
+                Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+            in
+            Alcotest.(check (option bool))
+              "raw OpenAICompat does not invent endpoint declaration"
+              None
+              raw_pc.supports_structured_output_override;
+            Alcotest.(check bool)
+              "raw OpenAICompat has no endpoint capability override"
+              true
+              (Option.is_none raw_pc.model_capabilities_override);
+            Alcotest.(check bool)
+              "raw OpenAICompat does not resolve the provider-independent model row"
+              true
+              (Option.is_none
+                 (Llm_provider.Provider_config.capabilities_for_config_model raw_pc));
+            Alcotest.(check bool)
+              "raw compatibility schema request fails closed"
+              true
+              (Result.is_error
+                 (Llm_provider.Provider_config.validate_output_schema_request raw_pc))))
 ;;
 
 let test_provider_config_of_agent_runtime_only_registration () =
@@ -1516,37 +1537,37 @@ let () =
             `Quick
             test_inference_contract_task_never_inferred_from_model_id
         ; Alcotest.test_case
-            "zai glm-5v image capabilities"
+            "raw ZAI-like OpenAI compatibility stays generic"
             `Quick
-            test_zai_glm5v_capabilities_include_image_input
+            test_raw_zai_like_openai_compat_stays_generic
         ; Alcotest.test_case
-            "declared glm model capabilities are host-independent"
+            "raw OpenAI compatibility does not infer GLM"
             `Quick
-            test_declared_glm_model_capabilities_do_not_depend_on_endpoint_host
+            test_raw_openai_compat_does_not_infer_glm_from_model_or_host
         ; Alcotest.test_case
-            "provider-independent catalog row needs no endpoint guess"
+            "raw OpenAI compatibility ignores provider-independent model row"
             `Quick
-            test_provider_independent_catalog_row_applies_without_endpoint_guessing
+            test_raw_openai_compat_ignores_provider_independent_catalog_row
         ; Alcotest.test_case
             "invalid modality gets actionable error"
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "raw OpenAI-compatible uses declared model capabilities"
+            "raw OpenAI-compatible does not infer DashScope capabilities"
             `Quick
-            test_raw_openai_compat_uses_declared_model_capabilities
+            test_raw_openai_compat_does_not_infer_dashscope_capabilities
         ; Alcotest.test_case
             "raw openai_compat does not infer dashscope"
             `Quick
             test_raw_openai_compat_does_not_infer_dashscope_from_model_id
         ; Alcotest.test_case
-            "raw openai_compat uses declared minimax model contract"
+            "raw openai_compat does not infer MiniMax contract"
             `Quick
-            test_raw_openai_compat_uses_declared_minimax_model_contract
+            test_raw_openai_compat_does_not_infer_minimax_model_contract
         ; Alcotest.test_case
-            "local compat uses declared model capabilities"
+            "local compat does not infer model capabilities"
             `Quick
-            test_local_compat_uses_declared_model_capabilities
+            test_local_compat_does_not_infer_model_capabilities
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick

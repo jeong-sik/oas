@@ -161,9 +161,11 @@ val provider_l_capabilities : capabilities
 
 val sampling_parameter_to_string : sampling_parameter -> string
 
-(** Resolve the exact chat-template token for models whose
-    [thinking_control_format] is [Chat_template_token]. The token is catalog /
-    manifest data, not a hardcoded backend constant. *)
+(** Resolve the chat-template token for an exact normalized provider/model
+    catalog row whose [thinking_control_format] is [Chat_template_token]. A
+    missing exact pair returns [None]; this function never falls back to a
+    provider-independent model family. The token is catalog data, not a
+    hardcoded backend constant. *)
 val thinking_control_token_for_provider_model_id
   :  provider_label:string
   -> model_id:string
@@ -215,11 +217,14 @@ val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_contr
     prefix-matches [model_id]; there is no in-code fallback table. *)
 val for_model_id_catalog : string -> capabilities option
 
-(** Look up capabilities for the explicit provider/model pair. Catalog rows
-    declare [provider_name] and [id_prefix] as separate fields; OAS never
-    rewrites either value into slash, colon, or dot-qualified candidates.
-    When no provider-scoped row matches, [allow_bare_fallback] controls whether
-    this falls back to a provider-independent {!for_model_id} row. *)
+(** Look up capabilities for the explicit provider/model pair. A
+    provider-scoped catalog row matches only when its normalized
+    [provider_name] and complete normalized [id_prefix] equal [provider_label]
+    and [model_id], respectively. OAS never rewrites either value into slash,
+    colon, or dot-qualified candidates, and does not apply family/prefix
+    matching inside the provider scope. When the exact pair is absent,
+    [allow_bare_fallback] controls whether this falls back to a
+    provider-independent {!for_model_id} row. *)
 val for_provider_model_id
   :  allow_bare_fallback:bool
   -> provider_label:string

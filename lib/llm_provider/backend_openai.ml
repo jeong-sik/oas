@@ -1429,6 +1429,11 @@ let%test "openai compat does not infer ZAI preserve control from bare GLM model 
 ;;
 
 let%test "build_request emits reasoning_effort for Openai reasoning models" =
+  let capabilities =
+    { Capabilities.openai_compat_chat_extended_capabilities with
+      accepted_reasoning_efforts = Some [ Reasoning_effort.Low ]
+    }
+  in
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1436,6 +1441,7 @@ let%test "build_request emits reasoning_effort for Openai reasoning models" =
       ~base_url:"https://api.openai.com/v1"
       ~enable_thinking:true
       ~reasoning_effort:Reasoning_effort.Low
+      ~model_capabilities_override:capabilities
       ()
   in
   let body = build_request ~config ~messages:[] () in

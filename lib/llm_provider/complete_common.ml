@@ -138,19 +138,6 @@ let%test "capability source is model when native catalog resolves config model" 
   | _, Provider_default_capability -> false
 ;;
 
-let%test "capability source is model for provider-independent catalog row" =
-  let config =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o"
-      ~base_url:"https://unknown-openai-compatible.example/v1"
-      ()
-  in
-  match resolve_capabilities_for_config config with
-  | _, Model_capability -> true
-  | _, Provider_default_capability -> false
-;;
-
 let%test "capability source is provider default when model is unknown" =
   let config =
     Provider_config.make

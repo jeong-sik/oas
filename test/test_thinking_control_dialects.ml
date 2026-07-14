@@ -89,14 +89,28 @@ let openai_compat_config ?enable_thinking ?preserve_thinking ?thinking_budget mo
     ()
 ;;
 
-let catalog_capabilities model_id =
-  match CAP.for_model_id model_id with
+let catalog_capabilities ?provider_id model_id =
+  let capabilities =
+    match provider_id with
+    | None -> CAP.for_model_id model_id
+    | Some provider_label ->
+      CAP.for_provider_model_id ~allow_bare_fallback:false ~provider_label ~model_id
+  in
+  match capabilities with
   | Some caps -> caps
-  | None -> fail ("expected catalog capabilities for " ^ model_id)
+  | None ->
+    fail
+      (Printf.sprintf
+         "expected catalog capabilities for %s%s"
+         (match provider_id with
+          | None -> ""
+          | Some provider_label -> provider_label ^ "/")
+         model_id)
 ;;
 
 let declared_catalog_openai_compat_config
       ?(base_url = "https://declared-openai-compat.example/v1")
+      ?provider_id
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
@@ -111,7 +125,8 @@ let declared_catalog_openai_compat_config
     ~kind:OpenAI_compat
     ~model_id
     ~base_url
-    ~model_capabilities_override:(catalog_capabilities model_id)
+    ?provider_id
+    ~model_capabilities_override:(catalog_capabilities ?provider_id model_id)
     ?enable_thinking
     ?preserve_thinking
     ?thinking_budget
@@ -185,6 +200,7 @@ let ollama_config ?system_prompt ?enable_thinking model_id =
 let ollama_cloud_config ?system_prompt ?enable_thinking model_id =
   PC.make
     ~kind:Ollama
+    ~provider_id:"ollama_cloud"
     ~model_id
     ~base_url:"https://ollama.com"
     ~request_path:"/api/chat"
@@ -356,6 +372,7 @@ let test_mimo_v25_uses_thinking_object_and_json_mode () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
+      ~provider_id:"mimo"
       ~enable_thinking:false
       ~response_format_json:true
       "mimo-v2.5-pro"
@@ -438,6 +455,7 @@ let test_openai_reasoning_request_uses_reasoning_effort () =
            ~kind:OpenAI_compat
            ~model_id:"openai-reasoning-test-9fx"
            ~base_url:"https://api.openai.com/v1"
+           ~model_capabilities_override:(catalog_capabilities "openai-reasoning-test-9fx")
            ~enable_thinking:true
            ~reasoning_effort:RE.Medium
            ()
@@ -459,6 +477,7 @@ let test_deepseek_openai_compat_uses_thinking_object () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:false
       "deepseek-v4-flash"
   in
@@ -544,6 +563,7 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
   let config =
     PC.make
       ~kind:OpenAI_compat
+      ~provider_id:"ollama_cloud"
       ~model_id:"minimax-m3"
       ~base_url:"https://ollama.com/v1"
       ()
@@ -609,6 +629,7 @@ let test_deepseek_reasoning_dialect_semantics () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:true
       "deepseek-v4-pro"
   in
@@ -669,6 +690,7 @@ let test_deepseek_sampling_suppressed_in_thinking_mode () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~temperature:0.7
       ~top_p:0.9
       "deepseek-v4-flash"
@@ -682,6 +704,7 @@ let test_deepseek_disabled_thinking_keeps_sampling () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:false
       ~temperature:0.7
       ~top_p:0.9
@@ -708,6 +731,7 @@ let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       "deepseek-v4-flash"
   in
   let plain =

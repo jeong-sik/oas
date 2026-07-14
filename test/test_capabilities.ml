@@ -586,16 +586,9 @@ let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
    with
    | Some c -> check_gemma4_e2b "ollama Gemma4 E2B QAT via bare fallback" c
    | None -> fail "Ollama lookup with bare fallback should match local Gemma4 E2B QAT");
-  (match Capabilities.for_model_id model_id with
-   | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
-   | None -> fail "bare lookup should match local Gemma4 E2B QAT");
-  check
-    (option string)
-    "Gemma4 E2B chat-template token"
-    (Some "<|think|>")
-    (Capabilities.thinking_control_token_for_provider_model_id
-       ~provider_label:"ollama"
-       ~model_id)
+  match Capabilities.for_model_id model_id with
+  | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
+  | None -> fail "bare lookup should match local Gemma4 E2B QAT"
 ;;
 
 let test_lookup_deepseek_v4_flash () =
@@ -1673,6 +1666,77 @@ thinking_control_format = "chat_template_kwargs"
               | None -> fail "expected catalog-backed capabilities"))
 ;;
 
+let test_provider_scoped_catalog_identity_is_exact () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "exact-model"
+base = "openai_chat"
+supports_tools = false
+thinking_control_format = "chat_template_token"
+thinking_control_token = "<|bare|>"
+
+[[models]]
+id_prefix = "exact-model"
+provider_name = "acme"
+base = "openai_chat"
+supports_tools = true
+thinking_control_format = "chat_template_token"
+thinking_control_token = "<|provider|>"
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg -> Alcotest.failf "model catalog parse error: %s" msg
+       | Ok catalog ->
+         let previous_catalog = Model_catalog.global () in
+         let restore () =
+           match previous_catalog with
+           | Some catalog -> Model_catalog.set_global catalog
+           | None -> Model_catalog.clear_global ()
+         in
+         Fun.protect ~finally:restore (fun () ->
+           Model_catalog.set_global catalog;
+           (match
+              Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:" ACME "
+                ~model_id:" EXACT-MODEL "
+            with
+            | Some caps ->
+              check bool "exact normalized pair resolves" true caps.supports_tools
+            | None -> fail "exact normalized provider/model pair must resolve");
+           check
+             (option reject)
+             "provider-scoped model prefix extension is absent"
+             None
+             (Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:"acme"
+                ~model_id:"exact-model-preview");
+           (match Capabilities.for_model_id "exact-model-preview" with
+            | Some caps ->
+              check
+                bool
+                "bare family lookup retains prefix semantics"
+                false
+                caps.supports_tools
+            | None -> fail "provider-independent family lookup must remain available");
+           check
+             (option string)
+             "exact provider/model token resolves"
+             (Some "<|provider|>")
+             (Capabilities.thinking_control_token_for_provider_model_id
+                ~provider_label:"acme"
+                ~model_id:"exact-model");
+           check
+             (option string)
+             "provider token near-miss does not fall back to bare family"
+             None
+             (Capabilities.thinking_control_token_for_provider_model_id
+                ~provider_label:"acme"
+                ~model_id:"exact-model-preview")))
+;;
+
 let test_apply_manifest_entry_all_none_uses_base () =
   (* Entry with only id_prefix set — should be identical to base. *)
   let json =
@@ -2537,8 +2601,8 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
 
 (* ── Prefix ordering invariant (M01) ────────────────────── *)
 
-(* Catalog lookup selects the longest exact declared prefix within the selected
-   scope. Whenever prefix A is a string prefix of prefix B (every model-id
+(* Provider-independent catalog lookup selects the longest exact declared
+   prefix. Whenever prefix A is a string prefix of prefix B (every model-id
    starting with B also starts with A), B must win; otherwise A captures the
    request and silently returns the wrong capabilities (e.g. tool_choice sent
    to a model that does not support it → 400 error, anti-pattern M01).
@@ -2546,10 +2610,8 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
    Each case below uses a concrete model-id that begins with the *longer*
    (more-specific) prefix — and therefore also with the *shorter* one — and
    asserts the capability fingerprint that is unique to the longer branch.
-   If the two branches were swapped the assertion would fail.
-
-   Provider-scoped rows use [Provider_qualified] so the test never relies on a
-   provider name encoded into [model_id]. *)
+   If the two branches were swapped the assertion would fail. Provider-scoped
+   rows are exact identities and therefore do not participate in this test. *)
 let test_prefix_ordering_invariant () =
   (* Each entry: (route, model_id, label, discriminating_predicate).
      The predicate is true only when the more-specific (longer-prefix)
@@ -2592,13 +2654,6 @@ let test_prefix_ordering_invariant () =
       , "broad glm-4.5 branch must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_reasoning && c.max_output_tokens = Some 96_000 )
-    ; (* glm-4v must precede glm-4.
-         Discriminator: supports_image_input (glm-4v) vs not (glm-4). *)
-      ( Provider_qualified "glm"
-      , "glm-4v-x"
-      , "glm-4v must precede glm-4"
-      , fun (c : Capabilities.capabilities) ->
-          c.supports_image_input && c.supports_multimodal_inputs )
     ]
   in
   List.iter
@@ -2710,6 +2765,10 @@ let () =
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive
+        ; test_case
+            "provider-scoped identity is exact"
+            `Quick
+            test_provider_scoped_catalog_identity_is_exact
         ] )
     ; "merge", [ test_case "with_context_size" `Quick test_with_context_size ]
     ; ( "manifest"

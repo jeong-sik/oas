@@ -199,8 +199,11 @@ let test_pricing_known_models () =
   check (float 0.01) "gpt4o input" 2.5 p_gpt4o.input_per_million;
   let p_mini = declared_pricing "gpt-mini" in
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
-  let p_local = declared_pricing "dashscope-3.5-35b" in
-  check (float 0.01) "local free" 0.0 p_local.input_per_million;
+  check
+    bool
+    "partial catalog pricing is not treated as free"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "dashscope-3.5-35b"));
   check
     bool
     "undeclared local model remains unpriced"

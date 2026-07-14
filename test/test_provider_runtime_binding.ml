@@ -658,6 +658,7 @@ supports_named_tool_choice = false
 [[models]]
 id_prefix = "minimax-m3"
 base = "openai_chat"
+provider_name = "minimax"
 supports_tools = true
 supports_tool_choice = false
 supports_required_tool_choice = false
@@ -686,6 +687,7 @@ supports_named_tool_choice = false
        let minimax =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"minimax"
            ~model_id:"minimax-m3"
            ~base_url:"https://api.minimax.chat/v1"
            ~tool_choice:named
@@ -695,6 +697,7 @@ supports_named_tool_choice = false
        let minimax_any =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"minimax"
            ~model_id:"minimax-m3"
            ~base_url:"https://api.minimax.chat/v1"
            ~tool_choice:Types.Any
@@ -704,6 +707,7 @@ supports_named_tool_choice = false
        let minimax_auto =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"minimax"
            ~model_id:"minimax-m3"
            ~base_url:"https://api.minimax.chat/v1"
            ~tool_choice:Types.Auto

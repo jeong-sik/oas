@@ -1554,8 +1554,12 @@ let test_for_model_id_llama4_alt () =
   | None -> Alcotest.fail "expected Some for llama4"
 ;;
 
+let provider_capabilities provider_label model_id =
+  Capabilities.for_provider_model_id ~allow_bare_fallback:false ~provider_label ~model_id
+;;
+
 let test_for_model_id_deepseek_v4_flash () =
-  match Capabilities.for_model_id "deepseek-v4-flash" with
+  match provider_capabilities "deepseek" "deepseek-v4-flash" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1570,7 +1574,7 @@ let test_for_model_id_deepseek_v4_flash () =
 ;;
 
 let test_for_model_id_deepseek_v4_pro () =
-  match Capabilities.for_model_id "deepseek-v4-pro" with
+  match provider_capabilities "deepseek" "deepseek-v4-pro" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1585,7 +1589,7 @@ let test_for_model_id_deepseek_v4_pro () =
 ;;
 
 let test_for_model_id_mistral_large () =
-  match Capabilities.for_model_id "mistral-large-2025" with
+  match provider_capabilities "mistral" "mistral-large-2025" with
   | Some c ->
     Alcotest.(check bool) "structured" true c.supports_structured_output;
     Alcotest.(check (option int)) "260K context" (Some 260_000) c.max_context_tokens
@@ -1593,7 +1597,7 @@ let test_for_model_id_mistral_large () =
 ;;
 
 let test_for_model_id_mistral_small () =
-  match Capabilities.for_model_id "mistral-small-latest" with
+  match provider_capabilities "mistral" "mistral-small-latest" with
   | Some c ->
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens
@@ -1601,7 +1605,7 @@ let test_for_model_id_mistral_small () =
 ;;
 
 let test_for_model_id_command () =
-  match Capabilities.for_model_id "command-r-plus" with
+  match provider_capabilities "cohere" "command-r-plus" with
   | Some c ->
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens;
     Alcotest.(check (option int)) "32K output" (Some 32_000) c.max_output_tokens
@@ -1609,7 +1613,7 @@ let test_for_model_id_command () =
 ;;
 
 let test_for_model_id_grok () =
-  match Capabilities.for_model_id "grok-4.3" with
+  match provider_capabilities "xai" "grok-4.3" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning

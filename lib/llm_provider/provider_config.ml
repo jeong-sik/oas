@@ -205,8 +205,13 @@ let capabilities_for_config_model (config : t) =
   | Some caps -> Some caps
   | None ->
     let provider_label = capability_provider_label config in
+    let allow_bare_fallback =
+      match config.provider_id, config.kind with
+      | Some _, _ | None, OpenAI_compat -> false
+      | None, (Anthropic | Kimi | Ollama | Gemini | Glm | DashScope) -> true
+    in
     Capabilities.for_provider_model_id
-      ~allow_bare_fallback:true
+      ~allow_bare_fallback
       ~provider_label
       ~model_id:config.model_id
 ;;

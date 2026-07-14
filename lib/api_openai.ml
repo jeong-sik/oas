@@ -25,11 +25,12 @@ let provider_config_kind_of_request_kind = function
   | Provider.Openai_chat_completions | Provider.Custom _ -> PConfig.OpenAI_compat
 ;;
 
-(* Single typed resolution of a [Provider.Custom_registered] name, shared by
-   the tool-choice validation context, the serializer's dialect projection
-   ([serialization_provider_config]) and [capabilities_for_request], so a
-   registered provider's dialect cannot drift between validation and
-   serialization. Runtime impls registered via [Provider.register_provider]
+(* Single typed resolution of a [Provider.Custom_registered] name used by the
+   serializer's provider projection ([serialization_provider_config]). The
+   resulting [PConfig.t] is also the sole capability input for request
+   validation and serialization, so a registered provider's model contract
+   cannot drift between those paths. Runtime impls registered via
+   [Provider.register_provider]
    keep their [request_kind]-derived dispatch; they declare no static endpoint,
    so they project to an empty [base_url] (their kind is already final and is
    never [Glm]). Names without an impl resolve through
@@ -58,79 +59,7 @@ let custom_registered_projection name
             name))
 ;;
 
-let capabilities_for_custom_registered name =
-  match custom_registered_projection name with
-  | Ok (_provider_id, _kind, _base_url, capabilities) -> Some capabilities
-  | Error _ -> None
-;;
-
-let capabilities_for_request ?provider_config (config : agent_state) =
-  match provider_config with
-  | Some
-      (({ Provider.provider = Provider.Custom_registered { name }; _ } : Provider.config)
-       as cfg) ->
-    (match capabilities_for_custom_registered name with
-     | Some caps -> caps
-     | None -> Provider.capabilities_for_config cfg)
-  | Some cfg -> Provider.capabilities_for_config cfg
-  | None ->
-    Provider.capabilities_for_model
-      ~provider:
-        (Provider.OpenAICompat
-           { base_url = ""
-           ; auth_header = None
-           ; path = "/chat/completions"
-           ; static_token = None
-           })
-      ~model_id:(model_to_string config.config.model)
-;;
-
-let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
-  : Llm_provider.Capabilities.capabilities
-  =
-  { max_context_tokens = caps.max_context_tokens
-  ; max_output_tokens = caps.max_output_tokens
-  ; supports_tools = caps.supports_tools
-  ; supports_tool_choice = caps.supports_tool_choice
-  ; supports_required_tool_choice = caps.supports_required_tool_choice
-  ; supports_named_tool_choice = caps.supports_named_tool_choice
-  ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
-  ; assistant_tool_content_format = caps.assistant_tool_content_format
-  ; supports_reasoning = caps.supports_reasoning
-  ; supports_extended_thinking = caps.supports_extended_thinking
-  ; supports_reasoning_budget = caps.supports_reasoning_budget
-  ; accepted_reasoning_efforts = caps.accepted_reasoning_efforts
-  ; thinking_control_format = caps.thinking_control_format
-  ; preserve_thinking_control_format = caps.preserve_thinking_control_format
-  ; reasoning_output_format = caps.reasoning_output_format
-  ; reasoning_streaming_format = caps.reasoning_streaming_format
-  ; reasoning_replay_override = caps.reasoning_replay_override
-  ; supports_response_format_json = caps.supports_response_format_json
-  ; supports_structured_output = caps.supports_structured_output
-  ; supports_multimodal_inputs = caps.supports_multimodal_inputs
-  ; supports_image_input = caps.supports_image_input
-  ; supports_audio_input = caps.supports_audio_input
-  ; supports_video_input = caps.supports_video_input
-  ; modality_priority = caps.modality_priority
-  ; task = caps.task
-  ; supports_native_streaming = caps.supports_native_streaming
-  ; supports_system_prompt = caps.supports_system_prompt
-  ; supports_caching = caps.supports_caching
-  ; supports_prompt_caching = caps.supports_prompt_caching
-  ; prompt_cache_alignment = caps.prompt_cache_alignment
-  ; supports_top_k = caps.supports_top_k
-  ; supports_min_p = caps.supports_min_p
-  ; supports_seed = caps.supports_seed
-  ; supports_seed_with_images = caps.supports_seed_with_images
-  ; ignored_sampling_parameters = caps.ignored_sampling_parameters
-  ; supports_computer_use = caps.supports_computer_use
-  ; supports_code_execution = caps.supports_code_execution
-  ; emits_usage_tokens = caps.emits_usage_tokens
-  ; supported_models = caps.supported_models
-  }
-;;
-
-(* Typed request-boundary projection for GLM (Z.AI) dialect decisions,
+(* Typed request-boundary projection for GLM dialect decisions,
    mirroring the provider-client path's [Provider_config.t] boundary in
    [Backend_openai_request]. [kind]/[base_url]/[model_id], the selected
    capability declaration, and the caller's output-token override are
@@ -140,18 +69,15 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
    fields remain outside this projection.
 
    Enumerate every [Provider.provider] variant (the type of [cfg.provider])
-   so the compiler flags any new constructor here. ZAI detection depends on a
-   declared endpoint; [Anthropic] carries none, and [Custom_registered]
-   resolves through [custom_registered_projection] — the same typed lookup the
-   tool-choice validation context uses — so registry-declared GLM providers
-   ([glm], [glm-coding]) project to [PConfig.Glm] here exactly as they
-   validate, and unknown names fail closed with the validation path's error
-   instead of degrading to a generic config. A missing [?provider_config]
-   fails closed to an empty [base_url]: a bare "glm-…" model id without a
-   declared Z.AI endpoint never acquires GLM dialect, coercions, or
-   capabilities ([PConfig.is_zai_glm_config] is [false] for every non-ZAI
-   projection), matching the endpoint-declaration guard in
-   [Provider.capabilities_for_model]. *)
+   so the compiler flags any new constructor here. [Custom_registered]
+   resolves through [custom_registered_projection]. Validation and request
+   serialization then consume the resulting [PConfig.t], so registry-declared
+   GLM providers ([glm], [glm-coding]) project to [PConfig.Glm] here exactly as
+   they validate, and unknown names fail closed with the validation path's
+   error instead of degrading to a generic config. Raw
+   [Local]/[OpenAICompat] and a missing [?provider_config] remain
+   [PConfig.OpenAI_compat]; neither endpoint text nor a bare "glm-…" model id
+   can promote them to a vendor dialect. *)
 let serialization_provider_config ?provider_config (config : agent_state)
   : (PConfig.t, string) result
   =
@@ -168,12 +94,12 @@ let serialization_provider_config ?provider_config (config : agent_state)
             let model_capabilities_override =
               match
                 Llm_provider.Capabilities.for_provider_model_id
-                  ~allow_bare_fallback:true
+                  ~allow_bare_fallback:false
                   ~provider_label:provider_id
                   ~model_id:cfg.model_id
               with
               | Some _ -> None
-              | None -> Some (llm_capabilities_of_provider_capabilities capabilities)
+              | None -> Some capabilities
             in
             Ok
               (kind, Some provider_id, base_url, cfg.model_id, model_capabilities_override)
@@ -198,68 +124,27 @@ let serialization_provider_config ?provider_config (config : agent_state)
     projection
 ;;
 
-let provider_config_kind_for_openai_compat ~base_url ~model_id =
-  if
-    PConfig.is_zai_glm_config
-      (PConfig.make ~kind:PConfig.OpenAI_compat ~model_id ~base_url ())
-  then PConfig.Glm
-  else PConfig.OpenAI_compat
+let capabilities_of_serialization_config =
+  Llm_provider.Backend_openai_request.capabilities_of_config
 ;;
 
-let tool_choice_validation_context ?provider_config (config : agent_state) =
-  match provider_config with
-  | Some
-      ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
-        Provider.config) ->
-    (match custom_registered_projection name with
-     | Ok (_provider_id, kind, _base_url, capabilities) ->
-       Ok (kind, model_id, llm_capabilities_of_provider_capabilities capabilities)
-     | Error msg -> Error msg)
-  | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
-    let caps = capabilities_for_request ?provider_config config in
-    Ok (PConfig.Anthropic, model_id, llm_capabilities_of_provider_capabilities caps)
-  | Some
-      ({ provider = Provider.Local { base_url } | Provider.OpenAICompat { base_url; _ }
-       ; model_id
-       ; _
-       } :
-        Provider.config) ->
-    let provider_kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
-    let caps =
-      match provider_kind with
-      | PConfig.Glm -> Llm_provider.Capabilities.glm_capabilities
-      | PConfig.OpenAI_compat ->
-        capabilities_for_request ?provider_config config
-        |> llm_capabilities_of_provider_capabilities
-      | PConfig.Anthropic
-      | PConfig.Kimi
-      | PConfig.Ollama
-      | PConfig.Gemini
-      | PConfig.DashScope -> Llm_provider.Capabilities.default_capabilities
-    in
-    Ok (provider_kind, model_id, caps)
-  | None ->
-    (* No declared provider endpoint: fail closed to the generic
-       OpenAI-compatible contract. A bare "glm-…" model id is not an endpoint
-       declaration, so it acquires neither GLM kind nor GLM capabilities here
-       (endpoint-declaration guard parity with
-       [Provider.capabilities_for_model]). *)
-    let model_id = model_to_string config.config.model in
-    let caps = capabilities_for_request config in
-    Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps)
+let validate_tool_choice_for_serialization_config
+      (config : agent_state)
+      (serialization_config : PConfig.t)
+  =
+  PConfig.validate_tool_choice_request_with_capabilities
+    ~provider_kind:serialization_config.kind
+    ~model_id:serialization_config.model_id
+    ~tool_choice:config.config.tool_choice
+    (capabilities_of_serialization_config serialization_config)
 ;;
 
 let validate_tool_choice_request ?provider_config (config : agent_state) =
-  match tool_choice_validation_context ?provider_config config with
+  match serialization_provider_config ?provider_config config with
   | Error _ as error -> error
-  | Ok (provider_kind, model_id, caps) ->
-    Result.map_error
-      PConfig.tool_choice_request_rejection_to_message
-      (PConfig.validate_tool_choice_request_with_capabilities
-         ~provider_kind
-         ~model_id
-         ~tool_choice:config.config.tool_choice
-         caps)
+  | Ok serialization_config ->
+    validate_tool_choice_for_serialization_config config serialization_config
+    |> Result.map_error PConfig.tool_choice_request_rejection_to_message
 ;;
 
 let reasoning_dialect_for_request
@@ -269,7 +154,6 @@ let reasoning_dialect_for_request
   =
   let dialect =
     capabilities
-    |> llm_capabilities_of_provider_capabilities
     |> Llm_provider.Reasoning_dialect.of_capabilities
     |> Llm_provider.Reasoning_dialect.with_preserve_thinking
          ~preserve_thinking:config.config.preserve_thinking
@@ -353,15 +237,14 @@ let should_include_tools
 
 let build_openai_body_unchecked
       ~(serialization_config : PConfig.t)
-      ?provider_config
       ~config
       ~messages
       ?tools
       ?slot_id
       ()
   =
-  let model_str = model_to_string config.config.model in
-  let capabilities = capabilities_for_request ?provider_config config in
+  let model_str = serialization_config.model_id in
+  let capabilities = capabilities_of_serialization_config serialization_config in
   let is_zai_glm = PConfig.is_zai_glm_config serialization_config in
   let dialect = reasoning_dialect_for_request ~serialization_config capabilities config in
   let assistant_tool_content_format =
@@ -518,20 +401,16 @@ let build_openai_body_unchecked
 ;;
 
 let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =
-  match validate_tool_choice_request ?provider_config config with
+  match serialization_provider_config ?provider_config config with
   | Error reason -> Error reason
-  | Ok () ->
-    (* Same [custom_registered_projection] source as validation above: an
-       unknown registered name can only surface the one shared error, and a
-       registered GLM provider reaches the serializer with the same [Glm]
-       kind it validated under. *)
-    (match serialization_provider_config ?provider_config config with
-     | Error reason -> Error reason
-     | Ok serialization_config ->
+  | Ok serialization_config ->
+    (match validate_tool_choice_for_serialization_config config serialization_config with
+     | Error rejection ->
+       Error (PConfig.tool_choice_request_rejection_to_message rejection)
+     | Ok () ->
        Ok
          (build_openai_body_unchecked
             ~serialization_config
-            ?provider_config
             ~config
             ~messages
             ?tools
@@ -604,4 +483,30 @@ let%test "serializer and validation fail closed identically for unknown register
   | Error serialization_error, Error validation_error ->
     String.equal serialization_error validation_error
   | Ok _, Ok _ | Ok _, Error _ | Error _, Ok _ -> false
+;;
+
+let%test "registered model capability rejects named tool choice before serialization" =
+  let provider_config = inline_test_registered_provider "deepseek" "deepseek-v4-pro" in
+  let base = inline_test_agent_state "deepseek-v4-pro" in
+  let state =
+    { base with
+      config = { base.config with tool_choice = Some (Types.Tool "calculator") }
+    }
+  in
+  match serialization_provider_config ~provider_config state with
+  | Error _ -> false
+  | Ok serialization_config ->
+    (match validate_tool_choice_for_serialization_config state serialization_config with
+     | Error
+         (PConfig.Unsupported_named_tool_choice
+            { provider_kind = PConfig.OpenAI_compat
+            ; model_id = "deepseek-v4-pro"
+            ; tool_name = "calculator"
+            }) -> true
+     | Error
+         ( PConfig.Unsupported_named_tool_choice _
+         | PConfig.Unsupported_required_tool_choice _
+         | PConfig.Unsupported_named_tool_choice_with_thinking _
+         | PConfig.Unsupported_required_tool_choice_with_thinking _ )
+     | Ok () -> false)
 ;;

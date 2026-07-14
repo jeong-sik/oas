@@ -32,10 +32,25 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
-let catalog_capabilities model_id =
-  match Llm_provider.Capabilities.for_model_id model_id with
+let catalog_capabilities ?provider_label model_id =
+  let capabilities =
+    match provider_label with
+    | None -> Llm_provider.Capabilities.for_model_id model_id
+    | Some provider_label ->
+      Llm_provider.Capabilities.for_provider_model_id
+        ~allow_bare_fallback:false
+        ~provider_label
+        ~model_id
+  in
+  match capabilities with
   | Some caps -> caps
-  | None -> Alcotest.failf "expected catalog capabilities for %s" model_id
+  | None ->
+    Alcotest.failf
+      "expected catalog capabilities for %s%s"
+      (match provider_label with
+       | None -> ""
+       | Some provider_label -> provider_label ^ "/")
+      model_id
 ;;
 
 (* ── Anthropic build_request ─────────────────────────── *)
@@ -1107,7 +1122,8 @@ let test_model_capability_thinking_drift_remains_warn () =
       ~kind:OpenAI_compat
       ~model_id:"glm-4-flash"
       ~base_url:"https://declared-openai-compat.example/v1"
-      ~model_capabilities_override:(catalog_capabilities "glm-4-flash")
+      ~model_capabilities_override:
+        (catalog_capabilities ~provider_label:"glm" "glm-4-flash")
       ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
@@ -1127,9 +1143,9 @@ let test_model_capability_thinking_drift_remains_warn () =
 let test_declared_glm_model_thinking_uses_model_capability () =
   let config =
     PC.make
-      ~kind:OpenAI_compat
+      ~kind:Glm
       ~model_id:"glm-5"
-      ~base_url:"https://declared-zai-openai-compat.example/v1"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~model_capabilities_override:(catalog_capabilities "glm-5")
       ()
   in
