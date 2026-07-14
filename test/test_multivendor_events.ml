@@ -11,9 +11,8 @@
 
     - I1/I2: Envelope fields (correlation_id, run_id, ts) are present and
       preserved across every native variant.
-    - event_forward.event_type_name returns the documented flat
-      dot-separated string for each native variant.
-    - agent_name_of_event resolves correctly for agent-scoped variants.
+    - Event_bus.payload_kind returns the canonical label for each native
+      variant.
     - The golden lifecycle transcript (AgentStarted -> TurnStarted ->
       ToolCalled -> ToolCompleted -> TurnCompleted -> AgentCompleted)
       round-trips through the bus without reordering or loss.
@@ -45,7 +44,11 @@ let test_envelope_preserved_across_variants () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:16 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let corr = "mv-corr" in
   let run_id = "mv-run" in
   let mk p = Event_bus.mk_event ~correlation_id:corr ~run_id p in
@@ -71,13 +74,6 @@ let test_envelope_preserved_across_variants () =
     ; HandoffCompleted { from_agent = "alpha"; to_agent = "beta"; elapsed = 0.5 }
     ; ElicitationCompleted
         { agent_name = "alpha"; question = "?"; response = Hooks.Declined }
-    ; SlotSchedulerObserved
-        { max_slots = 4
-        ; active = 4
-        ; available = 0
-        ; queue_length = 2
-        ; state = Event_bus.Saturated
-        }
     ; AgentCompleted
         { agent_name = "alpha"
         ; task_id = "t1"
@@ -98,27 +94,27 @@ let test_envelope_preserved_across_variants () =
     received
 ;;
 
-(* ── event_type_name mapping is stable ─────────────────────────── *)
+(* ── payload_kind mapping is stable ────────────────────────────── *)
 
-let test_event_type_name_mapping () =
+let test_payload_kind_mapping () =
   let cases : (Event_bus.payload * string) list =
-    [ AgentStarted { agent_name = "a"; task_id = "t" }, "agent.started"
+    [ AgentStarted { agent_name = "a"; task_id = "t" }, "agent_started"
     ; ( AgentCompleted
           { agent_name = "a"
           ; task_id = "t"
           ; result = Ok stub_api_response
           ; elapsed = 0.0
           }
-      , "agent.completed" )
+      , "agent_completed" )
     ; ( AgentFailed
           { agent_name = "a"
           ; task_id = "t"
           ; error = Error.Config (Error.InvalidConfig { field = "f"; detail = "x" })
           ; elapsed = 0.0
           }
-      , "agent.failed" )
-    ; TurnStarted { agent_name = "a"; turn = 0 }, "turn.started"
-    ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn.completed"
+      , "agent_failed" )
+    ; TurnStarted { agent_name = "a"; turn = 0 }, "turn_started"
+    ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
     ; ( ToolCalled
           { agent_name = "a"
           ; tool_name = "t"
@@ -126,7 +122,7 @@ let test_event_type_name_mapping () =
           ; input = `Null
           ; turn = 0
           }
-      , "tool.called" )
+      , "tool_called" )
     ; ( ToolCompleted
           { agent_name = "a"
           ; tool_name = "t"
@@ -134,37 +130,28 @@ let test_event_type_name_mapping () =
           ; output = stub_tool_result
           ; turn = 0
           }
-      , "tool.completed" )
+      , "tool_completed" )
     ; ( HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "r" }
-      , "handoff.requested" )
+      , "handoff_requested" )
     ; ( HandoffCompleted { from_agent = "a"; to_agent = "b"; elapsed = 0.0 }
-      , "handoff.completed" )
+      , "handoff_completed" )
     ; ( ElicitationCompleted
           { agent_name = "a"; question = "?"; response = Hooks.Declined }
-      , "elicitation.completed" )
-    ; ( SlotSchedulerObserved
-          { max_slots = 4
-          ; active = 4
-          ; available = 0
-          ; queue_length = 2
-          ; state = Event_bus.Saturated
-          }
-      , "slot_scheduler.observed" )
-    ; (* Custom names pass through verbatim — no "custom." prefix. *)
-      Custom ("runtime.session_started", `Null), "runtime.session_started"
-    ; Custom ("durable.tool_called", `Null), "durable.tool_called"
-    ; Custom ("provider.anthropic.cache_hit", `Null), "provider.anthropic.cache_hit"
-    ; Custom ("myext.foo", `Null), "myext.foo"
+      , "elicitation_completed" )
+    ; Custom ("runtime.session_started", `Null), "custom:runtime.session_started"
+    ; Custom ("durable.tool_called", `Null), "custom:durable.tool_called"
+    ; ( Custom ("provider.anthropic.cache_hit", `Null)
+      , "custom:provider.anthropic.cache_hit" )
+    ; Custom ("myext.foo", `Null), "custom:myext.foo"
     ]
   in
   List.iter
     (fun (payload, expected) ->
-       let ev = Event_bus.mk_event payload in
        check
          string
-         (Printf.sprintf "event_type_name for %s" expected)
+         (Printf.sprintf "payload_kind for %s" expected)
          expected
-         (Event_forward.event_type_name ev))
+         (Event_bus.payload_kind payload))
     cases
 ;;
 
@@ -174,7 +161,11 @@ let test_filter_agent_covers_new_variants () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
+  let config =
+    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config ~filter:(Event_bus.filter_agent "alpha") bus in
   let mk p = Event_bus.mk_event p in
   (* HandoffRequested / HandoffCompleted are scoped by from_agent OR to_agent. *)
   Event_bus.publish
@@ -214,7 +205,11 @@ let test_golden_lifecycle_transcript () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let corr = "golden" in
   let run_id = "g1" in
   let mk p = Event_bus.mk_event ~correlation_id:corr ~run_id p in
@@ -254,17 +249,17 @@ let test_golden_lifecycle_transcript () =
           }));
   let names =
     Event_bus.drain sub
-    |> List.map (fun (e : Event_bus.event) -> Event_forward.event_type_name e)
+    |> List.map (fun (e : Event_bus.event) -> Event_bus.payload_kind e.payload)
   in
   check
     (list string)
     "golden transcript"
-    [ "agent.started"
-    ; "turn.started"
-    ; "tool.called"
-    ; "tool.completed"
-    ; "turn.completed"
-    ; "agent.completed"
+    [ "agent_started"
+    ; "turn_started"
+    ; "tool_called"
+    ; "tool_completed"
+    ; "turn_completed"
+    ; "agent_completed"
     ]
     names
 ;;
@@ -285,12 +280,11 @@ let test_reserved_namespace_grammar () =
   in
   List.iter
     (fun name ->
-       let ev = Event_bus.mk_event (Custom (name, `Null)) in
        check
          string
-         (Printf.sprintf "passthrough %s" name)
-         name
-         (Event_forward.event_type_name ev))
+         (Printf.sprintf "custom payload kind %s" name)
+         ("custom:" ^ name)
+         (Event_bus.payload_kind (Custom (name, `Null))))
     ok_names
 ;;
 
@@ -302,7 +296,7 @@ let () =
             "envelope preserved across all variants"
             `Quick
             test_envelope_preserved_across_variants
-        ; test_case "event_type_name mapping stable" `Quick test_event_type_name_mapping
+        ; test_case "payload_kind mapping stable" `Quick test_payload_kind_mapping
         ; test_case
             "filter_agent scopes handoff + agent_failed"
             `Quick

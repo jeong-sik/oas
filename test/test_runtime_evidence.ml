@@ -35,28 +35,56 @@ let mk_session
 
 let event seq kind : Runtime.event = { seq; ts = float_of_int seq; kind }
 
-let participant_event
+let participant_common ?summary ?provider ?model ?raw_trace_run_id participant_name
+  : Runtime.participant_event_common
+  =
+  { participant_name; summary; provider; model; raw_trace_run_id }
+;;
+
+let participant_live ?summary ?provider ?model ?raw_trace_run_id participant_name
+  : Runtime.participant_live_event
+  =
+  { participant =
+      participant_common ?summary ?provider ?model ?raw_trace_run_id participant_name
+  }
+;;
+
+let participant_completed
       ?summary
       ?provider
       ?model
-      ?error
       ?raw_trace_run_id
       ?stop_reason
       ?completion_anomaly
-      ?failure_cause
       participant_name
-  : Runtime.participant_event
+  : Runtime.participant_completed_event
   =
-  { participant_name
-  ; summary
-  ; provider
-  ; model
-  ; error
-  ; raw_trace_run_id
+  { participant =
+      participant_common ?summary ?provider ?model ?raw_trace_run_id participant_name
   ; stop_reason
   ; completion_anomaly
+  }
+;;
+
+let participant_failed
+      ?summary
+      ?provider
+      ?model
+      ?raw_trace_run_id
+      ~failure_cause
+      participant_name
+  : Runtime.participant_failed_event
+  =
+  { participant =
+      participant_common ?summary ?provider ?model ?raw_trace_run_id participant_name
   ; failure_cause
   }
+;;
+
+let valid_dropped_output_deltas count =
+  match Runtime.dropped_output_deltas ~count with
+  | Ok anomaly -> anomaly
+  | Error error -> fail (Runtime.show_completion_anomaly_error error)
 ;;
 
 let all_event_kinds () =
@@ -87,40 +115,35 @@ let all_event_kinds () =
       ; model = Some "claude"
       }
   ; Agent_became_live
-      (participant_event
+      (participant_live
          ~summary:"ready"
          ~provider:"anthropic"
          ~model:"claude"
          ~raw_trace_run_id:"raw-1"
-         ~stop_reason:"end_turn"
          "alice")
   ; Agent_output_delta
       { participant_name = "alice"; delta = "partial"; raw_trace_run_id = Some "raw-1" }
   ; Agent_completed
-      (participant_event
-         ~summary:
-           (Runtime_evidence.append_dropped_output_deltas_summary
-              ~summary:"done"
-              ~dropped_output_deltas:2)
+      (participant_completed
+         ~summary:"done"
+         ~completion_anomaly:(valid_dropped_output_deltas 2)
          ~provider:"anthropic"
          ~model:"claude"
          ~raw_trace_run_id:"raw-2"
          ~stop_reason:"stop"
          "alice")
   ; Agent_completed
-      (participant_event
+      (participant_completed
          ~summary:"done with typed anomaly"
-         ~completion_anomaly:(Dropped_output_deltas { count = 3 })
+         ~completion_anomaly:(valid_dropped_output_deltas 3)
          "bob")
   ; Agent_failed
-      (participant_event
-         ~error:
-           (Runtime_evidence.encode_persist_failure_detail
-              ~phase:"append_event"
-              "disk full")
+      (participant_failed
+         ~failure_cause:
+           (Persistence_failure { phase = "append_event"; detail = "disk full" })
          "alice")
   ; Agent_failed
-      (participant_event
+      (participant_failed
          ~failure_cause:
            (Persistence_failure { phase = "save_session"; detail = "denied" })
          "bob")
@@ -137,7 +160,7 @@ let all_event_kinds () =
   ; Session_completed { outcome = Some "ok" }
   ; Session_failed { outcome = Some "failed" }
   ; Agent_failed
-      (participant_event ~failure_cause:(Execution_error "tool failed") "charlie")
+      (participant_failed ~failure_cause:(Execution_error "tool failed") "charlie")
   ]
 ;;
 
@@ -165,6 +188,15 @@ let test_telemetry_report_covers_event_shapes () =
     "agent_completed count"
     2
     (List.assoc "agent_completed" report.event_name_counts);
+  let execution_failure_step =
+    report.steps
+    |> List.find_opt (fun step ->
+      Option.equal String.equal step.Runtime_evidence.participant (Some "charlie"))
+  in
+  (match execution_failure_step with
+   | Some step ->
+     check (option string) "typed failure detail" (Some "tool failed") step.detail
+   | None -> fail "missing execution failure step");
   let json = Runtime_evidence.telemetry_report_to_json report in
   let markdown = Runtime_evidence.telemetry_report_to_markdown report in
   check bool "json has steps" true Yojson.Safe.Util.(json |> member "steps" <> `Null);

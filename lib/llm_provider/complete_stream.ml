@@ -26,7 +26,7 @@ let record_streaming_metrics (metrics : Metrics.t) = function
   | Thinking_complete _
   | Timeout _
   | Prefill_complete _
-  | Wire_capture_failure _ -> ()
+  | Wire_observer_failure _ -> ()
 ;;
 
 (* Scrub-then-bound the offending payload echoed into a parse-failure message.
@@ -337,7 +337,7 @@ let complete_stream_http
       ?clock
       ?latency_counter
       ?stream_idle_timeout_s
-      ?capture_id
+      ?observe_wire_chunk
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
@@ -347,9 +347,14 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
-  match validate_all config with
+  let request =
+    match validate_all config with
+    | Error _ as error -> error
+    | Ok () -> serialize_http_request ~stream:true ~config ~messages ~tools
+  in
+  match request with
   | Error err -> Error err
-  | Ok () ->
+  | Ok (http_codec, body_str) ->
     if requires_non_http_transport config.kind
     then
       Error
@@ -361,28 +366,6 @@ let complete_stream_http
            ; kind = Unknown
            })
     else (
-      let http_codec = Provider_http_codec.of_config config in
-      let body_str =
-        match http_codec with
-        | Provider_http_codec.Anthropic_messages ->
-          Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_http_codec.Ollama_chat ->
-          (* Native /api/chat + NDJSON. The Backend_openai detour was a
-           deferred work-around (#849) that dropped Ollama's
-           prompt_eval_count / eval_count / *_duration fields and
-           silently disabled prompt_tok_s / decode_tok_s telemetry
-           for every streaming caller. NDJSON parser is now in
-           Streaming.parse_ollama_ndjson_chunk. *)
-          Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_http_codec.Openai_responses ->
-          Backend_openai_responses.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_http_codec.Openai_chat ->
-          Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_http_codec.Gemini_generate_content ->
-          Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_http_codec.Glm_chat ->
-          Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
-      in
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:true
@@ -547,27 +530,13 @@ let complete_stream_http
           ~body:body_with_stream
           ~f:(fun reader ->
             emit_stream_event on_event Types.Connected;
-            (* Phase O observability: env-gated ([OAS_WIRE_CAPTURE_DIR])
-               redacted tee of raw pre-parse stream chunks. The request-local
-               sink owns only its FIFO; its writer runs under the caller-owned
-               switch so closing the stream never joins exporter I/O. The
-               writer exits after the closed FIFO is drained, while outer
-               switch shutdown remains the lossless join boundary. *)
-            let on_wire_capture_failure failure =
-              Diag.warn
-                "wire_capture"
-                "wire capture observer failure: %s"
-                (Wire_capture.show_failure failure);
-              emit_telemetry (Telemetry_event.Wire_capture_failure failure)
-            in
-            let wire_sink =
-              Wire_capture.make_sink
-                ~sw
-                ~on_failure:on_wire_capture_failure
-                ~capture_id
-                ~provider
-                ~model
-                ()
+            (* OAS exposes one redacted provider observation to a caller-owned
+               nonblocking offer. Queueing, persistence, capacity, and retries
+               remain outside the provider SDK boundary. *)
+            let observe_wire_chunk chunk =
+              match observe_wire_chunk with
+              | None -> ()
+              | Some observe -> observe ~provider ~model ~chunk
             in
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
@@ -702,7 +671,7 @@ let complete_stream_http
                        ?idle_timeout:stream_idle_timeout_s
                        ~reader
                        ~on_line:(fun line ->
-                         Wire_capture.push wire_sink line;
+                         observe_wire_chunk line;
                          match Streaming.parse_ollama_ndjson_chunk line with
                          | None ->
                            dispatch
@@ -728,7 +697,7 @@ let complete_stream_http
                        ?idle_timeout:stream_idle_timeout_s
                        ~reader
                        ~on_data:(fun ~event_type data ->
-                         Wire_capture.push wire_sink data;
+                         observe_wire_chunk data;
                          let events =
                            match http_codec with
                            | Provider_http_codec.Anthropic_messages ->
@@ -822,7 +791,7 @@ let complete_stream_http
                 publish_summary ~terminal:!terminal_state ();
                 result
             in
-            Fun.protect ~finally:(fun () -> Wire_capture.close wire_sink) body_logic)
+            body_logic ())
           ()
       with
       | Error _ as e ->

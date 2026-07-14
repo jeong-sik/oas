@@ -6,7 +6,6 @@ let check_bool = Alcotest.(check bool)
 let check_int = Alcotest.(check int)
 let check_string = Alcotest.(check string)
 let check_opt_string = Alcotest.(check (option string))
-let check_string_list = Alcotest.(check (list string))
 
 let openai_config : Provider.config =
   { provider = Local { base_url = "http://127.0.0.1:65535" }
@@ -83,7 +82,11 @@ let test_agent_type_checkpoint_stage_labels () =
   check_string
     "tool results appended"
     "after_tool_results_appended"
-    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended)
+    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended);
+  check_string
+    "context injection"
+    "after_context_injection"
+    (Internal_agent.checkpoint_stage_to_string After_context_injection)
 ;;
 
 let test_agent_type_accessors_card_and_state_mutators () =
@@ -97,7 +100,6 @@ let test_agent_type_accessors_card_and_state_mutators () =
     { Internal_agent.default_options with
       description = Some "Coverage agent"
     ; provider = Some openai_config
-    ; allowed_paths = [ "/tmp/oas" ]
     }
   in
   Eio_main.run
@@ -116,7 +118,6 @@ let test_agent_type_accessors_card_and_state_mutators () =
     "description"
     (Some "Coverage agent")
     (Internal_agent.description agent);
-  check_string_list "allowed paths" [ "/tmp/oas" ] (Internal_agent.allowed_paths agent);
   check_bool
     "provider option"
     true

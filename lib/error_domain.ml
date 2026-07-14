@@ -27,6 +27,7 @@ type agent_error =
   [ `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
   | `Input_required of string * string
+  | `Hook_execution_failed of string * string * string option * string option * string
   | `Unrecognized_stop_reason of string
   ]
 
@@ -67,7 +68,6 @@ let is_streaming_timeout_phase = function
   | Http_client.Non_streaming_body
   | Http_client.Provider_step
   | Http_client.Cli_stdout_idle
-  | Http_client.Caller_budget
   | Http_client.Unknown_timeout -> false
 ;;
 
@@ -126,6 +126,8 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (TripwireViolation r) -> `Tripwire_violation (r.tripwire, r.reason)
   | Error.Agent (InputRequired r) -> `Input_required (r.request_id, r.question)
+  | Error.Agent (HookExecutionFailed r) ->
+    `Hook_execution_failed (r.hook_name, r.stage, r.tool_name, r.tool_use_id, r.detail)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
@@ -183,6 +185,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
          ; timeout_s = None
          ; created_at = Unix.gettimeofday ()
          })
+  | `Hook_execution_failed (hook_name, stage, tool_name, tool_use_id, detail) ->
+    Error.Agent (HookExecutionFailed { hook_name; stage; tool_name; tool_use_id; detail })
   | `Unrecognized_stop_reason reason -> Error.Agent (UnrecognizedStopReason { reason })
   | `Missing_env_var var -> Error.Config (MissingEnvVar { var_name = var })
   | `Unsupported_provider detail -> Error.Config (UnsupportedProvider { detail })
@@ -253,6 +257,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Guardrail_violation _
   | `Tripwire_violation _
   | `Input_required _
+  | `Hook_execution_failed _
   | `Unrecognized_stop_reason _
   | `Missing_env_var _
   | `Unsupported_provider _

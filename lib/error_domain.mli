@@ -51,6 +51,8 @@ type agent_error =
   [ `Guardrail_violation of string * string (** validator, reason *)
   | `Tripwire_violation of string * string (** tripwire, reason *)
   | `Input_required of string * string (** request_id, question *)
+  | `Hook_execution_failed of string * string * string option * string option * string
+    (** hook_name, typed-stage projection, tool_name, tool_use_id, detail *)
   | `Unrecognized_stop_reason of string
   ]
 

@@ -18,6 +18,12 @@ let roundtrip event =
   | Error e -> failwith e
 ;;
 
+let require_decoded = function
+  | Ok event -> event
+  | Error (failure : Telemetry_bus.decode_failure) ->
+    fail ("unexpected telemetry decode failure: " ^ failure.detail)
+;;
+
 let check_float msg expected actual = check (float 0.001) msg expected actual
 
 (* ── JSON round-trip: every variant ───────────────────────────────── *)
@@ -139,23 +145,21 @@ let test_prefill_complete () =
   | _ -> fail "variant mismatch"
 ;;
 
-let test_wire_capture_failure () =
-  let failure : Wire_capture.failure =
-    { stage = Append
-    ; capture_id = Some "run-1"
+let test_wire_observer_failure () =
+  let failure : Wire_observer.failure =
+    { capture_id = Some "run-1"
     ; provider = "openai"
     ; model = "gpt"
-    ; location = "segment.jsonl"
-    ; message = "storage unavailable"
+    ; cause = Observer_rejected { reason = "caller queue unavailable" }
     }
   in
-  match roundtrip (Telemetry_event.Wire_capture_failure failure) with
-  | Telemetry_event.Wire_capture_failure decoded ->
+  match roundtrip (Telemetry_event.Wire_observer_failure failure) with
+  | Telemetry_event.Wire_observer_failure decoded ->
     check
       string
       "typed failure"
-      (Wire_capture.show_failure failure)
-      (Wire_capture.show_failure decoded)
+      (Wire_observer.show_failure failure)
+      (Wire_observer.show_failure decoded)
   | _ -> fail "variant mismatch"
 ;;
 
@@ -200,15 +204,13 @@ let test_event_type_name () =
           ; cache_hit = false
           }
       , "prefill_complete" )
-    ; ( Wire_capture_failure
-          { stage = Append
-          ; capture_id = Some ""
+    ; ( Wire_observer_failure
+          { capture_id = Some ""
           ; provider = ""
           ; model = ""
-          ; location = ""
-          ; message = ""
+          ; cause = Observer_rejected { reason = "" }
           }
-      , "wire_capture_failure" )
+      , "wire_observer_failure" )
     ]
   in
   List.iter
@@ -223,7 +225,11 @@ let test_telemetry_bus_preserves_fifo () =
   Eio_main.run
   @@ fun _env ->
   let bus = Telemetry_bus.create () in
-  let sub = Telemetry_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:3 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Telemetry_bus.subscribe ~config bus in
   Telemetry_bus.publish
     bus
     (Telemetry_event.Streaming_first_chunk
@@ -236,7 +242,7 @@ let test_telemetry_bus_preserves_fifo () =
     bus
     (Telemetry_event.Streaming_first_chunk
        { provider = "p"; model = "m"; ttfrc_ms = Some 3.0; requested_at = 0.0 });
-  let events = Telemetry_bus.drain sub in
+  let events = Telemetry_bus.drain sub |> List.map require_decoded in
   check int "drained every event" 3 (List.length events);
   match events with
   | [ e1; e2; e3 ] ->
@@ -255,6 +261,26 @@ let test_telemetry_bus_preserves_fifo () =
   | _ -> fail "expected exactly 3 events"
 ;;
 
+let test_telemetry_bus_preserves_decode_failure () =
+  Eio_main.run
+  @@ fun _env ->
+  let event_bus = Event_bus.create () in
+  let bus = Telemetry_bus.of_event_bus event_bus in
+  let config =
+    Event_bus.subscription_config ~capacity:1 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Telemetry_bus.subscribe ~config bus in
+  let malformed = Event_bus.mk_event (Event_bus.Custom ("telemetry_event", `Null)) in
+  Event_bus.publish event_bus malformed;
+  match Telemetry_bus.drain sub with
+  | [ Error { event; detail } ] ->
+    check string "event id preserved" malformed.meta.run_id event.meta.run_id;
+    check bool "decode detail preserved" true (String.length detail > 0)
+  | [ Ok _ ] -> fail "malformed telemetry event must not decode"
+  | _ -> fail "expected one explicit decode failure"
+;;
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -267,7 +293,7 @@ let () =
         ; test_case "Timeout No_response roundtrip" `Quick test_timeout_no_response
         ; test_case "Timeout Ttft_exceeded roundtrip" `Quick test_timeout_ttft_exceeded
         ; test_case "Prefill_complete roundtrip" `Quick test_prefill_complete
-        ; test_case "Wire_capture_failure roundtrip" `Quick test_wire_capture_failure
+        ; test_case "Wire_observer_failure roundtrip" `Quick test_wire_observer_failure
         ] )
     ; "event_type_name", [ test_case "all variants" `Quick test_event_type_name ]
     ; ( "telemetry_bus"
@@ -275,6 +301,10 @@ let () =
             "preserves FIFO without subscriber drain"
             `Quick
             test_telemetry_bus_preserves_fifo
+        ; test_case
+            "preserves decode failure"
+            `Quick
+            test_telemetry_bus_preserves_decode_failure
         ] )
     ]
 ;;

@@ -2,17 +2,6 @@
 
 module Result_syntax = struct
   let ( let* ) = Result.bind
-  let ( let+ ) x f = Result.map f x
-
-  let both a b =
-    match a, b with
-    | Ok a_val, Ok b_val -> Ok (a_val, b_val)
-    | Error e, _ -> Error e
-    | _, Error e -> Error e
-  ;;
-
-  let ( and* ) = both
-  let ( and+ ) = both
 end
 
 open Result_syntax
@@ -60,18 +49,6 @@ let json_kind = function
   | `Variant _ -> "variant"
 ;;
 
-let warn_type_mismatch key ~expected actual =
-  match actual with
-  | `Null -> ()
-  | _ ->
-    Diag.warn
-      "provider_catalog"
-      "ignoring field %S: expected %s, got %s"
-      key
-      expected
-      (json_kind actual)
-;;
-
 let member key json = Yojson.Safe.Util.member key json
 
 let member_present key = function
@@ -79,21 +56,22 @@ let member_present key = function
   | _ -> false
 ;;
 
+let validate_object_fields ~scope ~known = function
+  | `Assoc fields ->
+    let rec loop seen = function
+      | [] -> Ok ()
+      | (key, _) :: rest ->
+        if List.mem key seen
+        then Error (Printf.sprintf "%s contains duplicate field %S" scope key)
+        else if not (List.mem key known)
+        then Error (Printf.sprintf "%s contains unknown field %S" scope key)
+        else loop (key :: seen) rest
+    in
+    loop [] fields
+  | actual -> Error (Printf.sprintf "%s expected object, got %s" scope (json_kind actual))
+;;
+
 let member_string key json =
-  match member key json with
-  | `String s -> Some s
-  | actual ->
-    warn_type_mismatch key ~expected:"string" actual;
-    None
-;;
-
-let member_string_default key ~default json =
-  match member_string key json with
-  | Some s -> s
-  | None -> default
-;;
-
-let member_string_strict key json =
   match member key json with
   | `String s -> Ok (Some s)
   | `Null -> Ok None
@@ -101,8 +79,13 @@ let member_string_strict key json =
     Error (Printf.sprintf "field %S expected string, got %s" key (json_kind actual))
 ;;
 
+let member_string_default key ~default json =
+  let* value = member_string key json in
+  Ok (Option.value value ~default)
+;;
+
 let member_exact_non_empty_string_strict key json =
-  match member_string_strict key json with
+  match member_string key json with
   | Error _ as error -> error
   | Ok None -> Ok None
   | Ok (Some raw) ->
@@ -117,59 +100,135 @@ let member_exact_non_empty_string_strict key json =
 
 let member_bool key json =
   match member key json with
-  | `Bool b -> Some b
+  | `Bool b -> Ok (Some b)
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"bool" actual;
-    None
-;;
-
-let member_bool_default key ~default json =
-  match member_bool key json with
-  | Some b -> b
-  | None -> default
+    Error (Printf.sprintf "field %S expected bool, got %s" key (json_kind actual))
 ;;
 
 let member_int key json =
   match member key json with
-  | `Int n -> Some n
+  | `Int n -> Ok (Some n)
   | `Intlit s ->
     (match int_of_string_opt s with
-     | Some n -> Some n
-     | None ->
-       Diag.warn
-         "provider_catalog"
-         "ignoring field %S: integer literal %S out of native int range"
-         key
-         s;
-       None)
+     | Some n -> Ok (Some n)
+     | None -> Error (Printf.sprintf "field %S integer is out of range" key))
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"int" actual;
-    None
+    Error (Printf.sprintf "field %S expected int, got %s" key (json_kind actual))
+;;
+
+let member_positive_int key json =
+  let* value = member_int key json in
+  match value with
+  | Some value when value <= 0 ->
+    Error (Printf.sprintf "field %S must be a positive integer" key)
+  | value -> Ok value
 ;;
 
 let member_string_list key json =
   match member key json with
   | `List items ->
-    Some
-      (List.filter_map
-         (function
-           | `String s when String.trim s <> "" -> Some (String.trim s)
-           | actual ->
-             warn_type_mismatch key ~expected:"string list" actual;
-             None)
-         items)
-  | `Null -> None
+    let rec loop index acc = function
+      | [] -> Ok (Some (List.rev acc))
+      | `String raw :: rest ->
+        let trimmed = String.trim raw in
+        if String.equal trimmed ""
+        then Error (Printf.sprintf "field %S item %d must not be empty" key index)
+        else if not (String.equal raw trimmed)
+        then
+          Error
+            (Printf.sprintf
+               "field %S item %d must not have leading or trailing whitespace"
+               key
+               index)
+        else loop (index + 1) (raw :: acc) rest
+      | actual :: _ ->
+        Error
+          (Printf.sprintf
+             "field %S item %d expected string, got %s"
+             key
+             index
+             (json_kind actual))
+    in
+    loop 0 [] items
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"array" actual;
-    None
+    Error (Printf.sprintf "field %S expected string array, got %s" key (json_kind actual))
+;;
+
+let catalog_fields = [ "schema_version"; "providers" ]
+
+let provider_fields =
+  [ "id"
+  ; "aliases"
+  ; "kind"
+  ; "transport"
+  ; "command"
+  ; "base_url"
+  ; "request_path"
+  ; "auth"
+  ; "default_model"
+  ; "max_context"
+  ; "capabilities_base"
+  ; "capabilities"
+  ; "credential_scope"
+  ; "api_key_env"
+  ; "base"
+  ]
+;;
+
+let auth_fields = [ "type"; "env"; "key"; "path"; "command" ]
+
+let capability_fields =
+  [ "max_context_tokens"
+  ; "max_output_tokens"
+  ; "supports_tools"
+  ; "supports_tool_choice"
+  ; "supports_required_tool_choice"
+  ; "supports_named_tool_choice"
+  ; "supports_parallel_tool_calls"
+  ; "assistant_tool_content_format"
+  ; "supports_reasoning"
+  ; "supports_extended_thinking"
+  ; "supports_reasoning_budget"
+  ; "accepted_reasoning_efforts"
+  ; "thinking_control_format"
+  ; "thinking_control_token"
+  ; "preserve_thinking_control_format"
+  ; "reasoning_output_format"
+  ; "reasoning_streaming_format"
+  ; "reasoning_replay"
+  ; "supports_response_format_json"
+  ; "supports_structured_output"
+  ; "supports_multimodal_inputs"
+  ; "supports_image_input"
+  ; "supports_audio_input"
+  ; "supports_video_input"
+  ; "modality_priority"
+  ; "supports_native_streaming"
+  ; "supports_system_prompt"
+  ; "supports_caching"
+  ; "supports_prompt_caching"
+  ; "prompt_cache_alignment"
+  ; "supports_top_k"
+  ; "supports_min_p"
+  ; "supports_seed"
+  ; "supports_seed_with_images"
+  ; "ignored_sampling_parameters"
+  ; "supports_computer_use"
+  ; "supports_code_execution"
+  ; "emits_usage_tokens"
+  ; "supported_models"
+  ; "supports_runtime_mcp_tools"
+  ; "supports_runtime_tool_events"
+  ]
 ;;
 
 let parse_transport = function
   | None -> Ok None
   | Some raw ->
-    let trimmed = String.lowercase_ascii (String.trim raw) in
-    (match trimmed with
-     | "" -> Ok None
+    (match raw with
      | "http" -> Ok (Some Http)
      | "managed" -> Ok (Some Managed)
      | other ->
@@ -186,48 +245,72 @@ let auth_env = function
 let parse_auth json =
   match member "auth" json with
   | `Assoc _ as auth_json ->
+    let* () =
+      validate_object_fields ~scope:"provider catalog auth" ~known:auth_fields auth_json
+    in
     if member_present "key" auth_json
     then Error "removed provider catalog auth field \"key\"; use auth.env"
-    else (
-      let auth_type =
-        member_string_default "type" ~default:"none" auth_json
-        |> String.trim
-        |> String.lowercase_ascii
+    else
+      let* auth_type = member_string_default "type" ~default:"none" auth_json in
+      let validate_active_fields () =
+        match
+          List.find_opt (fun key -> member_present key auth_json) [ "path"; "command" ]
+        with
+        | None -> Ok ()
+        | Some field ->
+          Error (Printf.sprintf "removed provider catalog auth field %S" field)
       in
-      let env = member_string_default "env" ~default:"" auth_json in
-      match auth_type with
-      | "none" -> Ok No_auth
-      | "api_key_env" -> Ok (Api_key_env env)
-      | "setup_token_env" -> Ok (Setup_token_env env)
-      | "oauth_cached_login" -> Ok Oauth_cached_login
-      | "file" ->
-        Error
-          "removed provider catalog auth type \"file\"; use api_key_env, \
-           setup_token_env, or oauth_cached_login"
-      | "exec" ->
-        Error
-          "removed provider catalog auth type \"exec\"; use api_key_env, \
-           setup_token_env, or oauth_cached_login"
-      | other ->
-        Error
-          (Printf.sprintf
-             "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-              oauth_cached_login)"
-             other))
-  | _ -> Ok No_auth
+      let parse_without_env auth =
+        let* () = validate_active_fields () in
+        let* env = member_exact_non_empty_string_strict "env" auth_json in
+        match env with
+        | None -> Ok auth
+        | Some _ ->
+          Error (Printf.sprintf "auth type %S does not accept field \"env\"" auth_type)
+      in
+      let parse_with_env make_auth =
+        let* () = validate_active_fields () in
+        let* env = member_exact_non_empty_string_strict "env" auth_json in
+        match env with
+        | Some env -> Ok (make_auth env)
+        | None ->
+          Error (Printf.sprintf "auth type %S requires non-empty field \"env\"" auth_type)
+      in
+      (match auth_type with
+       | "file" ->
+         Error
+           "removed provider catalog auth type \"file\"; use api_key_env, \
+            setup_token_env, or oauth_cached_login"
+       | "exec" ->
+         Error
+           "removed provider catalog auth type \"exec\"; use api_key_env, \
+            setup_token_env, or oauth_cached_login"
+       | "none" -> parse_without_env No_auth
+       | "oauth_cached_login" -> parse_without_env Oauth_cached_login
+       | "api_key_env" -> parse_with_env (fun env -> Api_key_env env)
+       | "setup_token_env" -> parse_with_env (fun env -> Setup_token_env env)
+       | other ->
+         Error
+           (Printf.sprintf
+              "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
+               oauth_cached_login)"
+              other))
+  | `Null -> Ok No_auth
+  | actual ->
+    Error
+      (Printf.sprintf
+         "provider catalog auth expected object or null, got %s"
+         (json_kind actual))
 ;;
 
 let parse_optional_capability_value ~field ~canonical parse = function
   | None -> Ok None
   | Some raw ->
     let normalized = String.lowercase_ascii (String.trim raw) in
-    if String.equal normalized ""
-    then Ok None
-    else (
-      match parse normalized with
-      | Some value -> Ok (Some value)
-      | None ->
-        Error (Printf.sprintf "unknown %s %S (canonical: %s)" field normalized canonical))
+    (match parse normalized with
+     | Some value -> Ok (Some value)
+     | None ->
+       Error (Printf.sprintf "unknown %s %S (canonical: %s)" field normalized canonical))
 ;;
 
 let parse_preserve_thinking_control_format =
@@ -295,7 +378,6 @@ let parse_modality_priority = function
   | Some raw ->
     let normalized = String.lowercase_ascii (String.trim raw) in
     (match normalized with
-     | "" -> Ok None
      | "preserve_input_order" | "preserve-input-order" | "preserve" ->
        Ok (Some Modality.Preserve_input_order)
      | "visual_first" | "visual-first" -> Ok (Some Modality.Visual_first)
@@ -345,47 +427,47 @@ let parse_ignored_sampling_parameters = function
     loop [] values
 ;;
 
-let member_supported_models json = member_string_list "supported_models" json
-
 let capability_base json =
   if member_present "base" json
   then Error "removed provider catalog field \"base\"; use \"capabilities_base\""
-  else (
-    let label = member_string "capabilities_base" json in
+  else
+    let* label = member_exact_non_empty_string_strict "capabilities_base" json in
     match label with
     | None -> Ok Capabilities.default_capabilities
     | Some raw ->
-      let trimmed = String.trim raw in
-      if trimmed = ""
-      then Ok Capabilities.default_capabilities
-      else (
-        match Capabilities.capabilities_for_provider_label trimmed with
-        | Some caps -> Ok caps
-        | None ->
-          Error
-            (Printf.sprintf
-               "unknown capabilities_base %S (see \
-                Capabilities.capabilities_for_provider_label for valid presets)"
-               trimmed)))
+      (match Capabilities.capabilities_for_provider_label raw with
+       | Some caps -> Ok caps
+       | None ->
+         Error
+           (Printf.sprintf
+              "unknown capabilities_base %S (see \
+               Capabilities.capabilities_for_provider_label for valid presets)"
+              raw))
 ;;
 
-let override_bool key caps f json =
-  match member_bool key json with
-  | Some v -> f caps v
-  | None -> caps
-;;
-
-let override_int_opt key caps f json =
-  match member_int key json with
-  | Some v -> f caps (Some v)
+let override value caps f =
+  match value with
+  | Some value -> f caps value
   | None -> caps
 ;;
 
 let parse_capabilities provider_json =
-  let cap_json =
+  let* cap_json =
     match member "capabilities" provider_json with
-    | `Assoc _ as v -> v
-    | _ -> provider_json
+    | `Null -> Ok (`Assoc [])
+    | `Assoc _ as cap_json ->
+      let* () =
+        validate_object_fields
+          ~scope:"provider catalog capabilities"
+          ~known:capability_fields
+          cap_json
+      in
+      Ok cap_json
+    | actual ->
+      Error
+        (Printf.sprintf
+           "provider catalog capabilities expected object or null, got %s"
+           (json_kind actual))
   in
   let* () =
     match
@@ -406,106 +488,104 @@ let parse_capabilities provider_json =
     (* Provider-level presets declare the same [thinking_control_format] /
        [thinking_control_token] key pair; join them so a chat_template_token
        preset without a token — or a token without that format — fails closed. *)
-    let* raw = member_string_strict "thinking_control_format" cap_json in
+    let* raw = member_string "thinking_control_format" cap_json in
     let* token = member_exact_non_empty_string_strict "thinking_control_token" cap_json in
     Capability_vocab.thinking_control_format_of_label_and_token ~format:raw ~token
   in
   let* preserve_thinking_control_format =
-    let* raw = member_string_strict "preserve_thinking_control_format" cap_json in
+    let* raw = member_string "preserve_thinking_control_format" cap_json in
     parse_preserve_thinking_control_format raw
   in
   let* reasoning_replay =
-    let* raw = member_string_strict "reasoning_replay" cap_json in
+    let* raw = member_string "reasoning_replay" cap_json in
     parse_reasoning_replay raw
   in
   let* assistant_tool_content_format =
-    let* raw = member_string_strict "assistant_tool_content_format" cap_json in
+    let* raw = member_string "assistant_tool_content_format" cap_json in
     parse_assistant_tool_content_format raw
   in
   let* reasoning_output_format =
-    let* raw = member_string_strict "reasoning_output_format" cap_json in
+    let* raw = member_string "reasoning_output_format" cap_json in
     parse_reasoning_output_format raw
   in
   let* reasoning_streaming_format =
-    let* raw = member_string_strict "reasoning_streaming_format" cap_json in
+    let* raw = member_string "reasoning_streaming_format" cap_json in
     parse_reasoning_streaming_format raw
   in
   let* modality_priority =
-    let* raw = member_string_strict "modality_priority" cap_json in
+    let* raw = member_string "modality_priority" cap_json in
     parse_modality_priority raw
   in
+  let* accepted_reasoning_efforts_raw =
+    member_string_list "accepted_reasoning_efforts" cap_json
+  in
   let* accepted_reasoning_efforts =
-    parse_accepted_reasoning_efforts
-      (member_string_list "accepted_reasoning_efforts" cap_json)
+    parse_accepted_reasoning_efforts accepted_reasoning_efforts_raw
+  in
+  let* ignored_sampling_parameters_raw =
+    member_string_list "ignored_sampling_parameters" cap_json
   in
   let* ignored_sampling_parameters =
-    parse_ignored_sampling_parameters
-      (member_string_list "ignored_sampling_parameters" cap_json)
+    parse_ignored_sampling_parameters ignored_sampling_parameters_raw
   in
+  let* supported_models = member_string_list "supported_models" cap_json in
+  let* max_context_tokens = member_positive_int "max_context_tokens" cap_json in
+  let* max_output_tokens = member_positive_int "max_output_tokens" cap_json in
+  let* prompt_cache_alignment = member_positive_int "prompt_cache_alignment" cap_json in
+  let* supports_tools = member_bool "supports_tools" cap_json in
+  let* supports_tool_choice = member_bool "supports_tool_choice" cap_json in
+  let* supports_required_tool_choice =
+    member_bool "supports_required_tool_choice" cap_json
+  in
+  let* supports_named_tool_choice = member_bool "supports_named_tool_choice" cap_json in
+  let* supports_parallel_tool_calls =
+    member_bool "supports_parallel_tool_calls" cap_json
+  in
+  let* supports_reasoning = member_bool "supports_reasoning" cap_json in
+  let* supports_extended_thinking = member_bool "supports_extended_thinking" cap_json in
+  let* supports_reasoning_budget = member_bool "supports_reasoning_budget" cap_json in
+  let* supports_response_format_json =
+    member_bool "supports_response_format_json" cap_json
+  in
+  let* supports_structured_output = member_bool "supports_structured_output" cap_json in
+  let* supports_multimodal_inputs = member_bool "supports_multimodal_inputs" cap_json in
+  let* supports_image_input = member_bool "supports_image_input" cap_json in
+  let* supports_audio_input = member_bool "supports_audio_input" cap_json in
+  let* supports_video_input = member_bool "supports_video_input" cap_json in
+  let* supports_native_streaming = member_bool "supports_native_streaming" cap_json in
+  let* supports_system_prompt = member_bool "supports_system_prompt" cap_json in
+  let* supports_caching = member_bool "supports_caching" cap_json in
+  let* supports_prompt_caching = member_bool "supports_prompt_caching" cap_json in
+  let* supports_top_k = member_bool "supports_top_k" cap_json in
+  let* supports_min_p = member_bool "supports_min_p" cap_json in
+  let* supports_seed = member_bool "supports_seed" cap_json in
+  let* supports_seed_with_images = member_bool "supports_seed_with_images" cap_json in
+  let* supports_computer_use = member_bool "supports_computer_use" cap_json in
+  let* supports_code_execution = member_bool "supports_code_execution" cap_json in
+  let* emits_usage_tokens = member_bool "emits_usage_tokens" cap_json in
   let caps =
     base
     |> fun caps ->
-    override_int_opt
-      "max_context_tokens"
-      caps
-      (fun caps v -> { caps with Capabilities.max_context_tokens = v })
-      cap_json
+    override max_context_tokens caps (fun caps value ->
+      { caps with Capabilities.max_context_tokens = Some value })
     |> fun caps ->
-    override_int_opt
-      "max_output_tokens"
-      caps
-      (fun caps v -> { caps with Capabilities.max_output_tokens = v })
-      cap_json
+    override max_output_tokens caps (fun caps value ->
+      { caps with Capabilities.max_output_tokens = Some value })
     |> fun caps ->
-    override_bool
-      "supports_tools"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_tools = v })
-      cap_json
+    override supports_tools caps (fun caps value ->
+      { caps with Capabilities.supports_tools = value })
     |> fun caps ->
-    override_bool
-      "supports_tool_choice"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_tool_choice = v })
-      cap_json
+    override supports_tool_choice caps (fun caps value ->
+      { caps with Capabilities.supports_tool_choice = value })
     |> fun caps ->
-    let caps =
-      if caps.supports_tool_choice
-      then caps
-      else
-        { caps with
-          Capabilities.supports_required_tool_choice = false
-        ; supports_named_tool_choice = false
-        }
-    in
-    override_bool
-      "supports_required_tool_choice"
-      caps
-      (fun caps v ->
-         { caps with
-           Capabilities.supports_required_tool_choice = v && caps.supports_tool_choice
-         })
-      cap_json
+    override supports_required_tool_choice caps (fun caps value ->
+      { caps with Capabilities.supports_required_tool_choice = value })
     |> fun caps ->
-    let caps =
-      if caps.supports_tool_choice
-      then caps
-      else { caps with Capabilities.supports_required_tool_choice = false }
-    in
-    override_bool
-      "supports_named_tool_choice"
-      caps
-      (fun caps v ->
-         { caps with
-           Capabilities.supports_named_tool_choice = v && caps.supports_tool_choice
-         })
-      cap_json
+    override supports_named_tool_choice caps (fun caps value ->
+      { caps with Capabilities.supports_named_tool_choice = value })
     |> fun caps ->
-    override_bool
-      "supports_parallel_tool_calls"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_parallel_tool_calls = v })
-      cap_json
+    override supports_parallel_tool_calls caps (fun caps value ->
+      { caps with Capabilities.supports_parallel_tool_calls = value })
     |> fun caps ->
     (match assistant_tool_content_format with
      | Some assistant_tool_content_format ->
@@ -521,140 +601,77 @@ let parse_capabilities provider_json =
        { caps with Capabilities.reasoning_streaming_format }
      | None -> caps)
     |> fun caps ->
-    override_bool
-      "supports_reasoning"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_reasoning = v })
-      cap_json
+    override supports_reasoning caps (fun caps value ->
+      { caps with Capabilities.supports_reasoning = value })
     |> fun caps ->
-    override_bool
-      "supports_extended_thinking"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_extended_thinking = v })
-      cap_json
+    override supports_extended_thinking caps (fun caps value ->
+      { caps with Capabilities.supports_extended_thinking = value })
     |> fun caps ->
-    override_bool
-      "supports_reasoning_budget"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_reasoning_budget = v })
-      cap_json
+    override supports_reasoning_budget caps (fun caps value ->
+      { caps with Capabilities.supports_reasoning_budget = value })
     |> fun caps ->
-    override_bool
-      "supports_response_format_json"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_response_format_json = v })
-      cap_json
+    override supports_response_format_json caps (fun caps value ->
+      { caps with Capabilities.supports_response_format_json = value })
     |> fun caps ->
-    override_bool
-      "supports_structured_output"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_structured_output = v })
-      cap_json
+    override supports_structured_output caps (fun caps value ->
+      { caps with Capabilities.supports_structured_output = value })
     |> fun caps ->
-    override_bool
-      "supports_multimodal_inputs"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_multimodal_inputs = v })
-      cap_json
+    override supports_multimodal_inputs caps (fun caps value ->
+      { caps with Capabilities.supports_multimodal_inputs = value })
     |> fun caps ->
-    override_bool
-      "supports_image_input"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_image_input = v })
-      cap_json
+    override supports_image_input caps (fun caps value ->
+      { caps with Capabilities.supports_image_input = value })
     |> fun caps ->
-    override_bool
-      "supports_audio_input"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_audio_input = v })
-      cap_json
+    override supports_audio_input caps (fun caps value ->
+      { caps with Capabilities.supports_audio_input = value })
     |> fun caps ->
-    override_bool
-      "supports_video_input"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_video_input = v })
-      cap_json
+    override supports_video_input caps (fun caps value ->
+      { caps with Capabilities.supports_video_input = value })
     |> fun caps ->
     (match modality_priority with
      | Some modality_priority -> { caps with Capabilities.modality_priority }
      | None -> caps)
     |> fun caps ->
-    override_bool
-      "supports_native_streaming"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_native_streaming = v })
-      cap_json
+    override supports_native_streaming caps (fun caps value ->
+      { caps with Capabilities.supports_native_streaming = value })
     |> fun caps ->
-    override_bool
-      "supports_system_prompt"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_system_prompt = v })
-      cap_json
+    override supports_system_prompt caps (fun caps value ->
+      { caps with Capabilities.supports_system_prompt = value })
     |> fun caps ->
-    override_bool
-      "supports_caching"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_caching = v })
-      cap_json
+    override supports_caching caps (fun caps value ->
+      { caps with Capabilities.supports_caching = value })
     |> fun caps ->
-    override_bool
-      "supports_prompt_caching"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_prompt_caching = v })
-      cap_json
+    override supports_prompt_caching caps (fun caps value ->
+      { caps with Capabilities.supports_prompt_caching = value })
     |> fun caps ->
-    override_int_opt
-      "prompt_cache_alignment"
-      caps
-      (fun caps v -> { caps with Capabilities.prompt_cache_alignment = v })
-      cap_json
+    override prompt_cache_alignment caps (fun caps value ->
+      { caps with Capabilities.prompt_cache_alignment = Some value })
     |> fun caps ->
-    override_bool
-      "supports_top_k"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_top_k = v })
-      cap_json
+    override supports_top_k caps (fun caps value ->
+      { caps with Capabilities.supports_top_k = value })
     |> fun caps ->
-    override_bool
-      "supports_min_p"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_min_p = v })
-      cap_json
+    override supports_min_p caps (fun caps value ->
+      { caps with Capabilities.supports_min_p = value })
     |> fun caps ->
-    override_bool
-      "supports_seed"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_seed = v })
-      cap_json
+    override supports_seed caps (fun caps value ->
+      { caps with Capabilities.supports_seed = value })
     |> fun caps ->
-    override_bool
-      "supports_seed_with_images"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_seed_with_images = v })
-      cap_json
+    override supports_seed_with_images caps (fun caps value ->
+      { caps with Capabilities.supports_seed_with_images = value })
     |> fun caps ->
     (match ignored_sampling_parameters with
      | Some ignored_sampling_parameters ->
        { caps with Capabilities.ignored_sampling_parameters }
      | None -> caps)
     |> fun caps ->
-    override_bool
-      "supports_computer_use"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_computer_use = v })
-      cap_json
+    override supports_computer_use caps (fun caps value ->
+      { caps with Capabilities.supports_computer_use = value })
     |> fun caps ->
-    override_bool
-      "supports_code_execution"
-      caps
-      (fun caps v -> { caps with Capabilities.supports_code_execution = v })
-      cap_json
+    override supports_code_execution caps (fun caps value ->
+      { caps with Capabilities.supports_code_execution = value })
     |> fun caps ->
-    override_bool
-      "emits_usage_tokens"
-      caps
-      (fun caps v -> { caps with Capabilities.emits_usage_tokens = v })
-      cap_json
+    override emits_usage_tokens caps (fun caps value ->
+      { caps with Capabilities.emits_usage_tokens = value })
   in
   let caps =
     match thinking_control_format with
@@ -674,7 +691,7 @@ let parse_capabilities provider_json =
       { caps with Capabilities.reasoning_replay_override }
   in
   let caps =
-    match member_supported_models cap_json with
+    match supported_models with
     | Some models -> { caps with Capabilities.supported_models = Some models }
     | None -> caps
   in
@@ -686,98 +703,127 @@ let parse_capabilities provider_json =
       }
     | None -> caps
   in
-  Ok caps
+  if
+    (caps.supports_required_tool_choice || caps.supports_named_tool_choice)
+    && not caps.supports_tool_choice
+  then
+    Error
+      "supports_required_tool_choice/supports_named_tool_choice require \
+       supports_tool_choice=true"
+  else Ok caps
 ;;
 
 let parse_entry json =
-  match member_string "id" json with
-  | None -> Error "provider entry missing required \"id\" field"
-  | Some id ->
-    let id = String.trim id in
-    if id = ""
-    then Error "provider entry has empty \"id\" field"
-    else (
-      let kind_raw = member_string_default "kind" ~default:"openai_compat" json in
-      match Provider_kind.of_string kind_raw with
-      | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
-      | Some kind ->
-        let prefix_id msg = Printf.sprintf "provider %S: %s" id msg in
-        let* () =
-          if member_present "api_key_env" json
-          then
-            Error
-              (prefix_id
-                 "removed provider catalog field \"api_key_env\"; use \
-                  auth.type=api_key_env with auth.env")
-          else Ok ()
-        and* auth = Result.map_error prefix_id (parse_auth json)
-        and* transport_opt =
-          Result.map_error prefix_id (parse_transport (member_string "transport" json))
-        and* capabilities = Result.map_error prefix_id (parse_capabilities json) in
-        let transport =
-          Option.value transport_opt ~default:(default_transport_for_kind kind)
-        in
-        let max_context =
-          match member_int "max_context" json with
-          | Some _ as v -> v
-          | None -> capabilities.Capabilities.max_context_tokens
-        in
-        Ok
-          { id
-          ; aliases = Option.value (member_string_list "aliases" json) ~default:[]
-          ; kind
-          ; transport
-          ; command = member_string "command" json
-          ; base_url = member_string_default "base_url" ~default:"" json
-          ; request_path =
-              member_string_default
-                "request_path"
-                ~default:(Provider_config.request_path_default_for_kind kind)
-                json
-          ; api_key_env = auth_env auth
-          ; auth
-          ; default_model = member_string "default_model" json
-          ; max_context
-          ; capabilities
-          ; credential_scope = member_string "credential_scope" json
-          })
+  let* () =
+    validate_object_fields ~scope:"provider catalog entry" ~known:provider_fields json
+  in
+  let* id =
+    match member_exact_non_empty_string_strict "id" json with
+    | Error _ as error -> error
+    | Ok None -> Error "provider entry missing required \"id\" field"
+    | Ok (Some id) -> Ok id
+  in
+  let prefix_id message = Printf.sprintf "provider %S: %s" id message in
+  let with_id result = Result.map_error prefix_id result in
+  let* () =
+    if member_present "api_key_env" json
+    then
+      Error
+        (prefix_id
+           "removed provider catalog field \"api_key_env\"; use auth.type=api_key_env \
+            with auth.env")
+    else Ok ()
+  in
+  let* kind_raw = with_id (member_string_default "kind" ~default:"openai_compat" json) in
+  let* kind =
+    match Provider_kind.of_string kind_raw with
+    | Some kind -> Ok kind
+    | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
+  in
+  let* auth = with_id (parse_auth json) in
+  let* transport_raw = with_id (member_string "transport" json) in
+  let* transport_opt = with_id (parse_transport transport_raw) in
+  let* capabilities = with_id (parse_capabilities json) in
+  let* aliases = with_id (member_string_list "aliases" json) in
+  let* command = with_id (member_string "command" json) in
+  let* base_url = with_id (member_string_default "base_url" ~default:"" json) in
+  let* request_path =
+    with_id
+      (member_string_default
+         "request_path"
+         ~default:(Provider_config.request_path_default_for_kind kind)
+         json)
+  in
+  let* default_model = with_id (member_string "default_model" json) in
+  let* max_context_override = with_id (member_positive_int "max_context" json) in
+  let* credential_scope = with_id (member_string "credential_scope" json) in
+  let transport = Option.value transport_opt ~default:(default_transport_for_kind kind) in
+  let max_context =
+    match max_context_override with
+    | Some _ as max_context -> max_context
+    | None -> capabilities.Capabilities.max_context_tokens
+  in
+  Ok
+    { id
+    ; aliases = Option.value aliases ~default:[]
+    ; kind
+    ; transport
+    ; command
+    ; base_url
+    ; request_path
+    ; api_key_env = auth_env auth
+    ; auth
+    ; default_model
+    ; max_context
+    ; capabilities
+    ; credential_scope
+    }
 ;;
 
-let of_json json =
-  let schema_version =
-    match member "schema_version" json with
-    | `Int n -> n
-    | _ -> 0
-  in
-  if schema_version <> 1
-  then
-    Error
-      (Printf.sprintf
-         "unsupported provider catalog schema_version: %d (expected 1)"
-         schema_version)
-  else (
-    let items =
-      match member "providers" json with
-      | `List xs -> xs
-      | _ -> []
+let of_json = function
+  | `Assoc _ as json ->
+    let* () =
+      validate_object_fields ~scope:"provider catalog" ~known:catalog_fields json
     in
-    let results = List.map parse_entry items in
-    let errors =
-      List.filter_map
-        (function
-          | Error e -> Some e
-          | Ok _ -> None)
-        results
+    let* schema_version =
+      match member "schema_version" json with
+      | `Int n -> Ok n
+      | actual ->
+        Error
+          (Printf.sprintf
+             "provider catalog schema_version expected int, got %s"
+             (json_kind actual))
     in
-    if errors <> []
-    then Error (String.concat "; " errors)
+    if schema_version <> 1
+    then
+      Error
+        (Printf.sprintf
+           "unsupported provider catalog schema_version: %d (expected 1)"
+           schema_version)
     else
-      Ok
-        (List.filter_map
-           (function
-             | Ok e -> Some e
-             | Error _ -> None)
-           results))
+      let* items =
+        match member "providers" json with
+        | `List items -> Ok items
+        | actual ->
+          Error
+            (Printf.sprintf
+               "provider catalog providers expected array, got %s"
+               (json_kind actual))
+      in
+      let entries, errors =
+        List.fold_left
+          (fun (entries, errors) item ->
+             match parse_entry item with
+             | Ok entry -> entry :: entries, errors
+             | Error error -> entries, error :: errors)
+          ([], [])
+          items
+      in
+      (match List.rev errors with
+       | [] -> Ok (List.rev entries)
+       | errors -> Error (String.concat "; " errors))
+  | actual ->
+    Error (Printf.sprintf "provider catalog expected object, got %s" (json_kind actual))
 ;;
 
 let load_file path =

@@ -28,6 +28,13 @@ type input_required =
 
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
+  | HookExecutionFailed of
+      { hook_name : string
+      ; stage : string
+      ; tool_name : string option
+      ; tool_use_id : string option
+      ; detail : string
+      }
   | GuardrailViolation of
       { validator : string
       ; reason : string

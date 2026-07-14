@@ -32,14 +32,14 @@ Single-agent execution engine.
 
 ```
 sdk_error
-├── Api of api_error          (7 variants: RateLimited, AuthError, ...)
-├── Agent of agent_error      (typed execution timeout, input, recovery, ...)
-├── Mcp of mcp_error          (5 variants: ServerStart, Initialize, ...)
-├── Config of config_error    (3 variants: MissingEnv, Unsupported, ...)
-├── Serialization of ...      (3 variants: JsonParse, VersionMismatch, ...)
-├── Io of io_error            (2 variants: FileOp, Validation)
-├── Orchestration of ...      (3 variants: UnknownAgent, Timeout, ...)
-├── A2a of a2a_error          (5 variants: TaskNotFound, InvalidTransition, ...)
+├── Api of api_error          (provider API and transport failures)
+├── Provider of provider_error (provider configuration, request, and parse failures)
+├── Agent of agent_error      (stop reason, hook, guardrail, tripwire, or input request)
+├── Mcp of mcp_error          (server, initialization, list, call, or HTTP failure)
+├── Config of config_error    (missing, unsupported, invalid, or sensitive configuration)
+├── Serialization of serialization_error
+├── Io of io_error
+├── Orchestration of orchestration_error
 └── Internal of string
 ```
 

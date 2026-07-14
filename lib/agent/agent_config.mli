@@ -6,12 +6,6 @@
     @stability Internal
     @since 0.93.1 *)
 
-type tool_file_config =
-  { name : string
-  ; description : string
-  ; parameters : Types.tool_param list
-  }
-
 type mcp_file_config =
   | Stdio_mcp of
       { command : string
@@ -35,14 +29,11 @@ type agent_file_config =
   ; thinking_budget : int option
   ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; provider : string option
-  ; tools : tool_file_config list
   ; mcp_servers : mcp_file_config list
   }
 
 (** {1 Parsing} *)
 
-val parse_param : Yojson.Safe.t -> (Types.tool_param, Error.sdk_error) result
-val parse_tool : Yojson.Safe.t -> (tool_file_config, Error.sdk_error) result
 val parse_mcp : Yojson.Safe.t -> (mcp_file_config, Error.sdk_error) result
 val of_json : Yojson.Safe.t -> (agent_file_config, Error.sdk_error) result
 val load : string -> (agent_file_config, Error.sdk_error) result
@@ -58,20 +49,24 @@ val resolve_provider
 
 val connect_mcp_server
   :  sw:Eio.Switch.t
-  -> mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
+  -> ?mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> mcp_file_config
   -> (Mcp.managed, Error.sdk_error) result
 
 val connect_mcp_servers_required
   :  sw:Eio.Switch.t
-  -> mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
+  -> ?mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> mcp_file_config list
   -> (Mcp.managed list, Error.sdk_error) result
 
 (** {1 Builder conversion} *)
 
+(** Convert a loaded configuration to a builder.  Every configured MCP server
+    requires [sw]; stdio servers additionally require [mgr].  Missing resources
+    produce an explicit [Error.Config] error and never drop configured tools
+    silently. *)
 val to_builder
   :  ?sw:Eio.Switch.t
   -> ?mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t

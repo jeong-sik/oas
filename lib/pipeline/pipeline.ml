@@ -19,21 +19,15 @@ open Agent_trace
 
 let _log = Log.create ~module_name:"pipeline" ()
 
-let hook_failed_sdk_error ~hook_name ~stage ~detail =
-  Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
-;;
-
-let illegal_hook_decision ~stage ~decision =
-  Error.Internal
-    (Printf.sprintf
-       "illegal hook decision %s in %s"
-       (Agent_lifecycle.hook_decision_to_string decision)
-       stage)
-;;
-
 (* Shared with Pipeline_stage_prepare via Pipeline_common (re-raises Eio
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
+
+let append_journal journal event =
+  match Durable_event.append journal event with
+  | Ok () -> ()
+  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
+;;
 
 open Result_syntax
 
@@ -68,7 +62,7 @@ let persist_turn_checkpoint_for_state agent stage state =
      | Ok () ->
        (match agent.options.journal with
         | Some journal ->
-          Durable_event.append
+          append_journal
             journal
             (Checkpoint_saved
                { checkpoint_id = Printf.sprintf "%s-%d" stage_label turn; timestamp })
@@ -236,15 +230,19 @@ let stage_collect ?raw_trace_run ?clock agent response =
          match after_decision with
          | Hooks.Continue -> Ok ()
          | Hooks.HookFailed { stage; detail } ->
-           Error (hook_failed_sdk_error ~hook_name:"after_turn" ~stage ~detail)
-         | decision ->
-           let detail =
-             Printf.sprintf
-               "illegal after_turn decision escaped validation: %s"
-               (Hooks.decision_kind_to_string (Hooks.classify_decision decision))
-           in
            Error
-             (hook_failed_sdk_error ~hook_name:"after_turn" ~stage:"after_turn" ~detail)
+             (Pipeline_common.hook_failed_sdk_error
+                ~hook_name:"after_turn"
+                ~stage
+                ~tool_name:None
+                ~tool_use_id:None
+                ~detail)
+         | decision ->
+           Error
+             (Pipeline_common.illegal_hook_decision_sdk_error
+                ~hook_name:"after_turn"
+                ~stage:Hooks.After_turn
+                ~decision)
        in
        let completed_turn = agent.state.turn_count in
        let assistant_message = make_message ~role:Assistant response.content in
@@ -329,7 +327,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
                   })));
        (match agent.options.journal with
         | Some j ->
-          Durable_event.append
+          append_journal
             j
             (State_transition
                { from_state = "turn_running"
@@ -361,46 +359,71 @@ let stage_execute ?raw_trace_run agent tool_uses_nonempty =
     ; links = []
     }
     (fun _tracer ->
-       let results =
-         try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
-         | Raw_trace.Trace_error err -> Error err
+       let results, failure =
+         match execute_tools_with_trace agent raw_trace_run tool_uses with
+         | Ok results -> results, None
+         | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
+           completed_results, Some cause
        in
-       let* results = results in
        let tool_results = Agent_turn.make_tool_results results in
-       let s = agent.state in
-       let messages =
-         match tool_results with
-         | [] -> s.messages
-         | _ -> Util.snoc s.messages (make_message ~role:Tool tool_results)
-       in
-       let* messages =
-         match agent.options.context_injector with
-         | None -> Ok messages
-         | Some injector ->
-           Agent_turn.apply_context_injection
-             ~context:agent.context
-             ~messages
-             ~injector
-             ~tool_uses
-             ~results
-           |> Result.map_error (fun error ->
-             Error.Internal
-               (Printf.sprintf
-                  "context injector failed%s: %s"
-                  (match error.Agent_turn.tool_name with
-                   | Some name -> " for tool " ^ name
-                   | None -> "")
-                  error.detail))
-       in
-       let checkpoint_state = { s with messages } in
        let* () =
-         persist_turn_checkpoint_for_state
-           agent
-           After_tool_results_appended
-           checkpoint_state
+         match tool_results with
+         | [] -> Ok ()
+         | _ ->
+           (* Commit completed effects before surfacing a terminal hook or
+              observer failure.  Updating memory first prevents same-process
+              replay even when the caller-owned checkpoint sink itself fails;
+              the checkpoint then makes the same invariant durable. *)
+           update_state agent (fun state ->
+             { state with
+               messages = Util.snoc state.messages (make_message ~role:Tool tool_results)
+             });
+           let base_state = agent.state in
+           persist_turn_checkpoint_for_state agent After_tool_results_appended base_state
        in
-       set_state agent checkpoint_state;
-       Ok ToolsExecuted)
+       match failure with
+       | Some
+           (Agent_tools.Hook_failure
+              (Agent_tools.Hook_execution_failed
+                 { hook_name; stage; tool_name; tool_use_id; detail })) ->
+         Error
+           (Pipeline_common.hook_failed_sdk_error
+              ~hook_name
+              ~stage
+              ~tool_name:(Some tool_name)
+              ~tool_use_id:(Some tool_use_id)
+              ~detail)
+       | Some (Agent_tools.Observer_failure { exception_; backtrace }) ->
+         Printexc.raise_with_backtrace exception_ backtrace
+       | None ->
+         (match agent.options.context_injector with
+          | None -> Ok ToolsExecuted
+          | Some injector ->
+            let* messages =
+              Agent_turn.apply_context_injection
+                ~context:agent.context
+                ~messages:agent.state.messages
+                ~injector
+                ~tool_uses
+                ~results
+              |> Result.map_error (fun error ->
+                Error.Internal
+                  (Printf.sprintf
+                     "context injector failed%s: %s"
+                     (match error.Agent_turn.tool_name with
+                      | Some name -> " for tool " ^ name
+                      | None -> "")
+                     error.detail))
+            in
+            let injected_state = { agent.state with messages } in
+            set_state agent injected_state;
+            let* () =
+              persist_turn_checkpoint_for_state
+                agent
+                After_context_injection
+                injected_state
+            in
+            Ok ToolsExecuted))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -474,9 +497,22 @@ let stage_output ?raw_trace_run agent response =
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
          (match stop_decision with
+          | Hooks.Continue -> Ok (Complete response)
           | Hooks.HookFailed { stage; detail } ->
-            Error (hook_failed_sdk_error ~hook_name:"on_stop" ~stage ~detail)
-          | _ -> Ok (Complete response))
+            Error
+              (Pipeline_common.hook_failed_sdk_error
+                 ~hook_name:"on_stop"
+                 ~stage
+                 ~tool_name:None
+                 ~tool_use_id:None
+                 ~detail)
+          | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _ | Hooks.Block _)
+            as decision ->
+            Error
+              (Pipeline_common.illegal_hook_decision_sdk_error
+                 ~hook_name:"on_stop"
+                 ~stage:Hooks.On_stop
+                 ~decision))
        | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
@@ -538,7 +574,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent 
        error; OAS does not mutate the transcript or retry implicitly. *)
     (match agent.options.journal with
      | Some j ->
-       Durable_event.append
+       append_journal
          j
          (Llm_request
             { turn = agent.state.turn_count
@@ -567,7 +603,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent 
          | Some u -> Some u.input_tokens, Some u.output_tokens
          | None -> None, None
        in
-       Durable_event.append
+       append_journal
          j
          (Llm_response
             { turn = agent.state.turn_count
@@ -578,7 +614,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run ?on_provider_failure agent 
             ; timestamp = Pipeline_common.timestamp_now ?clock ()
             })
      | Some j, Error err ->
-       Durable_event.append
+       append_journal
          j
          (Error_occurred
             { turn = agent.state.turn_count

@@ -36,6 +36,18 @@ type participant_run_result =
   | Participant_completed of participant_run_success
   | Participant_input_required of Runtime.input_request * paused_participant
 
+let participant_event_common
+      ~participant_name
+      ~summary
+      ~provider
+      ~model
+      ?raw_trace_run_id
+      ()
+  : Runtime.participant_event_common
+  =
+  { participant_name; summary; provider; model; raw_trace_run_id }
+;;
+
 let agent_config_model (resolution : execution_resolution) =
   resolution.provider_cfg.Provider.model_id
 ;;
@@ -470,9 +482,13 @@ let emit_delta_text_with_refs
 ;;
 
 let completion_anomaly_of_delta_errors delta_error_count =
-  if !delta_error_count > 0
-  then Some (Runtime.Dropped_output_deltas { count = !delta_error_count })
-  else None
+  match !delta_error_count with
+  | 0 -> Ok None
+  | count ->
+    Runtime.dropped_output_deltas ~count
+    |> Result.map Option.some
+    |> Result.map_error (fun error ->
+      Error.Internal (Runtime.show_completion_anomaly_error error))
 ;;
 
 let run_participant
@@ -533,22 +549,26 @@ let run_participant
     in
     (match Agent.run_stream ~sw ~on_event agent detail.prompt with
      | Ok response ->
-       if !delta_error_count > 0
-       then
-         Log.warn
-           _wlog
-           "participant completed with dropped output deltas"
-           [ Log.S ("session_id", session_id)
-           ; Log.S ("participant", detail.participant_name)
-           ; Log.I ("dropped_output_deltas", !delta_error_count)
-           ];
-       Ok
-         (Participant_completed
-            { summary = extract_text response
-            ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-            ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-            ; completion_anomaly = completion_anomaly ()
-            })
+       (match completion_anomaly () with
+        | Error error ->
+          Error { error; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
+        | Ok completion_anomaly ->
+          if !delta_error_count > 0
+          then
+            Log.warn
+              _wlog
+              "participant completed with dropped output deltas"
+              [ Log.S ("session_id", session_id)
+              ; Log.S ("participant", detail.participant_name)
+              ; Log.I ("dropped_output_deltas", !delta_error_count)
+              ];
+          Ok
+            (Participant_completed
+               { summary = extract_text response
+               ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
+               ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+               ; completion_anomaly
+               }))
      | Error (Error.Agent (Error.InputRequired request)) ->
        Ok
          (Participant_input_required
@@ -586,9 +606,8 @@ let persist_participant_failure
       ~participant_name
       ~provider
       ~model
-      ~detail
       ?raw_trace_run_id
-      ?failure_cause
+      ~failure_cause
       ()
   =
   match
@@ -597,14 +616,14 @@ let persist_participant_failure
       state
       session_id
       (Agent_failed
-         { participant_name
-         ; summary = None
-         ; provider
-         ; model
-         ; error = Some detail
-         ; raw_trace_run_id
-         ; stop_reason = None
-         ; completion_anomaly = None
+         { participant =
+             participant_event_common
+               ~participant_name
+               ~summary:None
+               ~provider
+               ~model
+               ?raw_trace_run_id
+               ()
          ; failure_cause
          })
   with
@@ -614,7 +633,16 @@ let persist_participant_failure
       ~session_id
       ~participant_name
       ~phase:"agent_failed"
-      err
+      err;
+    emit_system_error
+      state
+      (Printf.sprintf
+         "participant failure could not be persisted: session=%S participant=%S \
+          failure=%s persistence_error=%s"
+         session_id
+         participant_name
+         (Runtime.failure_cause_to_string failure_cause)
+         (Error.to_string err))
 ;;
 
 let persist_participant_completion
@@ -631,15 +659,16 @@ let persist_participant_completion
       state
       session_id
       (Agent_completed
-         { participant_name
-         ; summary = Some outcome.summary
-         ; provider = resolution.resolved_provider
-         ; model = resolution.resolved_model
-         ; error = None
-         ; raw_trace_run_id = outcome.raw_trace_run_id
+         { participant =
+             participant_event_common
+               ~participant_name
+               ~summary:(Some outcome.summary)
+               ~provider:resolution.resolved_provider
+               ~model:resolution.resolved_model
+               ?raw_trace_run_id:outcome.raw_trace_run_id
+               ()
          ; stop_reason = outcome.stop_reason
          ; completion_anomaly = outcome.completion_anomaly
-         ; failure_cause = None
          })
   with
   | Ok _ -> ()
@@ -661,7 +690,6 @@ let persist_participant_completion
       ~participant_name
       ~provider:resolution.resolved_provider
       ~model:resolution.resolved_model
-      ~detail
       ?raw_trace_run_id:outcome.raw_trace_run_id
       ~failure_cause:(Persistence_failure { phase = "agent_completed"; detail })
       ()
@@ -695,7 +723,6 @@ let persist_participant_input_required
       ~participant_name
       ~provider:resolution.resolved_provider
       ~model:resolution.resolved_model
-      ~detail
       ~failure_cause:(Persistence_failure { phase = "input_required_checkpoint"; detail })
       ()
   | Ok () ->
@@ -722,7 +749,6 @@ let persist_participant_input_required
          ~participant_name
          ~provider:resolution.resolved_provider
          ~model:resolution.resolved_model
-         ~detail
          ~failure_cause:(Persistence_failure { phase = "input_required"; detail })
          ())
 ;;
@@ -754,14 +780,17 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
   let rec loop () =
     match Agent.run_turn_stream ~sw ~on_event paused.agent with
     | Ok (`Complete response) ->
-      Ok
-        (Participant_completed
-           { summary = extract_text response
-           ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-           ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-           ; completion_anomaly =
-               completion_anomaly_of_delta_errors paused.delta_error_count
-           })
+      (match completion_anomaly_of_delta_errors paused.delta_error_count with
+       | Error error ->
+         Error { error; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink }
+       | Ok completion_anomaly ->
+         Ok
+           (Participant_completed
+              { summary = extract_text response
+              ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+              ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+              ; completion_anomaly
+              }))
     | Ok `ToolsExecuted -> loop ()
     | Error (Error.Agent (Error.InputRequired request)) ->
       Ok
@@ -804,7 +833,6 @@ let resume_paused_participant store state session_id paused runtime_response =
       ~participant_name
       ~provider:paused.resolution.resolved_provider
       ~model:paused.resolution.resolved_model
-      ~detail:(Error.to_string failure.error)
       ?raw_trace_run_id:failure.raw_trace_run_id
       ~failure_cause:(Execution_error (Error.to_string failure.error))
       ()
@@ -935,7 +963,6 @@ let apply_command ~sw state store (session : session) command =
             ~participant_name:paused.detail.participant_name
             ~provider:paused.resolution.resolved_provider
             ~model:paused.resolution.resolved_model
-            ~detail:(Error.to_string err)
             ~failure_cause:(Execution_error (Error.to_string err))
             ())
      | Ok _, None | Error _, Some _ | Error _, None -> ());
@@ -967,15 +994,14 @@ let apply_command ~sw state store (session : session) command =
            state
            session_id
            (Agent_failed
-              { participant_name = detail.participant_name
-              ; summary = None
-              ; provider = detail.provider
-              ; model = detail.model
-              ; error = Some (Error.to_string err)
-              ; raw_trace_run_id = None
-              ; stop_reason = None
-              ; completion_anomaly = None
-              ; failure_cause = Some (Execution_error (Error.to_string err))
+              { participant =
+                  participant_event_common
+                    ~participant_name:detail.participant_name
+                    ~summary:None
+                    ~provider:detail.provider
+                    ~model:detail.model
+                    ()
+              ; failure_cause = Execution_error (Error.to_string err)
               })
        in
        Ok (Command_applied session)
@@ -989,15 +1015,13 @@ let apply_command ~sw state store (session : session) command =
                state
                session_id
                (Agent_became_live
-                  { participant_name
-                  ; summary = Some "runtime-started"
-                  ; provider = resolution.resolved_provider
-                  ; model = resolution.resolved_model
-                  ; error = None
-                  ; raw_trace_run_id = None
-                  ; stop_reason = None
-                  ; completion_anomaly = None
-                  ; failure_cause = None
+                  { participant =
+                      participant_event_common
+                        ~participant_name
+                        ~summary:(Some "runtime-started")
+                        ~provider:resolution.resolved_provider
+                        ~model:resolution.resolved_model
+                        ()
                   })
            with
            | Error err ->
@@ -1018,7 +1042,6 @@ let apply_command ~sw state store (session : session) command =
                ~participant_name
                ~provider:resolution.resolved_provider
                ~model:resolution.resolved_model
-               ~detail
                ~failure_cause:
                  (Persistence_failure { phase = "agent_became_live"; detail })
                ()
@@ -1049,13 +1072,15 @@ let apply_command ~sw state store (session : session) command =
                   ~participant_name
                   ~provider:resolution.resolved_provider
                   ~model:resolution.resolved_model
-                  ~detail:(Error.to_string failure.error)
                   ?raw_trace_run_id:failure.raw_trace_run_id
                   ~failure_cause:(Execution_error (Error.to_string failure.error))
                   ())
          with
-         | Eio.Cancel.Cancelled _ as ex -> raise ex
          | exn ->
+           Llm_provider.Reserved_exn.reraise_if_reserved exn;
+           let detail =
+             Printf.sprintf "participant fiber crashed: %s" (Printexc.to_string exn)
+           in
            persist_participant_failure
              store
              state
@@ -1063,13 +1088,7 @@ let apply_command ~sw state store (session : session) command =
              ~participant_name
              ~provider:resolution.resolved_provider
              ~model:resolution.resolved_model
-             ~detail:
-               (Printf.sprintf "participant fiber crashed: %s" (Printexc.to_string exn))
-             ~failure_cause:
-               (Execution_error
-                  (Printf.sprintf
-                     "participant fiber crashed: %s"
-                     (Printexc.to_string exn)))
+             ~failure_cause:(Execution_error detail)
              ()
        in
        (match fork_participant_lane ~sw state ~session_id ~participant_name run with
@@ -1081,15 +1100,14 @@ let apply_command ~sw state store (session : session) command =
               state
               session_id
               (Agent_failed
-                 { participant_name
-                 ; summary = None
-                 ; provider = resolution.resolved_provider
-                 ; model = resolution.resolved_model
-                 ; error = Some (Error.to_string err)
-                 ; raw_trace_run_id = None
-                 ; stop_reason = None
-                 ; completion_anomaly = None
-                 ; failure_cause = Some (Execution_error (Error.to_string err))
+                 { participant =
+                     participant_event_common
+                       ~participant_name
+                       ~summary:None
+                       ~provider:resolution.resolved_provider
+                       ~model:resolution.resolved_model
+                       ()
+                 ; failure_cause = Execution_error (Error.to_string err)
                  })
           in
           Ok (Command_applied session)))
@@ -1218,9 +1236,8 @@ let serve_stdio ~sw ~net ~stdin () =
       match handle_request ~sw state request with
       | Ok response -> response
       | Error err -> Error_response (Error.to_string err)
-      | exception Eio.Cancel.Cancelled _ ->
-        Error_response "runtime request was cancelled before completion"
       | exception exn ->
+        Llm_provider.Reserved_exn.reraise_if_reserved exn;
         let detail = Printexc.to_string exn in
         Log.error
           _log
@@ -1230,6 +1247,7 @@ let serve_stdio ~sw ~net ~stdin () =
     in
     (try write_protocol_message state (Response_message { request_id; response }) with
      | exn ->
+       Llm_provider.Reserved_exn.reraise_if_reserved exn;
        Log.error
          _log
          "Runtime response write failed"
@@ -1240,6 +1258,7 @@ let serve_stdio ~sw ~net ~stdin () =
     Eio.Fiber.fork ~sw (fun () ->
       try ignore (handle_request_sync request_id request) with
       | exn ->
+        Llm_provider.Reserved_exn.reraise_if_reserved exn;
         Log.error
           _log
           "Runtime request lane failed"

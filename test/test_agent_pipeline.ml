@@ -429,13 +429,13 @@ let test_agent_run_http_error () =
   | Exit -> ()
 ;;
 
-let test_agent_run_context_overflow_is_returned_without_retry () =
+let test_agent_run_context_like_http_400_is_unknown_invalid_request_without_retry () =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
-    let overflow_body =
+    let context_like_error_body =
       {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (128)"}}|}
     in
     let url, calls =
@@ -443,7 +443,9 @@ let test_agent_run_context_overflow_is_returned_without_retry () =
         ~sw
         ~net:env#net
         ~port:20020
-        [ `Bad_request, overflow_body; `OK, openai_text_response "should not retry" ]
+        [ `Bad_request, context_like_error_body
+        ; `OK, openai_text_response "should not retry"
+        ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }
@@ -492,8 +494,11 @@ let test_agent_run_context_overflow_is_returned_without_retry () =
     in
     Agent.update_state agent (fun state -> { state with messages = history });
     match Agent.run ~sw agent "continue" with
-    | Ok _ -> fail "expected ContextOverflow"
-    | Error (Error.Api (Retry.ContextOverflow _)) ->
+    | Ok _ -> fail "expected InvalidRequest Unknown_invalid_request"
+    | Error
+        (Error.Api
+           (Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; message = _ }))
+      ->
       check int "no internal retry" 1 (Atomic.get calls);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
@@ -514,9 +519,9 @@ let () =
             test_agent_run_long_tool_sequence_completes
         ; test_case "http error" `Quick test_agent_run_http_error
         ; test_case
-            "context overflow is returned without retry"
+            "context-like HTTP 400 is unknown invalid request without retry"
             `Quick
-            test_agent_run_context_overflow_is_returned_without_retry
+            test_agent_run_context_like_http_400_is_unknown_invalid_request_without_retry
         ] )
     ; ( "tools"
       , [ test_case "tool use cycle" `Quick test_agent_run_tool_use

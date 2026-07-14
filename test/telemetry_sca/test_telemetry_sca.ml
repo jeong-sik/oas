@@ -67,7 +67,7 @@ let test_registry_covers_all_variants () =
     ; "Thinking_complete"
     ; "Timeout"
     ; "Prefill_complete"
-    ; "Wire_capture_failure"
+    ; "Wire_observer_failure"
     ]
   in
   List.iter
@@ -103,7 +103,6 @@ let test_no_orphan_producer_variants () =
     ; "Stream_idle"
     ; "Provider_step"
     ; "Cli_stdout_idle"
-    ; "Caller_budget"
     ; "Unknown_timeout"
     ; "Terminal_done"
     ; "Terminal_cancelled"

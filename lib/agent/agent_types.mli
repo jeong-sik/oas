@@ -17,6 +17,7 @@ type periodic_callback =
 type checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
+  | After_context_injection
 
 val checkpoint_stage_to_string : checkpoint_stage -> string
 
@@ -64,7 +65,6 @@ type options =
   ; tracer : Tracing.t
   ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
-  ; approval : Hooks.approval_callback option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -74,7 +74,6 @@ type options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; allowed_paths : string list
   ; slot_id : int option
     (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
         When [Some n], adds ["id_slot": n] to OpenAI-compat request body.
@@ -164,7 +163,6 @@ val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val description : t -> string option
-val allowed_paths : t -> string list
 
 (** {1 SDK version} *)
 

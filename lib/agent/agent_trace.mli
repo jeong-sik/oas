@@ -32,12 +32,13 @@ val invoke_hook_with_trace
 (** {1 Tool execution with tracing} *)
 
 (** Execute tool-use blocks with full raw-trace recording (started/finished
-    events, lifecycle updates).  Delegates to [Agent_tools.execute_tools]. *)
+    events, lifecycle updates). Delegates to [Agent_tools.execute_tools],
+    retaining completed results when a trace observer fails. *)
 val execute_tools_with_trace
   :  t
   -> Raw_trace.active_run option
   -> Types.content_block list
-  -> Agent_tools.tool_execution_result list
+  -> (Agent_tools.tool_execution_result list, Agent_tools.execution_failure) result
 
 (** {1 Assistant block recording} *)
 
@@ -67,7 +68,11 @@ val with_raw_trace_run
 
 (** Error-polymorphic form of {!with_raw_trace_run}.  [of_sdk_error] lifts
     trace-infrastructure failures into the caller's carrier, while
-    [error_to_string] is used only for lifecycle/raw-trace diagnostics. *)
+    [error_to_string] is used only for lifecycle/raw-trace diagnostics.
+
+    If [f] raises, the original exception and raw backtrace are preserved.
+    A secondary failure to finalize the raw trace is emitted as a structured
+    error log before the original exception is re-raised. *)
 val with_raw_trace_run_result
   :  of_sdk_error:(Error.sdk_error -> 'error)
   -> error_to_string:('error -> string)

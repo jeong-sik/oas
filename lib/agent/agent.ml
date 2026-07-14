@@ -477,8 +477,8 @@ let publish_handoff_requested agent (target : Handoff.handoff_target) prompt =
                ; reason = prompt
                }))
      with
-     | Eio.Cancel.Cancelled _ as exn -> raise exn
      | exn ->
+       Llm_provider.Reserved_exn.reraise_if_reserved exn;
        Log.warn
          _log
          "Event_bus.publish failed (HandoffRequested)"
@@ -498,8 +498,8 @@ let publish_handoff_completed agent (target : Handoff.handoff_target) ~caused_by
             (HandoffCompleted
                { from_agent = agent.state.config.name; to_agent = target.name; elapsed }))
      with
-     | Eio.Cancel.Cancelled _ as exn -> raise exn
      | exn ->
+       Llm_provider.Reserved_exn.reraise_if_reserved exn;
        Log.warn
          _log
          "Event_bus.publish failed (HandoffCompleted)"

@@ -4,6 +4,7 @@ open Alcotest
 open Agent_sdk
 
 let ts = 1711234567.0
+let append_ok journal event = Durable_event.append journal event |> Result.get_ok
 
 let with_log_capture f =
   let sink, get_records = Log.collector_sink () in
@@ -44,8 +45,8 @@ let test_save_journal_writes_jsonl () =
   Eio_main.run
   @@ fun env ->
   let journal = Durable_event.create () in
-  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append journal (Llm_request { turn = 1; model = "m"; timestamp = ts });
+  append_ok journal (Turn_started { turn = 1; timestamp = ts });
+  append_ok journal (Llm_request { turn = 1; model = "m"; timestamp = ts });
   let path = Filename.temp_file "auto_dump" ".jsonl" in
   Fun.protect
     ~finally:(fun () ->
@@ -98,7 +99,7 @@ let test_auto_dump_installs_callback () =
        check bool "on_run_complete set" true (Option.is_some opts.on_run_complete);
        (* Simulate run completion — append an event then invoke callback. *)
        (match opts.journal with
-        | Some j -> Durable_event.append j (Turn_started { turn = 1; timestamp = ts })
+        | Some j -> append_ok j (Turn_started { turn = 1; timestamp = ts })
         | None -> fail "journal missing");
        (match opts.on_run_complete with
         | Some cb -> cb true
@@ -130,7 +131,7 @@ let test_auto_dump_logs_save_failure () =
        in
        let opts = Agent.options agent in
        (match opts.journal with
-        | Some j -> Durable_event.append j (Turn_started { turn = 1; timestamp = ts })
+        | Some j -> append_ok j (Turn_started { turn = 1; timestamp = ts })
         | None -> fail "journal missing");
        (match opts.on_run_complete with
         | Some cb -> cb true

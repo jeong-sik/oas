@@ -28,6 +28,35 @@ type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted
 
+let hook_failed_sdk_error
+      ~tool_name
+      ~tool_use_id
+      ~hook_name
+      ~(stage : Hooks.hook_stage)
+      ~detail
+  =
+  Error.Agent
+    (HookExecutionFailed
+       { hook_name
+       ; stage = Hooks.hook_stage_to_string stage
+       ; tool_name
+       ; tool_use_id
+       ; detail
+       })
+;;
+
+let illegal_hook_decision_sdk_error ~hook_name ~stage ~decision =
+  hook_failed_sdk_error
+    ~hook_name
+    ~stage
+    ~tool_name:None
+    ~tool_use_id:None
+    ~detail:
+      (Printf.sprintf
+         "illegal hook decision %s escaped validation"
+         (Hooks.decision_kind_to_string (Hooks.classify_decision decision)))
+;;
+
 (** Current timestamp. Prefer the Eio [clock] when available so tests and
     structured-concurrency code observe a consistent time source; fall back
     to [Unix.gettimeofday] only when running outside an Eio environment. *)
@@ -37,9 +66,10 @@ let timestamp_now ?clock () =
   | None -> Unix.gettimeofday ()
 ;;
 
-(* The bus enqueue is lossless and does not wait for subscriber drain. Do not
-   absorb failures here: callers must observe cancellation or allocation/runtime
-   faults instead of continuing after an event was not published. *)
+(* Publishing never waits for queue capacity to become available. Each matching
+   subscriber applies its own explicit bounded-queue overflow behavior, and any
+   discarded event is retained in that subscription's dropped_total
+   observation. Do not absorb cancellation or allocation/runtime faults here. *)
 let safe_publish ~log:_ bus event = Event_bus.publish bus event
 
 let event_envelope agent : Event_bus.envelope =

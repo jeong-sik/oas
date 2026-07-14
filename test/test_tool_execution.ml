@@ -1,4 +1,4 @@
-(** Tests for approval callback (human-in-the-loop) in execute_tools. *)
+(** Tests for tool hook execution, scheduling, and lifecycle events. *)
 
 open Alcotest
 open Agent_sdk
@@ -42,18 +42,19 @@ let make_echo_tool ?descriptor name =
     (fun input -> Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
 ;;
 
-let execute_with_tools_in_env
+let execute_result_with_tools_in_env
       env
       ~tools
       ~hooks
       ?event_bus
-      ?approval
+      ?journal
       ?on_tool_execution_started
       ?on_tool_execution_finished
+      ?on_hook_invoked
       tool_uses
   =
   let net = Eio.Stdenv.net env in
-  let options = { Agent.default_options with hooks; approval } in
+  let options = { Agent.default_options with hooks } in
   let agent =
     Agent.create
       ~config:(Types.default_config ~model:"test-model")
@@ -73,24 +74,62 @@ let execute_with_tools_in_env
     ~tools:(Tool_set.to_list (Agent.tools agent))
     ~hooks:opts.hooks
     ~event_bus
+    ?journal
     ~tracer:opts.tracer
     ~agent_name:(Agent.state agent).config.name
     ~turn_count:(Agent.state agent).turn_count
     ~usage:(Agent.state agent).usage
-    ~approval:opts.approval
     ?on_tool_execution_started
     ?on_tool_execution_finished
+    ?on_hook_invoked
     tool_uses
 ;;
 
-(** Helper: create a minimal agent inside Eio with given hooks and approval.
+let execute_with_tools_in_env
+      env
+      ~tools
+      ~hooks
+      ?event_bus
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
+      ?on_hook_invoked
+      tool_uses
+  =
+  match
+    execute_result_with_tools_in_env
+      env
+      ~tools
+      ~hooks
+      ?event_bus
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
+      ?on_hook_invoked
+      tool_uses
+  with
+  | Ok results -> results
+  | Error
+      { Agent_tools.completed_results
+      ; cause = Agent_tools.Hook_failure (Agent_tools.Hook_execution_failed failure)
+      } ->
+    failf
+      "unexpected hook failure %s at %s after %d completed result(s): %s"
+      failure.hook_name
+      (Hooks.hook_stage_to_string failure.stage)
+      (List.length completed_results)
+      failure.detail
+  | Error
+      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace }; _ } ->
+    Printexc.raise_with_backtrace exception_ backtrace
+;;
+
+(** Helper: create a minimal agent inside Eio with given hooks.
     Returns execute_tools results for the given tool_uses. *)
 let run_execute_with_tools
       ~tools
       ~hooks
-      ?approval
       ?on_tool_execution_started
       ?on_tool_execution_finished
+      ?on_hook_invoked
       tool_uses
   =
   Eio_main.run
@@ -99,43 +138,20 @@ let run_execute_with_tools
     env
     ~tools
     ~hooks
-    ?approval
     ?on_tool_execution_started
     ?on_tool_execution_finished
+    ?on_hook_invoked
     tool_uses
 ;;
 
-let run_execute ~hooks ?approval tool_uses =
+let run_execute ~hooks tool_uses =
   run_execute_with_tools
     ~tools:[ make_echo_tool "safe"; make_echo_tool "dangerous" ]
     ~hooks
-    ?approval
     tool_uses
 ;;
 
 (* --- Test cases --- *)
-
-let test_approval_required_no_callback () =
-  let hooks =
-    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
-  in
-  let results =
-    run_execute
-      ~hooks
-      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "value", `String "hello" ] }
-      ]
-  in
-  match results with
-  | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
-    check
-      string
-      "content"
-      "Tool rejected: approval required but no approval callback is registered"
-      result.content;
-    check bool "is error" true (tool_result_outcome_is_error result.outcome)
-  | _ -> fail "expected exactly one result"
-;;
 
 let test_tool_lifecycle_callback_exceptions_propagate () =
   let call ~on_tool_execution_started ~on_tool_execution_finished () =
@@ -169,49 +185,250 @@ let test_tool_lifecycle_callback_exceptions_propagate () =
        ~on_tool_execution_finished:finished_failure)
 ;;
 
-let test_approval_approve () =
-  let hooks =
-    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
-  in
-  let approval ~tool_name:_ ~input:_ = Hooks.Approve in
-  let results =
-    run_execute
-      ~hooks
-      ~approval
-      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "value", `String "data" ] } ]
-  in
-  match results with
-  | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
-    check string "content" {|{"value":"data"}|} result.content;
-    check bool "no error" false (tool_result_outcome_is_error result.outcome)
-  | _ -> fail "expected exactly one result"
+let test_pre_hook_observer_exception_propagates () =
+  let observer ~hook_name:_ ~decision:_ ~detail:_ = failwith "hook observer boom" in
+  check_raises
+    "hook observer exception propagates"
+    (Failure "hook observer boom")
+    (fun () ->
+       ignore
+         (run_execute_with_tools
+            ~tools:[ make_echo_tool "safe" ]
+            ~hooks:Hooks.empty
+            ~on_hook_invoked:observer
+            [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "x", `Int 1 ] } ]))
 ;;
 
-let test_approval_reject () =
-  let hooks =
-    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
+let test_reserved_callback_exception_is_not_tagged () =
+  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
+    raise Sys.Break
   in
-  let approval ~tool_name:_ ~input:_ = Hooks.Reject "too dangerous" in
-  let results =
-    run_execute
+  match
+    run_execute_with_tools
+      ~tools:[ make_echo_tool "safe" ]
+      ~hooks:Hooks.empty
+      ~on_tool_execution_started
+      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
+  with
+  | _ -> fail "reserved callback exception must propagate"
+  | exception Sys.Break -> ()
+;;
+
+let test_post_hook_observer_exception_propagates_after_completion () =
+  let executed = ref 0 in
+  let started = ref 0 in
+  let finished = ref 0 in
+  let tool =
+    Tool.create ~name:"safe" ~description:"" ~parameters:[] (fun _ ->
+      incr executed;
+      Ok { Types.content = "done"; _meta = None })
+  in
+  let observer ~hook_name ~decision:_ ~detail:_ =
+    if String.equal hook_name "post_tool_use" then failwith "post observer boom"
+  in
+  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
+    incr started
+  in
+  let on_tool_execution_finished ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+    incr finished
+  in
+  check_raises
+    "post observer exception propagates"
+    (Failure "post observer boom")
+    (fun () ->
+       ignore
+         (run_execute_with_tools
+            ~tools:[ tool ]
+            ~hooks:Hooks.empty
+            ~on_tool_execution_started
+            ~on_tool_execution_finished
+            ~on_hook_invoked:observer
+            [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]));
+  check int "tool executed exactly once" 1 !executed;
+  check int "execution start observed" 1 !started;
+  check int "execution completion observed before propagation" 1 !finished
+;;
+
+let test_post_hook_failure_is_typed_agent_error () =
+  Eio_main.run
+  @@ fun env ->
+  let executed = ref 0 in
+  let started = ref 0 in
+  let finished = ref 0 in
+  let tool =
+    Tool.create ~name:"safe" ~description:"" ~parameters:[] (fun _ ->
+      incr executed;
+      Ok { Types.content = "done"; _meta = None })
+  in
+  let hooks =
+    { Hooks.empty with post_tool_use = Some (fun _ -> failwith "post hook boom") }
+  in
+  let result =
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
       ~hooks
-      ~approval
-      [ ToolUse
-          { id = "t1"; name = "dangerous"; input = `Assoc [ "value", `String "rm -rf" ] }
+      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
+        incr started)
+      ~on_tool_execution_finished:
+        (fun
+          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
+  in
+  (match result with
+   | Error
+       { Agent_tools.completed_results = [ completed ]
+       ; cause =
+           Agent_tools.Hook_failure
+             (Agent_tools.Hook_execution_failed
+                { hook_name = "post_tool_use"
+                ; stage = Hooks.Post_tool_use
+                ; tool_name = "safe"
+                ; tool_use_id = "t1"
+                ; detail
+                })
+       } ->
+     check
+       bool
+       "hook exception detail retained"
+       true
+       (contains_substring ~needle:"post hook boom" detail);
+     check string "completed result retained" "done" completed.content
+   | Ok _ -> fail "post hook failure was returned as successful tool results"
+   | Error _ -> fail "unexpected hook execution error payload");
+  check int "tool effect happened once" 1 !executed;
+  check int "execution start observed" 1 !started;
+  check int "execution completion observed" 1 !finished
+;;
+
+let test_concurrent_journal_failure_retains_sibling_results () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let first_started, resolve_first = Eio.Promise.create () in
+  let sibling_started, resolve_sibling = Eio.Promise.create () in
+  let later_serial_runs = ref 0 in
+  let finished_ids = ref [] in
+  let journal =
+    Durable_event.create
+      ~on_append:(function
+        | Durable_event.Tool_completed { tool_name = "first"; _ } ->
+          failwith "journal observer boom"
+        | _ -> ())
+      ()
+  in
+  let concurrent_tool name resolve_self await_other =
+    Tool.create
+      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~name
+      ~description:""
+      ~parameters:[]
+      (fun _ ->
+         Eio.Promise.resolve resolve_self ();
+         Eio.Time.with_timeout_exn clock 0.05 (fun () -> Eio.Promise.await await_other);
+         Eio.Time.sleep clock 0.005;
+         Ok { Types.content = name; _meta = None })
+  in
+  let later_serial =
+    Tool.create
+      ~descriptor:(descriptor_with Tool.Serial)
+      ~name:"later_serial"
+      ~description:""
+      ~parameters:[]
+      (fun _ ->
+         incr later_serial_runs;
+         Ok { Types.content = "must not run"; _meta = None })
+  in
+  let result =
+    execute_result_with_tools_in_env
+      env
+      ~tools:
+        [ concurrent_tool "first" resolve_first sibling_started
+        ; concurrent_tool "sibling" resolve_sibling first_started
+        ; later_serial
+        ]
+      ~hooks:Hooks.empty
+      ~journal
+      ~on_tool_execution_finished:(fun ~tool_use_id ~tool_name:_ ~content:_ ~is_error:_ ->
+        finished_ids := tool_use_id :: !finished_ids)
+      [ ToolUse { id = "t1"; name = "first"; input = `Assoc [] }
+      ; ToolUse { id = "t2"; name = "sibling"; input = `Assoc [] }
+      ; ToolUse { id = "t3"; name = "later_serial"; input = `Assoc [] }
       ]
   in
-  match results with
-  | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
-    check string "content" "Tool rejected: too dangerous" result.content;
-    check bool "is error" true (tool_result_outcome_is_error result.outcome)
-  | _ -> fail "expected exactly one result"
+  (match result with
+   | Error
+       { Agent_tools.completed_results = [ first; sibling ]
+       ; cause = Agent_tools.Observer_failure { exception_; _ }
+       } ->
+     check string "first result order" "t1" first.tool_use_id;
+     check string "sibling result order" "t2" sibling.tool_use_id;
+     check string "first result retained" "first" first.content;
+     check string "sibling result retained" "sibling" sibling.content;
+     check
+       string
+       "original observer exception retained"
+       "Failure(\"journal observer boom\")"
+       (Printexc.to_string exception_)
+   | Ok _ -> fail "observer failure must remain terminal"
+   | Error _ -> fail "unexpected concurrent execution failure");
+  check
+    (list string)
+    "both concurrent completion observers ran"
+    [ "t1"; "t2" ]
+    (List.sort String.compare !finished_ids);
+  check int "later serial batch was not started" 0 !later_serial_runs;
+  check
+    int
+    "journal retained both Tool_completed events"
+    2
+    (Durable_event.events journal
+     |> List.filter (function
+       | Durable_event.Tool_completed _ -> true
+       | _ -> false)
+     |> List.length)
+;;
+
+let test_block_emits_no_execution_lifecycle () =
+  let executed = ref 0 in
+  let started = ref 0 in
+  let finished = ref 0 in
+  let tool =
+    Tool.create ~name:"safe" ~description:"" ~parameters:[] (fun _ ->
+      incr executed;
+      Ok { Types.content = "must not run"; _meta = None })
+  in
+  let hooks =
+    { Hooks.empty with pre_tool_use = Some (fun _ -> Hooks.Block "caller denied") }
+  in
+  let results =
+    run_execute_with_tools
+      ~tools:[ tool ]
+      ~hooks
+      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
+        incr started)
+      ~on_tool_execution_finished:
+        (fun
+          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
+  in
+  (match results with
+   | [ result ] ->
+     check string "block reason" "caller denied" result.content;
+     check
+       bool
+       "block remains model-visible error"
+       true
+       (tool_result_outcome_is_error result.outcome)
+   | _ -> fail "expected one blocked result");
+  check int "tool did not execute" 0 !executed;
+  check int "execution start was not fabricated" 0 !started;
+  check int "execution completion was not fabricated" 0 !finished
 ;;
 
 let test_block_is_deterministic_failure () =
   let hooks =
-    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Block "policy denied") }
+    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Block "caller denied") }
   in
   let results =
     run_execute
@@ -226,7 +443,7 @@ let test_block_is_deterministic_failure () =
   match results with
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
-    check string "reason is verbatim" "policy denied" result.content;
+    check string "reason is verbatim" "caller denied" result.content;
     check bool "is error" true (tool_result_outcome_is_error result.outcome);
     (match result.outcome with
      | Tool_failed
@@ -237,69 +454,40 @@ let test_block_is_deterministic_failure () =
   | _ -> fail "expected exactly one result"
 ;;
 
-let test_approval_edit () =
-  let hooks =
-    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
+let test_unknown_tool_is_uniform_validation_with_full_diagnostics () =
+  let names = List.init 14 (fun index -> Printf.sprintf "tool_%02d" index) in
+  let run tools =
+    match
+      run_execute_with_tools
+        ~tools
+        ~hooks:Hooks.empty
+        [ ToolUse { id = "missing"; name = "Missing"; input = `Assoc [] } ]
+    with
+    | [ result ] -> result
+    | _ -> fail "expected one unknown-tool result"
   in
-  let safe_input = `Assoc [ "value", `String "sanitized" ] in
-  let approval ~tool_name:_ ~input:_ = Hooks.Edit safe_input in
-  let results =
-    run_execute
-      ~hooks
-      ~approval
-      [ ToolUse
-          { id = "t1"
-          ; name = "dangerous"
-          ; input = `Assoc [ "value", `String "original" ]
-          }
-      ]
+  let check_validation label result =
+    match result.Agent_tools.outcome with
+    | Tool_failed
+        { failure_kind = Agent_tools.Validation_error
+        ; error_class = Some Types.Deterministic
+        } -> ()
+    | _ -> fail (label ^ " must be a deterministic validation failure")
   in
-  match results with
-  | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
-    check string "content uses edited input" {|{"value":"sanitized"}|} result.content;
-    check bool "no error" false (tool_result_outcome_is_error result.outcome)
-  | _ -> fail "expected exactly one result"
-;;
-
-let test_selective_approval () =
-  (* Only "dangerous" requires approval; "safe" is auto-approved *)
-  let hooks =
-    { Hooks.empty with
-      pre_tool_use =
-        Some
-          (fun event ->
-            match event with
-            | Hooks.PreToolUse { tool_name; _ } when tool_name = "dangerous" ->
-              Hooks.ApprovalRequired
-            | _ -> Hooks.Continue)
-    }
-  in
-  let approval ~tool_name ~input:_ =
-    if tool_name = "dangerous" then Hooks.Reject "blocked" else Hooks.Approve
-  in
-  let results =
-    run_execute
-      ~hooks
-      ~approval
-      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "value", `String "ok" ] }
-      ; ToolUse
-          { id = "t2"; name = "dangerous"; input = `Assoc [ "value", `String "bad" ] }
-      ]
-  in
-  (* Results may be in any order due to Eio.Fiber.List.map, so sort by id *)
-  let sorted =
-    List.sort (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id) results
-  in
-  match sorted with
-  | [ safe; dangerous ] ->
-    check string "safe id" "t1" safe.tool_use_id;
-    check string "safe executed" {|{"value":"ok"}|} safe.content;
-    check bool "safe no error" false (tool_result_outcome_is_error safe.outcome);
-    check string "dangerous id" "t2" dangerous.tool_use_id;
-    check string "dangerous rejected" "Tool rejected: blocked" dangerous.content;
-    check bool "dangerous is error" true (tool_result_outcome_is_error dangerous.outcome)
-  | _ -> fail "expected exactly two results"
+  let without_registered_tools = run [] in
+  check_validation "empty catalog" without_registered_tools;
+  check
+    string
+    "empty catalog diagnostic"
+    "Tool not found: Missing. Available tools: (none)"
+    without_registered_tools.content;
+  let with_registered_tools = run (List.map make_echo_tool names) in
+  check_validation "populated catalog" with_registered_tools;
+  check
+    string
+    "all available names are rendered without truncation"
+    ("Tool not found: Missing. Available tools: " ^ String.concat "," names)
+    with_registered_tools.content
 ;;
 
 let test_non_tool_use_blocks_filtered () =
@@ -517,7 +705,11 @@ let test_tool_exception_still_publishes_tool_completed () =
   Eio_main.run
   @@ fun env ->
   let event_bus = Event_bus.create () in
-  let subscription = Event_bus.subscribe event_bus in
+  let config =
+    Event_bus.subscription_config ~capacity:2 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config event_bus in
   let raising_tool =
     Tool.create ~name:"boom" ~description:"raises" ~parameters:[] (fun _ ->
       failwith "kaboom")
@@ -566,20 +758,18 @@ let test_tool_exception_still_publishes_tool_completed () =
 
 let () =
   run
-    "Approval"
-    [ ( "approval_required"
+    "Tool_execution"
+    [ ( "pre_tool_use"
       , [ test_case
-            "no callback = explicit failure"
-            `Quick
-            test_approval_required_no_callback
-        ; test_case "Approve = normal execution" `Quick test_approval_approve
-        ; test_case "Reject with reason" `Quick test_approval_reject
-        ; test_case
             "Block is a typed deterministic failure"
             `Quick
             test_block_is_deterministic_failure
-        ; test_case "Edit modifies input" `Quick test_approval_edit
-        ; test_case "selective by tool name" `Quick test_selective_approval
+        ] )
+    ; ( "routing"
+      , [ test_case
+            "unknown tools are uniform validation failures with full diagnostics"
+            `Quick
+            test_unknown_tool_is_uniform_validation_with_full_diagnostics
         ] )
     ; ( "non_tool_use_filtering"
       , [ test_case
@@ -614,6 +804,34 @@ let () =
             "lifecycle callback exceptions propagate"
             `Quick
             test_tool_lifecycle_callback_exceptions_propagate
+        ; test_case
+            "pre-hook observer exception propagates"
+            `Quick
+            test_pre_hook_observer_exception_propagates
+        ; test_case
+            "reserved callback exception is not tagged"
+            `Quick
+            test_reserved_callback_exception_is_not_tagged
+        ; test_case
+            "post-hook observer propagates after completion"
+            `Quick
+            test_post_hook_observer_exception_propagates_after_completion
+        ; test_case
+            "concurrent journal failure retains sibling results"
+            `Quick
+            test_concurrent_journal_failure_retains_sibling_results
+        ] )
+    ; ( "hook_failures"
+      , [ test_case
+            "post-hook failure is a typed agent error"
+            `Quick
+            test_post_hook_failure_is_typed_agent_error
+        ] )
+    ; ( "lifecycle_truth"
+      , [ test_case
+            "Block emits no execution lifecycle"
+            `Quick
+            test_block_emits_no_execution_lifecycle
         ] )
     ]
 ;;

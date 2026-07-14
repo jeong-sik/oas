@@ -177,8 +177,30 @@ let result_all items =
   |> Result.map List.rev
 ;;
 
-let checkpoint_content_block_to_json block =
-  let wire_json = Api.content_block_to_json block in
+let rec checkpoint_content_block_to_json block =
+  let wire_json =
+    match block with
+    | ToolResult { content_blocks = Some blocks; _ } ->
+      (match Api.content_block_to_json block with
+       | `Assoc fields ->
+         `Assoc
+           (List.map
+              (fun (name, value) ->
+                 if String.equal name "content"
+                 then name, `List (List.map checkpoint_content_block_to_json blocks)
+                 else name, value)
+              fields)
+       | non_object -> non_object)
+    | ToolResult { content_blocks = None; _ }
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolUse _
+    | Image _
+    | Document _
+    | Audio _ -> Api.content_block_to_json block
+  in
   match block, wire_json with
   | ToolResult { outcome; _ }, `Assoc fields ->
     let provenance =
@@ -257,7 +279,7 @@ let tool_result_fields json =
             }))
 ;;
 
-let content_block_of_json_strict json =
+let rec content_block_of_json_strict json =
   try
     match Api.content_block_of_json json with
     | Some
@@ -266,9 +288,26 @@ let content_block_of_json_strict json =
            ; content
            ; outcome = wire_outcome
            ; json = parsed_json
-           ; content_blocks
+           ; content_blocks = _
            }) ->
       let* fields = tool_result_fields json in
+      let* content_blocks =
+        match List.assoc_opt "content" fields with
+        | Some (`String _) -> Ok None
+        | Some (`List blocks) ->
+          let+ blocks = List.map content_block_of_json_strict blocks |> result_all in
+          Some blocks
+        | Some _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint ToolResult content must be a string or an array"
+                  }))
+        | None ->
+          Error
+            (Error.Serialization
+               (JsonParseError { detail = "Checkpoint ToolResult is missing content" }))
+      in
       let* failure_kind =
         optional_typed_field
           ~field:"failure_kind"
@@ -311,6 +350,28 @@ let content_block_of_json_strict json =
       in
       Ok
         (ToolResult { tool_use_id; content; outcome; json = parsed_json; content_blocks })
+    | Some (ReasoningDetails { details; _ }) ->
+      let* fields =
+        match json with
+        | `Assoc fields -> Ok fields
+        | _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint ReasoningDetails must be a JSON object" }))
+      in
+      let* reasoning_content = unique_optional_field ~field:"reasoning_content" fields in
+      (match reasoning_content with
+       | None -> Ok (ReasoningDetails { reasoning_content = None; details })
+       | Some (`String reasoning_content) ->
+         Ok (ReasoningDetails { reasoning_content = Some reasoning_content; details })
+       | Some _ ->
+         Error
+           (Error.Serialization
+              (JsonParseError
+                 { detail =
+                     "Checkpoint ReasoningDetails reasoning_content must be a string"
+                 })))
     | Some block -> Ok block
     | None ->
       let open Yojson.Safe.Util in
@@ -687,41 +748,10 @@ let delta_of_json json =
 
 let to_json = checkpoint_to_json
 
-let of_json json =
+let decode_current_json json =
   try
     let open Yojson.Safe.Util in
-    let* () =
-      validate_exact_object_fields
-        ~scope:"Checkpoint"
-        ~expected:
-          [ "version"
-          ; "session_id"
-          ; "agent_name"
-          ; "model"
-          ; "system_prompt"
-          ; "messages"
-          ; "usage"
-          ; "turn_count"
-          ; "created_at"
-          ; "tools"
-          ; "tool_choice"
-          ; "temperature"
-          ; "top_p"
-          ; "top_k"
-          ; "min_p"
-          ; "enable_thinking"
-          ; "preserve_thinking"
-          ; "response_format"
-          ; "thinking_budget"
-          ; "reasoning_effort"
-          ; "disable_parallel_tool_use"
-          ; "cache_system_prompt"
-          ; "context"
-          ; "mcp_sessions"
-          ; "working_context"
-          ]
-        json
-    in
+    let* () = Checkpoint_v5_v6_migration.validate_v8_json json in
     let version = json |> member "version" |> to_int in
     if version <> checkpoint_version
     then
@@ -814,6 +844,47 @@ let of_json json =
     Error
       (Error.Serialization
          (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))
+;;
+
+let checkpoint_json_version = function
+  | `Assoc fields ->
+    let versions =
+      List.filter_map
+        (fun (name, value) -> if String.equal name "version" then Some value else None)
+        fields
+    in
+    (match versions with
+     | [ `Int version ] -> Ok version
+     | [ _ ] ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint version must be an integer" }))
+     | [] ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint is missing version" }))
+     | _ ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint duplicates field version" })))
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = "Checkpoint must be a JSON object" }))
+;;
+
+let of_json json =
+  let* version = checkpoint_json_version json in
+  if version = checkpoint_version
+  then decode_current_json json
+  else if Checkpoint_v5_v6_migration.source_version_supported version
+  then
+    let* migrated = Checkpoint_v5_v6_migration.to_v8_json json in
+    decode_current_json migrated
+  else
+    Error
+      (Error.Serialization
+         (VersionMismatch { expected = checkpoint_version; got = version }))
 ;;
 
 let to_string cp = to_json cp |> Yojson.Safe.to_string

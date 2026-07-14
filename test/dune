@@ -36,7 +36,7 @@
   test_api_http_client
   test_api_dispatch
   test_append_instruction
-  test_approval
+  test_tool_execution
   test_artifact_service
   test_async_agent
   test_atomic_write_race
@@ -55,7 +55,6 @@
   test_capability_filter
   test_checkpoint
   test_checkpoint_store
-  test_code_snippet_eval
   test_clone
   test_complete_ext
   test_consumer
@@ -83,7 +82,6 @@
   test_eval_stats
   test_event_bus
   test_event_envelope
-  test_event_forward
   test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
@@ -148,7 +146,6 @@
   test_skill_discovery
   test_skill_registry
   test_slot_cache_http
-  test_slot_scheduler_event_bridge
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov
@@ -203,7 +200,7 @@
   test_api_http_client
   test_api_dispatch
   test_append_instruction
-  test_approval
+  test_tool_execution
   test_artifact_service
   test_async_agent
   test_atomic_write_race
@@ -222,7 +219,6 @@
   test_capability_filter
   test_checkpoint
   test_checkpoint_store
-  test_code_snippet_eval
   test_clone
   test_complete_ext
   test_consumer
@@ -250,7 +246,6 @@
   test_eval_stats
   test_event_bus
   test_event_envelope
-  test_event_forward
   test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
@@ -315,7 +310,6 @@
   test_skill_discovery
   test_skill_registry
   test_slot_cache_http
-  test_slot_scheduler_event_bridge
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov

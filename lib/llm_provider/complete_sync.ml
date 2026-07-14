@@ -8,6 +8,35 @@
 include Complete_common
 include Complete_sampling
 
+let non_streaming_body_timeout timeout_s =
+  Http_client.TimeoutError
+    { message =
+        Printf.sprintf
+          "body_timeout_s deadline exceeded after %.1fs (Complete.complete non-streaming \
+           path; total HTTP round-trip cap)"
+          timeout_s
+    ; phase = Http_client.Non_streaming_body
+    }
+;;
+
+let with_body_deadline body_deadline f =
+  match body_deadline with
+  | Http_client.Unbounded -> f ()
+  | Http_client.Bounded (clock, timeout_s) ->
+    (match Eio.Time.with_timeout clock timeout_s (fun () -> Ok (f ())) with
+     | Ok result -> result
+     | Error `Timeout -> Error (non_streaming_body_timeout timeout_s))
+;;
+
+let%test "with_body_deadline does not relabel a nested timeout exception" =
+  Eio_main.run
+  @@ fun env ->
+  let deadline = Http_client.Bounded (Eio.Stdenv.clock env, 1.0) in
+  match with_body_deadline deadline (fun () -> raise Eio.Time.Timeout) with
+  | exception Eio.Time.Timeout -> true
+  | (exception _) | Ok _ | Error _ -> false
+;;
+
 let complete_http
       ~sw
       ~net
@@ -21,9 +50,26 @@ let complete_http
       ~tools
       ()
   =
-  match validate_all config with
+  let preflight =
+    match validate_all config with
+    | Error err -> Error err
+    | Ok () ->
+      (match
+         Http_client.resolve_explicit_deadline
+           ~operation:"complete_http"
+           ~parameter:"body_timeout_s"
+           ~clock
+           ~timeout_s:body_timeout_s
+       with
+       | Error _ as error -> error
+       | Ok body_deadline ->
+         Result.map
+           (fun (http_codec, body_str) -> body_deadline, http_codec, body_str)
+           (serialize_http_request ~stream:false ~config ~messages ~tools))
+  in
+  match preflight with
   | Error err -> Error err, None
-  | Ok () ->
+  | Ok (body_deadline, http_codec, body_str) ->
     if requires_non_http_transport config.kind
     then
       ( Error
@@ -46,22 +92,6 @@ let complete_http
         Error
           (Http_client.ProviderFailure
              { kind = Http_client.Provider_parse_error { parser }; message })
-      in
-      let http_codec = Provider_http_codec.of_config config in
-      let body_str =
-        match http_codec with
-        | Provider_http_codec.Anthropic_messages ->
-          Backend_anthropic.build_request ~config ~messages ~tools ()
-        | Provider_http_codec.Ollama_chat ->
-          Backend_ollama.build_request ~config ~messages ~tools ()
-        | Provider_http_codec.Openai_responses ->
-          Backend_openai_responses.build_request ~config ~messages ~tools ()
-        | Provider_http_codec.Openai_chat ->
-          Backend_openai.build_request ~config ~messages ~tools ()
-        | Provider_http_codec.Gemini_generate_content ->
-          Backend_gemini.build_request ~config ~messages ~tools ()
-        | Provider_http_codec.Glm_chat ->
-          Backend_glm.build_request ~config ~messages ~tools ()
       in
       let url =
         match config.kind with
@@ -125,7 +155,7 @@ let complete_http
             ()
         in
         (* Body-level deadline (since 0.195.0): wraps the entire
-           [Http_client.post_sync] in [Eio.Time.with_timeout_exn] so a slow
+           [Http_client.post_sync] in [Eio.Time.with_timeout] so a slow
            non-streaming provider (no progress on the wire, or progress
            slower than caller can tolerate) cannot hang indefinitely.
            Streaming calls deliberately use [stream_idle_timeout_s] instead
@@ -135,23 +165,7 @@ let complete_http
              [TimeoutError { phase = Non_streaming_body }] whose message
              identifies the body deadline, so retry layers treat it
              as retryable with operator-visible attribution. *)
-        let post_response =
-          match clock, body_timeout_s with
-          | Some clk, Some timeout_s ->
-            (try Eio.Time.with_timeout_exn clk timeout_s post_sync_call with
-             | Eio.Time.Timeout ->
-               Error
-                 (Http_client.TimeoutError
-                    { message =
-                        Printf.sprintf
-                          "body_timeout_s deadline exceeded after %.1fs \
-                           (Complete.complete non-streaming path; total HTTP round-trip \
-                           cap)"
-                          timeout_s
-                    ; phase = Http_client.Non_streaming_body
-                    }))
-          | _, _ -> post_sync_call ()
-        in
+        let post_response = with_body_deadline body_deadline post_sync_call in
         let result =
           match post_response with
           | Error _ as e -> e

@@ -425,7 +425,7 @@ let test_spawn_unknown_provider_records_explicit_failure_without_control_roundtr
     true
     (event_exists
        (function
-         | Runtime.Agent_failed { error = Some detail; _ } ->
+         | Runtime.Agent_failed { failure_cause = Runtime.Execution_error detail; _ } ->
            Util.string_contains ~needle:"unknown-runtime-provider" detail
          | Runtime.Agent_failed _ | _ -> false)
        events)

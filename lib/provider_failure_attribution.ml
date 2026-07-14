@@ -137,8 +137,7 @@ let ownership_of_network = function
 ;;
 
 let ownership_of_timeout = function
-  | Http.Admission | Http.Queue | Http.Capacity_backpressure | Http.Caller_budget ->
-    Attempt_local
+  | Http.Admission | Http.Queue | Http.Capacity_backpressure -> Attempt_local
   | Http.First_token
   | Http.Wall_clock
   | Http.Http_operation
@@ -171,6 +170,7 @@ let ownership_of_provider_failure ~binding = function
   | Http.Capability_mismatch _
   | Http.Cli_policy_invalid _
   | Http.Provider_parse_error _
+  | Http.Response_body_too_large _
   | Http.Empty_completion _ -> Attempt_local
   | Http.Cli_startup_failed { reason } -> ownership_of_cli_startup ~binding reason
   | Http.Unknown_provider_failure _ -> Unclassified
@@ -289,6 +289,8 @@ let provider_failure_to_yojson = function
       [ "kind", `String "provider_parse_error"
       ; "parser_known", `Bool (Option.is_some parser)
       ]
+  | Http.Response_body_too_large { limit_bytes } ->
+    `Assoc [ "kind", `String "response_body_too_large"; "limit_bytes", `Int limit_bytes ]
   | Http.Empty_completion { stop_reason } ->
     `Assoc
       [ "kind", `String "empty_completion"

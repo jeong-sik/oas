@@ -40,10 +40,10 @@ let registry : entry list =
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "Prompt eval token count and latency from Ollama timings"
     }
-  ; { signal = "Wire_capture_failure"
+  ; { signal = "Wire_observer_failure"
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description =
-        "Typed activation, append, or writer failure from raw wire observation"
+        "Typed caller rejection or callback failure from redacted wire observation"
     }
   ]
 ;;

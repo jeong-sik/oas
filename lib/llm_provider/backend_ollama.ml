@@ -258,15 +258,19 @@ let parse_ollama_response json_str =
   match json |> member "error" with
   | `String s -> Error s
   | `Assoc _ as err -> Error (Yojson.Safe.to_string err)
-  | _ ->
+  | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error "malformed_ollama_error:not_string_or_object"
+  | `Null ->
     let message = json |> member "message" in
     let* text_content, tool_blocks, thinking_blocks =
       match message with
       | `Assoc _ ->
-        let txt =
+        let* txt =
           match message |> member "content" with
-          | `String s -> s
-          | _ -> ""
+          | `String s -> Ok s
+          | `Null -> Ok ""
+          | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+            Error "malformed_ollama_message:content_not_string"
         in
         let* tools = parse_ollama_tool_calls (message |> member "tool_calls") in
         if List.length tools > 1
@@ -275,14 +279,18 @@ let parse_ollama_response json_str =
             "backend_ollama"
             "parsed %d Ollama tool_calls from one assistant response"
             (List.length tools);
-        let thinking =
+        let* thinking =
           match message |> member "thinking" with
           | `String s when not (Api_common.string_is_blank s) ->
-            [ Thinking { signature = None; content = s } ]
-          | _ -> []
+            Ok [ Thinking { signature = None; content = s } ]
+          | `String _ | `Null -> Ok []
+          | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+            Error "malformed_ollama_message:thinking_not_string"
         in
         Ok (txt, tools, thinking)
-      | _ -> Ok ("", [], [])
+      | `Null -> Error "malformed_ollama_response:missing_message"
+      | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+        Error "malformed_ollama_response:message_not_object"
     in
     let done_reason =
       json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
@@ -494,6 +502,8 @@ let%test "build_request emits only an explicit supported seed" =
       ~model_id:"dashscope-3:8b"
       ~base_url:"http://127.0.0.1:11434"
       ~seed:42
+      ~model_capabilities_override:
+        { Capabilities.default_capabilities with supports_seed = true }
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -704,6 +714,24 @@ let%test "parse_ollama_response returns Error on error field" =
   match parse_ollama_response json with
   | Error msg -> String.starts_with ~prefix:"model" msg
   | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a missing message" =
+  match parse_ollama_response {|{"model":"dashscope-3:8b","done":true}|} with
+  | Error "malformed_ollama_response:missing_message" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a non-object message" =
+  match parse_ollama_response {|{"message":"not-an-object"}|} with
+  | Error "malformed_ollama_response:message_not_object" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects malformed message content" =
+  match parse_ollama_response {|{"message":{"content":["not","text"]}}|} with
+  | Error "malformed_ollama_message:content_not_string" -> true
+  | Error _ | Ok _ -> false
 ;;
 
 let%test "parse_ollama_response extracts thinking block from message" =

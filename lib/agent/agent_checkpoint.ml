@@ -13,43 +13,26 @@ type resume_state =
 (** Build restored state from a checkpoint.
     Returns state + context; the caller wraps these into Agent.t. *)
 let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?context () =
-  let base_config =
-    match config with
-    | Some c -> c
-    | None -> default_config ~model:checkpoint.model
-  in
-  let call_time_or_checkpoint project checkpoint_value =
-    match config with
-    | Some c ->
-      (match project c with
-       | Some _ as explicit -> explicit
-       | None -> checkpoint_value)
-    | None -> checkpoint_value
-  in
   let restored_config =
-    { base_config with
-      name = checkpoint.agent_name
-    ; model = checkpoint.model
-    ; system_prompt = checkpoint.system_prompt
-    ; temperature = checkpoint.temperature
-    ; top_p = checkpoint.top_p
-    ; top_k = checkpoint.top_k
-    ; min_p = checkpoint.min_p
-    ; enable_thinking =
-        call_time_or_checkpoint (fun c -> c.enable_thinking) checkpoint.enable_thinking
-    ; preserve_thinking =
-        call_time_or_checkpoint
-          (fun c -> c.preserve_thinking)
-          checkpoint.preserve_thinking
-    ; response_format = checkpoint.response_format
-    ; thinking_budget =
-        call_time_or_checkpoint (fun c -> c.thinking_budget) checkpoint.thinking_budget
-    ; reasoning_effort =
-        call_time_or_checkpoint (fun c -> c.reasoning_effort) checkpoint.reasoning_effort
-    ; tool_choice = checkpoint.tool_choice
-    ; disable_parallel_tool_use = checkpoint.disable_parallel_tool_use
-    ; cache_system_prompt = checkpoint.cache_system_prompt
-    }
+    match config with
+    | Some caller_config -> caller_config
+    | None ->
+      { (default_config ~model:checkpoint.model) with
+        name = checkpoint.agent_name
+      ; system_prompt = checkpoint.system_prompt
+      ; temperature = checkpoint.temperature
+      ; top_p = checkpoint.top_p
+      ; top_k = checkpoint.top_k
+      ; min_p = checkpoint.min_p
+      ; enable_thinking = checkpoint.enable_thinking
+      ; preserve_thinking = checkpoint.preserve_thinking
+      ; response_format = checkpoint.response_format
+      ; thinking_budget = checkpoint.thinking_budget
+      ; reasoning_effort = checkpoint.reasoning_effort
+      ; tool_choice = checkpoint.tool_choice
+      ; disable_parallel_tool_use = checkpoint.disable_parallel_tool_use
+      ; cache_system_prompt = checkpoint.cache_system_prompt
+      }
   in
   let state =
     { config = restored_config

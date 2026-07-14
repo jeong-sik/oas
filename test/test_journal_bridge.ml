@@ -3,6 +3,7 @@
 open Alcotest
 open Agent_sdk
 
+let append_ok journal event = Durable_event.append journal event |> Result.get_ok
 let ts = 1711234567.0
 
 let projection_name evt =
@@ -127,10 +128,14 @@ let test_make_publishes_to_bus () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:2 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let journal = Durable_event.create ~on_append:(Journal_bridge.make ~bus ()) () in
-  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
+  append_ok journal (Turn_started { turn = 1; timestamp = ts });
+  append_ok
     journal
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
   let events = Event_bus.drain sub in
@@ -150,7 +155,11 @@ let test_make_preserves_envelope () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:2 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let corr = "corr-42" in
   let run_id = "run-42" in
   let journal =
@@ -158,8 +167,8 @@ let test_make_preserves_envelope () =
       ~on_append:(Journal_bridge.make ~bus ~correlation_id:corr ~run_id ())
       ()
   in
-  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
+  append_ok journal (Turn_started { turn = 1; timestamp = ts });
+  append_ok
     journal
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
   let events = Event_bus.drain sub in

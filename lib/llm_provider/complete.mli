@@ -83,18 +83,27 @@ val complete
   -> ?body_timeout_s:float
   -> unit
   -> (Types.api_response, Http_client.http_error) result
-(** [body_timeout_s] caps the total HTTP round-trip time, in seconds,
-    on the non-streaming [Http_client.post_sync] path inside [complete].
-    Requires [clock]; without one the wrapper is skipped and behaviour
-    matches versions < 0.195.0. On expiry the result is
+(** [body_timeout_s] is the exact caller-owned deadline, in seconds, for a
+    non-streaming transport call after a cache miss. It must be finite and
+    greater than zero and requires [clock]. The contract is validated before
+    cache lookup, so an invalid value or missing clock is rejected as [Error
+    (AcceptRejected _)] even when a cached response exists.
+
+    With no injected [transport], the built-in HTTP path owns the single
+    deadline around [Http_client.post_sync]; [complete] does not add a second
+    timeout. With an injected [transport], [complete] applies the resolved
+    deadline around [Llm_transport.t.complete_sync]. On expiry the result is
     [Error (TimeoutError { phase = Non_streaming_body; _ })] with a
     message that identifies the body deadline. The typed failure is returned
     unchanged so the caller can schedule any later attempt independently.
+    Only expiry of this outer deadline is projected that way; an exception
+    raised by an injected transport is not relabelled as caller-deadline expiry.
 
     Distinct from {!complete_stream}'s [stream_idle_timeout_s] (which
     has no analogue here — there are no intermediate lines to count).
-    Non-HTTP transports (CLI subprocess, custom registered) ignore
-    [body_timeout_s]. @since 0.195.0 *)
+    Omitting this argument adds no caller-owned deadline around either sync
+    path; an injected transport may still enforce its own internal contract.
+    @since 0.195.0 *)
 
 (** {1 Streaming Completion} *)
 
@@ -105,8 +114,27 @@ val complete
     stream assembly.
 
     [capture_id], when present, is the exact caller-owned request/run identity
-    carried through injected transports and the built-in HTTP path. Raw wire
-    capture never synthesizes an identity when it is absent.
+    carried through injected transports and the built-in HTTP path. Raw-wire
+    observation never synthesizes an identity when it is absent.
+
+    [wire_observer], when present, receives provider chunks only after
+    {!Wire_observer} best-effort redaction. It is a caller-owned synchronous
+    nonblocking offer: OAS owns no queue, persistence, capacity, retry, path,
+    or worker. Rejection and ordinary callback exceptions are emitted as typed
+    {!Telemetry_event.Wire_observer_failure} observations without changing the
+    provider result. Without [on_telemetry], failures are written to the
+    diagnostic sink instead of disappearing silently.
+
+    The built-in HTTP transport offers every raw provider chunk. An injected
+    streaming transport receives only an OAS-owned
+    {!Llm_transport.completion_request.observe_wire_chunk} sink, never the
+    caller callback; it must call that sink for every raw provider chunk if it
+    participates in wire observation. OAS therefore retains redaction and
+    failure handling even for a custom transport, while the custom transport
+    retains responsibility for identifying its raw chunk boundary.
+
+    Redaction is diagnostic sanitization rather than proof that an observation
+    is non-sensitive. Callers must retain observations as sensitive data.
 
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
@@ -143,6 +171,7 @@ val complete_stream
   -> ?stream_idle_timeout_s:float
   -> ?transport:Llm_transport.t
   -> ?capture_id:string
+  -> ?wire_observer:Wire_observer.try_observe
   -> config:Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list

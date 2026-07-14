@@ -58,15 +58,6 @@ type evidence_bundle =
 type raw_trace_manifest = Sessions.raw_trace_manifest
 
 val now : unit -> float
-val runtime_persist_failure_prefix : string
-val dropped_output_deltas_marker : string
-val encode_persist_failure_detail : phase:string -> string -> string
-
-val append_dropped_output_deltas_summary
-  :  summary:string
-  -> dropped_output_deltas:int
-  -> string
-
 val artifact_attached_event : Runtime.artifact -> Runtime.event_kind
 val base_evidence_file_specs : Runtime_store.t -> string -> (string * string) list
 val build_telemetry_report : Runtime.session -> Runtime.event list -> telemetry_report

@@ -745,17 +745,16 @@ let test_qwen_preserve_replays_reasoning_content () =
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
-let test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking () =
-  (* Real models.toml lookup (via [declared_catalog_openai_compat_config], not a
-     hand-written capability record): proves the catalog qwen3.6 row resolves to
-     the reasoning_content streaming dialect AND that multiple reasoning_content
-     deltas accumulate into one Thinking block rather than re-opening a block
-     per chunk. *)
+let test_declared_reasoning_content_accumulates_as_typed_thinking () =
+  (* The typed capability override declares the wire dialect explicitly. This
+     test is only about streaming accumulation: multiple [reasoning_content]
+     deltas must produce one Thinking block rather than re-opening a block per
+     chunk. *)
   let config =
-    declared_catalog_openai_compat_config
+    declared_qwen_openai_compat_config
       ~enable_thinking:true
       ~preserve_thinking:false
-      "vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
+      "opaque-qwen-runtime-model"
   in
   let dialect = RD.for_provider_config config in
   (match dialect.streaming with
@@ -1376,9 +1375,9 @@ let () =
               `Quick
               test_qwen_preserve_replays_reasoning_content
           ; test_case
-              "qwen catalog reasoning_content accumulates as typed thinking"
+              "declared reasoning_content accumulates as typed thinking"
               `Quick
-              test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking
+              test_declared_reasoning_content_accumulates_as_typed_thinking
           ; test_case
               "thinking_object_keep_all axis uses thinking keep all"
               `Quick

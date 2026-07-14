@@ -7,8 +7,8 @@
      Completed, Failed, Cancelled
 
    Cancellation propagation contract (lib/eval_baseline.ml:80,
-   lib/fs_atomic_eio.ml:74, lib/event_forward.ml:287,345,
-   lib/autonomy_exec.ml:236,323, lib/fs_result.ml multi-site):
+   lib/fs_atomic_eio.ml:74, lib/autonomy_exec.ml:236,323,
+   lib/fs_result.ml multi-site):
    - Eio.Cancel.Cancelled caught at boundary layer
    - Must be re-raised (raise e) to propagate up the fiber tree
    - autonomy_exec.ml:447 maps caught Cancelled to `Cancelled result_status

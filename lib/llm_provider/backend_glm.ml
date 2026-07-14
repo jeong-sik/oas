@@ -440,7 +440,7 @@ let%test "build_request preserves ZAI GLM OpenAI-compatible replay and tool cont
   =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Glm
       ~model_id:"glm-5-turbo"
       ~base_url:Zai_catalog.coding_base_url
       ~enable_thinking:true

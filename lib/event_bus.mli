@@ -35,11 +35,6 @@ type envelope_v2 = Event_envelope.t
 
 (** {2 Payload types} *)
 
-type slot_scheduler_state =
-  | Idle
-  | Queued
-  | Saturated
-
 type payload =
   | AgentStarted of
       { agent_name : string
@@ -140,16 +135,6 @@ type payload =
       ; question : string
       ; response : Hooks.elicitation_response
       }
-  | SlotSchedulerObserved of
-      { max_slots : int
-      ; active : int
-      ; available : int
-      ; queue_length : int
-      ; state : slot_scheduler_state
-      }
-  (** Snapshot of the slot scheduler queue state. Promoted from
-          [Custom("slot_scheduler_queue", ...)].
-          @since 0.154.1 *)
   | InferenceTelemetry of
       { agent_name : string
       ; turn : int
@@ -275,10 +260,35 @@ val mk_event
 
 type t
 
-(** Create a bus. Each subscriber owns an unbounded FIFO. Publishing only
-    appends to those queues, so a slow subscriber neither loses events nor
-    blocks unrelated publishers. Queue depth remains observable through
-    {!stats}. *)
+(** Overflow policy applied when a subscriber's stream is full.
+
+    - [Drop_oldest] evicts that subscriber's oldest queued event before
+      enqueuing the new event.
+    - [Drop_newest] discards the event currently being published for that
+      subscriber and leaves its queue unchanged.
+
+    Both policies increment [dropped_total], making capacity pressure
+    observable through {!stats}. Neither policy waits for queue capacity to
+    become available. *)
+type overflow =
+  | Drop_oldest
+  | Drop_newest
+
+(** Rejection returned when constructing a subscription configuration. *)
+type subscription_config_error = Non_positive_capacity of int
+
+(** Validated resource contract owned by one subscriber. *)
+type subscription_config
+
+(** [subscription_config ~capacity ~overflow] validates the queue capacity
+    and records the subscriber's explicit overflow choice. No capacity or
+    overflow default is supplied by the bus. *)
+val subscription_config
+  :  capacity:int
+  -> overflow:overflow
+  -> (subscription_config, subscription_config_error) result
+
+(** Create a bus. Queue ownership is established by each {!subscribe} call. *)
 val create : unit -> t
 
 (** {2 Filters} *)
@@ -302,13 +312,20 @@ type subscription
 
 (** Subscribe to the bus.
 
-    - [?filter] — event predicate (default: accept all).
+    - [config] — validated queue capacity and overflow behavior owned by this
+      subscriber.
+    - [?filter] — typed event filter (default: accept all).
     - [?purpose] — free-form label surfaced in {!subscription_stats}
       (e.g. ["sse_bridge"], ["agent_turn"], ["eval_collector"]).
       Does not affect routing.
 
     @since 0.160.0 [?purpose] parameter added. *)
-val subscribe : ?filter:filter -> ?purpose:string -> t -> subscription
+val subscribe
+  :  config:subscription_config
+  -> ?filter:filter
+  -> ?purpose:string
+  -> t
+  -> subscription
 
 val unsubscribe : t -> subscription -> unit
 
@@ -325,16 +342,21 @@ val subscriber_count : t -> int
     reset only when the subscription is dropped.
 
     - [purpose] — label passed to {!subscribe} (if any).
+    - [capacity] and [overflow] — the subscriber-owned resource contract.
     - [depth] — events currently queued in the subscriber's stream.
     - [published_total] — events that passed the filter and were
       offered to this subscriber (before any drop).
     - [drained_total] — events removed via {!drain}.
+    - [dropped_total] — events discarded by [Drop_oldest] or [Drop_newest].
     @since 0.160.0 *)
 type subscription_stats =
   { purpose : string option
+  ; capacity : int
+  ; overflow : overflow
   ; depth : int
   ; published_total : int
   ; drained_total : int
+  ; dropped_total : int
   }
 
 (** Bus-wide runtime statistics.

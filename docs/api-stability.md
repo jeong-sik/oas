@@ -1,7 +1,8 @@
 # API Stability Tiers
 
 OAS (OCaml Agent SDK) modules are classified into three stability tiers.
-Each `.mli` file carries a `@stability` annotation in its top-level doc comment.
+Public facade modules carry a `@stability` annotation in their top-level doc
+comment; unannotated modules are Internal by default.
 
 ## Tiers
 
@@ -33,7 +34,8 @@ Each `.mli` file carries a `@stability` annotation in its top-level doc comment.
 
 ## Annotation format
 
-Every `.mli` file has a top-level doc comment with the `@stability` tag:
+An explicitly classified `.mli` file has a top-level doc comment with the
+`@stability` tag:
 
 ```ocaml
 (** Context management for agent conversations.
@@ -43,7 +45,7 @@ Every `.mli` file has a top-level doc comment with the `@stability` tag:
 ```
 
 Rules:
-- One `@stability` tag per `.mli` file, at the top-level module doc comment.
+- At most one `@stability` tag per `.mli` file, at the top-level module doc comment.
 - `@since` indicates the version when the stability tier was assigned (not when the module was created).
 - Modules without `@stability` are treated as **Internal** by default.
 - Promotion (Internal -> Evolving -> Stable) does not require deprecation.
@@ -51,7 +53,7 @@ Rules:
 
 ## Current classification
 
-All public-facing `.mli` files in `lib/` carry an explicit stability tier.
+The public facade modules classified below carry an explicit stability tier.
 
 ### Stable modules
 
@@ -59,18 +61,18 @@ Core types and interfaces that downstream consumers depend on.
 
 | Module | File |
 |--------|------|
-| Types | `lib/types.mli` |
-| Error | `lib/error.mli` |
+| Types | `lib/base/types.mli` |
+| Error | `lib/base/error.mli` |
 | Agent | `lib/agent/agent.mli` |
 | Builder | `lib/agent/builder.mli` |
-| Tool | `lib/tool.mli` |
+| Tool | `lib/base/tool.mli` |
 | Tool_set | `lib/tool_set.mli` |
-| Hooks | `lib/hooks.mli` |
+| Hooks | `lib/base/hooks.mli` |
 | Provider | `lib/provider.mli` |
 | Raw_trace | `lib/raw_trace.mli` |
 | Checkpoint | `lib/checkpoint.mli` |
 | Checkpoint_store | `lib/checkpoint_store.mli` |
-| Context | `lib/context.mli` |
+| Context | `lib/base/context.mli` |
 
 ### Evolving modules
 
@@ -82,7 +84,7 @@ Representative modules:
 | Module | File | Reason |
 |--------|------|--------|
 | Runtime | `lib/runtime.mli` | Runtime protocol types are still evolving |
-| Memory | `lib/memory.mli` | Memory system is under active development |
+| Wire_observer | `lib/llm_provider/wire_observer.mli` | Caller-owned wire observation boundary is still evolving |
 
 CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as
@@ -98,8 +100,8 @@ external consumers should not depend on directly.
 ## Verification
 
 ```bash
-# Count annotated files (should equal total .mli count)
-rg '@stability' lib/ --glob '*.mli' -c | wc -l
+# List every explicitly classified interface
+rg '@stability' lib/ --glob '*.mli' -l
 
 # List by tier
 rg '@stability Stable' lib/ --glob '*.mli' -l

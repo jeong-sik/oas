@@ -332,21 +332,6 @@ jobs:
       - name: Run reasoning effort SSOT gate
         run: bash scripts/check-reasoning-effort-ssot.sh
 
-  agent-unbounded-contract:
-    name: Agent Unbounded Contract Gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Reject lifecycle caps and implicit result rewriting
-        run: bash scripts/check-agent-unbounded-contract.sh
-
   sdk-independence:
     name: SDK Independence Gate
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

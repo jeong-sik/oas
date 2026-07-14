@@ -10,10 +10,12 @@ type periodic_callback =
 type checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
+  | After_context_injection
 
 let checkpoint_stage_to_string = function
   | After_assistant_collected -> "after_assistant_collected"
   | After_tool_results_appended -> "after_tool_results_appended"
+  | After_context_injection -> "after_context_injection"
 ;;
 
 type checkpoint_snapshot =
@@ -37,7 +39,6 @@ type options =
     (** Optional (trace_id, span_id) of a parent span to link to.
         Used to connect OAS agent turns to an external trace root. *)
   ; raw_trace : Raw_trace.t option
-  ; approval : Hooks.approval_callback option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -45,7 +46,6 @@ type options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; allowed_paths : string list
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
     (** Optional callback invoked when a run finishes.  Receives [true]
@@ -109,7 +109,6 @@ let default_options =
   ; tracer = Tracing.null
   ; trace_link = None
   ; raw_trace = None
-  ; approval = None
   ; context_injector = None
   ; mcp_clients = []
   ; event_bus = None
@@ -117,7 +116,6 @@ let default_options =
   ; elicitation = None
   ; description = None
   ; periodic_callbacks = []
-  ; allowed_paths = []
   ; slot_id = None
   ; on_run_complete = None
   ; journal = None
@@ -158,7 +156,6 @@ let update_state t f =
 ;;
 
 let description t = t.options.description
-let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
 
 let provider_name (cfg : Provider.config) =

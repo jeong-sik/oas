@@ -304,7 +304,7 @@ let test_tool_result () =
   check string "function call id" "call_123" (function_call |> member "id" |> to_string)
 ;;
 
-let test_dangling_tool_use_closed_before_request () =
+let test_dangling_tool_use_is_not_synthetically_closed () =
   let config = gemini_config () in
   let messages =
     [ Types.user_msg "question"
@@ -320,25 +320,21 @@ let test_dangling_tool_use_closed_before_request () =
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let contents = json |> member "contents" |> to_list in
-  check int "synthetic function response inserted" 3 (List.length contents);
+  check int "input turns preserved" 3 (List.length contents);
   let roles = List.map (fun content -> content |> member "role" |> to_string) contents in
   check (list string) "roles" [ "user"; "model"; "user" ] roles;
-  let synthetic = List.nth contents 2 in
-  let synthetic_parts = synthetic |> member "parts" |> to_list in
-  let fr = List.hd synthetic_parts |> member "functionResponse" in
-  check string "function name" "lookup" (fr |> member "name" |> to_string);
+  let followup = List.nth contents 2 in
+  let followup_parts = followup |> member "parts" |> to_list in
   check
     bool
-    "synthetic result"
+    "no synthetic function response"
     true
-    (String.starts_with
-       ~prefix:"OAS synthesized"
-       (fr |> member "response" |> member "result" |> to_string));
+    (List.for_all (fun part -> part |> member "functionResponse" = `Null) followup_parts);
   check
     string
-    "follow-up text remains after result"
+    "follow-up text remains exact"
     "continue"
-    (List.nth synthetic_parts 1 |> member "text" |> to_string)
+    (List.hd followup_parts |> member "text" |> to_string)
 ;;
 
 let test_json_mode () =
@@ -1655,9 +1651,9 @@ let () =
             test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
         ; test_case
-            "dangling tool use closed"
+            "dangling tool use is not synthetically closed"
             `Quick
-            test_dangling_tool_use_closed_before_request
+            test_dangling_tool_use_is_not_synthetically_closed
         ; test_case "json mode" `Quick test_json_mode
         ; test_case "output schema" `Quick test_output_schema
         ; test_case "role mapping" `Quick test_role_mapping

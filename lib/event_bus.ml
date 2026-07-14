@@ -1,8 +1,10 @@
 (** Agent Event Bus — typed publish/subscribe for agent lifecycle events.
 
-    Each subscriber gets its own unbounded FIFO; [publish] copies each event to
-    every matching subscriber. Filters are data, not caller callbacks, so a
-    faulty subscriber cannot raise or yield inside another producer's publish.
+    Each subscriber gets its own explicitly configured bounded FIFO; [publish]
+    copies each event to every matching subscriber under that subscription's
+    overflow policy.
+    Filters are data, not caller callbacks, so a faulty subscriber cannot raise
+    or yield inside another producer's publish.
 
     All state is internal to [t] — no globals.  GC collects everything
     when the bus goes out of scope. *)
@@ -21,11 +23,6 @@ type envelope =
 type envelope_v2 = Event_envelope.t
 
 (* ── Payload type ─────────────────────────────────────────────────── *)
-
-type slot_scheduler_state =
-  | Idle
-  | Queued
-  | Saturated
 
 type payload =
   | AgentStarted of
@@ -86,13 +83,6 @@ type payload =
       ; question : string
       ; response : Hooks.elicitation_response
       }
-  | SlotSchedulerObserved of
-      { max_slots : int
-      ; active : int
-      ; available : int
-      ; queue_length : int
-      ; state : slot_scheduler_state
-      }
   | InferenceTelemetry of
       { agent_name : string
       ; turn : int
@@ -133,7 +123,6 @@ let payload_kind = function
   | HandoffRequested _ -> "handoff_requested"
   | HandoffCompleted _ -> "handoff_completed"
   | ElicitationCompleted _ -> "elicitation_completed"
-  | SlotSchedulerObserved _ -> "slot_scheduler_observed"
   | InferenceTelemetry _ -> "inference_telemetry"
   | Custom (name, _) -> Printf.sprintf "custom:%s" name
 ;;
@@ -194,15 +183,34 @@ type filter =
   | Any of filter list
   | All of filter list
 
+type overflow =
+  | Drop_oldest
+  | Drop_newest
+
+type subscription_config_error = Non_positive_capacity of int
+
+type subscription_config =
+  { capacity : int
+  ; overflow : overflow
+  }
+
+let subscription_config ~capacity ~overflow =
+  if capacity <= 0
+  then Error (Non_positive_capacity capacity)
+  else Ok { capacity; overflow }
+;;
+
 type subscription =
   { id : int
-  ; mutable pending_rev : event list
-  ; pending_mu : Eio.Mutex.t
+  ; stream : event Eio.Stream.t
   ; filter : filter
   ; purpose : string option
+  ; capacity : int
+  ; overflow : overflow
   ; published_total : int Atomic.t
   ; drained_total : int Atomic.t
-  ; pending_count : int Atomic.t
+  ; dropped_total : int Atomic.t
+  ; deliver_mu : Eio.Mutex.t
   ; cancelled : bool Atomic.t
   }
 
@@ -252,17 +260,37 @@ let rec matches filter event =
      | HandoffRequested r -> r.from_agent = name || r.to_agent = name
      | HandoffCompleted r -> r.from_agent = name || r.to_agent = name
      | ElicitationCompleted r -> r.agent_name = name
-     | SlotSchedulerObserved _ -> true
      | InferenceTelemetry r -> r.agent_name = name
      | Custom _ -> true)
   | Tools_only ->
     (match event.payload with
      | ToolCalled _ | ToolCompleted _ -> true
-     | _ -> false)
+     | AgentStarted _
+     | AgentCompleted _
+     | AgentFailed _
+     | TurnStarted _
+     | TurnReady _
+     | TurnCompleted _
+     | HandoffRequested _
+     | HandoffCompleted _
+     | ElicitationCompleted _
+     | InferenceTelemetry _
+     | Custom _ -> false)
   | Topic topic ->
     (match event.payload with
      | Custom (actual, _) -> String.equal actual topic
-     | _ -> false)
+     | AgentStarted _
+     | AgentCompleted _
+     | AgentFailed _
+     | ToolCalled _
+     | ToolCompleted _
+     | TurnStarted _
+     | TurnReady _
+     | TurnCompleted _
+     | HandoffRequested _
+     | HandoffCompleted _
+     | ElicitationCompleted _
+     | InferenceTelemetry _ -> false)
   | Correlation id -> String.equal event.meta.correlation_id id
   | Run id -> String.equal event.meta.run_id id
   | Any filters -> List.exists (fun filter -> matches filter event) filters
@@ -271,18 +299,21 @@ let rec matches filter event =
 
 (* ── Subscribe / unsubscribe ──────────────────────────────────────── *)
 
-let subscribe ?(filter = accept_all) ?purpose bus =
+let subscribe ~(config : subscription_config) ?(filter = accept_all) ?purpose bus =
+  let stream = Eio.Stream.create config.capacity in
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let id = bus.next_id in
     let sub =
       { id
-      ; pending_rev = []
-      ; pending_mu = Eio.Mutex.create ()
+      ; stream
       ; filter
       ; purpose
+      ; capacity = config.capacity
+      ; overflow = config.overflow
       ; published_total = Atomic.make 0
       ; drained_total = Atomic.make 0
-      ; pending_count = Atomic.make 0
+      ; dropped_total = Atomic.make 0
+      ; deliver_mu = Eio.Mutex.create ()
       ; cancelled = Atomic.make false
       }
     in
@@ -299,20 +330,43 @@ let unsubscribe bus sub =
     bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
     let after = List.length bus.subscribers in
     if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ());
-  Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
-    sub.pending_rev <- [];
-    Atomic.set sub.pending_count 0)
+  Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+    let rec discard_pending () =
+      match Eio.Stream.take_nonblocking sub.stream with
+      | Some _ -> discard_pending ()
+      | None -> ()
+    in
+    discard_pending ())
 ;;
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
 
+let unless_cancelled sub f = if Atomic.get sub.cancelled then () else f ()
+
 let deliver_to_sub sub event =
-  Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
-    if not (Atomic.get sub.cancelled)
-    then (
-      sub.pending_rev <- event :: sub.pending_rev;
-      Atomic.incr sub.pending_count;
-      Atomic.incr sub.published_total))
+  let add_unless_cancelled () =
+    unless_cancelled sub (fun () -> Eio.Stream.add sub.stream event)
+  in
+  unless_cancelled sub (fun () ->
+    Atomic.incr sub.published_total;
+    match sub.overflow with
+    | Drop_oldest ->
+      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+        unless_cancelled sub (fun () ->
+          if Eio.Stream.length sub.stream >= sub.capacity
+          then (
+            match Eio.Stream.take_nonblocking sub.stream with
+            | Some _ ->
+              Atomic.incr sub.dropped_total;
+              add_unless_cancelled ()
+            | None -> add_unless_cancelled ())
+          else add_unless_cancelled ()))
+    | Drop_newest ->
+      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+        unless_cancelled sub (fun () ->
+          if Eio.Stream.length sub.stream >= sub.capacity
+          then Atomic.incr sub.dropped_total
+          else add_unless_cancelled ())))
 ;;
 
 let publish bus event =
@@ -323,16 +377,15 @@ let publish bus event =
 (* ── Drain ────────────────────────────────────────────────────────── *)
 
 let drain sub =
-  let pending_rev, count =
-    Eio.Mutex.use_rw ~protect:true sub.pending_mu (fun () ->
-      let pending_rev = sub.pending_rev in
-      let count = Atomic.get sub.pending_count in
-      sub.pending_rev <- [];
-      Atomic.set sub.pending_count 0;
-      pending_rev, count)
-  in
-  ignore (Atomic.fetch_and_add sub.drained_total count);
-  List.rev pending_rev
+  Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+    let rec collect acc =
+      match Eio.Stream.take_nonblocking sub.stream with
+      | Some event ->
+        Atomic.incr sub.drained_total;
+        collect (event :: acc)
+      | None -> List.rev acc
+    in
+    collect [])
 ;;
 
 (* ── Queries ──────────────────────────────────────────────────────── *)
@@ -341,9 +394,12 @@ let subscriber_count bus = Atomic.get bus.subscriber_count
 
 type subscription_stats =
   { purpose : string option
+  ; capacity : int
+  ; overflow : overflow
   ; depth : int
   ; published_total : int
   ; drained_total : int
+  ; dropped_total : int
   }
 
 type bus_stats =
@@ -357,9 +413,12 @@ let stats bus =
     List.map
       (fun (sub : subscription) ->
          ({ purpose = sub.purpose
-          ; depth = Atomic.get sub.pending_count
+          ; capacity = sub.capacity
+          ; overflow = sub.overflow
+          ; depth = Eio.Stream.length sub.stream
           ; published_total = Atomic.get sub.published_total
           ; drained_total = Atomic.get sub.drained_total
+          ; dropped_total = Atomic.get sub.dropped_total
           }
           : subscription_stats))
       subs

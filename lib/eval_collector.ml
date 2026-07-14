@@ -20,9 +20,14 @@ type t =
   ; start_time : float
   }
 
-let wrap_run ~bus ~agent_name ~run_id () =
+let wrap_run ~bus ~subscription ~agent_name ~run_id () =
   let collector = Eval.create_collector ~agent_name ~run_id in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent agent_name) bus in
+  let sub =
+    Event_bus.subscribe
+      ~config:subscription
+      ~filter:(Event_bus.filter_agent agent_name)
+      bus
+  in
   { collector
   ; sub
   ; bus
@@ -87,7 +92,6 @@ let process_events t =
        | HandoffRequested _
        | HandoffCompleted _
        | ElicitationCompleted _
-       | SlotSchedulerObserved _
        | InferenceTelemetry _
        | Custom _ -> ())
     events

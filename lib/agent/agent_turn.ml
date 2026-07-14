@@ -99,7 +99,7 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
 type turn_params_resolution_error =
   | Illegal_decision of Hooks.hook_decision
   | Hook_failed of
-      { stage : string
+      { stage : Hooks.hook_stage
       ; detail : string
       }
 
@@ -152,7 +152,7 @@ let resolve_turn_params ~hooks ~messages ~turn ~invoke_hook =
      | Hooks.AdjustParams params -> Ok params
      | Hooks.Continue -> Ok Hooks.default_turn_params
      | Hooks.HookFailed { stage; detail } -> Error (Hook_failed { stage; detail })
-     | Hooks.ApprovalRequired | Hooks.ElicitInput _ | Hooks.Nudge _ | Hooks.Block _ ->
+     | Hooks.ElicitInput _ | Hooks.Nudge _ | Hooks.Block _ ->
        Error (Illegal_decision decision))
 ;;
 
@@ -172,8 +172,9 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
       let output = Types.tool_result_of_outcome ~content:result.content result.outcome in
       let injection =
         try Ok (injector ~tool_name:name ~input ~output) with
-        | Eio.Cancel.Cancelled _ as exn -> raise exn
-        | exn -> Error { tool_name = Some name; detail = Printexc.to_string exn }
+        | exn ->
+          Llm_provider.Reserved_exn.reraise_if_reserved exn;
+          Error { tool_name = Some name; detail = Printexc.to_string exn }
       in
       (match injection with
        | Error _ as error -> error

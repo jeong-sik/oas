@@ -72,7 +72,7 @@ let test_user_tool_case_variant_does_not_fallback () =
 let test_user_tool_case_variant_does_not_dispatch_neighbor () =
   (* Stronger regression: a user tool is registered under its lowercase
      name. A title-case variant must return None, not silently dispatch
-     the lowercase neighbor (which would alter approval/audit context). *)
+     the lowercase neighbor (which would alter tool identity and audit context). *)
   let tools = [ make_tool ~content:"lowercased" "fetcha" ] in
   let index = Agent_tools.build_index tools in
   check

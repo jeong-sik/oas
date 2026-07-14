@@ -47,6 +47,15 @@ val required_output_token_receipt
   :  Provider_config.t
   -> (Types.output_token_receipt, Types.required_output_token_error) result
 
+(** Render a typed required-output-token rejection with the selected model
+    context. Internal completion boundaries use this to preserve the
+    [AcceptRejected] result contract instead of crossing the compatibility
+    [Invalid_argument] projection below. *)
+val required_output_token_error_message
+  :  Provider_config.t
+  -> Types.required_output_token_error
+  -> string
+
 (** Compatibility projection of {!required_output_token_receipt}. Raises
     [Invalid_argument] naming the model when no explicit value, catalog
     ceiling, or capability-override ceiling exists. *)

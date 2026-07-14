@@ -13,7 +13,6 @@ let test_minimal_config () =
     check string "model" "exact-model" cfg.model;
     check (option string) "no prompt" None cfg.system_prompt;
     check (option int) "no max_tokens" None cfg.max_tokens;
-    check int "no tools" 0 (List.length cfg.tools);
     check int "no mcp" 0 (List.length cfg.mcp_servers)
   | Error e -> fail (Error.to_string e)
 ;;
@@ -41,7 +40,6 @@ let test_full_config () =
     check string "model" "claude-opus-4-6" cfg.model;
     check (option string) "prompt" (Some "You are helpful.") cfg.system_prompt;
     check (option int) "max_tokens" (Some 8192) cfg.max_tokens;
-    check int "tools" 0 (List.length cfg.tools);
     check int "mcp" 1 (List.length cfg.mcp_servers);
     (match List.hd cfg.mcp_servers with
      | Agent_config.Stdio_mcp { command; name; _ } ->
@@ -89,11 +87,7 @@ let test_rejects_unknown_field () =
     (`Assoc [ "removed_lifecycle_knob", `Int 1 ])
 ;;
 
-let test_rejects_non_list_tools () =
-  expect_invalid_config_field "tools" (`Assoc [ "tools", `Assoc [] ])
-;;
-
-let test_rejects_inline_config_tools () =
+let test_rejects_removed_tools_field () =
   expect_invalid_config_field
     "tools"
     (`Assoc
@@ -171,6 +165,133 @@ let test_load_valid () =
 
 (* ── to_builder ─────────────────────────────────────────── *)
 
+let config_with_mcp_servers mcp_servers : Agent_config.agent_file_config =
+  { name = "mcp-builder-test"
+  ; model = "exact-model"
+  ; system_prompt = None
+  ; max_tokens = None
+  ; mcp_servers
+  ; enable_thinking = None
+  ; preserve_thinking = None
+  ; thinking_budget = None
+  ; reasoning_effort = None
+  ; provider = None
+  }
+;;
+
+let configured_stdio_mcp =
+  Agent_config.Stdio_mcp
+    { command = "not-started-without-runtime-resources"
+    ; args = []
+    ; name = "configured-server"
+    ; env = []
+    }
+;;
+
+let unreachable_http_mcp =
+  Agent_config.Http_mcp
+    { url = "http://127.0.0.1:1/mcp"; headers = []; name = "unreachable-http-server" }
+;;
+
+let expect_mcp_runtime_config_error = function
+  | Error (Error.Config (InvalidConfig { field; _ })) ->
+    check string "configuration field" "mcp_servers" field
+  | Error error -> fail (Error.to_string error)
+  | Ok _ -> fail "configured MCP servers must not be dropped silently"
+;;
+
+let test_to_builder_rejects_mcp_without_switch_or_manager () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let cfg = config_with_mcp_servers [ configured_stdio_mcp ] in
+  Agent_config.to_builder ~net cfg |> expect_mcp_runtime_config_error
+;;
+
+let test_to_builder_rejects_mcp_without_manager () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let cfg = config_with_mcp_servers [ configured_stdio_mcp ] in
+  Agent_config.to_builder ~sw ~net cfg |> expect_mcp_runtime_config_error
+;;
+
+let test_to_builder_rejects_mcp_without_switch () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let mgr = Eio.Stdenv.process_mgr env in
+  let cfg = config_with_mcp_servers [ configured_stdio_mcp ] in
+  Agent_config.to_builder ~mgr ~net cfg |> expect_mcp_runtime_config_error
+;;
+
+let test_http_mcp_does_not_require_process_manager () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Eio.Switch.run
+  @@ fun sw ->
+  match Agent_config.connect_mcp_server ~sw ~net unreachable_http_mcp with
+  | Error (Error.Mcp _) -> ()
+  | Error error -> fail (Error.to_string error)
+  | Ok managed ->
+    Mcp.close_managed managed;
+    fail "unreachable HTTP MCP server unexpectedly connected"
+;;
+
+let test_to_builder_connects_mcp_with_runtime_resources () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let server =
+    {|
+import json, sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    request_id = request.get("id")
+    if request_id is None:
+        continue
+    if request.get("method") == "initialize":
+        result = {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "serverInfo": {"name": "agent-config-test", "version": "1.0"},
+        }
+    elif request.get("method") == "tools/list":
+        result = {"tools": []}
+    else:
+        result = {}
+    response = {"jsonrpc": "2.0", "id": request_id, "result": result}
+    sys.stdout.write(json.dumps(response) + "\n")
+    sys.stdout.flush()
+|}
+  in
+  let cfg =
+    config_with_mcp_servers
+      [ Agent_config.Stdio_mcp
+          { command = "python3"
+          ; args = [ "-u"; "-c"; server ]
+          ; name = "working-server"
+          ; env = []
+          }
+      ]
+  in
+  match Agent_config.to_builder ~sw ~mgr ~net cfg with
+  | Error error -> fail (Error.to_string error)
+  | Ok builder ->
+    (match Builder.build_safe builder with
+     | Error error -> fail (Error.to_string error)
+     | Ok agent ->
+       check int "connected MCP clients" 1 (List.length (Agent.options agent).mcp_clients);
+       Agent.close agent)
+;;
+
 let test_to_builder () =
   Eio_main.run
   @@ fun env ->
@@ -180,7 +301,6 @@ let test_to_builder () =
     ; model = "claude-sonnet-4-6"
     ; system_prompt = Some "test prompt"
     ; max_tokens = Some 2048
-    ; tools = []
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
@@ -204,40 +324,15 @@ let test_to_builder () =
   | Error e -> fail (Error.to_string e)
 ;;
 
-let test_to_builder_rejects_direct_inline_tools () =
+let test_to_builder_minimal () =
   Eio_main.run
   @@ fun env ->
   let net = Eio.Stdenv.net env in
   let cfg : Agent_config.agent_file_config =
-    { name = "builder-test"
+    { name = "minimal"
     ; model = "claude-sonnet-4-6"
     ; system_prompt = None
     ; max_tokens = None
-    ; tools = [ { name = "echo"; description = "Echo"; parameters = [] } ]
-    ; mcp_servers = []
-    ; enable_thinking = None
-    ; preserve_thinking = None
-    ; thinking_budget = None
-    ; reasoning_effort = None
-    ; provider = None
-    }
-  in
-  match Agent_config.to_builder ~net cfg with
-  | Error (Error.Config (InvalidConfig { field = "tools"; _ })) -> ()
-  | Error error -> fail (Error.to_string error)
-  | Ok _ -> fail "inline config tools must be rejected"
-;;
-
-let test_to_builder_no_tools () =
-  Eio_main.run
-  @@ fun env ->
-  let net = Eio.Stdenv.net env in
-  let cfg : Agent_config.agent_file_config =
-    { name = "no-tools"
-    ; model = "claude-sonnet-4-6"
-    ; system_prompt = None
-    ; max_tokens = None
-    ; tools = []
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
@@ -280,7 +375,6 @@ let test_to_builder_all_models () =
          ; thinking_budget = None
          ; reasoning_effort = None
          ; provider = None
-         ; tools = []
          ; mcp_servers = []
          }
        in
@@ -337,40 +431,6 @@ let test_mcp_with_env () =
        check (list string) "args" [ "server.js" ] args
      | Agent_config.Http_mcp _ -> fail "expected Stdio_mcp")
   | Error e -> fail (Error.to_string e)
-;;
-
-(* ── Inline config tools are rejected ──────────────────── *)
-
-let test_tool_param_types () =
-  expect_invalid_config_field
-    "tools"
-    (`Assoc
-        [ "name", `String "multi"
-        ; ( "tools"
-          , `List
-              [ `Assoc
-                  [ "name", `String "calc"
-                  ; "description", `String "Calculator"
-                  ; ( "parameters"
-                    , `List
-                        [ `Assoc [ "name", `String "x"; "type", `String "number" ]
-                        ; `Assoc
-                            [ "name", `String "op"
-                            ; "type", `String "string"
-                            ; "required", `Bool true
-                            ]
-                        ; `Assoc [ "name", `String "flag"; "type", `String "boolean" ]
-                        ] )
-                  ]
-              ] )
-        ])
-;;
-
-let test_tool_no_params () =
-  expect_invalid_config_field
-    "tools"
-    (`Assoc
-        [ "name", `String "test"; "tools", `List [ `Assoc [ "name", `String "simple" ] ] ])
 ;;
 
 (* ── HTTP MCP parsing ──────────────────────────────────── *)
@@ -469,15 +529,12 @@ let () =
         ; test_case "reasoning effort max" `Quick test_reasoning_effort_max
         ; test_case "mcp defaults" `Quick test_mcp_defaults
         ; test_case "mcp with env" `Quick test_mcp_with_env
-        ; test_case "reject tool param types" `Quick test_tool_param_types
-        ; test_case "reject tool no params" `Quick test_tool_no_params
         ; test_case "http mcp" `Quick test_http_mcp_config
         ; test_case "http mcp defaults" `Quick test_http_mcp_defaults
         ; test_case "mixed mcp" `Quick test_mixed_mcp_config
         ; test_case "reject non-object config" `Quick test_rejects_non_object_config
         ; test_case "reject unknown field" `Quick test_rejects_unknown_field
-        ; test_case "reject non-list tools" `Quick test_rejects_non_list_tools
-        ; test_case "reject inline config tools" `Quick test_rejects_inline_config_tools
+        ; test_case "reject removed tools field" `Quick test_rejects_removed_tools_field
         ; test_case "reject non-list mcp_servers" `Quick test_rejects_non_list_mcp_servers
         ; test_case "reject non-string mcp args" `Quick test_rejects_non_string_mcp_args
         ; test_case
@@ -496,11 +553,27 @@ let () =
         ] )
     ; ( "to_builder"
       , [ test_case "base config" `Quick test_to_builder
+        ; test_case "minimal config" `Quick test_to_builder_minimal
         ; test_case
-            "reject direct inline tools"
+            "configured MCP requires switch and manager"
             `Quick
-            test_to_builder_rejects_direct_inline_tools
-        ; test_case "no tools" `Quick test_to_builder_no_tools
+            test_to_builder_rejects_mcp_without_switch_or_manager
+        ; test_case
+            "configured MCP requires manager"
+            `Quick
+            test_to_builder_rejects_mcp_without_manager
+        ; test_case
+            "configured MCP requires switch"
+            `Quick
+            test_to_builder_rejects_mcp_without_switch
+        ; test_case
+            "HTTP MCP does not require process manager"
+            `Quick
+            test_http_mcp_does_not_require_process_manager
+        ; test_case
+            "configured MCP connects with runtime resources"
+            `Quick
+            test_to_builder_connects_mcp_with_runtime_resources
         ; test_case "all models" `Quick test_to_builder_all_models
         ] )
     ]

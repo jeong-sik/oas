@@ -76,12 +76,10 @@ type journal =
 
 let create ?on_append () = { state = Atomic.make ([], 0); on_append }
 
-let reraise_if_reserved_callback_exception exn =
-  match exn with
-  | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
-    Printexc.raise_with_backtrace exn (Printexc.get_raw_backtrace ())
-  | _ -> ()
-;;
+type append_error =
+  { exception_ : exn
+  ; backtrace : Printexc.raw_backtrace
+  }
 
 let append journal event =
   let rec loop () =
@@ -91,14 +89,21 @@ let append journal event =
     if not (Atomic.compare_and_set journal.state old_state new_state) then loop ()
   in
   loop ();
-  (* Fan-out callbacks must not be able to poison durable state. Ordinary sink
-     failures are ignored after the event is recorded, while cancellation/fatal
-     exceptions still propagate so callers can unwind correctly. *)
-  Option.iter
-    (fun f ->
-       try f event with
-       | exn -> reraise_if_reserved_callback_exception exn)
-    journal.on_append
+  (* The durable state is committed before fan-out. Observer failure is
+     explicit, but never rolls the event back. *)
+  match journal.on_append with
+  | None -> Ok ()
+  | Some callback ->
+    (try
+       callback event;
+       Ok ()
+     with
+     | exception_ ->
+       let backtrace = Printexc.get_raw_backtrace () in
+       (match exception_ with
+        | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
+          Printexc.raise_with_backtrace exception_ backtrace
+        | _ -> Error { exception_; backtrace }))
 ;;
 
 let events journal =

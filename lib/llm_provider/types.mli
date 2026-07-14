@@ -58,6 +58,10 @@ type tool_failure_kind =
   | Recoverable_tool_error
   | Non_retryable_tool_error
   | Reported_tool_error
+  | Unattributed_tool_error
+  (** A persisted failure whose original execution boundary did not record
+        provenance. This preserves missing historical evidence without
+        relabelling it as provider-reported. *)
 [@@deriving yojson, show]
 
 type tool_failure_provenance =

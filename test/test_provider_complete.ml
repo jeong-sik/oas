@@ -106,7 +106,7 @@ let test_anthropic_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
-let test_anthropic_disabled_thinking_rejects_effort () =
+let test_anthropic_explicit_effort_is_not_derived_from_thinking_toggle () =
   let config =
     PC.make
       ~kind:Anthropic
@@ -116,14 +116,15 @@ let test_anthropic_disabled_thinking_rejects_effort () =
       ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
       ()
   in
-  match BA.build_request ~config ~messages:[ user_msg "hi" ] () with
-  | _ -> Alcotest.fail "expected conflicting effort rejection"
-  | exception Invalid_argument message ->
-    Alcotest.(check string)
-      "rejection"
-      "Backend_anthropic.build_request: reasoning_effort conflicts with \
-       enable_thinking=false"
-      message
+  let json =
+    BA.build_request ~config ~messages:[ user_msg "hi" ] () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool) "thinking omitted" true (json |> member "thinking" = `Null);
+  Alcotest.(check string)
+    "explicit effort preserved"
+    "medium"
+    (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
 let test_anthropic_sonnet5_explicit_disable_is_serialized () =
@@ -812,6 +813,7 @@ let test_kimi_direct_with_tools_and_thinking () =
       ~model_id:"kimi-for-coding"
       ~base_url:"https://api.kimi.com/coding"
       ~enable_thinking:true
+      ~thinking_budget:4096
       ()
   in
   let tool =
@@ -1402,9 +1404,9 @@ let () =
         ; test_case "with system" `Quick test_anthropic_with_system
         ; test_case "with thinking" `Quick test_anthropic_with_thinking
         ; test_case
-            "disabled thinking rejects adaptive effort"
+            "explicit effort is independent of thinking toggle"
             `Quick
-            test_anthropic_disabled_thinking_rejects_effort
+            test_anthropic_explicit_effort_is_not_derived_from_thinking_toggle
         ; test_case
             "Sonnet 5 explicit disable is serialized"
             `Quick

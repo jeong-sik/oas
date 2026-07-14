@@ -36,7 +36,6 @@ type t =
   ; tracer : Tracing.t
   ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
-  ; approval : Hooks.approval_callback option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -45,7 +44,6 @@ type t =
   ; description : string option
   ; periodic_callbacks : Agent.periodic_callback list
   ; contract : Contract.t
-  ; allowed_paths : string list
   ; yield_on_tool : bool
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
@@ -86,7 +84,6 @@ let create ~net ~model =
   ; tracer = Tracing.null
   ; trace_link = None
   ; raw_trace = None
-  ; approval = None
   ; context_injector = None
   ; mcp_clients = []
   ; (* Observability-as-default: every Builder-constructed agent gets a fresh,
@@ -103,7 +100,6 @@ let create ~net ~model =
   ; description = None
   ; periodic_callbacks = []
   ; contract = Contract.empty
-  ; allowed_paths = []
   ; yield_on_tool = false
   ; slot_id = None
   ; on_run_complete = None
@@ -156,7 +152,6 @@ let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
 let with_trace_link trace_link b = { b with trace_link }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
-let with_approval approval b = { b with approval = Some approval }
 let with_context ctx b = { b with context = Some ctx }
 let with_provider provider b = { b with provider = Some provider }
 let with_provider_config pc b = with_provider (Provider.config_of_provider_config pc) b
@@ -190,7 +185,6 @@ let with_context_injector injector b = { b with context_injector = Some injector
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
-let with_allowed_paths paths b = { b with allowed_paths = paths }
 
 let with_periodic_callback cb b =
   { b with periodic_callbacks = b.periodic_callbacks @ [ cb ] }
@@ -209,9 +203,6 @@ let with_log_sink sink _b =
   Log.add_sink sink;
   _b
 ;;
-
-(* with_event_targets removed — was a no-op (targets discarded,
-   Event_forward never created in build). See oas#669. *)
 
 let build b =
   let tools = b.tools in
@@ -249,7 +240,6 @@ let build b =
     ; tracer = b.tracer
     ; trace_link = b.trace_link
     ; raw_trace = b.raw_trace
-    ; approval = b.approval
     ; context_injector = b.context_injector
     ; mcp_clients
     ; event_bus = b.event_bus
@@ -257,7 +247,6 @@ let build b =
     ; elicitation = b.elicitation
     ; description = b.description
     ; periodic_callbacks = b.periodic_callbacks
-    ; allowed_paths = b.allowed_paths
     ; slot_id = b.slot_id
     ; on_run_complete = b.on_run_complete
     ; journal = b.journal

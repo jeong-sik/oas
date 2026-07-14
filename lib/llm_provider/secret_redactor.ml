@@ -11,35 +11,6 @@
 
     @since 0.207.0 *)
 
-let is_shell_meta ch =
-  match ch with
-  | ';'
-  | '|'
-  | '&'
-  | '$'
-  | '`'
-  | '('
-  | ')'
-  | '{'
-  | '}'
-  | '<'
-  | '>'
-  | '*'
-  | '?'
-  | '#'
-  | '!'
-  | '~'
-  | '\\'
-  | '"'
-  | '\''
-  | '\n'
-  | '\r'
-  | '\t' -> true
-  | _ -> false
-;;
-
-let has_shell_meta s = String.exists is_shell_meta s
-
 let is_token_char ch =
   match ch with
   | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' | '+' | '/' | '=' -> true

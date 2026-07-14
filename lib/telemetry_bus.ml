@@ -12,6 +12,11 @@
 type t = { bus : Event_bus.t }
 type subscription = { inner : Event_bus.subscription }
 
+type decode_failure =
+  { event : Event_bus.event
+  ; detail : string
+  }
+
 let create () = { bus = Event_bus.create () }
 let of_event_bus bus = { bus }
 
@@ -26,9 +31,10 @@ let publish bus event =
 
 (* ── Subscribe ────────────────────────────────────────────────────── *)
 
-let subscribe ?purpose bus =
+let subscribe ~config ?purpose bus =
   let inner =
     Event_bus.subscribe
+      ~config
       ~filter:(Event_bus.filter_topic "telemetry_event")
       ?purpose
       bus.bus
@@ -42,13 +48,15 @@ let unsubscribe bus sub = Event_bus.unsubscribe bus.bus sub.inner
 
 let drain sub =
   Event_bus.drain sub.inner
-  |> List.filter_map (fun (ev : Event_bus.event) ->
+  |> List.map (fun (ev : Event_bus.event) ->
     match ev.payload with
     | Event_bus.Custom ("telemetry_event", json) ->
       (match Llm_provider.Telemetry_event.of_yojson json with
-       | Ok te -> Some te
-       | Error _ -> None)
-    | _ -> None)
+       | Ok telemetry_event -> Ok telemetry_event
+       | Error detail -> Error { event = ev; detail })
+    | _ ->
+      Error
+        { event = ev; detail = "telemetry subscription received a non-telemetry payload" })
 ;;
 
 (* ── Queries ──────────────────────────────────────────────────────── *)

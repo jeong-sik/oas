@@ -45,7 +45,6 @@ type timeout_phase =
   | Stream_idle of stream_idle_state
   | Provider_step
   | Cli_stdout_idle
-  | Caller_budget
   | Unknown_timeout
 [@@deriving yojson, show]
 
@@ -90,6 +89,7 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Response_body_too_large of { limit_bytes : int }
   (* oas#2483: the provider returned a 200 with no deliverable content (no
      thinking, text, or tool_calls). Distinct from a parse error. Preserve the
      typed stop reason so policy remains outside this transport fact. *)
@@ -155,6 +155,8 @@ let provider_failure_kind_to_string = function
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Response_body_too_large { limit_bytes } ->
+    Printf.sprintf "response_body_too_large:%d" limit_bytes
   | Empty_completion { stop_reason } ->
     Printf.sprintf "empty_completion:%s" (Types.stop_reason_to_string stop_reason)
   | Unknown_provider_failure { reason = Some reason } ->
@@ -205,7 +207,6 @@ let timeout_phase_to_label = function
     Printf.sprintf "stream_idle:%s" (stream_idle_state_to_label state)
   | Provider_step -> "provider_step"
   | Cli_stdout_idle -> "cli_stdout_idle"
-  | Caller_budget -> "caller_budget"
   | Unknown_timeout -> "unknown_timeout"
 ;;
 
@@ -214,18 +215,30 @@ type 'clock explicit_deadline =
   | Bounded of 'clock * float
 
 let resolve_explicit_deadline ~operation ~parameter ~clock ~timeout_s =
-  match timeout_s, clock with
-  | None, _ -> Ok Unbounded
-  | Some seconds, Some clock -> Ok (Bounded (clock, seconds))
-  | Some _, None ->
+  match timeout_s with
+  | None -> Ok Unbounded
+  | Some seconds when (not (Float.is_finite seconds)) || Float.compare seconds 0.0 <= 0 ->
     Error
       (AcceptRejected
          { reason =
              Printf.sprintf
-               "%s: %s was supplied without the clock required to enforce it"
+               "%s: %s must be finite and greater than zero, got %.17g"
                operation
                parameter
+               seconds
          })
+  | Some seconds ->
+    (match clock with
+     | Some clock -> Ok (Bounded (clock, seconds))
+     | None ->
+       Error
+         (AcceptRejected
+            { reason =
+                Printf.sprintf
+                  "%s: %s was supplied without the clock required to enforce it"
+                  operation
+                  parameter
+            }))
 ;;
 
 let with_explicit_deadline deadline f =
@@ -955,67 +968,19 @@ let with_client ?cache ~sw ~net ~uri f =
          Ok result)
 ;;
 
-let drain_response_body resp_body =
-  let buf = Cstruct.create 4096 in
-  let rec drain () =
-    let _ = Eio.Flow.single_read resp_body buf in
-    drain ()
-  in
-  try drain () with
-  | End_of_file ->
-    Diag.debug "http_client" "drain_response_body: reached End_of_file";
-    Ok ()
-  | Eio.Time.Timeout ->
-    Diag.debug "http_client" "drain_response_body: caller deadline expired";
-    Error
-      (TimeoutError
-         { message = "response body drain timed out"; phase = Non_streaming_body })
-  | Unix.Unix_error (code, _, _) as e ->
-    let kind = classify_unix_error code in
-    Diag.warn
-      "http_client"
-      "drain_response_body: Unix_error %s (kind %s)"
-      (Printexc.to_string e)
-      (match kind with
-       | Connection_refused -> "connection_refused"
-       | Dns_failure -> "dns_failure"
-       | Tls_error -> "tls_error"
-       | Timeout -> "timeout"
-       | Local_resource_exhaustion -> "local_resource_exhaustion"
-       | End_of_file -> "end_of_file"
-       | Unknown -> "unknown");
-    Error (NetworkError { message = Printexc.to_string e; kind })
-  | Eio.Io (err, _) as e ->
-    let message = Printexc.to_string e in
-    Diag.warn "http_client" "drain_response_body: %s" message;
-    Error (network_error_of_eio err e)
-  | Sys_error msg ->
-    Diag.warn "http_client" "drain_response_body: sys_error %s" msg;
-    Error (unknown_network_error msg)
-  | Failure msg ->
-    Diag.warn "http_client" "drain_response_body: failure %s" msg;
-    Error (unknown_network_error msg)
-  | Invalid_argument msg ->
-    Diag.warn "http_client" "drain_response_body: invalid_arg %s" msg;
-    Error (NetworkError { message = msg; kind = Unknown })
-  (* Re-raise cancellation so a fiber cancelled mid-drain unwinds instead of
-     being absorbed by the catch-all below (structured concurrency). Mirrors the
-     transport-close handler in this module. *)
-  | Eio.Cancel.Cancelled _ as e -> raise e
-  | drain_failure ->
-    let message = Printexc.to_string drain_failure in
-    Diag.warn "http_client" "drain_response_body: %s" message;
-    Error (NetworkError { message; kind = Unknown })
-;;
-
-let read_response_body_or_drain_error resp_body =
+let read_response_body resp_body =
   try
     Ok Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
   with
-  | exn ->
-    (match drain_response_body resp_body with
-     | Ok () -> raise exn
-     | Error err -> Error err)
+  | Eio.Buf_read.Buffer_limit_exceeded ->
+    Error
+      (ProviderFailure
+         { kind = Response_body_too_large { limit_bytes = Api_common.max_response_body }
+         ; message =
+             Printf.sprintf
+               "provider response exceeded %d bytes; connection closed without draining"
+               Api_common.max_response_body
+         })
 ;;
 
 let get_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers () =
@@ -1033,7 +998,7 @@ let get_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers () =
       with_explicit_deadline deadline (fun () ->
         let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
         let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-        let* body_str = read_response_body_or_drain_error resp_body in
+        let* body_str = read_response_body resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -1071,7 +1036,7 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
-        let* body_str = read_response_body_or_drain_error resp_body in
+        let* body_str = read_response_body resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -1118,7 +1083,7 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
         ~code
         ~resp_headers:(Cohttp.Response.headers resp)
         headers_with_length;
-      let* body_str = read_response_body_or_drain_error resp_body in
+      let* body_str = read_response_body resp_body in
       Error (HttpError { code; body = body_str }))
 ;;
 
@@ -1195,7 +1160,7 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
             ~code
             ~resp_headers:(Cohttp.Response.headers resp)
             headers_with_length;
-          (match read_response_body_or_drain_error resp_body with
+          (match read_response_body resp_body with
            | Ok body_str ->
              Eio.Resource.close conn;
              Error (HttpError { code; body = body_str })
@@ -1556,10 +1521,21 @@ let%test "classify_unix_error: EHOSTUNREACH is Dns_failure" =
   classify_unix_error Unix.EHOSTUNREACH = Dns_failure
 ;;
 
-(* ── drain_response_body tests ───────────────────────── *)
-
-let%test "drain_response_body: complete source reports complete" =
-  Result.is_ok (drain_response_body (Eio.Flow.string_source "abc"))
+let%test "oversized response is typed without draining" =
+  let source =
+    Eio.Flow.string_source (String.make (Api_common.max_response_body + 1) 'x')
+  in
+  match read_response_body source with
+  | Error (ProviderFailure { kind = Response_body_too_large { limit_bytes }; _ }) ->
+    limit_bytes = Api_common.max_response_body
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 (* ── is_local_resource_exhaustion tests ──────────────── *)

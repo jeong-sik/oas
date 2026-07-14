@@ -15,6 +15,7 @@
   eio
   eio.unix
   eio_main
+  threads
   unix
   str
   cohttp-eio

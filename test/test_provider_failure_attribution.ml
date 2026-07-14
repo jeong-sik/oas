@@ -192,11 +192,6 @@ let test_closed_ownership_matrix () =
     (Http.NetworkError
        { message = "local resource detail"; kind = Http.Local_resource_exhaustion });
   check_ownership
-    "caller budget timeout is attempt local"
-    Attribution.Attempt_local
-    with_credential
-    (Http.TimeoutError { message = "caller budget"; phase = Http.Caller_budget });
-  check_ownership
     "provider first-token timeout is not widened"
     Attribution.Unclassified
     with_credential

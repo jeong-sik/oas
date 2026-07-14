@@ -544,7 +544,11 @@ let test_eval_collector_agent_completed () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let ec = Eval_collector.wrap_run ~bus ~agent_name:"bot" ~run_id:"r1" () in
+  let subscription =
+    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let ec = Eval_collector.wrap_run ~bus ~subscription ~agent_name:"bot" ~run_id:"r1" () in
   let ok_response : Types.api_response =
     { id = "r1"
     ; model = "m"
@@ -572,7 +576,11 @@ let test_eval_collector_agent_completed_error () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let ec = Eval_collector.wrap_run ~bus ~agent_name:"bot" ~run_id:"r1" () in
+  let subscription =
+    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let ec = Eval_collector.wrap_run ~bus ~subscription ~agent_name:"bot" ~run_id:"r1" () in
   Event_bus.publish
     bus
     (Event_bus.mk_event

@@ -27,9 +27,19 @@ let complete
       ?body_timeout_s
       ()
   =
-  match validate_all config with
+  let preflight =
+    match validate_all config with
+    | Error err -> Error err
+    | Ok () ->
+      Http_client.resolve_explicit_deadline
+        ~operation:"Complete.complete"
+        ~parameter:"body_timeout_s"
+        ~clock
+        ~timeout_s:body_timeout_s
+  in
+  match preflight with
   | Error err -> Error err
-  | Ok () ->
+  | Ok body_deadline ->
     let m =
       match metrics with
       | Some m -> m
@@ -68,13 +78,37 @@ let complete
        let { Llm_transport.response = result; latency_ms } =
          match transport with
          | Some t ->
-           t.complete_sync
-             { Llm_transport.config = request_config
-             ; messages
-             ; tools
-             ; capture_id = None
-             ; stream_idle_timeout_s = None (* sync path: no streaming idle deadline *)
-             }
+           let run_transport () =
+             t.complete_sync
+               { Llm_transport.config = request_config
+               ; messages
+               ; tools
+               ; capture_id = None
+               ; observe_wire_chunk = None
+               ; stream_idle_timeout_s = None (* sync path: no streaming idle deadline *)
+               }
+           in
+           (match body_deadline with
+            | Http_client.Unbounded ->
+              Http_client.with_explicit_deadline body_deadline run_transport
+            | Http_client.Bounded (clock, timeout_s) ->
+              (match
+                 Eio.Time.with_timeout clock timeout_s (fun () -> Ok (run_transport ()))
+               with
+               | Ok result -> result
+               | Error `Timeout ->
+                 { Llm_transport.response =
+                     Error
+                       (Http_client.TimeoutError
+                          { message =
+                              Printf.sprintf
+                                "body_timeout_s deadline exceeded after %.17gs \
+                                 (Complete.complete injected sync transport)"
+                                timeout_s
+                          ; phase = Http_client.Non_streaming_body
+                          })
+                 ; latency_ms = None
+                 }))
          | None ->
            let resp, lat =
              complete_http
@@ -164,6 +198,7 @@ let complete_stream
       ?stream_idle_timeout_s
       ?(transport : Llm_transport.t option)
       ?capture_id
+      ?wire_observer
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ?(tools = [])
@@ -193,6 +228,39 @@ let complete_stream
       | None, None -> None
       | Some _, _ | None, Some _ -> Some on_telemetry_with_metrics
     in
+    let emit_wire_observer_failure failure =
+      let event = Telemetry_event.Wire_observer_failure failure in
+      try
+        record_streaming_metrics metrics event;
+        match on_telemetry with
+        | Some emit -> emit event
+        | None ->
+          Diag.warn
+            "wire_observer"
+            "wire observation was not accepted and no telemetry callback is installed: %s"
+            (Wire_observer.show_failure failure)
+      with
+      | exn ->
+        Reserved_exn.reraise_if_reserved exn;
+        (* Observation diagnostics must not rewrite a completed provider
+           interaction as a provider failure. The original typed failure and
+           telemetry callback exception both remain visible here. *)
+        Diag.warn
+          "wire_observer"
+          "wire observer failure telemetry callback raised: %s; original=%s"
+          (Printexc.to_string exn)
+          (Wire_observer.show_failure failure)
+    in
+    let observe_wire_chunk =
+      Option.map
+        (fun try_observe ~provider ~model ~chunk ->
+           match
+             Wire_observer.observe try_observe ~capture_id ~provider ~model ~chunk
+           with
+           | Ok () -> ()
+           | Error failure -> emit_wire_observer_failure failure)
+        wire_observer
+    in
     let result =
       match transport with
       | Some t ->
@@ -203,6 +271,7 @@ let complete_stream
           ; messages
           ; tools
           ; capture_id
+          ; observe_wire_chunk
           ; stream_idle_timeout_s
             (* RFC-OAS-026: carry the idle deadline through the transport
                boundary so the [Some t] dispatch can no longer drop it. *)
@@ -213,7 +282,7 @@ let complete_stream
           ~net
           ?clock
           ?stream_idle_timeout_s
-          ?capture_id
+          ?observe_wire_chunk
           ~latency_counter
           ?on_telemetry
           ~metrics
@@ -284,7 +353,7 @@ let make_http_transport
           ~net
           ?clock
           ?stream_idle_timeout_s
-          ?capture_id:req.capture_id
+          ?observe_wire_chunk:req.observe_wire_chunk
           ?connection_cache
           ?latency_counter
           ~config:req.config

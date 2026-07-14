@@ -458,7 +458,7 @@ let%test "openai_messages_of_message user with tool_result" =
   List.length result = 2
 ;;
 
-let%test "build_request strips orphaned tool results from wire messages" =
+let%test "build_request preserves orphaned tool results without synthetic repair" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -498,7 +498,7 @@ let%test "build_request strips orphaned tool results from wire messages" =
     |> to_list
     |> List.map (fun json -> json |> member "role" |> to_string)
   in
-  roles = [ "assistant"; "user" ]
+  roles = [ "assistant"; "tool"; "user" ]
 ;;
 
 let%test "openai_messages_of_message assistant with tool_calls" =
@@ -1396,7 +1396,7 @@ let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
   && json |> member "reasoning_effort" = `Null
 ;;
 
-let%test "build_request serializes ZAI thinking object for bare GLM compat model" =
+let%test "openai compat does not infer ZAI thinking from bare GLM model or URL" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1409,12 +1409,10 @@ let%test "build_request serializes ZAI thinking object for bare GLM compat model
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "type" |> to_string = "enabled"
-  && json |> member "thinking" |> member "clear_thinking" |> to_bool = false
-  && json |> member "reasoning_effort" = `Null
+  json |> member "thinking" = `Null && json |> member "reasoning_effort" = `Null
 ;;
 
-let%test "build_request maps preserve_thinking for bare ZAI GLM compat model" =
+let%test "openai compat does not infer ZAI preserve control from bare GLM model or URL" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1427,7 +1425,7 @@ let%test "build_request maps preserve_thinking for bare ZAI GLM compat model" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+  json |> member "thinking" = `Null
 ;;
 
 let%test "build_request emits reasoning_effort for Openai reasoning models" =

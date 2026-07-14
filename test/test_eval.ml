@@ -195,7 +195,13 @@ let test_eval_collector_basic () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let ec = Eval_collector.wrap_run ~bus ~agent_name:"test" ~run_id:"r1" () in
+  let subscription =
+    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let ec =
+    Eval_collector.wrap_run ~bus ~subscription ~agent_name:"test" ~run_id:"r1" ()
+  in
   Event_bus.publish
     bus
     (Event_bus.mk_event (TurnStarted { agent_name = "test"; turn = 0 }));

@@ -1,8 +1,8 @@
 (** Agent state checkpoint -- versioned JSON serialization.
 
-    Captures full conversation state (messages, usage, config) as a
-    pure value for persist/restore. This module handles serialization
-    only; file I/O is left to the caller.
+    Captures conversation state, usage, and the configuration fields represented
+    by the checkpoint schema as a pure value for persist/restore. This module
+    handles serialization only; file I/O is left to the caller.
 
     @stability Stable
     @since 0.93.1 *)
@@ -100,13 +100,18 @@ type delta =
 (** Serialize checkpoint to JSON. *)
 val to_json : t -> Yojson.Safe.t
 
-(** Deserialize the exact current checkpoint schema. Older versions are rejected. *)
+(** Deserialize the exact current v8 checkpoint schema. Exact documents emitted
+    by the released v5 and v6 serializers are first normalized through the
+    finite one-way v5/v6-to-v8 persistence migration; versions 1-4, 7, and
+    unknown versions are rejected. The migration does not reintroduce legacy
+    variants into {!t}, and every successful result is a v8 checkpoint. *)
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 
 (** Serialize checkpoint to a JSON string. *)
 val to_string : t -> string
 
-(** Deserialize checkpoint from a JSON string. *)
+(** Deserialize checkpoint from a JSON string under the same finite migration
+    contract as {!of_json}. *)
 val of_string : string -> (t, Error.sdk_error) result
 
 (** Serialize a checkpoint delta sidecar to JSON. *)

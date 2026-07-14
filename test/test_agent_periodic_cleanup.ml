@@ -70,6 +70,18 @@ let has_log_message message records =
   List.exists (fun (record : Log.record) -> String.equal record.message message) records
 ;;
 
+let find_log_message message records =
+  List.find_opt (fun (record : Log.record) -> String.equal record.message message) records
+;;
+
+let string_field name fields =
+  List.find_map
+    (function
+      | Log.S (field_name, value) when String.equal field_name name -> Some value
+      | _ -> None)
+    fields
+;;
+
 let unwrap = function
   | Ok value -> value
   | Error err -> Alcotest.fail (Error.to_string err)
@@ -252,6 +264,99 @@ let test_on_run_complete_cancelled_finishes_raw_trace () =
        records)
 ;;
 
+exception Primary_run_failure
+
+let test_exception_preserved_when_raw_trace_finalization_fails () =
+  let previous_backtrace_status = Printexc.backtrace_status () in
+  Printexc.record_backtrace true;
+  Fun.protect
+    ~finally:(fun () -> Printexc.record_backtrace previous_backtrace_status)
+    (fun () ->
+       with_log_capture
+       @@ fun get_records ->
+       Eio_main.run
+       @@ fun env ->
+       with_temp_dir "oas-agent-exception-raw-trace-finalize"
+       @@ fun session_root ->
+       Eio.Switch.run
+       @@ fun sw ->
+       let clock = Eio.Stdenv.clock env in
+       let raw_trace =
+         unwrap
+           (Raw_trace.create_for_session
+              ~session_root
+              ~session_id:"exception-finalize"
+              ~agent_name:"periodic-cleanup"
+              ())
+       in
+       let trace_path = Raw_trace.file_path raw_trace in
+       let expected_backtrace = ref None in
+       let raise_primary () =
+         try raise Primary_run_failure with
+         | exn ->
+           let backtrace = Printexc.get_raw_backtrace () in
+           expected_backtrace := Some (Printexc.raw_backtrace_to_string backtrace);
+           Printexc.raise_with_backtrace exn backtrace
+       in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _req ->
+               Sys.remove trace_path;
+               Unix.mkdir trace_path 0o755;
+               raise_primary ())
+         ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok response)
+         }
+       in
+       let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~raw_trace () in
+       let observed_backtrace =
+         match Agent.run ~sw ~clock agent "raise" with
+         | _ -> Alcotest.fail "expected the primary run exception"
+         | exception exn ->
+           let backtrace =
+             Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ())
+           in
+           (match exn with
+            | Primary_run_failure -> backtrace
+            | _ ->
+              Alcotest.failf
+                "expected Primary_run_failure, got %s"
+                (Printexc.to_string exn))
+       in
+       Alcotest.(check bool)
+         "captured primary backtrace"
+         true
+         (match !expected_backtrace with
+          | Some backtrace -> String.length backtrace > 0
+          | None -> false);
+       Alcotest.(check bool)
+         "original raw backtrace prefix preserved"
+         true
+         (match !expected_backtrace with
+          | Some backtrace -> String.starts_with ~prefix:backtrace observed_backtrace
+          | None -> false);
+       let record =
+         match
+           find_log_message
+             "raw trace finalization failed after run exception"
+             (get_records ())
+         with
+         | Some record -> record
+         | None -> Alcotest.fail "missing raw trace finalization failure log"
+       in
+       Alcotest.(check (option string))
+         "structured primary exception"
+         (Some (Printexc.to_string Primary_run_failure))
+         (string_field "primary_exception" record.fields);
+       Alcotest.(check bool)
+         "structured finalization error"
+         true
+         (Option.is_some (string_field "finalization_error" record.fields));
+       Alcotest.(check bool)
+         "structured worker run id"
+         true
+         (Option.is_some (string_field "worker_run_id" record.fields)))
+;;
+
 (* Contract (agent_types.mli): on_run_complete runs *before* the terminal
    lifecycle transition, so a completion hook observes the pre-terminal run
    state rather than Completed/Failed. (Codex P2 on #2057.) *)
@@ -357,6 +462,10 @@ let () =
             "on_run_complete Cancelled still finishes raw trace"
             `Quick
             test_on_run_complete_cancelled_finishes_raw_trace
+        ; Alcotest.test_case
+            "run exception survives raw trace finalization failure"
+            `Quick
+            test_exception_preserved_when_raw_trace_finalization_fails
         ; Alcotest.test_case
             "on_run_complete observes pre-terminal lifecycle (#2057)"
             `Quick

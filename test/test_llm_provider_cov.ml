@@ -734,22 +734,18 @@ let test_build_request_with_thinking () =
   Alcotest.(check bool) "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
 ;;
 
-let test_build_request_with_thinking_omits_unspecified_budget () =
+let test_build_request_with_thinking_rejects_unspecified_budget () =
   let config =
     make_config ~kind:Gemini ~model_id:gemini25_flash_model ~enable_thinking:true ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] ()
-  in
-  let json = Yojson.Safe.from_string body_str in
-  let open Yojson.Safe.Util in
-  let gc = json |> member "generationConfig" in
-  let tc = gc |> member "thinkingConfig" in
-  Alcotest.(check bool)
-    "thinkingBudget omitted"
-    true
-    (tc |> member "thinkingBudget" = `Null);
-  Alcotest.(check bool) "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
+  match Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] () with
+  | _ -> Alcotest.fail "expected explicit thinking budget rejection"
+  | exception Invalid_argument message ->
+    Alcotest.(check string)
+      "rejection"
+      "Backend_gemini.build_request: enable_thinking=true on a thinkingBudget wire \
+       requires an explicit thinking_budget"
+      message
 ;;
 
 let test_constants_http_code_sets () =
@@ -1836,9 +1832,9 @@ let () =
             test_build_request_with_system_prompt
         ; Alcotest.test_case "with thinking" `Quick test_build_request_with_thinking
         ; Alcotest.test_case
-            "thinking omits unspecified budget"
+            "thinking rejects unspecified budget"
             `Quick
-            test_build_request_with_thinking_omits_unspecified_budget
+            test_build_request_with_thinking_rejects_unspecified_budget
         ; Alcotest.test_case "json mode" `Quick test_build_request_json_mode
         ; Alcotest.test_case "with tools" `Quick test_build_request_with_tools
         ; Alcotest.test_case "tool_choice auto" `Quick test_build_request_tool_choice_auto

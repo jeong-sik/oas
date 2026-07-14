@@ -24,13 +24,17 @@ let test_empty_hooks () =
 ;;
 
 let test_invoke_none () =
-  let result = Hooks.invoke None (Hooks.BeforeTurn { turn = 0; messages = [] }) in
+  let result =
+    Hooks.invoke_validated None (Hooks.BeforeTurn { turn = 0; messages = [] })
+  in
   check bool "invoke None returns Continue" true (result = Hooks.Continue)
 ;;
 
 let test_invoke_continue () =
   let hook _event = Hooks.Continue in
-  let result = Hooks.invoke (Some hook) (Hooks.BeforeTurn { turn = 0; messages = [] }) in
+  let result =
+    Hooks.invoke_validated (Some hook) (Hooks.BeforeTurn { turn = 0; messages = [] })
+  in
   check bool "hook returns Continue" true (result = Hooks.Continue)
 ;;
 
@@ -43,7 +47,7 @@ let test_hook_receives_event () =
     | _ -> Hooks.Continue
   in
   let _result =
-    Hooks.invoke
+    Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
          { tool_use_id = "tu-test"
@@ -66,7 +70,7 @@ let test_post_tool_use_event () =
     | _ -> Hooks.Continue
   in
   let _result =
-    Hooks.invoke
+    Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUse
          { tool_use_id = "tu-echo"
@@ -90,7 +94,7 @@ let test_post_tool_use_failure_event () =
     | _ -> Hooks.Continue
   in
   let _result =
-    Hooks.invoke
+    Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUseFailure
          { tool_use_id = "tu-echo"
@@ -103,10 +107,10 @@ let test_post_tool_use_failure_event () =
   check string "hook received error" "boom" !received_error
 ;;
 
-let test_invoke_approval_required () =
-  let hook _event = Hooks.ApprovalRequired in
+let test_invoke_block () =
+  let hook _event = Hooks.Block "blocked" in
   let result =
-    Hooks.invoke
+    Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
          { tool_use_id = "tu-danger"
@@ -117,7 +121,7 @@ let test_invoke_approval_required () =
          ; schedule = default_schedule ()
          })
   in
-  check bool "hook returns ApprovalRequired" true (result = Hooks.ApprovalRequired)
+  check bool "hook returns Block" true (result = Hooks.Block "blocked")
 ;;
 
 (* ── Decision matrix tests ────────────────────────────────── *)
@@ -200,32 +204,32 @@ let dummy_on_tool_error = Hooks.OnToolError { tool_name = "t"; error = "e" }
 
 (** Test that each (stage, decision) pair in the matrix is accepted. *)
 let test_validate_legal_before_turn () =
-  let ok = Hooks.validate_decision ~stage:"before_turn" Hooks.Continue in
+  let ok = Hooks.validate_decision ~stage:Hooks.Before_turn Hooks.Continue in
   check bool "Continue at before_turn" true (Result.is_ok ok);
   let ok2 =
     Hooks.validate_decision
-      ~stage:"before_turn"
+      ~stage:Hooks.Before_turn
       (Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None })
   in
   check bool "ElicitInput at before_turn" true (Result.is_ok ok2)
 ;;
 
 let test_validate_legal_before_turn_params () =
-  let ok = Hooks.validate_decision ~stage:"before_turn_params" Hooks.Continue in
+  let ok = Hooks.validate_decision ~stage:Hooks.Before_turn_params Hooks.Continue in
   check bool "Continue at before_turn_params" true (Result.is_ok ok);
   let ok2 =
     Hooks.validate_decision
-      ~stage:"before_turn_params"
+      ~stage:Hooks.Before_turn_params
       (Hooks.AdjustParams Hooks.default_turn_params)
   in
   check bool "AdjustParams at before_turn_params" true (Result.is_ok ok2)
 ;;
 
 let test_validate_legal_pre_tool_use () =
-  let decisions = [ Hooks.Continue; Hooks.ApprovalRequired; Hooks.Block "blocked" ] in
+  let decisions = [ Hooks.Continue; Hooks.Block "blocked" ] in
   List.iter
     (fun d ->
-       let ok = Hooks.validate_decision ~stage:"pre_tool_use" d in
+       let ok = Hooks.validate_decision ~stage:Hooks.Pre_tool_use d in
        check
          bool
          (Printf.sprintf
@@ -238,18 +242,22 @@ let test_validate_legal_pre_tool_use () =
 
 let test_validate_legal_observe_only_stages () =
   let stages =
-    [ "after_turn"
-    ; "post_tool_use"
-    ; "post_tool_use_failure"
-    ; "on_stop"
-    ; "on_error"
-    ; "on_tool_error"
+    [ Hooks.After_turn
+    ; Hooks.Post_tool_use
+    ; Hooks.Post_tool_use_failure
+    ; Hooks.On_stop
+    ; Hooks.On_error
+    ; Hooks.On_tool_error
     ]
   in
   List.iter
     (fun stage ->
        let ok = Hooks.validate_decision ~stage Hooks.Continue in
-       check bool (Printf.sprintf "Continue at %s" stage) true (Result.is_ok ok))
+       check
+         bool
+         (Printf.sprintf "Continue at %s" (Hooks.hook_stage_to_string stage))
+         true
+         (Result.is_ok ok))
     stages
 ;;
 
@@ -257,54 +265,47 @@ let test_validate_legal_observe_only_stages () =
 let test_validate_illegal_adjust_at_pre_tool_use () =
   let err =
     Hooks.validate_decision
-      ~stage:"pre_tool_use"
+      ~stage:Hooks.Pre_tool_use
       (Hooks.AdjustParams Hooks.default_turn_params)
   in
   check bool "AdjustParams at pre_tool_use is Error" true (Result.is_error err)
 ;;
 
-let test_validate_illegal_approval_at_on_stop () =
-  let err = Hooks.validate_decision ~stage:"on_stop" Hooks.ApprovalRequired in
-  check bool "ApprovalRequired at on_stop is Error" true (Result.is_error err)
+let test_validate_illegal_block_at_on_stop () =
+  let err = Hooks.validate_decision ~stage:Hooks.On_stop (Hooks.Block "blocked") in
+  check bool "Block at on_stop is Error" true (Result.is_error err)
 ;;
 
 let test_validate_illegal_elicit_at_pre_tool_use () =
   let err =
     Hooks.validate_decision
-      ~stage:"pre_tool_use"
+      ~stage:Hooks.Pre_tool_use
       (Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None })
   in
   check bool "ElicitInput at pre_tool_use is Error" true (Result.is_error err)
 ;;
 
-let test_validate_unknown_stage_rejects_all () =
-  let err = Hooks.validate_decision ~stage:"nonexistent" Hooks.Continue in
-  check bool "Continue at unknown stage is Error" true (Result.is_error err);
-  let err2 = Hooks.validate_decision ~stage:"nonexistent" Hooks.ApprovalRequired in
-  check bool "ApprovalRequired at unknown stage is Error" true (Result.is_error err2)
-;;
-
 (** Test stage_of_event for all event variants. *)
 let test_stage_of_event () =
   let cases =
-    [ dummy_before_turn, "before_turn"
-    ; dummy_before_turn_params, "before_turn_params"
-    ; dummy_after_turn, "after_turn"
-    ; dummy_pre_tool_use, "pre_tool_use"
-    ; dummy_post_tool_use, "post_tool_use"
-    ; dummy_post_tool_use_failure, "post_tool_use_failure"
-    ; dummy_on_stop, "on_stop"
-    ; dummy_on_error, "on_error"
-    ; dummy_on_tool_error, "on_tool_error"
+    [ dummy_before_turn, Hooks.Before_turn
+    ; dummy_before_turn_params, Hooks.Before_turn_params
+    ; dummy_after_turn, Hooks.After_turn
+    ; dummy_pre_tool_use, Hooks.Pre_tool_use
+    ; dummy_post_tool_use, Hooks.Post_tool_use
+    ; dummy_post_tool_use_failure, Hooks.Post_tool_use_failure
+    ; dummy_on_stop, Hooks.On_stop
+    ; dummy_on_error, Hooks.On_error
+    ; dummy_on_tool_error, Hooks.On_tool_error
     ]
   in
   List.iter
     (fun (event, expected) ->
        check
          string
-         (Printf.sprintf "stage_of_event %s" expected)
-         expected
-         (Hooks.stage_of_event event))
+         (Printf.sprintf "stage_of_event %s" (Hooks.hook_stage_to_string expected))
+         (Hooks.hook_stage_to_string expected)
+         (Hooks.stage_of_event event |> Hooks.hook_stage_to_string))
     cases
 ;;
 
@@ -312,11 +313,11 @@ let test_stage_of_event () =
 let test_classify_and_to_string () =
   let cases =
     [ Hooks.Continue, "Continue"
-    ; Hooks.ApprovalRequired, "ApprovalRequired"
+    ; Hooks.Block "blocked", "Block"
     ; Hooks.AdjustParams Hooks.default_turn_params, "AdjustParams"
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }, "ElicitInput"
     ; Hooks.Nudge "n", "Nudge"
-    ; Hooks.HookFailed { stage = "before_turn"; detail = "boom" }, "HookFailed"
+    ; Hooks.HookFailed { stage = Hooks.Before_turn; detail = "boom" }, "HookFailed"
     ]
   in
   List.iter
@@ -331,13 +332,9 @@ let test_classify_and_to_string () =
 
 (** Test invoke_validated with a legal decision. *)
 let test_invoke_validated_legal () =
-  let hook _event = Hooks.ApprovalRequired in
+  let hook _event = Hooks.Block "blocked" in
   let result = Hooks.invoke_validated (Some hook) dummy_pre_tool_use in
-  check
-    bool
-    "validated ApprovalRequired at pre_tool_use passes"
-    true
-    (result = Hooks.ApprovalRequired)
+  check bool "validated Block at pre_tool_use passes" true (result = Hooks.Block "blocked")
 ;;
 
 let contains_substring ~needle haystack =
@@ -349,18 +346,14 @@ let contains_substring ~needle haystack =
 
 (** Test invoke_validated returns HookFailed on illegal decision. *)
 let test_invoke_validated_illegal_returns_hook_failed () =
-  let hook _event = Hooks.ApprovalRequired in
+  let hook _event = Hooks.Block "blocked" in
   let called = ref false in
   let on_illegal ~stage:_ ~decision:_ ~msg:_ = called := true in
   let result = Hooks.invoke_validated ~on_illegal (Some hook) dummy_before_turn in
   (match result with
    | Hooks.HookFailed { stage; detail } ->
-     check string "stage" "before_turn" stage;
-     check
-       bool
-       "detail names ApprovalRequired"
-       true
-       (contains_substring ~needle:"ApprovalRequired" detail)
+     check bool "stage" true (stage = Hooks.Before_turn);
+     check bool "detail names Block" true (contains_substring ~needle:"Block" detail)
    | _ -> fail "expected HookFailed");
   check bool "on_illegal was called" true !called
 ;;
@@ -395,13 +388,12 @@ let test_invoke_validated_pre_tool_use_fail_closed_pinned () =
          true
          (match result with
           | Hooks.HookFailed { stage; detail } ->
-            String.equal stage "pre_tool_use"
-            && contains_substring ~needle:kind_name detail
+            stage = Hooks.Pre_tool_use && contains_substring ~needle:kind_name detail
           | _ -> false);
        match !seen with
        | None -> fail (Printf.sprintf "on_illegal not called for %s" kind_name)
        | Some (stage, rejected, msg) ->
-         check string "stage reported" "pre_tool_use" stage;
+         check string "stage reported" "pre_tool_use" (Hooks.hook_stage_to_string stage);
          check
            bool
            "rejected decision passed through"
@@ -424,7 +416,7 @@ let test_invoke_validated_fail_closed_without_hook_name () =
     "returns HookFailed without hook_name"
     true
     (match result with
-     | Hooks.HookFailed { stage = "pre_tool_use"; detail } ->
+     | Hooks.HookFailed { stage = Hooks.Pre_tool_use; detail } ->
        contains_substring ~needle:"Nudge" detail
      | _ -> false)
 ;;
@@ -445,15 +437,15 @@ let test_invoke_validated_observe_only () =
 (** Test that all stages have at least Continue as legal. *)
 let test_all_stages_allow_continue () =
   let stages =
-    [ "before_turn"
-    ; "before_turn_params"
-    ; "after_turn"
-    ; "pre_tool_use"
-    ; "post_tool_use"
-    ; "post_tool_use_failure"
-    ; "on_stop"
-    ; "on_error"
-    ; "on_tool_error"
+    [ Hooks.Before_turn
+    ; Hooks.Before_turn_params
+    ; Hooks.After_turn
+    ; Hooks.Pre_tool_use
+    ; Hooks.Post_tool_use
+    ; Hooks.Post_tool_use_failure
+    ; Hooks.On_stop
+    ; Hooks.On_error
+    ; Hooks.On_tool_error
     ]
   in
   List.iter
@@ -461,7 +453,7 @@ let test_all_stages_allow_continue () =
        let legal = Hooks.legal_decisions_for_stage stage in
        check
          bool
-         (Printf.sprintf "%s allows Continue" stage)
+         (Printf.sprintf "%s allows Continue" (Hooks.hook_stage_to_string stage))
          true
          (List.mem Hooks.K_Continue legal))
     stages
@@ -474,7 +466,7 @@ let () =
     ; ( "invoke"
       , [ test_case "invoke None" `Quick test_invoke_none
         ; test_case "invoke Continue" `Quick test_invoke_continue
-        ; test_case "invoke ApprovalRequired" `Quick test_invoke_approval_required
+        ; test_case "invoke Block" `Quick test_invoke_block
         ; test_case "receives event" `Quick test_hook_receives_event
         ; test_case "post_tool_use event" `Quick test_post_tool_use_event
         ; test_case "post_tool_use_failure event" `Quick test_post_tool_use_failure_event
@@ -495,17 +487,13 @@ let () =
             `Quick
             test_validate_illegal_adjust_at_pre_tool_use
         ; test_case
-            "illegal: ApprovalRequired at on_stop"
+            "illegal: Block at on_stop"
             `Quick
-            test_validate_illegal_approval_at_on_stop
+            test_validate_illegal_block_at_on_stop
         ; test_case
             "illegal: ElicitInput at pre_tool_use"
             `Quick
             test_validate_illegal_elicit_at_pre_tool_use
-        ; test_case
-            "unknown stage rejects all"
-            `Quick
-            test_validate_unknown_stage_rejects_all
         ; test_case "stage_of_event" `Quick test_stage_of_event
         ; test_case "classify + to_string" `Quick test_classify_and_to_string
         ; test_case "all stages allow Continue" `Quick test_all_stages_allow_continue

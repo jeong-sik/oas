@@ -17,6 +17,7 @@ type periodic_callback = Agent_types.periodic_callback =
 type checkpoint_stage = Agent_types.checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
+  | After_context_injection
 
 val checkpoint_stage_to_string : checkpoint_stage -> string
 
@@ -39,7 +40,6 @@ type options = Agent_types.options =
   ; tracer : Tracing.t
   ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
-  ; approval : Hooks.approval_callback option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -49,7 +49,6 @@ type options = Agent_types.options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; allowed_paths : string list
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
   ; journal : Durable_event.journal option
@@ -77,7 +76,6 @@ val context : t -> Context.t
 val options : t -> options
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
-val allowed_paths : t -> string list
 
 (** {1 Defaults} *)
 
@@ -86,13 +84,13 @@ val sdk_version : string
 
 (** {1 Construction} *)
 
-(** [checkpoint_sink] attaches an optional caller-owned turn-boundary
-    checkpoint sink.  The pipeline builds a post-mutation checkpoint
-    snapshot for crash recovery, invokes the sink before advancing the
-    live agent state and emitting completion/journal transitions, then
-    commits the same turn delta after the sink succeeds.  The sink is
-    passed here rather than through {!options} so callers that construct
-    options records remain source-compatible. *)
+(** [checkpoint_sink] attaches an optional caller-owned mutation-boundary
+    checkpoint sink. The pipeline updates live state first, then emits a typed
+    snapshot after assistant collection, after base tool-result append, and
+    after successful context injection. A sink failure is returned before the
+    pipeline advances to the next mutation stage. The sink is passed here
+    rather than through {!options} so callers that construct options records
+    remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -281,10 +279,14 @@ val run_with_handoffs_blocks_detailed
 
 (** {1 Checkpoint / Resume} *)
 
-(** [resume ... ?checkpoint_sink ()] restores an agent from a checkpoint and
-    optionally attaches the same caller-owned turn-boundary checkpoint sink used
-    by {!create}.  The sink is not stored in {!options}; pass it explicitly when
-    resumed turns should continue emitting crash-recovery checkpoints. *)
+(** [resume ... ?checkpoint_sink ()] restores messages, usage, turn count, and
+    the default context from a checkpoint. If [config] is supplied, it is the
+    complete caller-owned runtime configuration. Otherwise, configuration fields
+    represented by the checkpoint are restored over current defaults, and
+    non-persisted runtime fields use those defaults. The optional sink is the same caller-owned
+    turn-boundary checkpoint sink used by {!create}. It is not stored in
+    {!options}; pass it explicitly when resumed turns should continue emitting
+    crash-recovery checkpoints. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t

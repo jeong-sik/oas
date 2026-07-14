@@ -108,11 +108,6 @@ let ensure_active_phase session =
     Ok session
 ;;
 
-let failure_cause_message = function
-  | Runtime.Execution_error detail -> detail
-  | Runtime.Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail
-;;
-
 let apply_event (session : session) (event : event) =
   let session = update_session_meta session event in
   match event.kind with
@@ -174,7 +169,7 @@ let apply_event (session : session) (event : event) =
          ; last_progress_at = Some event.ts
          ; last_error = None
          }))
-  | Agent_became_live detail ->
+  | Agent_became_live { participant = detail } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -221,7 +216,7 @@ let apply_event (session : session) (event : event) =
          ; first_progress_at = first_some participant.first_progress_at (Some event.ts)
          ; last_progress_at = Some event.ts
          }))
-  | Agent_completed detail ->
+  | Agent_completed { participant = detail; _ } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -248,7 +243,7 @@ let apply_event (session : session) (event : event) =
          ; last_progress_at = Some event.ts
          ; last_error = None
          }))
-  | Agent_failed detail ->
+  | Agent_failed { participant = detail; failure_cause } ->
     let* session = ensure_active_phase session in
     Ok
       (update_participant session detail.participant_name (fun participant ->
@@ -273,10 +268,7 @@ let apply_event (session : session) (event : event) =
          ; first_progress_at = first_some participant.first_progress_at (Some event.ts)
          ; finished_at = Some event.ts
          ; last_progress_at = Some event.ts
-         ; last_error =
-             first_some
-               detail.error
-               (Option.map failure_cause_message detail.failure_cause)
+         ; last_error = Some (Runtime.failure_cause_to_string failure_cause)
          }))
   | Artifact_attached detail ->
     let artifact =

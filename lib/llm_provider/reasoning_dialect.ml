@@ -617,7 +617,7 @@ let%test "request_control_fields emits qwen chat_template kwargs" =
     ]
 ;;
 
-let%test "request_control_fields emits deepseek thinking object and normalized effort" =
+let%test "request_control_fields emits thinking object with explicitly supported effort" =
   let dialect =
     of_capabilities
       { Capabilities.default_capabilities with
@@ -630,7 +630,7 @@ let%test "request_control_fields emits deepseek thinking object and normalized e
     ~enable_thinking:(Some true)
     ~preserve_thinking:None
     ~thinking_budget:None
-    ~reasoning_effort:(Some Reasoning_effort.Medium)
+    ~reasoning_effort:(Some Reasoning_effort.High)
     ()
   = [ "thinking", `Assoc [ "type", `String "enabled" ]
     ; "reasoning_effort", `String "high"

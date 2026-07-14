@@ -102,7 +102,11 @@ let test_event_bus_elicitation_completed () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:1 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   Event_bus.publish
     bus
     (Event_bus.mk_event
@@ -124,7 +128,11 @@ let test_event_bus_filter_agent () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "agent-a") bus in
+  let config =
+    Event_bus.subscription_config ~capacity:1 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config ~filter:(Event_bus.filter_agent "agent-a") bus in
   Event_bus.publish
     bus
     (Event_bus.mk_event

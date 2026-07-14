@@ -472,8 +472,13 @@ let test_lookup_provider_m_dashscope_gguf_name () =
   | None -> fail "should match qwen3.6 model id"
 ;;
 
-let test_lookup_provider_m_qwen3_mtp_dot_name () =
-  match Capabilities.for_model_id "vllm-qwen3-mtp.qwen36-35b-a3b-mtp" with
+let test_lookup_provider_m_qwen3_mtp_explicit_provider () =
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"vllm-qwen3-mtp"
+      ~model_id:"qwen36-35b-a3b-mtp"
+  with
   | Some c ->
     check (option int) "context 128K" (Some 131_072) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
@@ -481,7 +486,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
     check bool "reasoning" true c.supports_reasoning;
     check
       bool
-      "vllm-qwen3-mtp dot-qualified qwen3.6 uses chat_template_kwargs"
+      "explicit vllm-qwen3-mtp qwen3.6 uses chat_template_kwargs"
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs);
     let dialect = Reasoning_dialect.of_capabilities c in
@@ -497,7 +502,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
       "vllm-qwen3-mtp replays tool-call reasoning by default"
       "drop_without_tool_preserve_with_tool"
       (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
-  | None -> fail "should match dot-qualified qwen3.6 model id"
+  | None -> fail "explicit provider/model lookup should match qwen3.6 model id"
 ;;
 
 let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
@@ -526,10 +531,12 @@ let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
    with
    | Some c -> check_gemma4_coder "runpod_rtxa6000 gemma4 coder" c
    | None -> fail "strict provider lookup should match runpod_rtxa6000 gemma4 coder");
-  (match Capabilities.for_model_id "runpod_rtxa6000.gemma4-coder-fable5-q4km" with
-   | Some c -> check_gemma4_coder "dot-qualified runpod_rtxa6000 gemma4 coder" c
-   | None ->
-     fail "dot-qualified runtime id should match runpod_rtxa6000.gemma4-coder-fable5-q4km");
+  check
+    bool
+    "dot-qualified runtime id is not inferred"
+    true
+    (Option.is_none
+       (Capabilities.for_model_id "runpod_rtxa6000.gemma4-coder-fable5-q4km"));
   match Capabilities.for_model_id "gemma4-coder-fable5-q4km" with
   | Some c -> check_gemma4_coder "bare gemma4 coder" c
   | None -> fail "bare lookup should match gemma4-coder-fable5-q4km"
@@ -2478,9 +2485,9 @@ let () =
             `Quick
             test_lookup_provider_m_dashscope_gguf_name
         ; test_case
-            "vllm-qwen3-mtp dot-qualified name"
+            "vllm-qwen3-mtp explicit provider"
             `Quick
-            test_lookup_provider_m_qwen3_mtp_dot_name
+            test_lookup_provider_m_qwen3_mtp_explicit_provider
         ; test_case
             "runpod rtxa6000 gemma4 coder catalog"
             `Quick

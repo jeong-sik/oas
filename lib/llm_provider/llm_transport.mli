@@ -16,6 +16,13 @@ type completion_request =
   ; capture_id : string option
     (** Exact caller-owned request/run identity for raw wire observation.
         [None] never triggers identity inference. *)
+  ; observe_wire_chunk : Wire_observer.observe_chunk option
+    (** Optional OAS-owned sink for raw provider chunks. A custom streaming
+        transport that participates in wire observation calls this sink once
+        for every raw provider chunk. The sink, rather than the transport,
+        owns redaction, caller delivery, typed failure telemetry, and ordinary
+        callback-exception isolation. The original caller callback is never
+        exposed through the transport request. *)
   ; stream_idle_timeout_s : float option
     (** Inter-chunk idle deadline for streaming reads, in seconds. Bounds the
         gap between streamed SSE/NDJSON lines, not total stream duration.

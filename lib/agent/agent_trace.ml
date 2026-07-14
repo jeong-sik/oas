@@ -96,7 +96,6 @@ let execute_tools_with_trace agent active_run tool_uses =
     ~agent_name:agent.state.config.name
     ~turn_count:agent.state.turn_count
     ~usage:agent.state.usage
-    ~approval:agent.options.approval
     ?correlation_id
     ?run_id
     ?on_tool_execution_started
@@ -261,22 +260,32 @@ let with_raw_trace_run_result ~of_sdk_error ~error_to_string agent user_prompt f
        (match f (Some active) with
         | result -> finalize result
         | exception exn ->
+          let backtrace = Printexc.get_raw_backtrace () in
           let error_msg =
             Printf.sprintf "Unhandled exception: %s" (Printexc.to_string exn)
           in
-          let _ =
-            Raw_trace.finish_run
-              active
-              ~final_text:None
-              ~stop_reason:None
-              ~error:(Some error_msg)
-          in
+          (match
+             Raw_trace.finish_run
+               active
+               ~final_text:None
+               ~stop_reason:None
+               ~error:(Some error_msg)
+           with
+           | Ok _ -> ()
+           | Error trace_error ->
+             Log.error
+               _log
+               "raw trace finalization failed after run exception"
+               [ Log.S ("worker_run_id", Raw_trace.active_run_id active)
+               ; Log.S ("primary_exception", Printexc.to_string exn)
+               ; Log.S ("finalization_error", Error.to_string trace_error)
+               ]);
           set_lifecycle
             agent
             ~finished_at:(Unix.gettimeofday ())
             ~last_error:error_msg
             Failed;
-          raise exn))
+          Printexc.raise_with_backtrace exn backtrace))
 ;;
 
 let with_raw_trace_run agent user_prompt f =

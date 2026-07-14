@@ -5,6 +5,13 @@ open Agent_sdk
 
 let ts = 1711234567.0
 
+let append_ok journal event =
+  match Durable_event.append journal event with
+  | Ok () -> ()
+  | Error { exception_; _ } ->
+    fail ("unexpected journal observer failure: " ^ Printexc.to_string exception_)
+;;
+
 (* ── Journal basics ───────────────────────────────── *)
 
 let test_empty_journal () =
@@ -16,8 +23,8 @@ let test_empty_journal () =
 
 let test_append_and_events () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Turn_started { turn = 2; timestamp = ts +. 1.0 });
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Turn_started { turn = 2; timestamp = ts +. 1.0 });
   check int "length 2" 2 (Durable_event.length j);
   let evts = Durable_event.events j in
   (* Chronological order *)
@@ -37,9 +44,7 @@ let test_parallel_append_preserves_all_events () =
       Domain.spawn (fun () ->
         for idx = 1 to events_per_domain do
           let turn = (domain_idx * events_per_domain) + idx in
-          Durable_event.append
-            j
-            (Turn_started { turn; timestamp = ts +. float_of_int turn })
+          append_ok j (Turn_started { turn; timestamp = ts +. float_of_int turn })
         done))
   in
   List.iter (fun worker -> Domain.join worker) workers;
@@ -50,10 +55,8 @@ let test_parallel_append_preserves_all_events () =
 
 let test_last_timestamp () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
-    j
-    (Checkpoint_saved { checkpoint_id = "cp1"; timestamp = ts +. 5.0 });
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Checkpoint_saved { checkpoint_id = "cp1"; timestamp = ts +. 5.0 });
   match Durable_event.last_timestamp j with
   | Some t -> check (float 0.01) "last ts" (ts +. 5.0) t
   | None -> fail "expected timestamp"
@@ -77,7 +80,7 @@ let test_idempotency_key_unique () =
 let test_find_completed_activity () =
   let j = Durable_event.create () in
   let key = Durable_event.make_idempotency_key ~tool_name:"calc" ~input:(`Int 42) in
-  Durable_event.append
+  append_ok
     j
     (Tool_called
        { turn = 1
@@ -86,7 +89,7 @@ let test_find_completed_activity () =
        ; input_hash = "h"
        ; timestamp = ts
        });
-  Durable_event.append
+  append_ok
     j
     (Tool_completed
        { turn = 1
@@ -112,9 +115,9 @@ let test_find_completed_activity () =
 
 let test_replay_summary () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Llm_request { turn = 1; model = "test"; timestamp = ts });
-  Durable_event.append
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Llm_request { turn = 1; model = "test"; timestamp = ts });
+  append_ok
     j
     (Llm_response
        { turn = 1
@@ -124,7 +127,7 @@ let test_replay_summary () =
        ; duration_ms = 200.0
        ; timestamp = ts
        });
-  Durable_event.append
+  append_ok
     j
     (Tool_completed
        { turn = 1
@@ -135,14 +138,14 @@ let test_replay_summary () =
        ; duration_ms = 5.0
        ; timestamp = ts
        });
-  Durable_event.append
+  append_ok
     j
     (State_transition
        { from_state = "running"; to_state = "idle"; reason = "done"; timestamp = ts });
-  Durable_event.append
+  append_ok
     j
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "timeout"; timestamp = ts });
-  Durable_event.append j (Turn_started { turn = 2; timestamp = ts });
+  append_ok j (Turn_started { turn = 2; timestamp = ts });
   let s = Durable_event.replay_summary j in
   check int "last_turn" 2 s.last_turn;
   check int "completed tools" 1 (List.length s.completed_tools);
@@ -156,10 +159,10 @@ let test_replay_summary () =
 
 let test_events_for_turn () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Llm_request { turn = 1; model = "m"; timestamp = ts });
-  Durable_event.append j (Turn_started { turn = 2; timestamp = ts });
-  Durable_event.append j (Llm_request { turn = 2; model = "m"; timestamp = ts });
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Llm_request { turn = 1; model = "m"; timestamp = ts });
+  append_ok j (Turn_started { turn = 2; timestamp = ts });
+  append_ok j (Llm_request { turn = 2; model = "m"; timestamp = ts });
   let t1 = Durable_event.events_for_turn j 1 in
   check int "turn 1 events" 2 (List.length t1);
   let t2 = Durable_event.events_for_turn j 2 in
@@ -170,8 +173,8 @@ let test_events_for_turn () =
 
 let test_json_roundtrip () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok
     j
     (Tool_completed
        { turn = 1
@@ -182,7 +185,7 @@ let test_json_roundtrip () =
        ; duration_ms = 5.0
        ; timestamp = ts
        });
-  Durable_event.append
+  append_ok
     j
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "err"; timestamp = ts });
   let json = Durable_event.journal_to_json j in
@@ -296,7 +299,7 @@ let test_llm_response_rejects_invalid_usage_type () =
 
 let test_tool_completions () =
   let j = Durable_event.create () in
-  Durable_event.append
+  append_ok
     j
     (Tool_completed
        { turn = 1
@@ -307,8 +310,8 @@ let test_tool_completions () =
        ; duration_ms = 1.0
        ; timestamp = ts
        });
-  Durable_event.append j (Turn_started { turn = 2; timestamp = ts });
-  Durable_event.append
+  append_ok j (Turn_started { turn = 2; timestamp = ts });
+  append_ok
     j
     (Tool_completed
        { turn = 2
@@ -328,25 +331,35 @@ let test_tool_completions () =
 let test_on_append_fires () =
   let captured = ref [] in
   let j = Durable_event.create ~on_append:(fun evt -> captured := evt :: !captured) () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Llm_request { turn = 1; model = "m"; timestamp = ts });
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Llm_request { turn = 1; model = "m"; timestamp = ts });
   check int "callback count" 2 (List.length !captured);
   check int "journal length" 2 (Durable_event.length j)
 ;;
 
 let test_no_callback_default () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
   check int "still appends" 1 (Durable_event.length j)
 ;;
 
-let test_callback_exception_does_not_rollback_append () =
+let test_callback_exception_is_explicit_after_append () =
   let j =
     Durable_event.create
       ~on_append:(fun _event -> failwith "projection sink unavailable")
       ()
   in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  (match Durable_event.append j (Turn_started { turn = 1; timestamp = ts }) with
+   | Error { exception_ = Failure detail; backtrace }
+     when String.equal detail "projection sink unavailable" ->
+     check
+       bool
+       "raw backtrace retained"
+       true
+       (not (Printexc.raw_backtrace_to_string backtrace = ""))
+   | Ok () -> fail "expected explicit callback failure"
+   | Error { exception_; _ } ->
+     fail ("unexpected callback failure: " ^ Printexc.to_string exception_));
   check int "journal still records event" 1 (Durable_event.length j);
   match Durable_event.events j with
   | [ Durable_event.Turn_started { turn = 1; _ } ] -> ()
@@ -358,7 +371,7 @@ let test_callback_cancelled_propagates_after_append () =
     Durable_event.create ~on_append:(fun _event -> raise (Eio.Cancel.Cancelled Exit)) ()
   in
   (match Durable_event.append j (Turn_started { turn = 1; timestamp = ts }) with
-   | () -> fail "expected callback cancellation to propagate"
+   | Ok () | Error _ -> fail "expected callback cancellation to propagate"
    | exception Eio.Cancel.Cancelled _ -> ());
   check int "journal still records cancelled callback event" 1 (Durable_event.length j)
 ;;
@@ -367,9 +380,9 @@ let test_callback_cancelled_propagates_after_append () =
 
 let test_save_and_load_roundtrip () =
   let j = Durable_event.create () in
-  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Llm_request { turn = 1; model = "q"; timestamp = ts });
-  Durable_event.append
+  append_ok j (Turn_started { turn = 1; timestamp = ts });
+  append_ok j (Llm_request { turn = 1; model = "q"; timestamp = ts });
+  append_ok
     j
     (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
   let path = Filename.temp_file "durable_event" ".jsonl" in
@@ -432,9 +445,9 @@ let () =
       , [ test_case "callback fires" `Quick test_on_append_fires
         ; test_case "no callback default" `Quick test_no_callback_default
         ; test_case
-            "callback exception does not rollback append"
+            "callback exception is explicit after append"
             `Quick
-            test_callback_exception_does_not_rollback_append
+            test_callback_exception_is_explicit_after_append
         ; test_case
             "callback cancellation propagates after append"
             `Quick

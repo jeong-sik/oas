@@ -29,7 +29,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 ### 1.2 Where it rots (위반의 형태)
 - **이미 drift한 2중/3중 builder.** OpenAI-compat thinking-request body가 `lib/api_openai.ml`과 `lib/llm_provider/backend_openai_request.ml`에 각각 재구현돼 *실질적으로 갈라짐* (`clear_thinking`이 agent_sdk 경로에선 하드코딩 `true`, 다른 경로에선 config-driven). N-of-M workaround 시그니처가 물질화된 사례 — `#2228`이 preserve 축을 *양쪽 모두*에 추가(41+40줄)했지 통합하지 않았다.
 - **typed kind로 1회 승격하지 않고 런타임에 재유도되는 string 분류기.** GLM-ness가 `String.starts_with ~prefix:"glm-"`로 모듈마다 재평가되어 serializer를 분기하고, typed `replay_policy`를 우회한다(GLM은 `No_replay`로 resolve되어 죽은 값).
-- **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** Historical: `tool_use_recovery.ml` used to scrape JSON tool calls from free text and run `Lenient_json` bracket/keyword completion before execution. Current remediation keeps only a strict, provider-telemetry-gated fallback for GLM/Ollama-family responses and leaves ambiguous or repair-needed JSON as `Text`.
+- **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** Historical: `tool_use_recovery.ml` scraped JSON tool calls from free text and ran `Lenient_json` bracket/keyword completion before execution. That recovery surface is now deleted without a replacement fallback: `Text` remains `Text`, and only a provider parser's typed `ToolUse` can reach dispatch.
 - **closed sum이 가능한 자리의 string 판별 + silent `_ -> None` drop.** historical stream finalizer drift는 `content_type` raw-string match + catch-all drop이었다. Current branch ancestry already adds `block_kind`, `Unknown_block`, and typed SSE parse/unknown-event errors, so remaining D3 work must be policy-specific rather than a wholesale redo.
 - **같은 사실의 두 번째 SSOT.** Historical: `lib/streaming.ml` carried a
   duplicate stream accumulator that lacked reconcile + partial-tool-drop fixes.
@@ -89,10 +89,10 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S9.3 (precedence는 의도적·테스트됨).** capability source precedence(catalog vs host manifest vs preset)는 1회 결정, `.mli` 전반에 일관 문서화, 테스트로 고정.
 
 ### S10 — Observability / determinism
-- **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. recovered id는 결정론적(block index + content hash) 또는 주입된 generator로 유도.
-- **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** block을 drop하면 `repair_dangling_tool_calls`가 synthesized block에 태그하듯 태그한다. counter/log는 typed fix와 함께하는 *alarm*으로만 허용, fix 자체로는 금지(telemetry-as-fix = reject 시그니처).
+- **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. 새 identity가 필요하면 결정론적 입력 또는 주입된 generator에서 유도한다.
+- **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** OAS는 provider history block을 조용히 drop하거나 synthesized replacement로 고치지 않는다. 미래의 typed 변환이 block을 제거해야 한다면 제거된 identity를 결과로 반환해야 한다. counter/log는 typed fix와 함께하는 *alarm*일 뿐 fix 자체가 아니다(telemetry-as-fix = reject 시그니처).
 
-## 3. Evidence — confirmed/historical violations (22 findings: 17 open, 5 resolved in current branch ancestry, 16 refuted/boundary-acceptable)
+## 3. Evidence — confirmed and historical violations
 
 | Sev | ID | Principle | File:line | Standard |
 |---|---|---|---|---|
@@ -105,7 +105,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D4-provider-preset-stale-numeric-limits | hardcode | capabilities.ml:223-255; provider_registry.ml:408; builder.ml:256 | S9.1 |
 | P2 | D2-streaming-reasoning-dialect-dead-and-field-guess | ssot | reasoning_dialect.ml:39-42; streaming.ml:331-335; backend_openai_parse.ml:208-298 | S6.3 |
 | P2 | D4-duplicate-stream-accumulator-missing-reconcile | resolved: legacy surface re-exports Complete_stream_acc | streaming.ml:16-35; streaming.mli:23 | S6.2 |
-| P2 | D-TOOLS-1-recovery-text-scrape-heuristic | historical heuristic, now strict provider-gated fallback | tool_use_recovery.ml:32-237; pipeline.ml:31-39,1124-1134 | S4.2 |
+| ~~P2~~ Resolved | D-TOOLS-1-recovery-text-scrape-heuristic | historical heuristic; recovery surface deleted, no text-to-tool fallback remains | deleted `tool_use_recovery.ml`; current `agent_tools.ml` exact typed dispatch | S4.2 |
 | P2 | D-TOOLS-6-agent_tool-untyped-silent-prompt-fallback | silent_failure | agent_tool.ml:149-161 | S4.3 |
 | P2 | D-TOOLS-9-harness-unknown-schema-type-permissive | silent_failure | backend_tool_call_harness.ml:52-68 | S8.1 |
 | P2 | D6-source-type-ignored-non-anthropic | string_match/silent | backend_openai_serialize.ml:60-82; backend_gemini.ml:161-174; backend_openai_responses.ml:121-137 | S7.1 |
@@ -113,15 +113,16 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D7-thinking-signature-overloaded-string | string_match | complete_stream_acc.ml:147-153; streaming.ml:151-155 | S6.5 |
 | P2 | D4-test-only-normalize-effort-wrapper | string_match | reasoning_dialect.ml:284-292 (+mli:96); test/test_thinking_control_dialects.ml | S9.2 |
 | P3 | D7-gemini-family-leaks-second-string-match | string_match | capabilities.ml:442-463 | S1.3 |
-| P3 | D-TOOLS-8-recovery-impure-nondeterministic-id | mutable | tool_use_recovery.ml:11-12,149-157 | S10.1 |
-| P3 | D3-tool-pair-silent-drop | silent_failure | tool_message_pairs.ml:55-111 | S3.3 |
+| ~~P3~~ Resolved | D-TOOLS-8-recovery-impure-nondeterministic-id | historical mutable recovery identity; deleted with recovery surface | deleted `tool_use_recovery.ml` | S10.1 |
+| ~~P3~~ Resolved | D3-tool-pair-silent-drop | historical standalone repair/filter surface; deleted rather than retained as a silent rewrite | deleted `tool_message_pairs.ml` | S3.3 |
 | P3 | D7-anthropic-prefix-list-literal-duplicates | hardcode | capabilities.ml:189-217 | S1.2 |
 | P3 | D8-manifest-cannot-override-catalog-precedence | ssot | capabilities.ml:826-839 | S9.3 |
 
-Status note: `D-TOOLS-1`, `D-TOOLS-6`, `D-TOOLS-9`, and `D-TOOLS-8` are
-historical confirmed violations but are already fixed in the current branch
-ancestry. They are retained here as evidence for S4.2/S4.3/S8.1/S10.1, not as
-open backlog items.
+Status note: `D-TOOLS-1`, `D-TOOLS-6`, `D-TOOLS-9`, `D-TOOLS-8`, and
+`D3-tool-pair-silent-drop` are historical confirmed violations but are already
+closed in the current branch ancestry. The recovery and standalone tool-pair
+repair modules were deleted; they are retained here only as historical evidence,
+not as current files or open backlog items.
 
 ### 3b. Doc-currency drifts (official 2026-06-29 docs vs OAS)
 
@@ -183,12 +184,16 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold). D2's raw threshold-literal regression surface is now guarded by `scripts/check-reasoning-effort-ssot.sh`; provider-specific alias cleanup remains separate.
 - **Partially closed before this RFC update (do not redo wholesale)**: `D3-finalize` already has the `block_kind` conversion, explicit `Unknown_block` handling, and typed `SSEUnknownEventType`/parse-error propagation in `Complete_stream_acc`; keep only the residual policy/test work listed above.
-- **Closed before this RFC update (do not redo)**: `D-TOOLS-1`(strict provider-gated recovery; no `Lenient_json` repair), `D-TOOLS-6`(agent_tool typed delegation), `D-TOOLS-9`(harness unknown schema type fail-closed), and `D-TOOLS-8`(deterministic recovery id) are historical violations already fixed in the current branch ancestry. They remain evidence for the standard, not open backlog.
+- **Closed before this RFC update (do not redo)**: `D-TOOLS-1` and `D-TOOLS-8` were removed with the entire recovery module; no provider-gated text-to-tool fallback remains. The standalone `D3-tool-pair-silent-drop` repair/filter module was also deleted. `D-TOOLS-6` now delegates through the typed agent-tool path, and `D-TOOLS-9` rejects unknown harness schema types. These rows remain historical evidence, not open backlog.
 - **Direct, RFC 불필요, 저위험 (언제든)**: `D4-test-only-normalize-effort-wrapper` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
 - `D7-gemini-family-leaks-second-string-match`(P3) + Gemini `supports_medium`/`thoughtSignature` strictness: 단일 Gemini variant reshape로 fold.
 
 ### Backlog 자체의 가드레일
-여러 "root fix"는 그 workaround twin으로 구현하면 안 된다. `D3-tool-pair-silent-drop`은 append-time 불변식 또는 drop된 id 반환으로 고친다 — drop counter 아님(telemetry-as-fix = reject). `D-TOOLS-1`은 typed provider telemetry gate + strict JSON parse로 닫힌 상태를 유지한다 — lenient repair 재도입 금지.
+여러 "root fix"는 그 workaround twin으로 구현하면 안 된다. 삭제된
+`tool_message_pairs` 필터를 drop counter로 복원하지 말고, 필요한 불변식은 typed
+append/result 경계에서 보장한다. 삭제된 `tool_use_recovery` 대신 provider
+telemetry gate나 lenient repair를 추가하지 말고, `Text` → `ToolUse` 승격 금지를
+유지한다.
 
 ## 6. Boundary note (OAS ↔ MASC)
 

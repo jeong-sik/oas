@@ -17,9 +17,19 @@ original tag dates. `0.100.4` was never tagged or released.
   silently running unarmed.
 * **hooks:** remove `Skip`/`K_Skip` and `Override`/`K_Override`. A
   `PreToolUse` hook now either executes the real tool with `Continue`, rejects
-  it with `Block`, or delegates to the registered approval callback with
-  `ApprovalRequired`; OAS no longer fabricates a successful tool result without
-  executing a tool.
+  it with `Block`; OAS no longer owns approval orchestration or fabricates a
+  successful tool result without executing a tool.
+* **hook failures:** make `HookFailed.stage` a closed `Hooks.hook_stage`, remove
+  the unvalidated `Hooks.invoke` entry point, and make the internal
+  `Agent_tools` execution surface return completed results alongside typed hook
+  or observer failures. A failed post-execution hook is an agent error after
+  the real tool completion has been observed and checkpointed; it is never
+  rewritten as a retryable tool result.
+* **durable journal:** `Durable_event.append` now returns an explicit observer
+  error carrying the original exception and raw backtrace. The event remains
+  committed before callback notification; ordinary callback failures are no
+  longer silently discarded, while cancellation and fatal exceptions still
+  propagate.
 * **hooks:** establish 0.209 as the supported compatibility floor for
   `Hooks.Block` and `K_Block`, which were incorrectly shipped in the 0.208.21
   patch line. Exhaustive matches must handle the new variants; see the
@@ -34,8 +44,8 @@ original tag dates. `0.100.4` was never tagged or released.
   exit predicates, and their errors/hooks. Turn and tool counts remain
   telemetry; callers retain explicit Eio cancellation and objective wall-clock
   or inactivity timeouts.
-* **runtime:** remove turn ceilings from runtime/session/subagent/sandbox
-  contracts. Sandbox verdicts enforce only the configured wall-clock timeout.
+* **runtime:** remove turn ceilings from runtime, session, and subagent
+  contracts. Turn counts remain observations and never stop a lane.
 * **scheduling:** remove request-priority classes, numeric ranks, implicit
   defaults, and agent/completion priority fields. Provider capacity scheduling
   now grants queued requests in FIFO arrival order; resumed permits rejoin the
@@ -47,15 +57,15 @@ original tag dates. `0.100.4` was never tagged or released.
   rotation.
 * **tool results:** remove implicit call-time stubbing, relocation/offload
   stores, replacement events, and MCP output truncation. Tool and MCP content
-  now reaches the provider exactly unless a caller explicitly supplies a
-  context reducer.
+  now reaches the provider unchanged.
 * **tool surface:** remove selector, index, progressive-disclosure, and schema-
   disclosure layers. Every registered tool is sent with its full schema, and
   dispatch uses the exact registered name.
 * **tool exposure:** remove the synchronous `Guardrails` name-filtering layer,
   per-turn filter overrides, and `Tool_set.filter`. Every caller-supplied tool
   reaches the provider unchanged; policy gates belong at the caller boundary.
-* **governance:** remove the standalone approval pipeline, priority-rule policy
+* **governance:** remove the standalone approval pipeline, approval callback,
+  `ApprovalRequired` hook decision, priority-rule policy
   engine, score-to-risk judge facade, parent-to-child policy channel, and its
   tool-set operation algebra, along with the product-governance boundary lint.
   HITL and model judgment remain caller-owned callbacks over the generic
@@ -63,8 +73,8 @@ original tag dates. `0.100.4` was never tagged or released.
 * **context:** remove `Budget_strategy`, automatic compaction, threshold-based
   preparation, and overflow retry. Exact message and tool content is the
   default; a provider `ContextOverflow` is returned unchanged after one
-  request. Repair, pruning, and thinking removal require an explicitly supplied
-  `Context_reducer.t`.
+  request. A caller that needs pruning or repair transforms its input before
+  invoking OAS or handles the typed overflow outside OAS.
 * **handoff:** make each target's exact name a normal tool backed by a real
   delegate closure. Remove prefixed aliases, stub handlers, transcript scans,
   and post-execution result replacement.
@@ -73,16 +83,25 @@ original tag dates. `0.100.4` was never tagged or released.
   three-class concurrency taxonomy. A descriptor now contains only a
   caller-declared `Concurrent` or `Serial` execution mode; absence means
   `Serial`. Raw trace v2 and session tool catalogs expose only that structural
-  mode and reject the removed fields. Explicit approval remains a separate hook
-  callback.
-* **events:** remove bounded-stream backpressure policies and their drop/block
-  compatibility statistics. Each subscriber now owns a lossless unbounded FIFO;
-  queue depth remains observable but never changes publisher behavior.
+  mode and reject the removed fields.
+* **events:** each subscriber owns a bounded FIFO with an explicit validated
+  capacity and either drop-oldest or drop-newest behavior. There is no hidden
+  capacity, default loss policy, or publisher-blocking mode. Queue depth,
+  offered events, drained events, and drops remain observable.
+* **telemetry events:** `Telemetry_bus.drain` now returns one typed decode
+  result per queued event. Malformed telemetry remains in-order as explicit
+  `decode_failure` evidence instead of disappearing from the observation
+  stream.
+* **event projections:** remove `Event_forward`,
+  `Slot_scheduler_event_bridge`, and the orphan `SlotSchedulerObserved`
+  payload. OAS retains the typed Event_bus and provider slot snapshot; external
+  file/custom delivery and product scheduler projection belong to caller-owned
+  connectors.
 * **runtime control:** remove the orphan SDK-client permission taxonomy, session
   policy snapshot, and Runtime permission/hook control channel. Session start,
   spawn, and finalize no longer wait on implicit control requests or a fixed
-  timeout; caller-owned approval remains available through the generic typed
-  Agent hook callback. Runtime stdio now accepts only canonical protocol
+  timeout; a caller may still reject a tool explicitly with the generic typed
+  `Hooks.Block` decision. Runtime stdio now accepts only canonical protocol
   envelopes. This hard cut is reported as Runtime protocol version
   `oas-runtime-0.2`.
 * **runtime MCP:** remove the request policy carrier that no provider transport
@@ -90,17 +109,96 @@ original tag dates. `0.100.4` was never tagged or released.
   absent from the actual provider request.
 * **harness:** keep turn counts as observations only; remove turn-count
   pass/fail assertions and performance ceilings.
+* **experiments:** remove `Code_snippet_eval` and its
+  `OAS_EXPERIMENTAL_CODE_SNIPPET` environment gate. OAS no longer owns an
+  arbitrary numeric adoption verdict for a caller's tool strategy.
+* **wire observation:** remove OAS-owned capture files, paths, locks, queues,
+  capacities, environment activation, and writer lifecycles. Streaming callers
+  may supply one typed nonblocking offer that receives redacted provider chunks;
+  caller rejection and ordinary callback exceptions become typed telemetry
+  without changing the provider result. Injected transports receive only an
+  OAS-owned raw-chunk sink, not the caller callback, so redaction and failure
+  handling remain inside OAS. Persistence and resource policy remain entirely
+  caller-owned.
+* **catalog bootstrap:** remove ambient `OAS_MODEL_CATALOG`,
+  `OAS_PROVIDER_CATALOG`, and `OAS_CAPABILITY_MANIFEST` discovery. The embedded
+  OAS model catalog is the default; callers install explicit model, provider,
+  or capability overrides through the typed `load_file`/`set_global` APIs.
+* **catalog identity:** remove dot-qualified model-id rewriting and provider
+  registry alias/case normalization. Model catalog selection uses declared
+  prefixes, and runtime provider binding accepts the exact registered provider
+  id. Provider-catalog aliases remain local to explicit catalog lookup and are
+  never registered as runtime provider identities.
+* **environment configuration:** remove the unused numeric, boolean, list, and
+  key-value policy parsers from `Llm_provider.Cli_common_env` and retire the
+  stale config-externalization guide. Runtime behavior belongs in explicit
+  typed configuration; the module retains only provider-bootstrap string lookup
+  and trimming helpers.
 
 ### Bug Fixes
 
+* **runtime lifecycle:** reject participant registration on an already closed
+  switch, keep a settlement handle for cancellation races, cancel every
+  snapshotted session lane before joining any one lane, and preserve reserved
+  exceptions across runtime observer boundaries. Non-fatal event-bus,
+  participant-failure persistence, and unexpected participant-lane failures
+  are also emitted as runtime `System_message` observations without rolling
+  back durable events or cancelling unrelated lanes.
+* **checkpoint persistence:** add a finite one-way migration for the closed set
+  of exact released v5/v6 checkpoint JSON shapes before strict v8 decoding.
+  Released v5 had pre-preserve capped, preserve capped, and preserve unbounded
+  top-level shapes without a checkpoint-version bump. Retired cap values are
+  type-checked and removed, missing pre-release fields are filled only with
+  `null`/empty structural values, and partial or cross-era combinations are
+  rejected. Usage pricing gaps, legacy failed tool results, and MCP session
+  records are normalized without inventing model identity, failure provenance,
+  or an HTTP reconnect URL. Legacy MCP sessions are rejected when reconnecting
+  stdio would widen their saved subprocess environment; released HTTP policy
+  metadata is removed because HTTP reconnect never consumed it. Versions 1-4
+  remain unsupported and the v8 domain is not widened; see the [checkpoint
+  migration guide](docs/migrations/checkpoint-v5-v6-to-v8.md).
+* **agent resume:** make an explicitly supplied `Agent.resume ~config` the
+  complete runtime configuration SSOT. Checkpoints still restore conversation,
+  usage, turn count, and context, but can no longer overwrite the caller's
+  current agent name, model, system prompt, sampling, reasoning, or tool-choice
+  configuration. When `~config` is omitted, persisted checkpoint configuration
+  fields are restored over current defaults; runtime fields not represented by
+  the checkpoint use those defaults.
 * **defaults:** restore `Mcp_http.default_config` as a compatibility value; use
   `Mcp_http.make_default_config ()` for call-time environment resolution.
-* **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
-### Features
-
-* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or` and `Defaults.int_env_or`/`float_env_or`/`bool_env_or` now delegate to it.
-* **env:** `Defaults` env parsers preserve the historical structured `Log.warn` schema via the new `Cli_common_env` `on_invalid` callback.
-* **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
+* **agent:** reject configured MCP servers explicitly when a required runtime
+  resource is absent instead of silently omitting every server. Every MCP
+  connection requires a switch; only stdio MCP additionally requires a process
+  manager, so HTTP-only configurations remain usable without one.
+  Remove the inert inline `Agent_config.tools` type and parser surface; tools
+  are executable values registered in code or discovered through configured
+  MCP servers, never schema-only JSON entries that are rejected later.
+* **provider parsing:** reject malformed provider-catalog roots, entries,
+  duplicate/unknown fields, scalar/list types, auth/capability shapes, and
+  malformed Ollama message bodies instead of coercing them to defaults,
+  unauthenticated configs, or empty successful responses.
+* **checkpoint stages:** give the post-context-injection snapshot its own
+  `After_context_injection` stage and checkpoint id instead of overwriting the
+  earlier `After_tool_results_appended` snapshot for the same turn.
+* **tool observability:** emit durable/raw-trace execution lifecycle records
+  only after `PreToolUse` returns `Continue`. `Block` remains model-visible but
+  no longer fabricates `Tool_called`/`Tool_completed` evidence for a tool that
+  did not run. Post-hook and hook-observer failures propagate explicitly after
+  an already completed tool has been recorded.
+* **runtime evidence:** keep participant failure cause and completion anomaly
+  as typed single sources of truth. Live, completed, and failed lifecycle
+  payloads now share one nested common record but expose disjoint outcome
+  fields; a failed event requires a cause and a completed event cannot carry
+  one. Legacy flat/error shapes and non-positive dropped-delta counts are
+  rejected instead of being silently preferred or erased.
+* **HTTP deadlines:** distinguish expiry of the caller-owned non-streaming body
+  deadline from an `Eio.Time.Timeout` raised inside the selected transport. An
+  inner timeout now propagates unchanged instead of being relabelled as the
+  outer body deadline.
+* **harness replay:** preserve an exact zero response-step count instead of
+  fabricating a minimum turn, and fail a live fixture explicitly when its
+  advertised raw trace cannot be read instead of silently grading without the
+  trajectory. Turn counts remain observation-only metrics.
 
 ## [0.211.10](https://github.com/jeong-sik/oas/compare/v0.211.9...v0.211.10) (2026-07-13)
 
@@ -4618,7 +4716,7 @@ dead surface accumulated alongside the CDAL framework.
 
 ### Added
 
-- **`Event_bus` envelopes carry `caused_by`.** `envelope.caused_by : string option` links every event back to the originating run. Three emitters wire it through: `orchestrator` (`AgentStarted` → `AgentCompleted`/`AgentFailed`, PR #1019), `agent` handoff (`HandoffRequested` → `HandoffCompleted`, PR #1020), `agent_tools` (`ToolCalled` → `ToolCompleted`, PR #1021). `event_forward` surfaces the field on the delivery payload (PR #1028). Enables causation tracing across a single run without re-parsing agent logs.
+- **`Event_bus` envelopes carry `caused_by`.** `envelope.caused_by : string option` links every event back to the originating run. Three emitters wire it through: `orchestrator` (`AgentStarted` → `AgentCompleted`/`AgentFailed`, PR #1019), `agent` handoff (`HandoffRequested` → `HandoffCompleted`, PR #1020), `agent_tools` (`ToolCalled` → `ToolCompleted`, PR #1021). Enables causation tracing across a single run without re-parsing agent logs.
 - **`Tool_retry_policy.error_class` variant** (PR #1027). Contract-first typed classification of tool errors drives retry decisions; replaces string-based pattern matching at callsites.
 - **`Agent_turn.idle_granularity` opt-in variant** (PR #1024). Fine-grained `is_idle` reporting for callers that need sub-turn idle signals without changing the default coarse-grained behavior.
 - **Inference profile exposes `top_p` / `top_k` / `min_p`** (PR #1015). Constants-layer extension so cascade configs can pin sampling parameters without provider-specific escapes.
@@ -4687,7 +4785,6 @@ dead surface accumulated alongside the CDAL framework.
 ### Added
 
 - **`Content_replacement_event_bridge`.** Observer-only wrappers around `Content_replacement_state.record_replacement` / `record_kept` that publish `Custom("content_replacement_frozen", ...)` after successful state mutation, with an explicit `action` discriminator and `seen_count_after` payload (PR #982).
-- **`Slot_scheduler_event_bridge`.** Stateless publisher that projects `Slot_scheduler.snapshot` onto `Custom("slot_scheduler_queue", ...)` with a derived `state = idle | queued | saturated` discriminator for downstream congestion observers (PR #983).
 - **`Hooks.PostCompact` + `hooks.post_compact`.** Observer-only post-compaction lifecycle surface fired after successful proactive and emergency compaction, preserving the existing Event_bus behavior while exposing the reduced message set to hook consumers (PR #985).
 
 ### Fixed
@@ -4782,10 +4879,6 @@ Event system cleanup + boundary enforcement.
 - **Durable Custom names normalized colon → dot.**
   `durable:turn_started` → `durable.turn_started` (8 names). Matches
   runtime and provider namespace convention.
-- **`Event_forward.event_type_name` drops redundant `"custom."`
-  prefix.** `Custom("runtime.session_started", _)` now maps to
-  `"runtime.session_started"` (was `"custom.runtime.session_started"`).
-  The Custom name itself is already a namespaced identifier.
 - **`Event_bus.TaskStateChanged` removed.** Dead variant from
   v0.31–0.35 A2A roadmap — declared but never emitted, no consumers.
   The SSE-only `A2a_server.task_event` is a separate, unrelated type
@@ -4815,10 +4908,6 @@ variants via explicit arms; expect compile errors against v0.154.0 for:
 - removed variant (delete `TaskStateChanged` arm)
 - `Hooks.hooks` record field addition
 - `Journal_bridge.make` signature
-
-External consumers of `Event_forward` JSONL / HTTP output must update
-`event_type` string matching rules to drop the `"custom."` prefix and
-adopt the dot convention for runtime/durable events.
 
 See `docs/EVENT-CATALOG.md` for the full taxonomy and boundary
 guidance.
@@ -5218,7 +5307,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ### Added
 - Diagnostic logging in `cascade_health_filter.ml` for provider
   filtering decisions (API key drops, cloud-only fallback).
-- Debug log on `event_forward.ml` event_bus unsubscribe failure.
 
 ## [0.126.0] - 2026-04-13
 
@@ -5496,13 +5584,11 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 
 ### Fixed
 - Deduplicated `env_or` in `cascade_model_resolve.ml` (2 inline closures → 1 module-level function).
-- Event forward idle-path optimization: skip `List.map`/`rev_append` on empty drain.
 - Replace O(n) structural list comparison with O(1) counter check at loop exit.
 
 ## [0.99.3] - 2026-03-31
 
 ### Fixed
-- O(n²) batch accumulation in `event_forward.ml` — `(@)` replaced with `List.rev_append`.
 - Consolidated duplicate `Sys.getenv_opt` patterns in `review_agent.ml` and `mcp.ml` to use `Defaults` helpers.
 
 ## [0.99.2] - 2026-03-31
@@ -5512,9 +5598,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 - `OAS_MCP_HTTP_URL` env var — configurable MCP HTTP default endpoint.
 - `OAS_REVIEW_MODEL` env var — configurable review agent model selection.
 - `OAS_AGENT_MAX_RETRIES`, `OAS_AGENT_INITIAL_DELAY`, `OAS_AGENT_MAX_DELAY` env vars — configurable swarm retry policy.
-
-### Removed
-- `Event_forward.Webhook` variant — was unimplemented (always `failwith`). Use `Custom_target` for HTTP delivery.
 
 ### Fixed
 - Periodic callback exceptions now logged via `Printf.eprintf` instead of silently swallowed.
@@ -5624,7 +5707,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ## [0.92.1] - 2026-03-27
 
 ### Fixed
-- Replace mutable `event_forward` counters/state with `Atomic.t` and stop reporting unimplemented webhook delivery as success.
 - Improve HTTP client error context for hostname/TLS setup failures and preserve `Eio.Cancel.Cancelled` during socket cleanup.
 - Build MCP tool-result test fixtures via JSON parsing so local newer MCP SDK pins and CI's older schema both pass.
 
@@ -5655,7 +5737,6 @@ Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
 ### Fixed
 - Temp file resource leak in 6 cascade_config inline tests and 3 test files (Fun.protect pattern).
 - `eval_baseline.load` used failwith instead of direct Result return.
-- `event_forward` batch loop O(n) `List.length` check replaced with O(1) counter.
 - `succession.metrics_of_json` inconsistent float parsing (try-with to to_float_option).
 
 ## [0.89.0] - 2026-03-24

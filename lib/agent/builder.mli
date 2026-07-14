@@ -59,7 +59,6 @@ val with_slot_id : int -> t -> t
 val with_tracer : Tracing.t -> t -> t
 val with_trace_link : (string * string) option -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
-val with_approval : Hooks.approval_callback -> t -> t
 val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
 
@@ -96,7 +95,6 @@ val with_body_timeout : float -> t -> t
 
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t
-val with_allowed_paths : string list -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
 

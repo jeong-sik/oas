@@ -328,16 +328,31 @@ let test_resume_with_config_override () =
   in
   let cfg =
     { (Types.default_config ~model:"test-model") with
-      max_tokens = Some 8192
+      name = "current-agent"
+    ; system_prompt = Some "current runtime prompt"
+    ; max_tokens = Some 8192
     ; enable_thinking = Some false
     ; preserve_thinking = Some false
     ; thinking_budget = Some 512
     }
   in
   let agent = Agent.resume ~net ~checkpoint:cp ~config:cfg () in
-  (* checkpoint fields override config *)
-  Alcotest.(check string) "name from checkpoint" "cp-name" (Agent.state agent).config.name;
-  (* config fields not in checkpoint are preserved *)
+  Alcotest.(check string)
+    "exact caller config"
+    (Types.show_agent_config cfg)
+    (Types.show_agent_config (Agent.state agent).config);
+  Alcotest.(check string)
+    "name from caller config"
+    "current-agent"
+    (Agent.state agent).config.name;
+  Alcotest.(check string)
+    "model from caller config"
+    "test-model"
+    (Agent.state agent).config.model;
+  Alcotest.(check (option string))
+    "system prompt from caller config"
+    (Some "current runtime prompt")
+    (Agent.state agent).config.system_prompt;
   Alcotest.(check (option int))
     "max_tokens from config"
     (Some 8192)

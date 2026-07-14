@@ -226,8 +226,21 @@ type spawn_event =
   }
 [@@deriving yojson, show]
 
-type completion_anomaly = Dropped_output_deltas of { count : int }
-[@@deriving yojson, show]
+type completion_anomaly = private Dropped_output_deltas of { count : int }
+[@@deriving show]
+
+type completion_anomaly_error = Non_positive_dropped_output_delta_count of int
+[@@deriving show]
+
+(** [dropped_output_deltas ~count] constructs evidence that output deltas were
+    dropped. [count] must be positive; zero means that no anomaly exists and
+    must therefore be represented by [None] at the caller. *)
+val dropped_output_deltas
+  :  count:int
+  -> (completion_anomaly, completion_anomaly_error) result
+
+val completion_anomaly_to_yojson : completion_anomaly -> Yojson.Safe.t
+val completion_anomaly_of_yojson : Yojson.Safe.t -> (completion_anomaly, string) result
 
 type failure_cause =
   | Execution_error of string
@@ -237,16 +250,39 @@ type failure_cause =
       }
 [@@deriving yojson, show]
 
-type participant_event =
+(** Text projection of a typed participant failure for reports and projected
+    session state. Runtime events retain {!failure_cause} as their only failure
+    representation. *)
+val failure_cause_to_string : failure_cause -> string
+
+(** Identity and trace fields shared by every participant lifecycle event.
+    The lifecycle-specific wrappers below keep completion and failure evidence
+    disjoint in the type system and in canonical runtime JSON. *)
+type participant_event_common =
   { participant_name : string
   ; summary : string option
   ; provider : string option
   ; model : string option
-  ; error : string option
   ; raw_trace_run_id : string option [@default None]
+  }
+[@@deriving yojson, show]
+
+type participant_live_event = { participant : participant_event_common }
+[@@deriving yojson, show]
+
+(** Successful completion evidence. A failure cause cannot be attached to this
+    payload. *)
+type participant_completed_event =
+  { participant : participant_event_common
   ; stop_reason : string option [@default None]
   ; completion_anomaly : completion_anomaly option [@default None]
-  ; failure_cause : failure_cause option [@default None]
+  }
+[@@deriving yojson, show]
+
+(** Failed participant evidence. [failure_cause] is mandatory. *)
+type participant_failed_event =
+  { participant : participant_event_common
+  ; failure_cause : failure_cause
   }
 [@@deriving yojson, show]
 
@@ -283,10 +319,10 @@ type event_kind =
   | Input_provided of input_provided_event
   | Pending_input_updated of pending_input_update_event
   | Agent_spawn_requested of spawn_event
-  | Agent_became_live of participant_event
+  | Agent_became_live of participant_live_event
   | Agent_output_delta of output_delta_event
-  | Agent_completed of participant_event
-  | Agent_failed of participant_event
+  | Agent_completed of participant_completed_event
+  | Agent_failed of participant_failed_event
   | Artifact_attached of artifact_event
   | Checkpoint_saved of checkpoint_event
   | Finalize_requested of finalize_request

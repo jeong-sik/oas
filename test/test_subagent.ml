@@ -18,11 +18,7 @@ let () =
             check string "name" "reviewer" spec.name;
             check (option string) "desc" (Some "Code review agent") spec.description;
             check string "prompt" "You review code." spec.prompt;
-            check
-              bool
-              "model is sonnet"
-              true
-              (spec.model = Subagent.Use_model "claude-sonnet-4-6-20250514"))
+            check bool "model is sonnet" true (spec.model = Subagent.Use_model "sonnet"))
         ; test_case "inherit model" `Quick (fun () ->
             let spec = Subagent.of_markdown "Just a prompt" in
             check bool "inherit" true (spec.model = Subagent.Inherit_model))
@@ -168,70 +164,67 @@ let () =
               "inherit"
               true
               (Subagent.model_override_of_string "INHERIT" = Subagent.Inherit_model))
-        ; test_case "sonnet alias" `Quick (fun () ->
+        ; test_case "sonnet is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet"
               true
-              (Subagent.model_override_of_string "sonnet"
-               = Subagent.Use_model "claude-sonnet-4-6-20250514"))
-        ; test_case "claude-sonnet-4-6" `Quick (fun () ->
+              (Subagent.model_override_of_string "sonnet" = Subagent.Use_model "sonnet"))
+        ; test_case "claude-sonnet-4-6 is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet 4.6"
               true
               (Subagent.model_override_of_string "claude-sonnet-4-6"
-               = Subagent.Use_model "claude-sonnet-4-6-20250514"))
-        ; test_case "opus alias" `Quick (fun () ->
+               = Subagent.Use_model "claude-sonnet-4-6"))
+        ; test_case "opus is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus"
               true
-              (Subagent.model_override_of_string "opus"
-               = Subagent.Use_model "claude-opus-4-6-20250514"))
-        ; test_case "claude-opus-4-6" `Quick (fun () ->
+              (Subagent.model_override_of_string "opus" = Subagent.Use_model "opus"))
+        ; test_case "claude-opus-4-6 is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus 4.6"
               true
               (Subagent.model_override_of_string "claude-opus-4-6"
-               = Subagent.Use_model "claude-opus-4-6-20250514"))
-        ; test_case "claude-opus-4-5" `Quick (fun () ->
+               = Subagent.Use_model "claude-opus-4-6"))
+        ; test_case "claude-opus-4-5 is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus 4.5"
               true
               (Subagent.model_override_of_string "claude-opus-4-5"
-               = Subagent.Use_model "claude-opus-4-5-20251101"))
-        ; test_case "claude-sonnet-4" `Quick (fun () ->
+               = Subagent.Use_model "claude-opus-4-5"))
+        ; test_case "claude-sonnet-4 is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet 4"
               true
               (Subagent.model_override_of_string "claude-sonnet-4"
-               = Subagent.Use_model "claude-sonnet-4-20250514"))
-        ; test_case "haiku alias" `Quick (fun () ->
+               = Subagent.Use_model "claude-sonnet-4"))
+        ; test_case "haiku is preserved exactly" `Quick (fun () ->
             check
               bool
               "haiku"
               true
-              (Subagent.model_override_of_string "haiku"
-               = Subagent.Use_model "claude-haiku-4-5-20251001"))
-        ; test_case "claude-haiku-4-5" `Quick (fun () ->
+              (Subagent.model_override_of_string "haiku" = Subagent.Use_model "haiku"))
+        ; test_case "claude-haiku-4-5 is preserved exactly" `Quick (fun () ->
             check
               bool
               "haiku"
               true
               (Subagent.model_override_of_string "claude-haiku-4-5"
-               = Subagent.Use_model "claude-haiku-4-5-20251001"))
-        ; test_case "claude-3-7-sonnet" `Quick (fun () ->
+               = Subagent.Use_model "claude-haiku-4-5"))
+        ; test_case "claude-3-7-sonnet is preserved exactly" `Quick (fun () ->
             check
               bool
               "3.7"
               true
               (Subagent.model_override_of_string "claude-3-7-sonnet"
-               = Subagent.Use_model "claude-3-7-sonnet-20250219"))
-        ; test_case "custom fallback" `Quick (fun () ->
+               = Subagent.Use_model "claude-3-7-sonnet"))
+        ; test_case "arbitrary model is preserved exactly" `Quick (fun () ->
             match Subagent.model_override_of_string "gpt" with
             | Subagent.Use_model "gpt" -> ()
             | _ -> fail "expected Custom")
@@ -446,7 +439,7 @@ let () =
             in
             check string "name" "helper" target.name;
             check string "desc" "Helps out" target.description;
-            check bool "model" true (target.config.model = "claude-haiku-4-5-20251001");
+            check bool "model" true (target.config.model = "haiku");
             check
               (option string)
               "system_prompt"

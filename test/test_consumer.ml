@@ -9,7 +9,7 @@ open Alcotest
 
 let quick_response text =
   Printf.sprintf
-    {|{"id":"m","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+    {|{"id":"m","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
     text
 ;;
 
@@ -49,7 +49,10 @@ let start_mock ~sw ~net ~clock response_text =
 
 let make_agent ~net base_url name =
   let config = { (Types.default_config ~model:"test-model") with name } in
-  let options = { Agent.default_options with base_url } in
+  let provider : Provider.config =
+    { provider = Provider.Local { base_url }; model_id = "test-model"; api_key_env = "" }
+  in
+  let options = { Agent.default_options with base_url; provider = Some provider } in
   Agent.create ~net ~config ~options ()
 ;;
 
@@ -151,8 +154,6 @@ let test_run_agents_multiple () =
 (* ── Test suite ───────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "consumer"
     [ ( "run_agent"

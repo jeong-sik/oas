@@ -425,6 +425,39 @@ let test_roundtrip_agent_unrecognized_stop () =
   | _ -> Alcotest.fail "roundtrip mismatch for UnrecognizedStopReason"
 ;;
 
+let test_roundtrip_agent_hook_execution_failed () =
+  let orig =
+    Error.Agent
+      (HookExecutionFailed
+         { hook_name = "post_tool_use"
+         ; stage = "post_tool_use"
+         ; tool_name = Some "write"
+         ; tool_use_id = Some "tool-1"
+         ; detail = "observer failed"
+         })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Hook_execution_failed
+       ("post_tool_use", "post_tool_use", Some "write", Some "tool-1", "observer failed")
+     -> ()
+   | _ -> Alcotest.fail "expected Hook_execution_failed");
+  Alcotest.(check bool)
+    "hook execution failure is not retryable"
+    false
+    (Error_domain.is_retryable poly);
+  match Error_domain.to_sdk_error poly with
+  | Error.Agent
+      (HookExecutionFailed
+         { hook_name = "post_tool_use"
+         ; stage = "post_tool_use"
+         ; tool_name = Some "write"
+         ; tool_use_id = Some "tool-1"
+         ; detail = "observer failed"
+         }) -> ()
+  | _ -> Alcotest.fail "roundtrip mismatch for HookExecutionFailed"
+;;
+
 let test_roundtrip_config_unsupported_provider () =
   let orig = Error.Config (UnsupportedProvider { detail = "xyz" }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -796,6 +829,10 @@ let () =
             "agent unrecognized_stop"
             `Quick
             test_roundtrip_agent_unrecognized_stop
+        ; Alcotest.test_case
+            "agent hook_execution_failed"
+            `Quick
+            test_roundtrip_agent_hook_execution_failed
         ; Alcotest.test_case "config missing_env" `Quick test_roundtrip_config_missing_env
         ; Alcotest.test_case
             "config unsupported_provider"

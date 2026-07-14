@@ -214,24 +214,6 @@ let test_with_tracer () =
     ((Agent.options agent).tracer != Tracing.null)
 ;;
 
-(* --- 11. with_approval --- *)
-
-let test_with_approval () =
-  with_net
-  @@ fun net ->
-  let approval ~tool_name:_ ~input:_ = Hooks.Approve in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_approval approval
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "approval set"
-    true
-    (Option.is_some (Agent.options agent).approval)
-;;
-
 (* --- 13d. with_transport --- *)
 
 let test_with_transport () =
@@ -669,7 +651,6 @@ let () =
         ; Alcotest.test_case "tool appends" `Quick test_with_tool_appends
         ; Alcotest.test_case "hooks" `Quick test_with_hooks
         ; Alcotest.test_case "tracer" `Quick test_with_tracer
-        ; Alcotest.test_case "approval" `Quick test_with_approval
         ; Alcotest.test_case "transport" `Quick test_with_transport
         ; Alcotest.test_case "context" `Quick test_with_context
         ; Alcotest.test_case "provider" `Quick test_with_provider

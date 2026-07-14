@@ -7,6 +7,8 @@
 open Alcotest
 open Agent_sdk
 
+let event_kind (event : Event_bus.event) = Event_bus.payload_kind event.payload
+
 (* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
 (* Reuse the same mock wire format as test_handoff: OpenAI-compatible
@@ -84,7 +86,11 @@ let test_handoff_emits_request_and_completion () =
     Eio.Fiber.fork ~sw (fun () ->
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
     let bus = Event_bus.create () in
-    let sub = Event_bus.subscribe bus in
+    let config =
+      Event_bus.subscription_config ~capacity:16 ~overflow:Event_bus.Drop_newest
+      |> Result.get_ok
+    in
+    let sub = Event_bus.subscribe ~config bus in
     let target =
       Subagent.to_handoff_target
         ~parent_config:(Types.default_config ~model:"test-model")
@@ -111,21 +117,19 @@ let test_handoff_emits_request_and_completion () =
     in
     let _ = Agent.run_with_handoffs ~sw agent ~targets:[ target ] "delegate" in
     let events = Event_bus.drain sub in
-    let names = List.map Event_forward.event_type_name events in
-    check bool "handoff.requested emitted" true (List.mem "handoff.requested" names);
-    check bool "handoff.completed emitted" true (List.mem "handoff.completed" names);
+    let names = List.map event_kind events in
+    check bool "handoff requested emitted" true (List.mem "handoff_requested" names);
+    check bool "handoff completed emitted" true (List.mem "handoff_completed" names);
     (* Requested must precede Completed. *)
     let req_idx =
-      List.find_index (( = ) "handoff.requested") names |> Option.value ~default:(-1)
+      List.find_index (( = ) "handoff_requested") names |> Option.value ~default:(-1)
     in
     let done_idx =
-      List.find_index (( = ) "handoff.completed") names |> Option.value ~default:(-1)
+      List.find_index (( = ) "handoff_completed") names |> Option.value ~default:(-1)
     in
     check bool "requested before completed" true (req_idx < done_idx);
     (* Payload checks: from_agent/to_agent flow direction. *)
-    let reqs =
-      List.filter (fun e -> Event_forward.event_type_name e = "handoff.requested") events
-    in
+    let reqs = List.filter (fun e -> event_kind e = "handoff_requested") events in
     (match (List.hd reqs).payload with
      | Event_bus.HandoffRequested { from_agent = _; to_agent; reason } ->
        check string "to_agent" "researcher" to_agent;
@@ -137,15 +141,11 @@ let test_handoff_emits_request_and_completion () =
        at the HandoffRequested envelope that opened the handoff.
        HandoffRequested itself is the chain root. *)
     let requested =
-      try
-        List.find (fun e -> Event_forward.event_type_name e = "handoff.requested") events
-      with
+      try List.find (fun e -> event_kind e = "handoff_requested") events with
       | Not_found -> fail "HandoffRequested missing"
     in
     let completed =
-      try
-        List.find (fun e -> Event_forward.event_type_name e = "handoff.completed") events
-      with
+      try List.find (fun e -> event_kind e = "handoff_completed") events with
       | Not_found -> fail "HandoffCompleted missing"
     in
     check

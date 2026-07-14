@@ -204,7 +204,11 @@ let test_pipeline_emits_inference_telemetry_on_default_bus () =
     | Some bus -> bus
     | None -> Alcotest.fail "expected default-on event bus on the built agent"
   in
-  let sub = Event_bus.subscribe event_bus in
+  let config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config event_bus in
   (match Agent.run ~sw agent "trigger a turn" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
@@ -274,7 +278,11 @@ let test_tools_turns_and_interleaving_observed_by_default () =
     | Some bus -> bus
     | None -> Alcotest.fail "expected default-on event bus on the built agent"
   in
-  let sub = Event_bus.subscribe event_bus in
+  let config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config event_bus in
   (match Agent.run ~sw agent "what time is it?" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));

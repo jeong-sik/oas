@@ -58,7 +58,14 @@ type t = entry list
           }
         ]
       }
-    ]} *)
+    ]}
+
+    Catalog, provider, auth, and capability objects are closed: duplicate and
+    unknown fields are rejected. Optional fields may be absent or [null]; a
+    present value must have its declared type. Integer limits must be positive
+    and fit OCaml's [int], while string-list items must be exact non-empty
+    strings. Capability overrides are accepted only inside the nested
+    [capabilities] object. *)
 val of_json : Yojson.Safe.t -> (t, string) result
 
 val load_file : string -> (t, string) result
@@ -70,11 +77,10 @@ val load_file : string -> (t, string) result
     alias, the {b first} matching entry in source order wins; later
     duplicates are unreachable through this function.
 
-    For catalogs produced by {!of_json}, empty or whitespace-only ids
-    are rejected at parse time and empty aliases are dropped before
-    lookup. Programmatically constructed catalogs must preserve the same
-    non-empty id/alias invariant themselves; [lookup] only normalizes and
-    compares the data it is given. *)
+    For catalogs produced by {!of_json}, empty or whitespace-padded ids and
+    aliases are rejected at parse time. Programmatically constructed catalogs
+    must preserve the same exact, non-empty id/alias invariant themselves;
+    [lookup] only normalizes and compares the data it is given. *)
 val lookup : t -> string -> entry option
 
 (** Return an entry's explicit default model by id or alias.

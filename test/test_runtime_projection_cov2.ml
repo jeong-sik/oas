@@ -357,15 +357,13 @@ let test_apply_agent_became_live () =
   let event =
     mk_event
       (Agent_became_live
-         { participant_name = "alice"
-         ; summary = Some "ready"
-         ; provider = Some "anthropic"
-         ; model = Some "haiku"
-         ; error = None
-         ; raw_trace_run_id = None
-         ; stop_reason = None
-         ; completion_anomaly = None
-         ; failure_cause = None
+         { participant =
+             { participant_name = "alice"
+             ; summary = Some "ready"
+             ; provider = Some "anthropic"
+             ; model = Some "haiku"
+             ; raw_trace_run_id = None
+             }
          })
   in
   match Runtime_projection.apply_event session event with
@@ -402,15 +400,15 @@ let test_apply_agent_completed () =
     mk_event
       ~ts:200.0
       (Agent_completed
-         { participant_name = "alice"
-         ; summary = Some "done"
-         ; provider = None
-         ; model = None
-         ; error = None
-         ; raw_trace_run_id = None
+         { participant =
+             { participant_name = "alice"
+             ; summary = Some "done"
+             ; provider = None
+             ; model = None
+             ; raw_trace_run_id = None
+             }
          ; stop_reason = Some "end_turn"
          ; completion_anomaly = None
-         ; failure_cause = None
          })
   in
   match Runtime_projection.apply_event session event with
@@ -431,15 +429,14 @@ let test_apply_agent_failed () =
     mk_event
       ~ts:200.0
       (Agent_failed
-         { participant_name = "alice"
-         ; summary = Some "crashed"
-         ; provider = None
-         ; model = None
-         ; error = Some "timeout"
-         ; raw_trace_run_id = None
-         ; stop_reason = None
-         ; completion_anomaly = None
-         ; failure_cause = Some (Execution_error "timeout")
+         { participant =
+             { participant_name = "alice"
+             ; summary = Some "crashed"
+             ; provider = None
+             ; model = None
+             ; raw_trace_run_id = None
+             }
+         ; failure_cause = Execution_error "timeout"
          })
   in
   match Runtime_projection.apply_event session event with
@@ -623,15 +620,15 @@ let test_build_proof_passing () =
         ~seq:3
         ~ts:30.0
         (Agent_completed
-           { participant_name = "a"
-           ; summary = None
-           ; provider = None
-           ; model = None
-           ; error = None
-           ; raw_trace_run_id = None
+           { participant =
+               { participant_name = "a"
+               ; summary = None
+               ; provider = None
+               ; model = None
+               ; raw_trace_run_id = None
+               }
            ; stop_reason = None
            ; completion_anomaly = None
-           ; failure_cause = None
            })
     ; mk_event ~seq:4 ~ts:40.0 (Session_completed { outcome = Some "ok" })
     ]
@@ -715,29 +712,27 @@ let test_apply_event_sequence () =
         ~seq:4
         ~ts:40.0
         (Agent_became_live
-           { participant_name = "alice"
-           ; summary = None
-           ; provider = Some "anthropic"
-           ; model = Some "sonnet"
-           ; error = None
-           ; raw_trace_run_id = None
-           ; stop_reason = None
-           ; completion_anomaly = None
-           ; failure_cause = None
+           { participant =
+               { participant_name = "alice"
+               ; summary = None
+               ; provider = Some "anthropic"
+               ; model = Some "sonnet"
+               ; raw_trace_run_id = None
+               }
            })
     ; mk_event
         ~seq:5
         ~ts:50.0
         (Agent_completed
-           { participant_name = "alice"
-           ; summary = Some "completed"
-           ; provider = None
-           ; model = None
-           ; error = None
-           ; raw_trace_run_id = None
+           { participant =
+               { participant_name = "alice"
+               ; summary = Some "completed"
+               ; provider = None
+               ; model = None
+               ; raw_trace_run_id = None
+               }
            ; stop_reason = None
            ; completion_anomaly = None
-           ; failure_cause = None
            })
     ; mk_event ~seq:6 ~ts:60.0 (Session_completed { outcome = Some "success" })
     ]

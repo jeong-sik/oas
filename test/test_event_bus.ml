@@ -26,6 +26,34 @@ let mock_response text =
 (** Shorthand: wrap a payload into an event with a fresh envelope. *)
 let ev payload = Event_bus.mk_event payload
 
+let subscription_config_exn ~capacity ~overflow =
+  match Event_bus.subscription_config ~capacity ~overflow with
+  | Ok config -> config
+  | Error (Event_bus.Non_positive_capacity rejected) ->
+    failf "test supplied non-positive subscription capacity: %d" rejected
+;;
+
+(* These tests exercise routing rather than capacity pressure. The fixture
+   capacity is deliberately larger than every event batch in this file; the
+   overflow tests below use their own exact capacities. *)
+let routing_subscription =
+  subscription_config_exn ~capacity:64 ~overflow:Event_bus.Drop_newest
+;;
+
+let subscribe_routing ?filter ?purpose bus =
+  Event_bus.subscribe ~config:routing_subscription ?filter ?purpose bus
+;;
+
+let require_tool_execution = function
+  | Ok result -> result
+  | Error (Agent_tools.Hook_execution_failed failure) ->
+    failf
+      "unexpected hook failure %s at %s: %s"
+      failure.hook_name
+      (Hooks.hook_stage_to_string failure.stage)
+      failure.detail
+;;
+
 (* ── create ───────────────────────────────────────────────────────── *)
 
 let test_create_default () =
@@ -35,13 +63,29 @@ let test_create_default () =
   check int "no subscribers" 0 (Event_bus.subscriber_count bus)
 ;;
 
+let test_subscription_config_accepts_positive_capacity () =
+  match Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_oldest with
+  | Ok _ -> ()
+  | Error _ -> fail "positive capacity was rejected"
+;;
+
+let test_subscription_config_rejects_non_positive_capacity () =
+  let rejected capacity =
+    match Event_bus.subscription_config ~capacity ~overflow:Event_bus.Drop_oldest with
+    | Error (Event_bus.Non_positive_capacity actual) -> actual
+    | Ok _ -> failf "capacity %d was accepted" capacity
+  in
+  check int "zero capacity" 0 (rejected 0);
+  check int "negative capacity" (-1) (rejected (-1))
+;;
+
 (* ── subscribe / unsubscribe ──────────────────────────────────────── *)
 
 let test_subscribe_count () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let _sub = Event_bus.subscribe bus in
+  let _sub = subscribe_routing bus in
   check int "one subscriber" 1 (Event_bus.subscriber_count bus)
 ;;
 
@@ -49,7 +93,7 @@ let test_unsubscribe_count () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.unsubscribe bus sub;
   check int "zero after unsub" 0 (Event_bus.subscriber_count bus)
 ;;
@@ -60,7 +104,7 @@ let test_publish_received () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "one event" 1 (List.length events)
@@ -70,8 +114,8 @@ let test_publish_multiple_subscribers () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub1 = Event_bus.subscribe bus in
-  let sub2 = Event_bus.subscribe bus in
+  let sub1 = subscribe_routing bus in
+  let sub2 = subscribe_routing bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let e1 = Event_bus.drain sub1 in
   let e2 = Event_bus.drain sub2 in
@@ -83,7 +127,7 @@ let test_unsubscribed_no_receive () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.unsubscribe bus sub;
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
@@ -102,7 +146,7 @@ let test_unsubscribe_idempotent_count () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.unsubscribe bus sub;
   Event_bus.unsubscribe bus sub;
   check int "count not negative" 0 (Event_bus.subscriber_count bus)
@@ -112,8 +156,8 @@ let test_accept_all_subscriber_gets_all_events () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let all_sub = Event_bus.subscribe bus in
-  let tool_sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
+  let all_sub = subscribe_routing bus in
+  let tool_sub = subscribe_routing ~filter:Event_bus.filter_tools_only bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
@@ -137,7 +181,7 @@ let test_drain_fifo () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 1 }));
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 2 }));
@@ -156,7 +200,7 @@ let test_drain_empty () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   let events = Event_bus.drain sub in
   check int "no events" 0 (List.length events)
 ;;
@@ -167,7 +211,7 @@ let test_filter_agent_name () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
+  let sub = subscribe_routing ~filter:(Event_bus.filter_agent "alpha") bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "alpha"; turn = 0 }));
   Event_bus.publish bus (ev (TurnStarted { agent_name = "beta"; turn = 0 }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "alpha"; turn = 0 }));
@@ -179,7 +223,7 @@ let test_filter_tools_only () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
+  let sub = subscribe_routing ~filter:Event_bus.filter_tools_only bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
@@ -210,7 +254,7 @@ let test_filter_agent_passes_custom () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
+  let sub = subscribe_routing ~filter:(Event_bus.filter_agent "alpha") bus in
   Event_bus.publish bus (ev (Custom ("my_event", `Null)));
   let events = Event_bus.drain sub in
   check int "custom passes through agent filter" 1 (List.length events)
@@ -220,7 +264,7 @@ let test_accept_all () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:Event_bus.accept_all bus in
+  let sub = subscribe_routing ~filter:Event_bus.accept_all bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
@@ -243,7 +287,7 @@ let test_custom_event () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   let payload = `Assoc [ "key", `String "value" ] in
   Event_bus.publish bus (ev (Custom ("my_event", payload)));
   let events = Event_bus.drain sub in
@@ -311,14 +355,6 @@ let test_payload_kind_label_set_is_stable () =
           ; decode_tok_s = None
           }
       , "inference_telemetry" )
-    ; ( Event_bus.SlotSchedulerObserved
-          { max_slots = 0
-          ; active = 0
-          ; available = 0
-          ; queue_length = 0
-          ; state = Event_bus.Idle
-          }
-      , "slot_scheduler_observed" )
     ]
   in
   List.iter
@@ -330,7 +366,7 @@ let test_multiple_event_types () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (AgentStarted { agent_name = "a"; task_id = "t1" }));
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
@@ -373,7 +409,7 @@ let test_agent_started_fields () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (AgentStarted { agent_name = "worker"; task_id = "t-42" }));
   match Event_bus.drain sub with
   | [ { payload = AgentStarted r; _ } ] ->
@@ -386,7 +422,7 @@ let test_tool_called_fields () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   let input = `Assoc [ "x", `Int 1 ] in
   Event_bus.publish
     bus
@@ -411,7 +447,7 @@ let test_turn_started_fields () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (TurnStarted { agent_name = "bot"; turn = 5 }));
   match Event_bus.drain sub with
   | [ { payload = TurnStarted r; _ } ] ->
@@ -425,7 +461,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
   @@ fun _env ->
   let context = Context.create_sync () in
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
+  let sub = subscribe_routing ~filter:Event_bus.filter_tools_only bus in
   let tool =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[] (fun _ ->
       Error { Types.message = "boom"; recoverable = false; error_class = None })
@@ -448,6 +484,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
       "fail"
       (`Assoc [])
       "tool-1"
+    |> require_tool_execution
   in
   match Event_bus.drain sub with
   | [ { meta = called_meta; payload = ToolCalled _; _ }
@@ -521,6 +558,7 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
       "fail"
       (`Assoc [])
       "tool-1"
+    |> require_tool_execution
   in
   match List.rev !fired with
   | [ (tool_name, error) ] ->
@@ -565,6 +603,7 @@ let test_on_tool_error_hook_silent_on_success () =
       "ok"
       (`Assoc [])
       "tool-2"
+    |> require_tool_execution
   in
   check int "hook not fired on Ok result" 0 !fired
 ;;
@@ -605,6 +644,7 @@ let test_on_error_fires_on_tool_not_found () =
       "ghost_tool"
       (`Assoc [])
       "tool-1"
+    |> require_tool_execution
   in
   match List.rev !fired with
   | [ (detail, ctx) ] ->
@@ -662,6 +702,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       "MissingRead"
       (`Assoc [])
       "tool-unknown"
+    |> require_tool_execution
   in
   check
     bool
@@ -681,6 +722,8 @@ let test_unknown_tool_reports_available_tools_and_retries () =
        Some "non_retryable"
      | Types.Tool_failed { failure_kind = Agent_tools.Reported_tool_error; _ } ->
        Some "reported"
+     | Types.Tool_failed { failure_kind = Agent_tools.Unattributed_tool_error; _ } ->
+       Some "unattributed"
      | Types.Tool_succeeded -> None);
   check
     bool
@@ -745,6 +788,7 @@ let test_execution_rejects_invalid_input_unchanged () =
       "Count"
       (`Assoc [ "count", `String "42" ])
       "tool-invalid-input"
+    |> require_tool_execution
   in
   check bool "handler not called" true (Yojson.Safe.equal `Null !handler_input);
   check
@@ -792,6 +836,7 @@ let test_on_error_silent_on_successful_dispatch () =
       "ok"
       (`Assoc [])
       "tool-2"
+    |> require_tool_execution
   in
   check int "on_error not fired on success" 0 !fired
 ;;
@@ -800,7 +845,7 @@ let test_correlation_fields_roundtrip () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish
     bus
     (Event_bus.mk_event
@@ -820,7 +865,7 @@ let test_filter_correlation () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_correlation "c1") bus in
+  let sub = subscribe_routing ~filter:(Event_bus.filter_correlation "c1") bus in
   Event_bus.publish
     bus
     (Event_bus.mk_event ~correlation_id:"c1" (TurnStarted { agent_name = "a"; turn = 0 }));
@@ -835,7 +880,7 @@ let test_filter_run () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_run "r1") bus in
+  let sub = subscribe_routing ~filter:(Event_bus.filter_run "r1") bus in
   Event_bus.publish
     bus
     (Event_bus.mk_event ~run_id:"r1" (TurnStarted { agent_name = "a"; turn = 0 }));
@@ -887,7 +932,7 @@ let test_publish_preserves_fifo_without_drain () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
@@ -910,6 +955,97 @@ let test_publish_preserves_fifo_without_drain () =
   | _ -> fail "one subscription"
 ;;
 
+(* ── Per-subscriber overflow ─────────────────────────────────────── *)
+
+let turns events =
+  List.filter_map
+    (fun event ->
+       match event.Event_bus.payload with
+       | Event_bus.TurnStarted r -> Some r.turn
+       | _ -> None)
+    events
+;;
+
+let test_drop_oldest_policy () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let config = subscription_config_exn ~capacity:2 ~overflow:Event_bus.Drop_oldest in
+  let sub = Event_bus.subscribe ~config bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
+  check (list int) "oldest event was evicted" [ 2; 3 ] (turns (Event_bus.drain sub));
+  match (Event_bus.stats bus).subscriptions with
+  | [ stats ] ->
+    check int "configured capacity" 2 stats.capacity;
+    check bool "configured overflow" true (stats.overflow = Event_bus.Drop_oldest);
+    check int "all matching events were offered" 3 stats.published_total;
+    check int "one capacity drop is observed" 1 stats.dropped_total;
+    check int "two retained events were drained" 2 stats.drained_total
+  | _ -> fail "one subscription"
+;;
+
+let test_drop_newest_policy () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let config = subscription_config_exn ~capacity:2 ~overflow:Event_bus.Drop_newest in
+  let sub = Event_bus.subscribe ~config bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
+  check (list int) "incoming event was discarded" [ 1; 2 ] (turns (Event_bus.drain sub));
+  match (Event_bus.stats bus).subscriptions with
+  | [ stats ] ->
+    check int "configured capacity" 2 stats.capacity;
+    check bool "configured overflow" true (stats.overflow = Event_bus.Drop_newest);
+    check int "one capacity drop is observed" 1 stats.dropped_total
+  | _ -> fail "one subscription"
+;;
+
+let test_slow_subscriber_does_not_stall_other_subscribers () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let slow_config = subscription_config_exn ~capacity:1 ~overflow:Event_bus.Drop_newest in
+  let fast_config = subscription_config_exn ~capacity:3 ~overflow:Event_bus.Drop_oldest in
+  let slow = Event_bus.subscribe ~config:slow_config ~purpose:"slow" bus in
+  let fast = Event_bus.subscribe ~config:fast_config ~purpose:"fast" bus in
+  List.iter
+    (fun turn ->
+       Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn })))
+    [ 1; 2; 3 ];
+  check
+    (list int)
+    "fast subscriber receives all events"
+    [ 1; 2; 3 ]
+    (turns (Event_bus.drain fast));
+  check
+    (list int)
+    "slow subscriber retains its first event"
+    [ 1 ]
+    (turns (Event_bus.drain slow));
+  let slow_stats =
+    List.find
+      (fun (stats : Event_bus.subscription_stats) -> stats.purpose = Some "slow")
+      (Event_bus.stats bus).subscriptions
+  in
+  check int "slow subscriber observes its own drops" 2 slow_stats.dropped_total
+;;
+
+let test_unsubscribe_discards_full_queue_without_stalling_publish () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let config = subscription_config_exn ~capacity:1 ~overflow:Event_bus.Drop_oldest in
+  let sub = Event_bus.subscribe ~config bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.unsubscribe bus sub;
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  check (list int) "unsubscribed queue is released" [] (turns (Event_bus.drain sub))
+;;
+
 (* ── Stats shape ──────────────────────────────────────────────────── *)
 
 let test_stats_initial_shape () =
@@ -925,7 +1061,7 @@ let test_stats_tracks_counts () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let sub = subscribe_routing bus in
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
   Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
   let s1 = Event_bus.stats bus in
@@ -950,8 +1086,8 @@ let test_subscribe_purpose_surfaces_in_stats () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let _s1 = Event_bus.subscribe ~purpose:"sse_bridge" bus in
-  let _s2 = Event_bus.subscribe bus in
+  let _s1 = subscribe_routing ~purpose:"sse_bridge" bus in
+  let _s2 = subscribe_routing bus in
   let s = Event_bus.stats bus in
   let purposes =
     List.map (fun (ss : Event_bus.subscription_stats) -> ss.purpose) s.subscriptions
@@ -968,7 +1104,7 @@ let test_subscribe_without_purpose_defaults_none () =
   Eio_main.run
   @@ fun _env ->
   let bus = Event_bus.create () in
-  let _sub = Event_bus.subscribe bus in
+  let _sub = subscribe_routing bus in
   let s = Event_bus.stats bus in
   match s.subscriptions with
   | [ ss ] -> check (option string) "purpose=None" None ss.purpose
@@ -980,7 +1116,17 @@ let test_subscribe_without_purpose_defaults_none () =
 let () =
   run
     "Event_bus"
-    [ "create", [ test_case "default" `Quick test_create_default ]
+    [ ( "create"
+      , [ test_case "default" `Quick test_create_default
+        ; test_case
+            "subscription config accepts positive capacity"
+            `Quick
+            test_subscription_config_accepts_positive_capacity
+        ; test_case
+            "subscription config rejects non-positive capacity"
+            `Quick
+            test_subscription_config_rejects_non_positive_capacity
+        ] )
     ; ( "subscribe"
       , [ test_case "count" `Quick test_subscribe_count
         ; test_case "unsubscribe" `Quick test_unsubscribe_count
@@ -1081,6 +1227,18 @@ let () =
             "preserves FIFO without subscriber drain"
             `Quick
             test_publish_preserves_fifo_without_drain
+        ] )
+    ; ( "overflow"
+      , [ test_case "Drop_oldest evicts oldest" `Quick test_drop_oldest_policy
+        ; test_case "Drop_newest discards incoming" `Quick test_drop_newest_policy
+        ; test_case
+            "slow subscriber does not stall others"
+            `Quick
+            test_slow_subscriber_does_not_stall_other_subscribers
+        ; test_case
+            "unsubscribe discards full queue without stalling publish"
+            `Quick
+            test_unsubscribe_discards_full_queue_without_stalling_publish
         ] )
     ; ( "stats"
       , [ test_case "initial shape" `Quick test_stats_initial_shape

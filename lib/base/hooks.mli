@@ -106,39 +106,37 @@ type elicitation_response =
 
 type elicitation_callback = elicitation_request -> elicitation_response
 
+(** Closed set of lifecycle stages accepted by the hook decision matrix. *)
+type hook_stage =
+  | Before_turn
+  | Before_turn_params
+  | After_turn
+  | Pre_tool_use
+  | Post_tool_use
+  | Post_tool_use_failure
+  | On_stop
+  | On_error
+  | On_tool_error
+
 (** Decision returned by a hook *)
 type hook_decision =
   | Continue
-  | ApprovalRequired
-  (** Signals that the tool needs external approval.  If an
-          {!approval_callback} is registered the callback is invoked. A missing
-          callback is an explicit failed tool result; callers that want an
-          always-allowed mode install a callback returning [Approve]. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
   | Nudge of string (** BeforeTurn: inject a user-role message before tool preparation. *)
   | HookFailed of
-      { stage : string
+      { stage : hook_stage
       ; detail : string
       }
-  (** Returned by [invoke] and [invoke_validated] when a user hook raises or
+  (** Returned by [invoke_validated] when a user hook raises or
       returns a stage-illegal decision. Call sites must handle this explicitly;
       the SDK does not coerce it to [Continue]. *)
   | Block of string
-  (** PreToolUse only: intentional policy rejection. The host executes no tool
+  (** PreToolUse only: intentional caller rejection. The host executes no tool
       and emits an [is_error=true], [Non_retryable_tool_error] tool result whose
       content is the string payload verbatim. Distinct from [HookFailed], which
       represents an unintentional hook failure. Legal only at [PreToolUse];
       rejected elsewhere via {!validate_decision}. *)
-
-(** Decision from approval callback *)
-type approval_decision =
-  | Approve
-  | Reject of string
-  | Edit of Yojson.Safe.t
-
-(** Approval callback: called when a hook returns ApprovalRequired *)
-type approval_callback = tool_name:string -> input:Yojson.Safe.t -> approval_decision
 
 type hook = hook_event -> hook_decision
 
@@ -166,7 +164,6 @@ type context_injector =
   tool_name:string -> input:Yojson.Safe.t -> output:Types.tool_result -> injection option
 
 val empty : hooks
-val invoke : hook option -> hook_event -> hook_decision
 
 (** {2 Decision validity matrix}
 
@@ -174,25 +171,24 @@ val invoke : hook option -> hook_event -> hook_decision
     Returning an unlisted decision is a programming error.
 
     {v
-    Stage                | Continue | ApprovalRequired | AdjustParams | ElicitInput | Nudge | Block
-    ---------------------+----------+------------------+--------------+-------------+-------+------
-    before_turn          |    Y     |                  |              |      Y      |   Y   |
-    before_turn_params   |    Y     |                  |      Y       |             |       |
-    after_turn           |    Y     |                  |              |             |       |
-    pre_tool_use         |    Y     |        Y         |              |             |       |   Y
-    post_tool_use        |    Y     |                  |              |             |       |
-    post_tool_use_failure|    Y     |                  |              |             |       |
-    on_stop              |    Y     |                  |              |             |       |
-    on_error             |    Y     |                  |              |             |       |
-    on_tool_error        |    Y     |                  |              |             |       |
+    Stage                | Continue | AdjustParams | ElicitInput | Nudge | Block
+    ---------------------+----------+--------------+-------------+-------+------
+    before_turn          |    Y     |              |      Y      |   Y   |
+    before_turn_params   |    Y     |      Y       |             |       |
+    after_turn           |    Y     |              |             |       |
+    pre_tool_use         |    Y     |              |             |       |   Y
+    post_tool_use        |    Y     |              |             |       |
+    post_tool_use_failure|    Y     |              |             |       |
+    on_stop              |    Y     |              |             |       |
+    on_error             |    Y     |              |             |       |
+    on_tool_error        |    Y     |              |             |       |
     v}
 
-    Fail-closed: unknown stages reject all decisions. *)
+    The closed {!hook_stage} variant makes unknown stages unrepresentable. *)
 
 (** Classification tag for hook_decision, without payload. *)
 type hook_decision_kind =
   | K_Continue
-  | K_ApprovalRequired
   | K_AdjustParams
   | K_ElicitInput
   | K_Nudge
@@ -205,24 +201,29 @@ val classify_decision : hook_decision -> hook_decision_kind
 (** Human-readable name for a decision kind. *)
 val decision_kind_to_string : hook_decision_kind -> string
 
-(** Extract the stage name from a hook_event. *)
-val stage_of_event : hook_event -> string
+(** Extract the typed stage from a hook event. *)
+val stage_of_event : hook_event -> hook_stage
 
-(** Return the list of legal decision kinds for the named stage.
-    Returns empty list for unknown stages (fail-closed). *)
-val legal_decisions_for_stage : string -> hook_decision_kind list
+(** Human-readable stage name for logs and error projections. *)
+val hook_stage_to_string : hook_stage -> string
+
+(** Return the legal decision kinds for the typed stage. *)
+val legal_decisions_for_stage : hook_stage -> hook_decision_kind list
 
 (** Validate a decision against the matrix for the given stage.
     Returns [Ok decision] when legal, [Error msg] otherwise. *)
-val validate_decision : stage:string -> hook_decision -> (hook_decision, string) result
+val validate_decision
+  :  stage:hook_stage
+  -> hook_decision
+  -> (hook_decision, string) result
 
-(** Like [invoke], but validates the decision against the matrix.
+(** Invoke a hook and validate its decision against the matrix.
     Illegal decisions return [HookFailed]; the rejection is logged as a warning
     (including [hook_name] when given) and [on_illegal] is called with
     diagnostics when a violation is detected. *)
 val invoke_validated
   :  ?hook_name:string
-  -> ?on_illegal:(stage:string -> decision:hook_decision -> msg:string -> unit)
+  -> ?on_illegal:(stage:hook_stage -> decision:hook_decision -> msg:string -> unit)
   -> hook option
   -> hook_event
   -> hook_decision

@@ -72,7 +72,6 @@ type timeout_phase =
   | Stream_idle of stream_idle_state
   | Provider_step
   | Cli_stdout_idle
-  | Caller_budget
   | Unknown_timeout
 [@@deriving yojson, show]
 
@@ -138,10 +137,14 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Response_body_too_large of { limit_bytes : int }
+  (** The provider response exceeded the explicit in-memory parser boundary.
+      The connection is closed immediately; OAS never drains an unbounded
+      remainder merely to preserve connection reuse. *)
+  | Empty_completion of { stop_reason : Types.stop_reason }
   (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
       The typed stop reason is preserved so downstream policy can distinguish,
       for example, [MaxTokens] from [EndTurn] without parsing diagnostics. *)
-  | Empty_completion of { stop_reason : Types.stop_reason }
   | Unknown_provider_failure of { reason : string option }
 
 (** Transport-level error. *)
@@ -197,6 +200,36 @@ val empty_completion_error : stop_reason:Types.stop_reason -> http_error
 val stream_idle_state_to_label : stream_idle_state -> string
 val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase
 val timeout_phase_to_label : timeout_phase -> string
+
+(** Canonical resolution of an optional caller-owned deadline.
+
+    [Unbounded] means no timeout was requested and therefore needs no clock.
+    [Bounded] carries the exact clock and timeout supplied by the caller.
+
+    @stability Internal *)
+type 'clock explicit_deadline =
+  | Unbounded
+  | Bounded of 'clock * float
+
+(** Resolve the timeout/clock contract before any operation I/O. [timeout_s =
+    None] returns [Unbounded]. An explicit timeout must be finite and greater
+    than zero; an invalid value or a missing clock returns the typed
+    [AcceptRejected] error instead of silently disarming the deadline.
+
+    @stability Internal *)
+val resolve_explicit_deadline
+  :  operation:string
+  -> parameter:string
+  -> clock:'clock option
+  -> timeout_s:float option
+  -> ('clock explicit_deadline, http_error) result
+
+(** Run [f] unbounded or under the resolved Eio deadline. A bounded expiry
+    raises [Eio.Time.Timeout]; the owning call site must project it to its
+    phase-specific [TimeoutError].
+
+    @stability Internal *)
+val with_explicit_deadline : _ Eio.Time.clock explicit_deadline -> (unit -> 'a) -> 'a
 
 (** {1 Connection cache} *)
 

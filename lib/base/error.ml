@@ -29,6 +29,13 @@ type input_required =
 (** Agent runtime errors. *)
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
+  | HookExecutionFailed of
+      { hook_name : string
+      ; stage : string
+      ; tool_name : string option
+      ; tool_use_id : string option
+      ; detail : string
+      }
   | GuardrailViolation of
       { validator : string
       ; reason : string
@@ -113,6 +120,18 @@ type sdk_error =
 let agent_error_to_string = function
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
+  | HookExecutionFailed r ->
+    Printf.sprintf
+      "Hook %s failed at %s%s: %s"
+      r.hook_name
+      r.stage
+      (match r.tool_name, r.tool_use_id with
+       | Some tool_name, Some tool_use_id ->
+         Printf.sprintf " for tool %s (%s)" tool_name tool_use_id
+       | Some tool_name, None -> Printf.sprintf " for tool %s" tool_name
+       | None, Some tool_use_id -> Printf.sprintf " for tool use %s" tool_use_id
+       | None, None -> "")
+      r.detail
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->

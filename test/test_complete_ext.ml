@@ -3,6 +3,19 @@
 open Alcotest
 open Llm_provider
 
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop index =
+    if index + sub_len > text_len
+    then false
+    else if String.sub text index sub_len = sub
+    then true
+    else loop (index + 1)
+  in
+  sub_len = 0 || loop 0
+;;
+
 let make_config
       ?(kind = Provider_config.OpenAI_compat)
       ?(model_id = "coverage-model")
@@ -382,6 +395,8 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
   let metrics = metrics_of_probe probe in
   let seen_events = ref [] in
   let seen_telemetry = ref [] in
+  let seen_wire = ref [] in
+  let wire_token = "ghp_" ^ String.make 36 '8' in
   let config =
     make_config ~model_id:"openai-stream" ~headers:[ "traceparent", "old-stream" ] ()
   in
@@ -403,6 +418,10 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
             "stream trace replaced"
             true
             (List.mem ("traceparent", "new-stream") request.config.headers);
+          (match request.observe_wire_chunk with
+           | None -> fail "injected transport lost the wire observer"
+           | Some observe ->
+             observe ~provider:"custom" ~model:request.config.model_id ~chunk:wire_token);
           let event = Types.Ping in
           on_event event;
           seen_events := event :: !seen_events;
@@ -424,6 +443,10 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
        ~sw
        ~net:(Eio.Stdenv.net env)
        ~transport
+       ~capture_id:"custom-wire"
+       ~wire_observer:(fun observation ->
+         seen_wire := observation :: !seen_wire;
+         Ok ())
        ~config
        ~messages:[ Types.user_msg "hello stream" ]
        ~trace_context:[ "traceparent", "new-stream" ]
@@ -446,12 +469,137 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
    | Error err -> failf "unexpected stream error: %s" (string_of_http_error err));
   check int "event observed" 1 (List.length !seen_events);
   check int "telemetry observed" 1 (List.length !seen_telemetry);
+  (match !seen_wire with
+   | [ (observation : Wire_observer.observation) ] ->
+     check
+       (option string)
+       "wire observation id"
+       (Some "custom-wire")
+       observation.capture_id;
+     check string "wire provider" "custom" observation.provider;
+     check string "wire model" "openai-stream" observation.model;
+     check string "wire redacted" "[REDACTED]" observation.redacted_chunk
+   | _ -> fail "expected one redacted wire observation");
   check (list int) "stream tool calls" [ 1 ] (List.rev probe.tool_calls);
   check
     (list (float 0.001))
     "first chunk metric"
     [ 1.5 ]
     (List.rev probe.streaming_first_chunks)
+;;
+
+let test_custom_stream_wire_rejection_is_typed_nonfatal () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let response = make_response ~content:[ Types.Text "preserved" ] () in
+  let token = "ghp_" ^ String.make 36 '4' in
+  let observations = ref [] in
+  let telemetry = ref [] in
+  let transport =
+    { Llm_transport.complete_sync =
+        (fun _ -> { Llm_transport.response = Ok response; latency_ms = None })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ request ->
+          (match request.observe_wire_chunk with
+           | None -> fail "custom transport did not receive OAS wire sink"
+           | Some observe ->
+             observe ~provider:"custom" ~model:request.config.model_id ~chunk:token);
+          Ok response)
+    }
+  in
+  let result =
+    Complete.complete_stream
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~capture_id:"custom-rejected"
+      ~wire_observer:(fun observation ->
+        observations := observation :: !observations;
+        Error Wire_observer.{ reason = "caller queue unavailable" })
+      ~config:(make_config ~model_id:"custom-model" ())
+      ~messages:[ Types.user_msg "hello" ]
+      ~on_event:(fun _ -> ())
+      ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+      ()
+  in
+  (match result with
+   | Ok response ->
+     check string "provider response" "preserved" (Types.text_of_response response)
+   | Error err ->
+     failf "wire rejection changed provider result: %s" (string_of_http_error err));
+  (match !observations with
+   | [ observation ] ->
+     check string "redacted custom chunk" "[REDACTED]" observation.redacted_chunk
+   | _ -> fail "expected one custom transport observation");
+  match !telemetry with
+  | [ Telemetry_event.Wire_observer_failure
+        { capture_id = Some "custom-rejected"
+        ; provider = "custom"
+        ; model = "custom-model"
+        ; cause = Observer_rejected { reason = "caller queue unavailable" }
+        }
+    ] -> ()
+  | _ -> fail "expected one exact typed custom-transport rejection"
+;;
+
+let test_custom_stream_wire_observer_and_telemetry_exceptions_are_nonfatal () =
+  let diagnostics = ref [] in
+  Diag.with_sink
+    (fun _level ~ctx message -> diagnostics := (ctx, message) :: !diagnostics)
+    (fun () ->
+       Eio_main.run
+       @@ fun env ->
+       Eio.Switch.run
+       @@ fun sw ->
+       let response = make_response ~content:[ Types.Text "preserved" ] () in
+       let transport =
+         { Llm_transport.complete_sync =
+             (fun _ -> { Llm_transport.response = Ok response; latency_ms = None })
+         ; complete_stream =
+             (fun ?on_telemetry:_ ~on_event:_ request ->
+               (match request.observe_wire_chunk with
+                | None -> fail "custom transport did not receive OAS wire sink"
+                | Some observe ->
+                  observe
+                    ~provider:"custom"
+                    ~model:request.config.model_id
+                    ~chunk:"raw chunk");
+               Ok response)
+         }
+       in
+       let result =
+         Complete.complete_stream
+           ~sw
+           ~net:(Eio.Stdenv.net env)
+           ~transport
+           ~wire_observer:(fun _ -> failwith "observer unavailable")
+           ~config:(make_config ~model_id:"custom-model" ())
+           ~messages:[ Types.user_msg "hello" ]
+           ~on_event:(fun _ -> ())
+           ~on_telemetry:(function
+             | Telemetry_event.Wire_observer_failure _ -> failwith "telemetry unavailable"
+             | _ -> ())
+           ()
+       in
+       (match result with
+        | Ok response ->
+          check string "provider response" "preserved" (Types.text_of_response response)
+        | Error err ->
+          failf
+            "observer diagnostics changed provider result: %s"
+            (string_of_http_error err));
+       check
+         bool
+         "both callback failures reach diagnostics"
+         true
+         (List.exists
+            (fun (ctx, message) ->
+               String.equal ctx "wire_observer"
+               && contains_substring ~sub:"telemetry unavailable" message
+               && contains_substring ~sub:"observer unavailable" message)
+            !diagnostics))
 ;;
 
 let () =
@@ -483,6 +631,14 @@ let () =
             "stream transport success metrics and telemetry"
             `Quick
             test_complete_stream_transport_success_metrics_and_telemetry
+        ; test_case
+            "custom stream wire rejection is typed and nonfatal"
+            `Quick
+            test_custom_stream_wire_rejection_is_typed_nonfatal
+        ; test_case
+            "custom stream observer diagnostics are nonfatal"
+            `Quick
+            test_custom_stream_wire_observer_and_telemetry_exceptions_are_nonfatal
         ] )
     ]
 ;;

@@ -251,7 +251,16 @@ let () =
     Printf.eprintf "\n";
     (* 2. Event Bus + subscriber *)
     let bus = Event_bus.create () in
-    let sub = Event_bus.subscribe bus in
+    let subscription_config =
+      match
+        Event_bus.subscription_config ~capacity:256 ~overflow:Event_bus.Drop_oldest
+      with
+      | Ok config -> config
+      | Error (Event_bus.Non_positive_capacity capacity) ->
+        invalid_arg
+          (Printf.sprintf "observable_agent: invalid subscriber capacity %d" capacity)
+    in
+    let sub = Event_bus.subscribe ~config:subscription_config bus in
     Eio.Fiber.fork ~sw (fun () ->
       while true do
         List.iter print_event (Event_bus.drain sub);

@@ -14,10 +14,6 @@
         "enable_thinking": true,
         "thinking_budget": 2048,
         "reasoning_effort": "high",
-        "tools": [
-          { "name": "get_weather", "description": "Get weather",
-            "parameters": [...] }
-        ],
         "mcp_servers": [
           { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"],
             "name": "everything" }
@@ -31,14 +27,6 @@
 *)
 
 open Result_syntax
-
-(* ── Tool config ─────────────────────────────────────────── *)
-
-type tool_file_config =
-  { name : string
-  ; description : string
-  ; parameters : Types.tool_param list
-  }
 
 (* ── MCP server config ───────────────────────────────────── *)
 
@@ -67,7 +55,6 @@ type agent_file_config =
   ; thinking_budget : int option
   ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; provider : string option
-  ; tools : tool_file_config list
   ; mcp_servers : mcp_file_config list
   }
 
@@ -85,7 +72,6 @@ let agent_config_fields =
   ; "thinking_budget"
   ; "reasoning_effort"
   ; "provider"
-  ; "tools"
   ; "mcp_servers"
   ]
 ;;
@@ -169,57 +155,6 @@ let parse_optional_string_list_field ~field json =
   |> Result.map List.rev
 ;;
 
-let parse_param json =
-  let open Yojson.Safe.Util in
-  try
-    let name = json |> member "name" |> to_string in
-    let description = Util.json_member_str "description" json in
-    let* param_type =
-      match json |> member "type" with
-      | `String type_name ->
-        (match Mcp.json_schema_type_to_param_type_result type_name with
-         | Ok param_type -> Ok param_type
-         | Error detail ->
-           Error (Error.Config (InvalidConfig { field = "parameter.type"; detail })))
-      | `Null ->
-        Error
-          (Error.Config
-             (InvalidConfig
-                { field = "parameter.type"; detail = "missing required field" }))
-      | other -> invalid_type ~field:"parameter.type" ~expected:"string" other
-    in
-    let required = Util.json_member_bool "required" json in
-    Ok { Types.name; description; param_type; required }
-  with
-  | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "parameter"; detail = msg }))
-;;
-
-let parse_tool json =
-  let open Yojson.Safe.Util in
-  try
-    let name = json |> member "name" |> to_string in
-    let description = Util.json_member_str "description" json in
-    let* params_json = parse_optional_list_field ~field:"parameters" json in
-    let params_result =
-      List.fold_left
-        (fun acc j ->
-           match acc with
-           | Error _ as e -> e
-           | Ok ps ->
-             (match parse_param j with
-              | Ok p -> Ok (p :: ps)
-              | Error e -> Error e))
-        (Ok [])
-        params_json
-    in
-    let* parameters = params_result in
-    Ok { name; description; parameters = List.rev parameters }
-  with
-  | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "tool"; detail = msg }))
-;;
-
 let parse_mcp json =
   let open Yojson.Safe.Util in
   try
@@ -292,20 +227,6 @@ let of_json json =
                 { field = "reasoning_effort"; detail = "must be a string or null" }))
     in
     let provider = json |> member "provider" |> to_string_option in
-    let* tools_json = parse_optional_list_field ~field:"tools" json in
-    let* tools =
-      match tools_json with
-      | [] -> Ok []
-      | _ :: _ ->
-        Error
-          (Error.Config
-             (InvalidConfig
-                { field = "tools"
-                ; detail =
-                    "inline config tools have no executable runner; use mcp_servers or \
-                     register typed tools in code"
-                }))
-    in
     let* mcp_json = parse_optional_list_field ~field:"mcp_servers" json in
     let mcp_result =
       List.fold_left
@@ -340,7 +261,6 @@ let of_json json =
       ; thinking_budget
       ; reasoning_effort
       ; provider
-      ; tools = List.rev tools
       ; mcp_servers = List.rev mcp_servers
       }
   with
@@ -372,19 +292,31 @@ let resolve_provider ~model_id provider_id =
 ;;
 
 (** Convert mcp_file_config to a server spec for stdio, or connect HTTP directly. *)
-let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
+let connect_mcp_server ~sw ?mgr ~net mcp_cfg =
   match mcp_cfg with
   | Stdio_mcp { command; args; name; env } ->
-    let env_pairs =
-      List.filter_map
-        (fun entry ->
-           match String.split_on_char '=' entry with
-           | k :: rest -> Some (k, String.concat "=" rest)
-           | [] -> None)
-        env
-    in
-    let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
-    Mcp.connect_and_load ~sw ~mgr spec
+    (match mgr with
+     | None ->
+       Error
+         (Error.Config
+            (InvalidConfig
+               { field = "mcp_servers"
+               ; detail =
+                   Printf.sprintf
+                     "stdio MCP server %S requires ~mgr; process manager is missing"
+                     name
+               }))
+     | Some mgr ->
+       let env_pairs =
+         List.filter_map
+           (fun entry ->
+              match String.split_on_char '=' entry with
+              | k :: rest -> Some (k, String.concat "=" rest)
+              | [] -> None)
+           env
+       in
+       let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
+       Mcp.connect_and_load ~sw ~mgr spec)
   | Http_mcp { url; headers; name } ->
     let spec : Mcp_http.http_spec = { base_url = url; headers; name } in
     Mcp_http.connect_and_load_managed ~sw ~net spec
@@ -392,10 +324,10 @@ let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
 
 (** Connect all MCP servers from config.  Config-declared servers are required:
     dropping a failed server silently removes tools from the agent surface. *)
-let connect_mcp_servers_required ~sw ~mgr ~net mcp_cfgs =
+let connect_mcp_servers_required ~sw ?mgr ~net mcp_cfgs =
   List.fold_left
     (fun acc cfg ->
-       match connect_mcp_server ~sw ~mgr ~net cfg with
+       match connect_mcp_server ~sw ?mgr ~net cfg with
        | Ok managed -> Result.map (fun manageds -> managed :: manageds) acc
        | Error e ->
          let name =
@@ -419,22 +351,10 @@ let connect_mcp_servers_required ~sw ~mgr ~net mcp_cfgs =
 ;;
 
 (** Convert a loaded config to a Builder.t.
-    When [~sw] and [~mgr] are provided, MCP servers from config are connected
-    and their tools are registered.  Without them, MCP servers are skipped. *)
+    Every configured MCP server requires [~sw].  Stdio servers additionally
+    require [~mgr].  Missing runtime resources are rejected instead of silently
+    dropping the configured tool surface. *)
 let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
-  let* () =
-    match cfg.tools with
-    | [] -> Ok ()
-    | _ :: _ ->
-      Error
-        (Error.Config
-           (InvalidConfig
-              { field = "tools"
-              ; detail =
-                  "inline config tools have no executable runner; use mcp_servers or \
-                   register typed tools in code"
-              }))
-  in
   let model = cfg.model in
   let b = Builder.create ~net ~model in
   let b = Builder.with_name cfg.name b in
@@ -475,13 +395,33 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
       Ok (Builder.with_provider provider b)
     | None -> Ok b
   in
-  (* Connect MCP servers if sw+mgr provided *)
   let* b =
-    match sw, mgr with
-    | Some sw, Some mgr when cfg.mcp_servers <> [] ->
-      let* managed = connect_mcp_servers_required ~sw ~mgr ~net cfg.mcp_servers in
-      Ok (if managed <> [] then Builder.with_mcp_clients managed b else b)
-    | _ -> Ok b
+    match cfg.mcp_servers, sw with
+    | [], _ -> Ok b
+    | _ :: _, None ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "mcp_servers"
+              ; detail = "configured MCP servers require ~sw; runtime switch is missing"
+              }))
+    | mcp_servers, Some sw
+      when Option.is_none mgr
+           && List.exists
+                (function
+                  | Stdio_mcp _ -> true
+                  | Http_mcp _ -> false)
+                mcp_servers ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "mcp_servers"
+              ; detail =
+                  "configured stdio MCP servers require ~mgr; process manager is missing"
+              }))
+    | mcp_servers, Some sw ->
+      let* managed = connect_mcp_servers_required ~sw ?mgr ~net mcp_servers in
+      Ok (Builder.with_mcp_clients managed b)
   in
   Ok b
 ;;

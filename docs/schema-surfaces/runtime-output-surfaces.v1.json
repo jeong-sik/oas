@@ -26,10 +26,10 @@
       "wire_or_artifact": "Runtime.protocol_message over NDJSON stdio",
       "schema_source": ["lib/runtime.mli", "lib/runtime_server.mli"],
       "validator": "protocol_message JSON roundtrip tests",
-      "tests": ["test/test_runtime_server_types.ml"],
+      "tests": ["test/test_runtime_types.ml", "test/test_runtime_server_types.ml"],
       "stability": "evolving",
       "version_field": "Runtime.protocol_version",
-      "notes": "Runtime protocol owns canonical request, response, event, report, proof, and system envelopes. Version 2 removes the implicit permission and hook control channel."
+      "notes": "Runtime protocol owns canonical request, response, event, report, proof, and system envelopes. Version 2 removes the implicit permission and hook control channel. Participant lifecycle events use one nested common participant record with disjoint live, completed, and failed payloads; legacy flat payloads are rejected."
     },
     {
       "id": "oas.runtime_sync_window.v1",

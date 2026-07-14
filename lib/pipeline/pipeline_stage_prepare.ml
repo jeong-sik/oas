@@ -15,16 +15,10 @@ let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
    the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
 
-let hook_failed_sdk_error ~hook_name ~stage ~detail =
-  Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
-;;
-
-let illegal_hook_decision ~stage ~decision =
-  Error.Internal
-    (Printf.sprintf
-       "illegal hook decision %s in %s"
-       (Agent_lifecycle.hook_decision_to_string decision)
-       stage)
+let append_journal journal event =
+  match Durable_event.append journal event with
+  | Ok () -> ()
+  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
 ;;
 
 let stage_input ?raw_trace_run ?clock agent =
@@ -91,13 +85,23 @@ let stage_input ?raw_trace_run ?clock agent =
     Ok ()
   | Hooks.Continue -> Ok ()
   | Hooks.HookFailed { stage; detail } ->
-    Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
-  | Hooks.ApprovalRequired | Hooks.AdjustParams _ | Hooks.Block _ ->
+    Error
+      (Pipeline_common.hook_failed_sdk_error
+         ~hook_name:"before_turn"
+         ~stage
+         ~tool_name:None
+         ~tool_use_id:None
+         ~detail)
+  | Hooks.AdjustParams _ | Hooks.Block _ ->
     (* Reject illegal hook decisions with a typed error instead of crashing.
        [Hooks.invoke_validated] normally filters these out; this branch guards
        against a validation bypass or future hook matrix drift. [Block] is
        legal only at pre_tool_use, so it is illegal here. *)
-    Error (illegal_hook_decision ~stage:"before_turn" ~decision:before_decision)
+    Error
+      (Pipeline_common.illegal_hook_decision_sdk_error
+         ~hook_name:"before_turn"
+         ~stage:Hooks.Before_turn
+         ~decision:before_decision)
 ;;
 
 let last_tool_results_from = Agent_turn.last_tool_results_from
@@ -161,9 +165,19 @@ let stage_parse ?raw_trace_run ?clock agent =
     with
     | Ok params -> Ok params
     | Error (Agent_turn.Hook_failed { stage; detail }) ->
-      Error (hook_failed_sdk_error ~hook_name:"before_turn_params" ~stage ~detail)
+      Error
+        (Pipeline_common.hook_failed_sdk_error
+           ~hook_name:"before_turn_params"
+           ~stage
+           ~tool_name:None
+           ~tool_use_id:None
+           ~detail)
     | Error (Agent_turn.Illegal_decision decision) ->
-      Error (illegal_hook_decision ~stage:"before_turn_params" ~decision)
+      Error
+        (Pipeline_common.illegal_hook_decision_sdk_error
+           ~hook_name:"before_turn_params"
+           ~stage:Hooks.Before_turn_params
+           ~decision)
   in
   let base_config = agent.state.config in
   let turn_config =
@@ -225,7 +239,7 @@ let stage_parse ?raw_trace_run ?clock agent =
    | None -> ());
   (match agent.options.journal with
    | Some j ->
-     Durable_event.append
+     append_journal
        j
        (Turn_started
           { turn = agent.state.turn_count

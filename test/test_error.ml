@@ -58,6 +58,24 @@ let test_agent_stop_reason () =
     (Error.to_string err)
 ;;
 
+let test_agent_hook_execution_failed () =
+  let err =
+    Error.Agent
+      (HookExecutionFailed
+         { hook_name = "post_tool_use"
+         ; stage = "post_tool_use"
+         ; tool_name = Some "write"
+         ; tool_use_id = Some "tool-1"
+         ; detail = "observer failed"
+         })
+  in
+  check
+    string
+    "hook failure retains typed context projection"
+    "Hook post_tool_use failed at post_tool_use for tool write (tool-1): observer failed"
+    (Error.to_string err)
+;;
+
 let test_mcp_server_start () =
   let err = Error.Mcp (ServerStartFailed { command = "npx"; detail = "not found" }) in
   check
@@ -233,6 +251,7 @@ let () =
         ; test_case "Api AuthError" `Quick test_api_auth_error
         ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
         ; test_case "Agent UnrecognizedStopReason" `Quick test_agent_stop_reason
+        ; test_case "Agent HookExecutionFailed" `Quick test_agent_hook_execution_failed
         ; test_case "Mcp ServerStartFailed" `Quick test_mcp_server_start
         ; test_case "Mcp InitializeFailed" `Quick test_mcp_init_failed
         ; test_case "Mcp ToolListFailed" `Quick test_mcp_tool_list

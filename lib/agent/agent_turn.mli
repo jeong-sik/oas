@@ -68,7 +68,7 @@ val accumulate_usage
 type turn_params_resolution_error =
   | Illegal_decision of Hooks.hook_decision
   | Hook_failed of
-      { stage : string
+      { stage : Hooks.hook_stage
       ; detail : string
       }
 

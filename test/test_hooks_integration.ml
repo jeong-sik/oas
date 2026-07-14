@@ -3,7 +3,7 @@
     Uses a mock HTTP server (Cohttp_eio) to exercise the full agent loop
     without any real LLM. Each test gets a unique port to avoid bind conflicts.
 
-    Pattern: test_integration.ml (Anthropic Messages API mock) *)
+    Pattern: test_integration.ml (OpenAI-compatible mock) *)
 
 open Agent_sdk
 open Types
@@ -12,15 +12,15 @@ open Types
 
 let text_body text =
   Printf.sprintf
-    {|{"id":"m1","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}|}
+    {|{"id":"m1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     text
 ;;
 
 let tool_use_body ~tool_name ~input_json =
   Printf.sprintf
-    {|{"id":"m2","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"tu_1","name":"%s","input":%s}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}|}
+    {|{"id":"m2","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"tu_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     tool_name
-    input_json
+    (String.escaped input_json)
 ;;
 
 let stateful_handler call_count _conn _req body =
@@ -89,6 +89,10 @@ let fresh_echo_tool () =
   tool, calls
 ;;
 
+let local_provider ~base_url ~model_id : Provider.config =
+  { provider = Provider.Local { base_url }; model_id; api_key_env = "" }
+;;
+
 (* ── before_turn tests ───────────────────────────────── *)
 
 (* [Nudge] appends a User-role message that reaches the model in the same turn. *)
@@ -98,6 +102,7 @@ let test_before_turn_continue_proceeds () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -109,7 +114,7 @@ let test_before_turn_continue_proceeds () =
       }
     in
     let agent =
-      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+      Agent.create ~config:(default_config ~model:"test-model") ~net ~options ()
     in
     match Agent.run ~sw agent "test" with
     | Ok resp ->
@@ -132,6 +137,7 @@ let test_before_turn_receives_turn_number () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -145,7 +151,7 @@ let test_before_turn_receives_turn_number () =
       }
     in
     let agent =
-      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+      Agent.create ~config:(default_config ~model:"test-model") ~net ~options ()
     in
     (match Agent.run ~sw agent "test" with
      | Ok _ -> ()
@@ -162,6 +168,7 @@ let test_before_turn_nudge_injected_into_request () =
        let options =
          { Agent.default_options with
            base_url
+         ; provider = Some (local_provider ~base_url ~model_id:"test-model")
          ; hooks =
              { Hooks.empty with
                before_turn =
@@ -170,7 +177,7 @@ let test_before_turn_nudge_injected_into_request () =
          }
        in
        let agent =
-         Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+         Agent.create ~config:(default_config ~model:"test-model") ~net ~options ()
        in
        (match Agent.run ~sw agent "first prompt" with
         | Ok _ -> ()
@@ -203,6 +210,7 @@ let test_pre_tool_block_blocks_execution () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
       ; hooks =
           { Hooks.empty with
             pre_tool_use =
@@ -230,6 +238,7 @@ let test_post_tool_receives_output () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
       ; hooks =
           { Hooks.empty with
             post_tool_use =
@@ -257,6 +266,7 @@ let test_on_stop_fires () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             on_stop =
@@ -270,7 +280,7 @@ let test_on_stop_fires () =
       }
     in
     let agent =
-      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+      Agent.create ~config:(default_config ~model:"test-model") ~net ~options ()
     in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -286,6 +296,7 @@ let test_multiple_hooks_all_fire () =
     let options =
       { Agent.default_options with
         base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -302,7 +313,7 @@ let test_multiple_hooks_all_fire () =
       }
     in
     let agent =
-      Agent.create ~config:(Types.default_config ~model:"test-model") ~net ~options ()
+      Agent.create ~config:(default_config ~model:"test-model") ~net ~options ()
     in
     (match Agent.run ~sw agent "test" with
      | Ok _ | Error _ -> ());
@@ -325,7 +336,11 @@ let test_context_injector_adds_data () =
     in
     let ctx = Context.create_sync () in
     let options =
-      { Agent.default_options with base_url; context_injector = Some injector }
+      { Agent.default_options with
+        base_url
+      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
+      ; context_injector = Some injector
+      }
     in
     let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
@@ -341,8 +356,6 @@ let test_context_injector_adds_data () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Hooks_Integration"

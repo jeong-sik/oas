@@ -8,7 +8,6 @@ type timeout_type =
   | Stream_idle of Http_client.stream_idle_state
   | Provider_step
   | Cli_stdout_idle
-  | Caller_budget
   | Unknown_timeout
 [@@deriving yojson, show]
 
@@ -82,7 +81,7 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Wire_capture_failure of Wire_capture.failure
+  | Wire_observer_failure of Wire_observer.failure
 [@@deriving yojson, show]
 
 (** Human-readable event type label for metrics and logging. *)

@@ -210,8 +210,34 @@ type spawn_event =
   }
 [@@deriving yojson, show]
 
-type completion_anomaly = Dropped_output_deltas of { count : int }
-[@@deriving yojson, show]
+type completion_anomaly = Dropped_output_deltas of { count : int } [@@deriving show]
+
+type completion_anomaly_error = Non_positive_dropped_output_delta_count of int
+[@@deriving show]
+
+let dropped_output_deltas ~count =
+  if count > 0
+  then Ok (Dropped_output_deltas { count })
+  else Error (Non_positive_dropped_output_delta_count count)
+;;
+
+module Completion_anomaly_wire = struct
+  type t = Dropped_output_deltas of { count : int } [@@deriving yojson]
+end
+
+let completion_anomaly_to_yojson = function
+  | Dropped_output_deltas { count } ->
+    Completion_anomaly_wire.Dropped_output_deltas { count }
+    |> Completion_anomaly_wire.to_yojson
+;;
+
+let completion_anomaly_of_yojson json =
+  match Completion_anomaly_wire.of_yojson json with
+  | Error _ as error -> error
+  | Ok (Completion_anomaly_wire.Dropped_output_deltas { count }) ->
+    dropped_output_deltas ~count
+    |> Result.map_error (fun error -> show_completion_anomaly_error error)
+;;
 
 type failure_cause =
   | Execution_error of string
@@ -221,16 +247,33 @@ type failure_cause =
       }
 [@@deriving yojson, show]
 
-type participant_event =
+let failure_cause_to_string = function
+  | Execution_error detail -> detail
+  | Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail
+;;
+
+type participant_event_common =
   { participant_name : string
   ; summary : string option
   ; provider : string option
   ; model : string option
-  ; error : string option
   ; raw_trace_run_id : string option [@default None]
+  }
+[@@deriving yojson, show]
+
+type participant_live_event = { participant : participant_event_common }
+[@@deriving yojson, show]
+
+type participant_completed_event =
+  { participant : participant_event_common
   ; stop_reason : string option [@default None]
   ; completion_anomaly : completion_anomaly option [@default None]
-  ; failure_cause : failure_cause option [@default None]
+  }
+[@@deriving yojson, show]
+
+type participant_failed_event =
+  { participant : participant_event_common
+  ; failure_cause : failure_cause
   }
 [@@deriving yojson, show]
 
@@ -267,10 +310,10 @@ type event_kind =
   | Input_provided of input_provided_event
   | Pending_input_updated of pending_input_update_event
   | Agent_spawn_requested of spawn_event
-  | Agent_became_live of participant_event
+  | Agent_became_live of participant_live_event
   | Agent_output_delta of output_delta_event
-  | Agent_completed of participant_event
-  | Agent_failed of participant_event
+  | Agent_completed of participant_completed_event
+  | Agent_failed of participant_failed_event
   | Artifact_attached of artifact_event
   | Checkpoint_saved of checkpoint_event
   | Finalize_requested of finalize_request

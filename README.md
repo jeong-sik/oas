@@ -45,7 +45,7 @@ let () =
   let agent =
     Agent.create ~net
       ~config:
-        { Types.default_config with
+        { (Types.default_config ~model:"qwen3.5") with
           name = "hello";
           system_prompt = Some "You are a helpful assistant. Be concise.";
         }
@@ -71,7 +71,9 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `async_agent_demo.ml`, `streaming.ml`, `review_agent.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`,
+`async_agent_demo.ml`, `streaming.ml`, `review_agent.ml`,
+`observable_agent.ml`, and `builder_patterns.ml`.
 For tool concurrency rules see `docs/tool-concurrency.md`.
 
 ## Provider support
@@ -115,32 +117,31 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
-| `Hooks` | Lifecycle hooks plus typed HITL approval callbacks; missing callbacks fail explicitly |
+| `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts an exact caller-owned `Continue` or `Block` decision |
 | `Guardrail_llm` | Adapts caller-injected typed judge closures; no fixed risk taxonomy or string parser |
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
-| `Error` / `Error_domain` | 2-level structured errors: 7 domain variants + Internal, poly-variant mapping |
+| `Error` / `Error_domain` | 2-level structured errors: 8 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |
 | `Mcp` | MCP client (NDJSON-over-stdio, server lifecycle, paginated tool listing) |
 | `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
 | `Pipeline` | 6-stage turn pipeline with Provider_intf routing |
 | `Contract` | Prompt/context composition: instruction layers, triggers, skills |
-| `Memory` | 5-tier memory: Scratchpad, Working, Episodic, Procedural, Long_term |
-| `Memory_access` | Deny-by-default agent-scoped memory permissions |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
 
 ## Module stability tiers
 
 Not all modules are equally stable. Use this to gauge risk when depending on a module.
-Every `.mli` now carries an explicit `@stability` tag and `@since` marker.
+The public facade modules below carry explicit `@stability` and `@since`
+markers; unannotated modules are Internal by default.
 For the current classification policy, see `docs/api-stability.md`.
 
-**Stable** -- safe to depend on, breaking changes only on minor version bumps:
+**Stable** -- safe to depend on, breaking changes require a major version bump:
 
 `Types`, `Error`, `Agent`, `Builder`, `Tool`, `Tool_set`, `Hooks`, `Provider`, `Raw_trace`, `Checkpoint`, `Checkpoint_store`, `Context`
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Runtime`, `Memory`
+`Streaming`, `Structured`, `Runtime`
 
 CDAL proof artifacts are no longer exposed as public OCaml modules from OAS.
 Use the versioned JSON schema catalog for downstream proof-bundle artifacts.
@@ -164,8 +165,14 @@ let calc_tool =
     (fun args ->
       let open Yojson.Safe.Util in
       match args |> member "expression" |> to_string_option with
-      | Some expr -> Ok (Printf.sprintf "Result: %s" expr)
-      | None -> Error "missing expression")
+      | Some expr ->
+          Ok { Types.content = Printf.sprintf "Result: %s" expr; _meta = None }
+      | None ->
+          Error
+            { Types.message = "missing expression"
+            ; recoverable = false
+            ; error_class = None
+            })
 
 (* Context-aware handler *)
 let counter_tool =
@@ -176,7 +183,7 @@ let counter_tool =
       let n = match Context.get ctx "count" with
         | Some (`Int n) -> n + 1 | _ -> 1 in
       Context.set ctx "count" (`Int n);
-      Ok (string_of_int n))
+      Ok { Types.content = string_of_int n; _meta = None })
 ```
 
 ## Hooks and HITL
@@ -193,8 +200,9 @@ let my_hooks = { Hooks.empty with
 
 OAS sends the caller-supplied `Tool_set` to the provider unchanged. A product
 that needs tool exposure policy applies its own typed gate before constructing
-the agent; per-call HITL remains available through `PreToolUse` and the typed
-approval callback.
+the agent. A caller that has already settled an external-effect decision may
+return `Hooks.Block reason` from `PreToolUse`; OAS does not own approval,
+judging, risk levels, or HITL orchestration.
 
 ## Build and test
 
@@ -232,7 +240,8 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 ## Constraints and trade-offs
 
 - HTTP response body limit: 10MB.
-- SSE streaming uses real-time event callbacks. Retry wraps outside the stream.
+- SSE streaming uses real-time event callbacks. OAS performs one provider
+  attempt; any later caller-owned attempt starts outside the completed stream.
 - The tool-use loop continues until the provider returns a terminal response or the caller cancels the fiber.
 - Runs on a single Eio domain. No multi-core parallelism.
 - Prompt caching tracks `cache_creation_input_tokens` and `cache_read_input_tokens` in both streaming and non-streaming modes (since v0.4.0).

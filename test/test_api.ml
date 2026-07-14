@@ -43,6 +43,13 @@ let source_path path =
 
 let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
 
+let install_packaged_model_catalog () =
+  let path = source_path "models.toml" in
+  match Llm_provider.Model_catalog.load_file path with
+  | Ok catalog -> Llm_provider.Model_catalog.set_global catalog
+  | Error message -> fail (Printf.sprintf "failed to load %s: %s" path message)
+;;
+
 let with_provider_catalog json f =
   let previous = Llm_provider.Provider_catalog.global () in
   let restore () =
@@ -329,6 +336,7 @@ let make_state
   let config =
     { (Types.default_config ~model:"test-model") with
       model
+    ; max_tokens = Some 1024
     ; response_format
     ; system_prompt = Some "You are helpful."
     ; thinking_budget
@@ -358,11 +366,7 @@ let test_build_body_basic () =
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
-  check
-    string
-    "model present"
-    "claude-sonnet-4-6-20250514"
-    (json |> member "model" |> to_string);
+  check string "model present" "test-model" (json |> member "model" |> to_string);
   check bool "stream false" false (json |> member "stream" |> to_bool);
   check string "system prompt" "You are helpful." (json |> member "system" |> to_string)
 ;;
@@ -373,6 +377,7 @@ let test_build_body_basic () =
    ceiling. *)
 let test_build_body_uses_catalog_output_cap () =
   let config = make_state ~model:"claude-sonnet-4-6" () in
+  let config = { config with config = { config.config with max_tokens = None } } in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -396,6 +401,7 @@ let test_build_openai_body_uses_unknown_model_fallback () =
     }
   in
   let config = make_state ~model:"gpt-4.1" () in
+  let config = { config with config = { config.config with max_tokens = None } } in
   let body =
     Api.build_openai_body ~provider_config ~config ~messages:[] ()
     |> Yojson.Safe.from_string
@@ -427,14 +433,19 @@ let test_build_body_with_thinking_budget () =
   check int "budget_tokens" 1024 (thinking |> member "budget_tokens" |> to_int)
 ;;
 
-let test_build_body_with_enable_thinking_omits_unspecified_budget () =
+let test_build_body_with_enable_thinking_rejects_unspecified_budget () =
   (* Manual-budget Claude requests require a caller-declared budget. OAS must
      not invent one when the caller only toggles thinking. *)
   let config = make_manual_thinking_state ~enable_thinking:true () in
-  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
-  let json = `Assoc assoc in
-  let open Yojson.Safe.Util in
-  check bool "thinking omitted" true (json |> member "thinking" = `Null)
+  match Api.build_body_assoc ~config ~messages:[] ~stream:false () with
+  | _ -> fail "expected missing manual thinking budget rejection"
+  | exception Invalid_argument message ->
+    check
+      string
+      "rejection"
+      "Api_anthropic.build_body_assoc: manual-budget thinking requires an explicit \
+       thinking_budget"
+      message
 ;;
 
 let test_build_body_adaptive_thinking () =
@@ -478,7 +489,9 @@ let test_build_body_adaptive_output_config_preserves_format () =
 ;;
 
 let test_build_body_rejects_adaptive_numeric_budget () =
-  let config = make_state ~enable_thinking:false ~thinking_budget:5000 () in
+  let config =
+    make_adaptive_thinking_state ~enable_thinking:false ~thinking_budget:5000 ()
+  in
   match Api.build_body_assoc ~config ~messages:[] ~stream:false () with
   | _ -> fail "expected adaptive numeric-budget rejection"
   | exception Invalid_argument message ->
@@ -575,7 +588,8 @@ let test_build_body_sampling_params_anthropic () =
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
-          temperature = Some 0.3
+          max_tokens = Some 1024
+        ; temperature = Some 0.3
         ; top_p = Some 0.85
         ; top_k = Some 20
         }
@@ -1083,18 +1097,7 @@ let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
 ;;
 
 let test_build_openai_body_rejects_glm_forced_tool_choice () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+  let provider_config = declared_provider_config "glm" "glm-5" in
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
@@ -1260,24 +1263,13 @@ let test_build_openai_body_bare_glm_tool_choice_none_is_generic () =
   check bool "tools preserved" true (List.mem_assoc "tools" (to_assoc json))
 ;;
 
-(* Declared Z.AI GLM endpoint under the default clear_thinking=true (no
+(* Explicit typed GLM provider under the default clear_thinking=true (no
    [preserve_thinking]): the typed dialect resolves to No_replay, so
    prior-turn reasoning_content stays out of the request history even though
    the request is GLM. Locks the non-replay arm of the typed
    [replay_policy] promotion in [reasoning_dialect_for_request]. *)
 let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+  let provider_config = declared_provider_config "glm" "glm-5" in
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
@@ -1324,18 +1316,7 @@ let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
 ;;
 
 let test_build_openai_body_glm_preserves_reasoning_content () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+  let provider_config = declared_provider_config "glm" "glm-5" in
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
@@ -1399,18 +1380,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
    now need a regression guard through the api builder. With [preserve_thinking =
    Some false] the SSOT yields [not false = true]. *)
 let test_build_openai_body_glm_clears_thinking_when_not_preserving () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+  let provider_config = declared_provider_config "glm" "glm-5" in
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
@@ -1512,18 +1482,7 @@ let test_openai_api_uses_backend_thinking_builder_ssot () =
 ;;
 
 let test_build_openai_body_glm_tool_choice_none_omits_tools () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+  let provider_config = declared_provider_config "glm" "glm-5" in
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
@@ -1946,13 +1905,11 @@ let test_parse_openai_response_ollama_reasoning () =
          "Ollama uses reasoning field instead of reasoning_content."
          t;
        check string "content text" "The answer is 42." text;
-       (* Verify telemetry estimates reasoning_tokens from content length *)
+       (* Token accounting is observation-only: without a provider-reported
+          count OAS must not estimate one from text length. *)
        (match resp.telemetry with
         | Some tel ->
-          (match tel.reasoning_tokens with
-           | Some n -> check bool "estimated reasoning_tokens > 0" true (n > 0)
-           | None ->
-             Alcotest.fail "reasoning_tokens should be estimated from reasoning text")
+          check (option int) "reasoning_tokens absent" None tel.reasoning_tokens
         | None -> Alcotest.fail "telemetry should be present")
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
@@ -1984,14 +1941,10 @@ let test_parse_openai_response_reasoning_content_preferred () =
      | [ Types.Thinking { content = t; _ }; Types.Text text ] ->
        check string "reasoning_content wins" "preferred field" t;
        check string "content text" "Answer." text;
-       (* Verify telemetry picks up reasoning_tokens from preferred field *)
+       (* Text shape does not synthesize token counts. *)
        (match resp.telemetry with
         | Some tel ->
-          (match tel.reasoning_tokens with
-           | Some n ->
-             (* "preferred field" = 15 chars → ~3-4 tokens *)
-             check bool "estimated reasoning_tokens > 0" true (n > 0)
-           | None -> Alcotest.fail "reasoning_tokens should be estimated")
+          check (option int) "reasoning_tokens absent" None tel.reasoning_tokens
         | None -> Alcotest.fail "telemetry should be present")
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
@@ -2058,6 +2011,7 @@ let test_build_body_with_cache () =
   let config =
     { (Types.default_config ~model:"test-model") with
       system_prompt = Some long_prompt
+    ; max_tokens = Some 1024
     ; cache_system_prompt = true
     }
   in
@@ -2081,6 +2035,7 @@ let test_build_body_tools_cache_control () =
   let config =
     { (Types.default_config ~model:"test-model") with
       system_prompt = Some "You are helpful."
+    ; max_tokens = Some 1024
     ; cache_system_prompt = true
     }
   in
@@ -2130,7 +2085,8 @@ let test_build_body_tools_no_cache_without_flag () =
 
 let test_build_body_no_system_prompt () =
   let state =
-    { Types.config = Types.default_config ~model:"test-model"
+    { Types.config =
+        { (Types.default_config ~model:"test-model") with max_tokens = Some 1024 }
     ; messages = []
     ; turn_count = 0
     ; usage = Types.empty_usage
@@ -2439,13 +2395,17 @@ let test_build_body_disable_parallel () =
   let config =
     { (Types.default_config ~model:"test-model") with
       tool_choice = Some Types.Auto
+    ; max_tokens = Some 1024
     ; disable_parallel_tool_use = true
     }
   in
   let state =
     { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
   in
-  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let tool = `Assoc [ "name", `String "calculator" ] in
+  let assoc =
+    Api.build_body_assoc ~config:state ~messages:[] ~tools:[ tool ] ~stream:false ()
+  in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
   let tc = json |> member "tool_choice" in
@@ -2457,6 +2417,7 @@ let test_build_body_disable_parallel () =
 (* ------------------------------------------------------------------ *)
 
 let () =
+  install_packaged_model_catalog ();
   run
     "Api"
     [ ( "content_block_round_trip"
@@ -2486,9 +2447,9 @@ let () =
             test_build_openai_body_uses_unknown_model_fallback
         ; test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget
         ; test_case
-            "enable_thinking omits unspecified budget"
+            "enable_thinking rejects unspecified budget"
             `Quick
-            test_build_body_with_enable_thinking_omits_unspecified_budget
+            test_build_body_with_enable_thinking_rejects_unspecified_budget
         ; test_case "adaptive thinking" `Quick test_build_body_adaptive_thinking
         ; test_case
             "adaptive output_config preserves format"

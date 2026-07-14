@@ -20,6 +20,16 @@ let catalog_of_string text =
   | Error msg -> fail msg
 ;;
 
+let catalog_with_provider provider =
+  `Assoc [ "schema_version", `Int 1; "providers", `List [ provider ] ]
+;;
+
+let require_rejected ?(needle = "") label json =
+  match Provider_catalog.of_json json with
+  | Error message -> check bool (label ^ " error") true (contains ~needle message)
+  | Ok _ -> failf "%s must be rejected" label
+;;
+
 let require_lookup catalog id =
   match Provider_catalog.lookup catalog id with
   | Some entry -> entry
@@ -34,7 +44,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
         "providers": [
           {
             "id": "rich-http",
-            "aliases": [" Alias ", "", 7, "second"],
+            "aliases": ["Alias", "second"],
             "kind": "openai_compat",
             "transport": "http",
             "base_url": "https://rich.example/v1",
@@ -76,13 +86,12 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "accepted_reasoning_efforts": ["low", "high"],
               "modality_priority": "visual_first",
               "reasoning_replay": "preserve_always",
-              "supported_models": [" rich-model ", "", 3, "rich-fast"]
+              "supported_models": ["rich-model", "rich-fast"]
             }
           },
           {
             "id": "cli-cached",
             "kind": "openai_compat",
-            "transport": "",
             "command": "tool-a",
             "auth": {"type": "oauth_cached_login"}
           },
@@ -170,47 +179,280 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check bool "oauth auth" true (oauth.auth = Provider_catalog.Oauth_cached_login)
 ;;
 
-let test_type_mismatches_fall_back_without_rejecting_entry () =
+let test_present_type_mismatches_are_rejected () =
+  let entry_field_cases =
+    [ "kind", `Int 42
+    ; "aliases", `String "not-array"
+    ; "transport", `Bool false
+    ; "command", `Int 1
+    ; "base_url", `Bool true
+    ; "request_path", `List []
+    ; "default_model", `Int 2
+    ; "max_context", `String "many"
+    ; "capabilities_base", `Bool false
+    ; "credential_scope", `Int 3
+    ]
+  in
+  List.iter
+    (fun (field, value) ->
+       require_rejected
+         ~needle:field
+         ("entry " ^ field ^ " type")
+         (catalog_with_provider
+            (`Assoc [ "id", `String ("typed-" ^ field); field, value ])))
+    entry_field_cases;
+  let capability_cases =
+    [ "supports_tools", `String "yes"
+    ; "max_output_tokens", `String "many"
+    ; "supported_models", `String "single"
+    ; "accepted_reasoning_efforts", `Bool true
+    ; "ignored_sampling_parameters", `Int 4
+    ; "thinking_control_format", `Bool false
+    ]
+  in
+  List.iter
+    (fun (field, value) ->
+       require_rejected
+         ~needle:field
+         ("capability " ^ field ^ " type")
+         (catalog_with_provider
+            (`Assoc
+                [ "id", `String ("typed-cap-" ^ field)
+                ; "capabilities", `Assoc [ field, value ]
+                ])))
+    capability_cases
+;;
+
+let test_auth_shape_contract () =
+  let catalog_json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "providers"
+        , `List
+            [ `Assoc [ "id", `String "absent-auth" ]
+            ; `Assoc [ "id", `String "null-auth"; "auth", `Null ]
+            ] )
+      ]
+  in
   let catalog =
+    match Provider_catalog.of_json catalog_json with
+    | Ok catalog -> catalog
+    | Error message -> fail message
+  in
+  let absent = require_lookup catalog "absent-auth" in
+  let null = require_lookup catalog "null-auth" in
+  check bool "absent auth is no_auth" true (absent.auth = Provider_catalog.No_auth);
+  check bool "null auth is no_auth" true (null.auth = Provider_catalog.No_auth);
+  let malformed_shapes : (string * Yojson.Safe.t) list =
+    [ "boolean", `Bool false
+    ; "integer", `Int 17
+    ; "integer literal", `Intlit "17"
+    ; "float", `Float 1.0
+    ; "string", `String "none"
+    ; "array", `List []
+    ]
+  in
+  List.iter
+    (fun (label, auth) ->
+       let result =
+         Provider_catalog.of_json
+           (`Assoc
+               [ "schema_version", `Int 1
+               ; ( "providers"
+                 , `List [ `Assoc [ "id", `String ("malformed-" ^ label); "auth", auth ] ]
+                 )
+               ])
+       in
+       match result with
+       | Error message ->
+         check
+           bool
+           (label ^ " error identifies auth")
+           true
+           (contains ~needle:"auth" message)
+       | Ok _ -> failf "%s auth shape must be rejected" label)
+    malformed_shapes
+;;
+
+let test_closed_object_contract () =
+  require_rejected
+    ~needle:"entry expected object"
+    "provider entry object"
+    (`Assoc [ "schema_version", `Int 1; "providers", `List [ `String "provider" ] ]);
+  require_rejected
+    ~needle:"unknown field"
+    "root unknown field"
+    (`Assoc [ "schema_version", `Int 1; "providers", `List []; "future", `Bool true ]);
+  require_rejected
+    ~needle:"duplicate field"
+    "root duplicate field"
+    (`Assoc [ "schema_version", `Int 1; "schema_version", `Int 1; "providers", `List [] ]);
+  require_rejected
+    ~needle:"unknown field"
+    "entry unknown field"
+    (catalog_with_provider
+       (`Assoc [ "id", `String "unknown-entry"; "future", `Bool true ]));
+  require_rejected
+    ~needle:"duplicate field"
+    "entry duplicate field"
+    (catalog_with_provider
+       (`Assoc [ "id", `String "duplicate-entry"; "id", `String "duplicate-entry" ]));
+  require_rejected
+    ~needle:"unknown field"
+    "auth unknown field"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "unknown-auth"
+           ; "auth", `Assoc [ "type", `String "none"; "future", `Bool true ]
+           ]));
+  require_rejected
+    ~needle:"duplicate field"
+    "auth duplicate field"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "duplicate-auth"
+           ; "auth", `Assoc [ "type", `String "none"; "type", `String "none" ]
+           ]));
+  require_rejected
+    ~needle:"unknown field"
+    "capabilities unknown field"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "unknown-capability"
+           ; "capabilities", `Assoc [ "future", `Bool true ]
+           ]));
+  require_rejected
+    ~needle:"duplicate field"
+    "capabilities duplicate field"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "duplicate-capability"
+           ; ( "capabilities"
+             , `Assoc [ "supports_tools", `Bool true; "supports_tools", `Bool true ] )
+           ]));
+  require_rejected
+    ~needle:"capabilities expected object"
+    "capabilities array shape"
+    (catalog_with_provider
+       (`Assoc [ "id", `String "array-capability"; "capabilities", `List [] ]));
+  require_rejected
+    ~needle:"unknown field"
+    "capability override outside nested object"
+    (catalog_with_provider
+       (`Assoc [ "id", `String "top-level-capability"; "supports_tools", `Bool true ]))
+;;
+
+let test_values_fail_closed_without_coercion () =
+  let reject_entry field value label needle =
+    require_rejected
+      ~needle
+      label
+      (catalog_with_provider (`Assoc [ "id", `String label; field, value ]))
+  in
+  reject_entry
+    "max_context"
+    (`Intlit "9223372036854775807999")
+    "entry integer overflow"
+    "out of range";
+  reject_entry "max_context" (`Int 0) "entry zero integer" "positive integer";
+  reject_entry "max_context" (`Int (-1)) "entry negative integer" "positive integer";
+  let reject_capability field value label needle =
+    require_rejected
+      ~needle
+      label
+      (catalog_with_provider
+         (`Assoc [ "id", `String label; "capabilities", `Assoc [ field, value ] ]))
+  in
+  reject_capability
+    "max_output_tokens"
+    (`Intlit "9223372036854775807999")
+    "capability integer overflow"
+    "out of range";
+  reject_capability
+    "prompt_cache_alignment"
+    (`Int 0)
+    "capability zero integer"
+    "positive integer";
+  reject_entry "aliases" (`List [ `String "" ]) "empty alias item" "must not be empty";
+  reject_entry
+    "aliases"
+    (`List [ `String " padded" ])
+    "padded alias item"
+    "leading or trailing whitespace";
+  reject_entry "aliases" (`List [ `Int 1 ]) "non-string alias item" "expected string";
+  reject_capability
+    "supported_models"
+    (`List [ `String "" ])
+    "empty supported model item"
+    "must not be empty";
+  reject_capability
+    "accepted_reasoning_efforts"
+    (`List [ `String "" ])
+    "empty reasoning effort item"
+    "must not be empty";
+  reject_capability
+    "ignored_sampling_parameters"
+    (`List [ `Bool true ])
+    "non-string sampling item"
+    "expected string";
+  require_rejected
+    ~needle:"requires non-empty"
+    "auth env is required"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "missing-env"
+           ; "auth", `Assoc [ "type", `String "api_key_env" ]
+           ]));
+  require_rejected
+    ~needle:"does not accept"
+    "unused auth env is rejected"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "unused-env"
+           ; "auth", `Assoc [ "type", `String "none"; "env", `String "UNUSED" ]
+           ]));
+  require_rejected
+    ~needle:"require supports_tool_choice=true"
+    "contradictory named tool choice"
+    (catalog_with_provider
+       (`Assoc
+           [ "id", `String "contradictory-tools"
+           ; ( "capabilities"
+             , `Assoc
+                 [ "supports_tool_choice", `Bool false
+                 ; "supports_named_tool_choice", `Bool true
+                 ] )
+           ]))
+;;
+
+let test_null_optional_fields_use_declared_defaults () =
+  let entry =
     catalog_of_string
       {|{
         "schema_version": 1,
-        "providers": [
-          {
-            "id": "typed",
-            "kind": 42,
-            "aliases": "not-array",
-            "transport": false,
-            "auth": 17,
-            "capabilities": {
-              "supports_tools": "yes",
-              "max_output_tokens": "many",
-              "supported_models": "single"
-            }
-          }
-        ]
+        "providers": [{
+          "id": "null-defaults",
+          "aliases": null,
+          "kind": null,
+          "transport": null,
+          "command": null,
+          "base_url": null,
+          "request_path": null,
+          "auth": null,
+          "default_model": null,
+          "max_context": null,
+          "capabilities_base": null,
+          "capabilities": null,
+          "credential_scope": null
+        }]
       }|}
+    |> fun catalog -> require_lookup catalog "null-defaults"
   in
-  let typed = require_lookup catalog "typed" in
-  check bool "default kind" true (typed.kind = Provider_config.OpenAI_compat);
-  check bool "default transport" true (typed.transport = Provider_catalog.Http);
-  check (list string) "aliases default empty" [] typed.aliases;
-  check
-    bool
-    "invalid auth defaults to no_auth"
-    true
-    (typed.auth = Provider_catalog.No_auth);
-  check bool "supports tools remains default" false typed.capabilities.supports_tools;
-  check
-    (option int)
-    "max output remains default"
-    None
-    typed.capabilities.max_output_tokens;
-  check
-    (option (list string))
-    "models remain default"
-    None
-    typed.capabilities.supported_models
+  check bool "default kind" true (entry.kind = Provider_config.OpenAI_compat);
+  check bool "default transport" true (entry.transport = Provider_catalog.Http);
+  check (list string) "default aliases" [] entry.aliases;
+  check bool "default auth" true (entry.auth = Provider_catalog.No_auth);
+  check bool "default capabilities" false entry.capabilities.supports_tools
 ;;
 
 let test_transport_auth_and_thinking_canonical_matrix () =
@@ -269,9 +511,9 @@ let test_transport_auth_and_thinking_canonical_matrix () =
             "id": "base-entry",
             "kind": "openai_compat",
             "capabilities_base": "openai_chat",
-            "max_context": 9223372036854775807999,
+            "max_context": 128000,
             "capabilities": {
-              "prompt_cache_alignment": 9223372036854775807999
+              "prompt_cache_alignment": 128
             }
           }
         ]
@@ -337,8 +579,8 @@ let test_transport_auth_and_thinking_canonical_matrix () =
   check bool "capabilities_base supports tools" true base.capabilities.supports_tools;
   check
     (option int)
-    "oversized prompt alignment ignored"
-    None
+    "prompt alignment"
+    (Some 128)
     base.capabilities.prompt_cache_alignment;
   check int "catalog size" 8 (List.length catalog)
 ;;
@@ -419,10 +661,24 @@ let test_removed_catalog_aliases_are_rejected () =
     "removed provider catalog capability"
 ;;
 
-let test_non_list_providers_is_empty_catalog () =
-  let catalog = catalog_of_string {|{"schema_version": 1, "providers": {}}|} in
-  check int "empty catalog" 0 (List.length catalog);
-  check (option reject) "lookup none" None (Provider_catalog.lookup catalog "missing")
+let test_catalog_root_shape_is_explicit () =
+  let rejected label json expected =
+    match Provider_catalog.of_json (Yojson.Safe.from_string json) with
+    | Error message -> check bool label true (contains ~needle:expected message)
+    | Ok _ -> failf "%s must be rejected" label
+  in
+  rejected
+    "providers object"
+    {|{"schema_version": 1, "providers": {}}|}
+    "providers expected array";
+  rejected "providers missing" {|{"schema_version": 1}|} "providers expected array";
+  rejected
+    "schema version type"
+    {|{"schema_version": "1", "providers": []}|}
+    "schema_version expected int";
+  rejected "catalog root" {|[]|} "catalog expected object";
+  let empty = catalog_of_string {|{"schema_version": 1, "providers": []}|} in
+  check int "explicit empty catalog" 0 (List.length empty)
 ;;
 
 let test_removed_auth_types_are_rejected () =
@@ -548,9 +804,19 @@ let () =
             `Quick
             test_full_entry_parses_auth_transport_and_capabilities
         ; test_case
-            "type mismatches fall back"
+            "present type mismatches fail closed"
             `Quick
-            test_type_mismatches_fall_back_without_rejecting_entry
+            test_present_type_mismatches_are_rejected
+        ; test_case "auth shape contract" `Quick test_auth_shape_contract
+        ; test_case "closed object contract" `Quick test_closed_object_contract
+        ; test_case
+            "values fail closed without coercion"
+            `Quick
+            test_values_fail_closed_without_coercion
+        ; test_case
+            "null optional fields use defaults"
+            `Quick
+            test_null_optional_fields_use_declared_defaults
         ; test_case
             "transport auth thinking canonical"
             `Quick
@@ -560,9 +826,9 @@ let () =
             `Quick
             test_removed_catalog_aliases_are_rejected
         ; test_case
-            "non-list providers is empty"
+            "catalog root shape is explicit"
             `Quick
-            test_non_list_providers_is_empty_catalog
+            test_catalog_root_shape_is_explicit
         ; test_case
             "schema and entry errors"
             `Quick

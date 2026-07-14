@@ -271,6 +271,11 @@ let of_provider_failure ?provider kind message =
       | None -> "unknown_parser"
     in
     ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Response_body_too_large { limit_bytes } ->
+    ParseError
+      { detail =
+          Printf.sprintf "provider response exceeded %d bytes: %s" limit_bytes message
+      }
   | Http_client.Empty_completion { stop_reason } ->
     (* [stop_reason] stays typed until this deliberate SDK boundary.  The public
        error surface remains source-compatible: callers already handle an empty

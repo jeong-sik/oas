@@ -82,7 +82,6 @@ let provider_runtime_name (cfg : Provider.config option) =
 
 let hook_decision_to_string = function
   | Hooks.Continue -> "continue"
-  | Hooks.ApprovalRequired -> "approval_required"
   | Hooks.AdjustParams _ -> "adjust_params"
   | Hooks.ElicitInput _ -> "elicit_input"
   | Hooks.Nudge _ -> "nudge"

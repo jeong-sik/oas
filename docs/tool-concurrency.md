@@ -25,9 +25,10 @@ let lookup_tool =
     (fun _args -> Ok { Types.content = "value"; _meta = None })
 ```
 
-The caller is authoritative. Permission and approval are independent from this
-structural scheduling declaration; callers request approval explicitly through
-`Hooks.ApprovalRequired` and the registered approval callback.
+The caller is authoritative. External-effect decisions are independent from
+this structural scheduling declaration. An embedding application settles such
+decisions before dispatch and may return `Hooks.Block reason` from its
+`PreToolUse` hook to reject a call explicitly.
 
 See also:
 

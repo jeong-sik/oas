@@ -29,20 +29,6 @@ let openai_text_response ?(id = "chatcmpl-1") text =
     (escape_json_string text)
 ;;
 
-let anthropic_text_response
-      ?(id = "msg-1")
-      ?(model = "mock")
-      ?(stop_reason = "end_turn")
-      text
-  =
-  Printf.sprintf
-    {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    id
-    model
-    (escape_json_string text)
-    stop_reason
-;;
-
 let openai_tool_use ?(id = "chatcmpl-t") tool_name input_json =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
@@ -526,8 +512,37 @@ let test_structured_extract () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_text_response {|{"name":"test","age":25}|} in
+    let body = openai_text_response {|{"name":"test","age":25}|} in
     let url = start_multi ~sw ~net:env#net ~port:21016 [ body ] in
+    let provider_id = "full-pipeline-structured-mock" in
+    let previous_provider_catalog = Llm_provider.Provider_catalog.global () in
+    Eio.Switch.on_release sw (fun () ->
+      match previous_provider_catalog with
+      | Some catalog -> Llm_provider.Provider_catalog.set_global catalog
+      | None -> Llm_provider.Provider_catalog.clear_global ());
+    let provider_capabilities =
+      { Provider.default_capabilities with
+        supports_response_format_json = true
+      ; supports_structured_output = true
+      }
+    in
+    let provider_entry : Llm_provider.Provider_catalog.entry =
+      { id = provider_id
+      ; aliases = []
+      ; kind = Llm_provider.Provider_config.OpenAI_compat
+      ; transport = Llm_provider.Provider_catalog.Http
+      ; command = None
+      ; base_url = url
+      ; request_path = "/v1/chat/completions"
+      ; api_key_env = ""
+      ; auth = Llm_provider.Provider_catalog.No_auth
+      ; default_model = Some "test-model"
+      ; max_context = None
+      ; capabilities = provider_capabilities
+      ; credential_scope = None
+      }
+    in
+    Llm_provider.Provider_catalog.set_global [ provider_entry ];
     let schema : (string * int) Structured.schema =
       { name = "get_info"
       ; description = "Get info"
@@ -552,7 +567,22 @@ let test_structured_extract () =
     let config =
       { (Types.default_config ~model:"test-model") with name = "struct-agent" }
     in
-    match Structured.extract ~sw ~net:env#net ~base_url:url ~config ~schema "extract" with
+    let provider : Provider.config =
+      { provider = Provider.Custom_registered { name = provider_id }
+      ; model_id = "test-model"
+      ; api_key_env = ""
+      }
+    in
+    match
+      Structured.extract
+        ~sw
+        ~net:env#net
+        ~base_url:url
+        ~provider
+        ~config
+        ~schema
+        "extract"
+    with
     | Ok (name, age) ->
       check string "name" "test" name;
       check int "age" 25 age;
@@ -647,8 +677,6 @@ let test_context_tool () =
 (* ── Suite ─────────────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "full_pipeline_cov"
     [ ( "basic"
