@@ -206,10 +206,10 @@ val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_contr
     (no manifest consultation).
 
     The catalog is resolved by {!Model_catalog.global}: an explicit runtime
-    override installed via {!Model_catalog.set_global}, otherwise the packaged
-    default [models.toml]. Embedding hosts and test harnesses can install an
-    explicit runtime override; OAS performs no environment-based catalog
-    discovery.
+    override installed via {!Model_catalog.set_global}, otherwise the
+    build-time embedded OAS [models.toml]. Embedding hosts and test harnesses
+    can install an explicit runtime override; OAS performs no environment-based
+    catalog discovery.
 
     Returns [None] when no catalog is available or when no catalog entry
     prefix-matches [model_id]; there is no in-code fallback table. *)

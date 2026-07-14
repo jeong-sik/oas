@@ -61,7 +61,7 @@ let with_temp_model_catalog contents f =
 
 let isolate_ambient_runtime_sources () =
   Capability_manifest.set_global [];
-  Model_catalog_test_support.install_packaged_model_catalog ~suite:"Capabilities"
+  Model_catalog_test_support.install_embedded_model_catalog ~suite:"Capabilities"
 ;;
 
 (* ── Default capabilities ────────────────────────────── *)

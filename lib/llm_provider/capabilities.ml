@@ -1133,8 +1133,8 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
 
     The catalog itself is resolved by {!Model_catalog.global}: an explicit
     runtime override installed via {!Model_catalog.set_global}, otherwise the
-    packaged default [models.toml]. OAS performs no environment-based catalog
-    discovery.
+    build-time embedded OAS [models.toml]. OAS performs no environment-based
+    catalog discovery.
 
     Returns [None] when no catalog is available or when the catalog has
     no entry whose [id_prefix] matches [model_id]. There is no in-code
@@ -1420,7 +1420,10 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
 ;;
 
 (* [for_model_id_catalog] tests below install an explicit catalog through
-   [Model_catalog.set_global] and restore the packaged default afterwards.
+   [Model_catalog.set_global] and restore the override afterwards, so they
+   are insulated from any caller-installed model catalog. Inline tests that
+   exercise the production catalog use the embedded default generated directly
+   from the OAS-owned [models.toml].
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the
@@ -1706,7 +1709,7 @@ let test_catalog_entries =
 let test_catalog : Model_catalog.t = Model_catalog.of_model_entries test_catalog_entries
 
 (* Installs [test_catalog] as the runtime override for the duration of [f],
-   then clears the override so subsequent lookups use the packaged catalog. *)
+   then clears the override so subsequent lookups use the embedded catalog. *)
 let with_test_catalog f =
   Model_catalog.set_global test_catalog;
   Fun.protect ~finally:Model_catalog.clear_global f

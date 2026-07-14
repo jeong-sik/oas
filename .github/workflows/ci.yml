@@ -42,6 +42,9 @@ jobs:
       - name: Build
         run: opam exec -- dune build @all
 
+      - name: Standalone embedded model catalog smoke
+        run: opam exec -- bash scripts/check-model-catalog-embedded.sh
+
       - name: Test
         env:
           ALCOTEST_QUICK_TESTS: "1"

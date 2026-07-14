@@ -28,18 +28,19 @@ Provider_catalog.set_global catalog
 Resolution order:
 
 1. Explicit overlay installed with `Provider_catalog.set_global`
-2. Packaged `models.toml` provider rows
+2. Embedded OAS `models.toml` provider rows
 3. Built-in provider seed data
 
-OAS never discovers a provider catalog from the process environment. File
-selection, reload policy, and parse-error handling belong to the embedding
-application.
+The OAS-owned `models.toml` also carries shareable provider identity rows under
+`[[providers]]`. Those rows are data, not OCaml vendor branches: OAS embeds that
+file at build time and uses it to register default provider entries and resolve
+exact endpoint identity without hardcoded host lists. Linked applications need
+no catalog file beside their executable.
 
-The packaged `models.toml` can also carry shareable provider identity rows under
-`[[providers]]`. Those rows are data, not OCaml vendor branches: OAS uses them
-to register default provider entries and to resolve exact endpoint identity
-without hardcoded host lists. External products can read the same TOML file and
-project the same provider/model catalog into their runtime config.
+OAS never discovers a provider or model catalog from the process environment.
+File selection, reload policy, and parse-error handling belong to the embedding
+application. A caller that needs a custom file loads it explicitly with
+`Provider_catalog.load_file` and installs it with `Provider_catalog.set_global`.
 
 Catalog entries overwrite built-in provider ids when exact ids collide.
 `Provider_registry` registers only the declared `id`; aliases are never
@@ -58,7 +59,7 @@ query. `Provider_registry.find` is deliberately different: it accepts the
 exact declared registry id only. `"VLLM-LOCAL"`, `"vllm-local"`, and an alias
 are distinct inputs at the runtime binding boundary.
 
-Invalid identifiers are rejected or skipped:
+Invalid identifiers are rejected:
 
 - Empty/whitespace **id** in a JSON catalog → `of_json` returns `Error`.
 - Aliases are not inserted into `Provider_registry`, whether the catalog came
@@ -70,7 +71,7 @@ makes the behavior depend on which API the caller used.
 
 ## Schema
 
-Packaged TOML provider rows:
+Embedded TOML provider rows:
 
 ```toml
 [[providers]]
@@ -147,8 +148,13 @@ Auth modes:
 | `api_key_env` | `env` | Cloud APIs using an API key environment variable. |
 | `setup_token_env` | `env` | Setup/bootstrap token environment variable. |
 | `oauth_cached_login` | | OAuth-backed cached login. |
-| `file` | `path` | Credential file owned by the embedding app. |
-| `exec` | `command` | External credential helper. OAS records availability only; it does not shell out from the catalog loader. |
+
+The JSON parser is fail-closed: root, provider, `auth`, and `capabilities`
+objects reject duplicate or unknown fields; scalar and list values must have
+their declared types; lists declared as non-empty must contain exact item
+types; and positive integer fields must fit the OCaml native integer range.
+JSON `null` is accepted only where the schema defines it as an omitted/default
+value. A malformed provider entry rejects the catalog instead of being skipped.
 
 ## Cloud API Example
 
@@ -197,7 +203,7 @@ The `capabilities` object accepts the same capability field names used by
 - `supports_top_k`, `supports_min_p`, `supports_seed`
 - `emits_usage_tokens`, `supported_models`
 
-Model-specific facts should live in the packaged/explicit model catalog or an
+Model-specific facts should live in the embedded/explicit model catalog or an
 explicitly installed `Capability_manifest`. Provider catalog capabilities
 should describe runtime/provider defaults and transport constraints.
 

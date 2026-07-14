@@ -42,7 +42,7 @@ let with_manifest json f =
 ;;
 
 let install_repository_catalog () =
-  Model_catalog_test_support.install_packaged_model_catalog
+  Model_catalog_test_support.install_embedded_model_catalog
     ~suite:"thinking-control dialect"
 ;;
 

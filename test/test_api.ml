@@ -43,7 +43,7 @@ let source_path path =
 
 let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
 
-let install_packaged_model_catalog () =
+let install_repo_model_catalog () =
   let path = source_path "models.toml" in
   match Llm_provider.Model_catalog.load_file path with
   | Ok catalog -> Llm_provider.Model_catalog.set_global catalog
@@ -2417,7 +2417,7 @@ let test_build_body_disable_parallel () =
 (* ------------------------------------------------------------------ *)
 
 let () =
-  install_packaged_model_catalog ();
+  install_repo_model_catalog ();
   run
     "Api"
     [ ( "content_block_round_trip"

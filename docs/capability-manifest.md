@@ -19,7 +19,7 @@ catalog row for the same model prefix.
 ## Priority
 
 ```
-Explicit model catalog override or packaged model catalog row (prefix match)
+Explicit model catalog override or embedded OAS model catalog row (prefix match)
     ↓ miss
 Explicitly installed manifest entry (prefix match)
     ↓ miss
@@ -154,7 +154,7 @@ let caps = Capabilities.for_model_id_with_manifest manifest "my-llama-q4-k4"
 let manifest = Capability_manifest.load_file "caps.json" |> Result.get_ok in
 Capability_manifest.set_global manifest;
 
-(* for_model_id checks the packaged/explicit model catalog first, then this manifest *)
+(* for_model_id checks the embedded/explicit model catalog first, then this manifest *)
 let caps = Capabilities.for_model_id "my-llama-q4-k4"
 ```
 
@@ -204,5 +204,5 @@ Capability_manifest.set_global manifest
   reload policy, and error handling belong to the embedding application.
 - `load_file` returns an explicit `Result`; install only a successfully parsed
   manifest with `set_global`.
-- The packaged model catalog remains the primary capability source. A manifest
+- The embedded model catalog remains the primary capability source. A manifest
   supplies facts only when no model-catalog row matches.

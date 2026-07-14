@@ -37,8 +37,8 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
 ;;
 
-let install_packaged_model_catalog () =
-  Model_catalog_test_support.install_packaged_model_catalog ~suite:"provider"
+let install_embedded_model_catalog () =
+  Model_catalog_test_support.install_embedded_model_catalog ~suite:"provider"
 ;;
 
 let declared_pricing model_id =
@@ -1378,7 +1378,7 @@ let test_provider_config_of_agent_custom_registered_unknown_name () =
 ;;
 
 let () =
-  install_packaged_model_catalog ();
+  install_embedded_model_catalog ();
   Alcotest.run
     "Provider"
     [ ( "resolve"

@@ -2,12 +2,6 @@ open Alcotest
 module Capabilities = Llm_provider.Capabilities
 module Model_catalog = Llm_provider.Model_catalog
 
-let id_prefixes catalog =
-  catalog
-  |> Model_catalog.model_entries
-  |> List.map (fun (entry : Model_catalog.model_entry) -> entry.id_prefix)
-;;
-
 let first_id_prefix ~suite catalog =
   match Model_catalog.model_entries catalog with
   | [] -> failf "%s: repo model catalog should not be empty" suite
@@ -20,15 +14,24 @@ let with_clean_model_catalog_override f =
 ;;
 
 let test_load_default_catalog () =
+  let expected =
+    Model_catalog_test_support.load_repo_model_catalog ~suite:"model catalog default"
+  in
   match Model_catalog.load_default () with
   | Error msg -> failf "default model catalog should load: %s" msg
   | Ok catalog ->
-    check bool "default catalog has model declarations" true (id_prefixes catalog <> [])
+    check
+      bool
+      "embedded default is exactly the OAS models.toml catalog"
+      true
+      (Model_catalog.model_entries expected = Model_catalog.model_entries catalog
+       && Model_catalog.provider_entries expected = Model_catalog.provider_entries catalog
+      )
 ;;
 
 let test_global_loads_default_catalog_for_capabilities () =
   let expected =
-    Model_catalog_test_support.load_packaged_model_catalog
+    Model_catalog_test_support.load_repo_model_catalog
       ~suite:"model catalog default production path"
   in
   let model_id =
@@ -39,7 +42,7 @@ let test_global_loads_default_catalog_for_capabilities () =
     | Some _ -> ()
     | None ->
       failf
-        "Capabilities.for_model_id_catalog should resolve %S through packaged/default \
+        "Capabilities.for_model_id_catalog should resolve %S through embedded/default \
          Model_catalog.global"
         model_id)
 ;;
@@ -47,10 +50,10 @@ let test_global_loads_default_catalog_for_capabilities () =
 let () =
   run
     "model catalog default"
-    [ ( "packaged catalog"
+    [ ( "embedded catalog"
       , [ test_case "load_default" `Quick test_load_default_catalog
         ; test_case
-            "global uses packaged default"
+            "global uses embedded default"
             `Quick
             test_global_loads_default_catalog_for_capabilities
         ] )
