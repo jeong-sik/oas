@@ -1203,8 +1203,8 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
 
     The catalog itself is resolved by {!Model_catalog.global}, in order:
     runtime override installed via {!Model_catalog.set_global}, then the
-    [OAS_MODEL_CATALOG] environment variable, then the packaged default
-    [models.toml]. Ambient discovery is cached after first load; embedding
+    [OAS_MODEL_CATALOG] environment variable, then the build-time embedded
+    OAS [models.toml]. Ambient discovery is cached after first load; embedding
     hosts and test harnesses can call [Model_catalog.preload_global], inject
     [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
     override.
@@ -1515,9 +1515,9 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
 (* [for_model_id_catalog] tests below install an explicit catalog through
    [Model_catalog.set_global] and restore the override afterwards, so they
    are insulated from BOTH ambient manifest overrides
-   ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
-   ([OAS_MODEL_CATALOG]). CI injects the repository [models.toml] through
-   [OAS_MODEL_CATALOG] for inline tests that exercise the production catalog.
+   ([OAS_CAPABILITY_MANIFEST]) and the explicit catalog override
+   ([OAS_MODEL_CATALOG]). Inline tests that exercise the production catalog use
+   the default generated directly from the OAS-owned [models.toml].
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the

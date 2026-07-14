@@ -74,7 +74,6 @@ let empty = { models = []; providers = [] }
 let of_model_entries models = { empty with models }
 let model_entries t = t.models
 let provider_entries t = t.providers
-let default_catalog_filename = "models.toml"
 
 let find_string_opt toml path =
   match Otoml.find_opt toml Otoml.get_string path with
@@ -679,25 +678,31 @@ let parse_table_array toml key parse =
            results)
 ;;
 
-let load_file path =
+let catalog_of_toml toml =
+  match parse_table_array toml "models" parse_entry with
+  | Error _ as e -> e
+  | Ok models ->
+    (match parse_table_array toml "providers" Model_provider_catalog.parse_entry with
+     | Error _ as e -> e
+     | Ok providers -> Ok { models; providers })
+;;
+
+let parse_catalog ~source parse =
   let parse_res =
-    try Ok (Otoml.Parser.from_file path) with
-    | Sys_error msg -> Error (Printf.sprintf "cannot read model catalog %s: %s" path msg)
+    try Ok (parse ()) with
+    | Sys_error msg ->
+      Error (Printf.sprintf "cannot read model catalog %s: %s" source msg)
     | Otoml.Parse_error (_pos, msg) ->
-      Error (Printf.sprintf "model catalog TOML parse error in %s: %s" path msg)
+      Error (Printf.sprintf "model catalog TOML parse error in %s: %s" source msg)
     | Failure msg ->
-      Error (Printf.sprintf "model catalog TOML failure in %s: %s" path msg)
+      Error (Printf.sprintf "model catalog TOML failure in %s: %s" source msg)
   in
   match parse_res with
   | Error _ as e -> e
-  | Ok toml ->
-    (match parse_table_array toml "models" parse_entry with
-     | Error _ as e -> e
-     | Ok models ->
-       (match parse_table_array toml "providers" Model_provider_catalog.parse_entry with
-        | Error _ as e -> e
-        | Ok providers -> Ok { models; providers }))
+  | Ok toml -> catalog_of_toml toml
 ;;
+
+let load_file path = parse_catalog ~source:path (fun () -> Otoml.Parser.from_file path)
 
 let load_runtime_file path =
   match load_file path with
@@ -714,52 +719,9 @@ let load_runtime_file path =
     None
 ;;
 
-let is_existing_file path =
-  try Sys.file_exists path && not (Sys.is_directory path) with
-  | Sys_error _ -> false
-;;
-
-let dedupe_paths paths =
-  List.fold_left
-    (fun seen path -> if List.mem path seen then seen else path :: seen)
-    []
-    paths
-  |> List.rev
-;;
-
-let default_catalog_paths () =
-  let site_paths =
-    List.map
-      (fun dir -> Filename.concat dir default_catalog_filename)
-      Model_catalog_sites.Sites.model_catalog
-  in
-  let source_paths =
-    match Model_catalog_sites.sourceroot with
-    | None -> []
-    | Some root -> [ Filename.concat root default_catalog_filename ]
-  in
-  site_paths @ source_paths |> dedupe_paths
-;;
-
 let load_default () =
-  match default_catalog_paths () with
-  | [] -> Error "default model catalog has no Dune site or source-root candidate paths"
-  | paths ->
-    let rec first_loaded errors = function
-      | [] ->
-        Error
-          (Printf.sprintf
-             "default model catalog failed to load from candidate path(s): %s"
-             (String.concat "; " (List.rev errors)))
-      | path :: rest ->
-        let load_result =
-          if is_existing_file path then load_file path else Error "file not found"
-        in
-        (match load_result with
-         | Ok catalog -> Ok catalog
-         | Error msg -> first_loaded (Printf.sprintf "%s: %s" path msg :: errors) rest)
-    in
-    first_loaded [] paths
+  parse_catalog ~source:"embedded default model catalog" (fun () ->
+    Otoml.Parser.from_string Model_catalog_embedded.contents)
 ;;
 
 let dot_qualified_aliases model_id =
@@ -832,14 +794,14 @@ let load_ambient_catalog () =
      | Ok catalog ->
        Diag.info
          "model_catalog"
-         "loaded %d default model entries and %d provider entries from packaged catalog"
+         "loaded %d default model entries and %d provider entries from embedded catalog"
          (List.length catalog.models)
          (List.length catalog.providers);
        Some catalog
      | Error msg ->
        Diag.warn
          "model_catalog"
-         "failed to load packaged default model catalog: %s; set OAS_MODEL_CATALOG to an \
+         "failed to load embedded default model catalog: %s; set OAS_MODEL_CATALOG to an \
           explicit catalog path to override"
          msg;
        None)

@@ -238,8 +238,8 @@ val gemini_thinking_control_of_id : string -> gemini_thinking_control
 
     The catalog is resolved by {!Model_catalog.global}, in order: runtime
     override installed via {!Model_catalog.set_global}, the
-    [OAS_MODEL_CATALOG] environment variable, then the packaged default
-    [models.toml]. Ambient discovery is cached after first load; embedding
+    [OAS_MODEL_CATALOG] environment variable, then the build-time embedded
+    OAS [models.toml]. Ambient discovery is cached after first load; embedding
     hosts and test harnesses can call [Model_catalog.preload_global], inject
     [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
     override.

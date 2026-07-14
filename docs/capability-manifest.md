@@ -19,7 +19,7 @@ catalog row for the same model prefix.
 ## Priority
 
 ```
-Model catalog row (OAS_MODEL_CATALOG, prefix match)
+Model catalog row (explicit OAS_MODEL_CATALOG or embedded OAS default, prefix match)
     ↓ miss
 Manifest entry (OAS_CAPABILITY_MANIFEST, prefix match)
     ↓ miss
