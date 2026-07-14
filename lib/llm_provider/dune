@@ -35,4 +35,6 @@
  (action
   (with-stdout-to
    %{target}
-   (run model_catalog_embed_gen/model_catalog_embed_gen.exe %{dep:../../models.toml}))))
+   (run
+    model_catalog_embed_gen/model_catalog_embed_gen.exe
+    %{dep:../../models.toml}))))
