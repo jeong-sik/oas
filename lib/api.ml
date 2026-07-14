@@ -77,10 +77,19 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
   Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream ()
 ;;
 
+let build_body_assoc_result_for_resolved_config =
+  Api_anthropic.build_body_assoc_result_for_resolved_config
+;;
+
 (* Re-export Api_openai *)
 let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body_result = Api_openai.build_openai_body_result
+
+let build_openai_body_result_for_resolved_config =
+  Api_openai.build_openai_body_result_for_resolved_config
+;;
+
 let build_openai_body = Api_openai.build_openai_body
 
 let parse_openai_response_result =
@@ -90,17 +99,30 @@ let parse_openai_response_result =
 (* Transport latency patch. Parser layers leave request_latency_ms unknown
    because they only see the JSON response body; only the transport layer
    can measure request latency. *)
-let patch_latency (resp : Types.api_response) (latency_ms : int option)
-  : Types.api_response
+let project_custom_provider_history
+      ~(provider_config : Llm_provider.Provider_config.t)
+      messages
   =
-  let telemetry =
-    match resp.telemetry with
-    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = latency_ms }
-    | None ->
-      let default = Llm_provider.Types.default_inference_telemetry in
-      Some { default with request_latency_ms = latency_ms }
-  in
-  { resp with telemetry }
+  match
+    Llm_provider.Reasoning_history_projection.project_for_provider_config
+      ~assistant_has_payload:(fun content -> content <> [])
+      ~reasoning_block_supported:(function
+        | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ -> false
+        | Types.Text _
+        | Types.ToolUse _
+        | Types.ToolResult _
+        | Types.Image _
+        | Types.Document _
+        | Types.Audio _ -> false)
+      provider_config
+      messages
+  with
+  | Error error -> Error (Llm_provider.Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    Llm_provider.Reasoning_history_projection.observe
+      ~component:"api_custom_provider"
+      projection;
+    Ok projection.messages
 ;;
 
 let ensure_nonempty_response resp =
@@ -174,41 +196,63 @@ let create_message_detailed
        in
        let kind = model_spec.request_kind in
        let path = model_spec.request_path in
+       let response_provider_config_result =
+         Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)
+       in
        let request_handler_result =
-         match kind with
-         | Provider.Anthropic_messages -> Ok `Anthropic
-         | Provider.Openai_chat_completions -> Ok `Openai
-         | Provider.Custom name ->
-           (match Provider.find_provider name with
-            | Some impl -> Ok (`Custom impl)
-            | None ->
-              Error
-                (Error.Config
-                   (Error.InvalidConfig
-                      { field = "provider"
-                      ; detail =
-                          Printf.sprintf "Custom provider '%s' is not registered" name
-                      })))
+         match response_provider_config_result with
+         | Error _ as error -> error
+         | Ok response_provider_config ->
+           let response_provider_config =
+             { response_provider_config with base_url; request_path = path }
+           in
+           (match kind with
+            | Provider.Anthropic_messages -> Ok (`Anthropic, response_provider_config)
+            | Provider.Openai_chat_completions -> Ok (`Openai, response_provider_config)
+            | Provider.Custom name ->
+              (match Provider.find_provider name with
+               | Some impl -> Ok (`Custom impl, response_provider_config)
+               | None ->
+                 Error
+                   (Error.Config
+                      (Error.InvalidConfig
+                         { field = "provider"
+                         ; detail =
+                             Printf.sprintf "Custom provider '%s' is not registered" name
+                         }))))
        in
        (match request_handler_result with
         | Error error ->
           Error (Provider_failure_attribution.of_runtime_binding_error ~binding error)
-        | Ok request_handler ->
+        | Ok (request_handler, response_provider_config) ->
           let body_result =
             match request_handler with
             | `Anthropic ->
-              Ok
-                (Yojson.Safe.to_string
-                   (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ())))
+              build_body_assoc_result_for_resolved_config
+                ~resolved_config:response_provider_config
+                ~cache_extended_ttl:config.config.cache_extended_ttl
+                ~messages
+                ?tools
+                ~stream:false
+                ()
+              |> Result.map (fun body -> Yojson.Safe.to_string (`Assoc body))
             | `Openai ->
-              Api_openai.build_openai_body_result
-                ~provider_config:provider_cfg
-                ~config
+              build_openai_body_result_for_resolved_config
+                ~resolved_config:response_provider_config
                 ~messages
                 ?tools
                 ?slot_id
                 ()
-            | `Custom impl -> Ok (impl.build_body ~config ~messages ?tools ())
+            | `Custom impl ->
+              (match
+                 project_custom_provider_history
+                   ~provider_config:response_provider_config
+                   messages
+               with
+               | Error _ as error -> error
+               | Ok messages ->
+                 (try Ok (impl.build_body ~config ~messages ?tools ()) with
+                  | Invalid_argument reason -> Error reason))
           in
           (match body_result with
            | Error reason ->
@@ -223,11 +267,7 @@ let create_message_detailed
                (Provider_failure_attribution.of_request_validation_error ~binding error)
            | Ok body_str ->
              let url = base_url ^ path in
-             let provider_kind =
-               match request_handler with
-               | `Anthropic -> Llm_provider.Provider_config.Anthropic
-               | `Openai | `Custom _ -> Llm_provider.Provider_config.OpenAI_compat
-             in
+             let provider_kind = response_provider_config.kind in
              let do_http_call () =
                (* Merge auth headers at request time via Provider_config so that
          [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
@@ -303,7 +343,11 @@ let create_message_detailed
                    Result.map
                      (fun resp ->
                         Llm_provider.Pricing.annotate_response_cost resp
-                        |> fun r -> patch_latency r lat)
+                        |> fun response ->
+                        Llm_provider.Complete_common.patch_telemetry
+                          response
+                          ~config:response_provider_config
+                          lat)
                      raw_resp_result
                  | `HttpError (code, body_str) ->
                    Error
@@ -580,84 +624,4 @@ let%test "text_blocks_to_string non-text blocks ignored" =
   in
   let result = text_blocks_to_string blocks in
   String.length result > 0
-;;
-
-(* --- patch_latency tests --- *)
-
-let%test "patch_latency creates telemetry when None with measured ms" =
-  let resp : Types.api_response =
-    { id = "r1"
-    ; model = "m"
-    ; stop_reason = Types.EndTurn
-    ; content = []
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  let patched = patch_latency resp (Some 500) in
-  match patched.telemetry with
-  | Some t -> t.Llm_provider.Types.request_latency_ms = Some 500
-  | None -> false
-;;
-
-let%test "patch_latency overwrites existing request_latency_ms" =
-  let telemetry : Llm_provider.Types.inference_telemetry =
-    { Llm_provider.Types.default_inference_telemetry with
-      system_fingerprint = Some "fp"
-    ; reasoning_tokens = Some 10
-    ; request_latency_ms = None (* parser cannot observe transport latency *)
-    ; provider_kind = Some Llm_provider.Provider_config.Anthropic
-    ; canonical_model_id = Some "claude-4-sonnet"
-    }
-  in
-  let resp : Types.api_response =
-    { id = "r2"
-    ; model = "m"
-    ; stop_reason = Types.EndTurn
-    ; content = []
-    ; usage = None
-    ; telemetry = Some telemetry
-    }
-  in
-  let patched = patch_latency resp (Some 1234) in
-  match patched.telemetry with
-  | Some t ->
-    t.request_latency_ms = Some 1234
-    && t.system_fingerprint = Some "fp" (* preserved *)
-    && t.reasoning_tokens = Some 10 (* preserved *)
-    && t.canonical_model_id = Some "claude-4-sonnet" (* preserved *)
-  | None -> false
-;;
-
-let%test "patch_latency zero latency still patches" =
-  let resp : Types.api_response =
-    { id = "r3"
-    ; model = "m"
-    ; stop_reason = Types.EndTurn
-    ; content = []
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  let patched = patch_latency resp (Some 0) in
-  (* Even 0 gets wrapped in Some — not a no-op. Caller decides semantics. *)
-  match patched.telemetry with
-  | Some t -> t.request_latency_ms = Some 0
-  | None -> false
-;;
-
-let%test "patch_latency preserves unknown latency" =
-  let resp : Types.api_response =
-    { id = "r4"
-    ; model = "m"
-    ; stop_reason = Types.EndTurn
-    ; content = []
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  let patched = patch_latency resp None in
-  match patched.telemetry with
-  | Some t -> t.request_latency_ms = None
-  | None -> false
 ;;

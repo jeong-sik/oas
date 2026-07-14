@@ -259,26 +259,29 @@ let build_request_assoc_artifact
   let tools = effective_tools config tools in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
+  let reasoning_target =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail ->
+      invalid_arg ("Backend_openai_request: invalid reasoning target: " ^ detail)
+  in
   let output_token_receipt =
     output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
-    (* RFC-OAS-029 S3.1: reasoning replay is decided by the typed dialect
-       ([Reasoning_dialect.should_replay_reasoning] via [replay_policy]),
-       resolved once in [Reasoning_dialect.for_provider_config]. The serializer
-       no longer branches on [config.kind = Glm] / [is_glm_request] to pick a
-       reasoning-preserving serializer: GLM's clear_thinking-conditional replay
-       is encoded in [dialect.replay_policy] at that single boundary, and the
-       GLM tool-only content shape comes from [assistant_tool_content_format]
-       ([Assistant_tool_content_empty_string] in [glm_capabilities]). The
-       previously GLM-specific [glm_messages_of_message] is therefore the
-       [dialect_messages_of_message] case where the dialect replays and the caps
-       request an empty-string tool content. *)
-    let message_serializer =
-      Backend_openai_serialize.dialect_messages_of_message
-        ~assistant_tool_content_format
-        dialect
+    let history =
+      match
+        Backend_openai_serialize.dialect_messages_of_history
+          ~assistant_tool_content_format
+          ~reasoning_target
+          dialect
+          messages
+      with
+      | Ok history -> history
+      | Error error ->
+        invalid_arg
+          ("Backend_openai_request: " ^ Reasoning_history_projection.error_to_string error)
     in
     (* oas#2483: inject the chat-template thinking token into the system turn for
        [Chat_template_token] rows, mirroring [backend_ollama]. Without this the
@@ -301,7 +304,7 @@ let build_request_assoc_artifact
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
        ]
      | _ -> [])
-    @ List.concat_map message_serializer messages
+    @ history
   in
   (* Per-model capabilities ([caps] above) drive the [top_k] / [min_p]
      sampling-field gates further down; the output-token budget (clamp

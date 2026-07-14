@@ -60,6 +60,31 @@ let build_request_artifact
       ~config
       ~caps
   in
+  let projected_messages =
+    match
+      Reasoning_history_projection.project_for_provider_config
+        ~assistant_has_payload:(fun content -> content <> [])
+        ~reasoning_block_supported:(function
+          | Thinking _ -> true
+          | ReasoningDetails _
+          | RedactedThinking _
+          | Text _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        config
+        messages
+    with
+    | Error error ->
+      invalid_arg
+        ("Backend_ollama.build_request: "
+         ^ Reasoning_history_projection.error_to_string error)
+    | Ok projection ->
+      Reasoning_history_projection.observe ~component:"backend_ollama" projection;
+      projection.messages
+  in
   let provider_messages =
     (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -69,7 +94,7 @@ let build_request_artifact
      | _ -> [])
     @ List.concat_map
         (Backend_openai_serialize.ollama_messages_of_message ~model_id:config.model_id)
-        messages
+        projected_messages
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   (* Emit native thinking control only when the caller supplied it. Some

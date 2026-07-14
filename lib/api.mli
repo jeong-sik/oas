@@ -36,6 +36,15 @@ val build_body_assoc
   -> unit
   -> (string * Yojson.Safe.t) list
 
+val build_body_assoc_result_for_resolved_config
+  :  resolved_config:Llm_provider.Provider_config.t
+  -> cache_extended_ttl:bool
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> stream:bool
+  -> unit
+  -> ((string * Yojson.Safe.t) list, string) result
+
 (** {1 Re-exports from Api_openai} *)
 
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
@@ -47,6 +56,14 @@ val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t l
 val build_openai_body_result
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (string, string) result
+
+val build_openai_body_result_for_resolved_config
+  :  resolved_config:Llm_provider.Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?slot_id:int

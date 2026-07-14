@@ -106,6 +106,7 @@ let modality_supported (caps : capabilities) = function
 
 type provider_impl =
   { name : string
+  ; provider_kind : Llm_provider.Provider_config.provider_kind
   ; request_kind : request_kind
   ; request_path : string
   ; capabilities : capabilities
@@ -165,6 +166,7 @@ let kimi_direct_headers _key =
 
 let kimi_provider_impl : provider_impl =
   { name = "kimi"
+  ; provider_kind = Llm_provider.Provider_config.Kimi
   ; request_kind = Anthropic_messages
   ; request_path = kimi_direct_request_path
   ; capabilities = Llm_provider.Capabilities.kimi_capabilities
@@ -175,7 +177,6 @@ let kimi_provider_impl : provider_impl =
               (Api_anthropic.build_body_assoc
                  ~config
                  ~messages
-                 ~message_to_json:Llm_provider.Api_common.kimi_message_to_json
                  ~provider_kind:Llm_provider.Provider_config.Kimi
                  ?tools
                  ~stream:false
@@ -615,11 +616,7 @@ let provider_config_of_agent
              (match impl.resolve p with
               | Error e -> Error e
               | Ok (resolved_base_url, api_key, headers) ->
-                let kind : Llm_provider.Provider_config.provider_kind =
-                  match impl.request_kind with
-                  | Anthropic_messages -> Anthropic
-                  | Openai_chat_completions | Custom _ -> OpenAI_compat
-                in
+                let kind = impl.provider_kind in
                 let model_capabilities_override =
                   match
                     Llm_provider.Capabilities.for_provider_model_id

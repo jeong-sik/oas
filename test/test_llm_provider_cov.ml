@@ -1554,12 +1554,12 @@ let test_for_model_id_llama4_alt () =
   | None -> Alcotest.fail "expected Some for llama4"
 ;;
 
-let provider_capabilities provider_label model_id =
+let provider_model_capabilities provider_label model_id =
   Capabilities.for_provider_model_id ~allow_bare_fallback:false ~provider_label ~model_id
 ;;
 
-let test_for_model_id_deepseek_v4_flash () =
-  match provider_capabilities "deepseek" "deepseek-v4-flash" with
+let test_for_provider_model_deepseek_v4_flash () =
+  match provider_model_capabilities "deepseek" "deepseek-v4-flash" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1573,8 +1573,8 @@ let test_for_model_id_deepseek_v4_flash () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
 
-let test_for_model_id_deepseek_v4_pro () =
-  match provider_capabilities "deepseek" "deepseek-v4-pro" with
+let test_for_provider_model_deepseek_v4_pro () =
+  match provider_model_capabilities "deepseek" "deepseek-v4-pro" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1588,32 +1588,32 @@ let test_for_model_id_deepseek_v4_pro () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;
 
-let test_for_model_id_mistral_large () =
-  match provider_capabilities "mistral" "mistral-large-2025" with
+let test_for_provider_model_mistral_large () =
+  match provider_model_capabilities "mistral" "mistral-large" with
   | Some c ->
     Alcotest.(check bool) "structured" true c.supports_structured_output;
     Alcotest.(check (option int)) "260K context" (Some 260_000) c.max_context_tokens
   | None -> Alcotest.fail "expected Some for mistral-large"
 ;;
 
-let test_for_model_id_mistral_small () =
-  match provider_capabilities "mistral" "mistral-small-latest" with
+let test_for_provider_model_mistral_small () =
+  match provider_model_capabilities "mistral" "mistral-small" with
   | Some c ->
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens
   | None -> Alcotest.fail "expected Some for mistral-small"
 ;;
 
-let test_for_model_id_command () =
-  match provider_capabilities "cohere" "command-r-plus" with
+let test_for_provider_model_command () =
+  match provider_model_capabilities "cohere" "command-r-plus" with
   | Some c ->
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens;
     Alcotest.(check (option int)) "32K output" (Some 32_000) c.max_output_tokens
   | None -> Alcotest.fail "expected Some for command"
 ;;
 
-let test_for_model_id_grok () =
-  match provider_capabilities "xai" "grok-4.3" with
+let test_for_provider_model_grok () =
+  match provider_model_capabilities "xai" "grok-4.3" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning
@@ -1938,18 +1938,29 @@ let () =
         ; Alcotest.test_case "dashscope-3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
-        ; Alcotest.test_case
-            "deepseek-v4-flash"
-            `Quick
-            test_for_model_id_deepseek_v4_flash
-        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_deepseek_v4_pro
-        ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_mistral_large
-        ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_mistral_small
-        ; Alcotest.test_case "command" `Quick test_for_model_id_command
-        ; Alcotest.test_case "grok" `Quick test_for_model_id_grok
         ; Alcotest.test_case "glm" `Quick test_for_model_id_glm
         ; Alcotest.test_case "unknown" `Quick test_for_model_id_unknown
         ; Alcotest.test_case "case insensitive" `Quick test_for_model_id_case_insensitive
+        ] )
+    ; ( "capabilities.for_provider_model_id"
+      , [ Alcotest.test_case
+            "deepseek/deepseek-v4-flash"
+            `Quick
+            test_for_provider_model_deepseek_v4_flash
+        ; Alcotest.test_case
+            "deepseek/deepseek-v4-pro"
+            `Quick
+            test_for_provider_model_deepseek_v4_pro
+        ; Alcotest.test_case
+            "mistral/mistral-large"
+            `Quick
+            test_for_provider_model_mistral_large
+        ; Alcotest.test_case
+            "mistral/mistral-small"
+            `Quick
+            test_for_provider_model_mistral_small
+        ; Alcotest.test_case "cohere/command" `Quick test_for_provider_model_command
+        ; Alcotest.test_case "xai/grok" `Quick test_for_provider_model_grok
         ] )
     ; ( "capabilities.with_context_size"
       , [ Alcotest.test_case "set" `Quick test_with_context_size

@@ -297,6 +297,37 @@ let decode_gemini_part_thought_signature data =
          | _ -> Not_gemini_part_signature))
 ;;
 
+let validate_projected_thought_signatures (messages : message list) =
+  List.iteri
+    (fun message_index (message : message) ->
+       List.iteri
+         (fun block_index -> function
+            | RedactedThinking data ->
+              (match gemini_thought_signature_of_redacted data with
+               | Some _ -> ()
+               | None ->
+                 (match decode_gemini_part_thought_signature data with
+                  | Decoded_gemini_part_signature _ -> ()
+                  | Not_gemini_part_signature | Malformed_gemini_part_signature ->
+                    raise
+                      (Gemini_api_error
+                         (Printf.sprintf
+                            "Gemini history contains an invalid thoughtSignature carrier \
+                             at history index %d block %d"
+                            message_index
+                            block_index))))
+            | Text _
+            | Thinking _
+            | ReasoningDetails _
+            | ToolUse _
+            | ToolResult _
+            | Image _
+            | Document _
+            | Audio _ -> ())
+         message.content)
+    messages
+;;
+
 let gemini_tool_signatures_of_blocks blocks =
   let tbl = Hashtbl.create 8 in
   List.iter
@@ -629,7 +660,32 @@ let build_request_artifact
       ~envelope:Types.Gemini_generation_config_max_output_tokens
       config
   in
-  let contents, system_instruction = contents_of_messages messages in
+  let projected_messages =
+    match
+      Reasoning_history_projection.project_for_provider_config
+        ~assistant_has_payload:(fun content -> content <> [])
+        ~reasoning_block_supported:(function
+          | Thinking _ | RedactedThinking _ -> true
+          | ReasoningDetails _
+          | Text _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        config
+        messages
+    with
+    | Error error ->
+      invalid_arg
+        ("Backend_gemini.build_request: "
+         ^ Reasoning_history_projection.error_to_string error)
+    | Ok projection ->
+      Reasoning_history_projection.observe ~component:"backend_gemini" projection;
+      validate_projected_thought_signatures projection.messages;
+      projection.messages
+  in
+  let contents, system_instruction = contents_of_messages projected_messages in
   (* Prepend system_prompt from config if present *)
   let system_instruction =
     match config.system_prompt, system_instruction with

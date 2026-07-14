@@ -546,6 +546,7 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
     ; provider_kind = Some Llm_provider.Provider_config.OpenAI_compat
     ; reasoning_effort = Some "medium"
     ; canonical_model_id = Some "gpt"
+    ; reasoning_source = None
     ; effective_context_window = Some 8192
     ; provider_internal_action_count = Some 2
     ; ttfrc_ms = Some 10.0
@@ -595,6 +596,10 @@ let test_default_inference_telemetry () =
     "default canonical model unknown"
     None
     telemetry.canonical_model_id;
+  Alcotest.(check bool)
+    "default reasoning source unknown"
+    true
+    (Option.is_none telemetry.reasoning_source);
   Alcotest.(check (option int))
     "default context window unknown"
     None

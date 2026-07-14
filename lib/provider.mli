@@ -245,6 +245,7 @@ val estimate_cost
 
 type provider_impl =
   { name : string
+  ; provider_kind : Llm_provider.Provider_config.provider_kind
   ; request_kind : request_kind
   ; request_path : string
   ; capabilities : capabilities

@@ -151,6 +151,50 @@ let declared_provider_config name model_id : Provider.config =
   { Provider.provider = Provider.Custom_registered { name }; model_id; api_key_env = "" }
 ;;
 
+let stamp_declared_provider_reasoning
+      ({ Provider.provider; model_id; _ } : Provider.config)
+      messages
+  =
+  let binding =
+    match provider with
+    | Provider.Custom_registered { name } ->
+      (match Provider_runtime_binding.find name with
+       | Some binding -> binding
+       | None -> failf "missing runtime binding for %s" name)
+    | Provider.Anthropic | Provider.Local _ | Provider.OpenAICompat _ ->
+      fail "reasoning-source fixture requires a declared provider"
+  in
+  let resolved_config =
+    match Provider_runtime_binding.to_provider_config ~model:model_id binding with
+    | Ok config -> config
+    | Error error -> fail (Error.to_string error)
+  in
+  let source =
+    match
+      Llm_provider.Reasoning_dialect.reasoning_source_for_provider_config resolved_config
+    with
+    | Ok source -> source
+    | Error detail -> fail detail
+  in
+  let has_reasoning =
+    List.exists (function
+      | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ -> true
+      | Types.Text _
+      | Types.ToolUse _
+      | Types.ToolResult _
+      | Types.Image _
+      | Types.Document _
+      | Types.Audio _ -> false)
+  in
+  List.map
+    (fun (message : Types.message) ->
+       match message.role, has_reasoning message.content with
+       | Types.Assistant, true ->
+         { message with metadata = Types.Reasoning_source.metadata source }
+       | (Types.System | Types.User | Types.Tool), _ | Types.Assistant, false -> message)
+    messages
+;;
+
 let check_declared_provider_kind name expected =
   let registry = Llm_provider.Provider_registry.default () in
   match Llm_provider.Provider_registry.find registry name with
@@ -529,7 +573,9 @@ let test_build_body_without_thinking () =
 ;;
 
 let test_build_body_with_tool_choice () =
-  let config = make_state ~tool_choice:(Types.Tool "calculator") () in
+  let config =
+    make_state ~model:"claude-opus-4-5" ~tool_choice:(Types.Tool "calculator") ()
+  in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -848,6 +894,7 @@ let test_build_openai_body_qwen_preserve_replays_reasoning () =
         ; metadata = []
         }
       ]
+      |> stamp_declared_provider_reasoning provider_config
     in
     let json =
       Api.build_openai_body ~provider_config ~config:state ~messages ()
@@ -892,6 +939,7 @@ let test_build_openai_body_kimi_latest_replays_reasoning () =
       ; metadata = []
       }
     ]
+    |> stamp_declared_provider_reasoning provider_config
   in
   let json =
     Api.build_openai_body ~provider_config ~config:state ~messages ()
@@ -1030,7 +1078,10 @@ let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
       Api.build_openai_body
         ~provider_config:deepseek_provider_config
         ~config:state
-        ~messages:[ assistant_msg false ]
+        ~messages:
+          (stamp_declared_provider_reasoning
+             deepseek_provider_config
+             [ assistant_msg false ])
         ()
       |> Yojson.Safe.from_string
     in
@@ -1038,7 +1089,10 @@ let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
       Api.build_openai_body
         ~provider_config:deepseek_provider_config
         ~config:state
-        ~messages:[ assistant_msg true ]
+        ~messages:
+          (stamp_declared_provider_reasoning
+             deepseek_provider_config
+             [ assistant_msg true ])
         ()
       |> Yojson.Safe.from_string
     in
@@ -1068,7 +1122,7 @@ let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
         ; min_p = Some 0.05
         ; enable_thinking = Some false
         ; response_format = Types.JsonMode
-        ; tool_choice = Some Types.Any
+        ; tool_choice = Some Types.Auto
         }
     ; messages = []
     ; turn_count = 0
@@ -1241,7 +1295,7 @@ let test_build_openai_body_bare_glm_tool_choice_none_is_generic () =
    [preserve_thinking]): the typed dialect resolves to No_replay, so
    prior-turn reasoning_content stays out of the request history even though
    the request is GLM. Locks the non-replay arm of the typed
-   [replay_policy] promotion in [reasoning_dialect_for_request]. *)
+   [replay_policy] selection in [Reasoning_dialect.for_provider_config]. *)
 let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
   let provider_config = declared_provider_config "glm" "glm-5" in
   let messages =
@@ -1259,6 +1313,7 @@ let test_build_openai_body_glm_default_clear_thinking_skips_replay () =
       ; metadata = []
       }
     ]
+    |> stamp_declared_provider_reasoning provider_config
   in
   let state =
     { Types.config =
@@ -1306,6 +1361,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
       ; metadata = []
       }
     ]
+    |> stamp_declared_provider_reasoning provider_config
   in
   let state =
     { Types.config =
@@ -1514,6 +1570,7 @@ let test_build_openai_body_registered_glm_gets_glm_dialect () =
       ; metadata = []
       }
     ]
+    |> stamp_declared_provider_reasoning provider_config
   in
   let state =
     { Types.config =

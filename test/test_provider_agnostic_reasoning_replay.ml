@@ -1,419 +1,348 @@
-(* Provider-agnostic multi-turn reasoning-replay harness (#2236).
-
-   Goal under test (user acceptance criteria): regardless of which model
-   provider is configured, interleaving / tool-use / CoT must behave the SAME
-   way, and the model's reasoning must NEVER be re-injected as the assistant's
-   answer (the parrot / infinite-recursion loop).
-
-   This harness drives EVERY exported provider capability profile through the
-   live request serializer ([Backend_openai_serialize.dialect_messages_of_message],
-   the function both live request builders call) and asserts two invariants:
-
-   INV1 (universal anti-parrot): for every provider, every assistant message
-   shape, the serialized assistant [content] (answer) field never contains the
-   reasoning text. This is the loop-closure guarantee: the model is never fed
-   its own reasoning as a finalized answer, so it cannot re-reason over it.
-
-   INV2 (uniform interleaving contract): the decision to replay reasoning is the
-   SAME function of (replay_policy, had_tool_call) for every provider —
-   [Reasoning_dialect.should_replay_reasoning]. A tool-call turn that replays
-   carries the reasoning in the dedicated [reasoning_content] field (satisfying
-   the DeepSeek / MiMo "400 if tool-call reasoning missing" contract); a plain
-   answer turn under a drop policy carries no [reasoning_content]. Either way,
-   reasoning stays out of [content] (INV1 still holds).
-
-   The harness is deterministic: it constructs messages and inspects wire JSON;
-   no live API or network. *)
-
 open Llm_provider
 open Types
-module Serialize = Backend_openai_serialize
-module RD = Reasoning_dialect
 
 let check_bool = Alcotest.(check bool)
-let check_string = Alcotest.(check string)
-let member = Yojson.Safe.Util.member
+let check_int = Alcotest.(check int)
 
-let msg role content : message =
-  { role; content; name = None; tool_call_id = None; metadata = [] }
+let contract replay_policy : Reasoning_replay_contract.t =
+  { replay_policy; streaming = No_streaming_reasoning; output_wire = No_output_control }
 ;;
 
-(* A reasoning marker that must never surface as answer content. *)
-let reasoning_marker = "REASONING_MUST_NOT_BECOME_ANSWER"
-let answer_text = "the visible answer"
-
-(* Every exported provider capability profile plus representative catalog model
-   entries for current frontier families. Provider profiles cover protocol base
-   behavior; catalog entries cover model-specific thinking / replay overrides
-   where the latest Kimi, MiniMax, GLM, DeepSeek, Qwen, MiMo, and DashScope
-   contracts actually live. *)
-let base_provider_profiles : (string * Capabilities.capabilities) list =
-  [ "default", Capabilities.default_capabilities
-  ; "anthropic", Capabilities.anthropic_capabilities
-  ; "kimi", Capabilities.kimi_capabilities
-  ; "openai_compat_chat", Capabilities.openai_compat_chat_capabilities
-  ; "openai_compat_chat_extended", Capabilities.openai_compat_chat_extended_capabilities
-  ; "gemini", Capabilities.gemini_capabilities
-  ; "ollama", Capabilities.ollama_capabilities
-  ; "ollama_cloud", Capabilities.ollama_cloud_capabilities
-  ; "dashscope", Capabilities.dashscope_capabilities
-  ; "glm", Capabilities.glm_capabilities
-  ; "provider_l", Capabilities.provider_l_capabilities
-  ]
-;;
-
-let catalog_model_profile_resolvers
-  : (string * (unit -> Capabilities.capabilities option)) list
+let source
+      ?(kind = Provider_config.OpenAI_compat)
+      ?(base_url = "https://provider.example")
+      ?(request_path = "/v1/chat/completions")
+      ?(model_id = "model-a")
+      replay_policy
   =
-  [ ( "provider:mimo/model:mimo-v2.5-pro"
-    , fun () ->
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label:"mimo"
-          ~model_id:"mimo-v2.5-pro" )
-  ; ( "provider:deepseek/model:deepseek-v4-flash"
-    , fun () ->
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label:"deepseek"
-          ~model_id:"deepseek-v4-flash" )
-  ; ( "provider:deepseek/model:deepseek-v4-pro"
-    , fun () ->
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label:"deepseek"
-          ~model_id:"deepseek-v4-pro" )
-  ; ("model:minimax-m3", fun () -> Capabilities.for_model_id "minimax-m3")
-  ; ("model:kimi-k2.7-code", fun () -> Capabilities.for_model_id "kimi-k2.7-code")
-  ; ("model:glm-5.2", fun () -> Capabilities.for_model_id "glm-5.2")
-  ; ( "model:qwen/qwen3.6-35b-a3b"
-    , fun () -> Capabilities.for_model_id "qwen/qwen3.6-35b-a3b" )
-  ; ( "model:dashscope-3.5-35b-a3b"
-    , fun () -> Capabilities.for_model_id "dashscope-3.5-35b-a3b" )
-  ; ( "provider:vllm-qwen3-mtp/model:qwen36-35b-a3b-mtp"
-    , fun () ->
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label:"vllm-qwen3-mtp"
-          ~model_id:"qwen36-35b-a3b-mtp" )
-  ]
+  match
+    Types.Reasoning_source.create
+      ~provider_kind:kind
+      ~provider_instance:
+        (Types.Reasoning_source.provider_instance ~base_url ~request_path)
+      ~canonical_model_id:model_id
+      ~replay_contract:(contract replay_policy)
+  with
+  | Ok source -> source
+  | Error detail -> Alcotest.fail detail
 ;;
 
-let profile_cases () =
-  Model_catalog_test_support.install_embedded_model_catalog
-    ~suite:"provider_agnostic_reasoning_replay";
-  let catalog_profiles =
-    List.map
-      (fun (name, resolve) ->
-         match resolve () with
-         | Some caps -> name, caps
-         | None -> Alcotest.failf "expected catalog capabilities for %s" name)
-      catalog_model_profile_resolvers
-  in
-  base_provider_profiles @ catalog_profiles
+let message ?(metadata = []) role content : message =
+  { role; content; name = None; tool_call_id = None; metadata }
 ;;
 
-let serialized_assistant dialect msg =
-  match Serialize.dialect_messages_of_message dialect msg with
-  | [ j ] -> j
-  | js -> Alcotest.failf "expected one assistant message, got %d" (List.length js)
+let with_source source role content =
+  message ~metadata:(Types.Reasoning_source.metadata source) role content
 ;;
 
-let content_string j =
-  match member "content" j with
-  | `String s -> s
-  | `Null -> ""
-  | other -> Yojson.Safe.to_string other
+let reasoning_supported = function
+  | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+  | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false
 ;;
 
-let contains ~needle haystack =
-  let nl = String.length needle in
-  let hl = String.length haystack in
-  if nl = 0
-  then true
-  else (
-    let rec scan i =
-      if i + nl > hl
-      then false
-      else if String.sub haystack i nl = needle
-      then true
-      else scan (i + 1)
-    in
-    scan 0)
+let project ~target ~policy messages =
+  Reasoning_history_projection.project
+    ~assistant_has_payload:(fun content -> content <> [])
+    ~reasoning_block_supported:reasoning_supported
+    ~reasoning_target:target
+    ~replay_policy:policy
+    messages
 ;;
 
-(* INV1: across every provider and every assistant shape that carries reasoning,
-   the answer [content] field never contains the reasoning marker. *)
-let test_reasoning_never_in_content_any_provider () =
-  List.iter
-    (fun (name, caps) ->
-       let dialect = RD.of_capabilities caps in
-       let shapes =
-         [ "reasoning_only", [ Thinking { content = reasoning_marker; signature = None } ]
-         ; ( "reasoning_then_answer"
-           , [ Thinking { content = reasoning_marker; signature = None }
-             ; Text answer_text
-             ] )
-         ; ( "reasoning_then_tool_call"
-           , [ Thinking { content = reasoning_marker; signature = None }
-             ; ToolUse
-                 { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] }
-             ] )
-         ]
-       in
-       List.iter
-         (fun (shape, content) ->
-            let j = serialized_assistant dialect (msg Assistant content) in
-            let c = content_string j in
-            check_bool
-              (Printf.sprintf
-                 "[%s/%s] reasoning marker must NOT appear in answer content"
-                 name
-                 shape)
-              false
-              (contains ~needle:reasoning_marker c))
-         shapes)
-    (profile_cases ())
+let content_has_reasoning =
+  List.exists (function
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
 ;;
 
-(* INV2: the replay decision is one shared function of (policy, had_tool_call),
-   identical across providers. For each provider, a tool-call turn either carries
-   the reasoning in [reasoning_content] (when the policy replays with a tool
-   call) or omits it — but NEVER puts it in [content]. A plain reasoning+answer
-   turn carries [reasoning_content] iff the policy replays without a tool call.
-   We assert the wire matches [should_replay_reasoning] exactly. *)
-let reasoning_content_string j =
-  match member "reasoning_content" j with
-  | `String s -> s
-  | _ -> ""
+let test_source_exactness_and_classification () =
+  let left = source All_assistant_messages in
+  let same = source All_assistant_messages in
+  let other_endpoint = source ~base_url:"https://other.example" All_assistant_messages in
+  let other_model = source ~model_id:"model-b" All_assistant_messages in
+  check_bool "same exact source" true (Types.Reasoning_source.equal left same);
+  check_bool
+    "endpoint identity differs"
+    false
+    (Types.Reasoning_source.equal left other_endpoint);
+  check_bool
+    "model identity differs"
+    false
+    (Types.Reasoning_source.equal left other_model);
+  (match Types.Reasoning_source.classify (Types.Reasoning_source.metadata left) with
+   | Present actual ->
+     check_bool "metadata round-trip" true (Reasoning_source.equal left actual)
+   | Absent | Invalid | Duplicate -> Alcotest.fail "expected present source");
+  let entry = Types.Reasoning_source.entry left in
+  match Types.Reasoning_source.classify [ entry; entry ] with
+  | Duplicate -> ()
+  | Absent | Present _ | Invalid -> Alcotest.fail "expected duplicate source"
 ;;
 
-let test_replay_matches_should_replay_reasoning_any_provider () =
-  List.iter
-    (fun (name, caps) ->
-       let dialect = RD.of_capabilities caps in
-       (* tool-call turn *)
-       let tool_msg =
-         msg
-           Assistant
-           [ Thinking { content = reasoning_marker; signature = None }
-           ; ToolUse { id = "c"; name = "f"; input = `Assoc [] }
-           ]
-       in
-       let expect_tool =
-         RD.should_replay_reasoning dialect ~assistant_had_tool_call:true
-       in
-       let j_tool = serialized_assistant dialect tool_msg in
-       check_bool
-         (Printf.sprintf
-            "[%s] tool-call turn: reasoning_content present iff policy replays"
-            name)
-         expect_tool
-         (reasoning_content_string j_tool = reasoning_marker);
-       (* plain reasoning+answer turn (no tool call) *)
-       let plain_msg =
-         msg
-           Assistant
-           [ Thinking { content = reasoning_marker; signature = None }; Text answer_text ]
-       in
-       let expect_plain =
-         RD.should_replay_reasoning dialect ~assistant_had_tool_call:false
-       in
-       let j_plain = serialized_assistant dialect plain_msg in
-       check_bool
-         (Printf.sprintf
-            "[%s] plain answer turn: reasoning_content present iff policy replays"
-            name)
-         expect_plain
-         (reasoning_content_string j_plain = reasoning_marker);
-       (* INV1 reaffirmed on the plain turn: the answer text is the only content *)
-       check_string
-         (Printf.sprintf "[%s] plain answer content is the answer text only" name)
-         answer_text
-         (content_string j_plain))
-    (profile_cases ())
-;;
-
-let test_representative_provider_replay_semantics_are_explicit () =
-  let profiles = profile_cases () in
-  let find_caps name =
-    match List.assoc_opt name profiles with
-    | Some caps -> caps
-    | None -> Alcotest.failf "missing representative profile: %s" name
-  in
-  let cases =
-    [ ( "openai_compat_chat_extended"
-      , "no_replay"
-      , false
-      , false
-      , "OpenAI-compatible reasoning effort keeps provider reasoning hidden" )
-    ; ( "ollama"
-      , "no_replay"
-      , false
-      , false
-      , "Ollama native thinking is parsed/hidden, not replayed as reasoning_content" )
-    ; ( "provider:mimo/model:mimo-v2.5-pro"
-      , "drop_without_tool_preserve_with_tool"
-      , false
-      , true
-      , "MiMo Deep Thinking requires reasoning_content pass-through on tool turns" )
-    ; ( "provider:deepseek/model:deepseek-v4-pro"
-      , "drop_without_tool_preserve_with_tool"
-      , false
-      , true
-      , "DeepSeek-style thinking object replays only assistant tool-call reasoning" )
-    ; ( "model:qwen/qwen3.6-35b-a3b"
-      , "drop_without_tool_preserve_with_tool"
-      , false
-      , true
-      , "Qwen3.6 replays tool-call reasoning while dropping plain-turn reasoning" )
-    ; ( "model:kimi-k2.7-code"
-      , "preserve_always"
-      , true
-      , true
-      , "Kimi latest preserved-thinking catalog entries replay reasoning on all turns" )
+let test_whole_history_source_filtering () =
+  let target = source All_assistant_messages in
+  let foreign = source ~model_id:"foreign" All_assistant_messages in
+  let messages =
+    [ with_source target Assistant [ Thinking { content = "keep"; signature = None } ]
+    ; with_source foreign Assistant [ Thinking { content = "foreign"; signature = None } ]
+    ; message Assistant [ Thinking { content = "unsourced"; signature = None } ]
+    ; message User [ Text "next" ]
     ]
   in
-  List.iter
-    (fun (name, expected_policy, expect_plain, expect_tool, why) ->
-       let dialect = RD.of_capabilities (find_caps name) in
-       check_string
-         (Printf.sprintf "[%s] replay policy (%s)" name why)
-         expected_policy
-         (RD.replay_policy_to_string dialect.replay_policy);
-       check_bool
-         (Printf.sprintf "[%s] plain-answer reasoning replay" name)
-         expect_plain
-         (RD.should_replay_reasoning dialect ~assistant_had_tool_call:false);
-       check_bool
-         (Printf.sprintf "[%s] tool-call reasoning replay" name)
-         expect_tool
-         (RD.should_replay_reasoning dialect ~assistant_had_tool_call:true))
-    cases
+  match project ~target ~policy:All_assistant_messages messages with
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    check_int
+      "foreign and unsourced drops"
+      2
+      (List.length projection.reasoning_replay_drops);
+    check_int
+      "reasoning-only empty assistants removed"
+      2
+      (List.length projection.removed_empty_assistant_indices);
+    check_int "kept assistant plus user" 2 (List.length projection.messages);
+    let first = List.hd projection.messages in
+    check_bool "exact-source reasoning remains" true (content_has_reasoning first.content)
 ;;
 
-(* INV3 (recursion closure): simulate N replay rounds of a reasoning-only reply
-   fed back into history. The serialized content must stay empty every round —
-   the reasoning never accumulates into the answer channel, so there is no
-   growing parrot. We drive the same dialect repeatedly to model a stuck turn. *)
-let test_reasoning_only_replay_does_not_accumulate () =
-  List.iter
-    (fun (name, caps) ->
-       let dialect = RD.of_capabilities caps in
-       let reasoning_only =
-         msg Assistant [ Thinking { content = reasoning_marker; signature = None } ]
-       in
-       for round = 1 to 5 do
-         let j = serialized_assistant dialect reasoning_only in
-         let c = content_string j in
-         check_string
-           (Printf.sprintf "[%s] round %d reasoning-only content stays empty" name round)
-           ""
-           c
-       done)
-    (profile_cases ())
-;;
-
-(* End-to-end loop closure: parse a real provider response carrying
-   [reasoning_content] (the wire shape DeepSeek / MiMo / Ollama / GLM all emit),
-   then serialize the parsed assistant message back through every dialect. This
-   exercises the actual loop path (parse -> history -> serialize) rather than a
-   hand-built Thinking block, so it catches a regression on EITHER side: a parse
-   that re-introduces the reasoning->Text promotion, or a serialize that leaks
-   reasoning into content. The parser is dialect-independent (it always yields a
-   [Thinking] block from [reasoning_content]); only serialization is per-dialect,
-   so one parse feeds every provider. *)
-let reasoning_only_response_json =
-  `Assoc
-    [ "id", `String "resp-1"
-    ; "model", `String "test"
-    ; ( "choices"
-      , `List
-          [ `Assoc
-              [ "index", `Int 0
-              ; "finish_reason", `String "stop"
-              ; ( "message"
-                , `Assoc
-                    [ "role", `String "assistant"
-                    ; "content", `String ""
-                    ; "reasoning_content", `String reasoning_marker
-                    ] )
-              ]
-          ] )
+let test_tool_call_policy_applies_across_history () =
+  let target = source Tool_call_assistant_messages_all_history in
+  let messages =
+    [ with_source
+        target
+        Assistant
+        [ Thinking { content = "tool reasoning"; signature = None }
+        ; ToolUse { id = "call"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; message
+        Tool
+        [ ToolResult
+            { tool_use_id = "call"
+            ; content = "ok"
+            ; outcome = Tool_succeeded
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; with_source
+        target
+        Assistant
+        [ Thinking { content = "plain reasoning"; signature = None }; Text "answer" ]
     ]
+  in
+  match project ~target ~policy:Tool_call_assistant_messages_all_history messages with
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    let first = List.nth projection.messages 0 in
+    let last = List.nth projection.messages 2 in
+    check_bool
+      "tool-call assistant keeps reasoning"
+      true
+      (content_has_reasoning first.content);
+    check_bool
+      "plain assistant drops reasoning"
+      false
+      (content_has_reasoning last.content)
 ;;
 
-let test_parse_then_serialize_round_trip_any_provider () =
-  let response =
-    match
-      Backend_openai_parse.parse_openai_response_result
-        (Yojson.Safe.to_string reasoning_only_response_json)
-    with
-    | Ok r -> r
-    | Error msg ->
-      Alcotest.failf
-        "unexpected parse error: %s"
-        (Backend_openai_parse.parse_error_to_string msg)
+let test_selected_unsupported_block_fails_closed () =
+  let target = source All_assistant_messages in
+  let result =
+    Reasoning_history_projection.project
+      ~assistant_has_payload:(fun content -> content <> [])
+      ~reasoning_block_supported:(fun _ -> false)
+      ~reasoning_target:target
+      ~replay_policy:All_assistant_messages
+      [ with_source target Assistant [ Thinking { content = "x"; signature = None } ] ]
   in
-  (* Parse must keep reasoning typed as Thinking, never a Text answer block. *)
-  let has_text =
-    List.exists
-      (function
-        | Text _ -> true
-        | _ -> false)
-      response.content
+  match result with
+  | Error (Unsupported_reasoning_block _) -> ()
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok _ -> Alcotest.fail "unsupported selected reasoning must fail"
+;;
+
+let test_assistant_message_requires_live_source () =
+  let response : api_response =
+    { id = "response"
+    ; model = "model-a"
+    ; stop_reason = EndTurn
+    ; content = [ Thinking { content = "reasoning"; signature = None } ]
+    ; usage = None
+    ; telemetry = None
+    }
   in
-  let has_thinking =
-    List.exists
-      (function
-        | Thinking { content; _ } -> String.trim content = reasoning_marker
-        | _ -> false)
-      response.content
+  (match Types.assistant_message_of_response response with
+   | Error Reasoning_source_telemetry_missing -> ()
+   | Error _ | Ok _ -> Alcotest.fail "missing telemetry must be explicit");
+  let source = source All_assistant_messages in
+  let telemetry =
+    { Types.default_inference_telemetry with reasoning_source = Some source }
   in
-  check_bool "parse keeps reasoning typed as Thinking" true has_thinking;
-  check_bool "parse never promotes reasoning to a Text answer block" false has_text;
-  let assistant = msg Assistant response.content in
-  List.iter
-    (fun (name, caps) ->
-       let dialect = RD.of_capabilities caps in
-       let j = serialized_assistant dialect assistant in
-       check_string
-         (Printf.sprintf
-            "[%s] parsed reasoning-only reply serializes to empty answer content"
-            name)
-         ""
-         (content_string j);
-       check_bool
-         (Printf.sprintf "[%s] reasoning marker absent from answer content" name)
-         false
-         (contains ~needle:reasoning_marker (content_string j)))
-    (profile_cases ())
+  match
+    Types.assistant_message_of_response { response with telemetry = Some telemetry }
+  with
+  | Error error -> Alcotest.fail (Types.show_assistant_message_error error)
+  | Ok assistant ->
+    (match Types.Reasoning_source.classify assistant.metadata with
+     | Present actual ->
+       check_bool "response source persisted" true (Reasoning_source.equal source actual)
+     | Absent | Invalid | Duplicate -> Alcotest.fail "expected persisted source")
+;;
+
+let preserving_capabilities =
+  { Capabilities.default_capabilities with
+    reasoning_replay_override = Force_preserve_always
+  }
+;;
+
+let source_for_config config =
+  match Reasoning_dialect.reasoning_source_for_provider_config config with
+  | Ok source -> source
+  | Error detail -> Alcotest.fail detail
+;;
+
+let test_openai_chat_request_uses_whole_history_projection () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"model-a"
+      ~base_url:"https://provider.example"
+      ~model_capabilities_override:preserving_capabilities
+      ()
+  in
+  let source = source_for_config config in
+  let body =
+    Backend_openai.build_request
+      ~config
+      ~messages:
+        [ with_source
+            source
+            Assistant
+            [ Thinking { content = "reasoning"; signature = None }; Text "answer" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let assistant = Yojson.Safe.Util.(body |> member "messages" |> to_list |> List.hd) in
+  check_bool
+    "reasoning stays in dedicated field"
+    true
+    Yojson.Safe.Util.(assistant |> member "reasoning_content" |> to_string = "reasoning");
+  check_bool
+    "visible answer remains distinct"
+    true
+    Yojson.Safe.Util.(assistant |> member "content" |> to_string = "answer")
+;;
+
+let test_ollama_request_replays_native_thinking_field () =
+  let capabilities =
+    { preserving_capabilities with thinking_control_format = Ollama_think }
+  in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"model-a"
+      ~base_url:"http://localhost:11434"
+      ~model_capabilities_override:capabilities
+      ()
+  in
+  let source = source_for_config config in
+  let body =
+    Backend_ollama.build_request
+      ~config
+      ~messages:
+        [ with_source
+            source
+            Assistant
+            [ Thinking { content = "native reasoning"; signature = None }; Text "answer" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let assistant = Yojson.Safe.Util.(body |> member "messages" |> to_list |> List.hd) in
+  check_bool
+    "native thinking field"
+    true
+    Yojson.Safe.Util.(assistant |> member "thinking" |> to_string = "native reasoning")
+;;
+
+let test_openai_responses_replays_only_opaque_item () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"model-a"
+      ~base_url:"https://api.example"
+      ~request_path:"/v1/responses"
+      ()
+  in
+  let source = source_for_config config in
+  let opaque =
+    Yojson.Safe.to_string
+      (`Assoc
+          [ "type", `String "reasoning"
+          ; "id", `String "reasoning-item"
+          ; "summary", `List []
+          ; "encrypted_content", `String "opaque"
+          ])
+  in
+  let body =
+    Backend_openai_responses.build_request
+      ~config
+      ~messages:
+        [ with_source
+            source
+            Assistant
+            [ Thinking { content = "generic"; signature = None }
+            ; RedactedThinking opaque
+            ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let input = Yojson.Safe.Util.(body |> member "input" |> to_list) in
+  check_int "only opaque reasoning item remains" 1 (List.length input);
+  check_bool
+    "opaque item preserved"
+    true
+    Yojson.Safe.Util.(List.hd input |> member "type" |> to_string = "reasoning")
 ;;
 
 let () =
   Alcotest.run
     "provider_agnostic_reasoning_replay"
-    [ ( "anti-parrot (#2236)"
+    [ ( "typed whole-history replay"
       , [ Alcotest.test_case
-            "reasoning never appears in answer content (all providers)"
+            "source exactness"
             `Quick
-            test_reasoning_never_in_content_any_provider
+            test_source_exactness_and_classification
         ; Alcotest.test_case
-            "wire replay matches should_replay_reasoning (all providers)"
+            "whole-history filtering"
             `Quick
-            test_replay_matches_should_replay_reasoning_any_provider
+            test_whole_history_source_filtering
         ; Alcotest.test_case
-            "representative provider replay semantics are explicit"
+            "tool-call policy"
             `Quick
-            test_representative_provider_replay_semantics_are_explicit
+            test_tool_call_policy_applies_across_history
         ; Alcotest.test_case
-            "reasoning-only replay never accumulates into content (all providers)"
+            "unsupported codec fails"
             `Quick
-            test_reasoning_only_replay_does_not_accumulate
+            test_selected_unsupported_block_fails_closed
         ; Alcotest.test_case
-            "parse->serialize round-trip keeps reasoning out of content (all providers)"
+            "response source required"
             `Quick
-            test_parse_then_serialize_round_trip_any_provider
+            test_assistant_message_requires_live_source
+        ; Alcotest.test_case
+            "OpenAI chat boundary"
+            `Quick
+            test_openai_chat_request_uses_whole_history_projection
+        ; Alcotest.test_case
+            "Ollama native boundary"
+            `Quick
+            test_ollama_request_replays_native_thinking_field
+        ; Alcotest.test_case
+            "OpenAI Responses opaque boundary"
+            `Quick
+            test_openai_responses_replays_only_opaque_item
         ] )
     ]
 ;;

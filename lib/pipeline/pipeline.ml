@@ -245,7 +245,15 @@ let stage_collect ?raw_trace_run ?clock agent response =
                 ~decision)
        in
        let completed_turn = agent.state.turn_count in
-       let assistant_message = make_message ~role:Assistant response.content in
+       let* assistant_message =
+         match Types.assistant_message_of_response response with
+         | Ok message -> Ok message
+         | Error error ->
+           Error
+             (Error.Internal
+                ("assistant response has invalid reasoning provenance: "
+                 ^ Types.show_assistant_message_error error))
+       in
        let checkpoint_state =
          { agent.state with
            messages = Util.snoc agent.state.messages assistant_message

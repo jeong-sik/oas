@@ -362,6 +362,7 @@ let test_custom_provider_empty_maps_to_unavailable () =
          in
          let impl : Provider.provider_impl =
            { name
+           ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
            ; request_kind = Provider.Custom name
            ; request_path = "/v1/custom"
            ; capabilities =
@@ -405,6 +406,7 @@ let test_custom_provider_dispatch_uses_registered_impl () =
   with_mock_server handler (fun ~sw ~net ~base_url ->
     let impl : Provider.provider_impl =
       { name = custom_name
+      ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
       ; request_kind = Provider.Custom custom_name
       ; request_path = "/v1/custom"
       ; capabilities =

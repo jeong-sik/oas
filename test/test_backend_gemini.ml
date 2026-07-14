@@ -39,6 +39,33 @@ let to_int json = Yojson.Safe.Util.to_int json
 let to_list json = Yojson.Safe.Util.to_list json
 let to_bool json = Yojson.Safe.Util.to_bool json
 
+let content_has_reasoning =
+  List.exists (function
+    | Types.Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+;;
+
+let stamp_reasoning_history config messages =
+  let source =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail -> fail ("invalid Gemini reasoning source fixture: " ^ detail)
+  in
+  List.map
+    (fun (message : Types.message) ->
+       match message.role, content_has_reasoning message.content with
+       | Assistant, true ->
+         let metadata =
+           match Types.Reasoning_source.add source message.metadata with
+           | Ok metadata -> metadata
+           | Error detail -> fail ("invalid Gemini reasoning fixture metadata: " ^ detail)
+         in
+         { message with metadata }
+       | (Assistant | System | User | Tool), false | (System | User | Tool), true ->
+         message)
+    messages
+;;
+
 (* ── build_request tests ────────────────────────────── *)
 
 let test_basic_request () =
@@ -584,6 +611,7 @@ let check_part_signature_carrier ~target ~signature raw =
 ;;
 
 let test_textual_part_thought_signatures_roundtrip () =
+  let config = gemini_config () in
   let parsed =
     Backend_gemini.parse_response (textual_parts_with_thought_signatures_json ())
   in
@@ -608,8 +636,9 @@ let test_textual_part_thought_signatures_roundtrip () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
-  let body = Backend_gemini.build_request ~config:(gemini_config ()) ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let contents = parse_body body |> member "contents" |> to_list in
   let parts = List.nth contents 1 |> member "parts" |> to_list in
   match parts with
@@ -785,6 +814,7 @@ let test_blank_part_thought_signature_fails_closed () =
 ;;
 
 let test_signed_inline_image_roundtrip () =
+  let config = gemini_config () in
   let response =
     Yojson.Safe.from_string
       {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-image"}]},"finishReason":"STOP"}]}|}
@@ -795,15 +825,11 @@ let test_signed_inline_image_roundtrip () =
      ; Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = Base64 }
      ] -> check_part_signature_carrier ~target:"image" ~signature:"sig-image" carrier
    | _ -> fail "expected signed inline image response pair");
-  let body =
-    Backend_gemini.build_request
-      ~config:(gemini_config ())
-      ~messages:
-        [ Types.user_msg "Continue editing."
-        ; message_with_blocks Assistant parsed.content
-        ]
-      ()
+  let messages =
+    [ Types.user_msg "Continue editing."; message_with_blocks Assistant parsed.content ]
+    |> stamp_reasoning_history config
   in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let parts =
     parse_body body
     |> member "contents"
@@ -858,6 +884,7 @@ let test_thought_signature_roundtrip_request () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -1188,6 +1215,7 @@ let test_thinking_part_roundtrip () =
       }
     ; Types.user_msg "Thanks"
     ]
+    |> stamp_reasoning_history config
   in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in

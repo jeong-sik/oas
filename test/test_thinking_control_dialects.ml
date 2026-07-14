@@ -123,9 +123,9 @@ let declared_catalog_openai_compat_config
   =
   PC.make
     ~kind:OpenAI_compat
+    ?provider_id
     ~model_id
     ~base_url
-    ?provider_id
     ~model_capabilities_override:(catalog_capabilities ?provider_id model_id)
     ?enable_thinking
     ?preserve_thinking
@@ -230,7 +230,10 @@ let anthropic_config
 
 let test_raw_qwen_openai_compat_does_not_infer_chat_template_kwargs () =
   let config =
-    openai_compat_config ~enable_thinking:false ~preserve_thinking:true "qwen3-32b"
+    openai_compat_config
+      ~enable_thinking:false
+      ~preserve_thinking:true
+      "undeclared-runtime/qwen3-32b"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   check_member_absent "chat_template_kwargs" json;
@@ -261,7 +264,7 @@ let test_raw_qwen36_reasoning_dialect_does_not_infer_chat_template_kwargs () =
     openai_compat_config
       ~enable_thinking:false
       ~preserve_thinking:true
-      "Qwen/Qwen3.6-35B-A3B"
+      "undeclared-runtime/Qwen3.6-35B-A3B"
   in
   let dialect = RD.for_provider_config config in
   check string "toggle wire" "no_toggle" (RD.toggle_wire_to_string dialect.toggle_wire);
@@ -715,7 +718,7 @@ let test_deepseek_disabled_thinking_keeps_sampling () =
   check (float 0.001) "top_p" 0.9 (json |> member "top_p" |> to_float)
 ;;
 
-let assistant_with_reasoning ?(tool = false) () =
+let assistant_with_reasoning ?(tool = false) config =
   let content =
     if tool
     then
@@ -724,7 +727,17 @@ let assistant_with_reasoning ?(tool = false) () =
       ]
     else [ Thinking { signature = None; content = "plain thought" }; Text "answer" ]
   in
-  { role = Assistant; content; name = None; tool_call_id = None; metadata = [] }
+  let source =
+    match RD.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail -> fail ("invalid reasoning source fixture: " ^ detail)
+  in
+  { role = Assistant
+  ; content
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = Reasoning_source.metadata source
+  }
 ;;
 
 let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
@@ -735,10 +748,11 @@ let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
       "deepseek-v4-flash"
   in
   let plain =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let tool =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true config ] ()
     |> json_of_body
   in
   let plain_assistant = plain |> member "messages" |> index 0 in
@@ -759,7 +773,8 @@ let test_qwen_preserve_replays_reasoning_content () =
       "Qwen/Qwen3.6-35B-A3B"
   in
   let json =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let assistant = json |> member "messages" |> index 0 in
   check
@@ -854,7 +869,7 @@ let test_thinking_object_keep_all_axis_replays_reasoning () =
       false
       (RD.requires_reasoning_replay_on_tool_call dialect);
     let json =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
       |> json_of_body
     in
     let assistant = json |> member "messages" |> index 0 in
@@ -880,11 +895,14 @@ let test_thinking_object_keep_all_axis_defaults_to_tool_replay () =
       true
       (RD.requires_reasoning_replay_on_tool_call dialect);
     let plain =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
       |> json_of_body
     in
     let tool =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+      BOR.build_request
+        ~config
+        ~messages:[ assistant_with_reasoning ~tool:true config ]
+        ()
       |> json_of_body
     in
     let plain_assistant = plain |> member "messages" |> index 0 in
@@ -925,10 +943,11 @@ let test_kimi_k26_defaults_to_tool_call_replay () =
   in
   check_member_absent "thinking" user_json;
   let plain =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let tool =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true config ] ()
     |> json_of_body
   in
   check_member_absent "reasoning_content" (plain |> member "messages" |> index 0);
@@ -998,7 +1017,8 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
   check_member_absent "chat_template_kwargs" user_json;
   check_member_absent "preserve_thinking" user_json;
   let reasoning_json =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let assistant = reasoning_json |> member "messages" |> index 0 in
   check
@@ -1317,7 +1337,7 @@ let test_gemini_reasoning_dialect_uses_thinking_config () =
   check
     string
     "replay policy"
-    "drop_without_tool_preserve_with_tool"
+    "preserve_always"
     (RD.replay_policy_to_string dialect.replay_policy)
 ;;
 

@@ -126,10 +126,10 @@ let test_openai_body_shape () =
   let json = Yojson.Safe.from_string body_str in
   check bool "has model" true (json_has_key "model" json);
   check bool "has messages" true (json_has_key "messages" json);
-  (* build_openai_body uses config.model, not provider_config.model_id *)
+  (* The resolved provider config owns the request model identity. *)
   match json_get "model" json with
-  | Some (`String "test-model") -> ()
-  | _ -> fail "model should come from config"
+  | Some (`String "gpt") -> ()
+  | _ -> fail "model should come from the resolved provider config"
 ;;
 
 let test_openai_parse_response () =

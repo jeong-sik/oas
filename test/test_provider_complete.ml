@@ -53,6 +53,33 @@ let catalog_capabilities ?provider_label model_id =
       model_id
 ;;
 
+let content_has_reasoning =
+  List.exists (function
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+;;
+
+let stamp_reasoning_history config messages =
+  let source =
+    match Llm_provider.Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail -> Alcotest.fail ("invalid reasoning source fixture: " ^ detail)
+  in
+  List.map
+    (fun (message : message) ->
+       match message.role, content_has_reasoning message.content with
+       | Assistant, true ->
+         let metadata =
+           match Reasoning_source.add source message.metadata with
+           | Ok metadata -> metadata
+           | Error detail -> Alcotest.fail ("invalid reasoning fixture: " ^ detail)
+         in
+         { message with metadata }
+       | (Assistant | System | User | Tool), false | (System | User | Tool), true ->
+         message)
+    messages
+;;
+
 (* ── Anthropic build_request ─────────────────────────── *)
 
 let test_anthropic_basic_body () =
@@ -264,25 +291,22 @@ let test_anthropic_build_request_preserves_multiturn_thinking_tool_order () =
       ~max_tokens:1024
       ()
   in
-  let body =
-    BA.build_request
-      ~config
-      ~messages:
-        [ msg User [ Text "User message 1" ]
-        ; msg
-            Assistant
-            [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
-        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
-        ; msg
-            Assistant
-            [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
-        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
-        ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
-        ; msg User [ Text "User message 2" ]
-        ]
-      ()
-    |> Yojson.Safe.from_string
+  let messages =
+    [ msg User [ Text "User message 1" ]
+    ; msg
+        Assistant
+        [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
+    ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+    ; msg
+        Assistant
+        [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
+    ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+    ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
+    ; msg User [ Text "User message 2" ]
+    ]
+    |> stamp_reasoning_history config
   in
+  let body = BA.build_request ~config ~messages () |> Yojson.Safe.from_string in
   let open Yojson.Safe.Util in
   let require_string_field key json =
     match member key json with
@@ -890,6 +914,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
   let body = BA.build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
@@ -908,10 +933,17 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
     "tool_use id preserved"
     "tool_1"
     (block |> member "tool_use_id" |> to_string);
+  let result_content = block |> member "content" |> to_list in
+  Alcotest.(check int) "tool_result content block count" 1 (List.length result_content);
+  let text_block = List.hd result_content in
+  Alcotest.(check string)
+    "tool_result content type"
+    "text"
+    (text_block |> member "type" |> to_string);
   Alcotest.(check string)
     "tool_result content"
     "5"
-    (block |> member "content" |> to_string)
+    (text_block |> member "text" |> to_string)
 ;;
 
 let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
@@ -956,6 +988,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
       ; metadata = []
       }
     ]
+    |> stamp_reasoning_history config
   in
   let body = BGlm.build_request ~stream:true ~config ~messages () in
   let json = Yojson.Safe.from_string body in

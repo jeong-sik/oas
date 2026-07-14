@@ -55,7 +55,7 @@ let map_stream_finalize_result = function
      | Error err -> Error (map_http_error err))
 ;;
 
-let map_stream_finalize_result_detailed ~binding = function
+let map_stream_finalize_result_detailed ~binding ~provider_config = function
   | Error error -> Error (Provider_failure_attribution.of_http_error ~binding error)
   | Ok result ->
     let result =
@@ -63,7 +63,14 @@ let map_stream_finalize_result_detailed ~binding = function
       |> Llm_provider.Complete_common.ensure_nonempty_completion
     in
     (match result with
-     | Ok response -> Ok (Llm_provider.Pricing.annotate_response_cost response)
+     | Ok response ->
+       Ok
+         (Llm_provider.Pricing.annotate_response_cost response
+          |> fun response ->
+          Llm_provider.Complete_common.patch_telemetry
+            response
+            ~config:provider_config
+            None)
      | Error error -> Error (Provider_failure_attribution.of_http_error ~binding error))
 ;;
 
@@ -128,144 +135,181 @@ let create_message_stream_detailed
         ~request_path:model_spec.request_path
         ~api_key
     in
-    (match model_spec.request_kind with
-     | Provider.Anthropic_messages ->
-       let headers =
-         [ "Content-Type", "application/json"
-         ; "x-api-key", api_key
-         ; "anthropic-version", Api.api_version
-         ]
+    (match
+       Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)
+     with
+     | Error error ->
+       Error (Provider_failure_attribution.of_runtime_binding_error ~binding error)
+     | Ok response_provider_config ->
+       let response_provider_config =
+         { response_provider_config with
+           base_url
+         ; request_path = model_spec.request_path
+         }
        in
-       let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
-       let body = Yojson.Safe.to_string (`Assoc body_assoc) in
-       let url = base_url ^ model_spec.request_path in
-       Llm_provider.Http_client.with_post_stream
-         ?clock
-         ~net
-         ~url
-         ~headers
-         ~body
-         ~f:(fun reader ->
-           let acc = create_stream_acc () in
-           Llm_provider.Http_client.read_sse
-             ?clock
-             ?idle_timeout
-             ~reader
-             ~on_data:(fun ~event_type data ->
-               if data <> "[DONE]"
-               then (
-                 match parse_sse_event event_type data with
-                 | None ->
-                   let evt =
-                     SSEParseFailed
-                       { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
-                   in
-                   on_event evt;
-                   accumulate_event acc evt
-                 | Some evt ->
-                   on_event evt;
-                   accumulate_event acc evt))
-             ();
-           if !(acc.stop_reason_received) then on_event MessageStop;
-           finalize_stream_acc acc)
-         ()
-       |> map_stream_finalize_result_detailed ~binding
-     | Provider.Openai_chat_completions ->
-       (* OpenAI-compatible SSE streaming. *)
-       let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
-       let auth_headers =
-         Provider.auth_headers_only_for_kind ~kind:openai_compat_kind ~api_key
-       in
-       let headers = resolved_headers @ auth_headers in
-       let stream_path = model_spec.request_path in
-       (match
-          Api_openai.build_openai_body_result
-            ~provider_config:provider_cfg
-            ~config
-            ~messages
-            ?tools
-            ()
-        with
-        | Error reason ->
+       (match model_spec.request_kind with
+        | Provider.Anthropic_messages ->
+          let headers =
+            [ "Content-Type", "application/json"
+            ; "x-api-key", api_key
+            ; "anthropic-version", Api.api_version
+            ]
+          in
+          (match
+             Api.build_body_assoc_result_for_resolved_config
+               ~resolved_config:response_provider_config
+               ~cache_extended_ttl:config.config.cache_extended_ttl
+               ~messages
+               ?tools
+               ~stream:true
+               ()
+           with
+           | Error reason ->
+             let error =
+               Error.Api
+                 (Llm_provider.Retry.InvalidRequest
+                    { message = "Request rejected: " ^ reason
+                    ; reason = Llm_provider.Retry.Unknown_invalid_request
+                    })
+             in
+             Error
+               (Provider_failure_attribution.of_request_validation_error ~binding error)
+           | Ok body_assoc ->
+             let body = Yojson.Safe.to_string (`Assoc body_assoc) in
+             let url = base_url ^ model_spec.request_path in
+             Llm_provider.Http_client.with_post_stream
+               ?clock
+               ~net
+               ~url
+               ~headers
+               ~body
+               ~f:(fun reader ->
+                 let acc = create_stream_acc () in
+                 Llm_provider.Http_client.read_sse
+                   ?clock
+                   ?idle_timeout
+                   ~reader
+                   ~on_data:(fun ~event_type data ->
+                     if data <> "[DONE]"
+                     then (
+                       match parse_sse_event event_type data with
+                       | None ->
+                         let evt =
+                           SSEParseFailed
+                             { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
+                         in
+                         on_event evt;
+                         accumulate_event acc evt
+                       | Some evt ->
+                         on_event evt;
+                         accumulate_event acc evt))
+                   ();
+                 if !(acc.stop_reason_received) then on_event MessageStop;
+                 finalize_stream_acc acc)
+               ()
+             |> map_stream_finalize_result_detailed
+                  ~binding
+                  ~provider_config:response_provider_config)
+        | Provider.Openai_chat_completions ->
+          (* OpenAI-compatible SSE streaming. *)
+          let auth_headers =
+            Provider.auth_headers_only_for_kind
+              ~kind:response_provider_config.kind
+              ~api_key
+          in
+          let headers = resolved_headers @ auth_headers in
+          let stream_path = model_spec.request_path in
+          (match
+             Api_openai.build_openai_body_result_for_resolved_config
+               ~resolved_config:response_provider_config
+               ~messages
+               ?tools
+               ()
+           with
+           | Error reason ->
+             let error =
+               Error.Api
+                 (Llm_provider.Retry.InvalidRequest
+                    { message = "Request rejected: " ^ reason
+                    ; reason = Llm_provider.Retry.Unknown_invalid_request
+                    })
+             in
+             Error
+               (Provider_failure_attribution.of_request_validation_error ~binding error)
+           | Ok body ->
+             let body =
+               body
+               (* Streaming must request both SSE chunks and usage deltas so the
+               accumulator can surface final token/cost metrics. *)
+               |> Llm_provider.Http_client.inject_stream_and_options
+             in
+             let url = base_url ^ stream_path in
+             Llm_provider.Http_client.with_post_stream
+               ?clock
+               ~net
+               ~url
+               ~headers
+               ~body
+               ~f:(fun reader ->
+                 let acc = create_stream_acc () in
+                 let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
+                 let msg_started = ref false in
+                 Llm_provider.Http_client.read_sse
+                   ?clock
+                   ?idle_timeout
+                   ~reader
+                   ~on_data:(fun ~event_type:_ data ->
+                     if data = "[DONE]"
+                     then ()
+                     else (
+                       match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                       | None ->
+                         let evt =
+                           SSEParseFailed
+                             { raw = data; reason = "openai_sse_chunk_parse_failure" }
+                         in
+                         on_event evt;
+                         accumulate_event acc evt
+                       | Some chunk ->
+                         if not !msg_started
+                         then (
+                           msg_started := true;
+                           let evt =
+                             MessageStart
+                               { id = chunk.chunk_id
+                               ; model = chunk.chunk_model
+                               ; usage = None
+                               }
+                           in
+                           on_event evt;
+                           accumulate_event acc evt);
+                         let evs, _tel =
+                           Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                         in
+                         List.iter
+                           (fun evt ->
+                              on_event evt;
+                              accumulate_event acc evt)
+                           evs))
+                   ();
+                 if !(acc.stop_reason_received) then on_event MessageStop;
+                 finalize_stream_acc acc)
+               ()
+             |> map_stream_finalize_result_detailed
+                  ~binding
+                  ~provider_config:response_provider_config)
+        | Provider.Custom name ->
           let error =
-            Error.Api
-              (Llm_provider.Retry.InvalidRequest
-                 { message = "Request rejected: " ^ reason
-                 ; reason = Llm_provider.Retry.Unknown_invalid_request
+            Error.Config
+              (UnsupportedProvider
+                 { detail =
+                     Printf.sprintf
+                       "custom provider %S does not declare an implemented streaming \
+                        codec"
+                       name
                  })
           in
-          Error (Provider_failure_attribution.of_request_validation_error ~binding error)
-        | Ok body ->
-          let body =
-            body
-            (* Streaming must request both SSE chunks and usage deltas so the
-               accumulator can surface final token/cost metrics. *)
-            |> Llm_provider.Http_client.inject_stream_and_options
-          in
-          let url = base_url ^ stream_path in
-          Llm_provider.Http_client.with_post_stream
-            ?clock
-            ~net
-            ~url
-            ~headers
-            ~body
-            ~f:(fun reader ->
-              let acc = create_stream_acc () in
-              let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
-              let msg_started = ref false in
-              Llm_provider.Http_client.read_sse
-                ?clock
-                ?idle_timeout
-                ~reader
-                ~on_data:(fun ~event_type:_ data ->
-                  if data = "[DONE]"
-                  then ()
-                  else (
-                    match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                    | None ->
-                      let evt =
-                        SSEParseFailed
-                          { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                      in
-                      on_event evt;
-                      accumulate_event acc evt
-                    | Some chunk ->
-                      if not !msg_started
-                      then (
-                        msg_started := true;
-                        let evt =
-                          MessageStart
-                            { id = chunk.chunk_id
-                            ; model = chunk.chunk_model
-                            ; usage = None
-                            }
-                        in
-                        on_event evt;
-                        accumulate_event acc evt);
-                      let evs, _tel =
-                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
-                      in
-                      List.iter
-                        (fun evt ->
-                           on_event evt;
-                           accumulate_event acc evt)
-                        evs))
-                ();
-              if !(acc.stop_reason_received) then on_event MessageStop;
-              finalize_stream_acc acc)
-            ()
-          |> map_stream_finalize_result_detailed ~binding)
-     | Provider.Custom name ->
-       let error =
-         Error.Config
-           (UnsupportedProvider
-              { detail =
-                  Printf.sprintf
-                    "custom provider %S does not declare an implemented streaming codec"
-                    name
-              })
-       in
-       Error (Provider_failure_attribution.of_runtime_binding_error ~binding error))
+          Error (Provider_failure_attribution.of_runtime_binding_error ~binding error)))
 ;;
 
 let create_message_stream

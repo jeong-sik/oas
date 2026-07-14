@@ -9,6 +9,7 @@ let make_test_impl ?(name = "test-provider") ?(request_path = "/v1/test") ()
   : Provider.provider_impl
   =
   { name
+  ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
   ; request_kind = Provider.Openai_chat_completions
   ; request_path
   ; capabilities =

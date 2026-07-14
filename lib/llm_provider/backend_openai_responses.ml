@@ -118,6 +118,32 @@ let message_has_responses_raw_reasoning (msg : message) =
     msg.content
 ;;
 
+let validate_projected_opaque_reasoning (messages : message list) =
+  List.iteri
+    (fun message_index (message : message) ->
+       List.iteri
+         (fun block_index -> function
+            | RedactedThinking data
+              when Option.is_none (responses_raw_reasoning_item_of_redacted data) ->
+              invalid_arg
+                (Printf.sprintf
+                   "Backend_openai_responses.build_request: malformed opaque reasoning \
+                    at history index %d block %d"
+                   message_index
+                   block_index)
+            | RedactedThinking _
+            | Text _
+            | Thinking _
+            | ReasoningDetails _
+            | ToolUse _
+            | ToolResult _
+            | Image _
+            | Document _
+            | Audio _ -> ())
+         message.content)
+    messages
+;;
+
 let responses_tool_json tool =
   match Backend_openai_serialize.build_openai_tool_json tool with
   | `Assoc fields ->
@@ -364,6 +390,34 @@ let build_request_artifact
       ()
   =
   let tools = Backend_openai_request.effective_tools config tools in
+  let projected_messages =
+    match
+      Reasoning_history_projection.project_for_provider_config
+        ~assistant_has_payload:(fun content -> content <> [])
+        ~reasoning_block_supported:(function
+          | RedactedThinking _ -> true
+          | Thinking _
+          | ReasoningDetails _
+          | Text _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        config
+        messages
+    with
+    | Error error ->
+      invalid_arg
+        ("Backend_openai_responses.build_request: "
+         ^ Reasoning_history_projection.error_to_string error)
+    | Ok projection ->
+      Reasoning_history_projection.observe
+        ~component:"backend_openai_responses"
+        projection;
+      validate_projected_opaque_reasoning projection.messages;
+      projection.messages
+  in
   let dialect = Reasoning_dialect.for_provider_config config in
   let output_token_receipt =
     Backend_openai_request.output_token_receipt
@@ -387,7 +441,7 @@ let build_request_artifact
   in
   let body =
     [ "model", `String config.model_id
-    ; "input", `List (List.concat_map input_items_of_message messages)
+    ; "input", `List (List.concat_map input_items_of_message projected_messages)
     ]
   in
   let body =
@@ -430,7 +484,7 @@ let build_request_artifact
   let body =
     if
       Option.is_some reasoning_effort
-      || List.exists message_has_responses_raw_reasoning messages
+      || List.exists message_has_responses_raw_reasoning projected_messages
     then ("include", `List [ `String "reasoning.encrypted_content" ]) :: body
     else body
   in

@@ -13,6 +13,70 @@ let msg role content : message =
   { role; content; name = None; tool_call_id = None; metadata = [] }
 ;;
 
+let content_has_reasoning =
+  List.exists (function
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+;;
+
+let reasoning_source_for_dialect dialect =
+  let provider_instance =
+    Reasoning_source.provider_instance
+      ~base_url:"https://codec.test"
+      ~request_path:"/v1/chat/completions"
+  in
+  match
+    Reasoning_source.create
+      ~provider_kind:Provider_kind.OpenAI_compat
+      ~provider_instance
+      ~canonical_model_id:"codec-test"
+      ~replay_contract:(Reasoning_dialect.replay_contract dialect)
+  with
+  | Ok source -> source
+  | Error detail -> Alcotest.failf "invalid codec-test reasoning source: %s" detail
+;;
+
+let reasoning_source_for_config config =
+  match Reasoning_dialect.reasoning_source_for_provider_config config with
+  | Ok source -> source
+  | Error detail -> Alcotest.failf "invalid reasoning source fixture: %s" detail
+;;
+
+let stamp_reasoning_history reasoning_source (messages : message list) =
+  List.map
+    (fun (message : message) ->
+       match message.role, content_has_reasoning message.content with
+       | Assistant, true ->
+         { message with metadata = Reasoning_source.metadata reasoning_source }
+       | (System | User | Tool), _ | Assistant, false -> message)
+    messages
+;;
+
+let dialect_messages_of_history
+      ?assistant_tool_content_format
+      dialect
+      (messages : message list)
+  =
+  let reasoning_target = reasoning_source_for_dialect dialect in
+  let messages = stamp_reasoning_history reasoning_target messages in
+  match
+    Serialize.dialect_messages_of_history
+      ?assistant_tool_content_format
+      ~reasoning_target
+      dialect
+      messages
+  with
+  | Ok wire -> wire
+  | Error error ->
+    Alcotest.failf
+      "typed reasoning replay projection failed: %s"
+      (Reasoning_history_projection.error_to_string error)
+;;
+
+let render_single_dialect_message ?assistant_tool_content_format dialect message =
+  dialect_messages_of_history ?assistant_tool_content_format dialect [ message ]
+;;
+
 let only label = function
   | [ x ] -> x
   | xs ->
@@ -320,7 +384,7 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
     }
   in
   let replay =
-    Serialize.dialect_messages_of_message minimax_dialect (msg Assistant response.content)
+    render_single_dialect_message minimax_dialect (msg Assistant response.content)
     |> only "assistant replay"
   in
   let replay_details = member "reasoning_details" replay |> as_list "reasoning_details" in
@@ -722,7 +786,7 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
       }
   in
   let replay_null =
-    Serialize.dialect_messages_of_message
+    render_single_dialect_message
       ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_null
       replay_dialect
       replay_assistant
@@ -737,7 +801,7 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "because"
     (member "reasoning_content" replay_null |> to_string);
   let replay_empty =
-    Serialize.dialect_messages_of_message
+    render_single_dialect_message
       ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
       replay_dialect
       replay_assistant
@@ -751,8 +815,11 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "empty-string capability still emits reasoning_content"
     "because"
     (member "reasoning_content" replay_empty |> to_string);
+  let glm_dialect = { Reasoning_dialect.default with replay_policy = Preserve_always } in
   let glm =
-    Serialize.glm_messages_of_message
+    render_single_dialect_message
+      ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
+      glm_dialect
       (msg
          Assistant
          [ Text "answer"; Thinking { signature = None; content = "because" } ])
@@ -815,9 +882,7 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
     ]
   in
   let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
-  let wire =
-    messages |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
-  in
+  let wire = dialect_messages_of_history kimi_dialect messages in
   check_string
     "tool-turn reasoning preserved"
     "k-thought:tool"
@@ -830,21 +895,6 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
     "plain visible content"
     "visible"
     (List.nth wire 2 |> member "content" |> to_string)
-;;
-
-let test_strip_thinking_blocks () =
-  let messages =
-    [ msg Assistant [ Thinking { signature = None; content = "x" }; Text "visible" ]
-    ; msg User [ Text "same" ]
-    ]
-  in
-  let stripped = Serialize.strip_thinking_blocks messages in
-  (match (List.hd stripped).content with
-   | [ Text "visible" ] -> ()
-   | _ -> Alcotest.fail "thinking block should be stripped");
-  match (List.nth stripped 1).content with
-  | [ Text "same" ] -> ()
-  | _ -> Alcotest.fail "unchanged text block should remain"
 ;;
 
 let test_tool_choice_and_tool_schema_conversion () =
@@ -948,13 +998,13 @@ let test_serializer_ignored_block_variants () =
     "assistant has no tool_calls"
     true
     (member "tool_calls" assistant = `Null);
+  let glm_dialect = { Reasoning_dialect.default with replay_policy = Preserve_always } in
   let glm =
-    Serialize.glm_messages_of_message (msg Assistant ignored_blocks) |> only "glm"
+    render_single_dialect_message
+      glm_dialect
+      (msg Assistant [ Thinking { signature = None; content = "   " } ])
   in
-  Alcotest.(check bool)
-    "blank reasoning omitted"
-    true
-    (member "reasoning_content" glm = `Null);
+  check_int "blank reasoning-only assistant removed" 0 (List.length glm);
   let tool_fallback_blocks =
     [ Thinking { signature = None; content = "   " }
     ; RedactedThinking "hidden"
@@ -970,30 +1020,6 @@ let test_serializer_ignored_block_variants () =
     |> only "tool fallback"
   in
   check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
-;;
-
-let test_strip_thinking_preserves_non_thinking_variants () =
-  let no_thinking =
-    Serialize.strip_thinking_blocks
-      [ msg
-          Assistant
-          [ RedactedThinking "hidden"
-          ; ToolUse { id = "call"; name = "lookup"; input = `Null }
-          ; ToolResult
-              { tool_use_id = "call"
-              ; content = "ok"
-              ; outcome = Tool_succeeded
-              ; json = None
-              ; content_blocks = None
-              }
-          ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
-          ; Document
-              { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
-          ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
-          ]
-      ]
-  in
-  check_int "non-thinking blocks preserved" 6 (List.length (List.hd no_thinking).content)
 ;;
 
 let test_parallel_tool_calls_fields () =
@@ -1639,26 +1665,23 @@ let test_responses_preserves_encrypted_reasoning_item_for_replay () =
         ~max_tokens:128
         ()
     in
-    let body =
-      Responses.build_request
-        ~config
-        ~messages:
-          [ msg User [ Text "weather?" ]
-          ; msg Assistant response.content
-          ; msg
-              Tool
-              [ ToolResult
-                  { tool_use_id = "call_weather"
-                  ; content = {|{"temp_c":12}|}
-                  ; outcome = Tool_succeeded
-                  ; json = Some (`Assoc [ "temp_c", `Int 12 ])
-                  ; content_blocks = None
-                  }
-              ]
+    let messages =
+      [ msg User [ Text "weather?" ]
+      ; msg Assistant response.content
+      ; msg
+          Tool
+          [ ToolResult
+              { tool_use_id = "call_weather"
+              ; content = {|{"temp_c":12}|}
+              ; outcome = Tool_succeeded
+              ; json = Some (`Assoc [ "temp_c", `Int 12 ])
+              ; content_blocks = None
+              }
           ]
-        ()
-      |> Yojson.Safe.from_string
+      ]
+      |> stamp_reasoning_history (reasoning_source_for_config config)
     in
+    let body = Responses.build_request ~config ~messages () |> Yojson.Safe.from_string in
     Alcotest.(check (list string))
       "include encrypted reasoning"
       [ "reasoning.encrypted_content" ]
@@ -1690,7 +1713,6 @@ let test_responses_build_request_round_trips_tool_result_items () =
       ~base_url:"https://api.openai.com"
       ~request_path:"/v1/responses"
       ~enable_thinking:true
-      ~reasoning_effort:Reasoning_effort.Medium
       ~max_tokens:128
       ()
   in
@@ -1702,64 +1724,55 @@ let test_responses_build_request_round_trips_tool_result_items () =
       ; "strict", `Bool true
       ]
   in
-  let body =
-    Responses.build_request
-      ~config
-      ~messages:
-        [ msg User [ Text "weather?" ]
-        ; msg
-            Assistant
-            [ Thinking { signature = None; content = "Need a tool." }
-            ; ToolUse
-                { id = "call_weather"
-                ; name = "get_weather"
-                ; input = `Assoc [ "city", `String "Paris" ]
-                }
-            ]
-        ; msg
-            Tool
-            [ ToolResult
-                { tool_use_id = "call_weather"
-                ; content = {|{"temp_c":12}|}
-                ; outcome = Tool_succeeded
-                ; json = Some (`Assoc [ "temp_c", `Int 12 ])
-                ; content_blocks = None
-                }
-            ]
+  let messages =
+    [ msg User [ Text "weather?" ]
+    ; msg
+        Assistant
+        [ Thinking { signature = None; content = "Need a tool." }
+        ; ToolUse
+            { id = "call_weather"
+            ; name = "get_weather"
+            ; input = `Assoc [ "city", `String "Paris" ]
+            }
         ]
-      ~tools:[ tool ]
-      ()
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call_weather"
+            ; content = {|{"temp_c":12}|}
+            ; outcome = Tool_succeeded
+            ; json = Some (`Assoc [ "temp_c", `Int 12 ])
+            ; content_blocks = None
+            }
+        ]
+    ]
+    |> stamp_reasoning_history (reasoning_source_for_config config)
+  in
+  let body =
+    Responses.build_request ~config ~messages ~tools:[ tool ] ()
     |> Yojson.Safe.from_string
   in
   check_string "model" "gpt-5.5" (member "model" body |> to_string);
   check_int "max output" 128 (member "max_output_tokens" body |> to_int);
-  check_string
-    "reasoning effort"
-    "medium"
-    (member "reasoning" body |> member "effort" |> to_string);
-  Alcotest.(check (list string))
-    "include encrypted reasoning"
-    [ "reasoning.encrypted_content" ]
-    (member "include" body |> to_list |> List.map to_string);
+  check_bool
+    "generic reasoning does not request encrypted content"
+    true
+    (member "include" body = `Null);
   let input = member "input" body |> to_list in
-  check_int "input items" 4 (List.length input);
+  check_int "generic reasoning is not replayed as opaque state" 3 (List.length input);
   check_string "first role" "user" (List.nth input 0 |> member "role" |> to_string);
-  check_string
-    "reasoning item"
-    "reasoning"
-    (List.nth input 1 |> member "type" |> to_string);
   check_string
     "function call item"
     "function_call"
-    (List.nth input 2 |> member "type" |> to_string);
+    (List.nth input 1 |> member "type" |> to_string);
   check_string
     "function output item"
     "function_call_output"
-    (List.nth input 3 |> member "type" |> to_string);
+    (List.nth input 2 |> member "type" |> to_string);
   check_string
     "output call id"
     "call_weather"
-    (List.nth input 3 |> member "call_id" |> to_string);
+    (List.nth input 2 |> member "call_id" |> to_string);
   let tool_json = member "tools" body |> to_list |> only "responses tool" in
   check_string "tool type" "function" (member "type" tool_json |> to_string);
   check_string "tool name" "get_weather" (member "name" tool_json |> to_string);
@@ -1802,42 +1815,30 @@ let test_responses_build_request_preserves_multiturn_reasoning_tool_order () =
       ~max_tokens:128
       ()
   in
-  let body =
-    Responses.build_request
-      ~config
-      ~messages:
-        [ msg User [ Text "User message 1" ]
-        ; msg
-            Assistant
-            [ raw_reasoning
-                ~id:"rs_1_1"
-                ~encrypted_content:"enc_1_1"
-                ~summary:"Thinking 1.1"
-            ; tool_call "call_1_1" "Seoul"
-            ]
-        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
-        ; msg
-            Assistant
-            [ raw_reasoning
-                ~id:"rs_1_2"
-                ~encrypted_content:"enc_1_2"
-                ~summary:"Thinking 1.2"
-            ; tool_call "call_1_2" "Busan"
-            ]
-        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
-        ; msg
-            Assistant
-            [ raw_reasoning
-                ~id:"rs_1_3"
-                ~encrypted_content:"enc_1_3"
-                ~summary:"Thinking 1.3"
-            ; Text "Answer 1"
-            ]
-        ; msg User [ Text "User message 2" ]
+  let messages =
+    [ msg User [ Text "User message 1" ]
+    ; msg
+        Assistant
+        [ raw_reasoning ~id:"rs_1_1" ~encrypted_content:"enc_1_1" ~summary:"Thinking 1.1"
+        ; tool_call "call_1_1" "Seoul"
         ]
-      ()
-    |> Yojson.Safe.from_string
+    ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+    ; msg
+        Assistant
+        [ raw_reasoning ~id:"rs_1_2" ~encrypted_content:"enc_1_2" ~summary:"Thinking 1.2"
+        ; tool_call "call_1_2" "Busan"
+        ]
+    ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+    ; msg
+        Assistant
+        [ raw_reasoning ~id:"rs_1_3" ~encrypted_content:"enc_1_3" ~summary:"Thinking 1.3"
+        ; Text "Answer 1"
+        ]
+    ; msg User [ Text "User message 2" ]
+    ]
+    |> stamp_reasoning_history (reasoning_source_for_config config)
   in
+  let body = Responses.build_request ~config ~messages () |> Yojson.Safe.from_string in
   Alcotest.(check (list string))
     "include encrypted reasoning"
     [ "reasoning.encrypted_content" ]
@@ -2176,7 +2177,6 @@ let () =
             "Kimi replay preserves historical reasoning"
             `Quick
             test_kimi_replay_trace_preserves_all_historical_reasoning
-        ; Alcotest.test_case "strip thinking blocks" `Quick test_strip_thinking_blocks
         ; Alcotest.test_case
             "tool choice and schema conversion"
             `Quick
@@ -2185,10 +2185,6 @@ let () =
             "ignored block variants"
             `Quick
             test_serializer_ignored_block_variants
-        ; Alcotest.test_case
-            "strip thinking preserves non-thinking variants"
-            `Quick
-            test_strip_thinking_preserves_non_thinking_variants
         ; Alcotest.test_case
             "tool schema defaults and legacy edge params"
             `Quick

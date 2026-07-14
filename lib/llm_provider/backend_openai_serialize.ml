@@ -446,38 +446,141 @@ let openai_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json msg
 ;;
 
-let glm_messages_of_message msg =
-  messages_of_message_with
-    ~tool_calls_fn:tool_calls_to_openai_json
-    ~include_reasoning_content:true
-    ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
-    msg
+type history_projection =
+  { messages : Yojson.Safe.t list
+  ; reasoning_replay_drops : Reasoning_history_projection.reasoning_replay_drop list
+  ; removed_empty_assistant_indices : int list
+  }
+[@@deriving show]
+
+let content_has_reasoning =
+  List.exists (function
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+    | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
 ;;
 
-let dialect_messages_of_message
-      ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
-      dialect
-      (msg : Types.message)
-  =
-  let tool_calls = tool_calls_to_openai_json msg.content in
-  let include_reasoning_content =
-    Reasoning_dialect.should_replay_reasoning
-      dialect
-      ~assistant_had_tool_call:(tool_calls <> [])
-  in
+let content_has_tool_use =
+  List.exists (function
+    | ToolUse _ -> true
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> false)
+;;
+
+let content_has_visible_assistant_text =
+  List.exists (function
+    | Text text -> not (Api_common.string_is_blank text)
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolUse _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> false)
+;;
+
+let openai_assistant_has_wire_payload (dialect : Reasoning_dialect.t) content =
+  let reasoning_content = assistant_reasoning_content_of_blocks content in
+  let reasoning_details = assistant_reasoning_details_of_blocks content in
   let include_reasoning_details =
-    include_reasoning_content
-    &&
-    match dialect.Reasoning_dialect.output_wire with
+    match dialect.output_wire with
     | Reasoning_dialect.Reasoning_split -> true
     | Reasoning_dialect.No_output_control -> false
   in
-  messages_of_message_with
-    ~tool_calls_fn:(fun _ -> tool_calls)
-    ~include_reasoning_content
-    ~include_reasoning_details
-    ~assistant_tool_content_format
-    msg
+  content_has_visible_assistant_text content
+  || content_has_tool_use content
+  || (not (Api_common.string_is_blank reasoning_content))
+  || (include_reasoning_details && reasoning_details <> None)
+;;
+
+let typed_history_projection ~reasoning_target dialect messages =
+  let replay_policy =
+    (Reasoning_dialect.replay_contract dialect).Reasoning_replay_contract.replay_policy
+  in
+  Reasoning_history_projection.project
+    ~assistant_has_payload:(openai_assistant_has_wire_payload dialect)
+    ~reasoning_block_supported:(function
+      | Thinking _ | ReasoningDetails _ -> true
+      | RedactedThinking _
+      | Text _
+      | ToolUse _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> false)
+    ~reasoning_target
+    ~replay_policy
+    messages
+;;
+
+let render_history_projection
+      ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
+      dialect
+      (projection : Reasoning_history_projection.t)
+  =
+  let projected_messages =
+    List.fold_left
+      (fun projected (msg : Types.message) ->
+         let tool_calls = tool_calls_to_openai_json msg.content in
+         let include_reasoning = content_has_reasoning msg.content in
+         let include_reasoning_details =
+           include_reasoning
+           &&
+           match dialect.Reasoning_dialect.output_wire with
+           | Reasoning_dialect.Reasoning_split -> true
+           | Reasoning_dialect.No_output_control -> false
+         in
+         let rendered =
+           messages_of_message_with
+             ~tool_calls_fn:(fun _ -> tool_calls)
+             ~include_reasoning_content:include_reasoning
+             ~include_reasoning_details
+             ~assistant_tool_content_format
+             msg
+         in
+         List.rev_append rendered projected)
+      []
+      projection.messages
+    |> List.rev
+  in
+  { messages = projected_messages
+  ; reasoning_replay_drops = projection.reasoning_replay_drops
+  ; removed_empty_assistant_indices = projection.removed_empty_assistant_indices
+  }
+;;
+
+let dialect_history_projection
+      ?assistant_tool_content_format
+      ~reasoning_target
+      dialect
+      messages
+  =
+  match typed_history_projection ~reasoning_target dialect messages with
+  | Error _ as error -> error
+  | Ok projection ->
+    Ok (render_history_projection ?assistant_tool_content_format dialect projection)
+;;
+
+let dialect_messages_of_history
+      ?assistant_tool_content_format
+      ~reasoning_target
+      dialect
+      messages
+  =
+  match typed_history_projection ~reasoning_target dialect messages with
+  | Error _ as error -> error
+  | Ok projection ->
+    Reasoning_history_projection.observe ~component:"backend_openai" projection;
+    let rendered =
+      render_history_projection ?assistant_tool_content_format dialect projection
+    in
+    Ok rendered.messages
 ;;
 
 let modality_priority_for_model_id model_id =
@@ -556,43 +659,21 @@ let ollama_messages_of_message ?(model_id = "") msg =
     (match user_msg with
      | None -> tool_msgs
      | Some m -> tool_msgs @ [ m ])
-  | System | Assistant | Tool ->
+  | Assistant ->
+    let thinking = assistant_reasoning_content_of_blocks msg.content in
     messages_of_message_with
       ~tool_calls_fn:tool_calls_to_ollama_json
       ~modality_priority
       msg
-;;
-
-(** Strip Thinking blocks from all messages.
-
-    Some OpenAI-compatible providers emit [reasoning_content] in
-    responses but do not accept it in request messages. DeepSeek is an
-    exception for tool-call turns, and Qwen/DashScope can opt into replay
-    with [preserve_thinking]. Callers that need provider-specific replay
-    should use {!dialect_messages_of_message}; this helper remains a blunt
-    compatibility strip.
-
-    Pure function — no I/O, no mutation. *)
-let strip_thinking_blocks (messages : message list) : message list =
-  List.map
-    (fun (msg : message) ->
-       let filtered =
-         List.filter
-           (function
-             | Thinking _ | ReasoningDetails _ -> false
-             | Text _
-             | RedactedThinking _
-             | ToolUse _
-             | ToolResult _
-             | Image _
-             | Document _
-             | Audio _ -> true)
-           msg.content
-       in
-       if List.length filtered = List.length msg.content
-       then msg
-       else { msg with content = filtered })
-    messages
+    |> List.map (function
+      | `Assoc fields when not (Api_common.string_is_blank thinking) ->
+        `Assoc (("thinking", `String thinking) :: fields)
+      | message -> message)
+  | System | Tool ->
+    messages_of_message_with
+      ~tool_calls_fn:tool_calls_to_ollama_json
+      ~modality_priority
+      msg
 ;;
 
 let tool_choice_to_openai_json = function

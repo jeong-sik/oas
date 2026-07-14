@@ -18,10 +18,8 @@ let openai_content_parts_of_blocks =
 ;;
 
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
-let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
-let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
@@ -615,26 +613,6 @@ let%test "openai_messages_of_message assistant excludes reasoning from content" 
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = "final answer"
   && json |> member "reasoning_content" = `Null
-;;
-
-let%test "glm_messages_of_message preserves reasoning_content separately" =
-  let msg =
-    { role = Assistant
-    ; content =
-        [ Thinking { signature = None; content = "step one" }
-        ; ToolUse { id = "tc1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
-        ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  let result = glm_messages_of_message msg in
-  let json = List.hd result in
-  let open Yojson.Safe.Util in
-  json |> member "content" |> to_string = ""
-  && json |> member "reasoning_content" |> to_string = "step one"
-  && json |> member "tool_calls" |> to_list |> List.length = 1
 ;;
 
 let%test "openai_messages_of_message assistant blank text with tool_calls" =
@@ -1674,40 +1652,4 @@ let%test "build_request emits only an explicit supported seed" =
   in
   let body = build_request ~config ~messages:[] () in
   Yojson.Safe.Util.(body |> Yojson.Safe.from_string |> member "seed" |> to_int) = 42
-;;
-
-let%test "strip_thinking_blocks removes Thinking from all messages" =
-  let messages =
-    [ { role = User
-      ; content = [ Text "hello" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { role = Assistant
-      ; content = [ Text "hi"; Thinking { signature = None; content = "step 1" } ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let stripped = strip_thinking_blocks messages in
-  List.for_all
-    (fun (msg : message) ->
-       not
-         (List.exists
-            (fun (block : Types.content_block) ->
-               match block with
-               | Thinking _ -> true
-               | Text _
-               | ReasoningDetails _
-               | RedactedThinking _
-               | ToolUse _
-               | ToolResult _
-               | Image _
-               | Document _
-               | Audio _ -> false)
-            msg.content))
-    stripped
 ;;

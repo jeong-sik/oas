@@ -258,6 +258,12 @@ let patch_telemetry
   let caps, capability_source = resolve_capabilities_for_config config in
   let ctx_window = caps.max_context_tokens in
   let canonical = Some config.model_id in
+  let reasoning_source =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> Some source
+    | Error detail ->
+      invalid_arg ("Complete_common.patch_telemetry: invalid reasoning source: " ^ detail)
+  in
   let telemetry =
     match resp.telemetry with
     | Some t ->
@@ -266,6 +272,7 @@ let patch_telemetry
           Types.request_latency_ms = latency_ms
         ; provider_kind = pk
         ; canonical_model_id = canonical
+        ; reasoning_source
         ; effective_context_window = ctx_window
         ; ttfrc_ms =
             (match ttfrc_ms with
@@ -282,6 +289,7 @@ let patch_telemetry
           request_latency_ms = latency_ms
         ; provider_kind = pk
         ; canonical_model_id = canonical
+        ; reasoning_source
         ; effective_context_window = ctx_window
         ; ttfrc_ms
         ; prefill_ms

@@ -391,6 +391,145 @@ module Conversation_metadata = struct
   ;;
 end
 
+(** Exact producer binding for stored reasoning artifacts. *)
+module Reasoning_source = struct
+  type provider_instance = Provider_instance_id of string [@@deriving show]
+
+  type t =
+    { provider_kind : Provider_kind.t
+    ; provider_instance : provider_instance
+    ; canonical_model_id : string
+    ; replay_contract : Reasoning_replay_contract.t
+    }
+  [@@deriving show]
+
+  type classification =
+    | Absent
+    | Present of t
+    | Invalid
+    | Duplicate
+  [@@deriving show]
+
+  let key = "oas.reasoning_source.v2"
+  let sha256_hex_length = 64
+
+  let provider_instance_id_is_canonical value =
+    String.length value = sha256_hex_length
+    && String.for_all
+         (function
+           | '0' .. '9' | 'a' .. 'f' -> true
+           | _ -> false)
+         value
+  ;;
+
+  let provider_instance ~base_url ~request_path =
+    let canonical value = Uri.of_string value |> Uri.canonicalize |> Uri.to_string in
+    let material = canonical base_url ^ "\000" ^ canonical request_path in
+    Provider_instance_id Digestif.SHA256.(to_hex (digest_string material))
+  ;;
+
+  let create ~provider_kind ~provider_instance ~canonical_model_id ~replay_contract =
+    if String.trim canonical_model_id = ""
+    then Error "canonical_model_id must not be blank"
+    else Ok { provider_kind; provider_instance; canonical_model_id; replay_contract }
+  ;;
+
+  let equal left right =
+    left.provider_kind = right.provider_kind
+    && left.provider_instance = right.provider_instance
+    && String.equal left.canonical_model_id right.canonical_model_id
+    && Reasoning_replay_contract.equal left.replay_contract right.replay_contract
+  ;;
+
+  let to_json source =
+    let (Provider_instance_id provider_instance_id) = source.provider_instance in
+    `Assoc
+      [ "provider_kind", `String (Provider_kind.to_string source.provider_kind)
+      ; "provider_instance_id", `String provider_instance_id
+      ; "canonical_model_id", `String source.canonical_model_id
+      ; "replay_contract", Reasoning_replay_contract.to_yojson source.replay_contract
+      ]
+  ;;
+
+  let values_for key fields =
+    List.filter_map
+      (fun (field_key, value) -> if String.equal field_key key then Some value else None)
+      fields
+  ;;
+
+  let of_json = function
+    | `Assoc fields ->
+      (match
+         ( values_for "provider_kind" fields
+         , values_for "provider_instance_id" fields
+         , values_for "canonical_model_id" fields
+         , values_for "replay_contract" fields )
+       with
+       | ( [ `String provider_raw ]
+         , [ `String provider_instance_id ]
+         , [ `String canonical_model_id ]
+         , [ replay_contract_json ] )
+         when List.length fields = 4
+              && provider_instance_id_is_canonical provider_instance_id ->
+         (match Provider_kind.of_string provider_raw with
+          | Some provider_kind
+            when String.equal provider_raw (Provider_kind.to_string provider_kind) ->
+            (match Reasoning_replay_contract.of_yojson replay_contract_json with
+             | Error _ -> None
+             | Ok replay_contract ->
+               (match
+                  create
+                    ~provider_kind
+                    ~provider_instance:(Provider_instance_id provider_instance_id)
+                    ~canonical_model_id
+                    ~replay_contract
+                with
+                | Ok source -> Some source
+                | Error _ -> None))
+          | Some _ | None -> None)
+       | _ -> None)
+    | `Null
+    | `Bool _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `String _
+    | `List _
+    | `Tuple _
+    | `Variant _ -> None
+  ;;
+
+  let entry source = key, to_json source
+  let metadata source = [ entry source ]
+  let to_yojson = to_json
+
+  let of_yojson json =
+    match of_json json with
+    | Some source -> Ok source
+    | None -> Error "Reasoning_source: invalid JSON"
+  ;;
+
+  let classify metadata =
+    let values = values_for key metadata in
+    match values with
+    | [] -> Absent
+    | [ value ] ->
+      (match of_json value with
+       | Some source -> Present source
+       | None -> Invalid)
+    | _ -> Duplicate
+  ;;
+
+  let add source metadata =
+    match classify metadata with
+    | Absent -> Ok (entry source :: metadata)
+    | Present existing when equal existing source -> Ok metadata
+    | Present _ -> Error "conflicting reasoning source"
+    | Invalid -> Error "malformed reasoning source"
+    | Duplicate -> Error "duplicate reasoning source"
+  ;;
+end
+
 (** A single message in the conversation.
     [name] identifies the speaker (e.g. tool result source).
     [tool_call_id] links a tool result back to its tool_use request. *)
@@ -594,6 +733,7 @@ type inference_telemetry =
   ; provider_kind : Provider_kind.t option
   ; reasoning_effort : string option
   ; canonical_model_id : string option
+  ; reasoning_source : Reasoning_source.t option
   ; effective_context_window : int option
   ; provider_internal_action_count : int option
   ; ttfrc_ms : float option
@@ -610,6 +750,7 @@ let default_inference_telemetry : inference_telemetry =
   ; provider_kind = None
   ; reasoning_effort = None
   ; canonical_model_id = None
+  ; reasoning_source = None
   ; effective_context_window = None
   ; provider_internal_action_count = None
   ; ttfrc_ms = None
@@ -627,6 +768,38 @@ type api_response =
   ; telemetry : inference_telemetry option
   }
 [@@deriving show]
+
+type assistant_message_error =
+  | Reasoning_source_telemetry_missing
+  | Reasoning_source_missing
+[@@deriving show]
+
+let content_has_reasoning_artifact content =
+  List.exists
+    (function
+      | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
+      | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
+    content
+;;
+
+let assistant_message_of_response (response : api_response) =
+  let message metadata =
+    { role = Assistant
+    ; content = response.content
+    ; name = None
+    ; tool_call_id = None
+    ; metadata
+    }
+  in
+  if not (content_has_reasoning_artifact response.content)
+  then Ok (message [])
+  else (
+    match response.telemetry with
+    | None -> Error Reasoning_source_telemetry_missing
+    | Some { reasoning_source = None; _ } -> Error Reasoning_source_missing
+    | Some { reasoning_source = Some source; _ } ->
+      Ok (message (Reasoning_source.metadata source)))
+;;
 
 (** {1 SSE Streaming Types} *)
 

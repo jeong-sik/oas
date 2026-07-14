@@ -234,6 +234,44 @@ module Conversation_metadata : sig
   val is_mergeable_followup : metadata -> bool
 end
 
+(** Exact producer binding for stored reasoning artifacts. Replay requires the
+    same concrete provider instance, canonical request model, and typed replay
+    contract. A fallback, endpoint change, or dialect override therefore drops
+    foreign reasoning instead of cross-injecting it. *)
+module Reasoning_source : sig
+  type provider_instance [@@deriving show]
+
+  type t =
+    { provider_kind : Provider_kind.t
+    ; provider_instance : provider_instance
+    ; canonical_model_id : string
+    ; replay_contract : Reasoning_replay_contract.t
+    }
+  [@@deriving show]
+
+  type classification =
+    | Absent
+    | Present of t
+    | Invalid
+    | Duplicate
+  [@@deriving show]
+
+  val provider_instance : base_url:string -> request_path:string -> provider_instance
+
+  val create
+    :  provider_kind:Provider_kind.t
+    -> provider_instance:provider_instance
+    -> canonical_model_id:string
+    -> replay_contract:Reasoning_replay_contract.t
+    -> (t, string) result
+
+  val equal : t -> t -> bool
+  val entry : t -> string * Yojson.Safe.t
+  val metadata : t -> metadata
+  val add : t -> metadata -> (metadata, string) result
+  val classify : metadata -> classification
+end
+
 type message =
   { role : role
   ; content : content_block list
@@ -308,6 +346,8 @@ type inference_telemetry =
     (** e.g. "none", "low", "medium", "high" — as sent to provider *)
   ; canonical_model_id : string option
     (** Model ID used for the API request after alias resolution (e.g. "glm-4.7") *)
+  ; reasoning_source : Reasoning_source.t option
+    (** Exact replay provenance stamped by the live inference boundary. *)
   ; effective_context_window : int option
     (** Model's context window in tokens, from capabilities *)
   ; provider_internal_action_count : int option
@@ -421,6 +461,18 @@ type api_response =
   ; telemetry : inference_telemetry option
   }
 [@@deriving show]
+
+type assistant_message_error =
+  | Reasoning_source_telemetry_missing
+  | Reasoning_source_missing
+[@@deriving show]
+
+(** Convert a provider response into the Assistant history message callers
+    should append. Reasoning-bearing responses require exact replay
+    provenance; plain responses remain metadata-free. *)
+val assistant_message_of_response
+  :  api_response
+  -> (message, assistant_message_error) result
 
 (** {1 SSE Streaming Types} *)
 

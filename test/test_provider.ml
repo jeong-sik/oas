@@ -1404,6 +1404,7 @@ let test_provider_config_of_agent_runtime_only_registration () =
   in
   let impl : Provider.provider_impl =
     { name = provider_name
+    ; provider_kind = Llm_provider.Provider_config.Anthropic
     ; request_kind = Provider.Anthropic_messages
     ; request_path = "/runtime-only/messages"
     ; capabilities

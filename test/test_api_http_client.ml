@@ -72,6 +72,7 @@ let state_and_messages (provider : Provider.config) =
 let register_failing_custom_provider ~name ~base_url parse_response =
   let impl : Provider.provider_impl =
     { name
+    ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
     ; request_kind = Provider.Custom name
     ; request_path = "/v1/custom"
     ; capabilities = Provider.default_capabilities
@@ -191,6 +192,7 @@ let test_custom_stream_requires_streaming_codec () =
          let name = "api-custom-no-streaming-codec-" ^ suffix in
          let impl : Provider.provider_impl =
            { name
+           ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
            ; request_kind = Provider.Custom name
            ; request_path = "/v1/custom"
            ; capabilities =
@@ -261,6 +263,76 @@ let test_custom_parser_failure_preserves_legacy_error_and_parse_evidence () =
     | _ -> Alcotest.fail "expected typed response-parse evidence")
 ;;
 
+let test_reasoning_source_uses_dispatched_endpoint () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"custom-ok" ()
+  in
+  with_mock_server handler (fun ~sw ~net ~clock:_ ~base_url ->
+    let name = "api-reasoning-source-dispatch-endpoint" in
+    let request_path = "/v1/custom" in
+    let resolution_count = ref 0 in
+    let impl : Provider.provider_impl =
+      { name
+      ; provider_kind = Llm_provider.Provider_config.OpenAI_compat
+      ; request_kind = Provider.Custom name
+      ; request_path
+      ; capabilities = Provider.default_capabilities
+      ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
+      ; parse_response =
+          (fun _ ->
+            { id = "custom-reasoning"
+            ; model = "mock"
+            ; stop_reason = EndTurn
+            ; content = [ Thinking { content = "reasoning"; signature = None } ]
+            ; usage = None
+            ; telemetry = None
+            })
+      ; resolve =
+          (fun _ ->
+            incr resolution_count;
+            let resolved_base_url =
+              if !resolution_count = 1 then base_url else "https://different.invalid"
+            in
+            Ok (resolved_base_url, "", [ "Content-Type", "application/json" ]))
+      }
+    in
+    Provider.register_provider impl;
+    let provider = Provider.custom_provider ~name ~model_id:"mock" () in
+    let config, messages = state_and_messages provider in
+    match Api.create_message ~sw ~net ~provider ~config ~messages () with
+    | Error error -> Alcotest.failf "expected Ok, got %s" (Error.to_string error)
+    | Ok response ->
+      let actual_source =
+        match response.telemetry with
+        | Some { reasoning_source = Some source; _ } -> source
+        | None | Some { reasoning_source = None; _ } ->
+          Alcotest.fail "reasoning response must carry source telemetry"
+      in
+      let expected_config =
+        Llm_provider.Provider_config.make
+          ~kind:Llm_provider.Provider_config.OpenAI_compat
+          ~provider_id:name
+          ~model_id:"mock"
+          ~base_url
+          ~request_path
+          ~model_capabilities_override:Provider.default_capabilities
+          ()
+      in
+      let expected_source =
+        match
+          Llm_provider.Reasoning_dialect.reasoning_source_for_provider_config
+            expected_config
+        with
+        | Ok source -> source
+        | Error detail -> Alcotest.fail detail
+      in
+      Alcotest.(check bool)
+        "source binds the endpoint that received the request"
+        true
+        (Llm_provider.Types.Reasoning_source.equal actual_source expected_source))
+;;
+
 let test_timeout_requires_clock () =
   let handler _conn _req _body =
     Alcotest.fail "invalid timeout configuration must not reach HTTP"
@@ -312,6 +384,10 @@ let () =
             "custom parser failure preserves legacy error and parse evidence"
             `Quick
             test_custom_parser_failure_preserves_legacy_error_and_parse_evidence
+        ; Alcotest.test_case
+            "reasoning source uses dispatched endpoint"
+            `Quick
+            test_reasoning_source_uses_dispatched_endpoint
         ; Alcotest.test_case "timeout requires clock" `Quick test_timeout_requires_clock
         ] )
     ]

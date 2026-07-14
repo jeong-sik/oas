@@ -72,6 +72,13 @@ type t =
 val default : t
 val of_capabilities : Capabilities.capabilities -> t
 val for_provider_config : Provider_config.t -> t
+val replay_contract : t -> Reasoning_replay_contract.t
+
+(** Exact source binding for a response produced by [config]. *)
+val reasoning_source_for_provider_config
+  :  Provider_config.t
+  -> (Types.Reasoning_source.t, string) result
+
 val with_preserve_thinking : preserve_thinking:bool option -> t -> t
 val thinking_enabled : enable_thinking:bool option -> bool
 

@@ -276,8 +276,45 @@ let build_request_artifact_from_receipt
   (match validate_thinking_controls thinking_mode config with
    | Ok () -> ()
    | Error reason -> invalid_arg ("Backend_anthropic.build_request: " ^ reason));
-  let messages = Api_common.merge_tool_result_followup_user_messages messages in
-  let message_to_json = Api_common.message_to_json in
+  let projected_messages =
+    match
+      Reasoning_history_projection.project_for_provider_config
+        ~assistant_has_payload:(fun content -> content <> [])
+        ~reasoning_block_supported:(function
+          | Thinking _ | RedactedThinking _ -> true
+          | ReasoningDetails _
+          | Text _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        config
+        messages
+    with
+    | Error error ->
+      invalid_arg
+        ("Backend_anthropic.build_request: "
+         ^ Reasoning_history_projection.error_to_string error)
+    | Ok projection ->
+      Reasoning_history_projection.observe ~component:"backend_anthropic" projection;
+      projection.messages
+  in
+  let messages = Api_common.merge_tool_result_followup_user_messages projected_messages in
+  let message_to_json =
+    match config.kind with
+    | Provider_config.Anthropic -> Api_common.message_to_json
+    | Provider_config.Kimi -> Api_common.kimi_message_to_json
+    | Provider_config.OpenAI_compat
+    | Provider_config.Ollama
+    | Provider_config.Gemini
+    | Provider_config.Glm
+    | Provider_config.DashScope ->
+      invalid_arg
+        (Printf.sprintf
+           "Backend_anthropic.build_request: unsupported provider kind %s"
+           (Provider_config.string_of_provider_kind config.kind))
+  in
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id

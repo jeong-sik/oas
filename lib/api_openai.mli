@@ -19,6 +19,14 @@ val build_openai_body_result
   -> unit
   -> (string, string) result
 
+val build_openai_body_result_for_resolved_config
+  :  resolved_config:Llm_provider.Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?slot_id:int
+  -> unit
+  -> (string, string) result
+
 (** Build OpenAI-compatible request body JSON string.
     Respects provider capabilities for tool_choice, top_k, min_p,
     reasoning, and response_format. *)

@@ -405,7 +405,7 @@ let request_control_fields
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
 
-let for_provider_config (config : Provider_config.t) =
+let base_for_provider_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic ->
     { default with
@@ -416,21 +416,30 @@ let for_provider_config (config : Provider_config.t) =
   | Gemini ->
     { default with
       toggle_wire = Gemini_thinking_config
-    ; replay_policy = Drop_without_tool_preserve_with_tool
+    ; (* GenerateContent is stateless. Signed parts must remain attached to the
+         exact model response part and be returned unchanged. *)
+      replay_policy = Preserve_always
     ; streaming = Delta_field "thought"
     }
   | Kimi | OpenAI_compat | Ollama | Glm ->
-    let dialect =
-      match Provider_config.capabilities_for_config_model config with
-      | Some caps ->
-        of_capabilities caps
-        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-      | None ->
-        let caps = provider_capabilities_of_kind config.kind in
-        of_capabilities caps
-        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-    in
-    (* RFC-OAS-029 S3.1: GLM reasoning replay is
+    (match Provider_config.capabilities_for_config_model config with
+     | Some caps -> of_capabilities caps
+     | None -> provider_capabilities_of_kind config.kind |> of_capabilities)
+  | DashScope ->
+    (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
+       the model catalog. *)
+    of_capabilities Capabilities.dashscope_capabilities
+;;
+
+let for_provider_config (config : Provider_config.t) =
+  let dialect =
+    base_for_provider_config config
+    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+  in
+  let dialect =
+    match config.kind with
+    | Kimi | OpenAI_compat | Ollama | Glm ->
+      (* RFC-OAS-029 S3.1: GLM reasoning replay is
        clear_thinking-conditional (Preserved Thinking = thinking active AND
        clear_thinking=false). The GLM capability profile carries
        [No_thinking_control]/[No_preserve_thinking_control], so it resolves to
@@ -440,25 +449,70 @@ let for_provider_config (config : Provider_config.t) =
        typed policy (via [should_replay_reasoning]) instead of re-deriving
        GLM-ness with [is_glm_request]/[glm_should_replay_reasoning] at
        serialize time (S3.1: replay is typed, one source). *)
-    if Provider_config.is_zai_glm_config config
-    then
-      { dialect with
-        replay_policy =
-          (if Provider_config.glm_should_replay_reasoning config
-           then Preserve_always
-           else No_replay)
-      }
-    else dialect
-  | DashScope ->
-    (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
-       the model catalog. Backend_openai_request.capabilities_of_config is
-       provider-first for DashScope (always dashscope_capabilities); resolve it
-       provider-first here too so the reported toggle_wire matches the bytes the
-       request builder sends. Grouping DashScope with the model-catalog-first
-       providers above made a DashScope Qwen config report Chat_template_kwargs
-       while the builder emitted enable_thinking. *)
-    of_capabilities Capabilities.dashscope_capabilities
-    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+      if Provider_config.is_zai_glm_config config
+      then
+        { dialect with
+          replay_policy =
+            (if Provider_config.glm_should_replay_reasoning config
+             then Preserve_always
+             else No_replay)
+        }
+      else dialect
+    | Anthropic | Gemini | DashScope -> dialect
+  in
+  match Provider_http_codec.of_config config with
+  | Provider_http_codec.Openai_responses ->
+    { dialect with replay_policy = Provider_hidden_replay }
+  | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat ->
+    dialect
+;;
+
+let replay_contract dialect : Reasoning_replay_contract.t =
+  let replay_policy =
+    match dialect.replay_policy with
+    | No_replay -> Reasoning_replay_contract.No_replay
+    | Drop_without_tool_preserve_with_tool -> Tool_call_assistant_messages_all_history
+    | Preserve_always -> All_assistant_messages
+    | Provider_hidden_replay -> Provider_opaque_state
+  in
+  let streaming =
+    match dialect.streaming with
+    | No_streaming_reasoning -> Reasoning_replay_contract.No_streaming_reasoning
+    | Delta_field field -> Delta_field field
+    | Delta_reasoning_details -> Delta_reasoning_details
+    | Template_parser -> Template_parser
+  in
+  let output_wire =
+    match dialect.output_wire with
+    | No_output_control -> Reasoning_replay_contract.No_output_control
+    | Reasoning_split -> Reasoning_split
+  in
+  { replay_policy; streaming; output_wire }
+;;
+
+let reasoning_source_for_provider_config config =
+  (* Artifact compatibility is derived from the stable provider/model codec.
+     Request-local replay selection (for example [preserve_thinking] or GLM
+     [clear_thinking]) is applied by [for_provider_config] at the consuming
+     boundary and must not rewrite the identity of an already-produced
+     artifact. The HTTP codec is part of the stable shape, hence the explicit
+     Responses override below. *)
+  let dialect = base_for_provider_config config in
+  let dialect =
+    match Provider_http_codec.of_config config with
+    | Provider_http_codec.Openai_responses ->
+      { dialect with replay_policy = Provider_hidden_replay }
+    | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat
+      -> dialect
+  in
+  Types.Reasoning_source.create
+    ~provider_kind:config.Provider_config.kind
+    ~provider_instance:
+      (Types.Reasoning_source.provider_instance
+         ~base_url:config.base_url
+         ~request_path:config.request_path)
+    ~canonical_model_id:config.model_id
+    ~replay_contract:(replay_contract dialect)
 ;;
 
 let sampling_params_ignored_when_thinking dialect =
