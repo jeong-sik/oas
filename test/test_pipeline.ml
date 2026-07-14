@@ -269,7 +269,7 @@ let test_pipeline_sends_exact_supplied_tools () =
     { (Internal_agent.state agent) with messages = [ Types.user_msg "hello" ] };
   (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
    | Ok (Internal_pipeline.Complete _) -> ()
-   | Ok Internal_pipeline.ToolsExecuted -> Alcotest.fail "expected terminal response"
+   | Ok (Internal_pipeline.ToolsExecuted _) -> Alcotest.fail "expected terminal response"
    | Error error -> Alcotest.fail (Error.to_string error));
   Alcotest.(check bool)
     "provider receives exact caller tool schemas"
@@ -341,7 +341,7 @@ let test_stream_route_carries_exact_raw_trace_run_id () =
             agent
         with
         | Ok (Internal_pipeline.Complete _) -> ()
-        | Ok Internal_pipeline.ToolsExecuted ->
+        | Ok (Internal_pipeline.ToolsExecuted _) ->
           Alcotest.fail "expected a completed streaming turn"
         | Error error -> Alcotest.fail (Error.to_string error));
        Alcotest.(check (option string))
@@ -404,7 +404,7 @@ let test_pipeline_output_completes_on_end_turn () =
   match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
   | Ok (Internal_pipeline.Complete response) ->
     Alcotest.(check bool) "completed" true (response.stop_reason = EndTurn)
-  | Ok Internal_pipeline.ToolsExecuted ->
+  | Ok (Internal_pipeline.ToolsExecuted _) ->
     Alcotest.fail "expected Complete, got ToolsExecuted"
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
@@ -440,7 +440,7 @@ let test_pipeline_output_completes_repetition_truncation () =
       "documented provider terminal reason is preserved"
       true
       (response.stop_reason = RepetitionTruncation)
-  | Ok Internal_pipeline.ToolsExecuted ->
+  | Ok (Internal_pipeline.ToolsExecuted _) ->
     Alcotest.fail "expected Complete, got ToolsExecuted"
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
@@ -474,7 +474,7 @@ let test_pipeline_text_tool_intent_remains_text () =
     (match response.content with
      | [ Text _ ] -> ()
      | _ -> Alcotest.fail "expected text to remain unpromoted")
-  | Ok Internal_pipeline.ToolsExecuted ->
+  | Ok (Internal_pipeline.ToolsExecuted _) ->
     Alcotest.fail "text content must not be promoted into a tool call"
   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;

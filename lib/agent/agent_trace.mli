@@ -57,6 +57,27 @@ val final_text_of_response : Types.api_response -> string option
 
 (** {1 Run lifecycle} *)
 
+type trace_success =
+  | Run_completed of
+      { final_text : string option
+      ; stop_reason : string option
+      }
+  | Run_yielded of { stop_reason : string }
+
+(** Outcome-aware form of {!with_raw_trace_run_result}.  [classify_success]
+    distinguishes a terminal completion from a cooperative yield without
+    encoding either as an error.  A yielded run segment is finalized with no
+    raw-trace error, leaves the agent lifecycle [Ready], and does not invoke
+    [on_run_complete]. *)
+val with_raw_trace_run_classified_result
+  :  of_sdk_error:(Error.sdk_error -> 'error)
+  -> error_to_string:('error -> string)
+  -> classify_success:('value -> trace_success)
+  -> t
+  -> string
+  -> (Raw_trace.active_run option -> ('value, 'error) result)
+  -> ('value, 'error) result
+
 (** Execute [f] within a raw-trace run, handling start/finish recording
     and lifecycle status updates.  [f] receives [Some active_run] when
     raw-trace is configured, [None] otherwise. *)

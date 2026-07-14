@@ -31,12 +31,13 @@ val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 val with_cache_extended_ttl : bool -> t -> t
 
-(** Enable or disable yielding when the agent is about to call a tool.
+(** Enable or disable provider-lease release before tool execution.
 
-    When [true], the agent yields before invoking a tool, triggering
-    any [on_yield] hooks and requiring a corresponding [on_resume] to
-    continue execution. Only affects [on_yield]/[on_resume] hook
-    behavior; does not change model or tool semantics.
+    When [true], a run invokes [on_yield] after assistant collection succeeds
+    and immediately before the first tool hook or implementation. A continuing
+    run invokes [on_resume] before its next provider turn. Only affects
+    [on_yield]/[on_resume] callback behavior; it does not change model or tool
+    semantics.
 
     @since 0.99.7 *)
 val with_yield_on_tool : bool -> t -> t

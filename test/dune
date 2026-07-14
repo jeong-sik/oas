@@ -432,6 +432,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_agent_advanced)
+ (modules test_agent_advanced)
+ (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
  (name test_api)
  (modules test_api)
  (libraries agent_sdk alcotest))

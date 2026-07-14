@@ -56,7 +56,8 @@ type agent_config =
       for long-running agents that go idle 5+ minutes between turns.
       @since 0.151.0 *)
   ; initial_messages : message list
-  ; yield_on_tool : bool (** Release LLM slot during tool execution. @since 0.100.0 *)
+  ; yield_on_tool : bool
+    (** Release provider capacity before tool execution. @since 0.100.0 *)
   }
 [@@deriving show]
 
