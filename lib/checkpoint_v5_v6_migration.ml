@@ -421,10 +421,10 @@ let migrate_usage ~schema json =
     | With_unpriced_model, `Null -> Ok `Null
     | With_unpriced_model, `String "<unknown>" ->
       Ok (`Assoc [ "kind", `String "model_identity_unavailable" ])
-    | With_unpriced_model, `String model_id when not (String.equal model_id "") ->
-      Ok (`Assoc [ "kind", `String "pricing_unavailable"; "model_id", `String model_id ])
-    | With_unpriced_model, `String _ ->
+    | With_unpriced_model, `String "" ->
       json_errorf "%s unpriced_model must not be empty" scope
+    | With_unpriced_model, `String model_id ->
+      Ok (`Assoc [ "kind", `String "pricing_unavailable"; "model_id", `String model_id ])
     | With_unpriced_model, _ ->
       json_errorf "%s unpriced_model must be string or null" scope
     | Without_unpriced_model, _ -> json_errorf "%s internal usage-shape mismatch" scope
@@ -452,8 +452,8 @@ let validate_pricing_gap ~scope = function
        in
        let* model_id = required_field ~scope "model_id" fields in
        (match model_id with
-        | `String model_id when not (String.equal model_id "") -> Ok ()
-        | `String _ -> json_errorf "%s.model_id must not be empty" scope
+        | `String "" -> json_errorf "%s.model_id must not be empty" scope
+        | `String _ -> Ok ()
         | _ -> json_errorf "%s.model_id must be a string" scope)
      | [ `String value ] -> json_errorf "%s has unsupported kind %S" scope value
      | [ _ ] -> json_errorf "%s.kind must be a string" scope

@@ -67,14 +67,13 @@ let%test "observer receives one redacted observation with exact metadata" =
   result = Ok ()
   &&
   match !observed with
-  | Some observation ->
-    observation.capture_id = Some "request-1"
-    && String.equal observation.provider "openai"
-    && String.equal observation.model "exact-model"
-    && String.equal
-         observation.redacted_chunk
-         "prefix Authorization: Bearer [REDACTED] suffix"
-  | None -> false
+  | Some
+      { capture_id = Some "request-1"
+      ; provider = "openai"
+      ; model = "exact-model"
+      ; redacted_chunk = "prefix Authorization: Bearer [REDACTED] suffix"
+      } -> true
+  | Some _ | None -> false
 ;;
 
 let%test "caller rejection remains exact typed evidence" =
