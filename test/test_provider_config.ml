@@ -42,6 +42,30 @@ let test_make_defaults () =
   check_bool "no cache system prompt" false cfg.cache_system_prompt
 ;;
 
+let test_make_provider_id_canonicalization_and_validation () =
+  let make provider_id =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"model"
+      ~base_url:"https://provider.example/v1"
+      ~provider_id
+      ()
+  in
+  Alcotest.(check (option string))
+    "provider id is ASCII-lowercased"
+    (Some "ollama_cloud")
+    (make "OLLAMA_CLOUD").provider_id;
+  Alcotest.check_raises
+    "empty provider id is rejected"
+    (Invalid_argument "Provider_config.make: provider_id must not be empty")
+    (fun () -> ignore (make ""));
+  Alcotest.check_raises
+    "padded provider id is rejected"
+    (Invalid_argument
+       "Provider_config.make: provider_id must not have leading or trailing whitespace")
+    (fun () -> ignore (make " ollama_cloud"))
+;;
+
 (* ── make: request_path per kind ──────────────────────── *)
 
 let test_request_path_anthropic () =
@@ -269,7 +293,7 @@ let test_validate_output_schema_openai_official_catalog_model () =
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_openai_compat_rejected () =
+let test_validate_output_schema_declared_model_capability_is_host_independent () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -279,9 +303,9 @@ let test_validate_output_schema_openai_compat_rejected () =
       ()
   in
   check_bool
-    "generic compat rejected"
+    "declared gpt capability is independent of the compatible endpoint host"
     true
-    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
 let test_validate_output_schema_unknown_openai_compat_rejected () =
@@ -428,34 +452,36 @@ let test_validate_output_schema_native_ollama_rejects_unverified_model () =
   | Ok () -> Alcotest.fail "expected native Ollama model capability rejection"
 ;;
 
-let test_validate_output_schema_declared_endpoint_still_requires_model_capability () =
+let test_validate_output_schema_unknown_model_is_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"unknown-model-without-schema-capability"
       ~base_url:"https://schema-capable.example.test/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
-      ~supports_structured_output_override:true
       ()
   in
   check_bool
-    "endpoint declaration does not invent model capability"
+    "unknown model has no structured-output capability"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_endpoint_override_can_fail_closed () =
+let test_validate_output_schema_model_capability_override_can_fail_closed () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"gpt-5.5"
       ~base_url:"https://api.openai.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
-      ~supports_structured_output_override:false
+      ~model_capabilities_override:
+        { Capabilities.openai_compat_chat_extended_capabilities with
+          supports_structured_output = false
+        }
       ()
   in
   check_bool
-    "explicit endpoint override false rejects even official host"
+    "explicit typed model capability rejects structured output"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -524,7 +550,7 @@ let test_validate_output_schema_direct_response_format_record () =
   let cfg =
     { (Provider_config.make
          ~kind:OpenAI_compat
-         ~model_id:"gpt"
+         ~model_id:"unknown-model-without-schema-capability"
          ~base_url:"https://openrouter.ai/api/v1"
          ())
       with
@@ -585,7 +611,7 @@ let test_validate_output_schema_capability_rejected () =
   | Ok () -> Alcotest.fail "expected model capability rejection"
 ;;
 
-let test_openai_compat_raw_qwen_does_not_inherit_bare_capability () =
+let test_openai_compat_raw_qwen_uses_declared_bare_capability () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -593,13 +619,17 @@ let test_openai_compat_raw_qwen_does_not_inherit_bare_capability () =
       ~base_url:"https://unknown-openai-compatible.example/v1"
       ()
   in
-  check_bool
-    "raw OpenAI-compatible endpoint does not inherit bare qwen capability"
-    true
-    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+  match Provider_config.capabilities_for_config_model cfg with
+  | Some caps ->
+    check_bool "declared bare Qwen capability keeps tools" true caps.supports_tools;
+    check_bool
+      "declared bare Qwen capability keeps reasoning"
+      true
+      caps.supports_reasoning
+  | None -> Alcotest.fail "declared bare Qwen capability should resolve"
 ;;
 
-let test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect () =
+let test_openai_compat_raw_minimax_uses_declared_bare_reasoning_dialect () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -607,10 +637,13 @@ let test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect () =
       ~base_url:"https://unknown-openai-compatible.example/v1"
       ()
   in
-  check_bool
-    "raw OpenAI-compatible endpoint does not inherit bare reasoning dialect"
-    true
-    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+  match Provider_config.capabilities_for_config_model cfg with
+  | Some caps ->
+    check_bool
+      "declared bare MiniMax capability keeps adaptive thinking"
+      true
+      (caps.thinking_control_format = Capabilities.Thinking_object_adaptive)
+  | None -> Alcotest.fail "declared bare MiniMax capability should resolve"
 ;;
 
 let with_model_catalog_toml contents f =
@@ -634,7 +667,7 @@ let with_model_catalog_toml contents f =
          Fun.protect f ~finally:restore)
 ;;
 
-let test_openai_compat_raw_tool_capability_requires_endpoint_declaration () =
+let test_openai_compat_bare_tool_capability_is_endpoint_independent () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -651,13 +684,13 @@ supports_tool_choice = true
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
-       check_bool
-         "raw OpenAI-compatible endpoint does not inherit bare tool wire capability"
-         true
-         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+       match Provider_config.capabilities_for_config_model cfg with
+       | Some caps ->
+         check_bool "bare catalog row keeps tool capability" true caps.supports_tools
+       | None -> Alcotest.fail "provider-independent tool capability should resolve")
 ;;
 
-let test_openai_compat_raw_template_dialect_requires_endpoint_declaration () =
+let test_openai_compat_bare_template_dialect_is_endpoint_independent () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -677,17 +710,27 @@ thinking_control_format = "chat_template_kwargs"
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
-       check_bool
-         "raw OpenAI-compatible endpoint does not inherit template thinking dialect"
-         true
-         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+       match Provider_config.capabilities_for_config_model cfg with
+       | Some caps ->
+         check_bool
+           "bare catalog row keeps template thinking dialect"
+           true
+           (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
+       | None -> Alcotest.fail "provider-independent template capability should resolve")
 ;;
 
-let test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row () =
+let test_openai_compat_declared_provider_and_bare_model_resolve_catalog_row () =
   with_model_catalog_toml
     {|
+[[providers]]
+id = "vllm-qwen3-mtp"
+kind = "openai_compat"
+base_url = "https://vllm.example.test/v1"
+request_path = "/v1/chat/completions"
+api_key_env = "VLLM_API_KEY"
+
 [[models]]
-id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen36-35b-a3b-mtp"
 base = "openai_chat"
 provider_name = "vllm-qwen3-mtp"
 supports_tools = true
@@ -697,37 +740,38 @@ supports_extended_thinking = true
 thinking_control_format = "chat_template_kwargs"
 |}
     (fun () ->
-       let cfg =
+       let config ?provider_id () =
          Provider_config.make
            ~kind:OpenAI_compat
-           ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
-           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ~model_id:"qwen36-35b-a3b-mtp"
+           ~base_url:"https://vllm.example.test/v1"
+           ?provider_id
            ()
        in
+       check_bool
+         "endpoint and model text do not infer the provider-scoped row"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model (config ())));
+       let cfg = config ~provider_id:"vllm-qwen3-mtp" () in
        match Provider_config.capabilities_for_config_model cfg with
        | Some caps ->
+         check_bool "declared provider/model tuple keeps tools" true caps.supports_tools;
          check_bool
-           "explicit provider-qualified model keeps tools"
-           true
-           caps.supports_tools;
-         check_bool
-           "explicit provider-qualified model keeps reasoning"
+           "declared provider/model tuple keeps reasoning"
            true
            caps.supports_reasoning;
          check_bool
-           "explicit provider-qualified model uses chat template kwargs"
+           "declared provider/model tuple uses chat template kwargs"
            true
            (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
-       | None ->
-         Alcotest.fail
-           "explicit provider-qualified model id should resolve its catalog row")
+       | None -> Alcotest.fail "declared provider identity plus bare model should resolve")
 ;;
 
-let test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row () =
+let test_openai_compat_bare_model_does_not_resolve_unknown_provider_scoped_row () =
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen36-35b-a3b-mtp"
 base = "openai_chat"
 provider_name = "vllm-qwen3-mtp"
 supports_tools = true
@@ -745,27 +789,43 @@ thinking_control_format = "chat_template_kwargs"
            ()
        in
        check_bool
-         "bare raw model id does not inherit provider-qualified row"
+         "bare model alone does not invent a provider identity"
          true
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-(* RFC-OAS-034 §6: host-invariant regression. Capability is a function of the
-   serving runtime x model (the WHAT), never of the endpoint host (the WHERE).
-   The same OpenAI-compatible kind + same provider-qualified model_id must
-   resolve to the SAME capabilities whether the endpoint is rented on RunPod, on
-   an arbitrary domain, or served on localhost. This pins that host-derived
-   classification can never re-key capability provenance: moving the endpoint
-   must not silently change or drop capabilities. *)
-let test_capabilities_are_invariant_across_host () =
+let test_openai_compat_encoded_model_id_does_not_synthesize_provider () =
   with_model_catalog_toml
     {|
 [[models]]
-id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen36-35b-a3b-mtp"
 base = "openai_chat"
 provider_name = "vllm-qwen3-mtp"
 supports_tools = true
-supports_tool_choice = true
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
+           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ()
+       in
+       check_bool
+         "dot-qualified model string does not synthesize provider identity"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+;;
+
+(* A provider-independent row is a deliberate bare fallback. Its capability is
+   model data and therefore remains independent of endpoint placement. *)
+let test_bare_capabilities_are_invariant_across_host () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "host-independent-model"
+base = "openai_chat"
+supports_tools = true
 supports_reasoning = true
 supports_extended_thinking = true
 thinking_control_format = "chat_template_kwargs"
@@ -774,7 +834,7 @@ thinking_control_format = "chat_template_kwargs"
        let caps_for base_url =
          Provider_config.make
            ~kind:OpenAI_compat
-           ~model_id:"vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
+           ~model_id:"host-independent-model"
            ~base_url
            ()
          |> Provider_config.capabilities_for_config_model
@@ -800,9 +860,7 @@ thinking_control_format = "chat_template_kwargs"
            "resolved row keeps chat_template_kwargs dialect"
            true
            (on_runpod.thinking_control_format = Capabilities.Chat_template_kwargs)
-       | _ ->
-         Alcotest.fail
-           "provider-qualified serving-contract model must resolve on every host")
+       | _ -> Alcotest.fail "provider-independent model row must resolve on every host")
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -1371,7 +1429,7 @@ let test_validate_output_schema_mimo_json_schema_rejected () =
     | Ok () -> Alcotest.fail "expected MiMo json_schema request to fail closed")
 ;;
 
-let test_validate_output_schema_ollama_subdomain_rejected () =
+let test_validate_output_schema_endpoint_identity_does_not_override_model_capability () =
   with_repository_model_catalog (fun () ->
     let cfg =
       Provider_config.make
@@ -1382,14 +1440,10 @@ let test_validate_output_schema_ollama_subdomain_rejected () =
         ~output_schema:(`Assoc [ "type", `String "object" ])
         ()
     in
-    match Provider_config.validate_output_schema_request cfg with
-    | Error msg ->
-      check_string
-        "rejection reason"
-        "native structured output is only wired for declared OpenAI-compatible \
-         endpoints, got https://api.ollama.com/v1"
-        msg
-    | Ok () -> Alcotest.fail "expected Ollama subdomain to fail closed")
+    check_bool
+      "declared gpt-4o capability is not re-keyed by endpoint host"
+      true
+      (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
 ;;
 
 let test_connect_timeout_s_default_none () =
@@ -1490,111 +1544,94 @@ let test_provider_name_of_config_unmatched_openai_compat () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
-let test_capability_provider_label_deepseek_exact_host () =
-  let label base_url =
-    Provider_config.capability_provider_label
-      (Provider_config.make ~kind:OpenAI_compat ~model_id:"deepseek-v4-pro" ~base_url ())
-  in
-  (* RFC-OAS-034 rule 2: api.deepseek.com is DeepSeek's canonical vendor host, so
-     its endpoint carries the vendor identity regardless of scheme. *)
-  check_string
-    "https canonical host is deepseek"
-    "deepseek"
-    (label "https://api.deepseek.com/v1");
-  check_string
-    "http canonical host is deepseek"
-    "deepseek"
-    (label "http://api.deepseek.com");
-  (* Exact [Uri.host] equality must reject look-alikes so a hostile or accidental
-     host cannot inherit the deepseek vendor identity. Falls back to the transport
-     kind label ("openai_compat") rather than "deepseek". *)
-  check_string
-    "subdomain lookalike is not deepseek"
-    "openai_compat"
-    (label "https://api.deepseek.com.evil.example/v1");
-  check_string
-    "userinfo lookalike is not deepseek"
-    "openai_compat"
-    (label "https://api.deepseek.com@evil.example/v1")
-;;
-
-let test_capability_provider_label_kimi_exact_host () =
-  let label base_url =
-    Provider_config.capability_provider_label
-      (Provider_config.make ~kind:OpenAI_compat ~model_id:"kimi-for-coding" ~base_url ())
-  in
-  (* RFC-OAS-034 rule 2: api.kimi.com is the Kimi Code coding-plan gateway's
-     canonical vendor host, so an OpenAI-compatible endpoint pointed at it carries
-     the vendor identity "kimi" regardless of scheme (oas#2452). This routes
-     kimi-for-coding to [kimi_capabilities] instead of provider_default, so the
-     runtime capability gate accepts it. *)
-  check_string
-    "https canonical host is kimi"
-    "kimi"
-    (label "https://api.kimi.com/coding/v1");
-  check_string
-    "http canonical host is kimi"
-    "kimi"
-    (label "http://api.kimi.com/coding/v1");
-  (* Exact [Uri.host] equality rejects look-alikes, and the separate pay-per-token
-     Moonshot platform host (api.moonshot.ai) is deliberately not mapped — it is an
-     incompatible key/billing product (oas#2452). Both fall back to the transport
-     kind label ("openai_compat"). *)
-  check_string
-    "subdomain lookalike is not kimi"
-    "openai_compat"
-    (label "https://api.kimi.com.evil.example/v1");
-  check_string
-    "userinfo lookalike is not kimi"
-    "openai_compat"
-    (label "https://api.kimi.com@evil.example/v1");
-  check_string
-    "moonshot platform host is not mapped to kimi"
-    "openai_compat"
-    (label "https://api.moonshot.ai/v1")
-;;
-
-let test_capability_provider_label_mimo_exact_host () =
+let test_capability_provider_label_deepseek_requires_explicit_id () =
   with_repository_model_catalog (fun () ->
-    let label base_url =
-      Provider_config.capability_provider_label
-        (Provider_config.make ~kind:OpenAI_compat ~model_id:"mimo-v2.5-pro" ~base_url ())
+    let config ?provider_id () =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"deepseek-v4-pro"
+        ~base_url:"https://api.deepseek.com/v1"
+        ?provider_id
+        ()
     in
-    (* RFC-OAS-034 rule 2: Xiaomi MiMo's public API host and token-plan regional
-       gateways are catalog-declared vendor-canonical hosts. Exact host matching
-       lets the runtime capability gate resolve bare official MiMo model ids
-       without provider_default fallback, while still rejecting look-alikes. *)
-    List.iter
-      (fun base_url ->
-         check_string ("mimo canonical host: " ^ base_url) "mimo" (label base_url))
-      [ "https://api.xiaomimimo.com/v1"
-      ; "https://token-plan-cn.xiaomimimo.com/v1"
-      ; "https://token-plan-sgp.xiaomimimo.com/v1"
-      ; "https://token-plan-ams.xiaomimimo.com/v1"
-      ; "https://token-plan-sgp.xiaomimimo.com/anthropic"
-      ];
+    let implicit = config () in
     check_string
-      "subdomain lookalike is not mimo"
+      "canonical endpoint and model do not infer DeepSeek identity"
       "openai_compat"
-      (label "https://token-plan-sgp.xiaomimimo.com.evil.example/v1");
+      (Provider_config.capability_provider_label implicit);
+    check_bool
+      "canonical endpoint and model do not select a scoped row"
+      true
+      (Option.is_none (Provider_config.capabilities_for_config_model implicit));
+    let explicit = config ~provider_id:"deepseek" () in
     check_string
-      "userinfo lookalike is not mimo"
-      "openai_compat"
-      (label "https://token-plan-sgp.xiaomimimo.com@evil.example/v1");
-    let cfg =
+      "explicit provider id is the capability identity"
+      "deepseek"
+      (Provider_config.capability_provider_label explicit);
+    match Provider_config.capabilities_for_config_model explicit with
+    | Some caps ->
+      check_bool
+        "explicit DeepSeek/model tuple selects the DeepSeek thinking contract"
+        true
+        (caps.thinking_control_format = Capabilities.Thinking_object)
+    | None -> Alcotest.fail "explicit DeepSeek/model tuple must resolve")
+;;
+
+let test_capability_provider_label_kimi_requires_explicit_id () =
+  let config ?provider_id () =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding/v1"
+      ?provider_id
+      ()
+  in
+  check_string
+    "canonical endpoint and model do not infer Kimi identity"
+    "openai_compat"
+    (Provider_config.capability_provider_label (config ()));
+  check_string
+    "explicit provider id selects Kimi identity"
+    "kimi"
+    (Provider_config.capability_provider_label (config ~provider_id:"kimi" ()))
+;;
+
+let test_capability_provider_label_mimo_requires_explicit_id () =
+  with_repository_model_catalog (fun () ->
+    let config ?provider_id () =
       Provider_config.make
         ~kind:OpenAI_compat
         ~model_id:"mimo-v2.5-pro"
         ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
         ~request_path:"/chat/completions"
+        ?provider_id
         ()
     in
-    match Provider_config.capabilities_for_config_model cfg with
+    let implicit = config () in
+    check_string
+      "canonical endpoint and model do not infer MiMo identity"
+      "openai_compat"
+      (Provider_config.capability_provider_label implicit);
+    check_bool
+      "canonical endpoint and model do not select the MiMo row"
+      true
+      (Option.is_none (Provider_config.capabilities_for_config_model implicit));
+    let explicit = config ~provider_id:"mimo" () in
+    check_string
+      "explicit provider id selects MiMo identity"
+      "mimo"
+      (Provider_config.capability_provider_label explicit);
+    match Provider_config.capabilities_for_config_model explicit with
     | Some caps ->
-      check_bool "resolves MiMo reasoning" true caps.supports_reasoning;
-      check_bool "resolves MiMo JSON mode" true caps.supports_response_format_json;
-      check_bool "does not claim json_schema" false caps.supports_structured_output
-    | None -> Alcotest.fail "MiMo token-plan host should resolve catalog capabilities")
+      check_bool
+        "explicit MiMo/model tuple resolves reasoning"
+        true
+        caps.supports_reasoning;
+      check_bool
+        "explicit MiMo/model tuple resolves JSON mode"
+        true
+        caps.supports_response_format_json
+    | None -> Alcotest.fail "explicit MiMo/model tuple must resolve")
 ;;
 
 let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
@@ -2004,33 +2041,40 @@ let test_wire_kind_roundtrip_via_yojson () =
   | None -> Alcotest.fail "roundtrip produced None"
 ;;
 
-let test_capability_provider_label_ollama_cloud_exact_host () =
-  let label base_url =
-    Provider_config.capability_provider_label
-      (Provider_config.make ~kind:Ollama ~model_id:"m" ~base_url ())
-  in
-  (* Apex ollama.com resolves to the cloud vendor label regardless of scheme. *)
-  check_string "https apex is cloud" "ollama_cloud" (label "https://ollama.com/v1");
-  check_string "http apex is cloud" "ollama_cloud" (label "http://ollama.com");
-  (* RFC-OAS-034 B4: a raw URL-prefix match ([starts_with "https://ollama.com"])
-     wrongly accepted these lookalike hosts because the prefix ends inside a
-     longer hostname. Exact [Uri.host] equality must reject them so a hostile or
-     accidental lookalike cannot inherit the ollama-cloud identity. *)
-  Alcotest.(check bool)
-    "subdomain lookalike rejected"
-    false
-    (String.equal "ollama_cloud" (label "https://ollama.company.com/v1"));
-  Alcotest.(check bool)
-    "suffix lookalike rejected"
-    false
-    (String.equal "ollama_cloud" (label "https://ollama.com.evil.example/v1"));
-  (* A prefix matcher also accepts a userinfo-based lookalike: the authority
-     [ollama.com@evil.example] makes [starts_with "https://ollama.com"] true
-     while the real [Uri.host] is [evil.example]. Exact host equality rejects it. *)
-  Alcotest.(check bool)
-    "userinfo lookalike rejected"
-    false
-    (String.equal "ollama_cloud" (label "https://ollama.com@evil.example/v1"))
+let test_capability_provider_label_ollama_cloud_requires_explicit_id () =
+  with_repository_model_catalog (fun () ->
+    let config ?provider_id () =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"minimax-m3"
+        ~base_url:"https://ollama.com/v1"
+        ?provider_id
+        ()
+    in
+    let implicit = config () in
+    check_string
+      "cloud endpoint does not override typed Ollama identity"
+      "ollama"
+      (Provider_config.capability_provider_label implicit);
+    let explicit = config ~provider_id:"ollama_cloud" () in
+    check_string
+      "explicit provider id selects Ollama Cloud identity"
+      "ollama_cloud"
+      (Provider_config.capability_provider_label explicit);
+    match
+      ( Provider_config.capabilities_for_config_model implicit
+      , Provider_config.capabilities_for_config_model explicit )
+    with
+    | Some native, Some cloud ->
+      check_bool
+        "endpoint alone keeps the provider-independent MiniMax contract"
+        true
+        (native.thinking_control_format = Capabilities.Thinking_object_adaptive);
+      check_bool
+        "explicit Ollama Cloud/model tuple selects its exact contract"
+        true
+        (cloud.thinking_control_format = Capabilities.Ollama_think)
+    | _ -> Alcotest.fail "both bare and explicit Ollama Cloud rows must resolve")
 ;;
 
 (* ── Suite ────────────────────────────────────────────── *)
@@ -2040,6 +2084,10 @@ let () =
     "provider_config"
     [ ( "defaults"
       , [ Alcotest.test_case "make defaults" `Quick test_make_defaults
+        ; Alcotest.test_case
+            "provider id canonicalization and validation"
+            `Quick
+            test_make_provider_id_canonicalization_and_validation
         ; Alcotest.test_case "default headers" `Quick test_default_headers
         ; Alcotest.test_case
             "connect timeout default"
@@ -2112,9 +2160,9 @@ let () =
             `Quick
             test_validate_output_schema_openai_official_catalog
         ; Alcotest.test_case
-            "generic compat rejected"
+            "declared model capability is host independent"
             `Quick
-            test_validate_output_schema_openai_compat_rejected
+            test_validate_output_schema_declared_model_capability_is_host_independent
         ; Alcotest.test_case
             "unknown compat rejected"
             `Quick
@@ -2148,13 +2196,13 @@ let () =
             `Quick
             test_validate_output_schema_native_ollama_rejects_unverified_model
         ; Alcotest.test_case
-            "declared endpoint still requires model capability"
+            "unknown model is rejected"
             `Quick
-            test_validate_output_schema_declared_endpoint_still_requires_model_capability
+            test_validate_output_schema_unknown_model_is_rejected
         ; Alcotest.test_case
-            "endpoint override can fail closed"
+            "typed model capability override can fail closed"
             `Quick
-            test_validate_output_schema_endpoint_override_can_fail_closed
+            test_validate_output_schema_model_capability_override_can_fail_closed
         ; Alcotest.test_case
             "glm rejected"
             `Quick
@@ -2204,37 +2252,41 @@ let () =
             `Quick
             test_validate_output_schema_mimo_json_schema_rejected
         ; Alcotest.test_case
-            "ollama subdomain is not a declared endpoint"
+            "endpoint identity does not override model capability"
             `Quick
-            test_validate_output_schema_ollama_subdomain_rejected
+            test_validate_output_schema_endpoint_identity_does_not_override_model_capability
         ; Alcotest.test_case
-            "raw compat qwen does not inherit bare capability"
+            "raw compat qwen uses declared bare capability"
             `Quick
-            test_openai_compat_raw_qwen_does_not_inherit_bare_capability
+            test_openai_compat_raw_qwen_uses_declared_bare_capability
         ; Alcotest.test_case
-            "raw compat minimax does not inherit reasoning dialect"
+            "raw compat minimax uses declared bare reasoning dialect"
             `Quick
-            test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect
+            test_openai_compat_raw_minimax_uses_declared_bare_reasoning_dialect
         ; Alcotest.test_case
-            "raw compat tool capability requires endpoint declaration"
+            "bare tool capability is endpoint independent"
             `Quick
-            test_openai_compat_raw_tool_capability_requires_endpoint_declaration
+            test_openai_compat_bare_tool_capability_is_endpoint_independent
         ; Alcotest.test_case
-            "raw compat template dialect requires endpoint declaration"
+            "bare template dialect is endpoint independent"
             `Quick
-            test_openai_compat_raw_template_dialect_requires_endpoint_declaration
+            test_openai_compat_bare_template_dialect_is_endpoint_independent
         ; Alcotest.test_case
-            "explicit provider-qualified model id resolves catalog row"
+            "declared provider and bare model resolve catalog row"
             `Quick
-            test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row
+            test_openai_compat_declared_provider_and_bare_model_resolve_catalog_row
         ; Alcotest.test_case
-            "bare model id does not resolve provider-qualified row"
+            "bare model does not invent unknown provider identity"
             `Quick
-            test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row
+            test_openai_compat_bare_model_does_not_resolve_unknown_provider_scoped_row
         ; Alcotest.test_case
-            "capabilities are invariant across endpoint host"
+            "encoded model id does not synthesize provider"
             `Quick
-            test_capabilities_are_invariant_across_host
+            test_openai_compat_encoded_model_id_does_not_synthesize_provider
+        ; Alcotest.test_case
+            "bare capabilities are invariant across endpoint host"
+            `Quick
+            test_bare_capabilities_are_invariant_across_host
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
@@ -2312,17 +2364,17 @@ let () =
             test_provider_name_of_config_local_openai_compat
         ; Alcotest.test_case "openrouter" `Quick test_provider_name_of_config_openrouter
         ; Alcotest.test_case
-            "deepseek vendor host label (exact Uri.host, RFC-OAS-034)"
+            "deepseek identity requires explicit provider id"
             `Quick
-            test_capability_provider_label_deepseek_exact_host
+            test_capability_provider_label_deepseek_requires_explicit_id
         ; Alcotest.test_case
-            "kimi coding-plan vendor host label (exact Uri.host, RFC-OAS-034, oas#2452)"
+            "kimi identity requires explicit provider id"
             `Quick
-            test_capability_provider_label_kimi_exact_host
+            test_capability_provider_label_kimi_requires_explicit_id
         ; Alcotest.test_case
-            "mimo token-plan vendor host label (exact Uri.host, RFC-OAS-034)"
+            "mimo identity requires explicit provider id"
             `Quick
-            test_capability_provider_label_mimo_exact_host
+            test_capability_provider_label_mimo_requires_explicit_id
         ; Alcotest.test_case
             "unmatched openai_compat"
             `Quick
@@ -2427,9 +2479,9 @@ let () =
         ] )
     ; ( "capability_provider_label"
       , [ Alcotest.test_case
-            "ollama cloud matched by exact host, lookalikes rejected"
+            "ollama cloud identity requires explicit provider id"
             `Quick
-            test_capability_provider_label_ollama_cloud_exact_host
+            test_capability_provider_label_ollama_cloud_requires_explicit_id
         ] )
     ]
 ;;

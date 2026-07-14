@@ -8,9 +8,7 @@ let notify_attribution callback attribution =
 
 let binding_identity_for_call agent provider_config =
   let transport =
-    Binding_identity.transport_for_call
-      ~injected:(Option.is_some agent.options.transport)
-      provider_config
+    Binding_identity.transport_for_call ~injected:(Option.is_some agent.options.transport)
   in
   Binding_identity.of_provider_config ~transport provider_config
 ;;

@@ -45,8 +45,9 @@ val base_label_to_string : base_label -> string
 
 (** One entry in the capability manifest.
 
-    [id_prefix] is matched as a case-insensitive prefix against the
-    model ID being looked up.  [base] names a provider preset from
+    [id_prefix] is an exact non-empty declaration without leading or trailing
+    whitespace, matched as a case-insensitive prefix against the model ID being
+    looked up.  [base] names a provider preset from
     {!Capabilities.capabilities_for_provider_label} (e.g.
     ["openai_chat"], ["anthropic"]); when absent, the built-in
     [default_capabilities] is used.  Unrecognised labels are rejected
@@ -127,12 +128,12 @@ type t = entry list
 
 (** [of_json json] parses a manifest from a [Yojson.Safe.t] value.
 
-    Returns [Error msg] when [schema_version] is missing or not 1,
-    the root object contains an unknown field, a model entry contains
-    an unknown field, a model entry is missing the required [id_prefix]
-    field, or [base] names an unknown provider preset.  The
-    non-operational [_comment] field is accepted at the root and entry
-    levels. *)
+    Returns [Error msg] when [schema_version] is missing or not 1, a closed
+    root or entry object contains an unknown or duplicate field, an optional
+    field has the wrong JSON type, an integer literal is outside the native
+    [int] range, [id_prefix] is missing, empty, or padded with whitespace, or
+    [base] names an unknown provider preset. The non-operational [_comment]
+    field is accepted at the root and entry levels. *)
 val of_json : Yojson.Safe.t -> (t, string) result
 
 (** [load_file path] reads and parses a manifest from the given file

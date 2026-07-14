@@ -10,22 +10,15 @@
 type provider_kind = Llm_provider.Provider_config.provider_kind
 type capabilities = Provider.capabilities
 
-type transport =
-  | Http
-  | Managed
-
 type auth =
   | No_auth
   | Api_key_env of string
-  | Oauth_cached_login
   | Setup_token_env of string
 
 type t =
   { id : string
   ; aliases : string list
   ; kind : provider_kind
-  ; transport : transport
-  ; command : string option
   ; base_url : string
   ; request_path : string
   ; api_key_env : string
@@ -37,34 +30,32 @@ type t =
   ; credential_scope : string option
   }
 
-(** Return all known runtime bindings from the default provider registry,
-    including any process/env provider catalog overlay. *)
+(** Return all known runtime bindings from the explicit provider-catalog
+    overlay, embedded OAS catalog, and default provider registry. *)
 val all : unit -> t list
 
 (** Find a runtime binding by provider id or alias. Lookup is
     case-insensitive and whitespace-trimmed. *)
 val find : string -> t option
 
-(** Find a runtime binding only from the process/env provider catalog overlay.
-    Built-in registry providers are intentionally excluded. *)
+(** Find a runtime binding only from the explicitly installed provider-catalog
+    overlay. Embedded and registry providers are intentionally excluded. *)
 val find_catalog : string -> t option
 
 (** Return all known binding ids and selector aliases. This is a display /
     diagnostics surface; callers should use {!find} for resolution. *)
 val known_labels : unit -> string list
 
-(** Resolve the runtime binding that owns a concrete provider config.
-
-    Catalog endpoint matches are resolved before registry provider-name
-    fallbacks, so catalog-provided OpenAI-compatible providers remain
-    OAS-owned even when the endpoint is local. *)
+(** Resolve the runtime binding explicitly carried by a concrete provider
+    config. Provider aliases are canonicalized through {!find}. A config with
+    no [provider_id], or an unknown explicit id, has no binding; endpoint URLs,
+    request paths, and model ids are never reverse-matched. *)
 val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
 
-(** Best-effort runtime provider id for a concrete provider config.
-
-    When the endpoint matches a catalog or registry binding, returns that
-    binding id. Otherwise returns a stable kind-derived label such as
-    ["openai_compat"]; it never invents a fake provider id. *)
+(** Runtime provider id for a concrete provider config. A known explicit id or
+    alias resolves to the canonical binding id; an unknown explicit id remains
+    an opaque normalized id. Configs without an id use only their typed wire
+    kind. Endpoint URLs, request paths, and model ids are never interpreted. *)
 val provider_id_of_provider_config : Llm_provider.Provider_config.t -> string
 
 (** Best-effort runtime provider id for an Agent SDK {!Provider.config}.
@@ -73,9 +64,9 @@ val provider_id_of_provider_config : Llm_provider.Provider_config.t -> string
 val provider_id_of_config : Provider.config -> string
 
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
-
-    Catalog/registry provider capabilities are preferred. Non-CLI providers
-    then honor model-specific capability overrides when available. *)
+    Explicit provider identity selects provider facts; otherwise only the typed
+    wire kind is used. Exact provider/model or provider-independent model rows
+    then override provider-level facts. No endpoint inference occurs. *)
 val capabilities_for_provider_config
   :  Llm_provider.Provider_config.t
   -> Llm_provider.Capabilities.capabilities

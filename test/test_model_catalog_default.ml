@@ -29,6 +29,21 @@ let test_load_default_catalog () =
       )
 ;;
 
+let test_in_memory_catalog_rejects_invalid_generated_input () =
+  match
+    Model_catalog.of_toml_string
+      ~source:"invalid embedded candidate"
+      "[[models]]\nid_prefix = \"broken\"\nsupports_tools = \"yes\""
+  with
+  | Error msg ->
+    check
+      string
+      "invalid field is diagnosed"
+      "model entry \"broken\" field \"supports_tools\" expected bool"
+      msg
+  | Ok _ -> fail "invalid in-memory catalog must fail validation"
+;;
+
 let test_global_loads_default_catalog_for_capabilities () =
   let expected =
     Model_catalog_test_support.load_repo_model_catalog
@@ -52,6 +67,10 @@ let () =
     "model catalog default"
     [ ( "embedded catalog"
       , [ test_case "load_default" `Quick test_load_default_catalog
+        ; test_case
+            "invalid generated input fails closed"
+            `Quick
+            test_in_memory_catalog_rejects_invalid_generated_input
         ; test_case
             "global uses embedded default"
             `Quick

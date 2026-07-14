@@ -1527,7 +1527,7 @@ let test_complete_stream_wire_observer_rejection_is_typed_nonfatal () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let token = "ghp_" ^ String.make 36 '7' in
+    let token = "Authorization: Bearer opaque-token" in
     let url = start_sse_server ~sw ~net:env#net (anthropic_sse_response token) in
     let config = make_config url in
     let observations = ref [] in

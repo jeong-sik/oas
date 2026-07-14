@@ -111,42 +111,29 @@ let json_kind = function
   | `Variant _ -> "variant"
 ;;
 
-let warn_type_mismatch key ~expected actual =
-  match actual with
-  | `Null -> ()
-  | _ ->
-    Diag.warn
-      "capability_manifest"
-      "ignoring field %S: expected %s, got %s"
-      key
-      expected
-      (json_kind actual)
-;;
-
 let member_bool key json =
   match Yojson.Safe.Util.member key json with
-  | `Bool b -> Some b
+  | `Bool b -> Ok (Some b)
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"bool" actual;
-    None
+    Error (Printf.sprintf "entry field %S expected bool, got %s" key (json_kind actual))
 ;;
 
 let member_int key json =
   match Yojson.Safe.Util.member key json with
-  | `Int n -> Some n
+  | `Int n -> Ok (Some n)
   | `Intlit s ->
     (match int_of_string_opt s with
-     | Some n -> Some n
+     | Some n -> Ok (Some n)
      | None ->
-       Diag.warn
-         "capability_manifest"
-         "ignoring field %S: integer literal %S out of native int range"
-         key
-         s;
-       None)
+       Error
+         (Printf.sprintf
+            "entry field %S integer literal %S is out of native int range"
+            key
+            s))
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"int" actual;
-    None
+    Error (Printf.sprintf "entry field %S expected int, got %s" key (json_kind actual))
 ;;
 
 let member_string_closed key json =
@@ -176,27 +163,24 @@ let non_empty_member_string key json =
 let member_string_list key json =
   match Yojson.Safe.Util.member key json with
   | `List values ->
-    let strings, invalid =
-      List.fold_right
-        (fun value (strings, invalid) ->
-           match value with
-           | `String s -> s :: strings, invalid
-           | other -> strings, json_kind other :: invalid)
-        values
-        ([], [])
+    let rec parse_values reversed = function
+      | [] -> Ok (Some (List.rev reversed))
+      | `String value :: rest -> parse_values (value :: reversed) rest
+      | actual :: _ ->
+        Error
+          (Printf.sprintf
+             "entry field %S expected string array, got %s array item"
+             key
+             (json_kind actual))
     in
-    (match invalid with
-     | [] -> Some strings
-     | kinds ->
-       Diag.warn
-         "capability_manifest"
-         "ignoring field %S: expected string array, got non-string item(s): %s"
-         key
-         (String.concat ", " kinds);
-       None)
+    parse_values [] values
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"string array" actual;
-    None
+    Error
+      (Printf.sprintf
+         "entry field %S expected string array, got %s"
+         key
+         (json_kind actual))
 ;;
 
 let canonical_choice key ~allowed json =
@@ -218,7 +202,9 @@ let canonical_choice key ~allowed json =
 ;;
 
 let canonical_string_list key ~allowed json =
-  match member_string_list key json with
+  let open Result_syntax in
+  let* values = member_string_list key json in
+  match values with
   | None -> Ok None
   | Some values ->
     let unknown =
@@ -240,7 +226,9 @@ let canonical_string_list key ~allowed json =
 ;;
 
 let canonical_sampling_parameters key json =
-  match member_string_list key json with
+  let open Result_syntax in
+  let* values = member_string_list key json in
+  match values with
   | None -> Ok None
   | Some values ->
     let parsed, unknown =
@@ -342,25 +330,56 @@ let known_entry_keys =
   ]
 ;;
 
-let unknown_keys ~known = function
-  | `Assoc fields ->
-    List.filter_map (fun (key, _) -> if List.mem key known then None else Some key) fields
-  | _ -> []
+module String_set = Set.Make (String)
+
+let duplicate_keys fields =
+  let _, _, reversed =
+    List.fold_left
+      (fun (seen, reported, duplicates) (key, _) ->
+         if String_set.mem key seen
+         then
+           if String_set.mem key reported
+           then seen, reported, duplicates
+           else seen, String_set.add key reported, key :: duplicates
+         else String_set.add key seen, reported, duplicates)
+      (String_set.empty, String_set.empty, [])
+      fields
+  in
+  List.rev reversed
 ;;
 
-let reject_unknown_keys ~scope ~known json =
-  match unknown_keys ~known json with
-  | [] -> Ok ()
-  | keys ->
-    Error
-      (Printf.sprintf "%s contains unknown field(s): %s" scope (String.concat ", " keys))
+let validate_closed_object ~scope ~known = function
+  | `Assoc fields ->
+    let duplicates = duplicate_keys fields in
+    if duplicates <> []
+    then
+      Error
+        (Printf.sprintf
+           "%s contains duplicate field(s): %s"
+           scope
+           (String.concat ", " duplicates))
+    else (
+      let unknown =
+        List.filter_map
+          (fun (key, _) -> if List.mem key known then None else Some key)
+          fields
+      in
+      match unknown with
+      | [] -> Ok ()
+      | keys ->
+        Error
+          (Printf.sprintf
+             "%s contains unknown field(s): %s"
+             scope
+             (String.concat ", " keys)))
+  | actual -> Error (Printf.sprintf "%s expected object, got %s" scope (json_kind actual))
 ;;
 
 let parse_entry json =
   let open Result_syntax in
-  let* () = reject_unknown_keys ~scope:"entry" ~known:known_entry_keys json in
+  let* () = validate_closed_object ~scope:"entry" ~known:known_entry_keys json in
   let* id_prefix =
-    match member_string_closed "id_prefix" json with
+    match non_empty_member_string "id_prefix" json with
     | Error _ as error -> error
     | Ok None -> Error "entry missing required \"id_prefix\" field"
     | Ok (Some id_prefix) -> Ok id_prefix
@@ -428,37 +447,62 @@ let parse_entry json =
   let* ignored_sampling_parameters =
     canonical_sampling_parameters "ignored_sampling_parameters" json
   in
+  let* max_context_tokens = member_int "max_context_tokens" json in
+  let* max_output_tokens = member_int "max_output_tokens" json in
+  let* supports_tools = member_bool "supports_tools" json in
+  let* supports_tool_choice = member_bool "supports_tool_choice" json in
+  let* supports_required_tool_choice = member_bool "supports_required_tool_choice" json in
+  let* supports_named_tool_choice = member_bool "supports_named_tool_choice" json in
+  let* supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json in
+  let* supports_reasoning = member_bool "supports_reasoning" json in
+  let* supports_extended_thinking = member_bool "supports_extended_thinking" json in
+  let* supports_reasoning_budget = member_bool "supports_reasoning_budget" json in
+  let* supports_response_format_json = member_bool "supports_response_format_json" json in
+  let* supports_structured_output = member_bool "supports_structured_output" json in
+  let* supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json in
+  let* supports_image_input = member_bool "supports_image_input" json in
+  let* supports_audio_input = member_bool "supports_audio_input" json in
+  let* supports_video_input = member_bool "supports_video_input" json in
+  let* supports_native_streaming = member_bool "supports_native_streaming" json in
+  let* supports_system_prompt = member_bool "supports_system_prompt" json in
+  let* supports_caching = member_bool "supports_caching" json in
+  let* supports_prompt_caching = member_bool "supports_prompt_caching" json in
+  let* supports_top_k = member_bool "supports_top_k" json in
+  let* supports_min_p = member_bool "supports_min_p" json in
+  let* supports_seed = member_bool "supports_seed" json in
+  let* supports_computer_use = member_bool "supports_computer_use" json in
+  let* supports_code_execution = member_bool "supports_code_execution" json in
   Ok
     { id_prefix
     ; base_label
-    ; max_context_tokens = member_int "max_context_tokens" json
-    ; max_output_tokens = member_int "max_output_tokens" json
-    ; supports_tools = member_bool "supports_tools" json
-    ; supports_tool_choice = member_bool "supports_tool_choice" json
-    ; supports_required_tool_choice = member_bool "supports_required_tool_choice" json
-    ; supports_named_tool_choice = member_bool "supports_named_tool_choice" json
-    ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
+    ; max_context_tokens
+    ; max_output_tokens
+    ; supports_tools
+    ; supports_tool_choice
+    ; supports_required_tool_choice
+    ; supports_named_tool_choice
+    ; supports_parallel_tool_calls
     ; assistant_tool_content_format
-    ; supports_reasoning = member_bool "supports_reasoning" json
-    ; supports_extended_thinking = member_bool "supports_extended_thinking" json
-    ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
+    ; supports_reasoning
+    ; supports_extended_thinking
+    ; supports_reasoning_budget
     ; accepted_reasoning_efforts
-    ; supports_response_format_json = member_bool "supports_response_format_json" json
-    ; supports_structured_output = member_bool "supports_structured_output" json
-    ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json
-    ; supports_image_input = member_bool "supports_image_input" json
-    ; supports_audio_input = member_bool "supports_audio_input" json
-    ; supports_video_input = member_bool "supports_video_input" json
-    ; supports_native_streaming = member_bool "supports_native_streaming" json
-    ; supports_system_prompt = member_bool "supports_system_prompt" json
-    ; supports_caching = member_bool "supports_caching" json
-    ; supports_prompt_caching = member_bool "supports_prompt_caching" json
-    ; supports_top_k = member_bool "supports_top_k" json
-    ; supports_min_p = member_bool "supports_min_p" json
-    ; supports_seed = member_bool "supports_seed" json
+    ; supports_response_format_json
+    ; supports_structured_output
+    ; supports_multimodal_inputs
+    ; supports_image_input
+    ; supports_audio_input
+    ; supports_video_input
+    ; supports_native_streaming
+    ; supports_system_prompt
+    ; supports_caching
+    ; supports_prompt_caching
+    ; supports_top_k
+    ; supports_min_p
+    ; supports_seed
     ; ignored_sampling_parameters
-    ; supports_computer_use = member_bool "supports_computer_use" json
-    ; supports_code_execution = member_bool "supports_code_execution" json
+    ; supports_computer_use
+    ; supports_code_execution
     ; thinking_control_format
     ; anthropic_thinking_control
     ; preserve_thinking_control_format
@@ -470,7 +514,7 @@ let parse_entry json =
 
 let of_json json =
   let open Result_syntax in
-  let* () = reject_unknown_keys ~scope:"manifest" ~known:known_manifest_keys json in
+  let* () = validate_closed_object ~scope:"manifest" ~known:known_manifest_keys json in
   let schema_version =
     match Yojson.Safe.Util.member "schema_version" json with
     | `Int n -> n

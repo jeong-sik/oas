@@ -52,7 +52,7 @@ let observe try_observe ~capture_id ~provider ~model ~chunk =
 ;;
 
 let%test "observer receives one redacted observation with exact metadata" =
-  let token = "ghp_" ^ String.make 36 '7' in
+  let authorization = "Authorization: Bearer opaque-token" in
   let observed = ref None in
   let result =
     observe
@@ -62,7 +62,7 @@ let%test "observer receives one redacted observation with exact metadata" =
       ~capture_id:(Some "request-1")
       ~provider:"openai"
       ~model:"exact-model"
-      ~chunk:("prefix " ^ token ^ " suffix")
+      ~chunk:("prefix " ^ authorization ^ " suffix")
   in
   result = Ok ()
   &&
@@ -71,7 +71,9 @@ let%test "observer receives one redacted observation with exact metadata" =
     observation.capture_id = Some "request-1"
     && String.equal observation.provider "openai"
     && String.equal observation.model "exact-model"
-    && String.equal observation.redacted_chunk "prefix [REDACTED] suffix"
+    && String.equal
+         observation.redacted_chunk
+         "prefix Authorization: Bearer [REDACTED] suffix"
   | None -> false
 ;;
 

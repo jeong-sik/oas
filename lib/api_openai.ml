@@ -39,18 +39,18 @@ let provider_config_kind_of_request_kind = function
    (declared [kind = Glm]) stay GLM in every consumer. Unknown names fail
    closed with this one error in both paths. *)
 let custom_registered_projection name
-  : (PConfig.provider_kind * string * Provider.capabilities, string) result
+  : (string * PConfig.provider_kind * string * Provider.capabilities, string) result
   =
-  match Provider.find_provider name with
-  | Some impl ->
-    Ok
-      ( provider_config_kind_of_request_kind impl.Provider.request_kind
-      , ""
-      , impl.Provider.capabilities )
+  match Provider_runtime_binding.find name with
+  | Some binding -> Ok (binding.id, binding.kind, binding.base_url, binding.capabilities)
   | None ->
-    let registry = Llm_provider.Provider_registry.default () in
-    (match Llm_provider.Provider_registry.find registry name with
-     | Some entry -> Ok (entry.defaults.kind, entry.defaults.base_url, entry.capabilities)
+    (match Provider.find_provider name with
+     | Some impl ->
+       Ok
+         ( name
+         , provider_config_kind_of_request_kind impl.Provider.request_kind
+         , ""
+         , impl.Provider.capabilities )
      | None ->
        Error
          (Printf.sprintf
@@ -60,7 +60,7 @@ let custom_registered_projection name
 
 let capabilities_for_custom_registered name =
   match custom_registered_projection name with
-  | Ok (_kind, _base_url, capabilities) -> Some capabilities
+  | Ok (_provider_id, _kind, _base_url, capabilities) -> Some capabilities
   | Error _ -> None
 ;;
 
@@ -160,24 +160,36 @@ let serialization_provider_config ?provider_config (config : agent_state)
     | Some (cfg : Provider.config) ->
       (match cfg.provider with
        | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
-         Ok (PConfig.OpenAI_compat, base_url, cfg.model_id)
-       | Provider.Anthropic -> Ok (PConfig.Anthropic, "", cfg.model_id)
+         Ok (PConfig.OpenAI_compat, None, base_url, cfg.model_id, None)
+       | Provider.Anthropic -> Ok (PConfig.Anthropic, None, "", cfg.model_id, None)
        | Provider.Custom_registered { name } ->
          (match custom_registered_projection name with
-          | Ok (kind, base_url, _capabilities) -> Ok (kind, base_url, cfg.model_id)
+          | Ok (provider_id, kind, base_url, capabilities) ->
+            let model_capabilities_override =
+              match
+                Llm_provider.Capabilities.for_provider_model_id
+                  ~allow_bare_fallback:true
+                  ~provider_label:provider_id
+                  ~model_id:cfg.model_id
+              with
+              | Some _ -> None
+              | None -> Some (llm_capabilities_of_provider_capabilities capabilities)
+            in
+            Ok
+              (kind, Some provider_id, base_url, cfg.model_id, model_capabilities_override)
           | Error msg -> Error msg))
-    | None -> Ok (PConfig.OpenAI_compat, "", model_to_string config.config.model)
+    | None ->
+      Ok (PConfig.OpenAI_compat, None, "", model_to_string config.config.model, None)
   in
   Result.map
-    (fun (kind, base_url, model_id) ->
+    (fun (kind, provider_id, base_url, model_id, model_capabilities_override) ->
        PConfig.make
          ~kind
+         ?provider_id
          ~model_id
          ~base_url
          ?max_tokens:config.config.max_tokens
-         ~model_capabilities_override:
-           (llm_capabilities_of_provider_capabilities
-              (capabilities_for_request ?provider_config config))
+         ?model_capabilities_override
          ?enable_thinking:config.config.enable_thinking
          ?preserve_thinking:config.config.preserve_thinking
          ?thinking_budget:config.config.thinking_budget
@@ -200,7 +212,7 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
       ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
         Provider.config) ->
     (match custom_registered_projection name with
-     | Ok (kind, _base_url, capabilities) ->
+     | Ok (_provider_id, kind, _base_url, capabilities) ->
        Ok (kind, model_id, llm_capabilities_of_provider_capabilities capabilities)
      | Error msg -> Error msg)
   | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
@@ -563,7 +575,8 @@ let%test "serializer projects registered glm to GLM dialect without model-id pre
   match
     serialization_provider_config ~provider_config (inline_test_agent_state "charglm-3")
   with
-  | Ok projected -> PConfig.is_zai_glm_config projected
+  | Ok projected ->
+    projected.provider_id = Some "glm" && PConfig.is_zai_glm_config projected
   | Error _ -> false
 ;;
 
@@ -574,7 +587,8 @@ let%test
   match
     serialization_provider_config ~provider_config (inline_test_agent_state "charglm-3")
   with
-  | Ok projected -> PConfig.is_zai_glm_config projected
+  | Ok projected ->
+    projected.provider_id = Some "glm-coding" && PConfig.is_zai_glm_config projected
   | Error _ -> false
 ;;
 

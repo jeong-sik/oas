@@ -45,6 +45,7 @@ let output_schema_of_response_format ?override (response_format : Types.response
 
 type t =
   { kind : provider_kind
+  ; provider_id : string option
   ; model_id : string
   ; base_url : string
   ; api_key : Secret.t
@@ -83,6 +84,7 @@ let make
       ~kind
       ~model_id
       ~base_url
+      ?provider_id
       ?(api_key = "")
       ?(headers = [ "Content-Type", "application/json" ])
       ?request_path
@@ -130,7 +132,22 @@ let make
     | Some p -> p
     | None -> request_path_default_for_kind kind
   in
+  let provider_id =
+    Option.map
+      (fun raw ->
+         let trimmed = String.trim raw in
+         if trimmed = ""
+         then invalid_arg "Provider_config.make: provider_id must not be empty"
+         else if raw <> trimmed
+         then
+           invalid_arg
+             "Provider_config.make: provider_id must not have leading or trailing \
+              whitespace"
+         else String.lowercase_ascii raw)
+      provider_id
+  in
   { kind
+  ; provider_id
   ; model_id
   ; base_url
   ; api_key = Secret.of_string api_key
@@ -180,120 +197,7 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let capability_provider_label (config : t) =
-  Provider_endpoint_identity.capability_provider_label
-    ~kind:config.kind
-    ~base_url:config.base_url
-;;
-
-let raw_openai_compat_without_builtin_source config provider_label =
-  Provider_endpoint_identity.raw_openai_compat_without_builtin_source
-    ~kind:config.kind
-    ~base_url:config.base_url
-    ~provider_label
-;;
-
-let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) =
-  let open Capabilities in
-  caps.supports_tools
-  || caps.supports_tool_choice
-  || caps.supports_required_tool_choice
-  || caps.supports_named_tool_choice
-  || caps.supports_parallel_tool_calls
-  || (match caps.assistant_tool_content_format with
-      | Assistant_tool_content_null -> false
-      | Assistant_tool_content_empty_string -> true)
-  || caps.supports_reasoning
-  || caps.supports_extended_thinking
-  || caps.supports_reasoning_budget
-  || (match caps.accepted_reasoning_efforts with
-      | Some (_ :: _) -> true
-      | Some [] | None -> false)
-  || (match caps.thinking_control_format with
-      | No_thinking_control -> false
-      | Thinking_object
-      | Thinking_object_adaptive
-      | Thinking_object_only
-      | Chat_template_kwargs
-      | Chat_template_token _
-      | Ollama_think
-      | Reasoning_effort
-      | Enable_thinking -> true)
-  || (match caps.preserve_thinking_control_format with
-      | No_preserve_thinking_control -> false
-      | Thinking_object_keep_all
-      | Chat_template_kwargs_preserve_thinking
-      | Top_level_preserve_thinking
-      | Always_preserved_thinking -> true)
-  || (match caps.reasoning_output_format with
-      | No_reasoning_output_format -> false
-      | Split_reasoning_fields -> true)
-  || (match caps.reasoning_streaming_format with
-      | Default_reasoning_streaming | No_reasoning_streaming -> false
-      | Delta_reasoning_field _ | Template_reasoning_streaming -> true)
-  || (match caps.reasoning_replay_override with
-      | Default_reasoning_replay -> false
-      | Force_no_replay
-      | Force_drop_without_tool_preserve_with_tool
-      | Force_preserve_always -> true)
-  || caps.supports_response_format_json
-  || caps.supports_structured_output
-  || caps.supports_multimodal_inputs
-  || caps.supports_image_input
-  || caps.supports_audio_input
-  || caps.supports_video_input
-  || caps.supports_top_k
-  || caps.supports_min_p
-  || caps.supports_seed
-  || caps.supports_seed_with_images
-  || caps.ignored_sampling_parameters <> []
-  || caps.supports_computer_use
-  || caps.supports_code_execution
-;;
-
-let catalog_entry_for_model_id model_id =
-  match Model_catalog.global () with
-  | Some catalog -> Model_catalog.lookup catalog model_id
-  | None -> None
-;;
-
-let normalized_catalog_label = function
-  | Some raw -> Some (String.lowercase_ascii (String.trim raw))
-  | None -> None
-;;
-
-let catalog_entry_requires_endpoint_declaration (entry : Model_catalog.model_entry) =
-  match
-    ( normalized_catalog_label entry.base_label
-    , normalized_catalog_label entry.provider_name )
-  with
-  | Some ("openai_chat" | "openai_chat_extended"), Some _ -> false
-  | Some ("openai_chat" | "openai_chat_extended"), None -> true
-  (* GLM capabilities (reasoning, tools, thinking dialects) require a declared
-     Z.AI GLM endpoint. A raw OpenAI-compatible or local endpoint serving a
-     model id that merely matches a GLM catalog prefix must not inherit them. *)
-  | Some "glm", _ -> true
-  | Some _, _ -> true
-  | None, Some _ -> false
-  | None, None -> true
-;;
-
-let catalog_entry_explicitly_declared_by_model_id
-      config
-      (entry : Model_catalog.model_entry)
-  =
-  match normalized_catalog_label entry.provider_name with
-  | Some provider_label ->
-    Capabilities.model_id_has_provider_label ~provider_label ~model_id:config.model_id
-  | None -> false
-;;
-
-let raw_openai_compat_requires_endpoint_declaration config caps =
-  match catalog_entry_for_model_id config.model_id with
-  | Some entry when catalog_entry_explicitly_declared_by_model_id config entry -> false
-  | Some entry ->
-    capability_requires_endpoint_declaration caps
-    || catalog_entry_requires_endpoint_declaration entry
-  | None -> capability_requires_endpoint_declaration caps
+  Option.value config.provider_id ~default:(Provider_kind.to_string config.kind)
 ;;
 
 let capabilities_for_config_model (config : t) =
@@ -301,25 +205,10 @@ let capabilities_for_config_model (config : t) =
   | Some caps -> Some caps
   | None ->
     let provider_label = capability_provider_label config in
-    if raw_openai_compat_without_builtin_source config provider_label
-    then (
-      match
-        Capabilities.for_provider_model_id
-          ~allow_bare_fallback:false
-          ~provider_label
-          ~model_id:config.model_id
-      with
-      | Some _ as caps -> caps
-      | None ->
-        (match Capabilities.for_model_id config.model_id with
-         | Some caps when raw_openai_compat_requires_endpoint_declaration config caps ->
-           None
-         | other -> other))
-    else
-      Capabilities.for_provider_model_id
-        ~allow_bare_fallback:true
-        ~provider_label
-        ~model_id:config.model_id
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:true
+      ~provider_label
+      ~model_id:config.model_id
 ;;
 
 (** Compute auth headers from a provider kind and secret. This is the core
@@ -687,14 +576,6 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   if trimmed = "" then default_name else trimmed
 ;;
 
-let endpoint_supports_openai_compat_output_schema (config : t) =
-  match config.supports_structured_output_override with
-  | Some supported -> supported
-  | None ->
-    Provider_endpoint_identity.openai_compat_endpoint_declared_for_output_schema_gate
-      config.base_url
-;;
-
 (** A native-schema request is in effect when either field carries one.
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
@@ -756,15 +637,7 @@ let validate_output_schema_request (config : t) =
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
      | Kimi -> validate_model_structured_output_capability config
-     | OpenAI_compat ->
-       if endpoint_supports_openai_compat_output_schema config
-       then validate_model_structured_output_capability config
-       else
-         Error
-           (Printf.sprintf
-              "native structured output is only wired for declared OpenAI-compatible \
-               endpoints, got %s"
-              config.base_url))
+     | OpenAI_compat -> validate_model_structured_output_capability config)
 ;;
 
 let has_host_prefix ~url ~prefix =

@@ -458,15 +458,13 @@ let default_api_key_env_of_kind (kind : Llm_provider.Provider_config.provider_ki
   | None -> ""
 ;;
 
-let api_key_env_candidates = function
-  | "OLLAMA_CLOUD_API_KEY" -> [ "OLLAMA_CLOUD_API_KEY"; "OLLAMA_API_KEY" ]
-  | env_name -> [ env_name ]
-;;
-
-let api_key_from_env env_name =
-  api_key_env_candidates env_name
-  |> List.find_map Llm_provider.Cli_common_env.get
-  |> Option.value ~default:""
+let api_key_from_declared_env env_name =
+  if env_name = ""
+  then Ok ""
+  else (
+    match Llm_provider.Cli_common_env.get env_name with
+    | Some value when String.trim value <> "" -> Ok value
+    | None | Some _ -> Error (Error.Config (MissingEnvVar { var_name = env_name })))
 ;;
 
 let headers_with_auth_for_kind
@@ -525,23 +523,29 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     if has_key then Some (Llm_provider.Secret.header_value pc.api_key) else None
   in
   let provider =
-    match pc.kind with
-    | Anthropic -> Anthropic
-    | Kimi -> Custom_registered { name = "kimi" }
-    | Gemini ->
-      OpenAICompat
-        { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | Glm ->
-      OpenAICompat
-        { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | OpenAI_compat | Ollama | DashScope ->
-      if Llm_provider.Provider_config.is_local pc
-      then Local { base_url = pc.base_url }
-      else
-        OpenAICompat
-          { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
+    match pc.provider_id with
+    | Some name -> Custom_registered { name }
+    | None ->
+      (match pc.kind with
+       | Anthropic -> Anthropic
+       | Kimi | Ollama | Gemini | Glm | DashScope ->
+         Custom_registered
+           { name = Llm_provider.Provider_config.string_of_provider_kind pc.kind }
+       | OpenAI_compat ->
+         OpenAICompat
+           { base_url = pc.base_url; auth_header; path = pc.request_path; static_token })
   in
-  let api_key_env = default_api_key_env_of_kind pc.kind in
+  let api_key_env =
+    match provider with
+    | Custom_registered { name } ->
+      (match
+         Llm_provider.Provider_registry.default ()
+         |> fun registry -> Llm_provider.Provider_registry.find registry name
+       with
+       | Some entry -> entry.defaults.api_key_env
+       | None -> default_api_key_env_of_kind pc.kind)
+    | Local _ | Anthropic | OpenAICompat _ -> default_api_key_env_of_kind pc.kind
+  in
   { provider; model_id = pc.model_id; api_key_env }
 ;;
 
@@ -580,6 +584,7 @@ let provider_config_of_agent
   let cfg = state.config in
   let build
         ~kind
+        ?provider_id
         ~resolved_base_url
         ~api_key
         ~headers
@@ -592,6 +597,7 @@ let provider_config_of_agent
     Ok
       (Llm_provider.Provider_config.make
          ~kind
+         ?provider_id
          ~model_id
          ~base_url:resolved_base_url
          ~api_key
@@ -633,16 +639,53 @@ let provider_config_of_agent
        let registry = Llm_provider.Provider_registry.default () in
        (match Llm_provider.Provider_registry.find registry name with
         | None ->
-          Error
-            (Error.Config
-               (InvalidConfig
-                  { field = "provider"
-                  ; detail =
-                      Printf.sprintf
-                        "Custom_registered provider '%s' not found in \
-                         Provider_registry.default"
-                        name
-                  }))
+          (match find_provider name with
+           | None ->
+             Error
+               (Error.Config
+                  (InvalidConfig
+                     { field = "provider"
+                     ; detail =
+                         Printf.sprintf
+                           "Custom_registered provider '%s' is neither declared nor \
+                            registered at runtime"
+                           name
+                     }))
+           | Some impl ->
+             (match impl.resolve p with
+              | Error e -> Error e
+              | Ok (resolved_base_url, api_key, headers) ->
+                let kind : Llm_provider.Provider_config.provider_kind =
+                  match impl.request_kind with
+                  | Anthropic_messages -> Anthropic
+                  | Openai_chat_completions | Custom _ -> OpenAI_compat
+                in
+                let model_capabilities_override =
+                  match
+                    Llm_provider.Capabilities.for_provider_model_id
+                      ~allow_bare_fallback:true
+                      ~provider_label:name
+                      ~model_id:p.model_id
+                  with
+                  | Some _ -> None
+                  | None -> Some impl.capabilities
+                in
+                let supports_structured_output_override =
+                  Option.map
+                    (fun (caps : capabilities) -> caps.supports_structured_output)
+                    model_capabilities_override
+                in
+                build
+                  ~kind
+                  ~provider_id:name
+                  ~resolved_base_url
+                  ~api_key
+                  ~headers
+                  ~request_path:impl.request_path
+                  ~model_id:p.model_id
+                  ?supports_structured_output_override
+                  ?model_capabilities_override
+                  ()))
         | Some entry ->
           (* If a provider-qualified model catalog row exists for this
              registered provider, let the row be authoritative instead of
@@ -655,8 +698,8 @@ let provider_config_of_agent
           let registry_caps_override =
             match
               Llm_provider.Capabilities.for_provider_model_id
-                ~allow_bare_fallback:false
-                ~provider_label:name
+                ~allow_bare_fallback:true
+                ~provider_label:entry.name
                 ~model_id:p.model_id
             with
             | Some _ -> None
@@ -674,6 +717,7 @@ let provider_config_of_agent
               | Ok (resolved_base_url, api_key, headers) ->
                 build
                   ~kind:entry.defaults.kind
+                  ~provider_id:entry.name
                   ~resolved_base_url
                   ~api_key
                   ~headers
@@ -683,25 +727,24 @@ let provider_config_of_agent
                   ?model_capabilities_override:registry_caps_override
                   ())
            | None ->
-             let api_key =
-               if entry.defaults.api_key_env = ""
-               then ""
-               else api_key_from_env entry.defaults.api_key_env
-             in
-             (* Auth headers are NOT included here.  Callers merge
-                [auth_headers_only_for_kind] at HTTP request time so that
-                [Provider_config.t.headers] never carries sensitive tokens. *)
-             let headers = [ "Content-Type", "application/json" ] in
-             build
-               ~kind:entry.defaults.kind
-               ~resolved_base_url:entry.defaults.base_url
-               ~api_key
-               ~headers
-               ~request_path:entry.defaults.request_path
-               ~model_id:p.model_id
-               ?supports_structured_output_override:registry_so_override
-               ?model_capabilities_override:registry_caps_override
-               ()))
+             (match api_key_from_declared_env entry.defaults.api_key_env with
+              | Error e -> Error e
+              | Ok api_key ->
+                (* Auth headers are NOT included here. Callers merge
+                   [auth_headers_only_for_kind] at HTTP request time so that
+                   [Provider_config.t.headers] never carries sensitive tokens. *)
+                let headers = [ "Content-Type", "application/json" ] in
+                build
+                  ~kind:entry.defaults.kind
+                  ~provider_id:entry.name
+                  ~resolved_base_url:entry.defaults.base_url
+                  ~api_key
+                  ~headers
+                  ~request_path:entry.defaults.request_path
+                  ~model_id:p.model_id
+                  ?supports_structured_output_override:registry_so_override
+                  ?model_capabilities_override:registry_caps_override
+                  ())))
      | Anthropic | Local _ | OpenAICompat _ ->
        (match resolve p with
         | Error e -> Error e

@@ -215,24 +215,11 @@ val anthropic_thinking_control_for_model_id : string -> anthropic_thinking_contr
     prefix-matches [model_id]; there is no in-code fallback table. *)
 val for_model_id_catalog : string -> capabilities option
 
-(** True when [model_id] explicitly carries [provider_label] using the same
-    provider-qualified separators as {!for_provider_model_id}. This is syntax
-    recognition only; callers still decide whether the declaration is
-    authoritative for their boundary. *)
-val model_id_has_provider_label : provider_label:string -> model_id:string -> bool
-
-(** Look up capabilities for [model_id] with a provider-qualified catalog
-    override first.
-
-    Provider-qualified entries use [<provider_label>/<model_id>],
-    [<provider_label>:<model_id>], or [<provider_label>.<model_id>] prefixes in
-    [models.toml]. The dot form covers embedding runtimes that flatten
-    [provider_label] and [model_id] into one model identifier while keeping the
-    same provider-qualified catalog semantics. When no qualified entry matches,
-    [allow_bare_fallback] controls whether this falls back to {!for_model_id}.
-    This lets transports such as Ollama Cloud override bare model-family entries
-    that are shared with other providers (for example [glm-5] or [kimi-k2.6])
-    without coupling the catalog to any embedding application. *)
+(** Look up capabilities for the explicit provider/model pair. Catalog rows
+    declare [provider_name] and [id_prefix] as separate fields; OAS never
+    rewrites either value into slash, colon, or dot-qualified candidates.
+    When no provider-scoped row matches, [allow_bare_fallback] controls whether
+    this falls back to a provider-independent {!for_model_id} row. *)
 val for_provider_model_id
   :  allow_bare_fallback:bool
   -> provider_label:string

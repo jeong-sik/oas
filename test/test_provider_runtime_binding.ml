@@ -47,13 +47,15 @@ let catalog_json =
       "id": "subscriber-local",
       "aliases": ["Subscriber-Alias"],
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "http://127.0.0.1:8123",
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
       "default_model": "local-model",
       "capabilities_base": "openai_chat",
-      "capabilities": {"supports_tools": true},
+      "capabilities": {
+        "supports_tools": true,
+        "supports_reasoning": true
+      },
       "credential_scope": "test runtime"
     }
   ]
@@ -70,7 +72,6 @@ let catalog_variants_json =
       "id": "custom-rich",
       "aliases": ["Rich-Alias"],
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://rich.example/v1/",
       "request_path": "/chat/completions",
       "auth": {"type": "setup_token_env", "env": "RICH_SETUP_TOKEN"},
@@ -78,15 +79,10 @@ let catalog_variants_json =
       "capabilities_base": "openai_chat"
     },
     {
-      "id": "managed-oauth",
-      "kind": "openai_compat",
-      "transport": "managed",
-      "auth": {"type": "oauth_cached_login"},
-      "capabilities_base": "openai_chat"
-    },
-    {
       "id": "api-key-auth",
       "kind": "openai_compat",
+      "base_url": "https://api-key.example/v1",
+      "request_path": "/chat/completions",
       "auth": {"type": "api_key_env", "env": "API_KEY_AUTH"},
       "capabilities_base": "openai_chat"
     }
@@ -95,15 +91,39 @@ let catalog_variants_json =
 |}
 ;;
 
-let transport_to_string = function
-  | Provider_runtime_binding.Http -> "http"
-  | Provider_runtime_binding.Managed -> "managed"
+let shared_endpoint_catalog_json =
+  {|
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "shared-alpha",
+      "aliases": ["Alpha-Alias"],
+      "kind": "openai_compat",
+      "base_url": "https://shared.example/v1",
+      "request_path": "/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {"supports_reasoning": false}
+    },
+    {
+      "id": "shared-beta",
+      "aliases": ["Beta-Alias"],
+      "kind": "openai_compat",
+      "base_url": "https://shared.example/v1",
+      "request_path": "/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {"supports_reasoning": true}
+    }
+  ]
+}
+|}
 ;;
 
 let auth_to_string = function
   | Provider_runtime_binding.No_auth -> "none"
   | Provider_runtime_binding.Api_key_env env -> "api_key_env:" ^ env
-  | Provider_runtime_binding.Oauth_cached_login -> "oauth"
   | Provider_runtime_binding.Setup_token_env env -> "setup:" ^ env
 ;;
 
@@ -149,6 +169,10 @@ let test_catalog_to_provider_config () =
   with_provider_catalog catalog_json (fun () ->
     let binding = expect_binding "subscriber-local" in
     let cfg = expect_ok (Provider_runtime_binding.to_provider_config binding) in
+    Alcotest.(check (option string))
+      "canonical provider id"
+      (Some "subscriber-local")
+      cfg.provider_id;
     Alcotest.(check string) "model id" "local-model" cfg.model_id;
     Alcotest.(check string) "base url" "http://127.0.0.1:8123" cfg.base_url;
     Alcotest.(check string) "request path" "/v1/chat/completions" cfg.request_path;
@@ -158,23 +182,33 @@ let test_catalog_to_provider_config () =
       (cfg.kind = Llm_provider.Provider_config.OpenAI_compat))
 ;;
 
-let test_binding_for_provider_config_uses_catalog_endpoint () =
+let test_explicit_provider_identity_selects_catalog_binding () =
   with_provider_catalog catalog_json (fun () ->
-    let cfg =
-      Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.OpenAI_compat
-        ~model_id:"local-model"
-        ~base_url:"http://127.0.0.1:8123"
-        ~request_path:"/v1/chat/completions"
-        ()
-    in
-    match Provider_runtime_binding.binding_for_provider_config cfg with
-    | Some binding ->
-      Alcotest.(check string) "catalog binding id" "subscriber-local" binding.id
-    | None -> Alcotest.fail "expected catalog binding for provider config")
+    [ "subscriber-local"; "Subscriber-Alias" ]
+    |> List.iter (fun provider_id ->
+      let cfg =
+        Llm_provider.Provider_config.make
+          ~kind:Llm_provider.Provider_config.OpenAI_compat
+          ~provider_id
+          ~model_id:"local-model"
+          ~base_url:"https://deliberately-different.example/v9"
+          ~request_path:"/not-the-catalog-path"
+          ()
+      in
+      match Provider_runtime_binding.binding_for_provider_config cfg with
+      | Some binding ->
+        Alcotest.(check string)
+          (provider_id ^ " canonical binding")
+          "subscriber-local"
+          binding.id;
+        Alcotest.(check string)
+          (provider_id ^ " canonical provider id")
+          "subscriber-local"
+          (Provider_runtime_binding.provider_id_of_provider_config cfg)
+      | None -> Alcotest.failf "expected explicit binding for %S" provider_id))
 ;;
 
-let test_capabilities_for_provider_config_uses_catalog_capabilities () =
+let test_endpoint_only_config_does_not_select_catalog_facts () =
   with_provider_catalog catalog_json (fun () ->
     let cfg =
       Llm_provider.Provider_config.make
@@ -184,12 +218,34 @@ let test_capabilities_for_provider_config_uses_catalog_capabilities () =
         ~request_path:"/v1/chat/completions"
         ()
     in
+    Alcotest.(check bool)
+      "endpoint does not select binding"
+      true
+      (Option.is_none (Provider_runtime_binding.binding_for_provider_config cfg));
+    let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+    Alcotest.(check bool)
+      "endpoint does not select catalog reasoning capability"
+      false
+      caps.supports_reasoning)
+;;
+
+let test_explicit_provider_id_selects_catalog_capabilities () =
+  with_provider_catalog catalog_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id:"subscriber-local"
+        ~model_id:"unlisted-local-model"
+        ~base_url:"https://deliberately-different.example/v9"
+        ~request_path:"/not-the-catalog-path"
+        ()
+    in
     let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
     Alcotest.(check bool) "catalog supports tools" true caps.supports_tools;
     Alcotest.(check bool)
-      "catalog support tool_choice default"
+      "explicit id selects catalog reasoning capability"
       true
-      caps.supports_tool_choice)
+      caps.supports_reasoning)
 ;;
 
 let test_capabilities_for_provider_config_honors_override () =
@@ -197,9 +253,10 @@ let test_capabilities_for_provider_config_honors_override () =
     let cfg =
       Llm_provider.Provider_config.make
         ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id:"subscriber-alias"
         ~model_id:"unlisted-local-model"
-        ~base_url:"http://127.0.0.1:8123"
-        ~request_path:"/v1/chat/completions"
+        ~base_url:"https://deliberately-different.example/v9"
+        ~request_path:"/not-the-catalog-path"
         ~supports_tool_choice_override:false
         ()
     in
@@ -213,6 +270,63 @@ let test_capabilities_for_provider_config_honors_override () =
       "override disables named tool choice"
       false
       caps.supports_named_tool_choice)
+;;
+
+let test_shared_endpoint_is_disambiguated_by_explicit_provider_id () =
+  with_provider_catalog shared_endpoint_catalog_json (fun () ->
+    let config provider_id =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id
+        ~model_id:"shared-model"
+        ~base_url:"https://shared.example/v1"
+        ~request_path:"/chat/completions"
+        ()
+    in
+    let alpha = config "shared-alpha" in
+    let beta = config "Beta-Alias" in
+    let alpha_binding =
+      match Provider_runtime_binding.binding_for_provider_config alpha with
+      | Some binding -> binding
+      | None -> Alcotest.fail "expected explicit shared-alpha binding"
+    in
+    let beta_binding =
+      match Provider_runtime_binding.binding_for_provider_config beta with
+      | Some binding -> binding
+      | None -> Alcotest.fail "expected explicit beta alias binding"
+    in
+    Alcotest.(check string) "alpha binding" "shared-alpha" alpha_binding.id;
+    Alcotest.(check string) "beta alias canonical binding" "shared-beta" beta_binding.id;
+    let alpha_caps = Provider_runtime_binding.capabilities_for_provider_config alpha in
+    let beta_caps = Provider_runtime_binding.capabilities_for_provider_config beta in
+    Alcotest.(check bool) "alpha provider capability" false alpha_caps.supports_reasoning;
+    Alcotest.(check bool) "beta provider capability" true beta_caps.supports_reasoning)
+;;
+
+let test_unknown_explicit_provider_id_never_switches_by_endpoint () =
+  with_provider_catalog catalog_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id:"Unknown-Explicit"
+        ~model_id:"unlisted-local-model"
+        ~base_url:"http://127.0.0.1:8123"
+        ~request_path:"/v1/chat/completions"
+        ()
+    in
+    Alcotest.(check bool)
+      "unknown explicit id has no binding"
+      true
+      (Option.is_none (Provider_runtime_binding.binding_for_provider_config cfg));
+    Alcotest.(check string)
+      "unknown explicit id remains normalized and opaque"
+      "unknown-explicit"
+      (Provider_runtime_binding.provider_id_of_provider_config cfg);
+    let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+    Alcotest.(check bool)
+      "matching endpoint does not select another provider's capabilities"
+      false
+      caps.supports_reasoning)
 ;;
 
 let test_local_openai_compat_capabilities_not_inflated_by_locality () =
@@ -293,9 +407,17 @@ let test_catalog_structured_output_capability_projects_to_provider_config () =
       (Result.is_ok (Llm_provider.Provider_config.validate_output_schema_request cfg)))
 ;;
 
-let test_capabilities_for_provider_config_uses_provider_qualified_model_catalog () =
+let test_capabilities_for_provider_config_uses_provider_scoped_model_catalog () =
   with_model_catalog
     {|
+[[providers]]
+id = "ollama_cloud"
+kind = "openai_compat"
+base_url = "https://ollama.com/v1"
+request_path = "/chat/completions"
+api_key_env = "OLLAMA_CLOUD_API_KEY"
+capabilities_base = "ollama_cloud"
+
 [[models]]
 id_prefix = "kimi-k2.6"
 base = "kimi"
@@ -304,8 +426,9 @@ supports_tool_choice = true
 thinking_control_format = "none"
 
 [[models]]
-id_prefix = "ollama_cloud/kimi-k2.6"
+id_prefix = "kimi-k2.6"
 base = "ollama_cloud"
+provider_name = "ollama_cloud"
 supports_tools = true
 supports_tool_choice = false
 supports_reasoning = true
@@ -318,6 +441,7 @@ reasoning_replay = "preserve_always"
        let cfg =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"ollama_cloud"
            ~model_id:"kimi-k2.6"
            ~base_url:"https://ollama.com/v1"
            ~request_path:"/chat/completions"
@@ -342,7 +466,7 @@ reasoning_replay = "preserve_always"
          (caps.reasoning_replay_override = Llm_provider.Capabilities.Force_preserve_always))
 ;;
 
-let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
+let test_capabilities_for_provider_config_uses_exact_provider_model_tuple () =
   with_provider_catalog
     {|
 {
@@ -351,11 +475,14 @@ let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
     {
       "id": "vllm-qwen3-mtp",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://runpod.example.invalid/v1",
       "request_path": "/chat/completions",
       "auth": {"type": "none"},
-      "capabilities_base": "openai_chat"
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "supports_parallel_tool_calls": false,
+        "supports_reasoning": false
+      }
     }
   ]
 }
@@ -364,7 +491,7 @@ let test_capabilities_for_provider_config_uses_dot_qualified_model_catalog () =
        with_model_catalog
          {|
 [[models]]
-id_prefix = "vllm-qwen3-mtp/qwen36-35b-a3b-mtp"
+id_prefix = "qwen36-35b-a3b-mtp"
 base = "openai_chat"
 provider_name = "vllm-qwen3-mtp"
 supports_tools = true
@@ -380,7 +507,8 @@ preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
             let cfg =
               Llm_provider.Provider_config.make
                 ~kind:Llm_provider.Provider_config.OpenAI_compat
-                ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
+                ~provider_id:"vllm-qwen3-mtp"
+                ~model_id:"qwen36-35b-a3b-mtp"
                 ~base_url:"https://runpod.example.invalid/v1"
                 ~request_path:"/chat/completions"
                 ()
@@ -391,18 +519,40 @@ preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
               true
               caps.supports_tools;
             Alcotest.(check bool)
-              "vllm-qwen3-mtp row keeps parallel tools"
+              "exact model row overrides provider-level parallel tools"
               true
               caps.supports_parallel_tool_calls;
             Alcotest.(check bool)
-              "vllm-qwen3-mtp row keeps reasoning"
+              "exact model row overrides provider-level reasoning"
               true
               caps.supports_reasoning;
             Alcotest.(check bool)
               "vllm-qwen3-mtp row uses chat_template_kwargs"
               true
               (caps.thinking_control_format
-               = Llm_provider.Capabilities.Chat_template_kwargs)))
+               = Llm_provider.Capabilities.Chat_template_kwargs);
+            let binding = expect_binding "vllm-qwen3-mtp" in
+            let projected =
+              expect_ok
+                (Provider_runtime_binding.to_provider_config
+                   ~model:"qwen36-35b-a3b-mtp"
+                   binding)
+            in
+            Alcotest.(check (option string))
+              "projection preserves exact provider id"
+              (Some "vllm-qwen3-mtp")
+              projected.provider_id;
+            Alcotest.(check bool)
+              "projection does not mask exact model row with provider override"
+              true
+              (Option.is_none projected.model_capabilities_override);
+            let projected_caps =
+              Provider_runtime_binding.capabilities_for_provider_config projected
+            in
+            Alcotest.(check bool)
+              "projected config retains exact model reasoning"
+              true
+              projected_caps.supports_reasoning))
 ;;
 
 let expect_tool_choice_ok label cfg =
@@ -481,6 +631,14 @@ let expect_no_tool_choice_field label cfg =
 let test_forced_tool_choice_provider_invariants () =
   with_model_catalog
     {|
+[[providers]]
+id = "ollama_cloud"
+kind = "openai_compat"
+base_url = "https://ollama.com/v1"
+request_path = "/chat/completions"
+api_key_env = "OLLAMA_CLOUD_API_KEY"
+capabilities_base = "ollama_cloud"
+
 [[models]]
 id_prefix = "claude-opus-4-6"
 base = "anthropic"
@@ -506,8 +664,9 @@ supports_required_tool_choice = false
 supports_named_tool_choice = false
 
 [[models]]
-id_prefix = "ollama_cloud/minimax-m3"
+id_prefix = "minimax-m3"
 base = "ollama_cloud"
+provider_name = "ollama_cloud"
 supports_tools = true
 supports_tool_choice = false
 supports_required_tool_choice = false
@@ -591,6 +750,7 @@ supports_named_tool_choice = false
        let hosted_minimax_named =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"ollama_cloud"
            ~model_id:"minimax-m3"
            ~base_url:"https://ollama.com/v1"
            ~request_path:"/chat/completions"
@@ -601,6 +761,7 @@ supports_named_tool_choice = false
        let hosted_minimax_any =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~provider_id:"ollama_cloud"
            ~model_id:"minimax-m3"
            ~base_url:"https://ollama.com/v1"
            ~request_path:"/chat/completions"
@@ -620,31 +781,25 @@ let test_all_includes_catalog_entry_once () =
     Alcotest.(check int) "catalog entry count" 1 (List.length matches))
 ;;
 
-let test_catalog_transport_and_auth_variants () =
+let test_catalog_auth_variants () =
   with_provider_catalog catalog_variants_json (fun () ->
     let cases =
-      [ "rich-alias", "http", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
-      ; "managed-oauth", "managed", "oauth", None, None
-      ; "api-key-auth", "http", "api_key_env:API_KEY_AUTH", None, None
+      [ "rich-alias", "setup:RICH_SETUP_TOKEN", Some "rich-default"
+      ; "api-key-auth", "api_key_env:API_KEY_AUTH", None
       ]
     in
     List.iter
-      (fun (label, transport, auth, default_model, command) ->
+      (fun (label, auth, default_model) ->
          let binding = expect_binding label in
-         Alcotest.(check string)
-           (label ^ " transport")
-           transport
-           (transport_to_string binding.transport);
          Alcotest.(check string) (label ^ " auth") auth (auth_to_string binding.auth);
          Alcotest.(check (option string))
            (label ^ " default model")
            default_model
-           binding.default_model;
-         Alcotest.(check (option string)) (label ^ " command") command binding.command)
+           binding.default_model)
       cases)
 ;;
 
-let test_find_empty_missing_and_provider_config_fallbacks () =
+let test_find_empty_and_unknown_are_missing () =
   Alcotest.(check bool)
     "empty missing"
     true
@@ -652,20 +807,7 @@ let test_find_empty_missing_and_provider_config_fallbacks () =
   Alcotest.(check bool)
     "unknown missing"
     true
-    (Option.is_none (Provider_runtime_binding.find "not-a-provider"));
-  with_provider_catalog catalog_variants_json (fun () ->
-    let cfg =
-      Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.OpenAI_compat
-        ~model_id:"rich-default"
-        ~base_url:" https://rich.example/v1/// "
-        ~request_path:" /chat/completions "
-        ()
-    in
-    match Provider_runtime_binding.binding_for_provider_config cfg with
-    | Some binding ->
-      Alcotest.(check string) "normalized endpoint match" "custom-rich" binding.id
-    | None -> Alcotest.fail "expected normalized endpoint binding")
+    (Option.is_none (Provider_runtime_binding.find "not-a-provider"))
 ;;
 
 let test_builtin_binding_requires_exact_model () =
@@ -689,7 +831,7 @@ let test_builtin_binding_requires_exact_model () =
           ~requested_model:(Some "claude-exact-model")))
 ;;
 
-let test_builtin_nous_binding_uses_calltime_default_endpoint () =
+let test_builtin_nous_binding_uses_declared_default_endpoint () =
   with_env "LLM_ENDPOINTS" (Some "") (fun () ->
     with_env
       Llm_provider.Discovery.local_llm_url_env_var
@@ -697,9 +839,21 @@ let test_builtin_nous_binding_uses_calltime_default_endpoint () =
       (fun () ->
          let binding = expect_binding "nous" in
          Alcotest.(check string)
-           "runtime binding base_url"
-           "http://127.0.0.1:19014"
+           "declared runtime binding base_url"
+           Llm_provider.Discovery.default_endpoint
            binding.base_url))
+;;
+
+let test_embedded_mimo_binding_preserves_default_model () =
+  let binding = expect_binding "mimo" in
+  Alcotest.(check (option string))
+    "embedded default model"
+    (Some "mimo-v2.5-pro")
+    binding.default_model;
+  Alcotest.(check string)
+    "resolved embedded default"
+    "mimo-v2.5-pro"
+    (expect_ok (Provider_runtime_binding.resolve_model binding ~requested_model:None))
 ;;
 
 let test_registry_bindings_do_not_invent_model_defaults () =
@@ -737,7 +891,7 @@ let test_builtin_selectors_are_exact () =
     (Option.is_none (Provider_runtime_binding.find "openai_compat"))
 ;;
 
-let test_provider_id_fallbacks_do_not_invent_openai () =
+let test_unregistered_openai_compat_identity_remains_typed () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -778,29 +932,41 @@ let () =
             test_catalog_alias_default_and_capabilities
         ; Alcotest.test_case "to provider config" `Quick test_catalog_to_provider_config
         ; Alcotest.test_case
-            "binding for provider config"
+            "explicit provider identity selects binding"
             `Quick
-            test_binding_for_provider_config_uses_catalog_endpoint
+            test_explicit_provider_identity_selects_catalog_binding
         ; Alcotest.test_case
-            "capabilities for provider config"
+            "endpoint-only config does not select catalog facts"
             `Quick
-            test_capabilities_for_provider_config_uses_catalog_capabilities
+            test_endpoint_only_config_does_not_select_catalog_facts
+        ; Alcotest.test_case
+            "explicit provider id selects catalog capabilities"
+            `Quick
+            test_explicit_provider_id_selects_catalog_capabilities
         ; Alcotest.test_case
             "capabilities honor tool_choice override"
             `Quick
             test_capabilities_for_provider_config_honors_override
         ; Alcotest.test_case
+            "shared endpoint is disambiguated by provider id"
+            `Quick
+            test_shared_endpoint_is_disambiguated_by_explicit_provider_id
+        ; Alcotest.test_case
+            "unknown explicit id stays opaque"
+            `Quick
+            test_unknown_explicit_provider_id_never_switches_by_endpoint
+        ; Alcotest.test_case
             "structured output projects to provider config"
             `Quick
             test_catalog_structured_output_capability_projects_to_provider_config
         ; Alcotest.test_case
-            "provider-qualified model catalog capabilities"
+            "provider-scoped model catalog capabilities"
             `Quick
-            test_capabilities_for_provider_config_uses_provider_qualified_model_catalog
+            test_capabilities_for_provider_config_uses_provider_scoped_model_catalog
         ; Alcotest.test_case
-            "dot-qualified model catalog capabilities"
+            "exact provider/model tuple capabilities"
             `Quick
-            test_capabilities_for_provider_config_uses_dot_qualified_model_catalog
+            test_capabilities_for_provider_config_uses_exact_provider_model_tuple
         ; Alcotest.test_case
             "forced tool_choice provider invariants"
             `Quick
@@ -809,14 +975,11 @@ let () =
             "all includes catalog once"
             `Quick
             test_all_includes_catalog_entry_once
+        ; Alcotest.test_case "auth variants" `Quick test_catalog_auth_variants
         ; Alcotest.test_case
-            "transport and auth variants"
+            "find empty and unknown"
             `Quick
-            test_catalog_transport_and_auth_variants
-        ; Alcotest.test_case
-            "find and provider config fallbacks"
-            `Quick
-            test_find_empty_missing_and_provider_config_fallbacks
+            test_find_empty_and_unknown_are_missing
         ; Alcotest.test_case
             "local capabilities not inflated by locality"
             `Quick
@@ -832,9 +995,13 @@ let () =
             `Quick
             test_builtin_binding_requires_exact_model
         ; Alcotest.test_case
-            "nous binding uses call-time default endpoint"
+            "nous binding uses declared default endpoint"
             `Quick
-            test_builtin_nous_binding_uses_calltime_default_endpoint
+            test_builtin_nous_binding_uses_declared_default_endpoint
+        ; Alcotest.test_case
+            "embedded MiMo binding preserves default model"
+            `Quick
+            test_embedded_mimo_binding_preserves_default_model
         ; Alcotest.test_case
             "non-Claude builtin defaults do not use Claude model"
             `Quick
@@ -844,9 +1011,9 @@ let () =
             `Quick
             test_builtin_selectors_are_exact
         ; Alcotest.test_case
-            "provider id fallback"
+            "unregistered OpenAI-compatible identity remains typed"
             `Quick
-            test_provider_id_fallbacks_do_not_invent_openai
+            test_unregistered_openai_compat_identity_remains_typed
         ] )
     ]
 ;;

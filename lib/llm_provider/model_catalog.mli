@@ -69,6 +69,7 @@ type provider_entry = Model_provider_catalog.entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_kind.t
+  ; identity_kinds : Provider_kind.t list
   ; base_url : string
   ; base_url_env : string option
   ; request_path : string
@@ -80,10 +81,21 @@ type provider_entry = Model_provider_catalog.entry =
 
 type t
 
+(** Raised by {!global} when the build-time generated catalog violates the
+    catalog syntax or schema. The generated catalog is an OAS build invariant,
+    so there is no empty-catalog fallback. *)
+exception Invalid_embedded_catalog of string
+
 val empty : t
 val of_model_entries : model_entry list -> t
 val model_entries : t -> model_entry list
 val provider_entries : t -> provider_entry list
+
+(** Parse and validate a model catalog from an in-memory TOML value. [source]
+    is included in syntax-error diagnostics. This is the typed boundary for
+    callers that already own the catalog contents; no global state is changed. *)
+val of_toml_string : source:string -> string -> (t, string) result
+
 val load_file : string -> (t, string) result
 
 (** Load the build-time embedded default [models.toml].
@@ -96,13 +108,18 @@ val load_file : string -> (t, string) result
     silently. *)
 val load_default : unit -> (t, string) result
 
-(** Longest-prefix lookup using the catalog's exact declared [id_prefix]
-    syntax. OAS does not rewrite dot/slash/colon-qualified identifiers. *)
+(** Longest-prefix lookup across provider-independent rows using the catalog's
+    exact declared [id_prefix] syntax. Provider-scoped rows are excluded. *)
 val lookup : t -> string -> model_entry option
 
-(** Return the catalog-declared provider identity for the longest matching
-    [id_prefix], if that entry declares one. *)
-val provider_name_for_model_id : t -> string -> string option
+(** Longest-prefix lookup across rows whose declared [provider_name] exactly
+    matches [provider_name]. The provider and model remain separate values;
+    OAS never synthesizes slash, colon, or dot-qualified model ids. *)
+val lookup_for_provider
+  :  t
+  -> provider_name:string
+  -> model_id:string
+  -> model_entry option
 
 (** Return the catalog-declared provider identity for a concrete endpoint.
 
@@ -133,9 +150,11 @@ val provider_label_for_endpoint
     - runtime override installed with {!set_global}
     - build-time embedded OAS [models.toml]
 
-    The embedded result is cached after the first load. OAS does not inspect an
-    environment variable for an alternate catalog. Callers that need a custom
-    catalog must call {!load_file} and {!set_global} explicitly.
+    The embedded result is cached after the first load. Invalid generated data
+    raises {!Invalid_embedded_catalog}; it never becomes [None] or an empty
+    catalog. OAS does not inspect an environment variable for an alternate
+    catalog. Callers that need a custom catalog must call {!load_file} and
+    {!set_global} explicitly.
 
     {!clear_global} clears the runtime override and embedded cache. *)
 val global : unit -> t option

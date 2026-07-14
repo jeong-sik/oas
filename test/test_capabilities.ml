@@ -128,7 +128,12 @@ let test_openai_extended () =
 ;;
 
 let test_lookup_mimo_v25_pro () =
-  match Capabilities.for_model_id "mimo-v2.5-pro" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"mimo"
+      ~model_id:"mimo-v2.5-pro"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
@@ -168,7 +173,12 @@ let test_lookup_mimo_v25_pro () =
 ;;
 
 let test_lookup_mimo_v25_multimodal () =
-  match Capabilities.for_model_id "mimo-v2.5" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"mimo"
+      ~model_id:"mimo-v2.5"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
@@ -426,7 +436,7 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | None -> fail "should match Kimi K2.7 highspeed route");
     (match
        Capabilities.for_provider_model_id
-         ~allow_bare_fallback:true
+         ~allow_bare_fallback:false
          ~provider_label:"ollama_cloud"
          ~model_id:"kimi-k2.7-code"
      with
@@ -570,12 +580,12 @@ let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
   in
   (match
      Capabilities.for_provider_model_id
-       ~allow_bare_fallback:false
+       ~allow_bare_fallback:true
        ~provider_label:"ollama"
        ~model_id
    with
-   | Some c -> check_gemma4_e2b "strict ollama Gemma4 E2B QAT" c
-   | None -> fail "strict Ollama lookup should match local Gemma4 E2B QAT");
+   | Some c -> check_gemma4_e2b "ollama Gemma4 E2B QAT via bare fallback" c
+   | None -> fail "Ollama lookup with bare fallback should match local Gemma4 E2B QAT");
   (match Capabilities.for_model_id model_id with
    | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
    | None -> fail "bare lookup should match local Gemma4 E2B QAT");
@@ -589,7 +599,12 @@ let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
 ;;
 
 let test_lookup_deepseek_v4_flash () =
-  match Capabilities.for_model_id "deepseek-v4-flash" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"deepseek"
+      ~model_id:"deepseek-v4-flash"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
@@ -607,7 +622,12 @@ let test_lookup_deepseek_v4_flash () =
 ;;
 
 let test_lookup_deepseek_v4_pro () =
-  match Capabilities.for_model_id "deepseek-v4-pro" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"deepseek"
+      ~model_id:"deepseek-v4-pro"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
@@ -677,7 +697,12 @@ let test_lookup_minimax_m3_official_chat_dialect () =
 ;;
 
 let test_lookup_grok () =
-  match Capabilities.for_model_id "grok-4.3" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"xai"
+      ~model_id:"grok-4.3"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check bool "structured" true c.supports_structured_output;
@@ -804,7 +829,7 @@ let test_ollama_cloud_current_catalog_resolves () =
     (fun (model_id, context, vision) ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -840,7 +865,7 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
     (fun model_id ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -885,7 +910,7 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
     (fun model_id ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -907,7 +932,7 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
 let test_ollama_cloud_kimi_preserves_historical_reasoning () =
   match
     Capabilities.for_provider_model_id
-      ~allow_bare_fallback:true
+      ~allow_bare_fallback:false
       ~provider_label:"ollama_cloud"
       ~model_id:"kimi-k2.7-code"
   with
@@ -938,7 +963,7 @@ let test_ollama_cloud_structured_output_is_disabled_by_provider_contract () =
     (fun (model_id, structured_output) ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -973,7 +998,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_glm =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"glm-5.1"
     with
@@ -994,7 +1019,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_glm52 =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"glm-5.2"
     with
@@ -1017,7 +1042,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_kimi =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"kimi-k2.7-code"
     with
@@ -1092,7 +1117,10 @@ let frontier_capabilities route model_id =
   match route with
   | Direct_model -> Capabilities.for_model_id model_id
   | Provider_qualified provider_label ->
-    Capabilities.for_provider_model_id ~allow_bare_fallback:true ~provider_label ~model_id
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label
+      ~model_id
   | Native_provider _ -> Capabilities.for_model_id model_id
 ;;
 
@@ -1256,21 +1284,21 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
      only need stream separation here. *)
   let cases =
     [ ( "Xiaomi MiMo V2.5"
-      , Direct_model
+      , Provider_qualified "mimo"
       , "mimo-v2.5-pro"
       , Reasoning_only
       , No_structured_output
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Pro"
-      , Direct_model
+      , Provider_qualified "deepseek"
       , "deepseek-v4-pro"
       , Extended_thinking
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Flash"
-      , Direct_model
+      , Provider_qualified "deepseek"
       , "deepseek-v4-flash"
       , Extended_thinking
       , Response_format_json_schema
@@ -1660,36 +1688,111 @@ let test_apply_manifest_entry_all_none_uses_base () =
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
-let test_manifest_wrong_type_feature_fields_warn_and_ignore () =
-  let warnings = ref [] in
+let check_manifest_rejects_typed_field ~field ~value ~expected_type =
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List [ `Assoc [ "id_prefix", `String "typed-manifest-field"; field, value ] ] )
+      ]
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains (field ^ " mentions field") msg field;
+    check_contains (field ^ " mentions expected type") msg expected_type
+  | Ok _ -> Alcotest.failf "wrong-type manifest field %s should reject" field
+;;
+
+let test_manifest_rejects_wrong_type_bool () =
+  check_manifest_rejects_typed_field
+    ~field:"supports_tools"
+    ~value:(`String "yes")
+    ~expected_type:"expected bool"
+;;
+
+let test_manifest_rejects_wrong_type_int () =
+  check_manifest_rejects_typed_field
+    ~field:"max_context_tokens"
+    ~value:(`String "131072")
+    ~expected_type:"expected int"
+;;
+
+let test_manifest_rejects_wrong_type_string_list () =
+  List.iter
+    (fun (label, value) ->
+       let json =
+         `Assoc
+           [ "schema_version", `Int 1
+           ; ( "models"
+             , `List
+                 [ `Assoc
+                     [ "id_prefix", `String "typed-string-list"
+                     ; "accepted_reasoning_efforts", value
+                     ]
+                 ] )
+           ]
+       in
+       match Capability_manifest.of_json json with
+       | Error msg ->
+         check_contains (label ^ " mentions field") msg "accepted_reasoning_efforts";
+         check_contains (label ^ " mentions expected type") msg "expected string array"
+       | Ok _ -> Alcotest.failf "%s string-list value should reject" label)
+    [ "scalar", `String "low"; "non-string item", `List [ `String "low"; `Bool true ] ]
+;;
+
+let test_manifest_rejects_empty_id_prefix () =
+  let json =
+    Yojson.Safe.from_string {|{"schema_version":1,"models":[{"id_prefix":""}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions id_prefix" msg "id_prefix";
+    check_contains "mentions empty" msg "must not be empty"
+  | Ok _ -> Alcotest.fail "empty manifest id_prefix should reject"
+;;
+
+let test_manifest_rejects_padded_id_prefix () =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"typed","max_context_tokens":"131072","supports_tools":"yes"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":" padded-model "}]}|}
   in
-  let manifest =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () -> Capability_manifest.of_json json)
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions id_prefix" msg "id_prefix";
+    check_contains "mentions exact value" msg "leading or trailing whitespace"
+  | Ok _ -> Alcotest.fail "padded manifest id_prefix should reject"
+;;
+
+let test_manifest_rejects_duplicate_root_field () =
+  let json =
+    `Assoc [ "schema_version", `Int 1; "models", `List []; "schema_version", `Int 1 ]
   in
-  let entry =
-    match manifest with
-    | Ok [ entry ] -> entry
-    | Ok _ -> Alcotest.fail "expected one manifest entry"
-    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "identifies duplicate" msg "duplicate field";
+    check_contains "names duplicate" msg "schema_version"
+  | Ok _ -> Alcotest.fail "duplicate manifest root field should reject"
+;;
+
+let test_manifest_rejects_duplicate_entry_field () =
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List
+            [ `Assoc
+                [ "id_prefix", `String "duplicate-entry"
+                ; "supports_tools", `Bool true
+                ; "supports_tools", `Bool false
+                ]
+            ] )
+      ]
   in
-  check (option int) "wrong-type int ignored" None entry.max_context_tokens;
-  check (option bool) "wrong-type bool ignored" None entry.supports_tools;
-  let has_warning field expected =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "capability_manifest"
-         && string_contains_sub msg (Printf.sprintf "field %S" field)
-         && string_contains_sub msg (Printf.sprintf "expected %s" expected))
-      !warnings
-  in
-  check bool "warned for max_context_tokens" true (has_warning "max_context_tokens" "int");
-  check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "identifies duplicate" msg "duplicate field";
+    check_contains "names duplicate" msg "supports_tools"
+  | Ok _ -> Alcotest.fail "duplicate manifest entry field should reject"
 ;;
 
 let test_manifest_rejects_wrong_type_base () =
@@ -1956,8 +2059,8 @@ let test_manifest_rejects_unknown_accepted_reasoning_effort () =
 ;;
 
 let test_manifest_intlit_in_range_accepted () =
-  (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
-     directly to exercise the Intlit branch deterministically. *)
+  (* Exercise the exact upper native-int boundary through Yojson's [Intlit]
+     constructor rather than relying on parser/platform representation. *)
   let json =
     `Assoc
       [ "schema_version", `Int 1
@@ -1965,21 +2068,20 @@ let test_manifest_intlit_in_range_accepted () =
         , `List
             [ `Assoc
                 [ "id_prefix", `String "intlit-ok"
-                ; "max_context_tokens", `Intlit "131072"
+                ; "max_context_tokens", `Intlit (string_of_int max_int)
                 ]
             ] )
       ]
   in
   match Capability_manifest.of_json json with
   | Ok [ entry ] ->
-    check (option int) "intlit accepted" (Some 131_072) entry.max_context_tokens
+    check (option int) "max_int intlit accepted" (Some max_int) entry.max_context_tokens
   | Ok _ -> Alcotest.fail "expected one manifest entry"
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
-let test_manifest_intlit_out_of_range_warns () =
-  let warnings = ref [] in
-  let huge = "99999999999999999999999999" in
+let test_manifest_intlit_out_of_range_rejects () =
+  let first_out_of_range = Int64.add (Int64.of_int max_int) 1L |> Int64.to_string in
   let json =
     `Assoc
       [ "schema_version", `Int 1
@@ -1987,33 +2089,17 @@ let test_manifest_intlit_out_of_range_warns () =
         , `List
             [ `Assoc
                 [ "id_prefix", `String "intlit-overflow"
-                ; "max_context_tokens", `Intlit huge
+                ; "max_context_tokens", `Intlit first_out_of_range
                 ]
             ] )
       ]
   in
-  let manifest =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () -> Capability_manifest.of_json json)
-  in
-  let entry =
-    match manifest with
-    | Ok [ entry ] -> entry
-    | Ok _ -> Alcotest.fail "expected one manifest entry"
-    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
-  in
-  check (option int) "out-of-range intlit ignored" None entry.max_context_tokens;
-  let has_warning =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "capability_manifest"
-         && string_contains_sub msg "max_context_tokens"
-         && string_contains_sub msg "out of native int range")
-      !warnings
-  in
-  check bool "warned about overflow" true has_warning
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "max_context_tokens";
+    check_contains "mentions exact literal" msg first_out_of_range;
+    check_contains "mentions overflow" msg "out of native int range"
+  | Ok _ -> Alcotest.fail "out-of-range manifest int literal should reject"
 ;;
 
 let test_manifest_load_file_missing_returns_error () =
@@ -2108,6 +2194,80 @@ base = 17
          check_contains "mentions base" msg "base";
          check_contains "mentions expected type" msg "expected string"
        | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
+;;
+
+let check_model_catalog_rejects_typed_field ~field ~value ~expected_type =
+  with_temp_model_catalog
+    (Printf.sprintf
+       {|
+[[models]]
+id_prefix = "typed-field"
+%s = %s
+|}
+       field
+       value)
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains (field ^ " mentions field") msg field;
+         check_contains (field ^ " mentions expected type") msg expected_type
+       | Ok _ -> Alcotest.failf "wrong-type model catalog %s should reject" field)
+;;
+
+let test_model_catalog_rejects_wrong_type_bool () =
+  check_model_catalog_rejects_typed_field
+    ~field:"supports_tools"
+    ~value:{|"true"|}
+    ~expected_type:"expected bool"
+;;
+
+let test_model_catalog_rejects_wrong_type_int () =
+  check_model_catalog_rejects_typed_field
+    ~field:"max_context_tokens"
+    ~value:{|"131072"|}
+    ~expected_type:"expected integer"
+;;
+
+let test_model_catalog_rejects_wrong_type_float () =
+  check_model_catalog_rejects_typed_field
+    ~field:"input_per_million"
+    ~value:{|"1.0"|}
+    ~expected_type:"expected float"
+;;
+
+let test_model_catalog_rejects_wrong_type_string_list () =
+  check_model_catalog_rejects_typed_field
+    ~field:"accepted_reasoning_efforts"
+    ~value:{|"low"|}
+    ~expected_type:"expected string array"
+;;
+
+let test_model_catalog_rejects_empty_id_prefix () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = ""
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions id_prefix" msg "id_prefix";
+         check_contains "mentions empty" msg "must not be empty"
+       | Ok _ -> Alcotest.fail "empty model catalog id_prefix should reject")
+;;
+
+let test_model_catalog_rejects_padded_id_prefix () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = " padded-model "
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions id_prefix" msg "id_prefix";
+         check_contains "mentions exact value" msg "leading or trailing whitespace"
+       | Ok _ -> Alcotest.fail "padded model catalog id_prefix should reject")
 ;;
 
 let test_model_catalog_rejects_empty_provider_name () =
@@ -2345,9 +2505,17 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
     ; "kimi", Some Capabilities.kimi_capabilities
     ; "mimo", Some Capabilities.mimo_capabilities
     ; "dashscope", Some Capabilities.dashscope_capabilities
-    ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
+    ; ( "mimo-v2.5-pro"
+      , Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"mimo"
+          ~model_id:"mimo-v2.5-pro" )
     ; "dashscope-3.5", Capabilities.for_model_id "dashscope-3.5-35b-a3b"
-    ; "deepseek-v4-flash", Capabilities.for_model_id "deepseek-v4-flash"
+    ; ( "deepseek-v4-flash"
+      , Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"deepseek"
+          ~model_id:"deepseek-v4-flash" )
     ; "nvidia-ultra", Capabilities.for_model_id "nvidia-ultra-253b"
     ]
   in
@@ -2369,49 +2537,49 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
 
 (* ── Prefix ordering invariant (M01) ────────────────────── *)
 
-(* [for_model_id] resolves capabilities via a sequential if-else chain of
-   [starts_with] prefix checks.  Whenever prefix A is a string prefix of
-   prefix B (every model-id starting with B also starts with A), the branch
-   for B *must* be evaluated before the branch for A; otherwise any model-id
-   that starts with B is permanently captured by A, silently returning wrong
-   capabilities (e.g. tool_choice sent to a model that does not support it
-   → 400 error, anti-pattern M01).
+(* Catalog lookup selects the longest exact declared prefix within the selected
+   scope. Whenever prefix A is a string prefix of prefix B (every model-id
+   starting with B also starts with A), B must win; otherwise A captures the
+   request and silently returns the wrong capabilities (e.g. tool_choice sent
+   to a model that does not support it → 400 error, anti-pattern M01).
 
    Each case below uses a concrete model-id that begins with the *longer*
    (more-specific) prefix — and therefore also with the *shorter* one — and
    asserts the capability fingerprint that is unique to the longer branch.
    If the two branches were swapped the assertion would fail.
 
-   When adding a new prefix to [for_model_id], check whether it creates a
-   new shadow pair with an existing prefix and add a corresponding entry
-   here.  The full ordered prefix list lives in
-   [lib/llm_provider/capabilities.ml]. *)
+   Provider-scoped rows use [Provider_qualified] so the test never relies on a
+   provider name encoded into [model_id]. *)
 let test_prefix_ordering_invariant () =
-  (* Each entry: (model_id, label, discriminating_predicate).
+  (* Each entry: (route, model_id, label, discriminating_predicate).
      The predicate is true only when the more-specific (longer-prefix)
      branch wins. *)
   let cases =
     [ (* glm-5v-turbo must precede glm-5 (inside broad branch).
          Discriminator: supports_image_input (5v-turbo) vs not (broad glm-5). *)
-      ( "glm-5v-turbo-x"
+      ( Direct_model
+      , "glm-5v-turbo-x"
       , "glm-5v-turbo must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input && c.max_output_tokens = Some 128_000 )
     ; (* glm-5-code must precede glm-5 (inside broad branch).
          Discriminator: 128K context (code branch) vs 200K (broad glm-5). *)
-      ( "glm-5-code-x"
+      ( Direct_model
+      , "glm-5-code-x"
       , "glm-5-code must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.max_context_tokens = Some 128_000 && c.supports_extended_thinking )
     ; (* glm-4.6v must precede glm-4.6 (inside broad branch) *)
-      ( "glm-4.6v-x"
+      ( Direct_model
+      , "glm-4.6v-x"
       , "glm-4.6v must precede broad glm-4.6"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 32_768 )
     ; (* glm-4.5v must precede glm-4.5 (inside broad branch) *)
-      ( "glm-4.5v-x"
+      ( Direct_model
+      , "glm-4.5v-x"
       , "glm-4.5v must precede broad glm-4.5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
@@ -2419,21 +2587,23 @@ let test_prefix_ordering_invariant () =
           && c.max_output_tokens = Some 16_384 )
     ; (* broad glm-4.5 branch must precede glm-4.
          Discriminator: supports_reasoning + 96K output (broad) vs neither (glm-4). *)
-      ( "glm-4.5-latest"
+      ( Direct_model
+      , "glm-4.5-latest"
       , "broad glm-4.5 branch must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_reasoning && c.max_output_tokens = Some 96_000 )
     ; (* glm-4v must precede glm-4.
          Discriminator: supports_image_input (glm-4v) vs not (glm-4). *)
-      ( "glm-4v-x"
+      ( Provider_qualified "glm"
+      , "glm-4v-x"
       , "glm-4v must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input && c.supports_multimodal_inputs )
     ]
   in
   List.iter
-    (fun (model_id, label, ok) ->
-       match Capabilities.for_model_id model_id with
+    (fun (route, model_id, label, ok) ->
+       match frontier_capabilities route model_id with
        | None ->
          fail
            (Printf.sprintf
@@ -2579,10 +2749,25 @@ let () =
             "all-None entry matches base"
             `Quick
             test_apply_manifest_entry_all_none_uses_base
+        ; test_case "wrong-type bool rejects" `Quick test_manifest_rejects_wrong_type_bool
+        ; test_case "wrong-type int rejects" `Quick test_manifest_rejects_wrong_type_int
         ; test_case
-            "wrong-type feature fields warn and ignore"
+            "wrong-type string list rejects"
             `Quick
-            test_manifest_wrong_type_feature_fields_warn_and_ignore
+            test_manifest_rejects_wrong_type_string_list
+        ; test_case "empty id_prefix rejects" `Quick test_manifest_rejects_empty_id_prefix
+        ; test_case
+            "padded id_prefix rejects"
+            `Quick
+            test_manifest_rejects_padded_id_prefix
+        ; test_case
+            "duplicate root field rejects"
+            `Quick
+            test_manifest_rejects_duplicate_root_field
+        ; test_case
+            "duplicate entry field rejects"
+            `Quick
+            test_manifest_rejects_duplicate_entry_field
         ; test_case "wrong-type base rejects" `Quick test_manifest_rejects_wrong_type_base
         ; test_case
             "wrong-type policy string rejects"
@@ -2661,9 +2846,9 @@ let () =
             `Quick
             test_manifest_intlit_in_range_accepted
         ; test_case
-            "intlit out of range warns"
+            "intlit out of range rejects"
             `Quick
-            test_manifest_intlit_out_of_range_warns
+            test_manifest_intlit_out_of_range_rejects
         ; test_case
             "missing manifest file errors"
             `Quick
@@ -2688,6 +2873,30 @@ let () =
             "model catalog rejects wrong-type base"
             `Quick
             test_model_catalog_rejects_wrong_type_base_label
+        ; test_case
+            "model catalog rejects wrong-type bool"
+            `Quick
+            test_model_catalog_rejects_wrong_type_bool
+        ; test_case
+            "model catalog rejects wrong-type int"
+            `Quick
+            test_model_catalog_rejects_wrong_type_int
+        ; test_case
+            "model catalog rejects wrong-type float"
+            `Quick
+            test_model_catalog_rejects_wrong_type_float
+        ; test_case
+            "model catalog rejects wrong-type string list"
+            `Quick
+            test_model_catalog_rejects_wrong_type_string_list
+        ; test_case
+            "model catalog rejects empty id_prefix"
+            `Quick
+            test_model_catalog_rejects_empty_id_prefix
+        ; test_case
+            "model catalog rejects padded id_prefix"
+            `Quick
+            test_model_catalog_rejects_padded_id_prefix
         ; test_case
             "model catalog rejects empty provider_name"
             `Quick

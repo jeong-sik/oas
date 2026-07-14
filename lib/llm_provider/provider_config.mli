@@ -44,6 +44,10 @@ val output_schema_of_response_format
 
 type t =
   { kind : provider_kind
+  ; provider_id : string option
+    (** Exact provider/catalog identity carried independently from [model_id]
+        and endpoint location. [None] means only the generic wire [kind] is
+        known; OAS never reconstructs a provider id from URL or model syntax. *)
   ; model_id : string
   ; base_url : string
   ; api_key : Secret.t
@@ -197,6 +201,7 @@ val make
   :  kind:provider_kind
   -> model_id:string
   -> base_url:string
+  -> ?provider_id:string
   -> ?api_key:string
   -> ?headers:(string * string) list
   -> ?request_path:string
@@ -333,21 +338,13 @@ val glm_should_replay_reasoning_fields
 
 val glm_should_replay_reasoning : t -> bool
 
-(** Capability catalog provider namespace for [config].
-
-    This is usually {!string_of_provider_kind}, except vendor-canonical hosts
-    (RFC-OAS-034 §2 rule 2): official Ollama Cloud endpoints are scoped as
-    ["ollama_cloud"], and DeepSeek's canonical host [api.deepseek.com] as
-    ["deepseek"], even when they use the OpenAI-compatible wire kind. Both are
-    matched by exact [Uri.host] equality (no prefix, no look-alike). *)
+(** Capability catalog provider identity for [config]. Uses the explicitly
+    carried [provider_id], otherwise the typed wire kind. Endpoint URLs and
+    model-id syntax never participate. *)
 val capability_provider_label : t -> string
 
-(** Resolve model capabilities using provider-qualified catalog entries first.
-    Raw OpenAI-compatible endpoints may use bare catalog entries only for
-    generic model facts; entries that change thinking/reasoning/replay wire
-    semantics require an explicit endpoint capability declaration or an
-    explicitly provider-qualified model id whose prefix matches the catalog
-    entry's [provider_name]. *)
+(** Resolve model capabilities using the explicit provider/model pair first,
+    then a provider-independent catalog row. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
 (** True when [config] targets Z.AI GLM semantics, either through the native

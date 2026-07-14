@@ -4,6 +4,7 @@ type entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_kind.t
+  ; identity_kinds : Provider_kind.t list
   ; base_url : string
   ; base_url_env : string option
   ; request_path : string
@@ -14,6 +15,11 @@ type entry =
   }
 
 val parse_entry : Otoml.t -> (entry, string) result
+
+(** Resolve the exact provider base URL. The optional environment lookup is
+    consulted only when the row explicitly declares [base_url_env]; an absent
+    or empty override leaves the row's [base_url] unchanged. *)
+val resolved_base_url : ?getenv:(string -> string option) -> entry -> string
 
 val provider_label_for_base_url
   :  ?getenv:(string -> string option)

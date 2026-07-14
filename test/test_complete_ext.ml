@@ -396,7 +396,7 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
   let seen_events = ref [] in
   let seen_telemetry = ref [] in
   let seen_wire = ref [] in
-  let wire_token = "ghp_" ^ String.make 36 '8' in
+  let wire_token = "Authorization: Bearer opaque-token" in
   let config =
     make_config ~model_id:"openai-stream" ~headers:[ "traceparent", "old-stream" ] ()
   in
@@ -478,7 +478,11 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
        observation.capture_id;
      check string "wire provider" "custom" observation.provider;
      check string "wire model" "openai-stream" observation.model;
-     check string "wire redacted" "[REDACTED]" observation.redacted_chunk
+     check
+       string
+       "wire redacted"
+       "Authorization: Bearer [REDACTED]"
+       observation.redacted_chunk
    | _ -> fail "expected one redacted wire observation");
   check (list int) "stream tool calls" [ 1 ] (List.rev probe.tool_calls);
   check
@@ -494,7 +498,7 @@ let test_custom_stream_wire_rejection_is_typed_nonfatal () =
   Eio.Switch.run
   @@ fun sw ->
   let response = make_response ~content:[ Types.Text "preserved" ] () in
-  let token = "ghp_" ^ String.make 36 '4' in
+  let token = "Authorization: Bearer opaque-token" in
   let observations = ref [] in
   let telemetry = ref [] in
   let transport =
@@ -531,7 +535,11 @@ let test_custom_stream_wire_rejection_is_typed_nonfatal () =
      failf "wire rejection changed provider result: %s" (string_of_http_error err));
   (match !observations with
    | [ observation ] ->
-     check string "redacted custom chunk" "[REDACTED]" observation.redacted_chunk
+     check
+       string
+       "redacted custom chunk"
+       "Authorization: Bearer [REDACTED]"
+       observation.redacted_chunk
    | _ -> fail "expected one custom transport observation");
   match !telemetry with
   | [ Telemetry_event.Wire_observer_failure

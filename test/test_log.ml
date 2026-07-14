@@ -97,6 +97,18 @@ let test_field_to_json () =
     cases
 ;;
 
+let test_explicit_env_secret_field_is_redacted () =
+  let getenv name =
+    if String.equal name "OAS_TEST_EXPLICIT_SECRET" then Some "opaque-env-value" else None
+  in
+  match Llm_provider.Secret.of_env ~getenv "OAS_TEST_EXPLICIT_SECRET" with
+  | None -> Alcotest.fail "expected the injected environment value"
+  | Some secret ->
+    let key, value = Log.field_to_json (Log.Secret ("credential", secret)) in
+    Alcotest.(check string) "key" "credential" key;
+    Alcotest.(check string) "typed secret" {|"<redacted>"|} (Yojson.Safe.to_string value)
+;;
+
 let test_record_to_json () =
   let r : Log.record =
     { ts = 1700000000.0
@@ -385,7 +397,13 @@ let () =
             `Quick
             test_dropped_without_sink_ignores_below_level
         ] )
-    ; "field", [ Alcotest.test_case "to_json" `Quick test_field_to_json ]
+    ; ( "field"
+      , [ Alcotest.test_case "to_json" `Quick test_field_to_json
+        ; Alcotest.test_case
+            "explicit env secret is redacted"
+            `Quick
+            test_explicit_env_secret_field_is_redacted
+        ] )
     ; ( "record"
       , [ Alcotest.test_case "to_json" `Quick test_record_to_json
         ; Alcotest.test_case "empty fields" `Quick test_empty_fields

@@ -65,9 +65,24 @@ let base_provider_profiles : (string * Capabilities.capabilities) list =
 let catalog_model_profile_resolvers
   : (string * (unit -> Capabilities.capabilities option)) list
   =
-  [ ("model:mimo-v2.5-pro", fun () -> Capabilities.for_model_id "mimo-v2.5-pro")
-  ; ("model:deepseek-v4-flash", fun () -> Capabilities.for_model_id "deepseek-v4-flash")
-  ; ("model:deepseek-v4-pro", fun () -> Capabilities.for_model_id "deepseek-v4-pro")
+  [ ( "provider:mimo/model:mimo-v2.5-pro"
+    , fun () ->
+        Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"mimo"
+          ~model_id:"mimo-v2.5-pro" )
+  ; ( "provider:deepseek/model:deepseek-v4-flash"
+    , fun () ->
+        Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"deepseek"
+          ~model_id:"deepseek-v4-flash" )
+  ; ( "provider:deepseek/model:deepseek-v4-pro"
+    , fun () ->
+        Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"deepseek"
+          ~model_id:"deepseek-v4-pro" )
   ; ("model:minimax-m3", fun () -> Capabilities.for_model_id "minimax-m3")
   ; ("model:kimi-k2.7-code", fun () -> Capabilities.for_model_id "kimi-k2.7-code")
   ; ("model:glm-5.2", fun () -> Capabilities.for_model_id "glm-5.2")
@@ -75,12 +90,12 @@ let catalog_model_profile_resolvers
     , fun () -> Capabilities.for_model_id "qwen/qwen3.6-35b-a3b" )
   ; ( "model:dashscope-3.5-35b-a3b"
     , fun () -> Capabilities.for_model_id "dashscope-3.5-35b-a3b" )
-  ; ( "provider:vllm-qwen3-mtp.vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
+  ; ( "provider:vllm-qwen3-mtp/model:qwen36-35b-a3b-mtp"
     , fun () ->
         Capabilities.for_provider_model_id
           ~allow_bare_fallback:false
           ~provider_label:"vllm-qwen3-mtp"
-          ~model_id:"vllm-qwen3-mtp.qwen36-35b-a3b-mtp" )
+          ~model_id:"qwen36-35b-a3b-mtp" )
   ]
 ;;
 
@@ -237,12 +252,12 @@ let test_representative_provider_replay_semantics_are_explicit () =
       , false
       , false
       , "Ollama native thinking is parsed/hidden, not replayed as reasoning_content" )
-    ; ( "model:mimo-v2.5-pro"
+    ; ( "provider:mimo/model:mimo-v2.5-pro"
       , "drop_without_tool_preserve_with_tool"
       , false
       , true
       , "MiMo Deep Thinking requires reasoning_content pass-through on tool turns" )
-    ; ( "model:deepseek-v4-pro"
+    ; ( "provider:deepseek/model:deepseek-v4-pro"
       , "drop_without_tool_preserve_with_tool"
       , false
       , true

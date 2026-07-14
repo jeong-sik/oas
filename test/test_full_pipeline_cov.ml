@@ -530,8 +530,6 @@ let test_structured_extract () =
       { id = provider_id
       ; aliases = []
       ; kind = Llm_provider.Provider_config.OpenAI_compat
-      ; transport = Llm_provider.Provider_catalog.Http
-      ; command = None
       ; base_url = url
       ; request_path = "/v1/chat/completions"
       ; api_key_env = ""
@@ -542,7 +540,12 @@ let test_structured_extract () =
       ; credential_scope = None
       }
     in
-    Llm_provider.Provider_catalog.set_global [ provider_entry ];
+    let provider_catalog =
+      match Llm_provider.Provider_catalog.of_entries [ provider_entry ] with
+      | Ok catalog -> catalog
+      | Error msg -> fail msg
+    in
+    Llm_provider.Provider_catalog.set_global provider_catalog;
     let schema : (string * int) Structured.schema =
       { name = "get_info"
       ; description = "Get info"

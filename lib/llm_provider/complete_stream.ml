@@ -139,18 +139,19 @@ let%test "parse failure raw excerpt is bounded" =
   | _ -> false
 ;;
 
-let%test "parse failure redacts secret tokens in the echoed raw buffer" =
+let%test "parse failure redacts authorization values in the echoed raw buffer" =
   (* Tool arguments can carry credentials; the operator-visible message must
-     scrub them through the [Secret_redactor] SSOT rather than echo the token
-     verbatim. A [ghp_]-prefixed token is redacted to [[REDACTED]] (see
-     [Secret_redactor]'s own tests), so the rendered message must equal the
-     redacted form -- which definitionally no longer contains the token. *)
+     scrub values in explicit credential contexts through the
+     [Secret_redactor] SSOT rather than infer provider-specific token formats. *)
   let reason = "malformed_tool_use_arguments:index:0:bad" in
-  let raw = {|{"auth":"ghp_xxxxxxxxxxxx"}{}|} in
+  let raw = {|{"auth":"Bearer opaque-token"}{}|} in
   match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
   | Http_client.ProviderFailure { message; _ } ->
     message
-    = Printf.sprintf "SSE parse failed: %s raw=%S" reason {|{"auth":"[REDACTED]"}{}|}
+    = Printf.sprintf
+        "SSE parse failed: %s raw=%S"
+        reason
+        {|{"auth":"Bearer [REDACTED]"}{}|}
   | _ -> false
 ;;
 

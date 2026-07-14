@@ -18,12 +18,13 @@ type provider_defaults =
   }
 
 (** A registered provider entry.
-    [max_context] is the default context window size in tokens.
+    [max_context] is the explicitly declared context window size in tokens.
+    [None] means the provider declaration does not state one.
     @since 0.78.0 max_context added *)
 type entry =
   { name : string
   ; defaults : provider_defaults
-  ; max_context : int
+  ; max_context : int option
   ; capabilities : Capabilities.capabilities
   ; is_available : unit -> bool
   }
@@ -59,7 +60,7 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 (** Check whether a command is discoverable from PATH without shelling out. *)
 val command_in_path : ?path:string -> string -> bool
 
-(** Default registry pre-populated from built-in provider declarations.
+(** Default registry populated from the embedded provider catalog.
     Availability is determined by credential values only.
 
     Entries explicitly installed with {!Provider_catalog.set_global} are

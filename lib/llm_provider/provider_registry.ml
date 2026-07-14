@@ -12,7 +12,7 @@ type provider_defaults =
 type entry =
   { name : string
   ; defaults : provider_defaults
-  ; max_context : int
+  ; max_context : int option
   ; capabilities : Capabilities.capabilities
   ; is_available : unit -> bool
   }
@@ -87,30 +87,21 @@ let command_in_path ?path name =
     |> List.exists (fun candidate -> is_runnable_path (Filename.concat dir candidate)))
 ;;
 
-let catalog_command_available (entry : Provider_catalog.entry) =
-  match entry.transport with
-  | Provider_catalog.Http | Provider_catalog.Managed -> true
-;;
-
 let catalog_auth_available (entry : Provider_catalog.entry) =
   match entry.auth with
   | Provider_catalog.Api_key_env env | Provider_catalog.Setup_token_env env ->
     has_api_key env
   | Provider_catalog.No_auth -> true
-  | Provider_catalog.Oauth_cached_login -> true
 ;;
 
-let catalog_entry_available entry =
-  catalog_command_available entry && catalog_auth_available entry
-;;
+let catalog_entry_available = catalog_auth_available
 
 let register_catalog_entry t (entry : Provider_catalog.entry) =
   with_lock t (fun () ->
     let max_context =
-      match entry.max_context, entry.capabilities.Capabilities.max_context_tokens with
-      | Some n, _ when n > 0 -> n
-      | _, Some n when n > 0 -> n
-      | _ -> 128_000
+      match entry.max_context with
+      | Some _ as declared -> declared
+      | None -> entry.capabilities.Capabilities.max_context_tokens
     in
     let defaults : provider_defaults =
       { kind = entry.kind
@@ -136,7 +127,8 @@ let register_catalog_entry t (entry : Provider_catalog.entry) =
 let overlay_provider_catalog t =
   match Provider_catalog.global () with
   | None -> ()
-  | Some entries -> List.iter (register_catalog_entry t) entries
+  | Some catalog ->
+    List.iter (register_catalog_entry t) (Provider_catalog.entries catalog)
 ;;
 
 (** Mutable endpoint list, protected by atomic snapshot swap.
@@ -213,155 +205,11 @@ let discovered_endpoint_max_context (url : string) =
   Discovery.discovered_context_for_url url
 ;;
 
-let llama_defaults =
-  { kind = OpenAI_compat
-  ; base_url = Discovery.default_endpoint
-  ; api_key_env = ""
-  ; request_path = "/v1/chat/completions"
-  }
-;;
-
-let claude_defaults =
-  { kind = Anthropic
-  ; base_url = "https://api.anthropic.com"
-  ; api_key_env = "ANTHROPIC_API_KEY"
-  ; request_path = "/v1/messages"
-  }
-;;
-
-let gemini_defaults =
-  { kind = Gemini
-  ; base_url = "https://generativelanguage.googleapis.com/v1beta"
-  ; api_key_env = "GEMINI_API_KEY"
-  ; request_path = ""
-  }
-;;
-
-let glm_defaults =
-  { kind = Glm
-  ; base_url = Zai_catalog.general_base_url
-  ; api_key_env = "ZAI_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let glm_coding_defaults =
-  { kind = Glm
-  ; base_url = Zai_catalog.coding_base_url
-  ; api_key_env = "ZAI_CODING_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let kimi_defaults =
-  { kind = Kimi
-  ; base_url = "https://api.kimi.com/coding"
-  ; api_key_env = "KIMI_API_KEY"
-  ; request_path = "/v1/messages"
-  }
-;;
-
-let ollama_defaults =
-  { kind = Ollama
-  ; base_url = Discovery.ollama_endpoint
-  ; api_key_env = ""
-  ; request_path = "/api/chat"
-  }
-;;
-
-let ollama_cloud_defaults =
-  { kind = Ollama
-  ; base_url = "https://ollama.com"
-  ; api_key_env = "OLLAMA_CLOUD_API_KEY"
-  ; request_path = "/api/chat"
-  }
-;;
-
-let openrouter_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://openrouter.ai/api/v1"
-  ; api_key_env = "OPENROUTER_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let groq_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.groq.com/openai/v1"
-  ; api_key_env = "GROQ_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let deepseek_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.deepseek.com"
-  ; api_key_env = "DEEPSEEK_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let dashscope_defaults =
-  { kind = DashScope
-  ; base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-  ; api_key_env = "DASHSCOPE_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let siliconflow_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.siliconflow.cn/v1"
-  ; api_key_env = "SILICONFLOW_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let xai_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.x.ai/v1"
-  ; api_key_env = "XAI_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let mistral_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.mistral.ai/v1"
-  ; api_key_env = "MISTRAL_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
-let cohere_defaults =
-  { kind = OpenAI_compat
-  ; base_url = "https://api.cohere.com/compatibility/v1"
-  ; api_key_env = "COHERE_API_KEY"
-  ; request_path = "/chat/completions"
-  }
-;;
-
 let default () =
   (* The default registry uses Stdlib.Mutex because its guarded sections are
      short Hashtbl operations and the returned value still exposes the mutable
      registry API. *)
   let t = create_sync () in
-  let max_context_from_capabilities ~default caps =
-    match caps.Capabilities.max_context_tokens with
-    | Some ctx when ctx > default -> ctx
-    | _ -> default
-  in
-  let reg name defaults ~max_context caps =
-    let max_context = max_context_from_capabilities ~default:max_context caps in
-    register
-      t
-      { name
-      ; defaults
-      ; max_context
-      ; capabilities = caps
-      ; is_available = (fun () -> has_api_key defaults.api_key_env)
-      }
-  in
   let capabilities_for_registered_label label =
     match Capabilities.capabilities_for_provider_label label with
     | Some caps -> caps
@@ -380,93 +228,25 @@ let default () =
     let caps = capabilities_for_registered_label capability_label in
     let defaults : provider_defaults =
       { kind = entry.kind
-      ; base_url = entry.base_url
+      ; base_url = Model_provider_catalog.resolved_base_url entry
       ; api_key_env = entry.api_key_env
       ; request_path = entry.request_path
       }
     in
-    let max_context = max_context_from_capabilities ~default:128_000 caps in
     register
       t
       { name = entry.id
       ; defaults
-      ; max_context
+      ; max_context = caps.Capabilities.max_context_tokens
       ; capabilities = caps
       ; is_available = (fun () -> has_api_key defaults.api_key_env)
       }
   in
-  reg
-    "nous"
-    llama_defaults
-    ~max_context:128_000
-    Capabilities.openai_compat_chat_extended_capabilities;
-  reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
-  reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
-  reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
-  reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
-  register
-    t
-    { name = "kimi"
-    ; defaults = kimi_defaults
-    ; max_context =
-        max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
-    ; capabilities = Capabilities.kimi_capabilities
-    ; is_available = (fun () -> has_api_key kimi_defaults.api_key_env)
-    };
-  reg
-    "openrouter"
-    openrouter_defaults
-    ~max_context:128_000
-    Capabilities.openai_compat_chat_extended_capabilities;
-  reg
-    "groq"
-    groq_defaults
-    ~max_context:131_072
-    Capabilities.openai_compat_chat_capabilities;
-  (* Deepseek v4 series (flash / pro). 1M context, reasoning, tools. *)
-  reg
-    "deepseek"
-    deepseek_defaults
-    ~max_context:1_000_000
-    Capabilities.openai_compat_chat_capabilities;
-  reg
-    "dashscope"
-    dashscope_defaults
-    ~max_context:131_072
-    Capabilities.dashscope_capabilities;
-  reg
-    "siliconflow"
-    siliconflow_defaults
-    ~max_context:128_000
-    Capabilities.openai_compat_chat_capabilities;
-  reg "xai" xai_defaults ~max_context:1_000_000 (capabilities_for_registered_label "xai");
-  reg
-    "mistral"
-    mistral_defaults
-    ~max_context:260_000
-    (capabilities_for_registered_label "mistral");
-  reg
-    "cohere"
-    cohere_defaults
-    ~max_context:256_000
-    (capabilities_for_registered_label "cohere");
   (match Model_catalog.global () with
-   | None -> ()
+   | None ->
+     invalid_arg "Provider_registry.default: embedded provider catalog is unavailable"
    | Some catalog ->
      List.iter register_model_catalog_provider (Model_catalog.provider_entries catalog));
-  register
-    t
-    { name = "ollama"
-    ; defaults = ollama_defaults
-    ; max_context = 262_144
-    ; capabilities = Capabilities.ollama_capabilities
-    ; is_available = (fun () -> true)
-    };
-  reg
-    "ollama_cloud"
-    ollama_cloud_defaults
-    ~max_context:262_144
-    Capabilities.ollama_cloud_capabilities;
   overlay_provider_catalog t;
   t
 ;;

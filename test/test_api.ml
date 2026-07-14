@@ -71,7 +71,6 @@ let declared_openai_compat_provider_catalog =
     {
       "id": "api-deepseek-v4",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://api.deepseek.com",
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
@@ -97,7 +96,6 @@ let declared_openai_compat_provider_catalog =
     {
       "id": "api-minimax-m3",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://api.minimaxi.com/v1",
       "request_path": "/chat/completions",
       "auth": {"type": "none"},
@@ -124,7 +122,6 @@ let declared_openai_compat_provider_catalog =
     {
       "id": "api-qwen36",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://declared-qwen.example/v1",
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
@@ -1131,15 +1128,11 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
   | Ok _ -> fail "expected Result.Error for unsupported GLM named tool_choice"
 ;;
 
-(* Endpoint-declaration fail-closed guard: a bare "glm-…" model id without a
-   declared Z.AI [?provider_config] endpoint is not a GLM request. It resolves
-   to the generic OpenAI-compatible contract, so the named tool_choice that a
-   declared GLM endpoint rejects
-   ([test_build_openai_body_rejects_glm_forced_tool_choice]) validates and
-   serializes as the standard function form here. Before the typed-dialect
-   reshape, [is_glm_request] classified this request as GLM from the model-id
-   prefix alone and rejected it. *)
-let test_build_openai_body_bare_glm_named_tool_choice_is_generic () =
+(* A provider-independent model-catalog row is still an explicit declaration.
+   The request therefore applies the exact [glm-5] tool-choice contract even
+   when no provider config is supplied; no endpoint or provider-name synthesis
+   is needed to discover it. *)
+let test_build_openai_body_bare_glm_uses_catalog_tool_choice_contract () =
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
@@ -1163,16 +1156,10 @@ let test_build_openai_body_bare_glm_named_tool_choice_is_generic () =
     Api.build_openai_body_result ~config:state ~messages:[] ~tools:[ tool_json ] ()
   with
   | Error reason ->
-    fail ("expected generic OpenAI-compat acceptance for bare glm model id: " ^ reason)
-  | Ok body ->
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    check
-      string
-      "named function form preserved"
-      "calculator"
-      (json |> member "tool_choice" |> member "function" |> member "name" |> to_string);
-    check bool "tools preserved" true (List.mem_assoc "tools" (to_assoc json))
+    check bool "mentions tool_choice" true (contains_substring ~sub:"tool_choice" reason);
+    check bool "mentions tool name" true (contains_substring ~sub:"calculator" reason)
+  | Ok _ ->
+    fail "expected the declared glm-5 catalog contract to reject named tool_choice"
 ;;
 
 (* Complement of [test_build_openai_body_glm_preserves_reasoning_content]: the
@@ -1410,7 +1397,7 @@ let test_build_openai_body_glm_clears_thinking_when_not_preserving () =
     (json |> member "thinking" |> member "clear_thinking" |> to_bool)
 ;;
 
-let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
+let test_build_openai_body_openai_compat_glm_uses_openai_wire_dialect () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -1428,7 +1415,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
         { (Types.default_config ~model:"test-model") with
           model = provider_config.model_id
         ; enable_thinking = Some true
-        ; tool_choice = Some (Types.Tool "calculator")
+        ; tool_choice = Some Types.Auto
         }
     ; messages = []
     ; turn_count = 0
@@ -1459,9 +1446,11 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
     "chat_template_kwargs omitted for non-zai glm"
     false
     (List.mem_assoc "chat_template_kwargs" assoc);
-  match json |> member "tool_choice" with
-  | `Assoc _ -> ()
-  | _ -> fail "non-zai glm tool_choice should preserve named function form"
+  check
+    string
+    "auto tool_choice preserved"
+    "auto"
+    (json |> member "tool_choice" |> to_string)
 ;;
 
 let test_openai_api_uses_backend_thinking_builder_ssot () =
@@ -2528,9 +2517,9 @@ let () =
             `Quick
             test_build_openai_body_rejects_glm_forced_tool_choice
         ; test_case
-            "bare glm named tool choice is generic"
+            "bare glm uses catalog tool choice contract"
             `Quick
-            test_build_openai_body_bare_glm_named_tool_choice_is_generic
+            test_build_openai_body_bare_glm_uses_catalog_tool_choice_contract
         ; test_case
             "bare glm gets no glm dialect"
             `Quick
@@ -2552,9 +2541,9 @@ let () =
             `Quick
             test_build_openai_body_glm_clears_thinking_when_not_preserving
         ; test_case
-            "non-zai glm avoids glm path"
+            "openai compat glm uses openai wire dialect"
             `Quick
-            test_build_openai_body_does_not_treat_non_zai_glm_as_glm
+            test_build_openai_body_openai_compat_glm_uses_openai_wire_dialect
         ; test_case
             "api thinking builder ssot"
             `Quick

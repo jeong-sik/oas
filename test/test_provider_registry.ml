@@ -32,7 +32,7 @@ let test_register_and_find () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = Capabilities.default_capabilities
     ; is_available = (fun () -> true)
     }
@@ -54,7 +54,7 @@ let test_overwrite () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = Capabilities.default_capabilities
     ; is_available = (fun () -> true)
     }
@@ -77,7 +77,7 @@ let test_unregister () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = Capabilities.default_capabilities
     ; is_available = (fun () -> true)
     }
@@ -122,7 +122,7 @@ let test_available_filter () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = Capabilities.default_capabilities
     ; is_available = (fun () -> avail)
     }
@@ -185,7 +185,7 @@ let test_find_capable_tools () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = caps
     ; is_available = (fun () -> true)
     }
@@ -209,7 +209,7 @@ let test_find_capable_composite () =
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
         }
-    ; max_context = 128_000
+    ; max_context = Some 128_000
     ; capabilities = caps
     ; is_available = (fun () -> true)
     }
@@ -347,26 +347,84 @@ let test_default_deepseek_api_key_env () =
 ;;
 
 let test_default_mimo_entry () =
+  with_env "MIMO_BASE_URL" "" (fun () ->
+    let reg = Provider_registry.default () in
+    match Provider_registry.find reg "mimo" with
+    | Some e ->
+      check
+        bool
+        "kind is OpenAI_compat"
+        true
+        (e.defaults.kind = Provider_config.OpenAI_compat);
+      check
+        string
+        "base_url"
+        "https://token-plan-sgp.xiaomimimo.com/v1"
+        e.defaults.base_url;
+      check string "api_key_env" "MIMO_API_KEY" e.defaults.api_key_env;
+      check string "request_path" "/chat/completions" e.defaults.request_path;
+      check (option int) "max_context" (Some 1_000_000) e.max_context;
+      check bool "has reasoning" true e.capabilities.supports_reasoning;
+      check bool "has JSON mode" true e.capabilities.supports_response_format_json;
+      check
+        bool
+        "no native structured output"
+        false
+        e.capabilities.supports_structured_output
+    | None -> fail "mimo should exist")
+;;
+
+let test_embedded_no_auth_rows_keep_explicit_empty_credentials () =
   let reg = Provider_registry.default () in
-  match Provider_registry.find reg "mimo" with
-  | Some e ->
-    check
-      bool
-      "kind is OpenAI_compat"
-      true
-      (e.defaults.kind = Provider_config.OpenAI_compat);
-    check string "base_url" "https://token-plan-sgp.xiaomimimo.com/v1" e.defaults.base_url;
-    check string "api_key_env" "MIMO_API_KEY" e.defaults.api_key_env;
-    check string "request_path" "/chat/completions" e.defaults.request_path;
-    check int "max_context" 1_000_000 e.max_context;
-    check bool "has reasoning" true e.capabilities.supports_reasoning;
-    check bool "has JSON mode" true e.capabilities.supports_response_format_json;
-    check
-      bool
-      "no native structured output"
-      false
-      e.capabilities.supports_structured_output
-  | None -> fail "mimo should exist"
+  let check_no_auth id expected_path =
+    match Provider_registry.find reg id with
+    | None -> failf "%s should exist" id
+    | Some entry ->
+      check string (id ^ " empty api_key_env") "" entry.defaults.api_key_env;
+      check string (id ^ " request path") expected_path entry.defaults.request_path;
+      check bool (id ^ " available without credential") true (entry.is_available ())
+  in
+  check_no_auth "nous" "/v1/chat/completions";
+  check_no_auth "ollama" "/api/chat";
+  match Provider_registry.find reg "gemini" with
+  | Some entry ->
+    check string "gemini explicit empty request path" "" entry.defaults.request_path
+  | None -> fail "gemini should exist"
+;;
+
+let load_model_catalog_source source =
+  let path = Filename.temp_file "provider-model-catalog" ".toml" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       let oc = open_out path in
+       Fun.protect
+         ~finally:(fun () -> close_out_noerr oc)
+         (fun () -> output_string oc source);
+       Model_catalog.load_file path)
+;;
+
+let test_embedded_provider_rejects_padded_api_key_env () =
+  let source value =
+    Printf.sprintf
+      {|[[providers]]
+id = "padded-auth"
+kind = "openai_compat"
+base_url = "https://provider.example/v1"
+request_path = "/chat/completions"
+api_key_env = %S
+capabilities_base = "openai_chat"
+|}
+      value
+  in
+  List.iter
+    (fun value ->
+       match load_model_catalog_source (source value) with
+       | Error _ -> ()
+       | Ok _ -> failf "padded api_key_env %S must be rejected" value)
+    [ " PROVIDER_API_KEY"; "PROVIDER_API_KEY " ]
 ;;
 
 let test_provider_name_is_wire_kind_projection () =
@@ -420,31 +478,32 @@ let test_default_endpoints_ignore_ambient_overrides () =
 let test_default_max_context () =
   let reg = Provider_registry.default () in
   (match Provider_registry.find reg "nous" with
-   | Some e -> check int "llama 128K" 128_000 e.max_context
+   | Some e -> check (option int) "llama 128K" (Some 128_000) e.max_context
    | None -> fail "llama should exist");
   (match Provider_registry.find reg "claude" with
-   | Some e -> check int "claude 200K" 200_000 e.max_context
+   | Some e -> check (option int) "claude 200K" (Some 200_000) e.max_context
    | None -> fail "claude should exist");
   (match Provider_registry.find reg "gemini" with
-   | Some e -> check int "gemini 1M" 1_000_000 e.max_context
+   | Some e -> check (option int) "gemini 1M" (Some 1_000_000) e.max_context
    | None -> fail "gemini should exist");
   (match Provider_registry.find reg "glm" with
-   | Some e -> check int "glm 200K" 200_000 e.max_context
+   | Some e -> check (option int) "glm 200K" (Some 200_000) e.max_context
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "kimi" with
-   | Some e -> check int "kimi 262K" 262_144 e.max_context
+   | Some e -> check (option int) "kimi 256K" (Some 256_000) e.max_context
    | None -> fail "kimi should exist");
   (match Provider_registry.find reg "groq" with
-   | Some e -> check int "groq 131K" 131_072 e.max_context
+   | Some e -> check (option int) "groq 128K" (Some 128_000) e.max_context
    | None -> fail "groq should exist");
   (match Provider_registry.find reg "deepseek" with
-   | Some e -> check int "deepseek 1M" 1_000_000 e.max_context
+   | Some e ->
+     check (option int) "deepseek provider capability 128K" (Some 128_000) e.max_context
    | None -> fail "deepseek should exist");
   (match Provider_registry.find reg "dashscope" with
-   | Some e -> check int "dashscope 131K" 131_072 e.max_context
+   | Some e -> check (option int) "dashscope 128K" (Some 128_000) e.max_context
    | None -> fail "dashscope should exist");
   match Provider_registry.find reg "siliconflow" with
-  | Some e -> check int "siliconflow 128K" 128_000 e.max_context
+  | Some e -> check (option int) "siliconflow 128K" (Some 128_000) e.max_context
   | None -> fail "siliconflow should exist"
 ;;
 
@@ -452,14 +511,11 @@ let test_default_max_context_matches_capabilities () =
   let reg = Provider_registry.default () in
   Provider_registry.all reg
   |> List.iter (fun (entry : Provider_registry.entry) ->
-    match entry.capabilities.max_context_tokens with
-    | None -> ()
-    | Some caps_ctx ->
-      check
-        bool
-        (Printf.sprintf "%s registry max_context >= capabilities" entry.name)
-        true
-        (entry.max_context >= caps_ctx))
+    check
+      (option int)
+      (Printf.sprintf "%s registry context is capability declaration" entry.name)
+      entry.capabilities.max_context_tokens
+      entry.max_context)
 ;;
 
 let test_default_zai_base_urls () =
@@ -526,7 +582,6 @@ let test_catalog_overlay_registers_exact_provider_id_only () =
           "id": "vllm-local",
           "aliases": ["Subscriber-Local"],
           "kind": "openai_compat",
-          "transport": "http",
           "base_url": "http://127.0.0.1:8000",
           "request_path": "/v1/chat/completions",
           "auth": {"type": "none"},
@@ -545,7 +600,7 @@ let test_catalog_overlay_registers_exact_provider_id_only () =
        (match Provider_registry.find reg "vllm-local" with
         | Some e ->
           check string "base url" "http://127.0.0.1:8000" e.defaults.base_url;
-          check int "max context" 131_072 e.max_context;
+          check (option int) "max context" (Some 131_072) e.max_context;
           check bool "tools" true e.capabilities.supports_tools;
           check bool "tool choice" true e.capabilities.supports_tool_choice
         | None -> fail "catalog provider should be registered");
@@ -556,7 +611,7 @@ let test_catalog_overlay_registers_exact_provider_id_only () =
          (Option.is_some (Provider_registry.find reg "Subscriber-Local")))
 ;;
 
-let test_catalog_overlay_replaces_seed_provider () =
+let test_catalog_overlay_replaces_embedded_provider () =
   with_provider_catalog
     {|{
       "schema_version": 1,
@@ -564,7 +619,6 @@ let test_catalog_overlay_replaces_seed_provider () =
         {
           "id": "openrouter",
           "kind": "openai_compat",
-          "transport": "http",
           "base_url": "https://example.test/openrouter",
           "request_path": "/chat/completions",
           "auth": {"type": "api_key_env", "env": "OPENROUTER_API_KEY"},
@@ -588,7 +642,6 @@ let test_catalog_overlay_preserves_exact_provider_id () =
         {
           "id": "Acme-Cloud",
           "kind": "openai_compat",
-          "transport": "http",
           "base_url": "https://acme.example/v1",
           "auth": {"type": "none"},
           "capabilities_base": "openai_chat"
@@ -607,6 +660,26 @@ let test_catalog_overlay_preserves_exact_provider_id () =
          (Option.is_some (Provider_registry.find reg "acme-cloud")))
 ;;
 
+let test_catalog_overlay_without_context_keeps_none () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "unknown-context",
+          "kind": "openai_compat",
+          "base_url": "https://unknown-context.example/v1",
+          "auth": {"type": "none"}
+        }
+      ]
+    }|}
+    (fun () ->
+       let reg = Provider_registry.default () in
+       match Provider_registry.find reg "unknown-context" with
+       | Some entry -> check (option int) "no invented context" None entry.max_context
+       | None -> fail "unknown-context overlay should be registered")
+;;
+
 let test_catalog_rejects_empty_provider_id () =
   match
     Provider_catalog.of_json
@@ -622,7 +695,7 @@ let test_catalog_rejects_empty_provider_id () =
   | Ok _ -> fail "empty provider id should be rejected"
 ;;
 
-let test_catalog_rejects_unknown_transport () =
+let test_catalog_rejects_removed_transport_field () =
   match
     Provider_catalog.of_json
       (Yojson.Safe.from_string
@@ -634,7 +707,7 @@ let test_catalog_rejects_unknown_transport () =
          }|})
   with
   | Error _ -> ()
-  | Ok _ -> fail "unknown transport should be rejected, not silently coerced"
+  | Ok _ -> fail "removed transport field should be rejected"
 ;;
 
 let test_catalog_rejects_unknown_auth_type () =
@@ -713,15 +786,20 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
            "schema_version": 1,
            "providers": [
              {"id": "kimi-k2", "kind": "openai_compat",
+              "base_url": "https://kimi-k2.example",
               "capabilities": {"thinking_control_format": "thinking_object_only"}},
              {"id": "dashscope", "kind": "openai_compat",
+              "base_url": "https://dashscope.example",
               "capabilities": {"thinking_control_format": "enable_thinking"}},
              {"id": "ollama-cloud", "kind": "ollama",
+              "base_url": "https://ollama-cloud.example",
               "capabilities": {"thinking_control_format": "ollama_think"}},
              {"id": "openai-reasoning", "kind": "openai_compat",
+              "base_url": "https://openai-reasoning.example",
               "capabilities": {"thinking_control_format": "reasoning_effort"}}
              ,
              {"id": "kimi-latest", "kind": "openai_compat",
+              "base_url": "https://kimi-latest.example",
               "capabilities": {"thinking_control_format": "none",
                                "preserve_thinking_control_format": "always_preserved"}}
            ]
@@ -754,7 +832,7 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
      | None -> fail "kimi-latest should exist")
 ;;
 
-let test_catalog_lookup_first_match_wins () =
+let test_catalog_rejects_duplicate_provider_id () =
   match
     Provider_catalog.of_json
       (Yojson.Safe.from_string
@@ -768,16 +846,8 @@ let test_catalog_lookup_first_match_wins () =
            ]
          }|})
   with
-  | Error msg -> fail msg
-  | Ok catalog ->
-    (match Provider_catalog.lookup catalog "dup" with
-     | Some entry ->
-       check
-         string
-         "first-match-wins resolves to earlier entry"
-         "http://first.example"
-         entry.base_url
-     | None -> fail "duplicate id should still resolve to first entry")
+  | Error _ -> ()
+  | Ok _ -> fail "duplicate provider ids should be rejected"
 ;;
 
 let test_catalog_lookup_case_insensitive () =
@@ -818,37 +888,50 @@ let test_catalog_lookup_case_insensitive () =
       (Option.is_some (Provider_catalog.lookup catalog "  alsomixed  "))
 ;;
 
+let provider_catalog_entry ?(aliases = []) id : Provider_catalog.entry =
+  { id
+  ; aliases
+  ; kind = OpenAI_compat
+  ; base_url = "http://host.example"
+  ; request_path = "/v1/chat/completions"
+  ; api_key_env = ""
+  ; auth = No_auth
+  ; default_model = None
+  ; max_context = None
+  ; capabilities = Capabilities.default_capabilities
+  ; credential_scope = None
+  }
+;;
+
+let test_programmatic_catalog_rejects_invalid_aliases () =
+  let entry = provider_catalog_entry ~aliases:[ "good-alias"; "" ] "host" in
+  match Provider_catalog.of_entries [ entry ] with
+  | Error _ -> ()
+  | Ok _ -> fail "programmatic catalogs must reject empty aliases"
+;;
+
+let test_programmatic_catalog_rejects_duplicate_id_alias () =
+  let first = provider_catalog_entry ~aliases:[ "shared" ] "first" in
+  let second = provider_catalog_entry "shared" in
+  match Provider_catalog.of_entries [ first; second ] with
+  | Error _ -> ()
+  | Ok _ -> fail "programmatic catalogs must reject duplicate ids and aliases"
+;;
+
 let test_catalog_aliases_are_not_registry_keys () =
-  let entry : Provider_catalog.entry =
-    { id = "host"
-    ; aliases = [ "good-alias"; ""; "   " ]
-    ; kind = OpenAI_compat
-    ; transport = Http
-    ; command = None
-    ; base_url = "http://host.example"
-    ; request_path = "/v1/chat/completions"
-    ; api_key_env = ""
-    ; auth = No_auth
-    ; default_model = None
-    ; max_context = None
-    ; capabilities = Capabilities.default_capabilities
-    ; credential_scope = None
-    }
-  in
-  Provider_catalog.set_global [ entry ];
-  Fun.protect ~finally:Provider_catalog.clear_global (fun () ->
-    let reg = Provider_registry.default () in
-    check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
-    check
-      bool
-      "declared alias not registered"
-      false
-      (Option.is_some (Provider_registry.find reg "good-alias"));
-    check
-      bool
-      "empty alias not registered"
-      false
-      (Option.is_some (Provider_registry.find reg "")))
+  let entry = provider_catalog_entry ~aliases:[ "good-alias" ] "host" in
+  match Provider_catalog.of_entries [ entry ] with
+  | Error msg -> fail msg
+  | Ok catalog ->
+    Provider_catalog.set_global catalog;
+    Fun.protect ~finally:Provider_catalog.clear_global (fun () ->
+      let reg = Provider_registry.default () in
+      check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
+      check
+        bool
+        "declared alias not registered"
+        false
+        (Option.is_some (Provider_registry.find reg "good-alias")))
 ;;
 
 let test_catalog_load_file_and_lookup_alias () =
@@ -871,7 +954,6 @@ let test_catalog_load_file_and_lookup_alias () =
                     "id": "file-cloud",
                     "aliases": ["file-cloud-alias"],
                     "kind": "openai_compat",
-                    "transport": "http",
                     "base_url": "https://file-cloud.example/v1",
                     "default_model": "file-model",
                     "auth": {"type": "none"}
@@ -898,7 +980,6 @@ let test_catalog_api_key_env_availability () =
           {
             "id": "cloud-api",
             "kind": "openai_compat",
-            "transport": "http",
             "base_url": "https://cloud-api.example/v1",
             "auth": {"type": "api_key_env", "env": "%s"},
             "capabilities_base": "openai_chat"
@@ -1056,6 +1137,14 @@ let () =
         ; test_case "deepseek api key env" `Quick test_default_deepseek_api_key_env
         ; test_case "mimo entry" `Quick test_default_mimo_entry
         ; test_case
+            "explicit no-auth rows"
+            `Quick
+            test_embedded_no_auth_rows_keep_explicit_empty_credentials
+        ; test_case
+            "padded embedded credential declaration rejected"
+            `Quick
+            test_embedded_provider_rejects_padded_api_key_env
+        ; test_case
             "provider_name_of_config projects wire kind"
             `Quick
             test_provider_name_is_wire_kind_projection
@@ -1080,21 +1169,25 @@ let () =
             `Quick
             test_catalog_overlay_registers_exact_provider_id_only
         ; test_case
-            "overlay replaces seed provider"
+            "overlay replaces embedded provider"
             `Quick
-            test_catalog_overlay_replaces_seed_provider
+            test_catalog_overlay_replaces_embedded_provider
         ; test_case
             "overlay preserves exact provider id"
             `Quick
             test_catalog_overlay_preserves_exact_provider_id
         ; test_case
+            "overlay without context keeps None"
+            `Quick
+            test_catalog_overlay_without_context_keeps_none
+        ; test_case
             "rejects empty provider id"
             `Quick
             test_catalog_rejects_empty_provider_id
         ; test_case
-            "rejects unknown transport"
+            "rejects removed transport field"
             `Quick
-            test_catalog_rejects_unknown_transport
+            test_catalog_rejects_removed_transport_field
         ; test_case
             "rejects unknown auth type"
             `Quick
@@ -1116,13 +1209,21 @@ let () =
             `Quick
             test_catalog_accepts_explicit_thinking_control_formats
         ; test_case
-            "lookup first-match-wins on duplicate id"
+            "rejects duplicate provider id"
             `Quick
-            test_catalog_lookup_first_match_wins
+            test_catalog_rejects_duplicate_provider_id
         ; test_case
             "lookup is case-insensitive"
             `Quick
             test_catalog_lookup_case_insensitive
+        ; test_case
+            "programmatic catalog rejects invalid aliases"
+            `Quick
+            test_programmatic_catalog_rejects_invalid_aliases
+        ; test_case
+            "programmatic catalog rejects duplicate id/alias"
+            `Quick
+            test_programmatic_catalog_rejects_duplicate_id_alias
         ; test_case
             "aliases are not registry keys"
             `Quick

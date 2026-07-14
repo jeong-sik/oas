@@ -1140,58 +1140,6 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
     no entry whose [id_prefix] matches [model_id]. There is no in-code
     fallback table: the former built-in static table was removed when
     model specifications were externalized to the TOML catalog. *)
-let provider_qualified_separators = [ "/"; ":"; "." ]
-
-let model_id_has_provider_label ~provider_label ~model_id =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.lowercase_ascii (String.trim model_id) in
-  provider_label <> ""
-  && List.exists
-       (fun separator -> String.starts_with ~prefix:(provider_label ^ separator) model_id)
-       provider_qualified_separators
-;;
-
-let provider_qualified_model_id_candidates ~provider_label ~model_id =
-  let normalized_model_id = String.lowercase_ascii model_id in
-  let provider_prefixes =
-    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
-  in
-  let stripped =
-    List.find_map
-      (fun prefix ->
-         if String.starts_with ~prefix normalized_model_id
-         then (
-           let prefix_len = String.length prefix in
-           Some (String.sub model_id prefix_len (String.length model_id - prefix_len)))
-         else None)
-      provider_prefixes
-  in
-  (* When [model_id] is already provider-qualified, only the stripped bare
-     suffix is a useful candidate for re-qualification below in
-     [provider_qualified_catalog_keys]. Including the original [model_id]
-     alongside it used to make that function re-prepend [provider_label] onto
-     an already-qualified id (e.g. "vllm-qwen3-mtp/vllm-qwen3-mtp.qwen..."), which
-     never matches a real catalog [id_prefix] — pure wasted lookups. *)
-  match stripped with
-  | Some suffix when String.trim suffix <> "" -> [ suffix ]
-  | Some _ | None -> [ model_id ]
-;;
-
-let provider_qualified_catalog_keys ~provider_label ~model_id =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.trim model_id in
-  let keys =
-    provider_qualified_model_id_candidates ~provider_label ~model_id
-    |> List.concat_map (fun model_id ->
-      List.map
-        (fun separator -> provider_label ^ separator ^ model_id)
-        provider_qualified_separators)
-  in
-  let prefixes =
-    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
-  in
-  keys, prefixes
-;;
 
 let for_model_id_catalog model_id =
   match Model_catalog.global () with
@@ -1232,26 +1180,12 @@ let for_model_id model_id =
 ;;
 
 let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string) =
-  let candidates, qualified_prefixes =
-    provider_qualified_catalog_keys ~provider_label ~model_id
-  in
   match Model_catalog.global () with
   | None -> None
   | Some catalog ->
-    let rec loop = function
-      | [] -> None
-      | candidate :: rest ->
-        (match Model_catalog.lookup catalog candidate with
-         | Some entry
-           when List.exists
-                  (fun prefix ->
-                     String.starts_with
-                       ~prefix
-                       (String.lowercase_ascii (String.trim entry.id_prefix)))
-                  qualified_prefixes -> Some (apply_catalog_entry entry)
-         | Some _ | None -> loop rest)
-    in
-    loop candidates
+    Option.map
+      apply_catalog_entry
+      (Model_catalog.lookup_for_provider catalog ~provider_name:provider_label ~model_id)
 ;;
 
 let for_provider_model_id
@@ -1307,28 +1241,17 @@ let thinking_control_token_for_provider_model_id
       ~(provider_label : string)
       ~(model_id : string)
   =
-  let candidates, qualified_prefixes =
-    provider_qualified_catalog_keys ~provider_label ~model_id
-  in
   let provider_catalog_match =
     match Model_catalog.global () with
     | None -> None
     | Some catalog ->
-      let rec loop = function
-        | [] -> None
-        | candidate :: rest ->
-          (match Model_catalog.lookup catalog candidate with
-           | Some entry
-             when List.exists
-                    (fun prefix ->
-                       String.starts_with
-                         ~prefix
-                         (String.lowercase_ascii (String.trim entry.id_prefix)))
-                    qualified_prefixes ->
-             Some (token_of_declared_format entry.thinking_control_format)
-           | Some _ | None -> loop rest)
-      in
-      loop candidates
+      Option.map
+        (fun entry ->
+           token_of_declared_format entry.Model_catalog.thinking_control_format)
+        (Model_catalog.lookup_for_provider
+           catalog
+           ~provider_name:provider_label
+           ~model_id)
   in
   match provider_catalog_match with
   | Some token -> token
@@ -1347,20 +1270,35 @@ let%test "for_model_id glm-4.5 has reasoning" =
   | None -> false
 ;;
 
-let%test "for_model_id glm-4 no reasoning" =
-  match for_model_id "glm-4-chat" with
+let%test "for_provider_model_id glm-4 no reasoning" =
+  match
+    for_provider_model_id
+      ~allow_bare_fallback:true
+      ~provider_label:"glm"
+      ~model_id:"glm-4-chat"
+  with
   | Some c -> (not c.supports_reasoning) && c.max_context_tokens = Some 128_000
   | None -> false
 ;;
 
-let%test "for_model_id glm-4v has vision" =
-  match for_model_id "glm-4v-flash" with
+let%test "for_provider_model_id glm-4v has vision" =
+  match
+    for_provider_model_id
+      ~allow_bare_fallback:true
+      ~provider_label:"glm"
+      ~model_id:"glm-4v-flash"
+  with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
 
-let%test "for_model_id glm-4-flash basic" =
-  match for_model_id "glm-4-flash" with
+let%test "for_provider_model_id glm-4-flash basic" =
+  match
+    for_provider_model_id
+      ~allow_bare_fallback:true
+      ~provider_label:"glm"
+      ~model_id:"glm-4-flash"
+  with
   | Some c -> c.supports_tools && c.max_output_tokens = Some 4_096
   | None -> false
 ;;

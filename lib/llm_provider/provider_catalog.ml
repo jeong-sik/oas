@@ -6,15 +6,9 @@ end
 
 open Result_syntax
 
-type transport =
-  | Http
-  | Managed
-[@@deriving show]
-
 type auth_mode =
   | No_auth
   | Api_key_env of string
-  | Oauth_cached_login
   | Setup_token_env of string
 [@@deriving show]
 
@@ -22,8 +16,6 @@ type entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_config.provider_kind
-  ; transport : transport
-  ; command : string option
   ; base_url : string
   ; request_path : string
   ; api_key_env : string
@@ -35,6 +27,170 @@ type entry =
   }
 
 type t = entry list
+
+let entries t = t
+let normalize_id value = String.lowercase_ascii (String.trim value)
+
+let validate_exact_non_empty ~provider_id ~field value =
+  let trimmed = String.trim value in
+  if trimmed = ""
+  then Error (Printf.sprintf "provider %S field %S must not be empty" provider_id field)
+  else if value <> trimmed
+  then
+    Error
+      (Printf.sprintf
+         "provider %S field %S must not have leading or trailing whitespace"
+         provider_id
+         field)
+  else Ok ()
+;;
+
+let validate_typed_entry (entry : entry) =
+  let* () =
+    validate_exact_non_empty ~provider_id:entry.id ~field:"base_url" entry.base_url
+  in
+  let* () =
+    let trimmed = String.trim entry.request_path in
+    if entry.request_path <> trimmed
+    then
+      Error
+        (Printf.sprintf
+           "provider %S field %S must not have leading or trailing whitespace"
+           entry.id
+           "request_path")
+    else if trimmed = "" && entry.kind <> Provider_config.Gemini
+    then
+      Error
+        (Printf.sprintf "provider %S field %S must not be empty" entry.id "request_path")
+    else Ok ()
+  in
+  let* () =
+    match entry.default_model with
+    | None -> Ok ()
+    | Some model ->
+      validate_exact_non_empty ~provider_id:entry.id ~field:"default_model" model
+  in
+  let* () =
+    match entry.max_context with
+    | Some value when value <= 0 ->
+      Error (Printf.sprintf "provider %S max_context must be positive" entry.id)
+    | Some _ | None -> Ok ()
+  in
+  let validate_positive_capability field = function
+    | Some value when value <= 0 ->
+      Error (Printf.sprintf "provider %S capability %S must be positive" entry.id field)
+    | Some _ | None -> Ok ()
+  in
+  let* () =
+    validate_positive_capability
+      "max_context_tokens"
+      entry.capabilities.max_context_tokens
+  in
+  let* () =
+    validate_positive_capability "max_output_tokens" entry.capabilities.max_output_tokens
+  in
+  let* () =
+    validate_positive_capability
+      "prompt_cache_alignment"
+      entry.capabilities.prompt_cache_alignment
+  in
+  let* () =
+    match entry.capabilities.supported_models with
+    | None -> Ok ()
+    | Some models ->
+      List.fold_left
+        (fun result model ->
+           let* () = result in
+           validate_exact_non_empty
+             ~provider_id:entry.id
+             ~field:"capabilities.supported_models"
+             model)
+        (Ok ())
+        models
+  in
+  let* () =
+    match entry.credential_scope with
+    | None -> Ok ()
+    | Some scope ->
+      validate_exact_non_empty ~provider_id:entry.id ~field:"credential_scope" scope
+  in
+  let declared_env =
+    match entry.auth with
+    | Api_key_env env | Setup_token_env env -> env
+    | No_auth -> ""
+  in
+  let* () =
+    match entry.auth with
+    | No_auth ->
+      if entry.api_key_env = ""
+      then Ok ()
+      else
+        Error
+          (Printf.sprintf "provider %S auth=none requires an empty api_key_env" entry.id)
+    | Api_key_env env | Setup_token_env env ->
+      let* () = validate_exact_non_empty ~provider_id:entry.id ~field:"auth.env" env in
+      if String.equal entry.api_key_env declared_env
+      then Ok ()
+      else
+        Error
+          (Printf.sprintf
+             "provider %S api_key_env must equal the typed auth env %S"
+             entry.id
+             declared_env)
+  in
+  if
+    (entry.capabilities.supports_required_tool_choice
+     || entry.capabilities.supports_named_tool_choice)
+    && not entry.capabilities.supports_tool_choice
+  then
+    Error
+      (Printf.sprintf
+         "provider %S required/named tool choice requires supports_tool_choice=true"
+         entry.id)
+  else Ok ()
+;;
+
+let of_entries entries =
+  let add_identity ~owner seen raw =
+    let identity = normalize_id raw in
+    if identity = ""
+    then Error (Printf.sprintf "provider %S contains an empty id or alias" owner)
+    else if raw <> String.trim raw
+    then
+      Error
+        (Printf.sprintf
+           "provider %S identity %S must not have leading or trailing whitespace"
+           owner
+           raw)
+    else (
+      match List.assoc_opt identity seen with
+      | Some previous_owner ->
+        Error
+          (Printf.sprintf
+             "provider identity %S is declared by both %S and %S"
+             identity
+             previous_owner
+             owner)
+      | None -> Ok ((identity, owner) :: seen))
+  in
+  let add_entry seen (entry : entry) =
+    let* () = validate_typed_entry entry in
+    let* seen = add_identity ~owner:entry.id seen entry.id in
+    List.fold_left
+      (fun result alias ->
+         let* seen = result in
+         add_identity ~owner:entry.id seen alias)
+      (Ok seen)
+      entry.aliases
+  in
+  let* _ =
+    List.fold_left
+      (fun result entry -> Result.bind result (fun seen -> add_entry seen entry))
+      (Ok [])
+      entries
+  in
+  Ok entries
+;;
 
 let json_kind = function
   | `Null -> "null"
@@ -163,8 +319,6 @@ let provider_fields =
   [ "id"
   ; "aliases"
   ; "kind"
-  ; "transport"
-  ; "command"
   ; "base_url"
   ; "request_path"
   ; "auth"
@@ -225,21 +379,9 @@ let capability_fields =
   ]
 ;;
 
-let parse_transport = function
-  | None -> Ok None
-  | Some raw ->
-    (match raw with
-     | "http" -> Ok (Some Http)
-     | "managed" -> Ok (Some Managed)
-     | other ->
-       Error (Printf.sprintf "unknown transport %S (canonical: http, managed)" other))
-;;
-
-let default_transport_for_kind _kind = Http
-
 let auth_env = function
   | Api_key_env env | Setup_token_env env -> env
-  | No_auth | Oauth_cached_login -> ""
+  | No_auth -> ""
 ;;
 
 let parse_auth json =
@@ -280,20 +422,22 @@ let parse_auth json =
        | "file" ->
          Error
            "removed provider catalog auth type \"file\"; use api_key_env, \
-            setup_token_env, or oauth_cached_login"
+            setup_token_env, or none"
        | "exec" ->
          Error
            "removed provider catalog auth type \"exec\"; use api_key_env, \
-            setup_token_env, or oauth_cached_login"
+            setup_token_env, or none"
+       | "oauth_cached_login" ->
+         Error
+           "removed provider catalog auth type \"oauth_cached_login\"; inject a typed \
+            transport that implements its own authentication"
        | "none" -> parse_without_env No_auth
-       | "oauth_cached_login" -> parse_without_env Oauth_cached_login
        | "api_key_env" -> parse_with_env (fun env -> Api_key_env env)
        | "setup_token_env" -> parse_with_env (fun env -> Setup_token_env env)
        | other ->
          Error
            (Printf.sprintf
-              "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-               oauth_cached_login)"
+              "unknown auth type %S (canonical: none, api_key_env, setup_token_env)"
               other))
   | `Null -> Ok No_auth
   | actual ->
@@ -741,11 +885,8 @@ let parse_entry json =
     | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
   in
   let* auth = with_id (parse_auth json) in
-  let* transport_raw = with_id (member_string "transport" json) in
-  let* transport_opt = with_id (parse_transport transport_raw) in
   let* capabilities = with_id (parse_capabilities json) in
   let* aliases = with_id (member_string_list "aliases" json) in
-  let* command = with_id (member_string "command" json) in
   let* base_url = with_id (member_string_default "base_url" ~default:"" json) in
   let* request_path =
     with_id
@@ -757,7 +898,6 @@ let parse_entry json =
   let* default_model = with_id (member_string "default_model" json) in
   let* max_context_override = with_id (member_positive_int "max_context" json) in
   let* credential_scope = with_id (member_string "credential_scope" json) in
-  let transport = Option.value transport_opt ~default:(default_transport_for_kind kind) in
   let max_context =
     match max_context_override with
     | Some _ as max_context -> max_context
@@ -767,8 +907,6 @@ let parse_entry json =
     { id
     ; aliases = Option.value aliases ~default:[]
     ; kind
-    ; transport
-    ; command
     ; base_url
     ; request_path
     ; api_key_env = auth_env auth
@@ -820,7 +958,7 @@ let of_json = function
           items
       in
       (match List.rev errors with
-       | [] -> Ok (List.rev entries)
+       | [] -> of_entries (List.rev entries)
        | errors -> Error (String.concat "; " errors))
   | actual ->
     Error (Printf.sprintf "provider catalog expected object, got %s" (json_kind actual))
@@ -836,8 +974,6 @@ let load_file path =
   in
   of_json json
 ;;
-
-let normalize_id s = String.lowercase_ascii (String.trim s)
 
 let lookup t provider_id =
   let needle = normalize_id provider_id in

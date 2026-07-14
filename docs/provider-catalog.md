@@ -29,45 +29,41 @@ Resolution order:
 
 1. Explicit overlay installed with `Provider_catalog.set_global`
 2. Embedded OAS `models.toml` provider rows
-3. Built-in provider seed data
 
 The OAS-owned `models.toml` also carries shareable provider identity rows under
 `[[providers]]`. Those rows are data, not OCaml vendor branches: OAS embeds that
-file at build time and uses it to register default provider entries and resolve
-exact endpoint identity without hardcoded host lists. Linked applications need
-no catalog file beside their executable.
+file at build time and uses it to register default provider entries. A selected
+provider id is carried separately from its endpoint in `Provider_config`; OAS
+never reverse-matches a URL, request path, or model id to choose a provider.
+Linked applications need no catalog file beside their executable.
 
 OAS never discovers a provider or model catalog from the process environment.
 File selection, reload policy, and parse-error handling belong to the embedding
 application. A caller that needs a custom file loads it explicitly with
 `Provider_catalog.load_file` and installs it with `Provider_catalog.set_global`.
 
-Catalog entries overwrite built-in provider ids when exact ids collide.
-`Provider_registry` registers only the declared `id`; aliases are never
-reinterpreted as provider identities.
+Catalog entries overwrite embedded provider ids when exact ids collide.
+`Provider_registry` registers only the declared `id`; aliases remain selector
+names at the catalog/runtime-binding boundary.
 
 ## Lookup and collisions
 
 | Surface | Collision rule |
 |---|---|
-| `Provider_catalog.lookup` (in-catalog match) | **First match in source order wins.** Later duplicate ids/aliases in the same catalog file are unreachable through `lookup`. |
-| `Provider_registry` overlay (catalog vs. built-in) | **Catalog overwrites built-in** by id when registered (`Hashtbl.replace`). The catalog overlay is applied last in `Provider_registry.default ()`. |
-| `Provider_registry` overlay (catalog vs. catalog) | **Last exact id wins.** If two catalog entries share an id, the entry registered later replaces the earlier one in the registry. Aliases do not participate. |
+| `Provider_catalog.of_entries` / `of_json` | **Reject the whole catalog.** Ids and aliases share one case-insensitive identity namespace. |
+| `Provider_registry` overlay (catalog vs. embedded) | **Catalog overwrites embedded data** by id when registered (`Hashtbl.replace`). The catalog overlay is applied last in `Provider_registry.default ()`. |
 
 `Provider_catalog.lookup` remains a catalog-local, case-insensitive id/alias
-query. `Provider_registry.find` is deliberately different: it accepts the
-exact declared registry id only. `"VLLM-LOCAL"`, `"vllm-local"`, and an alias
-are distinct inputs at the runtime binding boundary.
+query. `Provider_registry.find` is deliberately different: it accepts a
+declared registry id, while `Provider_runtime_binding.find` accepts the
+validated id or alias.
 
 Invalid identifiers are rejected:
 
-- Empty/whitespace **id** in a JSON catalog → `of_json` returns `Error`.
+- Empty or padded ids/aliases → `Error`.
+- Duplicate ids, duplicate aliases, and id/alias collisions → `Error`.
 - Aliases are not inserted into `Provider_registry`, whether the catalog came
   from JSON or was constructed programmatically.
-
-If you have duplicate ids in a single catalog file, the recommended fix
-is to consolidate them — relying on first-match-wins or last-write-wins
-makes the behavior depend on which API the caller used.
 
 ## Schema
 
@@ -78,19 +74,16 @@ Embedded TOML provider rows:
 id = "mimo"
 kind = "openai_compat"
 base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
+base_url_env = "MIMO_BASE_URL"
 request_path = "/chat/completions"
 api_key_env = "MIMO_API_KEY"
 default_model = "mimo-v2.5-pro"
 capabilities_base = "mimo"
-identity_hosts = [
-  "api.xiaomimimo.com",
-  "token-plan-sgp.xiaomimimo.com",
-]
 ```
 
-`identity_hosts` are matched by exact `Uri.host` equality only. They are
-provider identity declarations, not capability guesses for arbitrary compatible
-gateways.
+`base_url_env` is consulted only when the row names it explicitly. It changes
+the connection address, never provider identity. Selection uses the row's exact
+`id` or alias and stores its canonical id in `Provider_config.provider_id`.
 
 Runtime JSON overlay:
 
@@ -102,7 +95,6 @@ Runtime JSON overlay:
       "id": "vllm-local",
       "aliases": ["subscriber-local"],
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "http://127.0.0.1:8000",
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
@@ -112,7 +104,7 @@ Runtime JSON overlay:
         "max_context_tokens": 131072,
         "supports_tools": true,
         "supports_tool_choice": true
-      },
+      }
     }
   ]
 }
@@ -129,8 +121,7 @@ Important provider fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `kind` | string | Existing wire/runtime kind, for example `openai_compat`, `anthropic`, `gemini`, `codex_cli`. Defaults to `openai_compat`. |
-| `transport` | string | `http` or `managed`. |
+| `kind` | string | Existing HTTP wire/runtime kind, for example `openai_compat`, `anthropic`, or `gemini`. Defaults to `openai_compat`. |
 | `base_url` | string | HTTP endpoint base URL. |
 | `request_path` | string | Completion request path. Defaults from `kind`. |
 | `auth` | object | Credential mode. See below. |
@@ -147,7 +138,10 @@ Auth modes:
 | `none` | | Local unauthenticated endpoints. |
 | `api_key_env` | `env` | Cloud APIs using an API key environment variable. |
 | `setup_token_env` | `env` | Setup/bootstrap token environment variable. |
-| `oauth_cached_login` | | OAuth-backed cached login. |
+
+Catalog entries describe HTTP execution only. A caller that owns a managed,
+OAuth, or subprocess transport must inject that typed transport explicitly;
+the catalog does not claim an execution mode that OAS cannot perform.
 
 The JSON parser is fail-closed: root, provider, `auth`, and `capabilities`
 objects reject duplicate or unknown fields; scalar and list values must have
@@ -165,7 +159,6 @@ value. A malformed provider entry rejects the catalog instead of being skipped.
     {
       "id": "acme-cloud",
       "kind": "openai_compat",
-      "transport": "http",
       "base_url": "https://api.acme.example/v1",
       "request_path": "/chat/completions",
       "auth": {"type": "api_key_env", "env": "ACME_API_KEY"},
@@ -205,7 +198,7 @@ The `capabilities` object accepts the same capability field names used by
 
 Model-specific facts should live in the embedded/explicit model catalog or an
 explicitly installed `Capability_manifest`. Provider catalog capabilities
-should describe runtime/provider defaults and transport constraints.
+should describe runtime/provider defaults.
 
 Accepted `thinking_control_format` values are:
 

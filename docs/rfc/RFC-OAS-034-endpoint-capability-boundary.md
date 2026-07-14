@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | Superseded by the explicit provider/model tuple hard cut (#2590) |
 | Author | jeong-sik (Claude Opus 4.8 조사) |
 | Created | 2026-07-01 |
 | Target | `agent_sdk` (oas) — `lib/llm_provider/` (`provider_endpoint.ml`, `provider_config.ml`, `provider_registry.ml`, `discovery.ml`, `capabilities.ml`, `complete_sampling.ml`) |
@@ -12,6 +12,14 @@
 | Triggering PRs | #2374, #2408 (둘 다 host `*.proxy.runpod.net` → capability namespace `runpod_mtp`) |
 
 ## 0. Summary
+
+> Current contract: provider identity and model id are separate typed/configured
+> values. A model row may declare `provider_name` plus its bare `id_prefix`;
+> OAS does not synthesize `/`, `:`, or `.`-qualified model ids. Provider identity
+> is carried as the explicit provider selector / `Provider_config.provider_id`;
+> endpoint URLs and request paths never select it, even when they happen to
+> equal a catalog row. The rest of this RFC records the historical problem and
+> migration and is not the current lookup contract.
 
 OAS가 엔드포인트의 **capability set / catalog namespace를 배포 host·URL에서 추론**하는 사이트가 여럿 있다. capability는 `(serving runtime) × (model)`의 함수이고 host는 직교하는 전송 주소일 뿐이다. capability를 host에 키잉하면 **동일 server+model이 임대 위치를 옮기는 순간 다르게 동작하거나 capability를 통째로 잃는다(silent fail-closed)**.
 
@@ -55,10 +63,10 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 
 규칙:
 
-1. **capability/namespace provenance = 명시적 config·model 선언.** generic host·URL 유도 금지.
-   - namespace는 `model_id` prefix(`<namespace>/<model_id>`) 또는 provider config의 명시 필드(serving-contract 식별자)에서 온다.
-   - namespace 이름은 host-무관 serving-contract로: `runpod_mtp` → `vllm-qwen3-mtp` (host 제거). serving runtime(vLLM MTP) × model(qwen3)을 식별하되, 기존 catalog family prefix(`qwen3`)로 시작하지 않아야 dot-qualified lookup이 family row로 shadowing되지 않는다.
-2. **vendor-canonical 도메인 → provider는 허용**, 단 **정확 `Uri.host` 등가**로 (prefix 금지, look-alike 차단). generic rental host → capability는 금지.
+1. **capability provenance = 명시적 provider/model 선언.** generic host·URL 또는 model-id 문법 유도 금지.
+   - provider-scoped row는 `provider_name`과 bare `id_prefix`를 별도 필드로 선언한다.
+   - serving-contract identity가 필요하면 provider catalog id로 선언하고 model id에 namespace를 덧붙이지 않는다.
+2. **endpoint → provider identity는 provider catalog 선언으로만 허용.** canonical URL, optional declared environment override, and exact identity host are data; OCaml vendor-host branches are forbidden.
 3. **path → wire-protocol**(Responses vs Chat)은 path가 실제 API envelope를 결정하는 경우에만, 정확 문자열 등가 + 비대상 kind는 catch-all 없는 exhaustive match로 fail-closed (`request_path_targets_responses_api`/`validate_request_path`가 정답례).
 4. **unknown host/provider/model/label → Unknown/None/fail-closed.** permissive/specific default 금지 (CLAUDE.md AI코드생성 #2).
 
@@ -135,7 +143,7 @@ stale-high(monotone-safe)이며, 전체 rebaseline은 별도 hygiene 작업으�
 
 ## 6. Verification (완료 정의)
 
-- **host-불변 회귀 테스트**: 동일 `~kind` + `~model_id`를 서로 다른 `~base_url`(`*.proxy.runpod.net`, 임의 도메인, localhost)로 만들어 `capabilities_for_config_model` / `provider_name_of_config`가 **동일 capability로 resolve**됨을 assert. vendor-canonical 도메인은 의도적 예외로 별도 명시.
+- **provider/model tuple 회귀 테스트**: 동일 explicit `provider_id` + bare `model_id`가 endpoint 위치와 무관하게 동일 capability로 resolve됨을 assert. Provider identity는 endpoint가 아니라 config에 직접 실어야 한다.
 - generic-host→capability 사이트 0건 (§5 ratchet green).
 - vendor-canonical/transport/path-protocol 사이트는 유지되되 근거를 코드 주석 또는 RFC로 명시.
 - `ocamlformat --check` clean, 기존 test suite green.

@@ -138,7 +138,7 @@ let%test "capability source is model when native catalog resolves config model" 
   | _, Provider_default_capability -> false
 ;;
 
-let%test "capability source is provider default for undeclared raw compat model" =
+let%test "capability source is model for provider-independent catalog row" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -147,11 +147,8 @@ let%test "capability source is provider default for undeclared raw compat model"
       ()
   in
   match resolve_capabilities_for_config config with
-  | caps, Provider_default_capability ->
-    caps.supports_tools = Capabilities.openai_compat_chat_capabilities.supports_tools
-    && caps.thinking_control_format
-       = Capabilities.openai_compat_chat_capabilities.thinking_control_format
-  | _, Model_capability -> false
+  | _, Model_capability -> true
+  | _, Provider_default_capability -> false
 ;;
 
 let%test "capability source is provider default when model is unknown" =

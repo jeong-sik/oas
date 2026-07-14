@@ -17,9 +17,11 @@
 
 EXTENDS Naturals
 
-CONSTANTS MaxTurns
+\* Finite model-checking scope only. This is not an OAS runtime turn limit;
+\* production turns remain unbounded.
+CONSTANTS ModelTurnCount
 
-ASSUME MaxTurns \in Nat /\ MaxTurns >= 1
+ASSUME ModelTurnCount \in Nat /\ ModelTurnCount >= 1
 
 Stages ==
     {"after_assistant_collected",
@@ -29,7 +31,7 @@ Stages ==
 Checkpoint(stage, turn_id) == [stage |-> stage, turn |-> turn_id]
 
 CheckpointUniverse == { Checkpoint(stage, turn_id) :
-    stage \in Stages, turn_id \in 1..MaxTurns }
+    stage \in Stages, turn_id \in 1..ModelTurnCount }
 
 VARIABLES
     turn,
@@ -42,8 +44,8 @@ vars == <<turn, assistant_collected, tool_feedback_appended,
           retry_feedback_appended, checkpoints>>
 
 TypeOK ==
-    /\ turn \in 0..MaxTurns
-    /\ assistant_collected \subseteq 1..MaxTurns
+    /\ turn \in 0..ModelTurnCount
+    /\ assistant_collected \subseteq 1..ModelTurnCount
     /\ tool_feedback_appended \subseteq assistant_collected
     /\ retry_feedback_appended \subseteq assistant_collected
     /\ checkpoints \subseteq CheckpointUniverse
@@ -56,7 +58,7 @@ Init ==
     /\ checkpoints = {}
 
 CollectAssistant ==
-    /\ turn < MaxTurns
+    /\ turn < ModelTurnCount
     /\ turn' = turn + 1
     /\ assistant_collected' = assistant_collected \cup {turn + 1}
     /\ UNCHANGED <<tool_feedback_appended, retry_feedback_appended>>
@@ -78,7 +80,7 @@ AppendRetryFeedback ==
     /\ UNCHANGED <<turn, assistant_collected, tool_feedback_appended>>
 
 StutterDone ==
-    /\ turn = MaxTurns
+    /\ turn = ModelTurnCount
     /\ UNCHANGED vars
 
 Next ==
@@ -102,7 +104,7 @@ RetryFeedbackDurable ==
         Checkpoint("after_retry_feedback_appended", t) \in checkpoints
 
 BugCollectAssistantNoCheckpoint ==
-    /\ turn < MaxTurns
+    /\ turn < ModelTurnCount
     /\ turn' = turn + 1
     /\ assistant_collected' = assistant_collected \cup {turn + 1}
     /\ UNCHANGED <<tool_feedback_appended, retry_feedback_appended, checkpoints>>
