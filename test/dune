@@ -116,6 +116,7 @@
   test_metric_contract
   test_metrics
   test_model_catalog_default
+  test_model_catalog_overlay
   test_module_check
   test_multimodal
   test_multivendor_events
@@ -280,6 +281,7 @@
   test_metric_contract
   test_metrics
   test_model_catalog_default
+  test_model_catalog_overlay
   test_module_check
   test_multimodal
   test_multivendor_events

@@ -119,12 +119,37 @@ val lookup : t -> string -> model_entry option
     provider and model remain separate values; OAS never synthesizes slash,
     colon, or dot-qualified model ids.
 
+    When no row matches the requested [provider_name] verbatim, the name is
+    canonicalized once through the catalog's own [[providers]] alias data (the
+    first entry whose [id] or [aliases] contains the requested name, in
+    declaration order) and the exact lookup is retried with that entry's [id].
+    This applies the same alias-to-canonical-id policy the binding registry
+    uses for its own catalog, so both capability paths answer alike. A
+    verbatim row always wins over an alias-resolved one, and resolution is
+    single-step (a canonical id is never re-resolved). Wire-kind labels
+    ({!Provider_kind.to_string} values such as ["openai_compat"]) are never
+    canonicalized: they are what configs without an explicit provider id
+    synthesize, and an alias claiming one would capture every anonymous
+    config of that wire kind.
+
     Provider-independent family matching remains exclusively in {!lookup}. *)
 val lookup_for_provider
   :  t
   -> provider_name:string
   -> model_id:string
   -> model_entry option
+
+(** Row-level overlay merge (RFC-OAS-036). Rows in [overlay] replace rows in
+    [base] with the same identity — [(provider_name, id_prefix)] for model
+    rows (a bare row and a provider-scoped row with the same [id_prefix] are
+    distinct), [id] for provider entries, compared with lookup normalization —
+    and rows unique to either side are kept. Overlay rows precede base rows in
+    the result, so order-sensitive provider-entry consumers
+    ({!provider_label_for_base_url}, {!provider_label_for_endpoint}) prefer a
+    deployment entry whose endpoint identity is also covered by an embedded
+    entry. This lets a deployment carry only its delta rows instead of forking
+    the entire catalog. *)
+val merge : base:t -> overlay:t -> t
 
 (** Return the catalog-declared provider identity for a concrete endpoint.
 
@@ -152,17 +177,28 @@ val provider_label_for_endpoint
 (** Return the active model catalog.
 
     Resolution order:
-    - runtime override installed with {!set_global}
-    - build-time embedded OAS [models.toml]
+    - runtime override installed with {!set_global} (full replacement)
+    - build-time embedded OAS [models.toml], merged with the deployment
+      overlay installed with {!set_global_overlay} when one is present
 
-    The embedded result is cached after the first load. Invalid generated data
-    raises {!Invalid_embedded_catalog}; it never becomes [None] or an empty
-    catalog. OAS does not inspect an environment variable for an alternate
-    catalog. Callers that need a custom catalog must call {!load_file} and
-    {!set_global} explicitly.
+    The embedded result and the merged result are cached after first
+    computation. Invalid generated data raises {!Invalid_embedded_catalog}; it
+    never becomes [None] or an empty catalog. OAS does not inspect an
+    environment variable for an alternate catalog. Callers that need a custom
+    catalog must call {!load_file} and {!set_global} or {!set_global_overlay}
+    explicitly.
 
-    {!clear_global} clears the runtime override and embedded cache. *)
+    {!clear_global} clears the runtime override, the overlay, and both
+    caches. *)
 val global : unit -> t option
 
 val set_global : t -> unit
+
+(** Install a deployment overlay {!merge}d onto the embedded default catalog
+    by {!global}. Unlike {!set_global}, embedded rows not shadowed by the
+    overlay stay visible, so the overlay carries only deployment-local deltas
+    (RFC-OAS-036). A full {!set_global} override, when installed, takes
+    precedence over the overlay. *)
+val set_global_overlay : t -> unit
+
 val clear_global : unit -> unit
