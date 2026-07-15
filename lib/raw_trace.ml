@@ -10,11 +10,6 @@ type record_type =
   | Run_finished
 [@@deriving yojson, show]
 
-type evidence_role =
-  | File_write
-  | Verification
-[@@deriving yojson, show]
-
 type run_ref =
   { worker_run_id : string
   ; path : string
@@ -39,6 +34,7 @@ type run_summary =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : string option
   ; thinking_block_count : int
   ; text_block_count : int
   ; tool_use_block_count : int
@@ -61,23 +57,12 @@ type validation_check =
   }
 [@@deriving yojson, show]
 
-type evidence_role_summary =
-  { evidence_role : evidence_role
-  ; record_count : int
-  ; successful_finished_count : int
-  ; last_success_seq : int option
-  }
-[@@deriving yojson, show]
-
 type run_validation =
   { run_ref : run_ref
   ; ok : bool
   ; checks : validation_check list
   ; evidence : string list
   ; paired_tool_result_count : int
-  ; evidence_roles : evidence_role_summary list [@default []]
-  ; has_file_write : bool
-  ; verification_pass_after_file_write : bool
   ; final_text : string option
   ; tool_names : string list
   ; stop_reason : string option
@@ -99,6 +84,7 @@ type record =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : string option
   ; block_index : int option
   ; block_kind : string option
   ; assistant_block : Yojson.Safe.t option
@@ -108,8 +94,7 @@ type record =
   ; tool_planned_index : int option
   ; tool_batch_index : int option
   ; tool_batch_size : int option
-  ; tool_concurrency_class : string option
-  ; evidence_role : evidence_role option [@default None]
+  ; tool_execution_mode : Tool.execution_mode option
   ; tool_result : string option
   ; tool_error : bool option
   ; hook_name : string option
@@ -119,7 +104,7 @@ type record =
   ; stop_reason : string option
   ; error : string option
   }
-[@@deriving yojson, show]
+[@@deriving show]
 
 type t =
   { path : string
@@ -143,7 +128,7 @@ type active_run =
 
 exception Trace_error of Error.sdk_error
 
-let trace_version = 1
+let trace_version = 2
 let json_parse_error = Util.json_parse_error
 
 let safe_name name =
@@ -180,20 +165,6 @@ let record_type_of_string = function
          (UnknownVariant { type_name = "raw_trace.record_type"; value = other }))
 ;;
 
-let evidence_role_to_string = function
-  | File_write -> "file_write"
-  | Verification -> "verification"
-;;
-
-let evidence_role_of_string = function
-  | "file_write" -> Ok File_write
-  | "verification" -> Ok Verification
-  | other ->
-    Error
-      (Error.Serialization
-         (UnknownVariant { type_name = "raw_trace.evidence_role"; value = other }))
-;;
-
 let option_assoc name value =
   match value with
   | Some json -> [ name, json ]
@@ -206,10 +177,6 @@ let option_bool name value = option_assoc name (Option.map (fun v -> `Bool v) va
 let option_json name value = option_assoc name value
 let tool_choice_to_json_opt value = Option.map Types.tool_choice_to_json value
 
-let evidence_role_to_json_opt value =
-  Option.map (fun role -> `String (evidence_role_to_string role)) value
-;;
-
 let tool_choice_of_json_opt json =
   match Yojson.Safe.Util.member "tool_choice" json with
   | `Null -> Ok None
@@ -218,20 +185,67 @@ let tool_choice_of_json_opt json =
     Some (Types.tool_choice_to_json tool_choice)
 ;;
 
-let evidence_role_of_json_opt json =
-  match Yojson.Safe.Util.member "evidence_role" json with
+let execution_mode_of_json_opt json =
+  match Yojson.Safe.Util.member "tool_execution_mode" json with
   | `Null -> Ok None
-  | `String value ->
-    let+ role = evidence_role_of_string value in
-    Some role
-  | (`Assoc _ | `List _ | `Bool _ | `Int _ | `Intlit _ | `Float _) as value ->
-    Error
-      (Error.Serialization
-         (UnknownVariant
-            { type_name = "raw_trace.evidence_role"; value = Yojson.Safe.to_string value }))
+  | value ->
+    (match Tool.execution_mode_of_yojson value with
+     | Ok mode -> Ok (Some mode)
+     | Error detail -> Error (Error.Serialization (JsonParseError { detail })))
 ;;
 
-let record_evidence_role (record : record) = record.evidence_role
+let validate_record_fields json =
+  let allowed =
+    [ "trace_version"
+    ; "worker_run_id"
+    ; "seq"
+    ; "ts"
+    ; "agent_name"
+    ; "session_id"
+    ; "record_type"
+    ; "prompt"
+    ; "model"
+    ; "tool_choice"
+    ; "enable_thinking"
+    ; "preserve_thinking"
+    ; "thinking_budget"
+    ; "reasoning_effort"
+    ; "block_index"
+    ; "block_kind"
+    ; "assistant_block"
+    ; "tool_use_id"
+    ; "tool_name"
+    ; "tool_input"
+    ; "tool_planned_index"
+    ; "tool_batch_index"
+    ; "tool_batch_size"
+    ; "tool_execution_mode"
+    ; "tool_result"
+    ; "tool_error"
+    ; "hook_name"
+    ; "hook_decision"
+    ; "hook_detail"
+    ; "final_text"
+    ; "stop_reason"
+    ; "error"
+    ]
+  in
+  let removed = [ "tool_concurrency_class"; "evidence_role" ] in
+  let field_error detail = Error (Error.Serialization (JsonParseError { detail })) in
+  let rec loop seen = function
+    | [] -> Ok ()
+    | (name, _) :: _ when List.mem name removed ->
+      field_error (Printf.sprintf "raw trace field %S has been removed" name)
+    | (name, _) :: _ when not (List.mem name allowed) ->
+      field_error (Printf.sprintf "raw trace field %S is not supported" name)
+    | (name, _) :: _ when List.mem name seen ->
+      field_error (Printf.sprintf "raw trace field %S is duplicated" name)
+    | (name, _) :: rest -> loop (name :: seen) rest
+  in
+  match json with
+  | `Assoc fields -> loop [] fields
+  | _ -> field_error "raw trace record must be a JSON object"
+;;
 
 let record_to_json (record : record) =
   `Assoc
@@ -252,6 +266,7 @@ let record_to_json (record : record) =
      @ option_bool "enable_thinking" record.enable_thinking
      @ option_bool "preserve_thinking" record.preserve_thinking
      @ option_int "thinking_budget" record.thinking_budget
+     @ option_string "reasoning_effort" record.reasoning_effort
      @ option_int "block_index" record.block_index
      @ option_string "block_kind" record.block_kind
      @ option_json "assistant_block" record.assistant_block
@@ -261,8 +276,9 @@ let record_to_json (record : record) =
      @ option_int "tool_planned_index" record.tool_planned_index
      @ option_int "tool_batch_index" record.tool_batch_index
      @ option_int "tool_batch_size" record.tool_batch_size
-     @ option_string "tool_concurrency_class" record.tool_concurrency_class
-     @ option_json "evidence_role" (evidence_role_to_json_opt record.evidence_role)
+     @ option_json
+         "tool_execution_mode"
+         (Option.map Tool.execution_mode_to_yojson record.tool_execution_mode)
      @ option_string "tool_result" record.tool_result
      @ option_bool "tool_error" record.tool_error
      @ option_string "hook_name" record.hook_name
@@ -273,13 +289,48 @@ let record_to_json (record : record) =
      @ option_string "error" record.error)
 ;;
 
-let record_of_json json =
+let record_of_json_unchecked json =
   let open Yojson.Safe.Util in
+  let* () = validate_record_fields json in
+  let got_version = json |> member "trace_version" |> to_int in
+  let* () =
+    if got_version = trace_version
+    then Ok ()
+    else
+      Error
+        (Error.Serialization
+           (VersionMismatch { expected = trace_version; got = got_version }))
+  in
   let* record_type = json |> member "record_type" |> to_string |> record_type_of_string in
   let* tool_choice = tool_choice_of_json_opt json in
-  let* evidence_role = evidence_role_of_json_opt json in
+  let* tool_execution_mode = execution_mode_of_json_opt json in
+  let* () =
+    match record_type, tool_execution_mode with
+    | Tool_execution_started, Some _ -> Ok ()
+    | Tool_execution_started, None ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail = "tool_execution_started requires tool_execution_mode" }))
+    | ( ( Run_started
+        | Assistant_block
+        | Tool_execution_finished
+        | Hook_invoked
+        | Run_finished )
+      , None ) -> Ok ()
+    | ( ( Run_started
+        | Assistant_block
+        | Tool_execution_finished
+        | Hook_invoked
+        | Run_finished )
+      , Some _ ) ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail = "tool_execution_mode is valid only for tool_execution_started" }))
+  in
   Ok
-    { trace_version = json |> member "trace_version" |> to_int
+    { trace_version = got_version
     ; worker_run_id = json |> member "worker_run_id" |> to_string
     ; seq = json |> member "seq" |> to_int
     ; ts = json |> member "ts" |> to_float
@@ -292,6 +343,7 @@ let record_of_json json =
     ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
     ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
     ; thinking_budget = json |> member "thinking_budget" |> to_int_option
+    ; reasoning_effort = json |> member "reasoning_effort" |> to_string_option
     ; block_index = json |> member "block_index" |> to_int_option
     ; block_kind = json |> member "block_kind" |> to_string_option
     ; assistant_block =
@@ -307,8 +359,7 @@ let record_of_json json =
     ; tool_planned_index = json |> member "tool_planned_index" |> to_int_option
     ; tool_batch_index = json |> member "tool_batch_index" |> to_int_option
     ; tool_batch_size = json |> member "tool_batch_size" |> to_int_option
-    ; tool_concurrency_class = json |> member "tool_concurrency_class" |> to_string_option
-    ; evidence_role
+    ; tool_execution_mode
     ; tool_result = json |> member "tool_result" |> to_string_option
     ; tool_error = json |> member "tool_error" |> to_bool_option
     ; hook_name = json |> member "hook_name" |> to_string_option
@@ -318,6 +369,19 @@ let record_of_json json =
     ; stop_reason = json |> member "stop_reason" |> to_string_option
     ; error = json |> member "error" |> to_string_option
     }
+;;
+
+let record_of_json json =
+  try record_of_json_unchecked json with
+  | Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
+;;
+
+let record_to_yojson = record_to_json
+
+let record_of_yojson json =
+  match record_of_json json with
+  | Ok record -> Ok record
+  | Error error -> Error (Error.to_string error)
 ;;
 
 let parse_json_string raw =
@@ -413,6 +477,7 @@ let append_record
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
+      ?reasoning_effort
       ?assistant_block
       ?tool_use_id
       ?tool_name
@@ -420,8 +485,7 @@ let append_record
       ?tool_planned_index
       ?tool_batch_index
       ?tool_batch_size
-      ?tool_concurrency_class
-      ?evidence_role
+      ?tool_execution_mode
       ?tool_result
       ?tool_error
       ?hook_name
@@ -454,6 +518,7 @@ let append_record
       ; enable_thinking
       ; preserve_thinking
       ; thinking_budget
+      ; reasoning_effort
       ; block_index
       ; block_kind
       ; assistant_block = Option.map maybe_redact_json assistant_block
@@ -463,8 +528,7 @@ let append_record
       ; tool_planned_index
       ; tool_batch_index
       ; tool_batch_size
-      ; tool_concurrency_class
-      ; evidence_role
+      ; tool_execution_mode
       ; tool_result = Option.map maybe_redact_string tool_result
       ; tool_error
       ; hook_name
@@ -491,6 +555,7 @@ let start_run
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
+      ?reasoning_effort
       ()
   =
   let worker_run_id =
@@ -516,6 +581,7 @@ let start_run
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
+      ?reasoning_effort
       ()
   in
   active
@@ -553,7 +619,7 @@ let record_tool_execution_started
       ~planned_index
       ~batch_index
       ~batch_size
-      ~concurrency_class
+      ~execution_mode
   =
   append_record
     active
@@ -564,7 +630,7 @@ let record_tool_execution_started
     ~tool_planned_index:planned_index
     ~tool_batch_index:batch_index
     ~tool_batch_size:batch_size
-    ~tool_concurrency_class:concurrency_class
+    ~tool_execution_mode:execution_mode
     ()
   |> Result.map (fun _ -> ())
 ;;
@@ -574,7 +640,6 @@ let record_tool_execution_finished
       ~tool_use_id
       ~tool_name
       ~tool_result
-      ?evidence_role
       ~tool_error
       ()
   =
@@ -584,7 +649,6 @@ let record_tool_execution_finished
     ~tool_use_id
     ~tool_name
     ~tool_result
-    ?evidence_role
     ~tool_error
     ()
   |> Result.map (fun _ -> ())

@@ -46,7 +46,10 @@ Registered in `lib/telemetry_sca_registry.ml:24` as a known signal. Serialized v
 
 ### 1.3 Observable cost
 
-- 300-chunk record-set per completion on bounded `Event_bus` (default depth 256, `lib/telemetry_bus.mli`) forces drains to compete with higher-level events for the same queue slots.
+- A 300-chunk record-set per completion consumes 300 slots in every matching
+  subscriber's explicitly sized bounded queue. Depending on that subscriber's
+  chosen overflow behavior, the excess evicts older observations or discards
+  newer ones; the bus records either outcome in `dropped_total`.
 - Downstream sinks that persist raw payloads inflate by O(chunks). The signal-to-record ratio approaches one informational record per attempt buried in hundreds of indistinguishable chunk records.
 - No aggregation aid is provided: each record has only the latest gap, not the lifecycle distribution (TTFT, p50/p95/max inter-chunk, kind breakdown, terminal cause). Operators reading the bus cannot reconstruct what the stream actually did without re-aggregating downstream.
 

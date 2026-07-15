@@ -1,10 +1,8 @@
 (** Explicit runtime contract helpers.
 
-    The SDK already had the primitives needed to shape an agent run
-    (system prompt, tools, MCP clients, guardrails, context).  This module
-    packages those primitives into a first-class contract so callers can
-    declare runtime awareness, trigger context, tool grants, MCP allowlists,
-    and skill bundles in one place. *)
+    The SDK already had prompt and context primitives needed to shape an agent
+    run. This module packages those primitives into a first-class contract so callers can
+    declare runtime awareness, trigger context, and skill bundles in one place. *)
 
 type trigger =
   { kind : string
@@ -23,39 +21,17 @@ type t =
   ; trigger : trigger option
   ; instruction_layers : instruction_layer list
   ; skills : Skill.t list
-  ; tool_grants : string list option
-  ; mcp_tool_allowlist : string list option
-  ; quota_allocations : Llm_provider.Request_priority.quota_allocation list option
   }
 
 let context_key = "agent_sdk.contract"
 
 let empty =
-  { runtime_awareness = None
-  ; trigger = None
-  ; instruction_layers = []
-  ; skills = []
-  ; tool_grants = None
-  ; mcp_tool_allowlist = None
-  ; quota_allocations = None
-  }
+  { runtime_awareness = None; trigger = None; instruction_layers = []; skills = [] }
 ;;
 
 let trim_to_option value =
   let trimmed = String.trim value in
   if trimmed = "" then None else Some trimmed
-;;
-
-let normalize_names names =
-  let seen = Hashtbl.create (List.length names) in
-  names
-  |> List.filter_map trim_to_option
-  |> List.filter (fun name ->
-    if Hashtbl.mem seen name
-    then false
-    else (
-      Hashtbl.add seen name ();
-      true))
 ;;
 
 let dedupe_skills skills =
@@ -111,26 +87,6 @@ let with_skills skills contract =
   { contract with skills = dedupe_skills (contract.skills @ skills) }
 ;;
 
-let with_tool_grants names contract =
-  { contract with tool_grants = Some (normalize_names names) }
-;;
-
-let with_mcp_tool_allowlist names contract =
-  { contract with mcp_tool_allowlist = Some (normalize_names names) }
-;;
-
-let with_quota_allocations allocations contract =
-  { contract with quota_allocations = Some allocations }
-;;
-
-let with_default_quota_allocations ~total_requests_per_minute contract =
-  match
-    Llm_provider.Request_priority.default_quota_allocations ~total_requests_per_minute
-  with
-  | Ok allocations -> Ok (with_quota_allocations allocations contract)
-  | Error _ as error -> error
-;;
-
 let merge left right =
   { runtime_awareness =
       (match right.runtime_awareness with
@@ -142,18 +98,6 @@ let merge left right =
        | None -> left.trigger)
   ; instruction_layers = left.instruction_layers @ right.instruction_layers
   ; skills = dedupe_skills (left.skills @ right.skills)
-  ; tool_grants =
-      (match right.tool_grants with
-       | Some _ -> right.tool_grants
-       | None -> left.tool_grants)
-  ; mcp_tool_allowlist =
-      (match right.mcp_tool_allowlist with
-       | Some _ -> right.mcp_tool_allowlist
-       | None -> left.mcp_tool_allowlist)
-  ; quota_allocations =
-      (match right.quota_allocations with
-       | Some _ -> right.quota_allocations
-       | None -> left.quota_allocations)
   }
 ;;
 
@@ -162,9 +106,6 @@ let is_empty contract =
   && contract.trigger = None
   && contract.instruction_layers = []
   && contract.skills = []
-  && contract.tool_grants = None
-  && contract.mcp_tool_allowlist = None
-  && contract.quota_allocations = None
 ;;
 
 let trigger_to_json trigger =
@@ -196,25 +137,6 @@ let skill_to_json (skill : Skill.t) =
     ]
 ;;
 
-let string_list_option_to_json = function
-  | None -> `Null
-  | Some values -> Util.json_of_string_list values
-;;
-
-let quota_allocation_to_json (allocation : Llm_provider.Request_priority.quota_allocation)
-  =
-  `Assoc
-    [ "tier", `String (Llm_provider.Request_priority.quota_tier_label allocation.tier)
-    ; "share_percent", `Int allocation.share_percent
-    ; "requests_per_minute", `Int allocation.requests_per_minute
-    ]
-;;
-
-let quota_allocations_to_json = function
-  | None -> `Null
-  | Some allocations -> `List (List.map quota_allocation_to_json allocations)
-;;
-
 let to_json contract =
   `Assoc
     [ ( "runtime_awareness"
@@ -225,9 +147,6 @@ let to_json contract =
     ; ( "instruction_layers"
       , `List (List.map instruction_layer_to_json contract.instruction_layers) )
     ; "skills", `List (List.map skill_to_json contract.skills)
-    ; "tool_grants", string_list_option_to_json contract.tool_grants
-    ; "mcp_tool_allowlist", string_list_option_to_json contract.mcp_tool_allowlist
-    ; "quota_allocations", quota_allocations_to_json contract.quota_allocations
     ]
 ;;
 
@@ -276,28 +195,6 @@ let compose_system_prompt ?base contract =
   match sections with
   | [] -> None
   | _ -> Some (String.concat "\n\n" sections)
-;;
-
-let filter_tools contract tools =
-  match contract.tool_grants with
-  | None -> tools
-  | Some allowed ->
-    List.filter (fun (tool : Tool.t) -> List.mem tool.schema.name allowed) tools
-;;
-
-let filter_mcp_clients contract clients =
-  match contract.mcp_tool_allowlist with
-  | None -> clients
-  | Some allowed ->
-    List.map
-      (fun (managed : Mcp.managed) ->
-         let tools =
-           List.filter
-             (fun (tool : Tool.t) -> List.mem tool.schema.name allowed)
-             managed.tools
-         in
-         { managed with tools })
-      clients
 ;;
 
 let context_with_contract ?context contract =

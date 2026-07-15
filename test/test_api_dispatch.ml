@@ -10,7 +10,7 @@ open Agent_sdk
 
 let base_state =
   { Types.config =
-      { Types.default_config with
+      { (Types.default_config ~model:"test-model") with
         name = "test-dispatch"
       ; model = "test-model"
       ; system_prompt = Some "You are a test assistant."
@@ -39,6 +39,17 @@ let json_get key json =
   match json with
   | `Assoc pairs -> List.assoc_opt key pairs
   | _ -> None
+;;
+
+let declared_pricing model_id =
+  match Provider.pricing_for_model_opt model_id with
+  | Some pricing -> pricing
+  | None -> failf "expected catalog pricing for %S" model_id
+;;
+
+let require_estimated_cost = function
+  | Provider.Estimated cost -> cost
+  | Provider.Incomplete _ -> fail "expected an exact cost estimate"
 ;;
 
 (* ── Anthropic body shape ────────────────────────────────────── *)
@@ -120,10 +131,10 @@ let test_openai_body_shape () =
   let json = Yojson.Safe.from_string body_str in
   check bool "has model" true (json_has_key "model" json);
   check bool "has messages" true (json_has_key "messages" json);
-  (* build_openai_body uses config.model, not provider_config.model_id *)
+  (* The dispatched request is bound to the exact provider configuration. *)
   match json_get "model" json with
-  | Some (`String "test-model") -> ()
-  | _ -> fail "model should come from config"
+  | Some (`String "gpt") -> ()
+  | _ -> fail "model should come from provider_config"
 ;;
 
 let test_openai_parse_response () =
@@ -187,28 +198,42 @@ let test_request_kind_routing () =
 (* ── Pricing ─────────────────────────────────────────────────── *)
 
 let test_pricing_known_models () =
-  let p_opus = Provider.pricing_for_model "claude-opus-4-6" in
+  let p_opus = declared_pricing "claude-opus-4-6" in
   check (float 0.01) "opus input" 15.0 p_opus.input_per_million;
-  let p_gpt4o = Provider.pricing_for_model "gpt" in
+  let p_gpt4o = declared_pricing "gpt" in
   check (float 0.01) "gpt4o input" 2.5 p_gpt4o.input_per_million;
-  let p_mini = Provider.pricing_for_model "gpt-mini" in
+  let p_mini = declared_pricing "gpt-mini" in
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
-  let p_local = Provider.pricing_for_model "dashscope-3.5-35b" in
-  check (float 0.01) "local free" 0.0 p_local.input_per_million;
-  let p_llama = Provider.pricing_for_model "llama-3.1-70b" in
-  check (float 0.01) "llama free" 0.0 p_llama.input_per_million
+  check
+    bool
+    "catalog zero remains declared despite absent cache multipliers"
+    true
+    (match Provider.pricing_for_model_opt "dashscope-3.5-35b" with
+     | Some
+         { input_per_million = 0.0
+         ; output_per_million = 0.0
+         ; cache_write_multiplier = None
+         ; cache_read_multiplier = None
+         } -> true
+     | Some _ | None -> false);
+  check
+    bool
+    "undeclared local model remains unpriced"
+    true
+    (Option.is_none (Provider.pricing_for_model_opt "llama-3.1-70b"))
 ;;
 
 let test_pricing_cost_estimation () =
   let pricing =
     { Provider.input_per_million = 3.0
     ; output_per_million = 15.0
-    ; cache_write_multiplier = 1.25
-    ; cache_read_multiplier = 0.1
+    ; cache_write_multiplier = Some 1.25
+    ; cache_read_multiplier = Some 0.1
     }
   in
   let cost =
     Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
+    |> require_estimated_cost
   in
   check (float 0.01) "cost" 4.5 cost
 ;;
@@ -278,7 +303,7 @@ let test_anthropic_cache_usage_parsing () =
 (* ── Cache-aware cost estimation ─────────────────────────────── *)
 
 let test_cache_cost_calculation () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = declared_pricing "claude-sonnet-4-6" in
   (* Sonnet: 3.0/M input, 15.0/M output, cache_write=1.25x, cache_read=0.1x *)
   let cost =
     Provider.estimate_cost
@@ -288,6 +313,7 @@ let test_cache_cost_calculation () =
       ~cache_creation_input_tokens:500_000
       ~cache_read_input_tokens:300_000
       ()
+    |> require_estimated_cost
   in
   (* regular = 1M - 500K - 300K = 200K -> 200K * 3.0/1M = 0.6
      cache_write = 500K * 3.0/1M * 1.25 = 1.875
@@ -297,9 +323,10 @@ let test_cache_cost_calculation () =
 ;;
 
 let test_cache_cost_no_cache_tokens () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = declared_pricing "claude-sonnet-4-6" in
   let cost_with =
     Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
+    |> require_estimated_cost
   in
   let cost_explicit =
     Provider.estimate_cost
@@ -309,15 +336,24 @@ let test_cache_cost_no_cache_tokens () =
       ~cache_creation_input_tokens:0
       ~cache_read_input_tokens:0
       ()
+    |> require_estimated_cost
   in
   check (float 0.0001) "zero cache same as default" cost_with cost_explicit
 ;;
 
 let test_cache_multipliers_for_non_anthropic () =
-  let pricing = Provider.pricing_for_model "gpt" in
+  let pricing = declared_pricing "gpt" in
   (* Openai: no cache pricing, multipliers are 1.0 *)
-  check (float 0.001) "no cache write discount" 1.0 pricing.cache_write_multiplier;
-  check (float 0.001) "no cache read discount" 1.0 pricing.cache_read_multiplier
+  check
+    (option (float 0.001))
+    "no cache write discount"
+    (Some 1.0)
+    pricing.cache_write_multiplier;
+  check
+    (option (float 0.001))
+    "no cache read discount"
+    (Some 1.0)
+    pricing.cache_read_multiplier
 ;;
 
 (* ── Test runner ─────────────────────────────────────────────── *)

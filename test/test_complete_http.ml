@@ -1,5 +1,5 @@
 (** HTTP-level tests for Complete module using mock cohttp-eio server.
-    Tests complete, complete_with_retry, complete_stream.
+    Tests one-shot complete and complete_stream.
     No real LLM calls — all responses are canned JSON. *)
 
 open Alcotest
@@ -344,7 +344,7 @@ let test_complete_http_empty_error_body_has_context () =
         string
         "diagnostic body"
         (Printf.sprintf
-           "empty HTTP 404 response from provider=claude model=test-model base_url=%s \
+           "empty HTTP 404 response from provider=anthropic model=test-model base_url=%s \
             request_path=/v1/messages url=%s/v1/messages"
            url
            url)
@@ -842,34 +842,6 @@ let test_complete_tool_call_metrics () =
   | Exit -> ()
 ;;
 
-(* ── complete_with_retry: success first try ──────────── *)
-
-let test_retry_first_try () =
-  Eio_main.run
-  @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "first try ok") in
-    let config = make_config url in
-    match Complete.complete_with_retry ~sw ~net:env#net ~clock ~config ~messages () with
-    | Ok resp ->
-      let text =
-        List.filter_map
-          (function
-            | Types.Text s -> Some s
-            | _ -> None)
-          resp.content
-        |> String.concat ""
-      in
-      check string "text" "first try ok" text;
-      Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok"
-  with
-  | Exit -> ()
-;;
-
 (* ── complete: 401 non-retryable ─────────────────────── *)
 
 let test_complete_non_retryable () =
@@ -1239,6 +1211,40 @@ let read_http_request flow =
   if content_length > 0 then ignore (Eio.Buf_read.take content_length reader : string)
 ;;
 
+let start_raw_sync_server ~sw ~net ~clock ~body_delay_sec response_body =
+  let port = fresh_port () in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork
+      ~sw
+      socket
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         try
+           read_http_request flow;
+           Eio.Flow.copy_string
+             (Printf.sprintf
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: %d\r\n\
+                 Connection: close\r\n\
+                 \r\n"
+                (String.length response_body))
+             flow;
+           Eio.Time.sleep clock body_delay_sec;
+           Eio.Flow.copy_string response_body flow
+         with
+         | _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
 let start_raw_sse_server ~sw ~net ~clock delayed_frames =
   let port = fresh_port () in
   let socket =
@@ -1587,6 +1593,143 @@ let test_complete_stream_on_event_exception_is_nonfatal () =
     | Error _ -> fail "expected Ok"
   with
   | Exit -> ()
+;;
+
+let test_complete_stream_wire_observer_rejection_is_typed_nonfatal () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let token = "Authorization: Bearer opaque-token" in
+    let url = start_sse_server ~sw ~net:env#net (anthropic_sse_response token) in
+    let config = make_config url in
+    let observations = ref [] in
+    let telemetry = ref [] in
+    let wire_observer observation =
+      observations := observation :: !observations;
+      Error Wire_observer.{ reason = "caller queue unavailable" }
+    in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~capture_id:"request-wire-1"
+        ~wire_observer
+        ~config
+        ~messages
+        ~on_event:(fun _ -> ())
+        ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+        ()
+    with
+    | Error _ -> fail "wire observer rejection changed the provider result"
+    | Ok response ->
+      check string "provider response preserved" token (text_of_response response);
+      check bool "raw chunks were offered" true (List.length !observations > 0);
+      List.iter
+        (fun (observation : Wire_observer.observation) ->
+           check
+             (option string)
+             "exact capture id"
+             (Some "request-wire-1")
+             observation.capture_id;
+           check string "exact provider" "anthropic" observation.provider;
+           check string "exact model" "test-model" observation.model;
+           check
+             bool
+             "raw token absent"
+             false
+             (contains_substring ~sub:token observation.redacted_chunk))
+        !observations;
+      check
+        bool
+        "redacted token observed"
+        true
+        (List.exists
+           (fun (observation : Wire_observer.observation) ->
+              contains_substring ~sub:"[REDACTED]" observation.redacted_chunk)
+           !observations);
+      let failures =
+        List.filter_map
+          (function
+            | Telemetry_event.Wire_observer_failure failure -> Some failure
+            | _ -> None)
+          !telemetry
+      in
+      check
+        int
+        "one failure per rejected offer"
+        (List.length !observations)
+        (List.length failures);
+      List.iter
+        (fun (failure : Wire_observer.failure) ->
+           match failure.cause with
+           | Observer_rejected { reason } ->
+             check string "exact rejection" "caller queue unavailable" reason
+           | Observer_raised _ -> fail "rejection was relabelled as an exception")
+        failures;
+      Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_wire_failure_telemetry_exception_is_nonfatal () =
+  let diagnostics = ref [] in
+  Diag.with_sink
+    (fun _level ~ctx message -> diagnostics := (ctx, message) :: !diagnostics)
+    (fun () ->
+       Eio_main.run
+       @@ fun env ->
+       try
+         Eio.Switch.run
+         @@ fun sw ->
+         let url =
+           start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed text")
+         in
+         let config = make_config url in
+         let observer_calls = ref 0 in
+         let wire_observer _observation =
+           incr observer_calls;
+           failwith "wire observer unavailable"
+         in
+         let on_telemetry = function
+           | Telemetry_event.Wire_observer_failure _ ->
+             failwith "telemetry observer unavailable"
+           | _ -> ()
+         in
+         (match
+            Complete.complete_stream
+              ~sw
+              ~net:env#net
+              ~wire_observer
+              ~config
+              ~messages
+              ~on_event:(fun _ -> ())
+              ~on_telemetry
+              ()
+          with
+          | Error _ ->
+            fail "wire failure telemetry callback exception changed the provider result"
+          | Ok response ->
+            check
+              string
+              "provider response preserved"
+              "streamed text"
+              (text_of_response response));
+         check bool "wire observer invoked" true (!observer_calls > 0);
+         check
+           bool
+           "telemetry callback failure reached diagnostic fallback"
+           true
+           (List.exists
+              (fun (ctx, message) ->
+                 String.equal ctx "wire_observer"
+                 && contains_substring ~sub:"telemetry observer unavailable" message
+                 && contains_substring ~sub:"wire observer unavailable" message)
+              !diagnostics);
+         Eio.Switch.fail sw Exit
+       with
+       | Exit -> ())
 ;;
 
 let test_complete_stream_transport_on_event_exception_is_nonfatal () =
@@ -2169,6 +2312,487 @@ let test_complete_body_timeout_does_not_fire_on_fast_response () =
   | Exit -> ()
 ;;
 
+let test_complete_sync_uses_only_outer_body_timeout () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_raw_sync_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~body_delay_sec:0.08
+        (anthropic_response "slow body")
+    in
+    let config = { (make_config url) with connect_timeout_s = Some 0.02 } in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~clock:env#clock
+         ~config
+         ~messages
+         ~body_timeout_s:0.5
+         ()
+     with
+     | Ok response -> check string "body" "slow body" (text_of_response response)
+     | Error _ -> fail "nested connect timeout incorrectly capped sync body");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_body_timeout_without_clock_rejected_before_request () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        (anthropic_response "must not arrive")
+    in
+    let config = make_config url in
+    (match
+       Complete.complete ~sw ~net:env#net ~config ~messages ~body_timeout_s:60.0 ()
+     with
+     | Error (Http_client.AcceptRejected _) ->
+       check int "request rejected before HTTP I/O" 0 !request_count
+     | Ok _ -> fail "expected AcceptRejected for body_timeout_s without clock"
+     | Error _ -> fail "expected typed AcceptRejected for body_timeout_s without clock");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_body_timeout_requires_finite_positive_value_before_request () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        (anthropic_response "positive timeout")
+    in
+    let config = make_config url in
+    let invalid_cases =
+      [ "zero", 0.0
+      ; "negative", -1.0
+      ; "nan", Float.nan
+      ; "positive infinity", Float.infinity
+      ; "negative infinity", Float.neg_infinity
+      ]
+    in
+    List.iter
+      (fun (label, body_timeout_s) ->
+         match
+           Complete.complete
+             ~sw
+             ~net:env#net
+             ~clock:env#clock
+             ~config
+             ~messages
+             ~body_timeout_s
+             ()
+         with
+         | Error (Http_client.AcceptRejected _) ->
+           check int (label ^ " rejected before HTTP I/O") 0 !request_count
+         | Ok _ -> failf "%s timeout was accepted" label
+         | Error _ -> failf "%s timeout returned the wrong typed error" label)
+      invalid_cases;
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~clock:env#clock
+         ~config
+         ~messages
+         ~body_timeout_s:60.0
+         ()
+     with
+     | Ok resp ->
+       let text =
+         List.filter_map
+           (function
+             | Types.Text value -> Some value
+             | _ -> None)
+           resp.content
+         |> String.concat ""
+       in
+       check string "positive timeout response" "positive timeout" text;
+       check int "positive timeout performs one request" 1 !request_count
+     | Error _ -> fail "positive timeout was rejected");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_without_body_timeout_or_clock_succeeds () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net (anthropic_response "unbounded") in
+    let config = make_config url in
+    (match Complete.complete ~sw ~net:env#net ~config ~messages () with
+     | Ok resp ->
+       let text =
+         List.filter_map
+           (function
+             | Types.Text value -> Some value
+             | _ -> None)
+           resp.content
+         |> String.concat ""
+       in
+       check string "no-timeout response" "unbounded" text
+     | Error _ -> fail "no timeout and no clock must preserve unbounded HTTP behavior");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_injected_transport_without_timeout_is_unbounded () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = mock_transport_response "injected unbounded" in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr calls;
+          { Llm_transport.response = Ok response; latency_ms = Some 1 })
+    }
+  in
+  match
+    Complete.complete ~sw ~net:env#net ~transport ~config:(make_config "") ~messages ()
+  with
+  | Ok resp ->
+    check
+      string
+      "unbounded injected response"
+      "injected unbounded"
+      (text_of_response resp);
+    check int "unbounded injected call count" 1 !calls
+  | Error _ -> fail "injected transport without body_timeout_s was rejected"
+;;
+
+let test_complete_injected_transport_rejects_invalid_deadlines_before_call () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = mock_transport_response "must not run" in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr calls;
+          { Llm_transport.response = Ok response; latency_ms = Some 1 })
+    }
+  in
+  let config = make_config "" in
+  (match
+     Complete.complete
+       ~sw
+       ~net:env#net
+       ~transport
+       ~config
+       ~messages
+       ~body_timeout_s:1.0
+       ()
+   with
+   | Error (Http_client.AcceptRejected _) -> ()
+   | Ok _ -> fail "injected timeout without clock was accepted"
+   | Error _ -> fail "injected timeout without clock returned the wrong typed error");
+  let invalid_cases =
+    [ "zero", 0.0
+    ; "negative", -1.0
+    ; "nan", Float.nan
+    ; "positive infinity", Float.infinity
+    ; "negative infinity", Float.neg_infinity
+    ]
+  in
+  List.iter
+    (fun (label, body_timeout_s) ->
+       match
+         Complete.complete
+           ~sw
+           ~net:env#net
+           ~clock:env#clock
+           ~transport
+           ~config
+           ~messages
+           ~body_timeout_s
+           ()
+       with
+       | Error (Http_client.AcceptRejected _) -> ()
+       | Ok _ -> failf "%s injected timeout was accepted" label
+       | Error _ -> failf "%s injected timeout returned the wrong typed error" label)
+    invalid_cases;
+  check int "invalid deadlines call injected transport zero times" 0 !calls
+;;
+
+let test_complete_injected_transport_positive_timeout_succeeds () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = mock_transport_response "injected bounded" in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr calls;
+          { Llm_transport.response = Ok response; latency_ms = Some 1 })
+    }
+  in
+  match
+    Complete.complete
+      ~sw
+      ~net:env#net
+      ~clock:env#clock
+      ~transport
+      ~config:(make_config "")
+      ~messages
+      ~body_timeout_s:1.0
+      ()
+  with
+  | Ok resp ->
+    check string "bounded injected response" "injected bounded" (text_of_response resp);
+    check int "bounded injected call count" 1 !calls
+  | Error _ -> fail "positive injected body_timeout_s was rejected"
+;;
+
+let test_complete_injected_transport_timeout_is_typed () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = mock_transport_response "must time out" in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr calls;
+          Eio.Time.sleep env#clock 1.0;
+          { Llm_transport.response = Ok response; latency_ms = Some 1 })
+    }
+  in
+  match
+    Complete.complete
+      ~sw
+      ~net:env#net
+      ~clock:env#clock
+      ~transport
+      ~config:(make_config "")
+      ~messages
+      ~body_timeout_s:0.01
+      ()
+  with
+  | Error (Http_client.TimeoutError { phase = Http_client.Non_streaming_body; message })
+    ->
+    check
+      string
+      "injected timeout message preserves exact caller deadline"
+      "body_timeout_s deadline exceeded after 0.01s (Complete.complete injected sync \
+       transport)"
+      message;
+    check int "expired injected transport call count" 1 !calls
+  | Ok _ -> fail "slow injected transport escaped body_timeout_s"
+  | Error _ -> fail "injected expiry returned the wrong typed error"
+;;
+
+let test_complete_injected_transport_inner_timeout_is_not_relabelled () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let response = mock_transport_response "must raise" in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr calls;
+          raise Eio.Time.Timeout)
+    }
+  in
+  let propagated =
+    try
+      ignore
+        (Complete.complete
+           ~sw
+           ~net:env#net
+           ~clock:env#clock
+           ~transport
+           ~config:(make_config "")
+           ~messages
+           ~body_timeout_s:1.0
+           ());
+      false
+    with
+    | Eio.Time.Timeout -> true
+  in
+  check bool "transport-owned timeout exception propagates" true propagated;
+  check int "inner timeout transport call count" 1 !calls
+;;
+
+let test_complete_deadline_preflight_precedes_cache_hit () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let cache_reads = ref 0 in
+  let transport_calls = ref 0 in
+  let response = mock_transport_response "cached" in
+  let cache : Cache.t =
+    { get =
+        (fun ~key:_ ->
+          incr cache_reads;
+          Some (Cache.response_to_json response))
+    ; set = (fun ~key:_ ~ttl_sec:_ _ -> ())
+    }
+  in
+  let transport =
+    { (make_transport (Ok response)) with
+      complete_sync =
+        (fun _ ->
+          incr transport_calls;
+          { Llm_transport.response = Ok response; latency_ms = Some 1 })
+    }
+  in
+  match
+    Complete.complete
+      ~sw
+      ~net:env#net
+      ~transport
+      ~config:(make_config "")
+      ~messages
+      ~cache
+      ~body_timeout_s:1.0
+      ()
+  with
+  | Error (Http_client.AcceptRejected _) ->
+    check int "deadline preflight precedes cache lookup" 0 !cache_reads;
+    check int "deadline preflight precedes transport" 0 !transport_calls
+  | Ok _ -> fail "cache hit silently bypassed invalid deadline contract"
+  | Error _ -> fail "cache preflight returned the wrong typed error"
+;;
+
+let check_accept_rejected ~label ~needle = function
+  | Error (Http_client.AcceptRejected { reason }) ->
+    check bool (label ^ " reason") true (contains_substring ~sub:needle reason)
+  | Ok _ -> failf "%s unexpectedly succeeded" label
+  | Error _ -> failf "%s returned a non-AcceptRejected error" label
+;;
+
+let test_complete_rejects_unsupported_reasoning_before_io () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let base_url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        (anthropic_response "must not arrive")
+    in
+    let capabilities =
+      { Capabilities.gemini_capabilities with
+        accepted_reasoning_efforts = Some [ Reasoning_effort.Low ]
+      }
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Gemini
+        ~model_id:"explicit-gemini-contract"
+        ~base_url
+        ~reasoning_effort:Reasoning_effort.High
+        ~model_capabilities_override:capabilities
+        ()
+    in
+    check_accept_rejected
+      ~label:"sync unsupported reasoning effort"
+      ~needle:"does not accept reasoning effort"
+      (Complete.complete ~sw ~net:env#net ~config ~messages ());
+    check_accept_rejected
+      ~label:"stream unsupported reasoning effort"
+      ~needle:"does not accept reasoning effort"
+      (Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config
+         ~messages
+         ~on_event:(fun _ -> ())
+         ());
+    check int "unsupported effort performs no HTTP request" 0 !request_count;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_rejects_missing_anthropic_output_ceiling_before_io () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let base_url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        (anthropic_response "must not arrive")
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Anthropic
+        ~model_id:"undeclared-anthropic-model"
+        ~base_url
+        ()
+    in
+    check_accept_rejected
+      ~label:"sync missing Anthropic output ceiling"
+      ~needle:"requires max_tokens"
+      (Complete.complete ~sw ~net:env#net ~config ~messages ());
+    check_accept_rejected
+      ~label:"stream missing Anthropic output ceiling"
+      ~needle:"requires max_tokens"
+      (Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config
+         ~messages
+         ~on_event:(fun _ -> ())
+         ());
+    check int "missing output ceiling performs no HTTP request" 0 !request_count;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -2228,6 +2852,54 @@ let () =
             "body_timeout_s no-op on fast response"
             `Quick
             test_complete_body_timeout_does_not_fire_on_fast_response
+        ; test_case
+            "sync uses only outer body timeout"
+            `Quick
+            test_complete_sync_uses_only_outer_body_timeout
+        ; test_case
+            "body_timeout_s without clock rejects before request"
+            `Quick
+            test_complete_body_timeout_without_clock_rejected_before_request
+        ; test_case
+            "body_timeout_s requires a finite positive value before request"
+            `Quick
+            test_complete_body_timeout_requires_finite_positive_value_before_request
+        ; test_case
+            "no body timeout and no clock stays unbounded"
+            `Quick
+            test_complete_without_body_timeout_or_clock_succeeds
+        ; test_case
+            "injected transport without body timeout stays unbounded"
+            `Quick
+            test_complete_injected_transport_without_timeout_is_unbounded
+        ; test_case
+            "injected transport rejects invalid deadlines before call"
+            `Quick
+            test_complete_injected_transport_rejects_invalid_deadlines_before_call
+        ; test_case
+            "injected transport accepts a positive body timeout"
+            `Quick
+            test_complete_injected_transport_positive_timeout_succeeds
+        ; test_case
+            "injected transport expiry is a typed body timeout"
+            `Quick
+            test_complete_injected_transport_timeout_is_typed
+        ; test_case
+            "injected transport inner timeout is not relabelled"
+            `Quick
+            test_complete_injected_transport_inner_timeout_is_not_relabelled
+        ; test_case
+            "deadline preflight precedes cache hit"
+            `Quick
+            test_complete_deadline_preflight_precedes_cache_hit
+        ; test_case
+            "unsupported reasoning rejects before sync or stream I/O"
+            `Quick
+            test_complete_rejects_unsupported_reasoning_before_io
+        ; test_case
+            "missing Anthropic output ceiling rejects before sync or stream I/O"
+            `Quick
+            test_complete_rejects_missing_anthropic_output_ceiling_before_io
         ] )
     ; "cache", [ test_case "store and hit" `Quick test_complete_cache_store_and_hit ]
     ; ( "metrics"
@@ -2250,7 +2922,6 @@ let () =
             `Quick
             test_metrics_global_used_when_no_per_call_metrics
         ] )
-    ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
         ; test_case
@@ -2269,6 +2940,14 @@ let () =
             "on_event exceptions are nonfatal"
             `Quick
             test_complete_stream_on_event_exception_is_nonfatal
+        ; test_case
+            "wire observer rejection is typed and nonfatal"
+            `Quick
+            test_complete_stream_wire_observer_rejection_is_typed_nonfatal
+        ; test_case
+            "wire failure telemetry exception is nonfatal"
+            `Quick
+            test_complete_stream_wire_failure_telemetry_exception_is_nonfatal
         ; test_case
             "transport on_event exceptions are nonfatal"
             `Quick

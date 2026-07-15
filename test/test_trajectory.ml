@@ -1,4 +1,4 @@
-(** Tests for Trajectory and Sandbox_runner modules. *)
+(** Tests for trajectory capture and serialization. *)
 
 open Agent_sdk
 
@@ -18,6 +18,7 @@ let make_record
       ?tool_use_id
       ?tool_name
       ?tool_input
+      ?tool_execution_mode
       ?tool_result
       ?tool_error
       ?final_text
@@ -26,7 +27,7 @@ let make_record
       ()
   : Raw_trace.record
   =
-  { trace_version = 1
+  { trace_version = Raw_trace.trace_version
   ; worker_run_id = "wr-test-0000"
   ; seq
   ; ts
@@ -39,6 +40,7 @@ let make_record
   ; enable_thinking = None
   ; preserve_thinking = None
   ; thinking_budget = None
+  ; reasoning_effort = None
   ; block_index = None
   ; block_kind
   ; assistant_block
@@ -48,8 +50,7 @@ let make_record
   ; tool_planned_index = None
   ; tool_batch_index = None
   ; tool_batch_size = None
-  ; tool_concurrency_class = None
-  ; evidence_role = None
+  ; tool_execution_mode
   ; tool_result
   ; tool_error
   ; hook_name = None
@@ -127,6 +128,7 @@ let test_tool_call_pairing () =
         ~tool_use_id:"tu-1"
         ~tool_name:"read_file"
         ~tool_input:(`Assoc [ "path", `String "/foo" ])
+        ~tool_execution_mode:Tool.Serial
         ()
     ; make_record
         ~seq:3
@@ -245,6 +247,7 @@ let test_unfinished_tool () =
         ~tool_use_id:"tu-pending"
         ~tool_name:"long_op"
         ~tool_input:(`Assoc [])
+        ~tool_execution_mode:Tool.Serial
         ()
     ; make_record
         ~seq:3
@@ -299,6 +302,7 @@ let test_json_roundtrip () =
         ~tool_use_id:"tu-rt"
         ~tool_name:"search"
         ~tool_input:(`Assoc [ "q", `String "test" ])
+        ~tool_execution_mode:Tool.Concurrent
         ()
     ; make_record
         ~seq:4
@@ -435,194 +439,6 @@ let test_elapsed_s_none () =
   Alcotest.(check (option (float 0.001))) "no elapsed" None (Trajectory.elapsed_s traj)
 ;;
 
-(* ── Sandbox_runner ──────────────────────────────────────────── *)
-
-let mock_response text : Types.api_response =
-  { id = "msg-test"
-  ; model = "mock"
-  ; stop_reason = EndTurn
-  ; content = [ Text text ]
-  ; usage = None
-  ; telemetry = None
-  }
-;;
-
-let test_sandbox_basic () =
-  let call_count = ref 0 in
-  let run_fn _prompt =
-    incr call_count;
-    Ok (mock_response "hello from mock")
-  in
-  let config : Sandbox_runner.sandbox_config =
-    { timeout_s = 10.0; max_turns = 5; max_tool_calls = 10; capture_trajectory = true }
-  in
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"sandbox-test"
-      ~model:"mock"
-      ~prompt:"test prompt"
-      ~run_fn
-      ()
-  in
-  Alcotest.(check bool) "success" true result.trajectory.success;
-  Alcotest.(check int) "called once" 1 !call_count;
-  Alcotest.(check bool) "has verdicts" true (List.length result.verdicts > 0);
-  (* All verdicts should pass *)
-  List.iter
-    (fun (v : Harness.verdict) -> Alcotest.(check bool) "verdict passed" true v.passed)
-    result.verdicts
-;;
-
-let test_sandbox_max_turns () =
-  let call_count = ref 0 in
-  let run_fn _prompt =
-    incr call_count;
-    Ok (mock_response "ok")
-  in
-  let config : Sandbox_runner.sandbox_config =
-    { timeout_s = 10.0; max_turns = 1; max_tool_calls = 10; capture_trajectory = false }
-  in
-  (* First call succeeds *)
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"limit-test"
-      ~model:"mock"
-      ~prompt:"test"
-      ~run_fn
-      ()
-  in
-  (* Turn count is 1, max_turns is 1: within limit *)
-  Alcotest.(check int) "called once" 1 !call_count;
-  Alcotest.(check bool) "success" true result.trajectory.success
-;;
-
-let test_sandbox_tool_counting () =
-  let run_fn _prompt =
-    Ok
-      { Types.id = "msg-tc"
-      ; model = "mock"
-      ; stop_reason = EndTurn
-      ; content =
-          [ ToolUse { id = "tu-1"; name = "bash"; input = `Null }
-          ; ToolUse { id = "tu-2"; name = "read"; input = `Null }
-          ; Text "done"
-          ]
-      ; usage = None
-      ; telemetry = None
-      }
-  in
-  let config : Sandbox_runner.sandbox_config =
-    { timeout_s = 10.0; max_turns = 5; max_tool_calls = 10; capture_trajectory = true }
-  in
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"tool-count-test"
-      ~model:"mock"
-      ~prompt:"run tools"
-      ~run_fn
-      ()
-  in
-  (* 2 tool_use blocks counted *)
-  let tool_metric =
-    List.find_opt (fun (m : Eval.metric) -> m.name = "tool_calls") result.metrics.metrics
-  in
-  match tool_metric with
-  | Some { value = Int_val n; _ } -> Alcotest.(check int) "tool calls counted" 2 n
-  | _ -> Alcotest.fail "tool_calls metric not found"
-;;
-
-let test_sandbox_trajectory_capture () =
-  let run_fn _prompt = Ok (mock_response "captured response") in
-  let config : Sandbox_runner.sandbox_config =
-    { timeout_s = 10.0; max_turns = 5; max_tool_calls = 10; capture_trajectory = true }
-  in
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"capture-test"
-      ~model:"mock"
-      ~prompt:"capture me"
-      ~run_fn
-      ()
-  in
-  (* Should have Think (prompt) + Respond steps *)
-  let total = List.length result.trajectory.steps in
-  Alcotest.(check bool) "has steps" true (total > 0);
-  Alcotest.(check string) "trajectory agent" "capture-test" result.trajectory.agent_name
-;;
-
-let test_sandbox_no_capture () =
-  let run_fn _prompt = Ok (mock_response "not captured") in
-  let config : Sandbox_runner.sandbox_config =
-    { timeout_s = 10.0; max_turns = 5; max_tool_calls = 10; capture_trajectory = false }
-  in
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"no-capture"
-      ~model:"mock"
-      ~prompt:"silent"
-      ~run_fn
-      ()
-  in
-  (* With capture off, no steps recorded *)
-  Alcotest.(check int) "no steps" 0 (List.length result.trajectory.steps)
-;;
-
-let test_sandbox_error_run () =
-  let run_fn _prompt = Error (Error.Internal "mock failure") in
-  let config = Sandbox_runner.default_config in
-  let result =
-    Sandbox_runner.run
-      ~config
-      ~agent_name:"error-test"
-      ~model:"mock"
-      ~prompt:"fail"
-      ~run_fn
-      ()
-  in
-  Alcotest.(check bool) "not success" false result.trajectory.success;
-  Alcotest.(check bool) "has error" true (Option.is_some result.trajectory.error)
-;;
-
-let test_sandbox_timeout () =
-  eio_run (fun env ->
-    let clock = Eio.Stdenv.clock env in
-    let run_fn _prompt =
-      Eio.Time.sleep clock 10.0;
-      Ok (mock_response "too late")
-    in
-    let config : Sandbox_runner.sandbox_config =
-      { timeout_s = 0.1; max_turns = 5; max_tool_calls = 10; capture_trajectory = false }
-    in
-    let result =
-      Sandbox_runner.run
-        ~clock
-        ~config
-        ~agent_name:"timeout-test"
-        ~model:"mock"
-        ~prompt:"hang"
-        ~run_fn
-        ()
-    in
-    Alcotest.(check bool) "not success" false result.trajectory.success;
-    Alcotest.(check bool)
-      "timeout verdict failed"
-      false
-      (List.for_all (fun (v : Harness.verdict) -> v.passed) result.verdicts);
-    Alcotest.(check bool)
-      "error mentions timeout"
-      true
-      (Option.fold
-         ~none:false
-         ~some:(fun e ->
-           String.contains e 't' && String.contains e 'i' && String.contains e 'm')
-         result.trajectory.error))
-;;
-
 (* ── Test suite ──────────────────────────────────────────────── *)
 
 let () =
@@ -643,15 +459,6 @@ let () =
       , [ Alcotest.test_case "count_steps empty" `Quick test_count_steps_empty
         ; Alcotest.test_case "elapsed_s" `Quick test_elapsed_s
         ; Alcotest.test_case "elapsed_s none" `Quick test_elapsed_s_none
-        ] )
-    ; ( "sandbox"
-      , [ Alcotest.test_case "basic sandbox run" `Quick test_sandbox_basic
-        ; Alcotest.test_case "max turns" `Quick test_sandbox_max_turns
-        ; Alcotest.test_case "tool counting" `Quick test_sandbox_tool_counting
-        ; Alcotest.test_case "trajectory capture" `Quick test_sandbox_trajectory_capture
-        ; Alcotest.test_case "no capture" `Quick test_sandbox_no_capture
-        ; Alcotest.test_case "error run" `Quick test_sandbox_error_run
-        ; Alcotest.test_case "timeout enforced" `Quick test_sandbox_timeout
         ] )
     ]
 ;;

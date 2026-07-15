@@ -60,7 +60,6 @@ let test_participant () =
     ; runtime_actor = Some "ra-1"
     ; requested_provider = Some "anthropic"
     ; requested_model = Some "sonnet-4-6"
-    ; requested_policy = Some "best"
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
     ; resolved_provider = Some "anthropic"
@@ -110,14 +109,12 @@ let test_session () =
     ; goal = "test runtime"
     ; title = Some "Runtime Test"
     ; tag = Some "test"
-    ; permission_mode = Some "default"
     ; phase = Runtime.Running
     ; created_at = 1.7e9
     ; updated_at = 1.7e9
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
     ; system_prompt = Some "You are helpful."
-    ; max_turns = 10
     ; workdir = Some "/tmp/work"
     ; planned_participants = [ "agent-1" ]
     ; participants =
@@ -128,7 +125,6 @@ let test_session () =
           ; runtime_actor = None
           ; requested_provider = None
           ; requested_model = None
-          ; requested_policy = None
           ; provider = None
           ; model = None
           ; resolved_provider = None
@@ -164,7 +160,6 @@ let test_init_request () =
     { session_root = Some "/tmp/sessions"
     ; provider = Some "anthropic"
     ; model = Some "sonnet-4-6"
-    ; permission_mode = Some "default"
     ; include_partial_messages = true
     ; setting_sources = [ "env"; "config" ]
     ; resume_session = None
@@ -229,30 +224,6 @@ let test_proof () =
     v
 ;;
 
-let test_permission_request () =
-  let v : Runtime.permission_request =
-    { action = "execute"; subject = "bash"; payload = `Assoc [ "command", `String "ls" ] }
-  in
-  roundtrip
-    ~to_yojson:Runtime.permission_request_to_yojson
-    ~of_yojson:Runtime.permission_request_of_yojson
-    ~show:Runtime.show_permission_request
-    ~name:"permission_request"
-    v
-;;
-
-let test_hook_request () =
-  let v : Runtime.hook_request =
-    { hook_name = "pre_tool"; payload = `Assoc [ "tool", `String "bash" ] }
-  in
-  roundtrip
-    ~to_yojson:Runtime.hook_request_to_yojson
-    ~of_yojson:Runtime.hook_request_of_yojson
-    ~show:Runtime.show_hook_request
-    ~name:"hook_request"
-    v
-;;
-
 (* ── Additional protocol types ────────────────────────────────── *)
 
 let test_start_request () =
@@ -262,9 +233,7 @@ let test_start_request () =
     ; participants = [ "a1" ]
     ; provider = Some "anthropic"
     ; model = Some "sonnet"
-    ; permission_mode = Some "default"
     ; system_prompt = Some "be helpful"
-    ; max_turns = Some 5
     ; workdir = Some "/work"
     }
   in
@@ -284,7 +253,6 @@ let test_spawn_agent_request () =
     ; provider = Some "local"
     ; model = Some "dashscope"
     ; system_prompt = None
-    ; max_turns = Some 3
     }
   in
   roundtrip
@@ -296,9 +264,7 @@ let test_spawn_agent_request () =
 ;;
 
 let test_update_settings () =
-  let v : Runtime.update_settings_request =
-    { model = Some "opus"; permission_mode = Some "strict" }
-  in
+  let v : Runtime.update_settings_request = { model = Some "opus" } in
   roundtrip
     ~to_yojson:Runtime.update_settings_request_to_yojson
     ~of_yojson:Runtime.update_settings_request_of_yojson
@@ -341,9 +307,8 @@ let test_command () =
         ; provider = None
         ; model = None
         ; system_prompt = None
-        ; max_turns = None
         }
-    ; Runtime.Update_session_settings { model = Some "opus"; permission_mode = None }
+    ; Runtime.Update_session_settings { model = Some "opus" }
     ; Runtime.Attach_artifact { name = "r.txt"; kind = "text"; content = "data" }
     ; Runtime.Checkpoint { label = Some "mid" }
     ; Runtime.Request_finalize { reason = Some "done" }
@@ -385,18 +350,36 @@ let test_event_kind () =
         ; prompt = "p"
         ; provider = None
         ; model = None
-        ; permission_mode = None
         }
     ; Runtime.Agent_became_live
-        { participant_name = "sub"
-        ; summary = Some "ready"
-        ; provider = Some "local"
-        ; model = Some "dashscope"
-        ; error = None
-        ; raw_trace_run_id = Some "wr-1"
-        ; stop_reason = None
+        { participant =
+            { participant_name = "sub"
+            ; summary = Some "ready"
+            ; provider = Some "local"
+            ; model = Some "dashscope"
+            ; raw_trace_run_id = Some "wr-1"
+            }
+        }
+    ; Runtime.Agent_completed
+        { participant =
+            { participant_name = "sub"
+            ; summary = Some "done"
+            ; provider = Some "local"
+            ; model = Some "dashscope"
+            ; raw_trace_run_id = Some "wr-1"
+            }
+        ; stop_reason = Some "stop"
         ; completion_anomaly = None
-        ; failure_cause = None
+        }
+    ; Runtime.Agent_failed
+        { participant =
+            { participant_name = "sub"
+            ; summary = None
+            ; provider = Some "local"
+            ; model = Some "dashscope"
+            ; raw_trace_run_id = Some "wr-2"
+            }
+        ; failure_cause = Runtime.Execution_error "failed"
         }
     ; Runtime.Agent_output_delta
         { participant_name = "sub"; delta = "..."; raw_trace_run_id = Some "wr-1" }
@@ -432,6 +415,135 @@ let test_output_delta_legacy_json_defaults_raw_trace_run_id () =
   | Error msg -> Alcotest.failf "output_delta_event parse failed: %s" msg
 ;;
 
+let completion_anomaly count =
+  match Runtime.dropped_output_deltas ~count with
+  | Ok anomaly -> anomaly
+  | Error error -> Alcotest.fail (Runtime.show_completion_anomaly_error error)
+;;
+
+let test_completion_anomaly_requires_positive_count () =
+  roundtrip
+    ~to_yojson:Runtime.completion_anomaly_to_yojson
+    ~of_yojson:Runtime.completion_anomaly_of_yojson
+    ~show:Runtime.show_completion_anomaly
+    ~name:"completion_anomaly"
+    (completion_anomaly 1);
+  List.iter
+    (fun count ->
+       match Runtime.dropped_output_deltas ~count with
+       | Error (Runtime.Non_positive_dropped_output_delta_count rejected) ->
+         Alcotest.(check int) "rejected count" count rejected
+       | Ok _ -> Alcotest.failf "count %d must be rejected" count)
+    [ 0; -1 ]
+;;
+
+let test_completion_anomaly_decoder_rejects_non_positive_count () =
+  let rec replace_count count = function
+    | `Assoc fields ->
+      `Assoc
+        (List.map
+           (fun (name, value) ->
+              if String.equal name "count"
+              then name, `Int count
+              else name, replace_count count value)
+           fields)
+    | `List values -> `List (List.map (replace_count count) values)
+    | json -> json
+  in
+  let valid_json = completion_anomaly 1 |> Runtime.completion_anomaly_to_yojson in
+  List.iter
+    (fun count ->
+       let invalid_json = replace_count count valid_json in
+       Alcotest.(check bool)
+         "decode rejected"
+         true
+         (Result.is_error (Runtime.completion_anomaly_of_yojson invalid_json)))
+    [ 0; -1 ]
+;;
+
+let test_participant_lifecycle_payloads_exclude_contradictions () =
+  let participant : Runtime.participant_event_common =
+    { participant_name = "sub"
+    ; summary = None
+    ; provider = None
+    ; model = None
+    ; raw_trace_run_id = None
+    }
+  in
+  let live : Runtime.participant_live_event = { participant } in
+  let completed : Runtime.participant_completed_event =
+    { participant; stop_reason = Some "stop"; completion_anomaly = None }
+  in
+  let failed : Runtime.participant_failed_event =
+    { participant; failure_cause = Runtime.Execution_error "typed failure" }
+  in
+  roundtrip
+    ~to_yojson:Runtime.participant_live_event_to_yojson
+    ~of_yojson:Runtime.participant_live_event_of_yojson
+    ~show:Runtime.show_participant_live_event
+    ~name:"participant_live_event"
+    live;
+  roundtrip
+    ~to_yojson:Runtime.participant_completed_event_to_yojson
+    ~of_yojson:Runtime.participant_completed_event_of_yojson
+    ~show:Runtime.show_participant_completed_event
+    ~name:"participant_completed_event"
+    completed;
+  roundtrip
+    ~to_yojson:Runtime.participant_failed_event_to_yojson
+    ~of_yojson:Runtime.participant_failed_event_of_yojson
+    ~show:Runtime.show_participant_failed_event
+    ~name:"participant_failed_event"
+    failed;
+  let add_field name value = function
+    | `Assoc fields -> `Assoc ((name, value) :: fields)
+    | _ -> Alcotest.fail "participant lifecycle payload must encode as an object"
+  in
+  let remove_field name = function
+    | `Assoc fields -> `Assoc (List.remove_assoc name fields)
+    | _ -> Alcotest.fail "participant lifecycle payload must encode as an object"
+  in
+  let failure_json = Runtime.failure_cause_to_yojson failed.failure_cause in
+  let completed_json = Runtime.participant_completed_event_to_yojson completed in
+  let failed_json = Runtime.participant_failed_event_to_yojson failed in
+  let live_json = Runtime.participant_live_event_to_yojson live in
+  Alcotest.(check bool)
+    "completed rejects failure cause"
+    true
+    (completed_json
+     |> add_field "failure_cause" failure_json
+     |> Runtime.participant_completed_event_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "failed rejects completion anomaly"
+    true
+    (failed_json
+     |> add_field "completion_anomaly" `Null
+     |> Runtime.participant_failed_event_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "failed requires failure cause"
+    true
+    (failed_json
+     |> remove_field "failure_cause"
+     |> Runtime.participant_failed_event_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "live rejects failure cause"
+    true
+    (live_json
+     |> add_field "failure_cause" failure_json
+     |> Runtime.participant_live_event_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "legacy flat completed payload rejected"
+    true
+    (participant
+     |> Runtime.participant_event_common_to_yojson
+     |> Runtime.participant_completed_event_of_yojson
+     |> Result.is_error)
+;;
+
 let test_event () =
   let v : Runtime.event =
     { seq = 1
@@ -444,28 +556,6 @@ let test_event () =
     ~of_yojson:Runtime.event_of_yojson
     ~show:Runtime.show_event
     ~name:"event"
-    v
-;;
-
-let test_permission_response () =
-  let v : Runtime.permission_response =
-    { allow = true; message = Some "ok"; interrupt = false }
-  in
-  roundtrip
-    ~to_yojson:Runtime.permission_response_to_yojson
-    ~of_yojson:Runtime.permission_response_of_yojson
-    ~show:Runtime.show_permission_response
-    ~name:"perm_resp"
-    v
-;;
-
-let test_hook_response () =
-  let v : Runtime.hook_response = { continue_ = true; message = Some "proceed" } in
-  roundtrip
-    ~to_yojson:Runtime.hook_response_to_yojson
-    ~of_yojson:Runtime.hook_response_of_yojson
-    ~show:Runtime.show_hook_response
-    ~name:"hook_resp"
     v
 ;;
 
@@ -485,18 +575,26 @@ let () =
     ; ( "protocol"
       , [ Alcotest.test_case "init_request" `Quick test_init_request
         ; Alcotest.test_case "init_response" `Quick test_init_response
-        ; Alcotest.test_case "permission_request" `Quick test_permission_request
-        ; Alcotest.test_case "hook_request" `Quick test_hook_request
         ; Alcotest.test_case "start_request" `Quick test_start_request
         ; Alcotest.test_case "spawn_agent" `Quick test_spawn_agent_request
         ; Alcotest.test_case "update_settings" `Quick test_update_settings
         ; Alcotest.test_case "attach_artifact" `Quick test_attach_artifact_request
-        ; Alcotest.test_case "permission_response" `Quick test_permission_response
-        ; Alcotest.test_case "hook_response" `Quick test_hook_response
         ] )
     ; "command", [ Alcotest.test_case "variants" `Quick test_command ]
     ; ( "events"
       , [ Alcotest.test_case "event_kind all" `Quick test_event_kind
+        ; Alcotest.test_case
+            "completion anomaly positive count"
+            `Quick
+            test_completion_anomaly_requires_positive_count
+        ; Alcotest.test_case
+            "completion anomaly decode validation"
+            `Quick
+            test_completion_anomaly_decoder_rejects_non_positive_count
+        ; Alcotest.test_case
+            "participant lifecycle impossible states"
+            `Quick
+            test_participant_lifecycle_payloads_exclude_contradictions
         ; Alcotest.test_case
             "output delta legacy json"
             `Quick

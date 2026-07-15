@@ -8,40 +8,21 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** Request-scoped MCP server declaration for CLI transports. *)
-type runtime_mcp_server =
-  | Stdio_server of
-      { name : string
-      ; command : string
-      ; args : string list
-      ; env : (string * string) list
-      }
-  | Http_server of
-      { name : string
-      ; url : string
-      ; headers : (string * string) list
-      }
-
-type runtime_mcp_policy =
-  { servers : runtime_mcp_server list
-  ; allowed_server_names : string list
-  ; allowed_tool_names : string list
-  ; permission_mode : string option
-  ; approval_mode : string option
-  ; strict : bool
-  ; disable_builtin_tools : bool
-  }
-
-val empty_runtime_mcp_policy : runtime_mcp_policy
-val runtime_mcp_server_name : runtime_mcp_server -> string
-val runtime_mcp_policy_to_yojson : runtime_mcp_policy -> Yojson.Safe.t
-
 (** A completion request: everything needed to produce a response. *)
 type completion_request =
   { config : Provider_config.t
   ; messages : Types.message list
   ; tools : Yojson.Safe.t list
-  ; runtime_mcp_policy : runtime_mcp_policy option
+  ; capture_id : string option
+    (** Exact caller-owned request/run identity for raw wire observation.
+        [None] never triggers identity inference. *)
+  ; observe_wire_chunk : Wire_observer.observe_chunk option
+    (** Optional OAS-owned sink for raw provider chunks. A custom streaming
+        transport that participates in wire observation calls this sink once
+        for every raw provider chunk. The sink, rather than the transport,
+        owns redaction, caller delivery, typed failure telemetry, and ordinary
+        callback-exception isolation. The original caller callback is never
+        exposed through the transport request. *)
   ; stream_idle_timeout_s : float option
     (** Inter-chunk idle deadline for streaming reads, in seconds. Bounds the
         gap between streamed SSE/NDJSON lines, not total stream duration.

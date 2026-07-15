@@ -26,6 +26,7 @@ let make_checkpoint
       ?(enable_thinking = None)
       ?(preserve_thinking = None)
       ?(thinking_budget = None)
+      ?(reasoning_effort = None)
       ?(mcp_sessions = [])
       ()
   : Checkpoint.t
@@ -50,11 +51,50 @@ let make_checkpoint
   ; preserve_thinking
   ; response_format = Types.Off
   ; thinking_budget
+  ; reasoning_effort
   ; cache_system_prompt = false
   ; context
   ; mcp_sessions
   ; working_context = None
   }
+;;
+
+let reported_tool_failure =
+  Types.Tool_failed { failure_kind = Types.Reported_tool_error; error_class = None }
+;;
+
+let replace_json_field name value = function
+  | `Assoc fields ->
+    `Assoc
+      (List.map
+         (fun (field_name, field_value) ->
+            if String.equal name field_name
+            then field_name, value
+            else field_name, field_value)
+         fields)
+  | json -> json
+;;
+
+let update_json_field name update = function
+  | `Assoc fields ->
+    `Assoc
+      (List.map
+         (fun (field_name, field_value) ->
+            if String.equal name field_name
+            then field_name, update field_value
+            else field_name, field_value)
+         fields)
+  | json -> json
+;;
+
+let update_first_json update = function
+  | `List (first :: rest) -> `List (update first :: rest)
+  | json -> json
+;;
+
+let append_json_field name value = function
+  | `Assoc fields -> `Assoc (fields @ [ name, value ])
+  | json -> json
 ;;
 
 let checkpoint_json_with_tool_result ?(extra_fields = []) outcome =
@@ -125,13 +165,13 @@ let () =
   run
     "Checkpoint"
     [ ( "version"
-      , [ test_case "checkpoint_version is 6" `Quick (fun () ->
-            check int "version" 6 Checkpoint.checkpoint_version)
+      , [ test_case "checkpoint_version is 8" `Quick (fun () ->
+            check int "version" 8 Checkpoint.checkpoint_version)
         ; test_case "version field in to_json" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
             let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-            check int "version" 6 v)
+            check int "version" 8 v)
         ; test_case "wrong version returns Error" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
@@ -145,36 +185,35 @@ let () =
               | other -> other
             in
             check bool "is error" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "v4 response_format_json migrates to JsonMode" `Quick (fun () ->
-            let json =
-              `Assoc
-                [ "version", `Int 4
-                ; "session_id", `String "s1"
-                ; "agent_name", `String "a1"
-                ; "model", `String "claude-sonnet-4-6"
-                ; "system_prompt", `Null
-                ; "messages", `List []
-                ; "usage", Checkpoint.usage_to_json Types.empty_usage
-                ; "turn_count", `Int 0
-                ; "created_at", `Float 1000.0
-                ; "tools", `List []
-                ; "tool_choice", `Null
-                ; "disable_parallel_tool_use", `Bool false
-                ; "temperature", `Null
-                ; "top_p", `Null
-                ; "top_k", `Null
-                ; "min_p", `Null
-                ; "enable_thinking", `Null
-                ; "response_format_json", `Bool true
-                ; "thinking_budget", `Null
-                ; "cache_system_prompt", `Bool false
-                ; "context", `Assoc []
-                ; "mcp_sessions", `List []
-                ; "working_context", `Null
-                ]
-            in
-            let cp = Result.get_ok (Checkpoint.of_json json) in
-            check_response_format "legacy bool migrates" Types.JsonMode cp.response_format)
+        ; test_case "versions before released v5 remain rejected" `Quick (fun () ->
+            match Checkpoint.of_json (`Assoc [ "version", `Int 4 ]) with
+            | Error (Error.Serialization (Error.VersionMismatch { got = 4; _ })) -> ()
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint v4 must remain rejected")
+        ; test_case "unreleased v7 remains rejected" `Quick (fun () ->
+            match Checkpoint.of_json (`Assoc [ "version", `Int 7 ]) with
+            | Error (Error.Serialization (Error.VersionMismatch { got = 7; _ })) -> ()
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint v7 must remain rejected")
+        ; test_case "missing version is rejected explicitly" `Quick (fun () ->
+            match Checkpoint.of_json (`Assoc []) with
+            | Error (Error.Serialization (Error.JsonParseError { detail })) ->
+              check string "missing detail" "Checkpoint is missing version" detail
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint without version must be rejected")
+        ; test_case "non-integer version is rejected explicitly" `Quick (fun () ->
+            match Checkpoint.of_json (`Assoc [ "version", `String "6" ]) with
+            | Error (Error.Serialization (Error.JsonParseError { detail })) ->
+              check string "type detail" "Checkpoint version must be an integer" detail
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "string checkpoint version must be rejected")
+        ; test_case "ambiguous v6 version is rejected explicitly" `Quick (fun () ->
+            let ambiguous = `Assoc [ "version", `Int 6; "version", `Int 6 ] in
+            match Checkpoint.of_json ambiguous with
+            | Error (Error.Serialization (Error.JsonParseError { detail })) ->
+              check string "duplicate detail" "Checkpoint duplicates field version" detail
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "duplicate v6 version must be rejected")
         ] )
     ; ( "roundtrip_basic"
       , [ test_case "empty checkpoint roundtrip" `Quick (fun () ->
@@ -198,6 +237,24 @@ let () =
             let cp = make_checkpoint ~system_prompt:(Some "Be concise.") () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check (option string) "system_prompt" (Some "Be concise.") cp2.system_prompt)
+        ; test_case "reasoning effort exact roundtrip" `Quick (fun () ->
+            let cp =
+              make_checkpoint
+                ~reasoning_effort:(Some Llm_provider.Reasoning_effort.Max)
+                ()
+            in
+            let json = Checkpoint.to_json cp in
+            check
+              string
+              "wire value"
+              "max"
+              Yojson.Safe.Util.(json |> member "reasoning_effort" |> to_string);
+            let cp2 = Result.get_ok (Checkpoint.of_json json) in
+            check
+              (option string)
+              "typed value"
+              (Some "max")
+              (Option.map Llm_provider.Reasoning_effort.to_string cp2.reasoning_effort))
         ; test_case "context roundtrip" `Quick (fun () ->
             let ctx = Context.create_sync () in
             Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
@@ -291,6 +348,59 @@ let () =
               check string "content" "Sunny 22C" content;
               check bool "is_error" false (Types.tool_result_outcome_is_error outcome)
             | _ -> fail "expected ToolResult")
+        ; test_case "nested ToolResult provenance roundtrip" `Quick (fun () ->
+            let nested_failure =
+              Types.ToolResult
+                { tool_use_id = "nested-failure"
+                ; content = "legacy failure without attribution"
+                ; outcome =
+                    Tool_failed
+                      { failure_kind = Types.Unattributed_tool_error; error_class = None }
+                ; json = None
+                ; content_blocks = None
+                }
+            in
+            let outer_result =
+              Types.ToolResult
+                { tool_use_id = "outer-result"
+                ; content = "nested result"
+                ; outcome = Tool_succeeded
+                ; json = None
+                ; content_blocks = Some [ nested_failure ]
+                }
+            in
+            let messages =
+              [ { Types.role = Types.Tool
+                ; content = [ outer_result ]
+                ; name = None
+                ; tool_call_id = None
+                ; metadata = []
+                }
+              ]
+            in
+            let restored =
+              make_checkpoint ~messages ()
+              |> Checkpoint.to_json
+              |> Checkpoint.of_json
+              |> Result.get_ok
+            in
+            match (List.hd restored.messages).content with
+            | [ Types.ToolResult
+                  { content_blocks =
+                      Some
+                        [ Types.ToolResult
+                            { outcome =
+                                Tool_failed
+                                  { failure_kind = Types.Unattributed_tool_error
+                                  ; error_class = None
+                                  }
+                            ; _
+                            }
+                        ]
+                  ; _
+                  }
+              ] -> ()
+            | _ -> fail "nested ToolResult provenance was not preserved")
         ; test_case
             "typed failed ToolResult survives execution projection and checkpoint"
             `Quick
@@ -361,14 +471,15 @@ let () =
                      }
                  ] -> ()
                | _ -> fail "expected typed ToolResult")
-        ; test_case "legacy failed ToolResult remains explicit" `Quick (fun () ->
+        ; test_case "failed ToolResult without provenance is rejected" `Quick (fun () ->
             let checkpoint_json =
-              checkpoint_json_with_tool_result Types.Legacy_unclassified_failure
+              checkpoint_json_with_tool_result reported_tool_failure
             in
-            let restored = Result.get_ok (Checkpoint.of_json checkpoint_json) in
-            match (List.hd restored.messages).content with
-            | [ Types.ToolResult { outcome = Legacy_unclassified_failure; _ } ] -> ()
-            | _ -> fail "expected explicit legacy failure outcome")
+            check
+              bool
+              "rejected"
+              true
+              (Result.is_error (Checkpoint.of_json checkpoint_json)))
         ; test_case "success with failure provenance is rejected" `Quick (fun () ->
             let checkpoint_json =
               checkpoint_json_with_tool_result
@@ -388,7 +499,7 @@ let () =
               checkpoint_json_with_tool_result
                 ~extra_fields:
                   [ "error_class", Types.tool_error_class_to_yojson Types.Deterministic ]
-                Types.Legacy_unclassified_failure
+                reported_tool_failure
             in
             check
               bool
@@ -404,7 +515,7 @@ let () =
                   ; ( "failure_kind"
                     , Types.tool_failure_kind_to_yojson Types.Recoverable_tool_error )
                   ]
-                Types.Legacy_unclassified_failure
+                reported_tool_failure
             in
             check
               bool
@@ -420,7 +531,7 @@ let () =
                   ; "error_class", Types.tool_error_class_to_yojson Types.Deterministic
                   ; "error_class", Types.tool_error_class_to_yojson Types.Transient
                   ]
-                Types.Legacy_unclassified_failure
+                reported_tool_failure
             in
             check
               bool
@@ -508,7 +619,7 @@ let () =
               ; total_cache_read_input_tokens = 100
               ; api_calls = 3
               ; estimated_cost_usd = 0.0
-              ; unpriced_model = None
+              ; pricing_gap = None
               }
             in
             let cp = make_checkpoint ~usage:u () in
@@ -523,25 +634,24 @@ let () =
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check int "input" 0 cp2.usage.total_input_tokens;
             check int "api_calls" 0 cp2.usage.api_calls)
-        ; test_case "usage legacy defaults and unpriced model" `Quick (fun () ->
+        ; test_case "usage pricing gap roundtrip" `Quick (fun () ->
             let usage =
-              Checkpoint.usage_of_json
-                (`Assoc
-                    [ "total_input_tokens", `Int 10
-                    ; "total_output_tokens", `Int 5
-                    ; "api_calls", `Int 2
-                    ; "estimated_cost_usd", `Int 1
-                    ; "unpriced_model", `String "custom-model"
-                    ])
+              { Types.empty_usage with
+                estimated_cost_usd = 1.0
+              ; pricing_gap = Some (Types.Pricing_unavailable "custom-model")
+              }
             in
-            check int "cache create default" 0 usage.total_cache_creation_input_tokens;
-            check int "cache read default" 0 usage.total_cache_read_input_tokens;
-            check (float 0.001) "int cost widens" 1.0 usage.estimated_cost_usd;
-            check
-              (option string)
-              "unpriced model"
-              (Some "custom-model")
-              usage.unpriced_model)
+            let decoded =
+              Checkpoint.usage_of_json (Checkpoint.usage_to_json usage) |> Result.get_ok
+            in
+            check (float 0.001) "known cost" 1.0 decoded.estimated_cost_usd;
+            check bool "typed gap" true (decoded.pricing_gap = usage.pricing_gap))
+        ; test_case "legacy usage field rejected" `Quick (fun () ->
+            let result =
+              Checkpoint.usage_of_json
+                (`Assoc [ "unpriced_model", `String "custom-model" ])
+            in
+            check bool "explicit error" true (Result.is_error result))
         ] )
     ; ( "tools"
       , [ test_case "tool_schema roundtrip" `Quick (fun () ->
@@ -645,7 +755,7 @@ let () =
               ; total_cache_read_input_tokens = 0
               ; api_calls = 1
               ; estimated_cost_usd = 0.0
-              ; unpriced_model = None
+              ; pricing_gap = None
               }
             in
             let cp = make_checkpoint ~usage:u () in
@@ -656,7 +766,7 @@ let () =
             @@ fun env ->
             let net = Eio.Stdenv.net env in
             let config =
-              { Types.default_config with
+              { (Types.default_config ~model:"test-model") with
                 name = "checkpoint-agent"
               ; tool_choice = Some Types.Auto
               }
@@ -687,7 +797,7 @@ let () =
                   ; total_cache_read_input_tokens = 0
                   ; api_calls = 1
                   ; estimated_cost_usd = 0.0
-                  ; unpriced_model = None
+                  ; pricing_gap = None
                   }
               };
             let cp = Agent.checkpoint ~session_id:"sess-1" agent in
@@ -707,7 +817,9 @@ let () =
             Eio_main.run
             @@ fun env ->
             let net = Eio.Stdenv.net env in
-            let agent = Agent.create ~net () in
+            let agent =
+              Agent.create ~config:(Types.default_config ~model:"test-model") ~net ()
+            in
             let sidecar =
               `Assoc
                 [ "kind", `String "test_context_v1"
@@ -776,22 +888,29 @@ let () =
                 ~enable_thinking:(Some true)
                 ~preserve_thinking:(Some true)
                 ~thinking_budget:(Some 2048)
+                ~reasoning_effort:(Some Llm_provider.Reasoning_effort.High)
                 ()
             in
             let override =
-              { Types.default_config with
-                name = "should-be-ignored"
-              ; max_turns = 99
+              { (Types.default_config ~model:"test-model") with
+                name = "current-agent"
+              ; system_prompt = Some "current runtime prompt"
               ; enable_thinking = Some false
               ; preserve_thinking = Some false
               ; thinking_budget = Some 512
+              ; reasoning_effort = Some Llm_provider.Reasoning_effort.Max
               }
             in
             let { Agent_checkpoint.state; _ } =
               Agent_checkpoint.build_resume ~checkpoint:cp ~config:override ()
             in
-            check string "agent_name from checkpoint" "orig-agent" state.config.name;
-            check int "max_turns from override" 99 state.config.max_turns;
+            check string "agent_name from caller" "current-agent" state.config.name;
+            check string "model from caller" "test-model" state.config.model;
+            check
+              (option string)
+              "system prompt from caller"
+              (Some "current runtime prompt")
+              state.config.system_prompt;
             check
               (option bool)
               "enable_thinking from override"
@@ -806,34 +925,49 @@ let () =
               (option int)
               "thinking_budget from override"
               (Some 512)
-              state.config.thinking_budget)
-        ; test_case "unset override keeps checkpoint thinking policy" `Quick (fun () ->
+              state.config.thinking_budget;
+            check
+              (option string)
+              "reasoning_effort from override"
+              (Some "max")
+              (Option.map
+                 Llm_provider.Reasoning_effort.to_string
+                 state.config.reasoning_effort))
+        ; test_case "caller config does not inherit checkpoint opinions" `Quick (fun () ->
             let cp =
               make_checkpoint
                 ~enable_thinking:(Some true)
                 ~preserve_thinking:(Some true)
                 ~thinking_budget:(Some 2048)
+                ~reasoning_effort:(Some Llm_provider.Reasoning_effort.High)
                 ()
             in
-            let override = { Types.default_config with max_turns = 99 } in
+            let override = Types.default_config ~model:"test-model" in
             let { Agent_checkpoint.state; _ } =
               Agent_checkpoint.build_resume ~checkpoint:cp ~config:override ()
             in
             check
               (option bool)
-              "enable_thinking from checkpoint"
-              (Some true)
+              "enable_thinking from caller"
+              None
               state.config.enable_thinking;
             check
               (option bool)
-              "preserve_thinking from checkpoint"
-              (Some true)
+              "preserve_thinking from caller"
+              None
               state.config.preserve_thinking;
             check
               (option int)
-              "thinking_budget from checkpoint"
-              (Some 2048)
-              state.config.thinking_budget)
+              "thinking_budget from caller"
+              None
+              state.config.thinking_budget;
+            check
+              (option string)
+              "reasoning_effort from caller"
+              None
+              (Option.map
+                 Llm_provider.Reasoning_effort.to_string
+                 state.config.reasoning_effort))
         ; test_case "override context replaces checkpoint context" `Quick (fun () ->
             let cp_ctx = Context.create_sync () in
             Context.set cp_ctx "old" (`String "old-val");
@@ -854,7 +988,7 @@ let () =
             @@ fun env ->
             let net = Eio.Stdenv.net env in
             let config =
-              { Types.default_config with
+              { (Types.default_config ~model:"test-model") with
                 name = "roundtrip-agent"
               ; system_prompt = Some "Be brief."
               ; temperature = Some 0.5
@@ -1136,7 +1270,182 @@ let () =
               | other -> other
             in
             check bool "error" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "context null and working_context value decode" `Quick (fun () ->
+        ; test_case "current v8 rejects unknown nested message field" `Quick (fun () ->
+            let message : Types.message =
+              { role = Types.User
+              ; content = [ Types.Text "hello" ]
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            in
+            let bad =
+              make_checkpoint ~messages:[ message ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "messages"
+                   (update_first_json (append_json_field "unexpected" (`Bool true)))
+            in
+            check
+              bool
+              "unknown message field"
+              true
+              (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects normalized empty metadata" `Quick (fun () ->
+            let message : Types.message =
+              { role = Types.User
+              ; content = [ Types.Text "hello" ]
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            in
+            let bad =
+              make_checkpoint ~messages:[ message ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "messages"
+                   (update_first_json (append_json_field "metadata" (`Assoc [])))
+            in
+            check bool "empty metadata" true (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 preserves blank reasoning content" `Quick (fun () ->
+            let message : Types.message =
+              { role = Types.Assistant
+              ; content =
+                  [ Types.ReasoningDetails
+                      { reasoning_content = Some "reasoning"
+                      ; details =
+                          [ { raw = `Assoc [ "text", `String "reasoning" ]
+                            ; text = Some "reasoning"
+                            }
+                          ]
+                      }
+                  ]
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            in
+            let bad =
+              make_checkpoint ~messages:[ message ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "messages"
+                   (update_first_json (fun message_json ->
+                      update_json_field
+                        "content"
+                        (update_first_json
+                           (replace_json_field "reasoning_content" (`String " ")))
+                        message_json))
+            in
+            let restored = Result.get_ok (Checkpoint.of_json bad) in
+            (match (List.hd restored.messages).content with
+             | [ Types.ReasoningDetails { reasoning_content = Some " "; _ } ] -> ()
+             | _ -> fail "blank reasoning_content was silently normalized");
+            let open Yojson.Safe.Util in
+            check
+              string
+              "blank reasoning content"
+              " "
+              (restored
+               |> Checkpoint.to_json
+               |> member "messages"
+               |> index 0
+               |> member "content"
+               |> index 0
+               |> member "reasoning_content"
+               |> to_string))
+        ; test_case "current v8 rejects duplicate nested content field" `Quick (fun () ->
+            let message : Types.message =
+              { role = Types.User
+              ; content = [ Types.Text "hello" ]
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            in
+            let bad =
+              make_checkpoint ~messages:[ message ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "messages"
+                   (update_first_json (fun message_json ->
+                      update_json_field
+                        "content"
+                        (update_first_json
+                           (append_json_field "text" (`String "duplicate")))
+                        message_json))
+            in
+            check
+              bool
+              "duplicate content field"
+              true
+              (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects unknown nested tool field" `Quick (fun () ->
+            let bad =
+              make_checkpoint ~tools:[ sample_tool_schema ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "tools"
+                   (update_first_json (append_json_field "legacy" (`Bool true)))
+            in
+            check
+              bool
+              "unknown tool field"
+              true
+              (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects noncanonical response format" `Quick (fun () ->
+            let bad =
+              make_checkpoint ()
+              |> Checkpoint.to_json
+              |> replace_json_field "response_format" (`Bool true)
+            in
+            check
+              bool
+              "legacy response format"
+              true
+              (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects malformed nested MCP headers" `Quick (fun () ->
+            let session : Mcp_session.info =
+              { server_name = "http-tools"
+              ; command = "http"
+              ; args = []
+              ; env = []
+              ; http_base_url = Some "https://mcp.example.test"
+              ; http_headers = [ "Authorization", "redacted" ]
+              ; tool_schemas = []
+              ; transport_kind = Http
+              }
+            in
+            let bad =
+              make_checkpoint ~mcp_sessions:[ session ] ()
+              |> Checkpoint.to_json
+              |> update_json_field
+                   "mcp_sessions"
+                   (update_first_json (replace_json_field "http_headers" (`Assoc [])))
+            in
+            check bool "malformed headers" true (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects duplicate context keys" `Quick (fun () ->
+            let bad =
+              make_checkpoint ()
+              |> Checkpoint.to_json
+              |> replace_json_field
+                   "context"
+                   (`Assoc [ "channel", `String "one"; "channel", `String "two" ])
+            in
+            check bool "duplicate context" true (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "current v8 rejects normalized reasoning effort" `Quick (fun () ->
+            let bad =
+              make_checkpoint ()
+              |> Checkpoint.to_json
+              |> replace_json_field "reasoning_effort" (`String " HIGH ")
+            in
+            check
+              bool
+              "noncanonical reasoning effort"
+              true
+              (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "working_context value decodes on exact schema" `Quick (fun () ->
             let cp = make_checkpoint () in
             let working_context =
               `Assoc [ "kind", `String "ctx"; "generation", `Int 1 ]
@@ -1148,18 +1457,12 @@ let () =
                   (List.map
                      (fun (k, v) ->
                         match k with
-                        | "context" -> k, `Null
                         | "working_context" -> k, working_context
                         | _ -> k, v)
                      pairs)
               | other -> other
             in
             let decoded = Result.get_ok (Checkpoint.of_json json) in
-            check
-              int
-              "context starts empty"
-              0
-              (List.length (Context.keys decoded.context));
             check
               (option (testable Yojson.Safe.pp Yojson.Safe.equal))
               "working context"
@@ -1177,7 +1480,6 @@ let () =
               ; command = "/usr/bin/mcp-server"
               ; args = [ "--port"; "8080" ]
               ; env = [ "API_KEY", "secret123" ]
-              ; env_policy = Mcp.Minimal
               ; http_base_url = None
               ; http_headers = []
               ; tool_schemas = [ sample_tool_schema ]
@@ -1201,7 +1503,6 @@ let () =
               ; command = "mcp-a"
               ; args = []
               ; env = []
-              ; env_policy = Mcp.Minimal
               ; http_base_url = None
               ; http_headers = []
               ; tool_schemas = []
@@ -1213,7 +1514,6 @@ let () =
               ; command = "mcp-b"
               ; args = [ "--verbose" ]
               ; env = [ "X", "1" ]
-              ; env_policy = Mcp.Minimal
               ; http_base_url = None
               ; http_headers = []
               ; tool_schemas = [ sample_tool_schema ]
@@ -1227,56 +1527,16 @@ let () =
             let s2 = List.nth cp2.mcp_sessions 1 in
             check string "first" "server-a" s1.server_name;
             check string "second" "server-b" s2.server_name)
-        ; test_case "version 1 backward compat (no mcp_sessions field)" `Quick (fun () ->
-            (* Simulate a v1 checkpoint JSON that has no mcp_sessions field *)
-            let cp = make_checkpoint () in
-            let json = Checkpoint.to_json cp in
-            let v1_json =
-              match json with
-              | `Assoc pairs ->
-                `Assoc
-                  (List.filter_map
-                     (fun (k, v) ->
-                        if k = "version"
-                        then Some (k, `Int 1)
-                        else if k = "mcp_sessions"
-                        then None
-                        else Some (k, v))
-                     pairs)
-              | other -> other
-            in
-            let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-            check
-              int
-              "version upgraded to current"
-              Checkpoint.checkpoint_version
-              cp2.version;
-            check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions))
-        ; test_case "version 1 with null mcp_sessions" `Quick (fun () ->
-            let cp = make_checkpoint () in
-            let json = Checkpoint.to_json cp in
-            let v1_json =
-              match json with
-              | `Assoc pairs ->
-                `Assoc
-                  (List.map
-                     (fun (k, v) ->
-                        if k = "version"
-                        then k, `Int 1
-                        else if k = "mcp_sessions"
-                        then k, `Null
-                        else k, v)
-                     pairs)
-              | other -> other
-            in
-            let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-            check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions))
         ; test_case "Agent.checkpoint has empty mcp_sessions" `Quick (fun () ->
             Eio_main.run
             @@ fun env ->
             let net = Eio.Stdenv.net env in
             let agent =
-              Agent.create ~net ~config:{ Types.default_config with name = "mcp-test" } ()
+              Agent.create
+                ~net
+                ~config:
+                  { (Types.default_config ~model:"test-model") with name = "mcp-test" }
+                ()
             in
             let cp = Agent.checkpoint agent in
             check int "no mcp sessions" 0 (List.length cp.mcp_sessions))
@@ -1285,7 +1545,11 @@ let () =
             @@ fun env ->
             let net = Eio.Stdenv.net env in
             let agent =
-              Agent.create ~net ~config:{ Types.default_config with name = "wc-test" } ()
+              Agent.create
+                ~net
+                ~config:
+                  { (Types.default_config ~model:"test-model") with name = "wc-test" }
+                ()
             in
             let wc =
               `Assoc [ "kind", `String "test_context_v1"; "max_tokens", `Int 4096 ]
@@ -1301,7 +1565,11 @@ let () =
             @@ fun env ->
             let net = Eio.Stdenv.net env in
             let agent =
-              Agent.create ~net ~config:{ Types.default_config with name = "wc-none" } ()
+              Agent.create
+                ~net
+                ~config:
+                  { (Types.default_config ~model:"test-model") with name = "wc-none" }
+                ()
             in
             let cp = Agent.checkpoint agent in
             check

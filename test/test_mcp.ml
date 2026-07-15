@@ -10,19 +10,6 @@
 
 open Agent_sdk
 
-let with_env key value f =
-  let original = Sys.getenv_opt key in
-  (match value with
-   | Some v -> Unix.putenv key v
-   | None -> Unix.putenv key "");
-  Fun.protect
-    ~finally:(fun () ->
-      match original with
-      | Some v -> Unix.putenv key v
-      | None -> Unix.putenv key "")
-    f
-;;
-
 let make_tool_result ?is_error ?structured_content content =
   let fields =
     [ "content", Mcp_protocol.Mcp_types.tool_content_list_to_yojson content ]
@@ -40,19 +27,6 @@ let make_tool_result ?is_error ?structured_content content =
   match Mcp_protocol.Mcp_types.tool_result_of_yojson (`Assoc fields) with
   | Ok result -> result
   | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
-;;
-
-let contains_substring ~sub text =
-  let sub_len = String.length sub in
-  let text_len = String.length text in
-  let rec loop index =
-    if index + sub_len > text_len
-    then false
-    else if String.sub text index sub_len = sub
-    then true
-    else loop (index + 1)
-  in
-  if sub_len = 0 then true else loop 0
 ;;
 
 (* ── JSON Schema -> SDK tool_param ───────────────────────────────── *)
@@ -256,14 +230,6 @@ let test_mcp_tool_to_sdk_tool () =
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
-(* RFC-OAS-009 v2 PR-C: removed test_mcp_builtin_tool_descriptor_permission.
-   This test pinned the layering violation: it expected mcp_tool_to_sdk_tool
-   to auto-fill descriptors based on downstream tool names via the CDAL
-   Mode_enforcer.builtin_descriptor registry — precisely the boundary
-   RFC-OAS-009 v2 closes. Per RFC §2.2, descriptor is now consumer-supplied.
-   Completion-contract satisfaction predicates are validated independently of
-   the MCP bridge. *)
-
 let test_mcp_tool_bridge_error () =
   let mcp_tool : Mcp.mcp_tool =
     { name = "fail"
@@ -383,19 +349,13 @@ let test_text_of_tool_result_mixed () =
   Alcotest.(check string) "text only" "hello\nworld" text
 ;;
 
-let test_text_of_tool_result_budget_truncates () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
-    let result : Mcp_protocol.Mcp_types.tool_result =
-      make_tool_result
-        [ Mcp_protocol.Mcp_types.TextContent
-            { type_ = "text"; text = "0123456789"; annotations = None }
-        ]
-    in
-    let text = Mcp.text_of_tool_result result in
-    Alcotest.(check bool)
-      "truncated"
-      true
-      (contains_substring ~sub:"...[oas mcp output truncated]" text))
+let test_text_of_tool_result_large_exact () =
+  let text = String.make 100_000 'x' in
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result
+      [ Mcp_protocol.Mcp_types.TextContent { type_ = "text"; text; annotations = None } ]
+  in
+  Alcotest.(check string) "large exact" text (Mcp.text_of_tool_result result)
 ;;
 
 (* ── mcp_tool_of_json tests ─────────────────────────────────── *)
@@ -445,31 +405,6 @@ let test_mcp_tool_of_json_non_assoc () =
   match Mcp.mcp_tool_of_json (`String "not an object") with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for non-assoc"
-;;
-
-let test_truncate_output_short () =
-  let result = Mcp.truncate_output "short text" in
-  Alcotest.(check string) "no truncation" "short text" result
-;;
-
-let test_truncate_output_at_boundary () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "2") (fun () ->
-    let text = String.make 8 'x' in
-    (* 2*4 = 8 chars = exact limit *)
-    let result = Mcp.truncate_output text in
-    Alcotest.(check string) "exact boundary" text result)
-;;
-
-let test_output_token_budget_default () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "default" 25_000 budget)
-;;
-
-let test_output_token_budget_negative () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "-5") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "negative -> default" 25_000 budget)
 ;;
 
 (* ── Test runner ────────────────────────────────────────────────── *)
@@ -524,9 +459,9 @@ let () =
             `Quick
             test_text_of_tool_result_mixed
         ; test_case
-            "text_of_tool_result budget truncates"
+            "text_of_tool_result large exact"
             `Quick
-            test_text_of_tool_result_budget_truncates
+            test_text_of_tool_result_large_exact
         ] )
     ; ( "mcp_tool_of_json"
       , [ test_case "valid" `Quick test_mcp_tool_of_json_valid
@@ -537,12 +472,6 @@ let () =
         ; test_case "missing name" `Quick test_mcp_tool_of_json_missing_name
         ; test_case "missing schema" `Quick test_mcp_tool_of_json_missing_schema
         ; test_case "non-assoc" `Quick test_mcp_tool_of_json_non_assoc
-        ] )
-    ; ( "truncation"
-      , [ test_case "short text" `Quick test_truncate_output_short
-        ; test_case "boundary" `Quick test_truncate_output_at_boundary
-        ; test_case "budget default" `Quick test_output_token_budget_default
-        ; test_case "budget negative" `Quick test_output_token_budget_negative
         ] )
     ]
 ;;

@@ -20,19 +20,17 @@ let projection_of_event (evt : Durable_event.event) : string * Yojson.Safe.t =
   match evt with
   | Turn_started { turn; timestamp } ->
     "durable.turn_started", `Assoc [ "turn", `Int turn; "timestamp", `Float timestamp ]
-  | Llm_request { turn; model; input_tokens; timestamp } ->
+  | Llm_request { turn; model; timestamp } ->
     ( "durable.llm_request"
-    , `Assoc
-        [ "turn", `Int turn
-        ; "model", `String model
-        ; "input_tokens", `Int input_tokens
-        ; "timestamp", `Float timestamp
-        ] )
-  | Llm_response { turn; output_tokens; stop_reason; duration_ms; timestamp } ->
+    , `Assoc [ "turn", `Int turn; "model", `String model; "timestamp", `Float timestamp ]
+    )
+  | Llm_response
+      { turn; input_tokens; output_tokens; stop_reason; duration_ms; timestamp } ->
     ( "durable.llm_response"
     , `Assoc
         [ "turn", `Int turn
-        ; "output_tokens", `Int output_tokens
+        ; "input_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) input_tokens
+        ; "output_tokens", Option.fold ~none:`Null ~some:(fun n -> `Int n) output_tokens
         ; "stop_reason", `String stop_reason
         ; "duration_ms", `Float duration_ms
         ; "timestamp", `Float timestamp
@@ -80,19 +78,38 @@ let projection_of_event (evt : Durable_event.event) : string * Yojson.Safe.t =
         ] )
 ;;
 
-let _log = Log.create ~module_name:"journal_bridge" ()
-
-let make ~bus ?correlation_id ?run_id () : Durable_event.event -> unit =
+let make_with_publish ~publish ~bus ?correlation_id ?run_id () =
   fun evt ->
   let name, payload = projection_of_event evt in
-  try
-    Event_bus.publish
-      bus
-      (Event_bus.mk_event ?correlation_id ?run_id (Custom (name, payload)))
-  with
-  | exn ->
-    Log.warn
-      _log
-      "Event_bus.publish failed in journal bridge"
-      [ Log.S ("error", Printexc.to_string exn) ]
+  publish bus (Event_bus.mk_event ?correlation_id ?run_id (Custom (name, payload)))
+;;
+
+let make = make_with_publish ~publish:Event_bus.publish
+
+let%test "publication failure reaches Durable_event.append after commit" =
+  let callback =
+    make_with_publish
+      ~publish:(fun _bus _event -> raise Exit)
+      ~bus:(Event_bus.create ())
+      ()
+  in
+  let journal = Durable_event.create ~on_append:callback () in
+  let event = Durable_event.Turn_started { turn = 1; timestamp = 0.0 } in
+  match Durable_event.append journal event with
+  | Error { exception_ = Exit; _ } -> Durable_event.length journal = 1
+  | Ok () | Error _ -> false
+;;
+
+let%test "reserved publication failure propagates after commit" =
+  let callback =
+    make_with_publish
+      ~publish:(fun _bus _event -> raise Sys.Break)
+      ~bus:(Event_bus.create ())
+      ()
+  in
+  let journal = Durable_event.create ~on_append:callback () in
+  let event = Durable_event.Turn_started { turn = 1; timestamp = 0.0 } in
+  match Durable_event.append journal event with
+  | Ok () | Error _ -> false
+  | exception Sys.Break -> Durable_event.length journal = 1
 ;;

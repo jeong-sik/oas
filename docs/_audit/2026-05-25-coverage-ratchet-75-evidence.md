@@ -56,7 +56,7 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
     runtime MCP env-token override, stdout recovery, stdin prompt routing, and
     parse-error paths.
   - `test/test_transport_cli_tool_d_coverage.ml`: Agent_llm_a stream-json,
-    JSON output, runtime MCP args, max-turns terminal mapping, stdin prompt
+    JSON output, runtime MCP args, provider-terminal mapping, stdin prompt
     routing, and parse-error paths.
   - `test/test_llm_provider_error.ml`: remaining retry/http/provider-failure
     mapping variants and retryability matrix.
@@ -147,10 +147,10 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
 ## Stage F terminal-target follow-up
 
 - Evidence: local focused and full coverage runs on PR #1761 after extending
-  maintained memory, discovery, HTTP client, tool selector, checkpoint, and type
+  maintained memory, discovery, HTTP client, checkpoint, and type
   tests. Deprecated runtime-projection paths were intentionally not expanded.
 - Focused validation:
-  `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory.exe test/test_tool_selector.exe test/test_discovery.exe test/test_http_client.exe test/test_types.exe`
+  `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory.exe test/test_discovery.exe test/test_http_client.exe test/test_types.exe`
   and
   `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory_episodic.exe test/test_memory_tools_parse.exe test/test_checkpoint_delta.exe test/test_checkpoint.exe`
 - Full clean coverage command:
@@ -168,7 +168,6 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
   - `lib/llm_provider/discovery.ml`: `71.58%` (`199/278`)
   - `lib/llm_provider/http_client.ml`: `65.53%` (`268/409`)
   - `lib/llm_provider/types.ml`: `76.03%` (`241/317`)
-  - `lib/tool_selector.ml`: `69.74%` (`106/152`)
 - Ratchet decision:
   CI coverage threshold raised from `78` to `79`, using
   `floor(80.02 - 1) = 79` and keeping one percentage point of headroom below
@@ -248,7 +247,7 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
     recovery, runtime MCP bearer-token env indirection, stdin prompt routing,
     and empty-output parse failure.
   - `cli_tool_d` stream-json structured text/thinking/tool-use restoration,
-    stream events, JSON-output fallback, internal max-turns terminal mapping,
+    stream events, JSON-output fallback, internal provider-terminal mapping,
     runtime MCP argv construction, stdin prompt routing, and empty-output parse
     failure.
   - provider error mapping for retry/auth/invalid/not-found/context/network/

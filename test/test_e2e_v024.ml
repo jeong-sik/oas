@@ -6,9 +6,7 @@
     Scenarios:
     1. Multi-turn tool calling loop (basic sanity)
     2. Endpoint handoff: fake primary → real local fallback
-    3. Idle detection: model repeats same tool call → IdleDetected error
-    4. Context compaction: long tool outputs pruned, token budget respected
-    5. Context injection: injector updates context + appends messages *)
+    3. Context injection: injector updates context + appends messages *)
 
 open Agent_sdk
 open Types
@@ -23,18 +21,11 @@ let provider : Provider.config =
 let base_url = "http://127.0.0.1:8085"
 let local_model = provider.model_id
 
-let provider_m_config
-      ?(system_prompt = None)
-      ?(max_tokens = Some 200)
-      ?(max_turns = 5)
-      name
-  =
-  { default_config with
+let provider_m_config ?(system_prompt = None) ?(max_tokens = Some 200) name =
+  { (default_config ~model:local_model) with
     name
-  ; model = local_model
   ; system_prompt
   ; max_tokens
-  ; max_turns
   ; temperature = Some 0.3
   ; top_p = Some 0.95
   ; top_k = Some 20
@@ -97,7 +88,6 @@ let test_multi_turn_tool_loop () =
       "multi-turn-agent"
       ~system_prompt:
         (Some "You are a math assistant. Use the calculator tool to compute.")
-      ~max_turns:5
   in
   let agent = Agent.create ~net:env#net ~config ~tools:[ calc ] ~options () in
   let result = Agent.run ~sw agent "What is 6 * 7? Use the calculator." in
@@ -112,120 +102,7 @@ let test_multi_turn_tool_loop () =
     assert false
 ;;
 
-(* ── Scenario 3: Idle detection ──────────────────────────────── *)
-
-let test_idle_detection () =
-  Printf.printf "\n=== E2E 3: Idle detection (same tool call repeated) ===\n%!";
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let call_count = ref 0 in
-  let stubborn_tool =
-    Tool.create
-      ~name:"get_status"
-      ~description:"Returns system status. Always returns the same value."
-      ~parameters:[]
-      (fun _input ->
-         incr call_count;
-         Printf.printf "  [Tool %d] get_status()\n%!" !call_count;
-         Ok { Types.content = "status: all systems nominal"; _meta = None })
-  in
-  let config =
-    provider_m_config
-      "idle-agent"
-      ~system_prompt:
-        (Some
-           "You MUST call get_status every turn. Never stop calling it. Always call \
-            get_status again after receiving the result.")
-      ~max_turns:10
-  in
-  let idle_options = { options with max_idle_turns = 2 } in
-  let agent =
-    Agent.create ~net:env#net ~config ~tools:[ stubborn_tool ] ~options:idle_options ()
-  in
-  let result = Agent.run ~sw agent "Check the system status repeatedly." in
-  match result with
-  | Error (Error.Agent (Error.IdleDetected { consecutive_idle_turns })) ->
-    Printf.printf
-      "  IdleDetected after %d consecutive idle turns (tool calls: %d)\n%!"
-      consecutive_idle_turns
-      !call_count;
-    assert (consecutive_idle_turns >= 2);
-    Printf.printf "  PASS\n%!"
-  | Ok response ->
-    (* Model might have stopped on its own — not necessarily a failure *)
-    Printf.printf
-      "  Model stopped naturally (stop=%s, tool calls=%d)\n%!"
-      (show_stop_reason response.stop_reason)
-      !call_count;
-    Printf.printf "  SKIP (model didn't repeat enough)\n%!"
-  | Error e ->
-    Printf.printf "  Unexpected error: %s\n%!" (Error.to_string e);
-    Printf.printf "  SKIP\n%!"
-;;
-
-(* ── Scenario 4: Context compaction ──────────────────────────── *)
-
-let test_context_compaction () =
-  Printf.printf "\n=== E2E 4: Context compaction (prune + token budget) ===\n%!";
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let long_output = String.make 5000 'x' in
-  let call_count = ref 0 in
-  let verbose_tool =
-    Tool.create
-      ~name:"read_log"
-      ~description:"Reads a log file. Returns the full contents."
-      ~parameters:
-        [ { name = "file"
-          ; description = "Log file name"
-          ; param_type = String
-          ; required = true
-          }
-        ]
-      (fun input ->
-         incr call_count;
-         let file = Yojson.Safe.Util.(input |> member "file" |> to_string) in
-         Printf.printf
-           "  [Tool %d] read_log(%s) → %d chars\n%!"
-           !call_count
-           file
-           (String.length long_output);
-         Ok { Types.content = long_output; _meta = None })
-  in
-  let reducer =
-    Context_reducer.compose
-      [ Context_reducer.prune_tool_outputs ~max_output_len:200
-      ; Context_reducer.token_budget 2000
-      ]
-  in
-  let config =
-    provider_m_config
-      "compact-agent"
-      ~system_prompt:(Some "You are a log analyzer. Use read_log to check files.")
-      ~max_turns:4
-  in
-  let compact_options = { options with context_reducer = Some reducer } in
-  let agent =
-    Agent.create ~net:env#net ~config ~tools:[ verbose_tool ] ~options:compact_options ()
-  in
-  let result = Agent.run ~sw agent "Read the log file 'app.log' and summarize it." in
-  print_result "compact" result;
-  Printf.printf "  Tool calls: %d\n%!" !call_count;
-  (* The agent should complete without running out of context *)
-  match result with
-  | Ok _ -> Printf.printf "  PASS (compaction worked)\n%!"
-  | Error (Error.Agent (Error.MaxTurnsExceeded _)) ->
-    Printf.printf "  PASS (max turns hit, but no OOM)\n%!"
-  | Error e ->
-    Printf.printf "  Error: %s\n%!" (Error.to_string e);
-    Printf.printf "  SKIP\n%!"
-;;
-
-(* ── Scenario 5: Context injection ───────────────────────────── *)
+(* ── Scenario 3: Context injection ───────────────────────────── *)
 
 let test_context_injection () =
   Printf.printf "\n=== E2E 5: Context injection (injector updates context) ===\n%!";
@@ -273,7 +150,6 @@ let test_context_injection () =
     provider_m_config
       "inject-agent"
       ~system_prompt:(Some "You are a file assistant. Use read_file to read files.")
-      ~max_turns:4
   in
   let inject_options = { options with context_injector = Some injector } in
   let agent =
@@ -301,8 +177,6 @@ let () =
     Printf.printf "OAS v0.24 E2E Integration Tests\n%!";
     Printf.printf "Target: %s (%s)\n%!" base_url provider.model_id;
     test_multi_turn_tool_loop ();
-    test_idle_detection ();
-    test_context_compaction ();
     test_context_injection ();
     Printf.printf "\n=== All E2E scenarios completed ===\n%!"
   | _ ->

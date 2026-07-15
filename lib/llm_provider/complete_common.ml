@@ -138,22 +138,6 @@ let%test "capability source is model when native catalog resolves config model" 
   | _, Provider_default_capability -> false
 ;;
 
-let%test "capability source is provider default for undeclared raw compat model" =
-  let config =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o"
-      ~base_url:"https://unknown-openai-compatible.example/v1"
-      ()
-  in
-  match resolve_capabilities_for_config config with
-  | caps, Provider_default_capability ->
-    caps.supports_tools = Capabilities.openai_compat_chat_capabilities.supports_tools
-    && caps.thinking_control_format
-       = Capabilities.openai_compat_chat_capabilities.thinking_control_format
-  | _, Model_capability -> false
-;;
-
 let%test "capability source is provider default when model is unknown" =
   let config =
     Provider_config.make
@@ -182,17 +166,36 @@ type latency_counter =
 let ns_per_ms = 1_000_000.0
 let clamp_latency_ms ms = Float.max 0.0 ms
 
+let start_monotonic_latency counter =
+  try Monotonic_latency (counter ()) with
+  | exn ->
+    Reserved_exn.reraise_if_reserved exn;
+    Diag.warn
+      "complete"
+      "monotonic latency clock unavailable: %s"
+      (Printexc.to_string exn);
+    Unknown_latency
+;;
+
 let start_latency_counter ?clock () =
   match clock with
   | Some clock -> Eio_clock_latency { clock; started_s = Eio.Time.now clock }
-  | None ->
-    (try Monotonic_latency (Mtime_clock.counter ()) with
-     | exn ->
-       Diag.warn
-         "complete"
-         "monotonic latency clock unavailable: %s"
-         (Printexc.to_string exn);
-       Unknown_latency)
+  | None -> start_monotonic_latency Mtime_clock.counter
+;;
+
+let%test "ordinary monotonic clock failure degrades to unknown latency" =
+  Diag.with_sink
+    (fun _level ~ctx:_ _message -> ())
+    (fun () ->
+       match start_monotonic_latency (fun () -> raise Exit) with
+       | Unknown_latency -> true
+       | Monotonic_latency _ | Eio_clock_latency _ -> false)
+;;
+
+let%test "reserved monotonic clock failure propagates" =
+  match start_monotonic_latency (fun () -> raise Sys.Break) with
+  | Unknown_latency | Monotonic_latency _ | Eio_clock_latency _ -> false
+  | exception Sys.Break -> true
 ;;
 
 let latency_ms_float = function
@@ -251,11 +254,16 @@ let patch_telemetry
   : Types.api_response
   =
   let pk = Some config.kind in
-  let re = Complete_sampling.reasoning_effort_of_config config in
   let model = if String.trim resp.model = "" then config.model_id else resp.model in
   let caps, capability_source = resolve_capabilities_for_config config in
   let ctx_window = caps.max_context_tokens in
   let canonical = Some config.model_id in
+  let reasoning_source =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> Some source
+    | Error detail ->
+      invalid_arg ("Complete_common.patch_telemetry: invalid reasoning source: " ^ detail)
+  in
   let telemetry =
     match resp.telemetry with
     | Some t ->
@@ -263,8 +271,8 @@ let patch_telemetry
         { t with
           Types.request_latency_ms = latency_ms
         ; provider_kind = pk
-        ; reasoning_effort = re
         ; canonical_model_id = canonical
+        ; reasoning_source
         ; effective_context_window = ctx_window
         ; ttfrc_ms =
             (match ttfrc_ms with
@@ -280,8 +288,8 @@ let patch_telemetry
         { Types.default_inference_telemetry with
           request_latency_ms = latency_ms
         ; provider_kind = pk
-        ; reasoning_effort = re
         ; canonical_model_id = canonical
+        ; reasoning_source
         ; effective_context_window = ctx_window
         ; ttfrc_ms
         ; prefill_ms
@@ -357,6 +365,17 @@ let validate_tool_choice_request (config : Provider_config.t) =
   match Provider_config.validate_tool_choice_request config with
   | Ok () -> Ok ()
   | Error reason -> Error (Http_client.AcceptRejected { reason })
+;;
+
+let validate_reasoning_effort_request (config : Provider_config.t) =
+  match Provider_config.validate_reasoning_effort_request_typed config with
+  | Ok () -> Ok ()
+  | Error rejection ->
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             Provider_config.reasoning_effort_request_rejection_to_message rejection
+         })
 ;;
 
 let validate_request_path (config : Provider_config.t) =
@@ -448,7 +467,42 @@ let validate_all (config : Provider_config.t) =
      | Ok () ->
        (match validate_tool_choice_request config with
         | Error _ as e -> e
-        | Ok () -> validate_thinking_control_request config))
+        | Ok () ->
+          (match validate_reasoning_effort_request config with
+           | Error _ as e -> e
+           | Ok () -> validate_thinking_control_request config)))
+;;
+
+let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tools =
+  let http_codec = Provider_http_codec.of_config config in
+  let body_result =
+    try
+      match http_codec with
+      | Provider_http_codec.Anthropic_messages ->
+        (match
+           Backend_anthropic.build_request_artifact ~stream ~config ~messages ~tools ()
+         with
+         | Ok artifact -> Ok (Backend_anthropic.request_payload artifact)
+         | Error rejection ->
+           Error
+             (Http_client.AcceptRejected
+                { reason =
+                    Backend_anthropic.required_output_token_error_message config rejection
+                }))
+      | Provider_http_codec.Ollama_chat ->
+        Ok (Backend_ollama.build_request ~stream ~config ~messages ~tools ())
+      | Provider_http_codec.Openai_responses ->
+        Ok (Backend_openai_responses.build_request ~stream ~config ~messages ~tools ())
+      | Provider_http_codec.Openai_chat ->
+        Ok (Backend_openai.build_request ~stream ~config ~messages ~tools ())
+      | Provider_http_codec.Gemini_generate_content ->
+        Ok (Backend_gemini.build_request ~stream ~config ~messages ~tools ())
+      | Provider_http_codec.Glm_chat ->
+        Ok (Backend_glm.build_request ~stream ~config ~messages ~tools ())
+    with
+    | Invalid_argument reason -> Error (Http_client.AcceptRejected { reason })
+  in
+  Result.map (fun body -> http_codec, body) body_result
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in

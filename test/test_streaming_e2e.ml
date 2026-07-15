@@ -3,7 +3,12 @@
 
 open Agent_sdk
 
-let local_llm_provider : Provider.config = Provider.local_llm ()
+let local_llm_provider : Provider.config =
+  Provider.local_llm
+    ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
+    ~model_id:"test-model"
+    ()
+;;
 
 let test_stream_basic () =
   Eio_main.run
@@ -13,10 +18,9 @@ let test_stream_basic () =
   @@ fun sw ->
   let provider = local_llm_provider in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model = provider.model_id
     ; system_prompt = Some "You are a helpful assistant. Reply briefly."
-    ; max_turns = 1
     ; max_tokens = Some 200
     }
   in
@@ -91,10 +95,9 @@ let test_stream_event_sequence () =
   @@ fun sw ->
   let provider = local_llm_provider in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       model = provider.model_id
     ; system_prompt = Some "Reply with one word only."
-    ; max_turns = 1
     ; max_tokens = Some 50
     }
   in

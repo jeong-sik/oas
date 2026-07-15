@@ -15,6 +15,7 @@ type cost_report =
   ; cache_miss_input_tokens : int
   ; api_calls : int
   ; avg_cost_per_call : float
+  ; pricing_gap : Types.pricing_gap option
   }
 
 (** Generate a structured cost report from usage stats. *)

@@ -87,18 +87,8 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
-let env_or default var =
-  match Llm_provider.Cli_common_env.get var with
-  | Some v -> v
-  | None -> default
-;;
-
 let json_member_str key json =
   Yojson.Safe.Util.(json |> member key |> to_string_option) |> Option.value ~default:""
-;;
-
-let json_member_int key json =
-  Yojson.Safe.Util.(json |> member key |> to_int_option) |> Option.value ~default:0
 ;;
 
 let json_member_bool key json =
@@ -136,4 +126,3 @@ let string_list_of_json lst =
 ;;
 
 let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
-let int_env_or default var = Llm_provider.Cli_common_env.int ~default var

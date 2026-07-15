@@ -27,22 +27,18 @@
 \* fiber/Switch layer (agent_turn, runtime), not in the lifecycle FSM.
 \* A separate spec (AgentCancellation.tla) should model that.
 \*
-\* Design note: state representation uses (status, prev_status, turn_count)
-\* — bounded — instead of a history sequence to keep the state space finite.
+\* Design note: state representation uses only (status, prev_status). The
+\* Ready <-> Running cycle is unbounded; no runtime turn limit is modeled.
 \*
 \* @since (issue #1212)
 
-EXTENDS Naturals, FiniteSets
-
-CONSTANTS
-    MaxTurns        \* Bound on Ready<->Running cycles
+EXTENDS FiniteSets
 
 VARIABLES
     status,         \* Current lifecycle state
-    prev_status,    \* Status that immediately preceded `status` ("None" before any transition)
-    turn_count      \* Number of completed Ready->Running cycles
+    prev_status     \* Status that immediately preceded `status` ("None" before any transition)
 
-vars == <<status, prev_status, turn_count>>
+vars == <<status, prev_status>>
 
 States       == {"Accepted", "Ready", "Running", "Completed", "Failed"}
 StatesOrNone == States \cup {"None"}
@@ -53,7 +49,6 @@ Terminal    == {"Completed", "Failed"}
 TypeOK ==
     /\ status \in States
     /\ prev_status \in StatesOrNone
-    /\ turn_count \in 0..MaxTurns
 
 \* ── Helpers ──────────────────────────────────
 IsTerminal(s) == s \in Terminal
@@ -70,7 +65,6 @@ AllowedNext(s) ==
 Init ==
     /\ status = "Accepted"
     /\ prev_status = "None"
-    /\ turn_count = 0
 
 \* ── Transition actions ───────────────────────
 \* Forward transition to a different state.
@@ -78,14 +72,8 @@ Transition(to_) ==
     /\ ~IsTerminal(status)
     /\ to_ # status                                  \* not a reaffirm — Reaffirm action handles that
     /\ to_ \in AllowedNext(status)
-    \* Bound Ready->Running cycles to keep state space finite.
-    /\ ~(status = "Ready" /\ to_ = "Running" /\ turn_count >= MaxTurns)
     /\ prev_status' = status
     /\ status' = to_
-    /\ turn_count' =
-        IF status = "Ready" /\ to_ = "Running"
-        THEN turn_count + 1
-        ELSE turn_count
 
 \* Same-state reaffirm: allowed on non-terminal states (per .mli line 13–14).
 \* Idempotent — does not change observable state.
@@ -149,7 +137,6 @@ BugTerminalResurrection ==
     /\ status = "Failed"
     /\ prev_status' = "Failed"
     /\ status' = "Running"
-    /\ UNCHANGED turn_count
 
 NextBuggy ==
     \/ \E to_ \in States : Transition(to_)

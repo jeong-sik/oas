@@ -18,16 +18,8 @@ let openai_content_parts_of_blocks =
 ;;
 
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
-let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
-let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
-
-let close_tool_message_pairs_for_request =
-  Backend_openai_serialize.close_tool_message_pairs_for_request
-;;
-
-let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
@@ -82,7 +74,8 @@ let deepseek_v4_capabilities =
   ; supports_named_tool_choice = false
   ; supports_reasoning = true
   ; supports_extended_thinking = true
-  ; supports_reasoning_budget = true
+  ; supports_reasoning_budget = false
+  ; accepted_reasoning_efforts = Some [ Reasoning_effort.High; Reasoning_effort.Max ]
   ; thinking_control_format = Capabilities.Thinking_object
   ; supports_response_format_json = true
   ; supports_native_streaming = true
@@ -91,13 +84,13 @@ let deepseek_v4_capabilities =
   }
 ;;
 
-let declared_deepseek_config ?enable_thinking ?thinking_budget model_id =
+let declared_deepseek_config ?enable_thinking ?reasoning_effort model_id =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id
     ~base_url:"https://api.deepseek.com"
     ?enable_thinking
-    ?thinking_budget
+    ?reasoning_effort
     ~model_capabilities_override:deepseek_v4_capabilities
     ()
 ;;
@@ -463,7 +456,7 @@ let%test "openai_messages_of_message user with tool_result" =
   List.length result = 2
 ;;
 
-let%test "build_request strips orphaned tool results from wire messages" =
+let%test "build_request preserves orphaned tool results without synthetic repair" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -503,7 +496,7 @@ let%test "build_request strips orphaned tool results from wire messages" =
     |> to_list
     |> List.map (fun json -> json |> member "role" |> to_string)
   in
-  roles = [ "assistant"; "user" ]
+  roles = [ "assistant"; "tool"; "user" ]
 ;;
 
 let%test "openai_messages_of_message assistant with tool_calls" =
@@ -620,26 +613,6 @@ let%test "openai_messages_of_message assistant excludes reasoning from content" 
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = "final answer"
   && json |> member "reasoning_content" = `Null
-;;
-
-let%test "glm_messages_of_message preserves reasoning_content separately" =
-  let msg =
-    { role = Assistant
-    ; content =
-        [ Thinking { signature = None; content = "step one" }
-        ; ToolUse { id = "tc1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
-        ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  let result = glm_messages_of_message msg in
-  let json = List.hd result in
-  let open Yojson.Safe.Util in
-  json |> member "content" |> to_string = ""
-  && json |> member "reasoning_content" |> to_string = "step one"
-  && json |> member "tool_calls" |> to_list |> List.length = 1
 ;;
 
 let%test "openai_messages_of_message assistant blank text with tool_calls" =
@@ -1268,6 +1241,11 @@ let%test
       ~preserve_thinking:true
       ()
   in
+  let metadata =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> Reasoning_source.metadata source
+    | Error detail -> failwith detail
+  in
   let messages =
     [ { role = Assistant
       ; content =
@@ -1277,7 +1255,7 @@ let%test
           ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = []
+      ; metadata
       }
     ]
   in
@@ -1382,15 +1360,12 @@ let%test "build_request serializes thinking object for deepseek-v4-flash" =
   let config =
     declared_deepseek_config
       ~enable_thinking:true
-      ~thinking_budget:2048
+      ~reasoning_effort:Reasoning_effort.High
       "deepseek-v4-flash"
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  (* thinking_budget 2048 -> typed effort [Low], but the DeepSeek dialect
-     (Deepseek_high_or_max) normalizes low/medium/high -> "high" (see
-     test_thinking_control_dialects.ml "low maps high"). *)
   json |> member "thinking" |> member "type" |> to_string = "enabled"
   && json |> member "reasoning_effort" |> to_string = "high"
 ;;
@@ -1404,7 +1379,7 @@ let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
   && json |> member "reasoning_effort" = `Null
 ;;
 
-let%test "build_request serializes ZAI thinking object for bare GLM compat model" =
+let%test "openai compat does not infer ZAI thinking from bare GLM model or URL" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1417,12 +1392,10 @@ let%test "build_request serializes ZAI thinking object for bare GLM compat model
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "type" |> to_string = "enabled"
-  && json |> member "thinking" |> member "clear_thinking" |> to_bool = false
-  && json |> member "reasoning_effort" = `Null
+  json |> member "thinking" = `Null && json |> member "reasoning_effort" = `Null
 ;;
 
-let%test "build_request maps preserve_thinking for bare ZAI GLM compat model" =
+let%test "openai compat does not infer ZAI preserve control from bare GLM model or URL" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1435,17 +1408,23 @@ let%test "build_request maps preserve_thinking for bare ZAI GLM compat model" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+  json |> member "thinking" = `Null
 ;;
 
 let%test "build_request emits reasoning_effort for Openai reasoning models" =
+  let capabilities =
+    { Capabilities.openai_compat_chat_extended_capabilities with
+      accepted_reasoning_efforts = Some [ Reasoning_effort.Low ]
+    }
+  in
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"gpt-5.1"
       ~base_url:"https://api.openai.com/v1"
       ~enable_thinking:true
-      ~thinking_budget:2048
+      ~reasoning_effort:Reasoning_effort.Low
+      ~model_capabilities_override:capabilities
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -1648,55 +1627,34 @@ let%test
   && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request omits seed when model does not support it" =
-  (* glm-5.1 inherits default_capabilities.supports_seed = false.
-     The capability gate must exclude the "seed" field from the
-     wire body — Glm rejects unknown params. *)
+let%test "build_request rejects explicit seed when model does not support it" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
       ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
+      ~seed:42
+      ()
+  in
+  match build_request ~config ~messages:[] () with
+  | _ -> false
+  | exception Invalid_argument message ->
+    String.equal
+      message
+      "Backend_openai_request.build_request: model \"glm-5.1\" does not support seed"
+;;
+
+let%test "build_request emits only an explicit supported seed" =
+  let capabilities = { Capabilities.default_capabilities with supports_seed = true } in
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.OpenAI_compat
+      ~model_id:"seed-capable-model"
+      ~base_url:"http://localhost"
+      ~model_capabilities_override:capabilities
+      ~seed:42
       ()
   in
   let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "seed" = `Null
-;;
-
-let%test "strip_thinking_blocks removes Thinking from all messages" =
-  let messages =
-    [ { role = User
-      ; content = [ Text "hello" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { role = Assistant
-      ; content = [ Text "hi"; Thinking { signature = None; content = "step 1" } ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let stripped = strip_thinking_blocks messages in
-  List.for_all
-    (fun (msg : message) ->
-       not
-         (List.exists
-            (fun (block : Types.content_block) ->
-               match block with
-               | Thinking _ -> true
-               | Text _
-               | ReasoningDetails _
-               | RedactedThinking _
-               | ToolUse _
-               | ToolResult _
-               | Image _
-               | Document _
-               | Audio _ -> false)
-            msg.content))
-    stripped
+  Yojson.Safe.Util.(body |> Yojson.Safe.from_string |> member "seed" |> to_int) = 42
 ;;

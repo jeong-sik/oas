@@ -17,10 +17,9 @@ let () =
   Eio.Switch.run
   @@ fun sw ->
   let config =
-    { default_config with
+    { (default_config ~model:"claude-sonnet-4-6") with
       name = "hello-agent"
     ; system_prompt = Some "You are a helpful assistant. Be concise."
-    ; max_turns = 1
     }
   in
   let agent = Agent.create ~net ~config ~tools:[] () in

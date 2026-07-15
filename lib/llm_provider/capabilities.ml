@@ -96,8 +96,6 @@ type capabilities =
   ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
-  ; supports_runtime_mcp_tools : bool
-  ; supports_runtime_tool_events : bool
   ; assistant_tool_content_format : assistant_tool_content_format
     (** Wire shape for assistant messages that contain tool calls but no visible
         text. OpenAI-compatible providers disagree here: OpenAI accepts
@@ -198,8 +196,6 @@ let default_capabilities =
   ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; supports_parallel_tool_calls = false
-  ; supports_runtime_mcp_tools = false
-  ; supports_runtime_tool_events = false
   ; assistant_tool_content_format = Assistant_tool_content_null
   ; supports_reasoning = false
   ; supports_extended_thinking = false
@@ -553,72 +549,6 @@ let glm_capabilities =
     supports_structured_output = false
   ; supports_native_streaming = true
   }
-;;
-
-(** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
-
-    Centralizes the [String.starts_with ~prefix:"gemini-..."] dispatch into a
-    single classifier with an exhaustive variant. Downstream code switches on
-    the variant instead of comparing strings, so a new family member is a
-    compile-time obligation rather than a runtime string-match miss.
-
-    The internal use of [starts_with] inside [gemini_family_of_id] is
-    intentional and bounded: prefix matching is the only signal Google's model
-    IDs offer. Concentrating it here keeps the rest of the codebase typed.
-
-    @since 0.196.3 *)
-type gemini_family =
-  | Gemini_3_1 (** [gemini-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
-  | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
-  | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
-  | Gemini_other of string
-  (** Unknown gemini id or non-gemini id. Retains the literal so the
-          caller can log / fall through without losing data. *)
-
-type gemini_thinking_control =
-  | Gemini_thinking_budget
-  | Gemini_thinking_level of { supports_minimal : bool }
-  | Gemini_unknown_thinking_control
-
-let strip_suffix ~suffix value =
-  if String.ends_with ~suffix value
-  then String.sub value 0 (String.length value - String.length suffix)
-  else value
-;;
-
-(** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
-    is checked before [gemini-3] so the more specific prefix wins.
-    Input is expected lowercased (callers pass the already-normalized id). *)
-let gemini_family_of_id (id : string) : gemini_family =
-  let starts p = String.starts_with ~prefix:p id in
-  if starts "gemini-3.1"
-  then Gemini_3_1
-  else if starts "gemini-3"
-  then Gemini_3
-  else if starts "gemini-2.5"
-  then Gemini_2_5
-  else Gemini_other id
-;;
-
-let gemini_thinking_control_of_id raw_id =
-  let id = String.lowercase_ascii (String.trim raw_id) in
-  match gemini_family_of_id id with
-  | Gemini_3_1 ->
-    (* Per ai.google.dev/gemini-api/docs/thinking and the gemini-3.1-flash-lite
-       model card (checked 2026-06-29), the [minimal] thinking level is valid
-       ONLY for gemini-3.1-flash-lite (where it is the default). gemini-3.1-pro
-       and gemini-3.1-flash accept low/medium/high only, so emitting [minimal]
-       for them produces an invalid thinkingLevel. The [-lite] check sits beside
-       the family classifier's bounded prefix matching (see [gemini_family_of_id]
-       doc) and keeps the wire decision typed at the call site. *)
-    let supports_minimal = String.starts_with ~prefix:"gemini-3.1-flash-lite" id in
-    Gemini_thinking_level { supports_minimal }
-  | Gemini_3 ->
-    (* gemini-3-flash-preview = low/medium/high; gemini-3-pro-preview = low/high.
-       Neither preview line exposes the [minimal] level. *)
-    Gemini_thinking_level { supports_minimal = false }
-  | Gemini_2_5 -> Gemini_thinking_budget
-  | Gemini_other _ -> Gemini_unknown_thinking_control
 ;;
 
 let gemini_capabilities =
@@ -1201,70 +1131,15 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
 
 (** Look up capabilities for [model_id] in the loaded model catalog only.
 
-    The catalog itself is resolved by {!Model_catalog.global}, in order:
-    runtime override installed via {!Model_catalog.set_global}, then the
-    [OAS_MODEL_CATALOG] environment variable, then the packaged default
-    [models.toml]. Ambient discovery is cached after first load; embedding
-    hosts and test harnesses can call [Model_catalog.preload_global], inject
-    [OAS_MODEL_CATALOG] during bootstrap, or install an explicit runtime
-    override.
+    The catalog itself is resolved by {!Model_catalog.global}: an explicit
+    runtime override installed via {!Model_catalog.set_global}, otherwise the
+    build-time embedded OAS [models.toml]. OAS performs no environment-based
+    catalog discovery.
 
     Returns [None] when no catalog is available or when the catalog has
     no entry whose [id_prefix] matches [model_id]. There is no in-code
     fallback table: the former built-in static table was removed when
     model specifications were externalized to the TOML catalog. *)
-let provider_qualified_separators = [ "/"; ":"; "." ]
-
-let model_id_has_provider_label ~provider_label ~model_id =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.lowercase_ascii (String.trim model_id) in
-  provider_label <> ""
-  && List.exists
-       (fun separator -> String.starts_with ~prefix:(provider_label ^ separator) model_id)
-       provider_qualified_separators
-;;
-
-let provider_qualified_model_id_candidates ~provider_label ~model_id =
-  let normalized_model_id = String.lowercase_ascii model_id in
-  let provider_prefixes =
-    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
-  in
-  let stripped =
-    List.find_map
-      (fun prefix ->
-         if String.starts_with ~prefix normalized_model_id
-         then (
-           let prefix_len = String.length prefix in
-           Some (String.sub model_id prefix_len (String.length model_id - prefix_len)))
-         else None)
-      provider_prefixes
-  in
-  (* When [model_id] is already provider-qualified, only the stripped bare
-     suffix is a useful candidate for re-qualification below in
-     [provider_qualified_catalog_keys]. Including the original [model_id]
-     alongside it used to make that function re-prepend [provider_label] onto
-     an already-qualified id (e.g. "vllm-qwen3-mtp/vllm-qwen3-mtp.qwen..."), which
-     never matches a real catalog [id_prefix] — pure wasted lookups. *)
-  match stripped with
-  | Some suffix when String.trim suffix <> "" -> [ suffix ]
-  | Some _ | None -> [ model_id ]
-;;
-
-let provider_qualified_catalog_keys ~provider_label ~model_id =
-  let provider_label = String.lowercase_ascii (String.trim provider_label) in
-  let model_id = String.trim model_id in
-  let keys =
-    provider_qualified_model_id_candidates ~provider_label ~model_id
-    |> List.concat_map (fun model_id ->
-      List.map
-        (fun separator -> provider_label ^ separator ^ model_id)
-        provider_qualified_separators)
-  in
-  let prefixes =
-    List.map (fun separator -> provider_label ^ separator) provider_qualified_separators
-  in
-  keys, prefixes
-;;
 
 let for_model_id_catalog model_id =
   match Model_catalog.global () with
@@ -1305,26 +1180,12 @@ let for_model_id model_id =
 ;;
 
 let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string) =
-  let candidates, qualified_prefixes =
-    provider_qualified_catalog_keys ~provider_label ~model_id
-  in
   match Model_catalog.global () with
   | None -> None
   | Some catalog ->
-    let rec loop = function
-      | [] -> None
-      | candidate :: rest ->
-        (match Model_catalog.lookup catalog candidate with
-         | Some entry
-           when List.exists
-                  (fun prefix ->
-                     String.starts_with
-                       ~prefix
-                       (String.lowercase_ascii (String.trim entry.id_prefix)))
-                  qualified_prefixes -> Some (apply_catalog_entry entry)
-         | Some _ | None -> loop rest)
-    in
-    loop candidates
+    Option.map
+      apply_catalog_entry
+      (Model_catalog.lookup_for_provider catalog ~provider_name:provider_label ~model_id)
 ;;
 
 let for_provider_model_id
@@ -1380,32 +1241,12 @@ let thinking_control_token_for_provider_model_id
       ~(provider_label : string)
       ~(model_id : string)
   =
-  let candidates, qualified_prefixes =
-    provider_qualified_catalog_keys ~provider_label ~model_id
-  in
-  let provider_catalog_match =
-    match Model_catalog.global () with
-    | None -> None
-    | Some catalog ->
-      let rec loop = function
-        | [] -> None
-        | candidate :: rest ->
-          (match Model_catalog.lookup catalog candidate with
-           | Some entry
-             when List.exists
-                    (fun prefix ->
-                       String.starts_with
-                         ~prefix
-                         (String.lowercase_ascii (String.trim entry.id_prefix)))
-                    qualified_prefixes ->
-             Some (token_of_declared_format entry.thinking_control_format)
-           | Some _ | None -> loop rest)
-      in
-      loop candidates
-  in
-  match provider_catalog_match with
-  | Some token -> token
-  | None -> thinking_control_token_for_model_id model_id
+  match Model_catalog.global () with
+  | None -> None
+  | Some catalog ->
+    Option.bind
+      (Model_catalog.lookup_for_provider catalog ~provider_name:provider_label ~model_id)
+      (fun entry -> token_of_declared_format entry.Model_catalog.thinking_control_format)
 ;;
 
 [@@@coverage off]
@@ -1420,20 +1261,13 @@ let%test "for_model_id glm-4.5 has reasoning" =
   | None -> false
 ;;
 
-let%test "for_model_id glm-4 no reasoning" =
-  match for_model_id "glm-4-chat" with
-  | Some c -> (not c.supports_reasoning) && c.max_context_tokens = Some 128_000
-  | None -> false
-;;
-
-let%test "for_model_id glm-4v has vision" =
-  match for_model_id "glm-4v-flash" with
-  | Some c -> c.supports_image_input && c.supports_multimodal_inputs
-  | None -> false
-;;
-
-let%test "for_model_id glm-4-flash basic" =
-  match for_model_id "glm-4-flash" with
+let%test "for_provider_model_id glm-4-flash basic" =
+  match
+    for_provider_model_id
+      ~allow_bare_fallback:true
+      ~provider_label:"glm"
+      ~model_id:"glm-4-flash"
+  with
   | Some c -> c.supports_tools && c.max_output_tokens = Some 4_096
   | None -> false
 ;;
@@ -1448,26 +1282,6 @@ let%test "for_model_id glm-5v has vision" =
   match for_model_id "glm-5v-turbo" with
   | Some c -> c.supports_reasoning && c.supports_image_input
   | None -> false
-;;
-
-let%test "gemini minimal thinking level is gemini-3.1-flash-lite only" =
-  let supports_minimal id =
-    match gemini_thinking_control_of_id id with
-    | Gemini_thinking_level { supports_minimal } -> supports_minimal
-    | Gemini_thinking_budget | Gemini_unknown_thinking_control -> false
-  in
-  supports_minimal "gemini-3.1-flash-lite"
-  && supports_minimal "gemini-3.1-flash-lite-preview"
-  && (not (supports_minimal "gemini-3.1-flash"))
-  && (not (supports_minimal "gemini-3.1-pro"))
-  && (not (supports_minimal "gemini-3-flash-preview"))
-  && not (supports_minimal "gemini-3-pro-preview")
-;;
-
-let%test "gemini 2.5 uses thinking budget, not a thinking level" =
-  match gemini_thinking_control_of_id "gemini-2.5-flash" with
-  | Gemini_thinking_budget -> true
-  | Gemini_thinking_level _ | Gemini_unknown_thinking_control -> false
 ;;
 
 let%test "for_model_id glm-4.6v stays vision-capable" =
@@ -1514,10 +1328,9 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
 
 (* [for_model_id_catalog] tests below install an explicit catalog through
    [Model_catalog.set_global] and restore the override afterwards, so they
-   are insulated from BOTH ambient manifest overrides
-   ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
-   ([OAS_MODEL_CATALOG]). CI injects the repository [models.toml] through
-   [OAS_MODEL_CATALOG] for inline tests that exercise the production catalog.
+   are insulated from any caller-installed model catalog. Inline tests that
+   exercise the production catalog use the embedded default generated directly
+   from the OAS-owned [models.toml].
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the
@@ -1803,8 +1616,7 @@ let test_catalog_entries =
 let test_catalog : Model_catalog.t = Model_catalog.of_model_entries test_catalog_entries
 
 (* Installs [test_catalog] as the runtime override for the duration of [f],
-   then clears the override (which falls back to ambient discovery, the
-   pre-test state in this runner). *)
+   then clears the override so subsequent lookups use the embedded catalog. *)
 let with_test_catalog f =
   Model_catalog.set_global test_catalog;
   Fun.protect ~finally:Model_catalog.clear_global f

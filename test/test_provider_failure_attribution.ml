@@ -192,11 +192,6 @@ let test_closed_ownership_matrix () =
     (Http.NetworkError
        { message = "local resource detail"; kind = Http.Local_resource_exhaustion });
   check_ownership
-    "caller budget timeout is attempt local"
-    Attribution.Attempt_local
-    with_credential
-    (Http.TimeoutError { message = "caller budget"; phase = Http.Caller_budget });
-  check_ownership
     "provider first-token timeout is not widened"
     Attribution.Unclassified
     with_credential
@@ -353,7 +348,7 @@ let make_agent ~net ~transport name =
   in
   Agent.create
     ~net
-    ~config:{ Types.default_config with name; model = "model-a"; max_turns = 1 }
+    ~config:{ (Types.default_config ~model:"test-model") with name; model = "model-a" }
     ~options
     ()
 ;;
@@ -438,42 +433,6 @@ let test_stream_finalization_keeps_empty_completion_evidence () =
   | _ -> Alcotest.fail "expected typed empty-completion evidence"
 ;;
 
-let test_legacy_max_turn_projection_keeps_final_call_attribution () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let make name =
-    let agent =
-      make_agent
-        ~net:(Eio.Stdenv.net env)
-        ~transport:(failing_transport transport_error)
-        name
-    in
-    let state = Agent.state agent in
-    Agent.set_state
-      agent
-      { state with
-        turn_count = state.config.max_turns
-      ; config = { state.config with ensure_final_text = true }
-      };
-    agent
-  in
-  let detailed, attribution =
-    Agent.run_detailed ~sw (make "max-turn-detailed") "ping" |> require_detailed_error
-  in
-  (match detailed.error with
-   | Error.Agent (Error.MaxTurnsExceeded _) -> ()
-   | _ -> Alcotest.fail "detailed error must preserve the legacy max-turn projection");
-  Alcotest.check
-    ownership_testable
-    "final provider call attribution survives projection"
-    Attribution.Endpoint
-    attribution.ownership;
-  let legacy = Agent.run ~sw (make "max-turn-legacy") "ping" |> require_legacy_error in
-  check_bool "legacy projection remains exact" true (legacy = detailed.error)
-;;
-
 let test_attribution_json_omits_diagnostics () =
   let binding = identity ~api_key:"credential-a" () in
   let detailed =
@@ -545,10 +504,6 @@ let () =
             "stream finalization"
             `Quick
             test_stream_finalization_keeps_empty_completion_evidence
-        ; Alcotest.test_case
-            "max-turn projection keeps attribution"
-            `Quick
-            test_legacy_max_turn_projection_keeps_final_call_attribution
         ] )
     ]
 ;;

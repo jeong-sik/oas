@@ -1,5 +1,5 @@
-(** Tool execution helpers — lookup, hooks, event bus, and effect-aware
-    Eio scheduling.
+(** Tool execution helpers — lookup, hooks, event bus, and declared Eio
+    scheduling.
 
     These functions are parameterized by explicit fields rather than [Agent.t]
     to avoid circular module dependencies ([Agent_tools] is compiled before
@@ -29,41 +29,68 @@ type tool_index
 
 (** Build a stable lookup index for the current tool set.
 
-    Exact tool-name lookups preserve first-match list semantics. The typed
-    [Tool_id] key is also populated so normalized built-in/MCP names can share
-    the same dispatch path without each caller scanning the full list. *)
+    Exact tool-name lookups preserve first-match list semantics. OAS does not
+    classify or normalize names; any alias must be registered explicitly by
+    the consumer. *)
 val build_index : Tool.t list -> tool_index
 
-(** [find_in_index index name] resolves a tool by its registered name. Falls
-    back to [Tool_id.of_string] for canonical built-ins and MCP IDs only;
-    user-defined tools (which [Tool_id.of_string] would map to [User _]) must
-    match by [by_name] exactly to avoid case-variant cross-dispatch.
-
-    Example: with only ["mytool"] registered, [find_in_index idx "MYTOOL"]
-    returns [None] — not the lowercased neighbor — so approval and audit
-    context cannot be applied to a tool the caller didn't actually name. *)
+(** [find_in_index index name] resolves only the exact registered name. *)
 val find_in_index : tool_index -> string -> Tool.t option
 
 type tool_failure_kind = Types.tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
   | Non_retryable_tool_error
+  | Reported_tool_error
+  | Unattributed_tool_error
 
 type tool_execution_result =
   { tool_use_id : string
   ; tool_name : string
   ; input : Yojson.Safe.t
-    (** Effective input at the deepest execution boundary reached. Successful
-        dispatches record the exact handler input; validation failures retain
-        the final deterministic candidate; pre-dispatch rejections retain the
-        exact rejected request. *)
+    (** Exact input received from the typed [ToolUse] block. Validation never
+        rewrites this value. *)
   ; content : string
   ; outcome : Types.tool_result_outcome
   }
 
+type execution_error =
+  | Hook_execution_failed of
+      { hook_name : string
+      ; stage : Hooks.hook_stage
+      ; tool_name : string
+      ; tool_use_id : string
+      ; detail : string
+      }
+
+(** Terminal cause observed while dispatching a scheduled tool batch.
+
+    Ordinary observer failures are values at this boundary so every sibling
+    already running in the same concurrent batch can finish.  The pipeline
+    re-raises [Observer_failure] with the captured backtrace only after it has
+    committed [completed_results]. *)
+type execution_failure_cause =
+  | Hook_failure of execution_error
+  | Observer_failure of
+      { exception_ : exn
+      ; backtrace : Printexc.raw_backtrace
+      }
+
+(** A terminal batch failure together with every tool result that completed
+    before, or concurrently with, that failure.  Results remain in original
+    [ToolUse] order. *)
+type execution_failure =
+  { completed_results : tool_execution_result list
+  ; cause : execution_failure_cause
+  }
+
 (** Find a tool by name and execute it, invoking [PostToolUse] (and
-    [PostToolUseFailure] on error) hooks.  Publishes [ToolCalled] and
-    [ToolCompleted] events to the event bus. *)
+    [PostToolUseFailure] on error) hooks. Publishes [ToolCalled] and
+    [ToolCompleted] events to the event bus. A failed post-execution hook is
+    returned as [Hook_execution_failed] after the actual tool completion has
+    been observed; it is never rewritten as a retryable tool result. An
+    ordinary hook observer, tracer, or event-bus failure is re-raised with its
+    original backtrace only after completion observers have run. *)
 val find_and_execute_tool
   :  context:Context.t
   -> tools:Tool.t list
@@ -80,40 +107,44 @@ val find_and_execute_tool
   -> string
   -> Yojson.Safe.t
   -> string
-  -> tool_execution_result
+  -> (tool_execution_result, execution_error) result
 
 (** {1 Tool scheduling and execution} *)
 
-(** Execute tool-use content blocks using declared concurrency classes.
+(** Execute tool-use content blocks using the declared execution mode.
 
     Non-[ToolUse] blocks in the input list are filtered out before
     execution — only [ToolUse] blocks produce result triples.
 
     Scheduling is deterministic:
-    - [Tool.Parallel_read] blocks are executed together in a parallel batch.
-    - [Tool.Sequential_workspace] blocks run one-at-a-time in input order.
-    - [Tool.Exclusive_external] blocks flush all pending batches before
-      executing and run in complete isolation (no overlap with any other
-      tool call).  The schedule metadata carries [batch_kind = "exclusive"]
-      for audit purposes.
-    - Tools without a declared descriptor default to sequential execution.
+    - [Tool.Concurrent] calls in the same contiguous batch may overlap.
+    - [Tool.Serial] calls run one-at-a-time in input order and separate
+      concurrent batches.
+    - Tools without a declared descriptor default to [Tool.Serial].
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
-    Supports approval flow: if the hook returns [ApprovalRequired], the
-    [approval] callback is invoked. If no callback is registered,
-    [missing_approval_callback_policy] chooses fail-open compatibility or
-    fail-closed rejection.
+    OAS does not adjudicate external effects; an embedding application must
+    settle any such decision before the call reaches this function.
 
-    Parallel batches catch exceptions per fiber to prevent one tool failure
-    from canceling siblings (except [Out_of_memory], [Stack_overflow],
-    [Sys.Break], and cancellation).
+    A tool-handler exception is localized to that call as a non-retryable tool
+    result. Typed hook failures and ordinary observer failures are returned as
+    values after the current concurrent batch has joined, so they do not cancel
+    sibling tool handlers. [Out_of_memory], [Stack_overflow], [Sys.Break], and
+    cancellation still propagate through the surrounding Eio scope.
 
     [on_tool_execution_started] and [on_tool_execution_finished] are
-    best-effort lifecycle observers. Non-fatal exceptions raised by these
-    callbacks are logged and do not change the tool result.
+    caller-owned lifecycle observers. Their failures, event-bus publication
+    failures, journal projection failures, and tracer failures propagate to the
+    caller through [Observer_failure]; OAS never hides an observer failure.
 
-    Returns one [tool_execution_result] per [ToolUse] block in the same
-    relative order as the input. *)
+    [Block] produces a model-visible deterministic result without emitting
+    tool-execution lifecycle callbacks or durable events, because no tool ran.
+
+    On success, returns one [tool_execution_result] per [ToolUse] block in the
+    same relative order as the input. On failure, [completed_results] retains
+    every completed result in that order alongside the terminal cause. Serial
+    work after a failure is not started; already-running concurrent siblings
+    finish under their declared structured-concurrency batch. *)
 val execute_tools
   :  context:Context.t
   -> tools:Tool.t list
@@ -124,8 +155,6 @@ val execute_tools
   -> agent_name:string
   -> turn_count:int
   -> usage:Types.usage_stats
-  -> approval:Hooks.approval_callback option
-  -> missing_approval_callback_policy:Hooks.missing_approval_callback_policy
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_tool_execution_started:
@@ -139,4 +168,4 @@ val execute_tools
   -> ?on_hook_invoked:
        (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
   -> Types.content_block list
-  -> tool_execution_result list
+  -> (tool_execution_result list, execution_failure) result

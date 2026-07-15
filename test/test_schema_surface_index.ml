@@ -71,7 +71,7 @@ let test_catalog_shape () =
   let json = catalog () in
   check int "version" 1 (require_int "version" json);
   let rows = surfaces json in
-  check bool "has surfaces" true (List.length rows >= 13);
+  check bool "has surfaces" true (rows <> []);
   let ids = List.map (require_string "id") rows in
   let sorted = List.sort String.compare ids in
   check (list string) "ids unique" sorted (List.sort_uniq String.compare ids);
@@ -107,7 +107,7 @@ let test_required_surfaces_present () =
   List.iter
     (fun id -> check bool ("required surface: " ^ id) true (List.mem id ids))
     [ "oas.event_bus.v1"
-    ; "oas.runtime_protocol.v1"
+    ; "oas.runtime_protocol.v2"
     ; "oas.runtime_sync_window.v1"
     ; "oas.runtime_report.v1"
     ; "oas.runtime_proof.v1"
@@ -118,7 +118,6 @@ let test_required_surfaces_present () =
     ; "oas.harness_report.v1"
     ; "oas.eval_report.v1"
     ; "oas.structured_schema.v1"
-    ; "oas.cdal_proof_bundle.v1"
     ]
 ;;
 

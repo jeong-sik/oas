@@ -19,8 +19,7 @@ type api_strategy =
 
 type turn_outcome =
   | Complete of Types.api_response
-  | ToolsExecuted of Tool_failure_episode.completed_round option
-  | IdleSkipped (** on_idle hook returned Skip — agent should stop gracefully. *)
+  | ToolsExecuted of Agent_types.checkpoint_stage
 
 (** Persist [state] using the same pre-commit checkpoint transaction as turn
     collection. The live agent state is not changed by this function. *)
@@ -31,13 +30,18 @@ val persist_turn_checkpoint_for_state
   -> (unit, Error.sdk_error) result
 
 (** Run a single agent turn through the 6-stage pipeline.
-    Equivalent to the previous [run_turn_core]. *)
+    Equivalent to the previous [run_turn_core].
+
+    [before_tool_execution], when present, runs exactly once for a non-empty
+    tool batch after assistant collection has committed successfully and before
+    the first tool hook or implementation starts.  Exceptions propagate and
+    prevent tool execution. *)
 val run_turn
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
   -> api_strategy:api_strategy
   -> ?raw_trace_run:Raw_trace.active_run
-  -> ?recovery_context:string
   -> ?on_provider_failure:(Provider_failure_attribution.t option -> unit)
+  -> ?before_tool_execution:(unit -> unit)
   -> Agent_types.t
   -> (turn_outcome, Error.sdk_error) result

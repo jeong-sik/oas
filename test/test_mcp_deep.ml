@@ -2,33 +2,12 @@
 
     Targets the 116 uncovered lines (54.33% coverage).
     Focuses on pure functions that do not require Eio context:
-    - output_token_budget: env var parsing
-    - truncate_output: string truncation
-    - text_of_tool_result: content block extraction
+    - text_of_tool_result: exact content block extraction
     - mcp_tool_of_json: JSON tool definition parsing
     - merge_env: environment variable merging *)
 
 open Agent_sdk
 module Sdk_types = Mcp_protocol.Mcp_types
-
-(* ── Env helper ──────────────────────────────────────────────── *)
-
-let with_env key value f =
-  let original = Sys.getenv_opt key in
-  (match value with
-   | Some v -> Unix.putenv key v
-   | None ->
-     (try Unix.putenv key "" with
-      | _ -> ()));
-  Fun.protect
-    ~finally:(fun () ->
-      match original with
-      | Some v -> Unix.putenv key v
-      | None ->
-        (try Unix.putenv key "" with
-         | _ -> ()))
-    f
-;;
 
 let make_tool_result ?is_error ?structured_content content =
   let fields = [ "content", Sdk_types.tool_content_list_to_yojson content ] in
@@ -47,128 +26,29 @@ let make_tool_result ?is_error ?structured_content content =
   | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
 ;;
 
-let contains_substring ~sub text =
-  let sub_len = String.length sub in
-  let text_len = String.length text in
-  let rec loop index =
-    if index + sub_len > text_len
-    then false
-    else if String.sub text index sub_len = sub
-    then true
-    else loop (index + 1)
-  in
-  if sub_len = 0 then true else loop 0
-;;
-
-(* ── output_token_budget tests ───────────────────────────────── *)
-
-let test_budget_default_no_env () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" None (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "default 25000" 25_000 budget)
-;;
-
-let test_budget_valid_env () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "100") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "100" 100 budget)
-;;
-
-let test_budget_zero () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "zero is accepted" 0 budget)
-;;
-
-let test_budget_garbage () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "not_a_number") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "garbage -> default" 25_000 budget)
-;;
-
-let test_budget_whitespace () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "  50  ") (fun () ->
-    let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "trimmed" 50 budget)
-;;
-
-(* ── truncate_output tests ───────────────────────────────────── *)
-
-let test_truncate_short () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1000") (fun () ->
-    let result = Mcp.truncate_output "hello" in
-    Alcotest.(check string) "no truncation" "hello" result)
-;;
-
-let test_truncate_long () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "2") (fun () ->
-    (* 2 tokens * 4 chars = 8 char limit *)
-    let text = String.make 20 'a' in
-    let result = Mcp.truncate_output text in
-    Alcotest.(check bool)
-      "truncated"
-      true
-      (contains_substring ~sub:"...[oas mcp output truncated]" result);
-    (* First 8 chars should be preserved *)
-    Alcotest.(check bool)
-      "starts with 8 a's"
-      true
-      (String.length result > 8 && String.sub result 0 8 = String.make 8 'a'))
-;;
-
-let test_truncate_exact_boundary () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "3") (fun () ->
-    (* 3 tokens * 4 = 12 chars *)
-    let text = String.make 12 'b' in
-    let result = Mcp.truncate_output text in
-    Alcotest.(check string) "exact boundary no truncation" text result)
-;;
-
-let test_truncate_one_over () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "3") (fun () ->
-    (* 3 tokens * 4 = 12 chars, input is 13 *)
-    let text = String.make 13 'c' in
-    let result = Mcp.truncate_output text in
-    Alcotest.(check bool)
-      "truncated at 13"
-      true
-      (contains_substring ~sub:"...[oas mcp output truncated]" result))
-;;
-
-let test_truncate_zero_budget_unlimited () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
-    (* Zero budget must mean "unlimited", not "truncate to marker". *)
-    let text = String.make 100 'd' in
-    let result = Mcp.truncate_output text in
-    Alcotest.(check string) "zero budget means no truncation" text result)
-;;
-
 (* ── text_of_tool_result tests ───────────────────────────────── *)
 
 let test_text_single_text () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "25000") (fun () ->
-    let result : Sdk_types.tool_result =
-      make_tool_result
-        [ Sdk_types.TextContent
-            { type_ = "text"; text = "hello world"; annotations = None }
-        ]
-    in
-    Alcotest.(check string) "single text" "hello world" (Mcp.text_of_tool_result result))
+  let result : Sdk_types.tool_result =
+    make_tool_result
+      [ Sdk_types.TextContent { type_ = "text"; text = "hello world"; annotations = None }
+      ]
+  in
+  Alcotest.(check string) "single text" "hello world" (Mcp.text_of_tool_result result)
 ;;
 
 let test_text_multiple_text_blocks () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "25000") (fun () ->
-    let result : Sdk_types.tool_result =
-      make_tool_result
-        [ Sdk_types.TextContent { type_ = "text"; text = "line1"; annotations = None }
-        ; Sdk_types.TextContent { type_ = "text"; text = "line2"; annotations = None }
-        ; Sdk_types.TextContent { type_ = "text"; text = "line3"; annotations = None }
-        ]
-    in
-    Alcotest.(check string)
-      "multi text"
-      "line1\nline2\nline3"
-      (Mcp.text_of_tool_result result))
+  let result : Sdk_types.tool_result =
+    make_tool_result
+      [ Sdk_types.TextContent { type_ = "text"; text = "line1"; annotations = None }
+      ; Sdk_types.TextContent { type_ = "text"; text = "line2"; annotations = None }
+      ; Sdk_types.TextContent { type_ = "text"; text = "line3"; annotations = None }
+      ]
+  in
+  Alcotest.(check string)
+    "multi text"
+    "line1\nline2\nline3"
+    (Mcp.text_of_tool_result result)
 ;;
 
 let test_text_empty_content () =
@@ -190,19 +70,13 @@ let test_text_image_only () =
   Alcotest.(check string) "image only" "" (Mcp.text_of_tool_result result)
 ;;
 
-let test_text_with_truncation () =
-  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
-    let result : Sdk_types.tool_result =
-      make_tool_result
-        [ Sdk_types.TextContent
-            { type_ = "text"; text = String.make 100 'x'; annotations = None }
-        ]
-    in
-    let text = Mcp.text_of_tool_result result in
-    Alcotest.(check bool)
-      "truncated"
-      true
-      (contains_substring ~sub:"...[oas mcp output truncated]" text))
+let test_text_large_exact () =
+  let text = String.make 100_000 'x' in
+  let result : Sdk_types.tool_result =
+    make_tool_result
+      [ Sdk_types.TextContent { type_ = "text"; text; annotations = None } ]
+  in
+  Alcotest.(check string) "large text exact" text (Mcp.text_of_tool_result result)
 ;;
 
 (* ── mcp_tool_of_json tests ──────────────────────────────────── *)
@@ -303,29 +177,12 @@ let test_merge_env_overrides () =
 let () =
   Alcotest.run
     "MCP Deep"
-    [ ( "output_token_budget"
-      , [ Alcotest.test_case "default no env" `Quick test_budget_default_no_env
-        ; Alcotest.test_case "valid env" `Quick test_budget_valid_env
-        ; Alcotest.test_case "zero" `Quick test_budget_zero
-        ; Alcotest.test_case "garbage" `Quick test_budget_garbage
-        ; Alcotest.test_case "whitespace" `Quick test_budget_whitespace
-        ] )
-    ; ( "truncate_output"
-      , [ Alcotest.test_case "short" `Quick test_truncate_short
-        ; Alcotest.test_case "long" `Quick test_truncate_long
-        ; Alcotest.test_case "exact boundary" `Quick test_truncate_exact_boundary
-        ; Alcotest.test_case "one over" `Quick test_truncate_one_over
-        ; Alcotest.test_case
-            "zero budget unlimited"
-            `Quick
-            test_truncate_zero_budget_unlimited
-        ] )
-    ; ( "text_of_tool_result"
+    [ ( "text_of_tool_result"
       , [ Alcotest.test_case "single text" `Quick test_text_single_text
         ; Alcotest.test_case "multiple texts" `Quick test_text_multiple_text_blocks
         ; Alcotest.test_case "empty content" `Quick test_text_empty_content
         ; Alcotest.test_case "image only" `Quick test_text_image_only
-        ; Alcotest.test_case "with truncation" `Quick test_text_with_truncation
+        ; Alcotest.test_case "large exact" `Quick test_text_large_exact
         ] )
     ; ( "mcp_tool_of_json"
       , [ Alcotest.test_case "complete" `Quick test_tool_json_complete

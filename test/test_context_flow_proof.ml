@@ -16,13 +16,13 @@ open Types
 
 let text_body text =
   Printf.sprintf
-    {|{"id":"m1","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}|}
+    {|{"id":"m1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     text
 ;;
 
 let tool_use_body ~tool_name ~input_json =
   Printf.sprintf
-    {|{"id":"m2","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"tu_1","name":"%s","input":%s}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}|}
+    {|{"id":"m2","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"tu_1","type":"function","function":{"name":"%s","arguments":%S}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     tool_name
     input_json
 ;;
@@ -74,6 +74,15 @@ let fresh_echo_tool () =
       Ok { Types.content = "echoed"; _meta = None })
   in
   tool, calls
+;;
+
+let local_provider ~base_url : Provider.config =
+  { provider = Provider.Local { base_url }; model_id = "mock-model"; api_key_env = "" }
+;;
+
+let require_run_success label = function
+  | Ok _ -> ()
+  | Error error -> Alcotest.failf "%s: %s" label (Error.to_string error)
 ;;
 
 (** Substring search — checks if [sub] appears anywhere in [s]. *)
@@ -136,11 +145,15 @@ let test_full_chain_across_turns () =
          }
        in
        let options =
-         { Agent.default_options with base_url; context_injector = Some injector; hooks }
+         { Agent.default_options with
+           provider = Some (local_provider ~base_url)
+         ; context_injector = Some injector
+         ; hooks
+         }
        in
-       let config = { default_config with max_turns = 3 } in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
-       ignore (Agent.run ~sw agent "test context flow");
+       Agent.run ~sw agent "test context flow" |> require_run_success "context flow run";
        (* Verify Layer 1: write side *)
        Alcotest.(check bool)
          "Context.t has proof marker"
@@ -187,10 +200,12 @@ let test_no_injector_no_context () =
                  | _ -> Hooks.Continue)
          }
        in
-       let options = { Agent.default_options with base_url; hooks } in
-       let config = { default_config with max_turns = 3 } in
+       let options =
+         { Agent.default_options with provider = Some (local_provider ~base_url); hooks }
+       in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
-       ignore (Agent.run ~sw agent "test no injector");
+       Agent.run ~sw agent "test no injector" |> require_run_success "no-injector run";
        Alcotest.(check bool)
          "Context.t stays empty"
          true
@@ -203,26 +218,6 @@ let test_no_injector_no_context () =
 (** Proves that context_injector accumulates across multiple tool calls
     within the same turn, and all accumulated data is visible on turn 1. *)
 let test_accumulation_across_tool_calls () =
-  let call_count = ref 0 in
-  let captured = ref "" in
-  let multi_tool_handler _conn _req body =
-    let _ = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
-    let n = !call_count in
-    incr call_count;
-    let response_body =
-      if n = 0
-      then
-        (* Return two tool_use blocks in one response *)
-        {|{"id":"m3","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"tu_1","name":"echo","input":{"msg":"a"}},{"type":"tool_use","id":"tu_2","name":"echo","input":{"msg":"b"}}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}|}
-      else (
-        (captured := Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all));
-        text_body "done")
-    in
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
-  in
-  (* Oops, the multi_tool_handler reads body twice on turn 1.
-     Fix: read body once at the top, capture on n=1. *)
-  ignore multi_tool_handler;
   let call_count2 = ref 0 in
   let captured2 = ref "" in
   let multi_tool_handler2 _conn _req body =
@@ -233,7 +228,7 @@ let test_accumulation_across_tool_calls () =
     let response_body =
       if n = 0
       then
-        {|{"id":"m3","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"tu_1","name":"echo","input":{"msg":"a"}},{"type":"tool_use","id":"tu_2","name":"echo","input":{"msg":"b"}}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}|}
+        {|{"id":"m3","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"tu_1","type":"function","function":{"name":"echo","arguments":"{\"msg\":\"a\"}"}},{"id":"tu_2","type":"function","function":{"name":"echo","arguments":"{\"msg\":\"b\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
       else text_body "done"
     in
     Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
@@ -271,11 +266,15 @@ let test_accumulation_across_tool_calls () =
       }
     in
     let options =
-      { Agent.default_options with base_url; context_injector = Some injector; hooks }
+      { Agent.default_options with
+        provider = Some (local_provider ~base_url)
+      ; context_injector = Some injector
+      ; hooks
+      }
     in
-    let config = { default_config with max_turns = 3 } in
+    let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
-    ignore (Agent.run ~sw agent "test accumulation");
+    Agent.run ~sw agent "test accumulation" |> require_run_success "accumulation run";
     (* Tool was called twice *)
     Alcotest.(check int) "tool called twice" 2 !tool_calls;
     (* Injector fired twice, last write wins (count=2) *)
@@ -341,11 +340,15 @@ let test_context_identity () =
          }
        in
        let options =
-         { Agent.default_options with base_url; context_injector = Some injector; hooks }
+         { Agent.default_options with
+           provider = Some (local_provider ~base_url)
+         ; context_injector = Some injector
+         ; hooks
+         }
        in
-       let config = { default_config with max_turns = 3 } in
+       let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
-       ignore (Agent.run ~sw agent "test identity");
+       Agent.run ~sw agent "test identity" |> require_run_success "context identity run";
        (* Same Context.t object used throughout *)
        Alcotest.(check bool) "hook saw pre-seed" true !hook_saw_preseed;
        Alcotest.(check bool) "hook saw injector data" true !hook_saw_injector_data;
@@ -359,8 +362,6 @@ let test_context_identity () =
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Context_Flow_Proof"

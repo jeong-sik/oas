@@ -1,8 +1,5 @@
 open Runtime
 
-let runtime_persist_failure_prefix = "[runtime_persist_failure phase="
-let dropped_output_deltas_marker = "[runtime telemetry] dropped_output_deltas="
-
 type telemetry_step =
   { seq : int
   ; ts : float
@@ -56,14 +53,6 @@ type raw_trace_manifest = Sessions.raw_trace_manifest
 
 let now () = Unix.gettimeofday ()
 
-let encode_persist_failure_detail ~phase message =
-  Printf.sprintf "%s%s] %s" runtime_persist_failure_prefix phase message
-;;
-
-let append_dropped_output_deltas_summary ~summary ~dropped_output_deltas =
-  Printf.sprintf "%s\n\n%s%d" summary dropped_output_deltas_marker dropped_output_deltas
-;;
-
 let artifact_attached_event (artifact : Runtime.artifact) =
   Artifact_attached
     { artifact_id = artifact.artifact_id
@@ -85,63 +74,6 @@ let base_evidence_file_specs store session_id =
   ]
 ;;
 
-let find_last_substring_index ~needle haystack =
-  if needle = "" || haystack = ""
-  then None
-  else (
-    try
-      Some
-        (Str.search_backward
-           (Str.regexp_string needle)
-           haystack
-           (String.length haystack - 1))
-    with
-    | Not_found -> None)
-;;
-
-let dropped_output_deltas_of_text = function
-  | None -> None
-  | Some text ->
-    let text = String.trim text in
-    (match find_last_substring_index ~needle:dropped_output_deltas_marker text with
-     | None -> None
-     | Some idx ->
-       let start = idx + String.length dropped_output_deltas_marker in
-       if start >= String.length text
-       then None
-       else (
-         let raw = String.sub text start (String.length text - start) |> String.trim in
-         match int_of_string_opt raw with
-         | Some n when n > 0 -> Some n
-         | _ -> None))
-;;
-
-let persistence_failure_phase_of_text = function
-  | None -> None
-  | Some text ->
-    let text = String.trim text in
-    if not (String.starts_with ~prefix:runtime_persist_failure_prefix text)
-    then None
-    else (
-      let start = String.length runtime_persist_failure_prefix in
-      match String.index_from_opt text start ']' with
-      | None -> None
-      | Some stop when stop > start -> Some (String.sub text start (stop - start))
-      | Some _ -> None)
-;;
-
-let failure_cause_message = function
-  | Runtime.Execution_error detail -> detail
-  | Runtime.Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail
-;;
-
-let failure_detail_of_event (detail : Runtime.participant_event) =
-  match detail.error, detail.failure_cause with
-  | Some error, _ -> Some error
-  | None, Some cause -> Some (failure_cause_message cause)
-  | None, None -> None
-;;
-
 let participant_and_detail_of_event = function
   | Session_started _ -> None, Some "session_started"
   | Session_settings_updated _ -> None, Some "session_settings_updated"
@@ -156,10 +88,14 @@ let participant_and_detail_of_event = function
     in
     detail.participant_name, Some text
   | Agent_spawn_requested detail -> Some detail.participant_name, Some detail.prompt
-  | Agent_became_live detail -> Some detail.participant_name, detail.summary
+  | Agent_became_live { participant } ->
+    Some participant.participant_name, participant.summary
   | Agent_output_delta detail -> Some detail.participant_name, Some detail.delta
-  | Agent_completed detail -> Some detail.participant_name, detail.summary
-  | Agent_failed detail -> Some detail.participant_name, failure_detail_of_event detail
+  | Agent_completed { participant; _ } ->
+    Some participant.participant_name, participant.summary
+  | Agent_failed { participant; failure_cause } ->
+    ( Some participant.participant_name
+    , Some (Runtime.failure_cause_to_string failure_cause) )
   | Artifact_attached detail -> None, Some (detail.name ^ ":" ^ detail.kind)
   | Checkpoint_saved detail -> None, detail.label
   | Finalize_requested detail -> None, detail.reason
@@ -171,19 +107,31 @@ let anomaly_fields_of_event = function
   | Agent_completed detail ->
     let dropped_output_deltas =
       match detail.completion_anomaly with
-      | Some (Runtime.Dropped_output_deltas { count }) when count > 0 -> Some count
-      | Some _ | None -> dropped_output_deltas_of_text detail.summary
+      | Some (Runtime.Dropped_output_deltas { count }) -> Some count
+      | None -> None
     in
     dropped_output_deltas, None
-  | Agent_failed detail ->
+  | Agent_failed { failure_cause; _ } ->
     let persistence_failure_phase =
-      match detail.failure_cause with
-      | Some (Runtime.Persistence_failure { phase; _ }) -> Some phase
-      | Some _ | None ->
-        persistence_failure_phase_of_text (failure_detail_of_event detail)
+      match failure_cause with
+      | Runtime.Persistence_failure { phase; _ } -> Some phase
+      | Runtime.Execution_error _ -> None
     in
     None, persistence_failure_phase
-  | _ -> None, None
+  | Session_started _
+  | Session_settings_updated _
+  | Turn_recorded _
+  | Input_required _
+  | Input_provided _
+  | Pending_input_updated _
+  | Agent_spawn_requested _
+  | Agent_became_live _
+  | Agent_output_delta _
+  | Artifact_attached _
+  | Checkpoint_saved _
+  | Finalize_requested _
+  | Session_completed _
+  | Session_failed _ -> None, None
 ;;
 
 let event_name_of_kind = function
@@ -229,13 +177,13 @@ let structured_fields_of_event = function
     , None
     , None
     , None )
-  | Agent_became_live detail ->
+  | Agent_became_live { participant } ->
     ( None
     , None
-    , detail.provider
-    , detail.model
-    , detail.raw_trace_run_id
-    , detail.stop_reason
+    , participant.provider
+    , participant.model
+    , participant.raw_trace_run_id
+    , None
     , None
     , None
     , None
@@ -253,25 +201,25 @@ let structured_fields_of_event = function
     , None
     , None
     , None )
-  | Agent_completed detail ->
+  | Agent_completed { participant; stop_reason; _ } ->
     ( None
     , None
-    , detail.provider
-    , detail.model
-    , detail.raw_trace_run_id
-    , detail.stop_reason
+    , participant.provider
+    , participant.model
+    , participant.raw_trace_run_id
+    , stop_reason
     , None
     , None
     , None
     , None
     , None )
-  | Agent_failed detail ->
+  | Agent_failed { participant; _ } ->
     ( None
     , None
-    , detail.provider
-    , detail.model
-    , detail.raw_trace_run_id
-    , detail.stop_reason
+    , participant.provider
+    , participant.model
+    , participant.raw_trace_run_id
+    , None
     , None
     , None
     , None

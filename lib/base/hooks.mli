@@ -8,12 +8,12 @@
 type turn_params =
   { temperature : float option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; tool_choice : Types.tool_choice option
   ; extra_system_context : string option
   ; system_prompt_override : string option
-  ; tool_filter_override : Guardrails.tool_filter option
   }
 
 val default_turn_params : turn_params
@@ -30,24 +30,13 @@ type reasoning_summary =
 val empty_reasoning_summary : reasoning_summary
 val extract_reasoning : Types.message list -> reasoning_summary
 
-(** Deterministic scheduling metadata attached to a tool execution plan.
-    [batch_kind] is one of ["parallel"], ["sequential"], or ["exclusive"]. *)
+(** Deterministic scheduling metadata attached to a tool execution plan. *)
 type tool_schedule =
   { planned_index : int
   ; batch_index : int
   ; batch_size : int
-  ; concurrency_class : string
-  ; batch_kind : string
+  ; execution_mode : Tool.execution_mode
   }
-
-module Idle_severity : sig
-  type t =
-    | Nudge
-    | Final_warning
-    | Skip
-
-  val to_string : t -> string
-end
 
 (** Events emitted during agent execution *)
 type hook_event =
@@ -57,7 +46,6 @@ type hook_event =
       }
   | BeforeTurnParams of
       { turn : int
-      ; max_turns : int
       ; messages : Types.message list
       ; last_tool_results : Types.tool_result list
       ; current_params : turn_params
@@ -95,15 +83,6 @@ type hook_event =
       { reason : Types.stop_reason
       ; response : Types.api_response
       }
-  | OnIdle of
-      { consecutive_idle_turns : int
-      ; tool_names : string list
-      }
-  | OnIdleEscalated of
-      { severity : Idle_severity.t
-      ; consecutive_idle_turns : int
-      ; tool_names : string list
-      }
   | OnError of
       { detail : string
       ; context : string
@@ -112,29 +91,6 @@ type hook_event =
       { tool_name : string
       ; error : string
       }
-  | PreCompact of
-      { messages : Types.message list
-      ; estimated_tokens : int
-      ; budget_tokens : int
-      }
-  | PostCompact of
-      { before_messages : Types.message list
-      ; after_messages : Types.message list
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
-      }
-  | OnContextCompacted of
-      { agent_name : string
-      ; before_tokens : int
-      ; after_tokens : int
-      ; phase : string
-      }
-  (** Fired after a compaction completes. Observation only — Continue
-          is the single legal decision. Use this to audit or record
-          compactions without subscribing to [Event_bus.ContextCompacted]
-          (which is observation-only on a pub/sub channel).
-          @since 0.154.0 *)
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request =
@@ -150,48 +106,37 @@ type elicitation_response =
 
 type elicitation_callback = elicitation_request -> elicitation_response
 
+(** Closed set of lifecycle stages accepted by the hook decision matrix. *)
+type hook_stage =
+  | Before_turn
+  | Before_turn_params
+  | After_turn
+  | Pre_tool_use
+  | Post_tool_use
+  | Post_tool_use_failure
+  | On_stop
+  | On_error
+  | On_tool_error
+
 (** Decision returned by a hook *)
 type hook_decision =
   | Continue
-  | Skip
-  | Override of string
-  | ApprovalRequired
-  (** Signals that the tool needs external approval.  If an
-          {!approval_callback} is registered the callback is invoked;
-          otherwise {!missing_approval_callback_policy} decides whether
-          the tool is executed or rejected. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
-  | Nudge of string
-  (** OnIdle and BeforeTurn: inject message as User-role into the conversation, continue execution. On OnIdle the idle counter is preserved. On BeforeTurn the nudge is appended before tool preparation. *)
+  | Nudge of string (** BeforeTurn: inject a user-role message before tool preparation. *)
   | HookFailed of
-      { stage : string
+      { stage : hook_stage
       ; detail : string
       }
-  (** Returned by [invoke] and [invoke_validated] when a user hook raises or
+  (** Returned by [invoke_validated] when a user hook raises or
       returns a stage-illegal decision. Call sites must handle this explicitly;
       the SDK does not coerce it to [Continue]. *)
   | Block of string
-  (** PreToolUse only: intentional policy rejection. The host executes no tool
+  (** PreToolUse only: intentional caller rejection. The host executes no tool
       and emits an [is_error=true], [Non_retryable_tool_error] tool result whose
-      content is the string payload verbatim. Distinct from [Override] (soft
-      nudge, [is_error=false]) and [HookFailed] (unintentional infra failure).
-      Legal only at [PreToolUse]; rejected elsewhere via {!validate_decision}. *)
-
-(** Decision from approval callback *)
-type approval_decision =
-  | Approve
-  | Reject of string
-  | Edit of Yojson.Safe.t
-
-(** Behavior when a [PreToolUse] hook returns [ApprovalRequired] but no
-    {!approval_callback} is registered. *)
-type missing_approval_callback_policy =
-  | Execute_without_callback
-  | Reject_without_callback
-
-(** Approval callback: called when a hook returns ApprovalRequired *)
-type approval_callback = tool_name:string -> input:Yojson.Safe.t -> approval_decision
+      content is the string payload verbatim. Distinct from [HookFailed], which
+      represents an unintentional hook failure. Legal only at [PreToolUse];
+      rejected elsewhere via {!validate_decision}. *)
 
 type hook = hook_event -> hook_decision
 
@@ -204,19 +149,8 @@ type hooks =
   ; post_tool_use : hook option
   ; post_tool_use_failure : hook option
   ; on_stop : hook option
-  ; on_idle : hook option
-  ; on_idle_escalated : hook option
-    (** More structured replacement for [on_idle]. When present, the
-          runtime computes severity from the agent's idle thresholds and
-          calls this hook instead of [on_idle]. [skip_at] reuses
-          [Agent.options.max_idle_turns]; [final_at] comes from
-          [Agent.options.idle_final_warning_at] or defaults to
-          [max_idle_turns - 1] when possible. *)
   ; on_error : hook option
   ; on_tool_error : hook option
-  ; pre_compact : hook option
-  ; post_compact : hook option
-  ; on_context_compacted : hook option
   }
 
 (** Context injection: data returned by a context_injector after tool execution *)
@@ -230,7 +164,6 @@ type context_injector =
   tool_name:string -> input:Yojson.Safe.t -> output:Types.tool_result -> injection option
 
 val empty : hooks
-val invoke : hook option -> hook_event -> hook_decision
 
 (** {2 Decision validity matrix}
 
@@ -238,32 +171,24 @@ val invoke : hook option -> hook_event -> hook_decision
     Returning an unlisted decision is a programming error.
 
     {v
-    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
-    ---------------------+----------+------+----------+------------------+--------------+-------------+-------
-    before_turn          |    Y     |      |          |                  |              |      Y      |   Y
-    before_turn_params   |    Y     |      |          |                  |      Y       |             |
-    after_turn           |    Y     |      |          |                  |              |
-    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |
-    post_tool_use        |    Y     |      |          |                  |              |
-    post_tool_use_failure|    Y     |      |          |                  |              |
-    on_stop              |    Y     |      |          |                  |              |
-    on_idle              |    Y     |  Y   |          |                  |              |             |   Y
-    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y
-    on_error             |    Y     |      |          |                  |              |
-    on_tool_error        |    Y     |      |          |                  |              |
-    pre_compact          |    Y     |  Y   |          |                  |              |
-    post_compact         |    Y     |      |          |                  |              |
-    on_context_compacted |    Y     |      |          |                  |              |
+    Stage                | Continue | AdjustParams | ElicitInput | Nudge | Block
+    ---------------------+----------+--------------+-------------+-------+------
+    before_turn          |    Y     |              |      Y      |   Y   |
+    before_turn_params   |    Y     |      Y       |             |       |
+    after_turn           |    Y     |              |             |       |
+    pre_tool_use         |    Y     |              |             |       |   Y
+    post_tool_use        |    Y     |              |             |       |
+    post_tool_use_failure|    Y     |              |             |       |
+    on_stop              |    Y     |              |             |       |
+    on_error             |    Y     |              |             |       |
+    on_tool_error        |    Y     |              |             |       |
     v}
 
-    Fail-closed: unknown stages reject all decisions. *)
+    The closed {!hook_stage} variant makes unknown stages unrepresentable. *)
 
 (** Classification tag for hook_decision, without payload. *)
 type hook_decision_kind =
   | K_Continue
-  | K_Skip
-  | K_Override
-  | K_ApprovalRequired
   | K_AdjustParams
   | K_ElicitInput
   | K_Nudge
@@ -276,24 +201,29 @@ val classify_decision : hook_decision -> hook_decision_kind
 (** Human-readable name for a decision kind. *)
 val decision_kind_to_string : hook_decision_kind -> string
 
-(** Extract the stage name from a hook_event. *)
-val stage_of_event : hook_event -> string
+(** Extract the typed stage from a hook event. *)
+val stage_of_event : hook_event -> hook_stage
 
-(** Return the list of legal decision kinds for the named stage.
-    Returns empty list for unknown stages (fail-closed). *)
-val legal_decisions_for_stage : string -> hook_decision_kind list
+(** Human-readable stage name for logs and error projections. *)
+val hook_stage_to_string : hook_stage -> string
+
+(** Return the legal decision kinds for the typed stage. *)
+val legal_decisions_for_stage : hook_stage -> hook_decision_kind list
 
 (** Validate a decision against the matrix for the given stage.
     Returns [Ok decision] when legal, [Error msg] otherwise. *)
-val validate_decision : stage:string -> hook_decision -> (hook_decision, string) result
+val validate_decision
+  :  stage:hook_stage
+  -> hook_decision
+  -> (hook_decision, string) result
 
-(** Like [invoke], but validates the decision against the matrix.
+(** Invoke a hook and validate its decision against the matrix.
     Illegal decisions return [HookFailed]; the rejection is logged as a warning
     (including [hook_name] when given) and [on_illegal] is called with
     diagnostics when a violation is detected. *)
 val invoke_validated
   :  ?hook_name:string
-  -> ?on_illegal:(stage:string -> decision:hook_decision -> msg:string -> unit)
+  -> ?on_illegal:(stage:hook_stage -> decision:hook_decision -> msg:string -> unit)
   -> hook option
   -> hook_event
   -> hook_decision

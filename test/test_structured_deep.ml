@@ -1,9 +1,8 @@
 (** Deep coverage tests for Structured module.
 
     Targets uncovered branches in structured.ml (51 uncovered points).
-    Focuses on: schema property ordering, complex parse functions,
-    retry_result type construction, error path classification,
-    and extract_tool_input edge cases not in existing test files. *)
+    Focuses on schema property ordering, complex parse functions, error path
+    classification, and exact extract_tool_input edge cases. *)
 
 open Agent_sdk
 open Types
@@ -385,46 +384,6 @@ let test_extract_deeply_nested_input () =
   | Error e -> Alcotest.fail ("unexpected: " ^ Error.to_string e)
 ;;
 
-(* ── retry_result type properties ───────────────────────────── *)
-
-(** Test retry_result construction via extract_tool_input.
-    Since extract_with_retry needs API, we test the type itself. *)
-let test_retry_result_type () =
-  let result : string Structured.retry_result =
-    { value = "test"
-    ; total_usage =
-        { total_input_tokens = 100
-        ; total_output_tokens = 50
-        ; total_cache_creation_input_tokens = 10
-        ; total_cache_read_input_tokens = 5
-        ; api_calls = 2
-        ; estimated_cost_usd = 0.0
-        ; unpriced_model = None
-        }
-    ; attempts = 2
-    }
-  in
-  Alcotest.(check string) "value" "test" result.value;
-  Alcotest.(check int) "attempts" 2 result.attempts;
-  Alcotest.(check int) "input_tokens" 100 result.total_usage.total_input_tokens;
-  Alcotest.(check int) "output_tokens" 50 result.total_usage.total_output_tokens;
-  Alcotest.(check int)
-    "cache_creation"
-    10
-    result.total_usage.total_cache_creation_input_tokens;
-  Alcotest.(check int) "cache_read" 5 result.total_usage.total_cache_read_input_tokens;
-  Alcotest.(check int) "api_calls" 2 result.total_usage.api_calls
-;;
-
-let test_retry_result_no_usage () =
-  let result : int Structured.retry_result =
-    { value = 42; total_usage = Types.empty_usage; attempts = 1 }
-  in
-  Alcotest.(check int) "value" 42 result.value;
-  Alcotest.(check int) "attempts" 1 result.attempts;
-  Alcotest.(check int) "no api calls" 0 result.total_usage.api_calls
-;;
-
 (* ── Suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -466,10 +425,6 @@ let () =
     ; ( "schema_structure"
       , [ Alcotest.test_case "all 6 param types" `Quick test_schema_all_six_param_types
         ; Alcotest.test_case "full JSON structure" `Quick test_schema_json_full_structure
-        ] )
-    ; ( "retry_result"
-      , [ Alcotest.test_case "with usage" `Quick test_retry_result_type
-        ; Alcotest.test_case "no usage" `Quick test_retry_result_no_usage
         ] )
     ]
 ;;

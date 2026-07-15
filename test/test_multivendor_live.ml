@@ -15,11 +15,11 @@
     provider returns a result whose Event_bus transcript diverges
     from the documented invariant:
 
-        agent.started -> turn.started -> ... -> turn.completed
-                                             -> agent.completed
+        agent_started -> turn_started -> ... -> turn_completed
+                                             -> agent_completed
 
     (ToolCalled / ToolCompleted interleave is allowed between
-    turn.started and turn.completed; this test does not force a
+    turn_started and turn_completed; this test does not force a
     tool call, so the minimum transcript is used.)
 
     Invariants checked, per EVENT-CATALOG.md I1/I2:
@@ -33,10 +33,10 @@ open Alcotest
 open Agent_sdk
 
 let skip_note label reason = Printf.printf "  [SKIP] %s — %s\n%!" label reason
-let min_transcript = [ "turn.started"; "turn.completed" ]
+let min_transcript = [ "turn_started"; "turn_completed" ]
 
-(* Assert the emitted names contain the four lifecycle markers in the
-   required partial order. Tool.*/Context.* events may interleave. *)
+(* Assert the emitted names contain the required lifecycle markers in order.
+   Tool and context events may interleave. *)
 let assert_transcript ~provider ~names =
   List.iter
     (fun required ->
@@ -49,9 +49,9 @@ let assert_transcript ~provider ~names =
   let index n = List.find_index (( = ) n) names |> Option.value ~default:max_int in
   check
     bool
-    (Printf.sprintf "[%s] turn.started before turn.completed" provider)
+    (Printf.sprintf "[%s] turn_started before turn_completed" provider)
     true
-    (index "turn.started" < index "turn.completed")
+    (index "turn_started" < index "turn_completed")
 ;;
 
 let assert_envelope ~provider events =
@@ -75,7 +75,11 @@ let assert_envelope ~provider events =
 
 let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
   let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
+  let config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let sub = Event_bus.subscribe ~config bus in
   let options =
     { Agent.default_options with
       base_url
@@ -84,17 +88,20 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
     }
   in
   let config =
-    { Types.default_config with
+    { (Types.default_config ~model:"test-model") with
       name = "smoke"
     ; model
     ; system_prompt = Some "Reply with the single word: ok."
-    ; max_turns = 1
     }
   in
   let agent = Agent.create ~net:env#net ~config ~options () in
   let result = Agent.run ~sw agent "Say ok." in
   let events = Event_bus.drain sub in
-  let names = List.map Event_forward.event_type_name events in
+  let names =
+    List.map
+      (fun (event : Event_bus.event) -> Event_bus.payload_kind event.payload)
+      events
+  in
   Printf.printf "  [%s] transcript: [%s]\n%!" provider_label (String.concat "; " names);
   match result with
   | Ok _ ->
@@ -219,16 +226,27 @@ let test_local_compat () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let endpoints = Llm_provider.Discovery.endpoints_from_env () in
+  let endpoints =
+    Llm_provider.Discovery.parse_llm_endpoints_env ()
+    |> List.map
+         (Llm_provider.Discovery.endpoint
+            ~protocol:Llm_provider.Discovery.Openai_compatible
+            ~capabilities:Llm_provider.Capabilities.default_capabilities)
+  in
   let statuses = Llm_provider.Discovery.discover ~sw ~net:env#net ~endpoints in
   let healthy =
     List.filter (fun (s : Llm_provider.Discovery.endpoint_status) -> s.healthy) statuses
   in
   if healthy = []
-  then
+  then (
+    let endpoint_urls =
+      List.map
+        (fun (endpoint : Llm_provider.Discovery.endpoint) -> endpoint.url)
+        endpoints
+    in
     skip_note
       "local-openai-compat"
-      (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoints))
+      (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoint_urls)))
   else
     List.iter
       (fun (s : Llm_provider.Discovery.endpoint_status) ->

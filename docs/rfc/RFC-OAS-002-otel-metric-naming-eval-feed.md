@@ -69,7 +69,6 @@ oas.<subsystem>.<metric_name>[.<unit>]
 | `checkpoint_delta_apply_total` | `oas.checkpoint.delta_apply_total` | counter |
 | `checkpoint_delta_apply_failures_total` | `oas.checkpoint.delta_apply_failures_total` | counter |
 | `checkpoint_delta_size_bytes` | `oas.checkpoint.delta_size_bytes` | histogram |
-| `checkpoint_full_restore_fallback_total` | `oas.checkpoint.full_restore_fallback_total` | counter |
 | (신규) | `oas.agent.turns_total` | counter |
 | (신규) | `oas.agent.run_duration_seconds` | histogram |
 | (신규) | `oas.tool.calls_total` | counter |

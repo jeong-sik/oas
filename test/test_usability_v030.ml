@@ -51,7 +51,6 @@ let test_builder_with_skill_registry () =
     |> Builder.with_name "polyglot"
     |> Builder.with_description "A multilingual assistant"
     |> Builder.with_skill_registry reg
-    |> Builder.with_max_turns 3
     |> build_exn
   in
   let card = Agent.card agent in

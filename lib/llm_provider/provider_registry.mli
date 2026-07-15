@@ -18,12 +18,13 @@ type provider_defaults =
   }
 
 (** A registered provider entry.
-    [max_context] is the default context window size in tokens.
+    [max_context] is the explicitly declared context window size in tokens.
+    [None] means the provider declaration does not state one.
     @since 0.78.0 max_context added *)
 type entry =
   { name : string
   ; defaults : provider_defaults
-  ; max_context : int
+  ; max_context : int option
   ; capabilities : Capabilities.capabilities
   ; is_available : unit -> bool
   }
@@ -59,78 +60,56 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 (** Check whether a command is discoverable from PATH without shelling out. *)
 val command_in_path : ?path:string -> string -> bool
 
-(** Default registry pre-populated with known direct providers plus
-    non-interactive CLI transports ([claude_code], [gemini],
-    [kimi], [kimi], [codex], and compat alias [cc]).
-    Availability is determined by API-key env vars for direct providers
-    and PATH discovery for CLI transports.
+(** Default registry populated from the embedded provider catalog.
+    Availability is determined by credential values only.
 
-    If [OAS_PROVIDER_CATALOG] or {!Provider_catalog.set_global} supplies
-    entries, those entries are overlaid last and may add or replace provider
-    ids without changing SDK code.
+    Entries explicitly installed with {!Provider_catalog.set_global} are
+    overlaid last and may add or replace provider ids without changing SDK
+    code. OAS does not discover a provider catalog from the environment.
 
-    [*_BASE_URL] env overrides are resolved when [default] is called, not at
-    module load, so a registry built after the environment changes reflects
-    the new values. [?getenv] (default [Sys.getenv_opt]) is the RFC-OAS-024
-    dependency-injection seam: tests inject a resolver instead of mutating
-    the process environment. *)
-val default : ?getenv:(string -> string option) -> unit -> t
+    Endpoint, request-path, provider-id, and capability values come only from
+    those declarations. Process environment reads are restricted to credential
+    availability and never reinterpret provider identity. *)
+val default : unit -> t
 
-(** Best-effort canonical provider name for a concrete provider config.
-    Unlike [Provider_config.string_of_provider_kind], this keeps
-    registry-level distinctions that share a wire kind but differ by
-    endpoint (for example [glm] vs [glm-coding], or
-    [openai_compat] vs [openrouter]). For unmatched OpenAI-compatible
-    endpoints, falls back to a stable kind-derived label. Model catalog
-    provider names are intentionally not used as provider identity without
-    an explicit provider kind or endpoint registry binding: request
-    compatibility and provider identity are orthogonal.
-
-    Identity is matched against a pure endpoint-identity table, not against
-    a call-time registry construction: the documented canonical URL of each
-    default provider always identifies that provider, and the current
-    [*_BASE_URL] env override identifies it additively when set. A process
-    env override therefore never erases the documented default identity of
-    an already-built config. [?getenv] (default [Sys.getenv_opt]) is the
-    RFC-OAS-024 injection seam for the additive override lookup. *)
-val provider_name_of_config
-  :  ?getenv:(string -> string option)
-  -> Provider_config.t
-  -> string
-
-(** Initial fallback endpoint snapshot. This is intentionally not parsed from
-    [LLM_ENDPOINTS] at module load. For current env-aware active endpoints, use
-    [active_llama_endpoints] after [refresh_llama_endpoints], or
-    [default_llama_endpoint] for call-time default resolution. *)
-val llama_all_endpoints : string list
+(** Wire-kind label for a concrete provider config. This exhaustive projection
+    never guesses a vendor/provider id from URL, model id, request path, host
+    locality, aliases, or process environment. Registry identity must be carried
+    separately by the explicit registry/catalog binding. *)
+val provider_name_of_config : Provider_config.t -> string
 
 (** Pick the next llama endpoint via round-robin.
-    Distributes load transparently when multiple local servers are running.
-    After [refresh_llama_endpoints], rotates across discovered endpoints.
+    After [refresh_llama_endpoints], rotates across healthy declared endpoints.
+    Returns [None] until a typed refresh succeeds.
     @since 0.78.0 *)
-val next_llama_endpoint : unit -> string
+val next_llama_endpoint : unit -> Discovery.endpoint option
 
 (** Peek at the current llama endpoint without advancing the round-robin.
     Returns the endpoint that [next_llama_endpoint] will return on its
     next call, but without the [fetch_and_add] side effect.
-    Returns [""] when no endpoints are configured.
+    Returns [None] when no typed endpoint declaration has been activated.
     @since 0.100.8 *)
-val current_llama_endpoint : unit -> string
+val current_llama_endpoint : unit -> Discovery.endpoint option
 
-(** Refresh the llama endpoint list by scanning local ports 8085-8090.
-    If [LLM_ENDPOINTS] env var is set, uses that as source (no scan).
-    Otherwise probes ports and keeps only healthy endpoints.
-    Returns the new endpoint list. Call after Eio scheduler is available.
+(** Failure to refresh the active endpoint snapshot. *)
+type endpoint_refresh_error =
+  | No_endpoints_declared
+  | No_healthy_endpoints of Discovery.endpoint_status list
+
+(** Probe explicit typed endpoint declarations and replace the active endpoint
+    snapshot with the healthy declarations. The previous snapshot is retained
+    when [endpoints] is empty or none is healthy; the returned error preserves
+    endpoint-local probe failures. No port scan or fallback declaration occurs.
     @since 0.86.0 *)
 val refresh_llama_endpoints
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> unit
-  -> string list
+  -> endpoints:Discovery.endpoint list
+  -> (Discovery.endpoint_status list, endpoint_refresh_error) result
 
 (** Current active endpoint list (snapshot after last refresh).
     @since 0.86.0 *)
-val active_llama_endpoints : unit -> string list
+val active_llama_endpoints : unit -> Discovery.endpoint list
 
 (** Per-slot context tokens from the last discovery probe.
     Returns [None] if no probe has completed yet.

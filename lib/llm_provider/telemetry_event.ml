@@ -13,7 +13,6 @@ type timeout_type =
   | Stream_idle of Http_client.stream_idle_state
   | Provider_step
   | Cli_stdout_idle
-  | Caller_budget
   | Unknown_timeout
 [@@deriving yojson, show]
 
@@ -80,13 +79,7 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Context_window_usage of
-      { agent_name : string
-      ; turn : int
-      ; estimated_tokens : int
-      ; limit_tokens : int
-      ; usage_ratio : float
-      }
+  | Wire_observer_failure of Wire_observer.failure
 [@@deriving yojson, show]
 
 let event_type_name = function
@@ -95,5 +88,5 @@ let event_type_name = function
   | Thinking_complete _ -> "thinking_complete"
   | Timeout _ -> "timeout"
   | Prefill_complete _ -> "prefill_complete"
-  | Context_window_usage _ -> "context_window_usage"
+  | Wire_observer_failure _ -> "wire_observer_failure"
 ;;

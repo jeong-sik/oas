@@ -102,6 +102,7 @@ let mk_run_summary ?(final_text = Some "Done.") ?(error = None) () : Raw_trace.r
   ; enable_thinking = Some true
   ; preserve_thinking = Some true
   ; thinking_budget = Some 4096
+  ; reasoning_effort = Some "high"
   ; thinking_block_count = 3
   ; text_block_count = 2
   ; tool_use_block_count = 5
@@ -143,6 +144,7 @@ let test_raw_trace_summary_empty_lists () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; thinking_block_count = 0
     ; text_block_count = 0
     ; tool_use_block_count = 0
@@ -189,15 +191,6 @@ let mk_run_validation ?(ok = true) ?(failure_reason = None) () : Raw_trace.run_v
       ]
   ; evidence = [ "record_count=25"; "tool_exec_started=5" ]
   ; paired_tool_result_count = 5
-  ; evidence_roles =
-      [ { evidence_role = Raw_trace.File_write
-        ; record_count = 2
-        ; successful_finished_count = 1
-        ; last_success_seq = Some 14
-        }
-      ]
-  ; has_file_write = true
-  ; verification_pass_after_file_write = true
   ; final_text = Some "All done."
   ; tool_names = [ "bash"; "write_file"; "file_write" ]
   ; stop_reason = Some "end_turn"
@@ -232,9 +225,6 @@ let test_raw_trace_validation_empty_checks () =
     ; checks = []
     ; evidence = []
     ; paired_tool_result_count = 0
-    ; evidence_roles = []
-    ; has_file_write = false
-    ; verification_pass_after_file_write = false
     ; final_text = None
     ; tool_names = []
     ; stop_reason = None
@@ -282,7 +272,6 @@ let mk_worker_run status : Sessions.worker_run =
   ; model = Some "sonnet-4-6"
   ; requested_provider = Some "anthropic"
   ; requested_model = Some "sonnet-4-6"
-  ; requested_policy = Some "default"
   ; resolved_provider = Some "anthropic"
   ; resolved_model = Some "claude-sonnet-4-6-20250514"
   ; status
@@ -314,10 +303,7 @@ let mk_worker_run status : Sessions.worker_run =
        | Sessions.Completed | Sessions.Failed -> Some (1.7e9 +. 60.0)
        | _ -> None)
   ; last_progress_at = Some (1.7e9 +. 30.0)
-  ; policy_snapshot = Some "p1"
   ; paired_tool_result_count = 3
-  ; has_file_write = true
-  ; verification_pass_after_file_write = true
   }
 ;;
 
@@ -395,7 +381,7 @@ let test_record_type_roundtrip () =
 
 let test_record_full () =
   let v : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-00112233-aaaa-0001"
     ; seq = 5
     ; ts = 1.7e9
@@ -408,6 +394,7 @@ let test_record_full () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; thinking_budget = None
+    ; reasoning_effort = None
     ; block_index = None
     ; block_kind = None
     ; assistant_block = None
@@ -417,8 +404,7 @@ let test_record_full () =
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
+    ; tool_execution_mode = None
     ; tool_result = Some "file.txt\n"
     ; tool_error = Some false
     ; hook_name = None
@@ -439,7 +425,7 @@ let test_record_full () =
 
 let test_record_minimal () =
   let v : Raw_trace.record =
-    { trace_version = 1
+    { trace_version = Raw_trace.trace_version
     ; worker_run_id = "wr-min"
     ; seq = 1
     ; ts = 1.0
@@ -452,6 +438,7 @@ let test_record_minimal () =
     ; enable_thinking = Some false
     ; preserve_thinking = None
     ; thinking_budget = Some 2048
+    ; reasoning_effort = Some "high"
     ; block_index = None
     ; block_kind = None
     ; assistant_block = None
@@ -461,8 +448,7 @@ let test_record_minimal () =
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
-    ; tool_concurrency_class = None
-    ; evidence_role = None
+    ; tool_execution_mode = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name = None
@@ -488,14 +474,12 @@ let mk_runtime_session () : Runtime.session =
   ; goal = "verify proof bundle"
   ; title = Some "Proof"
   ; tag = Some "coverage"
-  ; permission_mode = Some "default"
   ; phase = Runtime.Completed
   ; created_at = 1.0
   ; updated_at = 2.0
   ; provider = Some "anthropic"
   ; model = Some "claude-sonnet"
   ; system_prompt = Some "system"
-  ; max_turns = 3
   ; workdir = Some "/tmp"
   ; planned_participants = [ "tester" ]
   ; participants = []
@@ -592,10 +576,7 @@ let test_proof_bundle_roundtrip () =
         [ { name = "read_file"
           ; description = "Read a file"
           ; origin = Some "runtime"
-          ; kind = Some "local"
-          ; shell = None
-          ; notes = [ "readonly" ]
-          ; examples = [ "read_file path" ]
+          ; execution_mode = Tool.Concurrent
           }
         ]
     ; latest_raw_trace_run = Some run_ref

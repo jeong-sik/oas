@@ -148,16 +148,7 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.Glm -> Capabilities.glm_capabilities
         | Provider_config.Gemini -> Capabilities.gemini_capabilities
         | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
-        | Provider_config.OpenAI_compat ->
-          (* A ZAI-GLM config routed as [OpenAI_compat] (ZAI base URL + glm-
-             model id) with no catalog row still has GLM wire semantics — notably
-             the empty-string tool-only assistant content shape. Resolve it to
-             [glm_capabilities] at this single caps boundary so the typed dialect
-             serializer emits the same shape the dedicated GLM serializer did
-             (RFC-OAS-029 S3.1, S9.2). *)
-          if Provider_config.is_zai_glm_config config
-          then Capabilities.glm_capabilities
-          else Capabilities.default_capabilities
+        | Provider_config.OpenAI_compat -> Capabilities.openai_compat_chat_capabilities
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
@@ -266,31 +257,31 @@ let build_request_assoc_artifact
       ()
   =
   let tools = effective_tools config tools in
-  let sanitized_messages =
-    Backend_openai_serialize.close_tool_message_pairs_for_request messages
-  in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
+  let reasoning_target =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail ->
+      invalid_arg ("Backend_openai_request: invalid reasoning target: " ^ detail)
+  in
   let output_token_receipt =
     output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
-    (* RFC-OAS-029 S3.1: reasoning replay is decided by the typed dialect
-       ([Reasoning_dialect.should_replay_reasoning] via [replay_policy]),
-       resolved once in [Reasoning_dialect.for_provider_config]. The serializer
-       no longer branches on [config.kind = Glm] / [is_glm_request] to pick a
-       reasoning-preserving serializer: GLM's clear_thinking-conditional replay
-       is encoded in [dialect.replay_policy] at that single boundary, and the
-       GLM tool-only content shape comes from [assistant_tool_content_format]
-       ([Assistant_tool_content_empty_string] in [glm_capabilities]). The
-       previously GLM-specific [glm_messages_of_message] is therefore the
-       [dialect_messages_of_message] case where the dialect replays and the caps
-       request an empty-string tool content. *)
-    let message_serializer =
-      Backend_openai_serialize.dialect_messages_of_message
-        ~assistant_tool_content_format
-        dialect
+    let history =
+      match
+        Backend_openai_serialize.dialect_messages_of_history
+          ~assistant_tool_content_format
+          ~reasoning_target
+          dialect
+          messages
+      with
+      | Ok history -> history
+      | Error error ->
+        invalid_arg
+          ("Backend_openai_request: " ^ Reasoning_history_projection.error_to_string error)
     in
     (* oas#2483: inject the chat-template thinking token into the system turn for
        [Chat_template_token] rows, mirroring [backend_ollama]. Without this the
@@ -313,7 +304,7 @@ let build_request_assoc_artifact
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
        ]
      | _ -> [])
-    @ List.concat_map message_serializer sanitized_messages
+    @ history
   in
   (* Per-model capabilities ([caps] above) drive the [top_k] / [min_p]
      sampling-field gates further down; the output-token budget (clamp
@@ -380,10 +371,7 @@ let build_request_assoc_artifact
       ~enable_thinking:config.enable_thinking
       ~preserve_thinking:config.preserve_thinking
       ~thinking_budget:config.thinking_budget
-      ~reasoning_effort:
-        (Provider_config.reasoning_effort_request_value_typed
-           ~enable_thinking:config.enable_thinking
-           ~thinking_budget:config.thinking_budget)
+      ~reasoning_effort:config.reasoning_effort
       ?zai_glm_clear_thinking
       ()
     @ body
@@ -421,18 +409,14 @@ let build_request_assoc_artifact
   in
   let body = if stream then ("stream", `Bool true) :: body else body in
   let body =
-    if caps.supports_seed
-    then (
-      let seed =
-        match config.seed with
-        | Some n -> n
-        | None ->
-          (match Constants.Deterministic.seed_of_env () with
-           | Some n -> n
-           | None -> Constants.Deterministic.default_seed)
-      in
-      ("seed", `Int seed) :: body)
-    else body
+    match caps.supports_seed, config.seed with
+    | true, Some seed -> ("seed", `Int seed) :: body
+    | false, Some _ ->
+      invalid_arg
+        (Printf.sprintf
+           "Backend_openai_request.build_request: model %S does not support seed"
+           config.model_id)
+    | true, None | false, None -> body
   in
   Request_artifact_internal.create ~payload:(`Assoc body) ~output_token_receipt
 ;;

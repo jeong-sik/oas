@@ -2,7 +2,7 @@
 
     Each test installs a hook that returns a decision that is not in the legal
     matrix for that stage, then asserts the pipeline returns a typed
-    [Error.Internal] instead of raising. *)
+    [Error.HookExecutionFailed] instead of raising. *)
 
 open Agent_sdk
 
@@ -32,19 +32,25 @@ let mock_provider : Provider.config =
 ;;
 
 let is_illegal_hook_error = function
-  | Error (Error.Internal msg) ->
-    String.starts_with ~prefix:"hook before_turn failed" msg
-    || String.starts_with ~prefix:"illegal hook decision" msg
+  | Error
+      (Error.Agent
+         (Error.HookExecutionFailed
+            { hook_name = "before_turn"
+            ; stage = "before_turn"
+            ; tool_name = None
+            ; tool_use_id = None
+            ; detail = _
+            })) -> true
   | _ -> false
 ;;
 
-let test_before_turn_skip_returns_error () =
+let test_before_turn_block_returns_error () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
-  let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Skip) } in
+  let hooks = { Hooks.empty with before_turn = Some (fun _ -> Hooks.Block "blocked") } in
   let options =
     { Agent_types.default_options with
       hooks
@@ -52,11 +58,13 @@ let test_before_turn_skip_returns_error () =
     ; transport = Some mock_transport
     }
   in
-  let config = { Types.default_config with name = "illegal-hook-test"; max_turns = 1 } in
+  let config =
+    { (Types.default_config ~model:"test-model") with name = "illegal-hook-test" }
+  in
   let agent = Agent.create ~net ~config ~options () in
   let result = Agent.run ~sw agent "hello" in
   Alcotest.(check bool)
-    "before_turn Skip returns illegal-hook error"
+    "before_turn Block returns illegal-hook error"
     true
     (is_illegal_hook_error result)
 ;;
@@ -66,9 +74,9 @@ let () =
     "Pipeline_illegal_hook"
     [ ( "before_turn"
       , [ Alcotest.test_case
-            "Skip returns typed error"
+            "Block returns typed error"
             `Quick
-            test_before_turn_skip_returns_error
+            test_before_turn_block_returns_error
         ] )
     ]
 ;;

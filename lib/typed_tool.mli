@@ -27,12 +27,11 @@ type ('input, 'output) t
 
     @param params Schema-level parameter declarations (for LLM tool_use).
     @param parse  Deserialize raw JSON into typed input. Return [Error] for
-                  structurally invalid JSON. Type coercion should NOT be done
-                  here — that is the correction pipeline's job.
+                  structurally invalid JSON. The input is not coerced.
     @param handler Pure business logic. Receives parsed, validated input.
                    Return [Error] for domain-level rejections (e.g. empty message).
     @param encode  Serialize output to JSON for tool_result content.
-    @param descriptor Optional safety metadata (permission, concurrency, shell). *)
+    @param descriptor Optional caller-declared execution mode. *)
 val create
   :  name:string
   -> description:string

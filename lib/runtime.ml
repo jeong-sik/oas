@@ -27,7 +27,6 @@ type participant =
   ; runtime_actor : string option
   ; requested_provider : string option
   ; requested_model : string option
-  ; requested_policy : string option
   ; provider : string option
   ; model : string option
   ; resolved_provider : string option
@@ -78,14 +77,12 @@ type session =
   ; goal : string
   ; title : string option
   ; tag : string option
-  ; permission_mode : string option
   ; phase : phase
   ; created_at : float
   ; updated_at : float
   ; provider : string option
   ; model : string option
   ; system_prompt : string option
-  ; max_turns : int
   ; workdir : string option
   ; planned_participants : string list
   ; participants : participant list
@@ -101,7 +98,6 @@ type init_request =
   { session_root : string option
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   ; include_partial_messages : bool
   ; setting_sources : string list
   ; resume_session : string option
@@ -118,50 +114,18 @@ type init_response =
   }
 [@@deriving yojson, show]
 
-type permission_request =
-  { action : string
-  ; subject : string
-  ; payload : Yojson.Safe.t
-  }
-[@@deriving yojson, show]
-
-type permission_response =
-  { allow : bool
-  ; message : string option
-  ; interrupt : bool
-  }
-[@@deriving yojson, show]
-
-type hook_request =
-  { hook_name : string
-  ; payload : Yojson.Safe.t
-  }
-[@@deriving yojson, show]
-
-type hook_response =
-  { continue_ : bool [@key "continue"]
-  ; message : string option
-  }
-[@@deriving yojson, show]
-
 type start_request =
   { session_id : string option
   ; goal : string
   ; participants : string list
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   ; system_prompt : string option
-  ; max_turns : int option
   ; workdir : string option
   }
 [@@deriving yojson, show]
 
-type update_settings_request =
-  { model : string option
-  ; permission_mode : string option
-  }
-[@@deriving yojson, show]
+type update_settings_request = { model : string option } [@@deriving yojson, show]
 
 type record_turn_request =
   { actor : string option
@@ -182,7 +146,6 @@ type spawn_agent_request =
   ; provider : string option
   ; model : string option
   ; system_prompt : string option
-  ; max_turns : int option
   }
 [@@deriving yojson, show]
 
@@ -244,12 +207,37 @@ type spawn_event =
   ; prompt : string
   ; provider : string option
   ; model : string option
-  ; permission_mode : string option
   }
 [@@deriving yojson, show]
 
-type completion_anomaly = Dropped_output_deltas of { count : int }
-[@@deriving yojson, show]
+type completion_anomaly = Dropped_output_deltas of { count : int } [@@deriving show]
+
+type completion_anomaly_error = Non_positive_dropped_output_delta_count of int
+[@@deriving show]
+
+let dropped_output_deltas ~count =
+  if count > 0
+  then Ok (Dropped_output_deltas { count })
+  else Error (Non_positive_dropped_output_delta_count count)
+;;
+
+module Completion_anomaly_wire = struct
+  type t = Dropped_output_deltas of { count : int } [@@deriving yojson]
+end
+
+let completion_anomaly_to_yojson = function
+  | Dropped_output_deltas { count } ->
+    Completion_anomaly_wire.Dropped_output_deltas { count }
+    |> Completion_anomaly_wire.to_yojson
+;;
+
+let completion_anomaly_of_yojson json =
+  match Completion_anomaly_wire.of_yojson json with
+  | Error _ as error -> error
+  | Ok (Completion_anomaly_wire.Dropped_output_deltas { count }) ->
+    dropped_output_deltas ~count
+    |> Result.map_error (fun error -> show_completion_anomaly_error error)
+;;
 
 type failure_cause =
   | Execution_error of string
@@ -259,16 +247,33 @@ type failure_cause =
       }
 [@@deriving yojson, show]
 
-type participant_event =
+let failure_cause_to_string = function
+  | Execution_error detail -> detail
+  | Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail
+;;
+
+type participant_event_common =
   { participant_name : string
   ; summary : string option
   ; provider : string option
   ; model : string option
-  ; error : string option
   ; raw_trace_run_id : string option [@default None]
+  }
+[@@deriving yojson, show]
+
+type participant_live_event = { participant : participant_event_common }
+[@@deriving yojson, show]
+
+type participant_completed_event =
+  { participant : participant_event_common
   ; stop_reason : string option [@default None]
   ; completion_anomaly : completion_anomaly option [@default None]
-  ; failure_cause : failure_cause option [@default None]
+  }
+[@@deriving yojson, show]
+
+type participant_failed_event =
+  { participant : participant_event_common
+  ; failure_cause : failure_cause
   }
 [@@deriving yojson, show]
 
@@ -305,10 +310,10 @@ type event_kind =
   | Input_provided of input_provided_event
   | Pending_input_updated of pending_input_update_event
   | Agent_spawn_requested of spawn_event
-  | Agent_became_live of participant_event
+  | Agent_became_live of participant_live_event
   | Agent_output_delta of output_delta_event
-  | Agent_completed of participant_event
-  | Agent_failed of participant_event
+  | Agent_completed of participant_completed_event
+  | Agent_failed of participant_failed_event
   | Artifact_attached of artifact_event
   | Checkpoint_saved of checkpoint_event
   | Finalize_requested of finalize_request
@@ -380,16 +385,6 @@ type response =
   | Error_response of string
 [@@deriving yojson, show]
 
-type control_request =
-  | Permission_request of permission_request
-  | Hook_request of hook_request
-[@@deriving yojson, show]
-
-type control_response =
-  | Permission_response of permission_response
-  | Hook_response of hook_response
-[@@deriving yojson, show]
-
 type protocol_message =
   | Request_message of
       { request_id : string
@@ -398,14 +393,6 @@ type protocol_message =
   | Response_message of
       { request_id : string
       ; response : response
-      }
-  | Control_request_message of
-      { control_id : string
-      ; request : control_request
-      }
-  | Control_response_message of
-      { control_id : string
-      ; response : control_response
       }
   | Event_message of
       { session_id : string option
@@ -425,7 +412,7 @@ let protocol_message_to_json = protocol_message_to_yojson
 let protocol_message_of_json json = protocol_message_of_yojson json
 let request_to_string req = req |> request_to_json |> Yojson.Safe.to_string
 let response_to_string resp = resp |> response_to_json |> Yojson.Safe.to_string
-let protocol_version = "oas-runtime-0.1"
+let protocol_version = "oas-runtime-0.2"
 
 let protocol_message_to_string msg =
   msg |> protocol_message_to_json |> Yojson.Safe.to_string

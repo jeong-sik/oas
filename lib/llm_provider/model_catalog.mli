@@ -69,6 +69,7 @@ type provider_entry = Model_provider_catalog.entry =
   { id : string
   ; aliases : string list
   ; kind : Provider_kind.t
+  ; identity_kinds : Provider_kind.t list
   ; base_url : string
   ; base_url_env : string option
   ; request_path : string
@@ -80,40 +81,75 @@ type provider_entry = Model_provider_catalog.entry =
 
 type t
 
+(** Raised by {!global} when the build-time generated catalog violates the
+    catalog syntax or schema. The generated catalog is an OAS build invariant,
+    so there is no empty-catalog fallback. *)
+exception Invalid_embedded_catalog of string
+
 val empty : t
 val of_model_entries : model_entry list -> t
 val model_entries : t -> model_entry list
 val provider_entries : t -> provider_entry list
+
+(** Parse and validate a model catalog from an in-memory TOML value. [source]
+    is included in syntax-error diagnostics. This is the typed boundary for
+    callers that already own the catalog contents; no global state is changed. *)
+val of_toml_string : source:string -> string -> (t, string) result
+
 val load_file : string -> (t, string) result
-val load_runtime_file : string -> t option
 
-(** Candidate locations for the packaged default [models.toml].
+(** Load the build-time embedded default [models.toml].
 
-    The paths come from Dune's site metadata and, for uninstalled development
-    builds, Dune's source-root metadata. The list preserves missing candidates
-    so {!load_default} can report exactly what it tried. *)
-val default_catalog_paths : unit -> string list
-
-(** Load the packaged default [models.toml].
-
-    Returns [Error] when the default catalog cannot be found or parsed; callers
-    that require catalog-backed capability decisions should propagate that error
-    rather than falling back silently. *)
+    The embedded value is generated directly from the OAS-owned root
+    [models.toml], so linked consumers do not depend on a working directory,
+    installation prefix, or host filesystem layout. Returns [Error] when the
+    embedded TOML cannot be parsed; callers that require catalog-backed
+    capability decisions should propagate that error rather than falling back
+    silently. *)
 val load_default : unit -> (t, string) result
 
-(** Longest-prefix lookup for catalog model IDs.
-
-    In addition to exact catalog syntax, [lookup] accepts a flattened
-    [<provider_label>.<model_id>] value and resolves it against
-    [<provider_label>/<model_id>] or [<provider_label>:<model_id>] entries. This
-    keeps embedding runtimes that use dot-qualified model identifiers on the
-    same provider-qualified catalog path rather than falling back to generic
-    OpenAI-compatible capabilities. *)
+(** Longest-prefix lookup across provider-independent rows using the catalog's
+    exact declared [id_prefix] syntax. Provider-scoped rows are excluded. *)
 val lookup : t -> string -> model_entry option
 
-(** Return the catalog-declared provider identity for the longest matching
-    [id_prefix], if that entry declares one. *)
-val provider_name_for_model_id : t -> string -> string option
+(** Exact normalized lookup across provider-scoped rows. Both
+    [provider_name] and the complete [model_id] must equal the row's declared
+    [provider_name] and [id_prefix], respectively, after ASCII case-folding and
+    trimming. There is no family/prefix match on the model identity. The
+    provider and model remain separate values; OAS never synthesizes slash,
+    colon, or dot-qualified model ids.
+
+    When no row matches the requested [provider_name] verbatim, the name is
+    canonicalized once through the catalog's own [[providers]] alias data (the
+    first entry whose [id] or [aliases] contains the requested name, in
+    declaration order) and the exact lookup is retried with that entry's [id].
+    This applies the same alias-to-canonical-id policy the binding registry
+    uses for its own catalog, so both capability paths answer alike. A
+    verbatim row always wins over an alias-resolved one, and resolution is
+    single-step (a canonical id is never re-resolved). Wire-kind labels
+    ({!Provider_kind.to_string} values such as ["openai_compat"]) are never
+    canonicalized: they are what configs without an explicit provider id
+    synthesize, and an alias claiming one would capture every anonymous
+    config of that wire kind.
+
+    Provider-independent family matching remains exclusively in {!lookup}. *)
+val lookup_for_provider
+  :  t
+  -> provider_name:string
+  -> model_id:string
+  -> model_entry option
+
+(** Row-level overlay merge (RFC-OAS-036). Rows in [overlay] replace rows in
+    [base] with the same identity — [(provider_name, id_prefix)] for model
+    rows (a bare row and a provider-scoped row with the same [id_prefix] are
+    distinct), [id] for provider entries, compared with lookup normalization —
+    and rows unique to either side are kept. Overlay rows precede base rows in
+    the result, so order-sensitive provider-entry consumers
+    ({!provider_label_for_base_url}, {!provider_label_for_endpoint}) prefer a
+    deployment entry whose endpoint identity is also covered by an embedded
+    entry. This lets a deployment carry only its delta rows instead of forking
+    the entire catalog. *)
+val merge : base:t -> overlay:t -> t
 
 (** Return the catalog-declared provider identity for a concrete endpoint.
 
@@ -141,16 +177,28 @@ val provider_label_for_endpoint
 (** Return the active model catalog.
 
     Resolution order:
-    - runtime override installed with {!set_global}
-    - [OAS_MODEL_CATALOG], when set to a non-empty path
-    - packaged default [models.toml] installed through the agent_sdk
-      [model_catalog] Dune site, or the source-root [models.toml] when running
-      from an uninstalled Dune build
+    - runtime override installed with {!set_global} (full replacement)
+    - build-time embedded OAS [models.toml], merged with the deployment
+      overlay installed with {!set_global_overlay} when one is present
 
-    The ambient result is cached after the first load. {!clear_global} clears
-    the runtime override and the ambient cache. *)
+    The embedded result and the merged result are cached after first
+    computation. Invalid generated data raises {!Invalid_embedded_catalog}; it
+    never becomes [None] or an empty catalog. OAS does not inspect an
+    environment variable for an alternate catalog. Callers that need a custom
+    catalog must call {!load_file} and {!set_global} or {!set_global_overlay}
+    explicitly.
+
+    {!clear_global} clears the runtime override, the overlay, and both
+    caches. *)
 val global : unit -> t option
 
-val preload_global : unit -> unit
 val set_global : t -> unit
+
+(** Install a deployment overlay {!merge}d onto the embedded default catalog
+    by {!global}. Unlike {!set_global}, embedded rows not shadowed by the
+    overlay stay visible, so the overlay carries only deployment-local deltas
+    (RFC-OAS-036). A full {!set_global} override, when installed, takes
+    precedence over the overlay. *)
+val set_global_overlay : t -> unit
+
 val clear_global : unit -> unit

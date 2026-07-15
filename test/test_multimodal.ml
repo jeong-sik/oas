@@ -227,39 +227,14 @@ let test_multimodal_constructors () =
   | _ -> Alcotest.fail "unexpected multimodal constructor shape"
 ;;
 
-let test_agent_run_blocks_appends_multimodal_input () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let config = { Types.default_config with exit_condition = Some (fun _ -> true) } in
-  let agent = Agent.create ~net:env#net ~config () in
-  let blocks =
-    [ Types.text_block "Inspect this"
-    ; Types.image_block ~media_type:"image/png" ~data:"img" ()
-    ; Types.document_block ~media_type:"application/pdf" ~data:"pdf" ()
-    ; Types.audio_block ~media_type:"audio/wav" ~data:"wav" ()
-    ]
-  in
-  (match Agent.run_blocks ~sw agent blocks with
-   | Error (Error.Agent (Error.ExitConditionMet { turn = 0 })) -> ()
-   | Ok _ -> Alcotest.fail "expected exit-condition guard before provider call"
-   | Error err -> Alcotest.fail ("unexpected error: " ^ Error.to_string err));
-  match List.rev (Agent.state agent).messages with
-  | { Types.role = User; content; _ } :: _ ->
-    Alcotest.(check int) "stored blocks" 4 (List.length content);
-    (match List.nth content 1, List.nth content 2, List.nth content 3 with
-     | Types.Image _, Types.Document _, Types.Audio _ -> ()
-     | _ -> Alcotest.fail "stored user input lost multimodal blocks")
-  | _ -> Alcotest.fail "missing appended user message"
-;;
-
 let test_agent_run_blocks_rejects_internal_blocks () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let agent = Agent.create ~net:env#net () in
+  let agent =
+    Agent.create ~config:(Types.default_config ~model:"test-model") ~net:env#net ()
+  in
   let blocks = [ Types.ToolUse { id = "call-1"; name = "x"; input = `Null } ] in
   (match Agent.run_blocks ~sw agent blocks with
    | Error (Error.Config (Error.InvalidConfig { field = "user_blocks"; _ })) -> ()
@@ -273,8 +248,9 @@ let test_agent_run_with_handoffs_blocks_rejects_internal_blocks () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Types.default_config with max_turns = 0 } in
-  let agent = Agent.create ~net:env#net ~config () in
+  let agent =
+    Agent.create ~config:(Types.default_config ~model:"test-model") ~net:env#net ()
+  in
   let blocks =
     [ Types.ToolResult
         { tool_use_id = "call-1"
@@ -429,10 +405,6 @@ let () =
             `Quick
             test_mixed_content_serialization
         ; Alcotest.test_case "constructors" `Quick test_multimodal_constructors
-        ; Alcotest.test_case
-            "agent run_blocks appends input"
-            `Quick
-            test_agent_run_blocks_appends_multimodal_input
         ; Alcotest.test_case
             "agent run_blocks rejects internal blocks"
             `Quick

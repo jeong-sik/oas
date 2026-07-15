@@ -31,7 +31,6 @@ type toggle_wire =
 type effort_alias_policy =
   | Preserve_effort
   | Deepseek_high_or_max
-  | Anthropic_output_max
 
 type sampling_policy =
   { ignored_always : Capabilities.sampling_parameter list
@@ -73,6 +72,13 @@ type t =
 val default : t
 val of_capabilities : Capabilities.capabilities -> t
 val for_provider_config : Provider_config.t -> t
+val replay_contract : t -> Reasoning_replay_contract.t
+
+(** Exact source binding for a response produced by [config]. *)
+val reasoning_source_for_provider_config
+  :  Provider_config.t
+  -> (Types.Reasoning_source.t, string) result
+
 val with_preserve_thinking : preserve_thinking:bool option -> t -> t
 val thinking_enabled : enable_thinking:bool option -> bool
 
@@ -98,8 +104,8 @@ val ignores_sampling_param
 (** Canonical OpenAI-compatible thinking-control request fields for a dialect.
 
     This is the single source of truth for the request-body fields emitted by
-    both the low-level [Provider_config]-based builder and the legacy
-    [agent_state]-based API builder. [zai_glm_clear_thinking] is only used for
+    both the low-level [Provider_config]-based builder and the high-level
+    Agent API builder. [zai_glm_clear_thinking] is only used for
     ZAI GLM's historical [No_toggle] transport, where GLM still accepts a
     provider-specific [thinking] object. *)
 val request_control_fields
@@ -114,11 +120,6 @@ val request_control_fields
 
 (** Normalize a typed caller effort for a provider dialect. *)
 val normalize_effort_value : t -> Reasoning_effort.t -> string option
-
-(** Normalize a caller effort for a provider dialect.
-
-    Returns [None] when the input means "no reasoning effort field". *)
-val normalize_effort : t -> string -> string option
 
 val sampling_params_ignored_when_thinking : t -> Capabilities.sampling_parameter list
 

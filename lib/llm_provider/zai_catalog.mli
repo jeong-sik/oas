@@ -1,26 +1,9 @@
-(** Z.AI catalog and routing helpers.
+(** Exact Z.AI endpoint constants.
 
-    Centralizes official endpoint constants, model aliases, and
-    conservative concurrency defaults for z.ai integrations.
+    Model identity and provider mode remain typed configuration/catalog data;
+    this module performs no URL/model-name classification or alias expansion.
 
     @stability Internal *)
 
-type api_mode =
-  | General_api
-  | Coding_plan
-
 val general_base_url : string
 val coding_base_url : string
-val zai_anthropic_base_url : string
-val is_glm_model_id : string -> bool
-val is_zai_base_url : string -> bool
-val is_coding_base_url : string -> bool
-val is_zai_anthropic_base_url : string -> bool
-val mode_of_base_url : string -> api_mode
-val zai_auto_models : unit -> string list
-val zai_coding_auto_models : unit -> string list
-val resolve_glm_alias : default_model:string -> string -> string
-val resolve_glm_coding_alias : default_model:string -> string -> string
-val general_concurrency_for_model : string -> int
-val coding_concurrency_default : int
-val throttle_key_for_chat : base_url:string -> model_id:string -> string

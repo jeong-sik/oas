@@ -5,17 +5,6 @@ open Result_syntax
 
 let _wlog = Log.create ~module_name:"runtime_server_worker" ()
 
-let unsupported_test_provider provider =
-  Error.Config
-    (Error.UnsupportedProvider
-       { detail =
-           Printf.sprintf
-             "provider %S is test-only; set OAS_ALLOW_TEST_PROVIDERS=1 to enable it \
-              explicitly"
-             provider
-       })
-;;
-
 let extract_text (resp : Types.api_response) =
   resp.content
   |> List.filter_map (function
@@ -47,22 +36,20 @@ type participant_run_result =
   | Participant_completed of participant_run_success
   | Participant_input_required of Runtime.input_request * paused_participant
 
-let agent_config_model
-      ~(default_config : Types.agent_config)
-      (session : session)
-      (resolution : execution_resolution)
-      (detail : spawn_agent_request)
+let participant_event_common
+      ~participant_name
+      ~summary
+      ~provider
+      ~model
+      ?raw_trace_run_id
+      ()
+  : Runtime.participant_event_common
   =
-  match resolution.provider_cfg with
-  | Some provider -> provider.Provider.model_id
-  | None ->
-    (match resolution.resolved_model with
-     | Some value when String.trim value <> "" -> value
-     | _ ->
-       (match detail.model with
-        | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
-        | _missing_model_override ->
-          Option.value session.model ~default:default_config.model))
+  { participant_name; summary; provider; model; raw_trace_run_id }
+;;
+
+let agent_config_model (resolution : execution_resolution) =
+  resolution.provider_cfg.Provider.model_id
 ;;
 
 let agent_config_of_session
@@ -70,23 +57,21 @@ let agent_config_of_session
       (resolution : execution_resolution)
       (detail : spawn_agent_request)
   =
-  let default_config = Types.default_config_value () in
-  { default_config with
+  let defaults = Types.default_config ~model:(agent_config_model resolution) in
+  { defaults with
     name = detail.participant_name
-  ; model = agent_config_model ~default_config session resolution detail
   ; system_prompt =
       (match detail.system_prompt with
        | Some prompt when String.trim prompt <> "" -> Some prompt
        | _missing_system_prompt_override -> session.system_prompt)
-  ; max_turns = Option.value detail.max_turns ~default:session.max_turns
   }
 ;;
 
 let agent_options_of_resolution (resolution : execution_resolution) trace_sink =
-  match resolution.provider_cfg with
-  | Some provider ->
-    { Agent.default_options with provider = Some provider; raw_trace = trace_sink }
-  | None -> { Agent.default_options with raw_trace = trace_sink }
+  { Agent.default_options with
+    provider = Some resolution.provider_cfg
+  ; raw_trace = trace_sink
+  }
 ;;
 
 let latest_raw_trace_run_id = function
@@ -497,31 +482,13 @@ let emit_delta_text_with_refs
 ;;
 
 let completion_anomaly_of_delta_errors delta_error_count =
-  if !delta_error_count > 0
-  then Some (Runtime.Dropped_output_deltas { count = !delta_error_count })
-  else None
-;;
-
-let mock_runtime_response (detail : Runtime.spawn_agent_request) =
-  Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name detail.prompt
-;;
-
-let mock_runtime_input_response
-      (detail : Runtime.spawn_agent_request)
-      (runtime_response : Runtime.input_response)
-  =
-  let input_text =
-    match runtime_response with
-    | Input_answer json -> Yojson.Safe.to_string json
-    | Input_declined -> "declined"
-    | Input_timeout -> "timeout"
-  in
-  Printf.sprintf "%s input=%s" (mock_runtime_response detail) input_text
-;;
-
-let mock_prompt_requires_input prompt =
-  Defaults.allow_test_providers ()
-  && Util.contains_substring_ci ~haystack:prompt ~needle:"needs_input"
+  match !delta_error_count with
+  | 0 -> Ok None
+  | count ->
+    Runtime.dropped_output_deltas ~count
+    |> Result.map Option.some
+    |> Result.map_error (fun error ->
+      Error.Internal (Runtime.show_completion_anomaly_error error))
 ;;
 
 let run_participant
@@ -566,133 +533,26 @@ let run_participant
       text
   in
   let completion_anomaly () = completion_anomaly_of_delta_errors delta_error_count in
-  match resolution.selected_provider with
-  | "mock" | "echo" ->
-    if not (Defaults.allow_test_providers ())
-    then
-      Error
-        { error = unsupported_test_provider resolution.selected_provider
-        ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-        }
-    else if mock_prompt_requires_input detail.prompt
-    then (
-      match Runtime_store.load_session store session_id with
-      | Error err ->
-        Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
-      | Ok session ->
-        Eio.Switch.run
-        @@ fun sw ->
-        let before_turn = function
-          | Hooks.BeforeTurn _ ->
-            Hooks.ElicitInput
-              { question = Printf.sprintf "Provide input for %s" detail.participant_name
-              ; schema = Some (`Assoc [ "type", `String "string" ])
-              ; timeout_s = None
-              }
-          | _ -> Hooks.Continue
-        in
-        let config = agent_config_of_session session resolution detail in
-        let options =
-          { Agent.default_options with
-            raw_trace = trace_sink
-          ; hooks = { Hooks.empty with before_turn = Some before_turn }
-          }
-        in
-        let agent = Agent.create ~net:state.net ~config ~options () in
-        let on_event = function
-          | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
-            emit_delta_text text
-          | _other_event -> ()
-        in
-        (match Agent.run_stream ~sw ~on_event agent detail.prompt with
-         | Error (Error.Agent (Error.InputRequired request)) ->
-           Ok
-             (Participant_input_required
-                ( Agent_elicitation.runtime_input_request_of_input_required request
-                , { detail
-                  ; resolution
-                  ; agent
-                  ; input_required = request
-                  ; trace_sink
-                  ; delta_warn_logged
-                  ; delta_error_count
-                  } ))
-         | Ok response ->
-           Ok
-             (Participant_completed
-                { summary = extract_text response
-                ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-                ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-                ; completion_anomaly = completion_anomaly ()
-                })
-         | Error err ->
-           Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }))
-    else (
-      let full = mock_runtime_response detail in
-      (match trace_sink with
-       | Some sink ->
-         (match
-            Raw_trace.start_run
-              sink
-              ~agent_name:detail.participant_name
-              ~prompt:detail.prompt
-              ?model:resolution.resolved_model
-              ()
-          with
-          | Ok active ->
-            ignore
-              (Raw_trace.record_assistant_block active ~block_index:0 (Types.Text full));
-            ignore
-              (Raw_trace.finish_run
-                 active
-                 ~final_text:(Some full)
-                 ~stop_reason:(Some "EndTurn")
-                 ~error:None)
-          | Error e ->
-            Log.warn
-              _wlog
-              "trace start_run failed for mock provider"
-              [ Log.S ("session_id", session_id)
-              ; Log.S ("agent", detail.participant_name)
-              ; Log.S ("error", Error.to_string e)
-              ])
-       | None -> ());
-      let half = String.length full / 2 in
-      emit_delta_text (String.sub full 0 half);
-      emit_delta_text (String.sub full half (String.length full - half));
-      if !delta_error_count > 0
-      then
-        Log.warn
-          _wlog
-          "participant completed with dropped output deltas"
-          [ Log.S ("session_id", session_id)
-          ; Log.S ("participant", detail.participant_name)
-          ; Log.I ("dropped_output_deltas", !delta_error_count)
-          ];
-      Ok
-        (Participant_completed
-           { summary = full
-           ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-           ; stop_reason = Some "EndTurn"
-           ; completion_anomaly = completion_anomaly ()
-           }))
-  | _selected_provider ->
-    Eio.Switch.run
-    @@ fun sw ->
-    (match Runtime_store.load_session store session_id with
-     | Error err ->
-       Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
-     | Ok session ->
-       let config = agent_config_of_session session resolution detail in
-       let options = agent_options_of_resolution resolution trace_sink in
-       let agent = Agent.create ~net:state.net ~config ~options () in
-       let on_event = function
-         | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
-           emit_delta_text text
-         | _other_event -> ()
-       in
-       (match Agent.run_stream ~sw ~on_event agent detail.prompt with
-        | Ok response ->
+  Eio.Switch.run
+  @@ fun sw ->
+  match Runtime_store.load_session store session_id with
+  | Error err ->
+    Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
+  | Ok session ->
+    let config = agent_config_of_session session resolution detail in
+    let options = agent_options_of_resolution resolution trace_sink in
+    let agent = Agent.create ~net:state.net ~config ~options () in
+    let on_event = function
+      | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
+        emit_delta_text text
+      | _other_event -> ()
+    in
+    (match Agent.run_stream ~sw ~on_event agent detail.prompt with
+     | Ok response ->
+       (match completion_anomaly () with
+        | Error error ->
+          Error { error; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
+        | Ok completion_anomaly ->
           if !delta_error_count > 0
           then
             Log.warn
@@ -707,29 +567,26 @@ let run_participant
                { summary = extract_text response
                ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
                ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-               ; completion_anomaly = completion_anomaly ()
-               })
-        | Error (Error.Agent (Error.InputRequired request)) ->
-          Ok
-            (Participant_input_required
-               ( Agent_elicitation.runtime_input_request_of_input_required request
-               , { detail
-                 ; resolution
-                 ; agent
-                 ; input_required = request
-                 ; trace_sink
-                 ; delta_warn_logged
-                 ; delta_error_count
-                 } ))
-        | Error err ->
-          Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }))
+               ; completion_anomaly
+               }))
+     | Error (Error.Agent (Error.InputRequired request)) ->
+       Ok
+         (Participant_input_required
+            ( Agent_elicitation.runtime_input_request_of_input_required request
+            , { detail
+              ; resolution
+              ; agent
+              ; input_required = request
+              ; trace_sink
+              ; delta_warn_logged
+              ; delta_error_count
+              } ))
+     | Error err ->
+       Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink })
 ;;
 
 let first_some = Util.first_some
 let _log = Log.create ~module_name:"runtime_server" ()
-let read_control_response = Runtime_server_control.read_control_response
-let ask_permission = Runtime_server_control.ask_permission
-let invoke_hook = Runtime_server_control.invoke_hook
 
 let log_participant_persist_failure ~session_id ~participant_name ~phase err =
   Log.error
@@ -749,9 +606,8 @@ let persist_participant_failure
       ~participant_name
       ~provider
       ~model
-      ~detail
       ?raw_trace_run_id
-      ?failure_cause
+      ~failure_cause
       ()
   =
   match
@@ -760,14 +616,14 @@ let persist_participant_failure
       state
       session_id
       (Agent_failed
-         { participant_name
-         ; summary = None
-         ; provider
-         ; model
-         ; error = Some detail
-         ; raw_trace_run_id
-         ; stop_reason = None
-         ; completion_anomaly = None
+         { participant =
+             participant_event_common
+               ~participant_name
+               ~summary:None
+               ~provider
+               ~model
+               ?raw_trace_run_id
+               ()
          ; failure_cause
          })
   with
@@ -777,7 +633,16 @@ let persist_participant_failure
       ~session_id
       ~participant_name
       ~phase:"agent_failed"
-      err
+      err;
+    emit_system_error
+      state
+      (Printf.sprintf
+         "participant failure could not be persisted: session=%S participant=%S \
+          failure=%s persistence_error=%s"
+         session_id
+         participant_name
+         (Runtime.failure_cause_to_string failure_cause)
+         (Error.to_string err))
 ;;
 
 let persist_participant_completion
@@ -794,15 +659,16 @@ let persist_participant_completion
       state
       session_id
       (Agent_completed
-         { participant_name
-         ; summary = Some outcome.summary
-         ; provider = resolution.resolved_provider
-         ; model = resolution.resolved_model
-         ; error = None
-         ; raw_trace_run_id = outcome.raw_trace_run_id
+         { participant =
+             participant_event_common
+               ~participant_name
+               ~summary:(Some outcome.summary)
+               ~provider:resolution.resolved_provider
+               ~model:resolution.resolved_model
+               ?raw_trace_run_id:outcome.raw_trace_run_id
+               ()
          ; stop_reason = outcome.stop_reason
          ; completion_anomaly = outcome.completion_anomaly
-         ; failure_cause = None
          })
   with
   | Ok _ -> ()
@@ -824,7 +690,6 @@ let persist_participant_completion
       ~participant_name
       ~provider:resolution.resolved_provider
       ~model:resolution.resolved_model
-      ~detail
       ?raw_trace_run_id:outcome.raw_trace_run_id
       ~failure_cause:(Persistence_failure { phase = "agent_completed"; detail })
       ()
@@ -858,7 +723,6 @@ let persist_participant_input_required
       ~participant_name
       ~provider:resolution.resolved_provider
       ~model:resolution.resolved_model
-      ~detail
       ~failure_cause:(Persistence_failure { phase = "input_required_checkpoint"; detail })
       ()
   | Ok () ->
@@ -885,7 +749,6 @@ let persist_participant_input_required
          ~participant_name
          ~provider:resolution.resolved_provider
          ~model:resolution.resolved_model
-         ~detail
          ~failure_cause:(Persistence_failure { phase = "input_required"; detail })
          ())
 ;;
@@ -896,89 +759,48 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
     paused.agent
     paused.input_required
     (Agent_elicitation.runtime_response_to_hooks runtime_response);
-  match paused.resolution.selected_provider with
-  | "mock" | "echo" ->
-    let full = mock_runtime_input_response paused.detail runtime_response in
-    let emit_delta_text text =
-      let raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink in
-      emit_delta_text_with_refs
-        store
-        state
-        session_id
-        participant_name
-        ~delta_warn_logged:paused.delta_warn_logged
-        ~delta_error_count:paused.delta_error_count
-        ?raw_trace_run_id
-        text
-    in
-    let half = String.length full / 2 in
-    emit_delta_text (String.sub full 0 half);
-    emit_delta_text (String.sub full half (String.length full - half));
-    Ok
-      (Participant_completed
-         { summary = full
-         ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-         ; stop_reason = Some "EndTurn"
-         ; completion_anomaly =
-             completion_anomaly_of_delta_errors paused.delta_error_count
-         })
-  | _ ->
-    Eio.Switch.run
-    @@ fun sw ->
-    let emit_delta_text text =
-      let raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink in
-      emit_delta_text_with_refs
-        store
-        state
-        session_id
-        participant_name
-        ~delta_warn_logged:paused.delta_warn_logged
-        ~delta_error_count:paused.delta_error_count
-        ?raw_trace_run_id
-        text
-    in
-    let on_event = function
-      | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
-        emit_delta_text text
-      | _other_event -> ()
-    in
-    let rec loop () =
-      let agent_state = Agent.state paused.agent in
-      if
-        Types.has_finite_max_turns agent_state.config.max_turns
-        && agent_state.turn_count >= agent_state.config.max_turns
-      then
-        Error
-          { error =
-              Error.Agent
-                (Error.MaxTurnsExceeded
-                   { turns = agent_state.turn_count
-                   ; limit = agent_state.config.max_turns
-                   })
-          ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-          }
-      else (
-        match Agent.run_turn_stream ~sw ~on_event paused.agent with
-        | Ok (`Complete response) ->
-          Ok
-            (Participant_completed
-               { summary = extract_text response
-               ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-               ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-               ; completion_anomaly =
-                   completion_anomaly_of_delta_errors paused.delta_error_count
-               })
-        | Ok `ToolsExecuted -> loop ()
-        | Error (Error.Agent (Error.InputRequired request)) ->
-          Ok
-            (Participant_input_required
-               ( Agent_elicitation.runtime_input_request_of_input_required request
-               , { paused with input_required = request } ))
-        | Error err ->
-          Error
-            { error = err; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink })
-    in
-    loop ()
+  Eio.Switch.run
+  @@ fun sw ->
+  let emit_delta_text text =
+    let raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink in
+    emit_delta_text_with_refs
+      store
+      state
+      session_id
+      participant_name
+      ~delta_warn_logged:paused.delta_warn_logged
+      ~delta_error_count:paused.delta_error_count
+      ?raw_trace_run_id
+      text
+  in
+  let on_event = function
+    | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } -> emit_delta_text text
+    | _other_event -> ()
+  in
+  let rec loop () =
+    match Agent.run_turn_stream ~sw ~on_event paused.agent with
+    | Ok (`Complete response) ->
+      (match completion_anomaly_of_delta_errors paused.delta_error_count with
+       | Error error ->
+         Error { error; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink }
+       | Ok completion_anomaly ->
+         Ok
+           (Participant_completed
+              { summary = extract_text response
+              ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+              ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+              ; completion_anomaly
+              }))
+    | Ok `ToolsExecuted -> loop ()
+    | Error (Error.Agent (Error.InputRequired request)) ->
+      Ok
+        (Participant_input_required
+           ( Agent_elicitation.runtime_input_request_of_input_required request
+           , { paused with input_required = request } ))
+    | Error err ->
+      Error { error = err; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink }
+  in
+  loop ()
 ;;
 
 let resume_paused_participant store state session_id paused runtime_response =
@@ -1011,7 +833,6 @@ let resume_paused_participant store state session_id paused runtime_response =
       ~participant_name
       ~provider:paused.resolution.resolved_provider
       ~model:paused.resolution.resolved_model
-      ~detail:(Error.to_string failure.error)
       ?raw_trace_run_id:failure.raw_trace_run_id
       ~failure_cause:(Execution_error (Error.to_string failure.error))
       ()
@@ -1019,10 +840,15 @@ let resume_paused_participant store state session_id paused runtime_response =
 
 let start_session state (request : start_request) =
   let* store = store_of_state state in
-  let session = Runtime_projection.initial_session request in
-  let* _ =
-    invoke_hook state ~hook_name:"SessionStart" ~payload:(start_request_to_yojson request)
+  let* initialization = initialization_request state in
+  let request =
+    { request with
+      provider = first_some request.provider initialization.provider
+    ; model = first_some request.model initialization.model
+    ; workdir = first_some request.workdir initialization.cwd
+    }
   in
+  let session = Runtime_projection.initial_session request in
   let* () = with_store_lock state (fun () -> Runtime_store.save_session store session) in
   let* projected, _ =
     persist_event
@@ -1036,9 +862,8 @@ let start_session state (request : start_request) =
 
 let finalize_session state store (session : session) reason =
   let session_id = session.session_id in
-  (match session.pending_input with
-   | Some pending -> ignore (take_paused_input state session_id pending.request_id)
-   | None -> ());
+  settle_session_lane state session_id;
+  clear_paused_inputs_for_session state session_id;
   let* session, _ =
     match session.phase with
     | Finalizing -> Ok (session, make_event session (Finalize_requested { reason }))
@@ -1120,8 +945,26 @@ let apply_command ~sw state store (session : session) command =
     in
     (match applied, !paused_to_resume with
      | Ok _, Some paused ->
-       Eio.Fiber.fork ~sw (fun () ->
-         resume_paused_participant store state session_id paused detail.response)
+       (match
+          fork_participant_lane
+            ~sw
+            state
+            ~session_id
+            ~participant_name:paused.detail.participant_name
+            (fun () ->
+               resume_paused_participant store state session_id paused detail.response)
+        with
+        | Ok () -> ()
+        | Error err ->
+          persist_participant_failure
+            store
+            state
+            ~session_id
+            ~participant_name:paused.detail.participant_name
+            ~provider:paused.resolution.resolved_provider
+            ~model:paused.resolution.resolved_model
+            ~failure_cause:(Execution_error (Error.to_string err))
+            ())
      | Ok _, None | Error _, Some _ | Error _, None -> ());
     applied
   | Update_session_settings detail ->
@@ -1130,18 +973,6 @@ let apply_command ~sw state store (session : session) command =
     in
     Ok (Command_applied session)
   | Spawn_agent detail ->
-    let* permission =
-      ask_permission
-        state
-        ~action:"spawn_agent"
-        ~subject:detail.participant_name
-        ~payload:(spawn_agent_request_to_yojson detail)
-    in
-    let permission_allowed, permission_message =
-      match permission with
-      | Permission_response result -> result.allow, result.message
-      | Hook_response _ -> true, None
-    in
     let* session, _ =
       persist_event
         store
@@ -1153,19 +984,7 @@ let apply_command ~sw state store (session : session) command =
            ; prompt = detail.prompt
            ; provider = detail.provider
            ; model = detail.model
-           ; permission_mode = session.permission_mode
            })
-    in
-    let* hook_response =
-      invoke_hook
-        state
-        ~hook_name:"PreSpawn"
-        ~payload:(spawn_agent_request_to_yojson detail)
-    in
-    let hook_allowed, hook_message =
-      match hook_response with
-      | Hook_response result -> result.continue_, result.message
-      | Permission_response _ -> true, None
     in
     (match resolve_execution session detail with
      | Error err ->
@@ -1175,125 +994,47 @@ let apply_command ~sw state store (session : session) command =
            state
            session_id
            (Agent_failed
-              { participant_name = detail.participant_name
-              ; summary = None
-              ; provider = detail.provider
-              ; model = detail.model
-              ; error = Some (Error.to_string err)
-              ; raw_trace_run_id = None
-              ; stop_reason = None
-              ; completion_anomaly = None
-              ; failure_cause = Some (Execution_error (Error.to_string err))
+              { participant =
+                  participant_event_common
+                    ~participant_name:detail.participant_name
+                    ~summary:None
+                    ~provider:detail.provider
+                    ~model:detail.model
+                    ()
+              ; failure_cause = Execution_error (Error.to_string err)
               })
        in
        Ok (Command_applied session)
      | Ok resolution ->
-       if (not permission_allowed) || not hook_allowed
-       then
-         let* session, _ =
-           persist_event
-             store
-             state
-             session_id
-             (Agent_failed
-                { participant_name = detail.participant_name
-                ; summary = None
-                ; provider = resolution.resolved_provider
-                ; model = resolution.resolved_model
-                ; error =
-                    Some
-                      (Option.value
-                         ~default:"spawn blocked by control policy"
-                         (first_some permission_message hook_message))
-                ; raw_trace_run_id = None
-                ; stop_reason = None
-                ; completion_anomaly = None
-                ; failure_cause =
-                    Some
-                      (Execution_error
-                         (Option.value
-                            ~default:"spawn blocked by control policy"
-                            (first_some permission_message hook_message)))
-                })
-         in
-         Ok (Command_applied session)
-       else (
-         let participant_name = detail.participant_name in
-         Eio.Fiber.fork ~sw (fun () ->
-           try
-             match
-               persist_event
-                 store
-                 state
-                 session_id
-                 (Agent_became_live
-                    { participant_name
-                    ; summary = Some "runtime-started"
-                    ; provider = resolution.resolved_provider
-                    ; model = resolution.resolved_model
-                    ; error = None
-                    ; raw_trace_run_id = None
-                    ; stop_reason = None
-                    ; completion_anomaly = None
-                    ; failure_cause = None
-                    })
-             with
-             | Error err ->
-               let detail =
-                 Printf.sprintf
-                   "failed to persist runtime-started event: %s"
-                   (Error.to_string err)
-               in
-               log_participant_persist_failure
-                 ~session_id
-                 ~participant_name
-                 ~phase:"agent_became_live"
-                 err;
-               persist_participant_failure
-                 store
-                 state
-                 ~session_id
-                 ~participant_name
-                 ~provider:resolution.resolved_provider
-                 ~model:resolution.resolved_model
-                 ~detail
-                 ~failure_cause:
-                   (Persistence_failure { phase = "agent_became_live"; detail })
-                 ()
-             | Ok _ ->
-               (match run_participant store state session_id resolution detail with
-                | Ok (Participant_completed outcome) ->
-                  persist_participant_completion
-                    store
-                    state
-                    ~session_id
-                    ~participant_name
-                    ~resolution
-                    outcome
-                | Ok (Participant_input_required (request, paused)) ->
-                  persist_participant_input_required
-                    store
-                    state
-                    ~session_id
-                    ~participant_name
-                    ~resolution
-                    request
-                    paused
-                | Error failure ->
-                  persist_participant_failure
-                    store
-                    state
-                    ~session_id
-                    ~participant_name
-                    ~provider:resolution.resolved_provider
-                    ~model:resolution.resolved_model
-                    ~detail:(Error.to_string failure.error)
-                    ?raw_trace_run_id:failure.raw_trace_run_id
-                    ~failure_cause:(Execution_error (Error.to_string failure.error))
-                    ())
+       let participant_name = detail.participant_name in
+       let run () =
+         try
+           match
+             persist_event
+               store
+               state
+               session_id
+               (Agent_became_live
+                  { participant =
+                      participant_event_common
+                        ~participant_name
+                        ~summary:(Some "runtime-started")
+                        ~provider:resolution.resolved_provider
+                        ~model:resolution.resolved_model
+                        ()
+                  })
            with
-           | Eio.Cancel.Cancelled _ as ex -> raise ex
-           | exn ->
+           | Error err ->
+             let detail =
+               Printf.sprintf
+                 "failed to persist runtime-started event: %s"
+                 (Error.to_string err)
+             in
+             log_participant_persist_failure
+               ~session_id
+               ~participant_name
+               ~phase:"agent_became_live"
+               err;
              persist_participant_failure
                store
                state
@@ -1301,15 +1042,75 @@ let apply_command ~sw state store (session : session) command =
                ~participant_name
                ~provider:resolution.resolved_provider
                ~model:resolution.resolved_model
-               ~detail:
-                 (Printf.sprintf "participant fiber crashed: %s" (Printexc.to_string exn))
                ~failure_cause:
-                 (Execution_error
-                    (Printf.sprintf
-                       "participant fiber crashed: %s"
-                       (Printexc.to_string exn)))
-               ());
-         Ok (Command_applied session)))
+                 (Persistence_failure { phase = "agent_became_live"; detail })
+               ()
+           | Ok _ ->
+             (match run_participant store state session_id resolution detail with
+              | Ok (Participant_completed outcome) ->
+                persist_participant_completion
+                  store
+                  state
+                  ~session_id
+                  ~participant_name
+                  ~resolution
+                  outcome
+              | Ok (Participant_input_required (request, paused)) ->
+                persist_participant_input_required
+                  store
+                  state
+                  ~session_id
+                  ~participant_name
+                  ~resolution
+                  request
+                  paused
+              | Error failure ->
+                persist_participant_failure
+                  store
+                  state
+                  ~session_id
+                  ~participant_name
+                  ~provider:resolution.resolved_provider
+                  ~model:resolution.resolved_model
+                  ?raw_trace_run_id:failure.raw_trace_run_id
+                  ~failure_cause:(Execution_error (Error.to_string failure.error))
+                  ())
+         with
+         | exn ->
+           Llm_provider.Reserved_exn.reraise_if_reserved exn;
+           let detail =
+             Printf.sprintf "participant fiber crashed: %s" (Printexc.to_string exn)
+           in
+           persist_participant_failure
+             store
+             state
+             ~session_id
+             ~participant_name
+             ~provider:resolution.resolved_provider
+             ~model:resolution.resolved_model
+             ~failure_cause:(Execution_error detail)
+             ()
+       in
+       (match fork_participant_lane ~sw state ~session_id ~participant_name run with
+        | Ok () -> Ok (Command_applied session)
+        | Error err ->
+          let* session, _ =
+            persist_event
+              store
+              state
+              session_id
+              (Agent_failed
+                 { participant =
+                     participant_event_common
+                       ~participant_name
+                       ~summary:None
+                       ~provider:resolution.resolved_provider
+                       ~model:resolution.resolved_model
+                       ()
+                 ; failure_cause = Execution_error (Error.to_string err)
+                 })
+          in
+          Ok (Command_applied session)))
   | Attach_artifact detail ->
     let* artifact =
       Artifact_service.save_text_internal
@@ -1359,10 +1160,17 @@ let apply_command ~sw state store (session : session) command =
 let handle_request ~sw state request =
   match request with
   | Initialize detail ->
-    state.session_root <- session_root_request_path detail.session_root;
-    let* _store = store_of_state state in
+    let* () =
+      if is_initialized state
+      then Ok ()
+      else (
+        match Util.trim_non_empty_opt detail.provider with
+        | None -> Ok ()
+        | Some provider -> validate_provider_identity ~provider)
+    in
+    let* _initialized = initialize state detail in
     Ok
-      (Initialized
+      (Runtime.Initialized
          { sdk_name = "agent_sdk"
          ; sdk_version = Sdk_version.version
          ; runtime_version
@@ -1395,19 +1203,6 @@ let handle_request ~sw state request =
   | Finalize { session_id; reason } ->
     let* store = store_of_state state in
     let* session = Runtime_store.load_session store session_id in
-    let* _ =
-      invoke_hook
-        state
-        ~hook_name:"Stop"
-        ~payload:
-          (`Assoc
-              [ "session_id", `String session_id
-              ; ( "reason"
-                , match reason with
-                  | Some value -> `String value
-                  | None -> `Null )
-              ])
-    in
     finalize_session state store session reason
   | Report { session_id } ->
     let* store = store_of_state state in
@@ -1423,60 +1218,99 @@ let handle_request ~sw state request =
     let proof = Runtime_projection.build_proof session events in
     let* () = Runtime_store.save_proof store proof in
     Ok (Prove_response proof)
-  | Shutdown -> Ok Shutdown_ack
+  | Shutdown ->
+    settle_all_session_lanes state;
+    clear_all_paused_inputs state;
+    Ok Shutdown_ack
 ;;
 
 let max_stdio_line_len = 10 * 1024 * 1024
 
-let serve_stdio ~sw ~net ~clock ~stdin () =
-  let state = create ~net ~clock () in
+let serve_stdio ~sw ~net ~stdin () =
+  let state = create ~net () in
   let reader = Eio.Buf_read.of_flow stdin ~max_size:max_stdio_line_len in
   let handle_request_sync request_id request =
     let response =
       match handle_request ~sw state request with
       | Ok response -> response
       | Error err -> Error_response (Error.to_string err)
+      | exception exn ->
+        Llm_provider.Reserved_exn.reraise_if_reserved exn;
+        let detail = Printexc.to_string exn in
+        Log.error
+          _log
+          "Runtime request escaped with an exception"
+          [ Log.S ("request_id", request_id); Log.S ("error", detail) ];
+        Error_response ("runtime request failed: " ^ detail)
     in
-    write_protocol_message state (Response_message { request_id; response });
+    (try write_protocol_message state (Response_message { request_id; response }) with
+     | exn ->
+       Llm_provider.Reserved_exn.reraise_if_reserved exn;
+       Log.error
+         _log
+         "Runtime response write failed"
+         [ Log.S ("request_id", request_id); Log.S ("error", Printexc.to_string exn) ]);
     response
   in
   let handle_request_message request_id request =
-    Eio.Fiber.fork ~sw (fun () -> ignore (handle_request_sync request_id request))
+    Eio.Fiber.fork ~sw (fun () ->
+      try ignore (handle_request_sync request_id request) with
+      | exn ->
+        Llm_provider.Reserved_exn.reraise_if_reserved exn;
+        Log.error
+          _log
+          "Runtime request lane failed"
+          [ Log.S ("request_id", request_id); Log.S ("error", Printexc.to_string exn) ])
   in
   let rec loop () =
     match Eio.Buf_read.line reader with
     | raw ->
       let raw = String.trim raw in
-      if raw = "" then loop () else handle_raw state raw
+      if raw = ""
+      then (
+        write_protocol_message
+          state
+          (System_message { level = "error"; message = "empty runtime protocol message" });
+        loop ())
+      else handle_raw state raw
     | exception End_of_file -> ()
-    | exception Eio.Io _ -> ()
+    | exception (Eio.Io _ as exn) ->
+      Log.error
+        _log
+        "Runtime stdio read failed"
+        [ Log.S ("error", Printexc.to_string exn) ]
     | exception Eio.Cancel.Cancelled _ -> ()
   and handle_raw state raw =
     match protocol_message_of_string raw with
     | Ok (Request_message { request_id; request = Shutdown }) ->
       ignore (handle_request_sync request_id Shutdown)
+    | Ok (Request_message { request_id; request = Initialize detail }) ->
+      ignore (handle_request_sync request_id (Initialize detail));
+      loop ()
     | Ok (Request_message payload) ->
       handle_request_message payload.request_id payload.request;
       loop ()
-    | Ok (Control_response_message payload) ->
-      ignore
-        (Runtime_server_control.deliver_control_response
-           state
-           payload.control_id
-           payload.response);
+    | Ok (Response_message _) ->
+      write_protocol_message
+        state
+        (System_message { level = "error"; message = "Response_message is outbound-only" });
       loop ()
-    | Ok _non_request_message -> loop ()
-    | Error _ ->
-      (match request_of_string raw with
-       | Error detail ->
-         write_protocol_message
-           state
-           (Response_message { request_id = "legacy"; response = Error_response detail });
-         loop ()
-       | Ok Shutdown -> ignore (handle_request_sync "legacy" Shutdown)
-       | Ok request ->
-         handle_request_message "legacy" request;
-         loop ())
+    | Ok (Event_message _) ->
+      write_protocol_message
+        state
+        (System_message { level = "error"; message = "Event_message is outbound-only" });
+      loop ()
+    | Ok (System_message _) ->
+      write_protocol_message
+        state
+        (System_message { level = "error"; message = "System_message is outbound-only" });
+      loop ()
+    | Error detail ->
+      write_protocol_message
+        state
+        (System_message
+           { level = "error"; message = "invalid runtime protocol message: " ^ detail });
+      loop ()
   in
   loop ()
 ;;
@@ -1522,7 +1356,9 @@ let%test "session_root_request_path: Some with spaces -> Some trimmed" =
 
 (* --- Runtime.protocol_version --- *)
 
-let%test "protocol_version is not empty" = String.length Runtime.protocol_version > 0
+let%test "protocol_version identifies the hard-cut runtime wire" =
+  String.equal Runtime.protocol_version "oas-runtime-0.2"
+;;
 
 (* --- Runtime wire protocol: request serialization roundtrip --- *)
 
@@ -1537,9 +1373,8 @@ let%test "request roundtrip: Initialize" =
   let req =
     Initialize
       { session_root = Some "/tmp"
-      ; provider = Some "mock"
+      ; provider = Some "local"
       ; model = None
-      ; permission_mode = None
       ; include_partial_messages = false
       ; setting_sources = []
       ; resume_session = None
@@ -1548,7 +1383,7 @@ let%test "request roundtrip: Initialize" =
   in
   let json_str = request_to_string req in
   match request_of_string json_str with
-  | Ok (Initialize r) -> r.session_root = Some "/tmp" && r.provider = Some "mock"
+  | Ok (Initialize r) -> r.session_root = Some "/tmp" && r.provider = Some "local"
   | _unexpected_request -> false
 ;;
 
@@ -1558,11 +1393,9 @@ let%test "request roundtrip: Start_session" =
       { session_id = None
       ; goal = "test goal"
       ; participants = [ "alice"; "bob" ]
-      ; provider = Some "mock"
+      ; provider = Some "local"
       ; model = None
-      ; permission_mode = None
       ; system_prompt = None
-      ; max_turns = Some 5
       ; workdir = None
       }
   in
@@ -1644,19 +1477,19 @@ let%test "response roundtrip: Error_response" =
 
 let%test "response roundtrip: Initialized" =
   let resp =
-    Initialized
+    Runtime.Initialized
       { sdk_name = "agent_sdk"
       ; sdk_version = "1.0.0"
       ; runtime_version = "1.0.0"
-      ; protocol_version = "oas-runtime-0.1"
+      ; protocol_version = Runtime.protocol_version
       ; capabilities = [ "initialize"; "shutdown" ]
       }
   in
   let json_str = response_to_string resp in
   match response_of_string json_str with
-  | Ok (Initialized r) ->
+  | Ok (Runtime.Initialized r) ->
     r.sdk_name = "agent_sdk"
-    && r.protocol_version = "oas-runtime-0.1"
+    && String.equal r.protocol_version Runtime.protocol_version
     && List.length r.capabilities = 2
   | _unexpected_response -> false
 ;;
@@ -1693,33 +1526,6 @@ let%test "protocol_message roundtrip: Event_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (Event_message { session_id = Some "s1"; event }) -> event.seq = 1
-  | _unexpected_message -> false
-;;
-
-let%test "protocol_message roundtrip: Control_request_message" =
-  let msg =
-    Control_request_message
-      { control_id = "ctrl-000001"
-      ; request = Permission_request { action = "spawn"; subject = "a1"; payload = `Null }
-      }
-  in
-  let json_str = protocol_message_to_string msg in
-  match protocol_message_of_string json_str with
-  | Ok (Control_request_message { control_id; _ }) -> control_id = "ctrl-000001"
-  | _unexpected_message -> false
-;;
-
-let%test "protocol_message roundtrip: Control_response_message" =
-  let msg =
-    Control_response_message
-      { control_id = "ctrl-000002"
-      ; response = Permission_response { allow = true; message = None; interrupt = false }
-      }
-  in
-  let json_str = protocol_message_to_string msg in
-  match protocol_message_of_string json_str with
-  | Ok (Control_response_message { control_id; response = Permission_response r }) ->
-    control_id = "ctrl-000002" && r.allow = true
   | _unexpected_message -> false
 ;;
 

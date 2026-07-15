@@ -8,7 +8,8 @@
 
     Usage:
     {[
-      let agent = Agent_typed.create ~net () in
+      let agent =
+        Agent_typed.create ~net ~config:(Types.default_config ~model:"exact-model") ()
       let completed = Agent_typed.run ~sw agent "hello" in
       Agent_typed.close completed
       (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR *)
@@ -34,12 +35,11 @@ type _ t
     caller-owned turn-boundary checkpoint sink used for crash recovery. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?config:Types.agent_config
+  -> config:Types.agent_config
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:Agent.options
   -> ?checkpoint_sink:Agent.checkpoint_sink
-  -> ?tool_failure_judge:Tool_failure_recovery.judge
   -> unit
   -> created t
 

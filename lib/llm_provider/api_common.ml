@@ -16,14 +16,6 @@ let max_response_body = 10 * 1024 * 1024
     Larger than HTTP because stdio carries full JSON-RPC frames. *)
 let max_stdio_buffer = 16 * 1024 * 1024
 
-(** Default per-request wall-clock timeout for LLM HTTP calls (seconds).
-    Prevents a slow upstream (Ollama stall, network partition, stuck gateway)
-    from freezing the caller's fiber. [Api.create_message] wraps its HTTP
-    request with [Eio.Time.with_timeout_exn] using this value when a clock
-    is supplied, and maps the resulting [Eio.Time.Timeout] to
-    [Retry.Timeout] so [Retry.with_retry] can retry or surface the failure. *)
-let default_request_timeout_s = 60.0
-
 (** Process-scoped entropy for OAS-allocated tool-use identities.
 
     The identity must not depend on model-generated names or arguments: those
@@ -58,7 +50,10 @@ let text_blocks_to_string blocks =
   |> String.concat "\n"
 ;;
 
-let json_of_string_or_raw s = Lenient_json.parse s
+let json_of_string_or_raw s =
+  try Yojson.Safe.from_string s with
+  | Yojson.Json_error _ -> `Assoc [ "raw", `String s ]
+;;
 
 let unsupported_media_source ~backend ~block source_type =
   invalid_arg
@@ -308,7 +303,7 @@ let rec content_block_of_json_result json =
     in
     let outcome =
       if Cli_common_json.member_bool "is_error" json
-      then Legacy_unclassified_failure
+      then Tool_failed { failure_kind = Reported_tool_error; error_class = None }
       else Tool_succeeded
     in
     let json = Types.try_parse_json content in

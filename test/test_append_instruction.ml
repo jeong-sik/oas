@@ -106,7 +106,6 @@ let test_hook_injects_on_before_turn_params () =
   let event =
     Hooks.BeforeTurnParams
       { turn = 1
-      ; max_turns = 10
       ; messages = []
       ; last_tool_results = []
       ; current_params = Hooks.default_turn_params
@@ -127,7 +126,6 @@ let test_hook_appends_to_existing () =
   let event =
     Hooks.BeforeTurnParams
       { turn = 1
-      ; max_turns = 10
       ; messages = []
       ; last_tool_results = []
       ; current_params =

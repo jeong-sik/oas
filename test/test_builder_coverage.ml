@@ -3,7 +3,7 @@
 
     Focuses on:
     - Builder chainable API: with_* methods not yet covered
-    - build_safe validation: invalid max_turns, max_tokens, thinking_budget
+    - build_safe validation: invalid max_tokens and thinking_budget
     - Agent accessors: state, tools, context, options, description
     - Agent.default_options fields
     - Agent.clone *)
@@ -16,16 +16,14 @@ let test_builder_chain () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_name "test-chain"
     |> Builder.with_system_prompt "You are a test agent"
     |> Builder.with_max_tokens 200
-    |> Builder.with_max_turns 3
     |> Builder.with_temperature 0.5
     |> Builder.with_top_p 0.9
     |> Builder.with_top_k 40
     |> Builder.with_min_p 0.1
-    |> Builder.with_max_idle_turns 2
     |> Builder.with_description "A test builder"
   in
   match Builder.build_safe b with
@@ -33,7 +31,6 @@ let test_builder_chain () =
     let st = Agent.state agent in
     Alcotest.(check string) "name" "test-chain" st.config.name;
     Alcotest.(check (option int)) "max_tokens" (Some 200) st.config.max_tokens;
-    Alcotest.(check int) "max_turns" 3 st.config.max_turns;
     (match Agent.description agent with
      | Some d -> Alcotest.(check string) "desc" "A test builder" d
      | None -> Alcotest.fail "expected description")
@@ -44,12 +41,19 @@ let test_builder_thinking () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 1000
+    |> Builder.with_reasoning_effort Llm_provider.Reasoning_effort.Max
   in
   match Builder.build_safe b with
-  | Ok _agent -> ()
+  | Ok agent ->
+    let config = (Agent.state agent).config in
+    Alcotest.(check (option int)) "numeric budget" (Some 1000) config.thinking_budget;
+    Alcotest.(check (option string))
+      "categorical effort"
+      (Some "max")
+      (Option.map Llm_provider.Reasoning_effort.to_string config.reasoning_effort)
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -57,7 +61,7 @@ let test_builder_response_format () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_response_format_json true
     |> Builder.with_cache_system_prompt true
     |> Builder.with_disable_parallel_tool_use true
@@ -75,7 +79,7 @@ let test_builder_tool_choice () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_tool_choice Types.Auto
   in
   match Builder.build_safe b with
@@ -88,7 +92,7 @@ let test_builder_initial_messages () =
   @@ fun env ->
   let msgs = [ Types.user_msg "initial context" ] in
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_initial_messages msgs
   in
   match Builder.build_safe b with
@@ -98,25 +102,11 @@ let test_builder_initial_messages () =
 
 (* ── build_safe validation ────────────────────────────────── *)
 
-let test_build_safe_invalid_max_turns () =
-  Eio_main.run
-  @@ fun env ->
-  let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_turns (-1)
-  in
-  match Builder.build_safe b with
-  | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
-    Alcotest.(check string) "field" "max_turns" field
-  | Error _ -> Alcotest.fail "expected InvalidConfig for max_turns"
-  | Ok _ -> Alcotest.fail "expected Error for max_turns < 0"
-;;
-
 let test_build_safe_invalid_max_tokens () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_max_tokens 0
   in
   match Builder.build_safe b with
@@ -126,19 +116,19 @@ let test_build_safe_invalid_max_tokens () =
   | Ok _ -> Alcotest.fail "expected Error for max_tokens <= 0"
 ;;
 
-let test_build_safe_thinking_budget_without_enable () =
+let test_build_safe_preserves_independent_thinking_budget () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_thinking_budget 500
-    (* enable_thinking is not set, so it's None *)
   in
   match Builder.build_safe b with
-  | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
-    Alcotest.(check string) "field" "thinking_budget" field
-  | Error _ -> Alcotest.fail "expected InvalidConfig for thinking_budget"
-  | Ok _ -> Alcotest.fail "expected Error for thinking_budget without enable"
+  | Ok agent ->
+    let config = (Agent.state agent).config in
+    Alcotest.(check (option bool)) "enable_thinking omitted" None config.enable_thinking;
+    Alcotest.(check (option int)) "budget preserved" (Some 500) config.thinking_budget
+  | Error error -> Alcotest.fail (Error.to_string error)
 ;;
 
 (* ── Agent accessors ──────────────────────────────────────── *)
@@ -153,7 +143,7 @@ let test_agent_accessors () =
   let ctx = Context.create_sync () in
   Context.set ctx "key" (`String "value");
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_name "accessor-test"
     |> Builder.with_tools [ tool ]
     |> Builder.with_context ctx
@@ -186,14 +176,8 @@ let test_agent_accessors () =
 let test_agent_default_options () =
   let opts = Agent.default_options in
   Alcotest.(check bool) "no provider" true (opts.provider = None);
-  Alcotest.(check bool) "no approval" true (opts.approval = None);
-  Alcotest.(check bool)
-    "missing approval callback executes by default"
-    true
-    (opts.missing_approval_callback_policy = Hooks.Execute_without_callback);
   Alcotest.(check bool) "no event_bus" true (opts.event_bus = None);
   Alcotest.(check bool) "no skill_registry" true (opts.skill_registry = None);
-  Alcotest.(check int) "max_idle_turns" 3 opts.max_idle_turns;
   Alcotest.(check int) "empty mcp" 0 (List.length opts.mcp_clients)
 ;;
 
@@ -203,7 +187,7 @@ let test_agent_clone () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_name "original"
     |> Builder.with_description "orig desc"
   in
@@ -225,7 +209,7 @@ let test_agent_clone_copy_context () =
   let ctx = Context.create_sync () in
   Context.set ctx "test_key" (`String "test_val");
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_context ctx
   in
   match Builder.build_safe b with
@@ -252,7 +236,7 @@ let test_agent_card () =
   Eio_main.run
   @@ fun env ->
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_name "card-test"
     |> Builder.with_description "Card desc"
   in
@@ -270,7 +254,7 @@ let test_builder_with_event_bus () =
   @@ fun env ->
   let bus = Event_bus.create () in
   let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
+    Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
     |> Builder.with_event_bus bus
   in
   match Builder.build_safe b with
@@ -294,15 +278,14 @@ let () =
         ; Alcotest.test_case "with event_bus" `Quick test_builder_with_event_bus
         ] )
     ; ( "build_safe_validation"
-      , [ Alcotest.test_case "invalid max_turns" `Quick test_build_safe_invalid_max_turns
-        ; Alcotest.test_case
+      , [ Alcotest.test_case
             "invalid max_tokens"
             `Quick
             test_build_safe_invalid_max_tokens
         ; Alcotest.test_case
-            "thinking without enable"
+            "independent thinking budget"
             `Quick
-            test_build_safe_thinking_budget_without_enable
+            test_build_safe_preserves_independent_thinking_budget
         ] )
     ; ( "agent_accessors"
       , [ Alcotest.test_case "state/tools/context/desc" `Quick test_agent_accessors

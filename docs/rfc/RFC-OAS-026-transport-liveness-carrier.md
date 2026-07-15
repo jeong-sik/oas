@@ -12,7 +12,7 @@
 
 ## 0. Summary
 
-A streaming liveness deadline has two halves — an inter-chunk idle timeout (a `float`, data) and an Eio `clock` (a capability) — and `read_sse` arms the timeout only when **both** are present (http_client.ml:771-773). The OAS streaming dispatch carries both down the *built-in HTTP* (`None`-transport) path, but the **idle half is structurally dropped at the transport boundary**: when a caller supplies a `Llm_transport.t` (the production path for masc keepers), the dispatch's `Some t` arm passes only `{ config; messages; tools; runtime_mcp_policy }` into `t.complete_stream` — there is no field on `completion_request` and no parameter on `complete_stream` to carry the idle deadline. The transport falls to `read_sse … ?idle_timeout:None` → bare `Eio.Buf_read.line` with no per-line deadline. A provider that stops mid-stream with the socket held open hangs the read; the only backstop is a masc-side 1800s heuristic attempt watchdog, exactly the timeout I2 forbids. This is the mechanism of the 2026-06-08 fleet stall (DIAGNOSIS §3, 1772s ≈ 1800s cap), confirmed below to have run on a pre-0.204.5 SDK where the idle half was fully dropped.
+A streaming liveness deadline has two halves — an inter-chunk idle timeout (a `float`, data) and an Eio `clock` (a capability) — and `read_sse` arms the timeout only when **both** are present (http_client.ml:771-773). The OAS streaming dispatch carries both down the *built-in HTTP* (`None`-transport) path, but the **idle half is structurally dropped at the transport boundary**: when a caller supplies a `Llm_transport.t` (the production path for masc keepers), the dispatch's `Some t` arm passes only `{ config; messages; tools }` into `t.complete_stream` — there is no field on `completion_request` and no parameter on `complete_stream` to carry the idle deadline. The transport falls to `read_sse … ?idle_timeout:None` → bare `Eio.Buf_read.line` with no per-line deadline. A provider that stops mid-stream with the socket held open hangs the read; the only backstop is a masc-side 1800s heuristic attempt watchdog, exactly the timeout I2 forbids. This is the mechanism of the 2026-06-08 fleet stall (DIAGNOSIS §3, 1772s ≈ 1800s cap), confirmed below to have run on a pre-0.204.5 SDK where the idle half was fully dropped.
 
 **Current live state (not the historical incident state)** — three distinct defects, plus a clock-side hole this RFC does not fully close:
 
@@ -39,7 +39,6 @@ type completion_request =
   { config : Provider_config.t
   ; messages : Types.message list
   ; tools : Yojson.Safe.t list
-  ; runtime_mcp_policy : runtime_mcp_policy option
   }
 ```
 
@@ -68,7 +67,7 @@ match transport with
   t.complete_stream
     ?on_telemetry:transport_on_telemetry
     ~on_event
-    { Llm_transport.config = request_config; messages; tools; runtime_mcp_policy }
+    { Llm_transport.config = request_config; messages; tools }
 | None ->
   complete_stream_http
     ~sw ~net
@@ -158,7 +157,6 @@ type completion_request =
   { config : Provider_config.t
   ; messages : Types.message list
   ; tools : Yojson.Safe.t list
-  ; runtime_mcp_policy : runtime_mcp_policy option
   ; stream_idle_timeout_s : float option
     (** Inter-chunk idle deadline for streaming reads, in seconds.
         Bounds the gap between streamed SSE/NDJSON lines, not total
@@ -183,7 +181,6 @@ type completion_request =
     { Llm_transport.config = request_config
     ; messages
     ; tools
-    ; runtime_mcp_policy
     ; stream_idle_timeout_s   (* threaded from the high-level ?stream_idle_timeout_s *)
     }
 ```
@@ -258,7 +255,7 @@ The exact failure form (raise vs `Error` return vs a startup assertion that a cl
 | `lib/llm_provider/llm_transport.mli` | Mirror the field + doc comment. |
 | `lib/llm_provider/complete.ml:1671-1690` | `Some t` arm: write `stream_idle_timeout_s` into the request record. |
 | `lib/llm_provider/complete.ml:1726-1737` | `make_http_transport.complete_stream`: read only `req.stream_idle_timeout_s`; no construction-time timeout fallback. |
-| `lib/llm_provider/transport_openai_compat.ml:67-80` | No signature change; forwards `req` (now carrying the field). Verify no `{ config; messages; tools; runtime_mcp_policy }` literal needs the new field — there is one literal at complete.ml dispatch; the compiler enumerates all. |
+| `lib/llm_provider/transport_openai_compat.ml:67-80` | No signature change; forwards `req` (now carrying the field). Verify no `{ config; messages; tools }` literal needs the new field — there is one literal at complete.ml dispatch; the compiler enumerates all. |
 | `lib/sdk_version.ml` | Bumped by release-please (RFC-OAS-010); minor `feat`. |
 
 Compiler enumeration: every `{ Llm_transport.config = …; … }` record literal must now supply `stream_idle_timeout_s`. `rg 'Llm_transport.config =' lib/ test/ bin/` and `rg '{ config =' lib/llm_provider` enumerate them. Each is updated with the value it has in scope, or `stream_idle_timeout_s = None` if it has none. This is the Parse-don't-validate payoff — the compiler, not a reviewer, finds every construction site.
@@ -273,7 +270,7 @@ masc populates the request-borne idle through `Builder.with_stream_idle_timeout`
 | `lib/runtime/runtime_agent.ml:236-240` (`patch_request`) | Preserve the request-borne `stream_idle_timeout_s`; it is the only idle-timeout source. |
 | `masc.opam:31`, `dune-project:56` | Bump pin to the OAS release carrying the field (`>= 0.205.0`). |
 
-Back-compat verified: masc constructs `Llm_transport.completion_request` only via `{ req with … }` (the single site `runtime_agent.ml:236`; `rg 'Llm_transport.completion_request' lib/` returns one hit, and a `rg 'runtime_mcp_policy =' lib/` field-probe found no bare `completion_request` literal — all hits are the masc `config` record, `Agent` options, or `let` bindings, none of the `completion_request` type). Adding an `option` field to the OAS record therefore does not break masc compilation. This is what makes the migration ordering (§6) non-breaking on the masc side.
+Back-compat verified: masc constructs `Llm_transport.completion_request` only via `{ req with … }` (the single site `runtime_agent.ml:236`; `rg 'Llm_transport.completion_request' lib/` returns one hit). Adding an `option` field to the OAS record therefore does not break masc compilation. This is what makes the migration ordering (§6) non-breaking on the masc side.
 
 ## 6. Migration order (neither repo breaks)
 
@@ -356,7 +353,7 @@ Rejected. It pulls the clock capability into the pure data record (§8.2) and co
 
 ### 10.0 Does F1 prevent the 2026-06-08 recurrence? (reconciled)
 
-The DIAGNOSIS forensic measured the incident stall at 1772s ≈ the 1800s watchdog cap (§3), implying masc's idle deadline was disarmed at incident; §1.4 records the later partial fix. The reconciliation, verified by date:
+The DIAGNOSIS forensic measured the incident stall at 1772s ≈ the 1800s watchdog cap (§3), implying masc's idle deadline was disarmed at incident; but §1.4 shows masc's transport is armed today. The reconciliation, verified by date:
 
 - `agent_sdk` v0.204.5 (the version that added `?clock ?stream_idle_timeout_s` to `make_http_transport`) is tagged **2026-06-09 01:53** (`git log -1 --format=%ci v0.204.5`) — **after** the 2026-06-08 incident. At incident, masc ran a pre-0.204.5 SDK where the idle half was *fully* dropped (no carrier, no construction-capability). The forensic 1772s is consistent: the only backstop was the 1800s watchdog. This is DIAGNOSIS finding #1, confirmed — not a clock-None or TLS case.
 - F1 therefore *completes* and *structurally locks* a fix that v0.204.5 began as a per-transport construction-capability. It prevents recurrence on the dispatch/idle axis **provided a clock is present** — which makes §4.6 (clock fail-fast) and §10.1 (TLS interrupt) the two remaining ways a stall could still reach the watchdog. Both are scoped here (§4.6) or tracked as a precondition (§10.1). The honest claim: F1 + §4.6 close the idle and clock halves of the typed-error path; §10.1 governs whether the *physical* TLS interrupt also lands.

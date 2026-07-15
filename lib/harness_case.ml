@@ -18,7 +18,6 @@ type trace_assertion =
   | Tool_called of string
   | Tool_sequence of string list
   | Tool_call_count of int
-  | Max_turns of int
 
 type metric_assertion =
   { name : string
@@ -96,7 +95,6 @@ let trace_assertion_to_json = function
       [ "type", `String "trace_tool_sequence"; "value", Util.json_of_string_list value ]
   | Tool_call_count value ->
     `Assoc [ "type", `String "trace_tool_call_count"; "value", `Int value ]
-  | Max_turns value -> `Assoc [ "type", `String "trace_max_turns"; "value", `Int value ]
 ;;
 
 let metric_assertion_to_json (metric : metric_assertion) =
@@ -172,7 +170,6 @@ let trace_assertion_of_json json =
        | Ok tools -> Ok (Tool_sequence tools)
        | Error _ as err -> err)
     | "trace_tool_call_count" -> Ok (Tool_call_count (json |> member "value" |> to_int))
-    | "trace_max_turns" -> Ok (Max_turns (json |> member "value" |> to_int))
     | other ->
       Error
         (Error.Serialization

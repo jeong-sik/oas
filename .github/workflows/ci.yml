@@ -26,9 +26,6 @@ jobs:
           - ocaml-compiler: '5.5.0'
             experimental: true
       fail-fast: false
-    env:
-      OAS_MODEL_CATALOG: ${{ github.workspace }}/models.toml
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -44,6 +41,9 @@ jobs:
 
       - name: Build
         run: opam exec -- dune build @all
+
+      - name: Standalone embedded model catalog smoke
+        run: opam exec -- bash scripts/check-model-catalog-embedded.sh
 
       - name: Test
         env:
@@ -184,10 +184,9 @@ jobs:
           opam exec -- dune build @doc
 
   boundary-lint:
-    # RFC-OAS-009 v2 PR-D — Core→CDAL boundary check.
     # Runs on every push and PR (including drafts) to give fast feedback
     # without waiting for the full opam-based build matrix.
-    name: Boundary Lint (Core→CDAL)
+    name: Core Boundary Lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -196,9 +195,6 @@ jobs:
 
       - name: Install ripgrep
         run: sudo apt-get install -y ripgrep
-
-      - name: Forbid CDAL references in OAS core
-        run: bash scripts/lint-core-cdal-boundary.sh
 
       - name: Forbid legacy pipeline stage modules
         run: bash scripts/lint-legacy-pipeline-stages.sh

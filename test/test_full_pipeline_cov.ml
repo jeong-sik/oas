@@ -1,7 +1,7 @@
 (** Full-pipeline coverage tests with mock HTTP server.
     Exercises Agent.run end-to-end: api.ml, provider_intf.ml, pipeline.ml,
     backend_openai.ml, complete.ml, streaming.ml, structured.ml,
-    agent_tools.ml, context_reducer, mcp, error paths.
+    agent_tools.ml, provider routing, mcp, error paths.
 
     All responses are canned JSON. No real LLM calls. *)
 
@@ -27,20 +27,6 @@ let openai_text_response ?(id = "chatcmpl-1") text =
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id
     (escape_json_string text)
-;;
-
-let anthropic_text_response
-      ?(id = "msg-1")
-      ?(model = "mock")
-      ?(stop_reason = "end_turn")
-      text
-  =
-  Printf.sprintf
-    {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    id
-    model
-    (escape_json_string text)
-    stop_reason
 ;;
 
 let openai_tool_use ?(id = "chatcmpl-t") tool_name input_json =
@@ -157,17 +143,8 @@ let start_malformed_json ~sw ~net ~port =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent
-      ~net
-      ?(max_turns = 3)
-      ?(tools = [])
-      ?hooks
-      ?context_reducer
-      ?guardrails
-      ?provider
-      base_url
-  =
-  let config = { Types.default_config with name = "cov-agent"; max_turns } in
+let make_agent ~net ?(tools = []) ?hooks ?provider base_url =
+  let config = { (Types.default_config ~model:"test-model") with name = "cov-agent" } in
   let prov =
     match provider with
     | Some p -> Some p
@@ -186,11 +163,6 @@ let make_agent
         (match hooks with
          | Some h -> h
          | None -> Hooks.empty)
-    ; context_reducer
-    ; guardrails =
-        (match guardrails with
-         | Some g -> g
-         | None -> Guardrails.default)
     }
   in
   Agent.create ~net ~config ~tools ~options ()
@@ -253,7 +225,7 @@ let test_tool_call_loop () =
            let x = Yojson.Safe.Util.(input |> member "x" |> to_int) in
            Ok { Types.content = string_of_int x; _meta = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ tool ] url in
     match Agent.run ~sw agent "calc 42" with
     | Ok resp ->
       check string "final" "result is 42" (extract_text resp);
@@ -290,7 +262,7 @@ let test_multi_content_tool () =
           ]
         (fun _input -> Ok { Types.content = "hello"; _meta = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ tool ] url in
     match Agent.run ~sw agent "greet" with
     | Ok resp ->
       check string "text" "done" (extract_text resp);
@@ -396,35 +368,12 @@ let test_tool_error_recovery () =
       Tool.create ~name:"bad_tool" ~description:"Fails" ~parameters:[] (fun _input ->
         Error { Types.message = "broken"; recoverable = true; error_class = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ tool ] url in
     match Agent.run ~sw agent "fail" with
     | Ok resp ->
       check string "text" "recovered" (extract_text resp);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-(* ── 9. Max turns exhaustion ──────────────────────────────────── *)
-
-let test_max_turns () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi ~sw ~net:env#net ~port:21009 [ openai_tool_use "loop" {|{}|} ]
-    in
-    let tool =
-      Tool.create ~name:"loop" ~description:"loops" ~parameters:[] (fun _input ->
-        Ok { Types.content = "again"; _meta = None })
-    in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:2 url in
-    match Agent.run ~sw agent "loop" with
-    | Ok _ -> Eio.Switch.fail sw Exit
-    | Error _ -> Eio.Switch.fail sw Exit
   with
   | Exit -> ()
 ;;
@@ -467,74 +416,27 @@ let test_hooks_turn () =
   | Exit -> ()
 ;;
 
-(* ── 11. Context reducer ──────────────────────────────────────── *)
+(* PreToolUse hook block. *)
 
-let test_context_reducer () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi ~sw ~net:env#net ~port:21019 [ openai_text_response "reduced" ]
-    in
-    let reducer =
-      Context_reducer.compose
-        [ Context_reducer.repair_dangling_tool_calls; Context_reducer.drop_thinking ]
-    in
-    let agent = make_agent ~net:env#net ~context_reducer:reducer url in
-    match Agent.run ~sw agent "reduce" with
-    | Ok resp ->
-      check string "text" "reduced" (extract_text resp);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-(* ── 12. Guardrails tool filter ───────────────────────────────── *)
-
-let test_guardrails_filter () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let url =
-      start_multi ~sw ~net:env#net ~port:21012 [ openai_text_response "guarded" ]
-    in
-    let guardrails =
-      { Guardrails.tool_filter = Guardrails.AllowAll; max_tool_calls_per_turn = Some 3 }
-    in
-    let agent = make_agent ~net:env#net ~guardrails url in
-    match Agent.run ~sw agent "guard" with
-    | Ok resp ->
-      check string "text" "guarded" (extract_text resp);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-(* ── 13. PreToolUse hook skip ─────────────────────────────────── *)
-
-let test_pre_tool_skip () =
+let test_pre_tool_block () =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ openai_tool_use "skipped" {|{}|}; openai_text_response "skipped result" ]
+      [ openai_tool_use "blocked" {|{}|}; openai_text_response "blocked result" ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21013 responses in
     let tool =
-      Tool.create ~name:"skipped" ~description:"Skip me" ~parameters:[] (fun _input ->
+      Tool.create ~name:"blocked" ~description:"Blocked" ~parameters:[] (fun _input ->
         Ok { Types.content = "should not run"; _meta = None })
     in
-    let hooks = { Hooks.empty with pre_tool_use = Some (fun _e -> Hooks.Skip) } in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~hooks ~max_turns:3 url in
-    match Agent.run ~sw agent "skip" with
+    let hooks =
+      { Hooks.empty with pre_tool_use = Some (fun _e -> Hooks.Block "blocked") }
+    in
+    let agent = make_agent ~net:env#net ~tools:[ tool ] ~hooks url in
+    match Agent.run ~sw agent "block" with
     | Ok _ -> Eio.Switch.fail sw Exit
     | Error _ -> Eio.Switch.fail sw Exit
   with
@@ -564,7 +466,9 @@ let test_openai_compat () =
       ; api_key_env = ""
       }
     in
-    let config = { Types.default_config with name = "openai-agent"; max_turns = 1 } in
+    let config =
+      { (Types.default_config ~model:"test-model") with name = "openai-agent" }
+    in
     let options =
       { Agent.default_options with base_url = url; provider = Some provider }
     in
@@ -608,8 +512,40 @@ let test_structured_extract () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_text_response {|{"name":"test","age":25}|} in
+    let body = openai_text_response {|{"name":"test","age":25}|} in
     let url = start_multi ~sw ~net:env#net ~port:21016 [ body ] in
+    let provider_id = "full-pipeline-structured-mock" in
+    let previous_provider_catalog = Llm_provider.Provider_catalog.global () in
+    Eio.Switch.on_release sw (fun () ->
+      match previous_provider_catalog with
+      | Some catalog -> Llm_provider.Provider_catalog.set_global catalog
+      | None -> Llm_provider.Provider_catalog.clear_global ());
+    let provider_capabilities =
+      { Provider.default_capabilities with
+        supports_response_format_json = true
+      ; supports_structured_output = true
+      }
+    in
+    let provider_entry : Llm_provider.Provider_catalog.entry =
+      { id = provider_id
+      ; aliases = []
+      ; kind = Llm_provider.Provider_config.OpenAI_compat
+      ; base_url = url
+      ; request_path = "/v1/chat/completions"
+      ; api_key_env = ""
+      ; auth = Llm_provider.Provider_catalog.No_auth
+      ; default_model = Some "test-model"
+      ; max_context = None
+      ; capabilities = provider_capabilities
+      ; credential_scope = None
+      }
+    in
+    let provider_catalog =
+      match Llm_provider.Provider_catalog.of_entries [ provider_entry ] with
+      | Ok catalog -> catalog
+      | Error msg -> fail msg
+    in
+    Llm_provider.Provider_catalog.set_global provider_catalog;
     let schema : (string * int) Structured.schema =
       { name = "get_info"
       ; description = "Get info"
@@ -631,8 +567,25 @@ let test_structured_extract () =
             Ok (json |> member "name" |> to_string, json |> member "age" |> to_int))
       }
     in
-    let config = { Types.default_config with name = "struct-agent"; max_turns = 1 } in
-    match Structured.extract ~sw ~net:env#net ~base_url:url ~config ~schema "extract" with
+    let config =
+      { (Types.default_config ~model:"test-model") with name = "struct-agent" }
+    in
+    let provider : Provider.config =
+      { provider = Provider.Custom_registered { name = provider_id }
+      ; model_id = "test-model"
+      ; api_key_env = ""
+      }
+    in
+    match
+      Structured.extract
+        ~sw
+        ~net:env#net
+        ~base_url:url
+        ~provider
+        ~config
+        ~schema
+        "extract"
+    with
     | Ok (name, age) ->
       check string "name" "test" name;
       check int "age" 25 age;
@@ -714,7 +667,7 @@ let test_context_tool () =
           ]
         (fun _ctx _input -> Ok { Types.content = "ctx_result"; _meta = None })
     in
-    let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
+    let agent = make_agent ~net:env#net ~tools:[ tool ] url in
     match Agent.run ~sw agent "ctx" with
     | Ok resp ->
       check string "text" "ctx done" (extract_text resp);
@@ -727,8 +680,6 @@ let test_context_tool () =
 (* ── Suite ─────────────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "full_pipeline_cov"
     [ ( "basic"
@@ -742,8 +693,7 @@ let () =
         ; test_case "multi content" `Quick test_multi_content_tool
         ; test_case "tool error recovery" `Quick test_tool_error_recovery
         ; test_case "context tool" `Quick test_context_tool
-        ; test_case "pre_tool skip" `Quick test_pre_tool_skip
-        ; test_case "max turns" `Quick test_max_turns
+        ; test_case "pre_tool block" `Quick test_pre_tool_block
         ] )
     ; "streaming", [ test_case "sse streaming" `Quick test_streaming_sse ]
     ; ( "structured"
@@ -756,10 +706,6 @@ let () =
         ; test_case "http 429" `Quick test_http_429
         ; test_case "malformed json" `Quick test_malformed_json
         ] )
-    ; ( "hooks_reducers"
-      , [ test_case "turn hooks" `Quick test_hooks_turn
-        ; test_case "context reducer" `Quick test_context_reducer
-        ; test_case "guardrails" `Quick test_guardrails_filter
-        ] )
+    ; "hooks", [ test_case "turn hooks" `Quick test_hooks_turn ]
     ]
 ;;

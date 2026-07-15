@@ -2,163 +2,91 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft |
+| Status | Implemented |
 | Author | vincent (drafted by agent) |
 | Created | 2026-06-04 |
+| Implemented | 2026-07-14 hard cut |
 | Target | `agent_sdk` (oas) |
-| Related | RFC-OAS-017 (coordinator-shape leak), RFC-OAS-021 (approval-required missing-callback policy), RFC-OAS-013 (keeper tool disclosure) |
 
-## 0. Summary
+## 0. Decision
 
-OAS validates, on the response side, that a model honored the caller's
-`tool_choice` (the `Require_tool_use` / `Require_specific_tool` completion
-contracts) and, on violation, retries the turn to coerce a tool call. The two
-major providers already **guarantee** this server-side, so for compliant
-providers the validation is redundant and the retry path is effectively dead;
-the only case it guards is a **non-compliant local backend** that ignores
-`tool_choice`. This RFC proposes moving forced-tool *enforcement* out of the SDK
-(the SDK passes `tool_choice` through to the provider and reports, but does not
-coerce), leaving any local-model coercion to the consumer/coordinator.
+OAS sends the caller's typed `tool_choice` to the selected provider but does
+not re-interpret a text response as a tool call, validate the response against
+an OAS-owned forced-tool completion contract, or retry to coerce a tool call.
+The provider response or typed provider error is returned after one attempt.
 
-This is the same boundary principle as RFC-OAS-017: OAS should not own
-coordinator-shaped policy.
+Any later attempt, local-model coercion, or external validation belongs to the
+embedding application. This keeps provider request construction in OAS while
+leaving orchestration policy outside the SDK.
 
-## 1. Current state (file:line, origin/main `1b19c3f4`)
+## 1. Historical problem
 
-`tool_choice` maps to a completion contract (`lib/completion_contract.ml:63`):
+The pre-implementation design mapped `tool_choice` to an OAS completion
+contract, checked the response against that contract, and could feed a
+"you must call a tool" message into another turn. That mixed three distinct
+concerns:
 
-```ocaml
-let requested_of_tool_choice choice =
-  match choice with
-  | Some Any -> Require_tool_use
-  | Some (Tool name) -> Require_specific_tool name
-  | Some None_ -> Require_no_tool_use
-  | Some Auto | None -> Allow_text_or_tool
-```
+1. serializing the caller's provider request;
+2. observing whether the provider honored it; and
+3. deciding whether and how to make another attempt.
 
-`validate_response` (`lib/completion_contract.ml:185`) then checks the *response*
-against the contract; for `Require_tool_use` a text-only response on a
-non-resumable stop reason is an `Error`. The turn pipeline turns that into a
-`CompletionContractViolation` and, when a `tool_retry_policy` is set, re-runs the
-turn with a "you must call a tool" feedback message
-(`lib/pipeline/pipeline.ml` `handle_missing_required_tool_use`, ~6 contract
-sites at lines 65, 185, 218, 243, 249, 274). The contract type is public via
-`agent_sdk.mli` (`module Completion_contract_id`) and is carried by
-`Error.CompletionContractViolation` (`lib/base/error.ml:77`).
+The third concern consumed turns and embedded retry/coercion policy in the SDK.
+The deleted implementation lived in `completion_contract.ml` and the former
+pipeline recovery path. Those names are historical evidence, not current API
+or source locations.
 
-## 2. Problem: enforcement is in the wrong layer ("거꾸로")
+## 2. Implemented boundary
 
-`tool_choice` is a **request-side directive to the provider**. Both major
-providers enforce it server-side:
+- `tool_choice` remains part of the typed request and provider serializers.
+- Only a provider-native typed `ToolUse` block can reach tool dispatch.
+- Text remains text; OAS has no text-to-tool recovery fallback.
+- OAS performs no automatic retry or corrective prompt injection to enforce
+  `tool_choice` after a provider returns. Ordinary typed tool-use continuation
+  remains part of the agent loop and is not a retry.
+- Non-compliant local backends may return text even when the request asked for
+  a tool. OAS returns that response unchanged.
+- A caller that requires an additional invariant inspects the typed response and
+  schedules any later attempt outside the completed OAS call.
 
-- **OpenAI** `tool_choice: "required"`: "you can count on a tool being provided
-  with every call" — the response is guaranteed to contain a tool call.
-- **Anthropic** `tool_choice: {type: "any"}`: the API prefills the assistant
-  message to force a tool, so the model **cannot** emit a natural-language
-  (text-only) response.
+## 3. Removed surface
 
-(Evidence: OpenAI developer docs/cookbook on `tool_choice: "required"`; Anthropic
-tool-use docs / cookbook `tool_choice.ipynb`, June 2026.)
+The implementation deleted, rather than deprecated or toggled, the following
+OAS-owned policy surface:
 
-Therefore OAS re-validating the response against `tool_choice` re-checks a
-guarantee the provider already makes. The consequences:
+- forced-tool response completion contracts;
+- `CompletionContractViolation` recovery flow;
+- `tool_retry_policy` and its corrective prompt;
+- retry-count and turn-burning coercion behavior;
+- compatibility modes such as `Enforce | Report_only | Off`.
 
-- For OpenAI/Anthropic the `Require_tool_use` error branch and its retry are
-  **dead** (the provider never produces the text-only response that would
-  trigger them).
-- The only live case is a **non-compliant local backend** (llama.cpp / Ollama /
-  small models that ignore `tool_choice`). There, OAS burns turns retrying to
-  coerce a tool call.
-- Coercing a non-compliant backend is a **policy** decision — when to retry, how
-  many times, whether to force at all. By RFC-OAS-017's principle (OAS does not
-  own coordinator-shaped concerns) and consistent with OAS already delegating
-  cross-provider failover / circuit-breaking to downstream consumers, this
-  belongs to the consumer/coordinator, not the SDK.
+Restoring any of these as a default, hidden fallback, or environment-driven
+mode would reverse this RFC. If an embedding product needs such behavior, it
+owns the typed validator, model judgment, and asynchronous scheduling policy.
 
-The accept/reject logic itself is locally correct; what is inverted is **which
-layer enforces** — the SDK re-enforces what the provider guarantees.
+## 4. Migration
 
-## 3. Non-goals
+Consumers that previously relied on OAS to coerce a non-compliant backend must:
 
-- Removing the ability to *send* `tool_choice` to the provider. The request-side
-  parameter stays; providers keep enforcing it natively.
-- Changing `Allow_text_or_tool` (the default) or `Require_no_tool_use` semantics
-  beyond what each option below states.
+1. inspect the returned `Types.api_response` for the required typed `ToolUse`;
+2. record or present any mismatch at their own boundary; and
+3. decide independently whether to accept the text, ask a model judge, involve
+   a human, change provider/runtime, or schedule another attempt.
 
-## 4. Options
+No consumer should scrape free text or repair JSON into a synthetic tool call.
 
-### Option A — Remove forced-tool response enforcement (recommended)
+## 5. Acceptance invariants
 
-Drop the response-side validation **and** retry for `Require_tool_use` /
-`Require_specific_tool`. `tool_choice` is still placed in the provider request.
-The SDK no longer raises `CompletionContractViolation` for "no tool when a tool
-was required", and the pipeline no longer retries to coerce one.
+- Provider request-shape tests prove `tool_choice` still reaches supported
+  provider serializers.
+- A text-only response is returned as text, not a completion-contract error.
+- Each completion invocation performs one provider attempt. A later typed
+  tool-use continuation is a distinct invocation, not a hidden retry.
+- No deleted completion-contract or tool-retry symbol is exported or referenced
+  by active source and tests.
+- The breaking surface removal is recorded in `CHANGELOG.md`.
 
-- Pro: removes redundant/dead logic for compliant providers; takes the SDK out of
-  the tool-forcing-policy business (RFC-OAS-017 aligned); eliminates the
-  turn-burning retry the user flagged.
-- Con: a non-compliant local backend that ignores `tool_choice` will now return
-  text and the SDK will accept it; the consumer must detect/handle that. Public
-  API surface (`Completion_contract_id`) shrinks (breaking for any external
-  matcher).
+## 6. Relationship to the current standard
 
-### Option B — Report-only (keep validation, drop retry)
-
-Keep the contract + validation so a violation is still surfaced (as an error or
-event), but remove the pipeline retry-coercion. The SDK reports "model did not
-call a required tool"; the consumer decides whether to retry.
-
-- Pro: smaller blast radius; preserves the diagnostic; directly removes the
-  turn-waste.
-- Con: keeps the redundant validation for compliant providers; the public
-  contract type stays.
-
-### Option C — Explicit policy toggle (RFC-OAS-021 pattern)
-
-Add `forced_tool_enforcement : Enforce | Report_only | Off` to `Agent_options`,
-default `Enforce` (compat). Mirrors RFC-OAS-021's
-`missing_approval_callback_policy`.
-
-- Pro: no breaking change; opt-in; profiles choose.
-- Con: keeps all the code paths; adds config surface rather than removing a
-  concern. Does not resolve the layering objection — it just makes it optional.
-
-## 5. Recommendation
-
-**Option A.** The research shows the enforcement is redundant for compliant
-providers and the only live case (local non-compliance) is a coordinator
-concern. Option A is the one that actually resolves the "거꾸로" layering. If a
-softer landing is wanted, ship Option B first (remove the turn-burning retry) and
-follow with A.
-
-## 6. Blast radius (Option A)
-
-| Area | Change |
-|---|---|
-| `lib/base/completion_contract_id.ml` + `.mli` | Remove `Require_tool_use` / `Require_specific_tool` variants (or the whole forced-tool family); decide `Some Any` / `Some (Tool _)` → `Allow_text_or_tool`. |
-| `lib/completion_contract.ml` | Drop the removed arms in `requested_of_tool_choice`, `validate_response`, `of_tool_choice`; drop ~10 inline tests for those variants. |
-| `lib/pipeline/pipeline.ml` | Remove the ~6 forced-tool sites (`contract_requires_tool`, the violation/retry in `handle_missing_required_tool_use`, prompt strings). |
-| `lib/base/error.ml` / `lib/error_domain.ml` | `CompletionContractViolation` no longer reachable for the removed contracts; keep or narrow the error variant. |
-| `agent_sdk.mli` | Public `Completion_contract_id` surface shrinks (breaking). |
-| `test/` | ~20 sites across `test_agent_pipeline`, `test_completion_contract_violation`, `test_error`, `test_error_domain`. |
-
-`tool_choice` request-building (provider backends) is **unchanged** — providers
-still receive and enforce it.
-
-## 7. Migration / compatibility
-
-- Removing public variants is a breaking change for external matchers on
-  `Completion_contract_id.t`. If that matters, gate via Option C first, or land A
-  in a major version bump per `lib/sdk_version.ml`.
-- Consumers relying on OAS to coerce a tool from a non-compliant local model must
-  add their own check (e.g. inspect `response` for a tool_use block and retry at
-  the coordinator).
-
-## 8. Acceptance
-
-- `tool_choice` is still sent to the provider request (verified by a backend
-  request-shape test).
-- No `CompletionContractViolation` is raised for "no tool when required" (Option
-  A/B), and the pipeline does not retry to coerce a tool.
-- `dune build lib` + `@runtest` + `check-sdk-independence.sh` + `@fmt` green.
-- Public surface change recorded in `CHANGELOG.md` (+ version bump if breaking).
+RFC-OAS-029 S4.2 is the corresponding tool-dispatch invariant: `Text` is not
+`ToolUse`. RFC-OAS-025 records the completed ownership decision; it is no longer
+an option analysis or implementation backlog.

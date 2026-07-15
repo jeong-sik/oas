@@ -6,20 +6,18 @@
     Usage:
     {[
       let schema = Tool_schema_gen.(
-        field "message" ~typ:String ~required:true ~desc:"Message content"
-        @> field "format" ~typ:String ~required:false ~desc:"Output format"
-        @> done_)
+        two
+          (string_field "message" ~desc:"Message content" ())
+          (optional_string_field "format" ~desc:"Output format" ()))
 
       let params = Tool_schema_gen.to_params schema
       let parse json = Tool_schema_gen.parse schema json
       (* parse returns: (string * string option, field_error list) result *)
     ]}
 
-    Each field type maps to a single OCaml type with zero-default for optional:
-    - String -> string (optional: [""])
-    - Integer -> int (optional: [0])
-    - Number -> float (optional: [0.0])
-    - Boolean -> bool (optional: [false])
+    Required, optional, and explicitly defaulted fields have distinct
+    constructors. Missing optional input remains ['a option]; the generator
+    never invents zero, empty-string, or false values.
 
     @stability Experimental
     @since 0.120.0 *)
@@ -34,35 +32,53 @@ type done_t
 
 (** {1 Field constructors} *)
 
-val string_field
+val string_field : string -> desc:string -> unit -> (string, 'rest) field_spec
+
+val optional_string_field
   :  string
-  -> required:bool
   -> desc:string
-  -> ?default:string
+  -> unit
+  -> (string option, 'rest) field_spec
+
+val defaulted_string_field
+  :  string
+  -> desc:string
+  -> default:string
   -> unit
   -> (string, 'rest) field_spec
 
-val int_field
+val int_field : string -> desc:string -> unit -> (int, 'rest) field_spec
+val optional_int_field : string -> desc:string -> unit -> (int option, 'rest) field_spec
+
+val defaulted_int_field
   :  string
-  -> required:bool
   -> desc:string
-  -> ?default:int
+  -> default:int
   -> unit
   -> (int, 'rest) field_spec
 
-val float_field
+val float_field : string -> desc:string -> unit -> (float, 'rest) field_spec
+
+val optional_float_field
   :  string
-  -> required:bool
   -> desc:string
-  -> ?default:float
+  -> unit
+  -> (float option, 'rest) field_spec
+
+val defaulted_float_field
+  :  string
+  -> desc:string
+  -> default:float
   -> unit
   -> (float, 'rest) field_spec
 
-val bool_field
+val bool_field : string -> desc:string -> unit -> (bool, 'rest) field_spec
+val optional_bool_field : string -> desc:string -> unit -> (bool option, 'rest) field_spec
+
+val defaulted_bool_field
   :  string
-  -> required:bool
   -> desc:string
-  -> ?default:bool
+  -> default:bool
   -> unit
   -> (bool, 'rest) field_spec
 
@@ -98,7 +114,7 @@ val four
 val to_params : _ schema -> Types.tool_param list
 
 (** Parse JSON input according to schema.
-    Required fields must be present; optional fields default to [None]/zero.
+    Required fields must be present; optional fields remain [None].
     Returns typed tuple or structured field errors. *)
 val parse
   :  'a schema

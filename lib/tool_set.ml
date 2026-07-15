@@ -37,6 +37,7 @@ let of_list tools =
       else (
         Hashtbl.replace seen name ();
         Some (Hashtbl.find by_name name)))
+    |> List.rev
   in
   { tools = deduped; by_name }
 ;;
@@ -46,15 +47,6 @@ let merge left right = of_list (left.tools @ right.tools)
 let concat sets =
   let all_tools = List.concat_map (fun s -> s.tools) sets in
   of_list all_tools
-;;
-
-let filter guardrails set =
-  let filtered =
-    List.filter
-      (fun (tool : Tool.t) -> Guardrails.is_allowed guardrails tool.schema)
-      set.tools
-  in
-  of_list filtered
 ;;
 
 let to_list set = set.tools

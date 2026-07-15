@@ -40,10 +40,10 @@ let registry : entry list =
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "Prompt eval token count and latency from Ollama timings"
     }
-  ; { signal = "Context_window_usage"
-    ; producer_files = [ "lib/pipeline/pipeline.ml" ]
+  ; { signal = "Wire_observer_failure"
+    ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description =
-        "Per-turn context-window usage before proactive compaction or provider dispatch"
+        "Typed caller rejection or callback failure from redacted wire observation"
     }
   ]
 ;;

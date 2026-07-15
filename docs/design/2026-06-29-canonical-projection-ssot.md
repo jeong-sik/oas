@@ -79,7 +79,6 @@ routing headers, cost-ledger and operator-alert routing.
 | F5 | `Capabilities.capabilities` ↔ `Provider.capabilities` | transparent alias or `to_provider_capabilities` | MASC `agent_capabilities_of_llm_capabilities` 35-field copy |
 | F6 | `provider_kind -> request_kind` | `Provider_config.request_kind_of_provider_kind` | MASC `request_kind_of_provider_cfg` |
 | F7 | per-kind non-auth headers | `Api_common.non_auth_headers_for_kind` (anthropic-version) | MASC `default_headers_for_kind` ×2 (self-flagged "keep in sync") |
-| F8 | runtime-MCP http-header capability axis | add `supports_runtime_mcp_http_headers` to `Capabilities` | MASC `provider_tool_support` parallel record (keep only `x-masc-*` carve-out) |
 | F9 | `api_usage` sanity validation | `usage_validation.classify` | MASC `keeper_usage_trust.classify` (keep `warns_operator`) |
 | F10 | JSON-schema `required`/`properties` extraction | `Mcp_schema.{required,property}_names_of_schema` | MASC `tool_input_validation.{required_names,schema_property_names}` (keep oneOf/additionalProperties + diagnostics) |
 | F11 | wall tok/s from `inference_telemetry` | `usage_projection.wall_tokens_per_second` | MASC `wall_tokens_per_second` |
@@ -88,8 +87,7 @@ routing headers, cost-ledger and operator-alert routing.
 | F14 | `stop_reason` metric/diagnostic migration | consumer analysis for `agent.ml` labels and `response_shape.ml` diagnostics (#2241) | legacy OAS-local `stop_reason` string variants, if migration is safe |
 
 Sequencing: F4/F12 (trivial) → F5/F6/F7 (OAS-internal, immediate value) →
-F2/F3 (content_block utils) → F8 (capability axis, RFC) →
-F9/F10/F11/F13/F14.
+F2/F3 (content_block utils) → F9/F10/F11/F13/F14.
 
 Rule for every step: OAS exposes a generic util; consumers call it. Never the
 reverse.

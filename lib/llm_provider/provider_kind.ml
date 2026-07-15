@@ -36,8 +36,8 @@ let default_api_key_env = function
   | Glm -> Some "ZAI_API_KEY"
   | DashScope -> Some "DASHSCOPE_API_KEY"
   | OpenAI_compat | Ollama ->
-    (* Ollama Cloud uses the same wire kind. The named provider entry
-       prefers OLLAMA_CLOUD_API_KEY and falls back to OLLAMA_API_KEY. *)
+    (* Named providers sharing these wire kinds declare their own exact
+       credential environment in the provider catalog. *)
     None
 ;;
 

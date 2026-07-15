@@ -4,6 +4,94 @@ open Result_syntax
 
 let checkpoint_version = Checkpoint_types.checkpoint_version
 
+let reasoning_effort_option_to_json = function
+  | Some effort -> `String (Llm_provider.Reasoning_effort.to_string effort)
+  | None -> `Null
+;;
+
+let reasoning_effort_option_of_json ~scope = function
+  | `Null -> Ok None
+  | `String value ->
+    (match Llm_provider.Reasoning_effort.of_string value with
+     | Some effort -> Ok (Some effort)
+     | None ->
+       Error
+         (Error.Serialization
+            (JsonParseError
+               { detail = Printf.sprintf "%s: unsupported reasoning_effort %S" scope value
+               })))
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = scope ^ ": reasoning_effort must be string or null" }))
+;;
+
+let validate_exact_object_fields ~scope ~expected = function
+  | `Assoc fields ->
+    let names = List.map fst fields in
+    let duplicates =
+      names
+      |> List.sort String.compare
+      |> List.fold_left
+           (fun (previous, duplicates) name ->
+              match previous with
+              | Some previous when String.equal previous name ->
+                Some name, name :: duplicates
+              | Some _ | None -> Some name, duplicates)
+           (None, [])
+      |> snd
+      |> List.sort_uniq String.compare
+    in
+    let missing = List.filter (fun name -> not (List.mem name names)) expected in
+    let unknown = List.filter (fun name -> not (List.mem name expected)) names in
+    if duplicates = [] && missing = [] && unknown = []
+    then Ok ()
+    else
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail =
+                  Printf.sprintf
+                    "%s schema mismatch (missing=[%s], unknown=[%s], duplicate=[%s])"
+                    scope
+                    (String.concat "," missing)
+                    (String.concat "," unknown)
+                    (String.concat "," duplicates)
+              }))
+  | _ ->
+    Error
+      (Error.Serialization (JsonParseError { detail = scope ^ " must be a JSON object" }))
+;;
+
+let pricing_gap_to_json = function
+  | Model_identity_unavailable -> `Assoc [ "kind", `String "model_identity_unavailable" ]
+  | Pricing_unavailable model_id ->
+    `Assoc [ "kind", `String "pricing_unavailable"; "model_id", `String model_id ]
+;;
+
+let pricing_gap_of_json json =
+  let open Yojson.Safe.Util in
+  match json with
+  | `Null -> Ok None
+  | `Assoc [ ("kind", `String "model_identity_unavailable") ] ->
+    Ok (Some Model_identity_unavailable)
+  | `Assoc fields ->
+    (match List.assoc_opt "kind" fields, List.assoc_opt "model_id" fields with
+     | Some (`String "pricing_unavailable"), Some (`String model_id)
+       when List.length fields = 2 && model_id <> "" ->
+       Ok (Some (Pricing_unavailable model_id))
+     | _ ->
+       Error
+         (Error.Serialization
+            (JsonParseError
+               { detail = "Checkpoint.usage_of_json: invalid pricing_gap object" })))
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = "Checkpoint.usage_of_json: pricing_gap must be null or object" }))
+;;
+
 let usage_to_json u =
   `Assoc
     [ "total_input_tokens", `Int u.total_input_tokens
@@ -12,44 +100,59 @@ let usage_to_json u =
     ; "total_cache_read_input_tokens", `Int u.total_cache_read_input_tokens
     ; "api_calls", `Int u.api_calls
     ; "estimated_cost_usd", `Float u.estimated_cost_usd
-    ; ( "unpriced_model"
-      , match u.unpriced_model with
-        | Some s -> `String s
+    ; ( "pricing_gap"
+      , match u.pricing_gap with
+        | Some gap -> pricing_gap_to_json gap
         | None -> `Null )
     ]
 ;;
 
 let usage_of_json json =
   let open Yojson.Safe.Util in
-  { total_input_tokens = json |> member "total_input_tokens" |> to_int
-  ; total_output_tokens = json |> member "total_output_tokens" |> to_int
-  ; total_cache_creation_input_tokens =
-      json
-      |> member "total_cache_creation_input_tokens"
-      |> to_int_option
-      |> Option.value ~default:0
-  ; total_cache_read_input_tokens =
-      json
-      |> member "total_cache_read_input_tokens"
-      |> to_int_option
-      |> Option.value ~default:0
-  ; api_calls = Util.json_member_int "api_calls" json
-  ; estimated_cost_usd =
-      (match json |> member "estimated_cost_usd" with
-       | `Float f -> f
-       | `Int i -> Float.of_int i
-       | _ -> 0.0)
-  ; unpriced_model =
-      (* Older checkpoints (pre cost-estimation flag) lack this field; we
-         decode them as [None] (fully-priced) on resume.  Usage is restored
-         verbatim from the checkpoint and not recomputed from raw turns, so
-         any past turn that ran an unpriced model before this field existed
-         is absent from cost telemetry.  New turns after resume re-detect
-         unpriced models normally via [Agent_turn.accumulate_usage]. *)
-      (match json |> member "unpriced_model" with
-       | `String s -> Some s
-       | _ -> None)
-  }
+  match json with
+  | `Assoc fields when List.mem_assoc "unpriced_model" fields ->
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = "Checkpoint.usage_of_json: legacy unpriced_model is not supported"
+            }))
+  | `Assoc _ ->
+    let* () =
+      validate_exact_object_fields
+        ~scope:"Checkpoint.usage"
+        ~expected:
+          [ "total_input_tokens"
+          ; "total_output_tokens"
+          ; "total_cache_creation_input_tokens"
+          ; "total_cache_read_input_tokens"
+          ; "api_calls"
+          ; "estimated_cost_usd"
+          ; "pricing_gap"
+          ]
+        json
+    in
+    (try
+       let* pricing_gap = json |> member "pricing_gap" |> pricing_gap_of_json in
+       Ok
+         { total_input_tokens = json |> member "total_input_tokens" |> to_int
+         ; total_output_tokens = json |> member "total_output_tokens" |> to_int
+         ; total_cache_creation_input_tokens =
+             json |> member "total_cache_creation_input_tokens" |> to_int
+         ; total_cache_read_input_tokens =
+             json |> member "total_cache_read_input_tokens" |> to_int
+         ; api_calls = json |> member "api_calls" |> to_int
+         ; estimated_cost_usd = json |> member "estimated_cost_usd" |> to_float
+         ; pricing_gap
+         }
+     with
+     | Yojson.Safe.Util.Type_error (detail, _) ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint.usage_of_json: " ^ detail })))
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = "Checkpoint.usage_of_json: expected object" }))
 ;;
 
 let tool_schema_to_json = Types.tool_schema_to_json
@@ -74,13 +177,35 @@ let result_all items =
   |> Result.map List.rev
 ;;
 
-let checkpoint_content_block_to_json block =
-  let wire_json = Api.content_block_to_json block in
+let rec checkpoint_content_block_to_json block =
+  let wire_json =
+    match block with
+    | ToolResult { content_blocks = Some blocks; _ } ->
+      (match Api.content_block_to_json block with
+       | `Assoc fields ->
+         `Assoc
+           (List.map
+              (fun (name, value) ->
+                 if String.equal name "content"
+                 then name, `List (List.map checkpoint_content_block_to_json blocks)
+                 else name, value)
+              fields)
+       | non_object -> non_object)
+    | ToolResult { content_blocks = None; _ }
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolUse _
+    | Image _
+    | Document _
+    | Audio _ -> Api.content_block_to_json block
+  in
   match block, wire_json with
   | ToolResult { outcome; _ }, `Assoc fields ->
     let provenance =
       match outcome with
-      | Tool_succeeded | Legacy_unclassified_failure -> []
+      | Tool_succeeded -> []
       | Tool_failed { failure_kind; error_class } ->
         [ "failure_kind", Types.tool_failure_kind_to_yojson failure_kind ]
         @
@@ -154,7 +279,7 @@ let tool_result_fields json =
             }))
 ;;
 
-let content_block_of_json_strict json =
+let rec content_block_of_json_strict json =
   try
     match Api.content_block_of_json json with
     | Some
@@ -163,9 +288,26 @@ let content_block_of_json_strict json =
            ; content
            ; outcome = wire_outcome
            ; json = parsed_json
-           ; content_blocks
+           ; content_blocks = _
            }) ->
       let* fields = tool_result_fields json in
+      let* content_blocks =
+        match List.assoc_opt "content" fields with
+        | Some (`String _) -> Ok None
+        | Some (`List blocks) ->
+          let+ blocks = List.map content_block_of_json_strict blocks |> result_all in
+          Some blocks
+        | Some _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint ToolResult content must be a string or an array"
+                  }))
+        | None ->
+          Error
+            (Error.Serialization
+               (JsonParseError { detail = "Checkpoint ToolResult is missing content" }))
+      in
       let* failure_kind =
         optional_typed_field
           ~field:"failure_kind"
@@ -190,11 +332,16 @@ let content_block_of_json_strict json =
                       "Checkpoint ToolResult marks success but contains failure \
                        provenance"
                   }))
-        | (Legacy_unclassified_failure | Tool_failed _), Some failure_kind, error_class ->
+        | Tool_failed _, Some failure_kind, error_class ->
           Ok (Tool_failed { failure_kind; error_class })
-        | (Legacy_unclassified_failure | Tool_failed _), None, None ->
-          Ok Legacy_unclassified_failure
-        | (Legacy_unclassified_failure | Tool_failed _), None, Some _ ->
+        | Tool_failed _, None, None ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail =
+                      "Checkpoint ToolResult failure is missing failure_kind provenance"
+                  }))
+        | Tool_failed _, None, Some _ ->
           Error
             (Error.Serialization
                (JsonParseError
@@ -203,6 +350,28 @@ let content_block_of_json_strict json =
       in
       Ok
         (ToolResult { tool_use_id; content; outcome; json = parsed_json; content_blocks })
+    | Some (ReasoningDetails { details; _ }) ->
+      let* fields =
+        match json with
+        | `Assoc fields -> Ok fields
+        | _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint ReasoningDetails must be a JSON object" }))
+      in
+      let* reasoning_content = unique_optional_field ~field:"reasoning_content" fields in
+      (match reasoning_content with
+       | None -> Ok (ReasoningDetails { reasoning_content = None; details })
+       | Some (`String reasoning_content) ->
+         Ok (ReasoningDetails { reasoning_content = Some reasoning_content; details })
+       | Some _ ->
+         Error
+           (Error.Serialization
+              (JsonParseError
+                 { detail =
+                     "Checkpoint ReasoningDetails reasoning_content must be a string"
+                 })))
     | Some block -> Ok block
     | None ->
       let open Yojson.Safe.Util in
@@ -316,6 +485,7 @@ let checkpoint_to_json cp =
     ; "preserve_thinking", Util.json_of_bool_opt cp.preserve_thinking
     ; "response_format", response_format_to_json cp.response_format
     ; "thinking_budget", Util.json_of_int_opt cp.thinking_budget
+    ; "reasoning_effort", reasoning_effort_option_to_json cp.reasoning_effort
     ; "disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use
     ; "cache_system_prompt", `Bool cp.cache_system_prompt
     ; "context", Context.to_json cp.context
@@ -425,6 +595,7 @@ let delta_to_json (delta : delta) =
         ; "enable_thinking", Util.json_of_bool_opt patch.enable_thinking
         ; "preserve_thinking", Util.json_of_bool_opt patch.preserve_thinking
         ; "thinking_budget", Util.json_of_int_opt patch.thinking_budget
+        ; "reasoning_effort", reasoning_effort_option_to_json patch.reasoning_effort
         ]
     | Replace_limits patch ->
       `Assoc
@@ -483,7 +654,9 @@ let delta_of_json json =
         ; delete_count = op_json |> member "delete_count" |> to_int
         ; insert
         }
-    | "replace_usage" -> Ok (Replace_usage (usage_of_json (op_json |> member "usage")))
+    | "replace_usage" ->
+      let+ usage = usage_of_json (op_json |> member "usage") in
+      Replace_usage usage
     | "replace_turn_count" ->
       Ok (Replace_turn_count (op_json |> member "turn_count" |> to_int))
     | "replace_tools" ->
@@ -498,24 +671,35 @@ let delta_of_json json =
          let+ value = tool_choice_of_json value in
          Replace_tool_choice (Some value))
     | "replace_sampling" ->
-      Ok
-        (Replace_sampling
-           { temperature = op_json |> member "temperature" |> to_float_option
-           ; top_p = op_json |> member "top_p" |> to_float_option
-           ; top_k = op_json |> member "top_k" |> to_int_option
-           ; min_p = op_json |> member "min_p" |> to_float_option
-           ; enable_thinking = op_json |> member "enable_thinking" |> to_bool_option
-           ; preserve_thinking = op_json |> member "preserve_thinking" |> to_bool_option
-           ; thinking_budget = op_json |> member "thinking_budget" |> to_int_option
-           })
+      let+ reasoning_effort =
+        reasoning_effort_option_of_json
+          ~scope:"Checkpoint.delta replace_sampling"
+          (op_json |> member "reasoning_effort")
+      in
+      Replace_sampling
+        { temperature = op_json |> member "temperature" |> to_float_option
+        ; top_p = op_json |> member "top_p" |> to_float_option
+        ; top_k = op_json |> member "top_k" |> to_int_option
+        ; min_p = op_json |> member "min_p" |> to_float_option
+        ; enable_thinking = op_json |> member "enable_thinking" |> to_bool_option
+        ; preserve_thinking = op_json |> member "preserve_thinking" |> to_bool_option
+        ; thinking_budget = op_json |> member "thinking_budget" |> to_int_option
+        ; reasoning_effort
+        }
     | "replace_limits" ->
+      let* () =
+        validate_exact_object_fields
+          ~scope:"Checkpoint.delta replace_limits"
+          ~expected:
+            [ "kind"
+            ; "disable_parallel_tool_use"
+            ; "response_format"
+            ; "cache_system_prompt"
+            ]
+          op_json
+      in
       let+ response_format =
-        match op_json |> member "response_format" with
-        | `Null ->
-          Ok
-            (response_format_of_json_mode
-               (op_json |> member "response_format_json" |> to_bool))
-        | value -> response_format_of_json value
+        response_format_of_json (op_json |> member "response_format")
       in
       Replace_limits
         { disable_parallel_tool_use =
@@ -564,17 +748,12 @@ let delta_of_json json =
 
 let to_json = checkpoint_to_json
 
-let of_json json =
+let decode_current_json json =
   try
     let open Yojson.Safe.Util in
+    let* () = Checkpoint_v5_v6_migration.validate_v8_json json in
     let version = json |> member "version" |> to_int in
-    if
-      version <> checkpoint_version
-      && version <> 5
-      && version <> 4
-      && version <> 3
-      && version <> 2
-      && version <> 1
+    if version <> checkpoint_version
     then
       Error
         (Error.Serialization
@@ -596,16 +775,14 @@ let of_json json =
         json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
       and* context =
         match json |> member "context" with
-        | `Null -> Ok (Context.create_sync ())
         | `Assoc _ as value -> Ok (Context.of_json value)
         | _ ->
           Error
             (Error.Serialization
                (JsonParseError
-                  { detail = "Checkpoint.of_json: context must be a JSON object or null" }))
+                  { detail = "Checkpoint.of_json: context must be a JSON object" }))
       and* mcp_sessions =
         match json |> member "mcp_sessions" with
-        | `Null -> Ok []
         | `List _ as lst -> Mcp_session.info_list_of_json lst
         | _ ->
           Error
@@ -614,17 +791,13 @@ let of_json json =
                   { detail =
                       "Checkpoint.of_json: mcp_sessions must be a JSON array or null"
                   }))
-      and* response_format =
-        match json |> member "response_format" with
-        | `Null ->
-          Ok
-            (response_format_of_json_mode
-               (json
-                |> member "response_format_json"
-                |> to_bool_option
-                |> Option.value ~default:false))
-        | value -> response_format_of_json value
+      and* response_format = response_format_of_json (json |> member "response_format") in
+      let* reasoning_effort =
+        reasoning_effort_option_of_json
+          ~scope:"Checkpoint"
+          (json |> member "reasoning_effort")
       in
+      let* usage = json |> member "usage" |> usage_of_json in
       let working_context =
         match json |> member "working_context" with
         | `Null -> None
@@ -637,16 +810,13 @@ let of_json json =
         ; model
         ; system_prompt = json |> member "system_prompt" |> to_string_option
         ; messages
-        ; usage = json |> member "usage" |> usage_of_json
+        ; usage
         ; turn_count = json |> member "turn_count" |> to_int
         ; created_at = json |> member "created_at" |> to_float
         ; tools
         ; tool_choice
         ; disable_parallel_tool_use =
-            json
-            |> member "disable_parallel_tool_use"
-            |> to_bool_option
-            |> Option.value ~default:false
+            json |> member "disable_parallel_tool_use" |> to_bool
         ; temperature = json |> member "temperature" |> to_float_option
         ; top_p = json |> member "top_p" |> to_float_option
         ; top_k = json |> member "top_k" |> to_int_option
@@ -655,11 +825,8 @@ let of_json json =
         ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
         ; response_format
         ; thinking_budget = json |> member "thinking_budget" |> to_int_option
-        ; cache_system_prompt =
-            json
-            |> member "cache_system_prompt"
-            |> to_bool_option
-            |> Option.value ~default:false
+        ; reasoning_effort
+        ; cache_system_prompt = json |> member "cache_system_prompt" |> to_bool
         ; context
         ; mcp_sessions
         ; working_context
@@ -677,6 +844,47 @@ let of_json json =
     Error
       (Error.Serialization
          (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))
+;;
+
+let checkpoint_json_version = function
+  | `Assoc fields ->
+    let versions =
+      List.filter_map
+        (fun (name, value) -> if String.equal name "version" then Some value else None)
+        fields
+    in
+    (match versions with
+     | [ `Int version ] -> Ok version
+     | [ _ ] ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint version must be an integer" }))
+     | [] ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint is missing version" }))
+     | _ ->
+       Error
+         (Error.Serialization
+            (JsonParseError { detail = "Checkpoint duplicates field version" })))
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = "Checkpoint must be a JSON object" }))
+;;
+
+let of_json json =
+  let* version = checkpoint_json_version json in
+  if version = checkpoint_version
+  then decode_current_json json
+  else if Checkpoint_v5_v6_migration.source_version_supported version
+  then
+    let* migrated = Checkpoint_v5_v6_migration.to_v8_json json in
+    decode_current_json migrated
+  else
+    Error
+      (Error.Serialization
+         (VersionMismatch { expected = checkpoint_version; got = version }))
 ;;
 
 let to_string cp = to_json cp |> Yojson.Safe.to_string

@@ -71,17 +71,16 @@ Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.
 
 ## Provider Routing
 
-OAS provides single-provider completion with retry via
-`Complete.complete_with_retry`. Cross-provider failover, health filtering, and
-circuit breaking are the responsibility of downstream consumers — OAS no longer
-ships a built-in multi-provider cascade layer (the unused `Complete_cascade`
-module was removed).
+OAS provides one-shot single-provider completion via `Complete.complete` and
+`Complete.complete_stream`. Later attempts, cross-provider failover, health
+filtering, and circuit breaking are the responsibility of downstream consumers
+— OAS no longer ships built-in retry or multi-provider cascade execution.
 
 Supported providers: `llama`, `claude`, `gemini`, `glm`, `openrouter`, `custom:model@url`.
 
 ## Key Types
 
-- `Types.agent_config` — 에이전트 설정 (model, system_prompt, max_turns 등)
+- `Types.agent_config` — 에이전트 설정 (model, system_prompt, provider output options 등)
 - `Types.api_response` — LLM 응답 (content blocks, usage, stop_reason)
 - `Error.sdk_error` — 타입 안전한 에러 (Agent, Config, Orchestration 등)
 

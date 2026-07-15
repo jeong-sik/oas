@@ -20,6 +20,13 @@ val thinking_config_for_config
   -> Provider_config.t
   -> Yojson.Safe.t option
 
+(** Validate that categorical effort and numeric budget target the selected
+    Anthropic thinking wire exactly. *)
+val validate_thinking_controls
+  :  Capabilities.anthropic_thinking_control
+  -> Provider_config.t
+  -> (unit, string) result
+
 (** Optional Claude [output_config], including adaptive [effort] and native
     JSON-schema format when requested. *)
 val output_config_for_config
@@ -39,6 +46,15 @@ val effective_max_output_tokens : Provider_config.t -> int option
 val required_output_token_receipt
   :  Provider_config.t
   -> (Types.output_token_receipt, Types.required_output_token_error) result
+
+(** Render a typed required-output-token rejection with the selected model
+    context. Internal completion boundaries use this to preserve the
+    [AcceptRejected] result contract instead of crossing the compatibility
+    [Invalid_argument] projection below. *)
+val required_output_token_error_message
+  :  Provider_config.t
+  -> Types.required_output_token_error
+  -> string
 
 (** Compatibility projection of {!required_output_token_receipt}. Raises
     [Invalid_argument] naming the model when no explicit value, catalog

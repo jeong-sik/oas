@@ -42,7 +42,8 @@ let with_manifest json f =
 ;;
 
 let install_repository_catalog () =
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"thinking-control dialect"
+  Model_catalog_test_support.install_embedded_model_catalog
+    ~suite:"thinking-control dialect"
 ;;
 
 let without_ambient_manifest f =
@@ -88,14 +89,28 @@ let openai_compat_config ?enable_thinking ?preserve_thinking ?thinking_budget mo
     ()
 ;;
 
-let catalog_capabilities model_id =
-  match CAP.for_model_id model_id with
+let catalog_capabilities ?provider_id model_id =
+  let capabilities =
+    match provider_id with
+    | None -> CAP.for_model_id model_id
+    | Some provider_label ->
+      CAP.for_provider_model_id ~allow_bare_fallback:false ~provider_label ~model_id
+  in
+  match capabilities with
   | Some caps -> caps
-  | None -> fail ("expected catalog capabilities for " ^ model_id)
+  | None ->
+    fail
+      (Printf.sprintf
+         "expected catalog capabilities for %s%s"
+         (match provider_id with
+          | None -> ""
+          | Some provider_label -> provider_label ^ "/")
+         model_id)
 ;;
 
 let declared_catalog_openai_compat_config
       ?(base_url = "https://declared-openai-compat.example/v1")
+      ?provider_id
       ?enable_thinking
       ?preserve_thinking
       ?thinking_budget
@@ -108,9 +123,10 @@ let declared_catalog_openai_compat_config
   =
   PC.make
     ~kind:OpenAI_compat
+    ?provider_id
     ~model_id
     ~base_url
-    ~model_capabilities_override:(catalog_capabilities model_id)
+    ~model_capabilities_override:(catalog_capabilities ?provider_id model_id)
     ?enable_thinking
     ?preserve_thinking
     ?thinking_budget
@@ -184,6 +200,7 @@ let ollama_config ?system_prompt ?enable_thinking model_id =
 let ollama_cloud_config ?system_prompt ?enable_thinking model_id =
   PC.make
     ~kind:Ollama
+    ~provider_id:"ollama_cloud"
     ~model_id
     ~base_url:"https://ollama.com"
     ~request_path:"/api/chat"
@@ -192,7 +209,13 @@ let ollama_cloud_config ?system_prompt ?enable_thinking model_id =
     ()
 ;;
 
-let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
+let anthropic_config
+      ?enable_thinking
+      ?thinking_budget
+      ?reasoning_effort
+      ?output_schema
+      model_id
+  =
   PC.make
     ~kind:Anthropic
     ~model_id
@@ -200,13 +223,17 @@ let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
     ~max_tokens:16_000
     ?enable_thinking
     ?thinking_budget
+    ?reasoning_effort
     ?output_schema
     ()
 ;;
 
 let test_raw_qwen_openai_compat_does_not_infer_chat_template_kwargs () =
   let config =
-    openai_compat_config ~enable_thinking:false ~preserve_thinking:true "qwen3-32b"
+    openai_compat_config
+      ~enable_thinking:false
+      ~preserve_thinking:true
+      "undeclared-runtime/qwen3-32b"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   check_member_absent "chat_template_kwargs" json;
@@ -237,7 +264,7 @@ let test_raw_qwen36_reasoning_dialect_does_not_infer_chat_template_kwargs () =
     openai_compat_config
       ~enable_thinking:false
       ~preserve_thinking:true
-      "Qwen/Qwen3.6-35B-A3B"
+      "undeclared-runtime/Qwen3.6-35B-A3B"
   in
   let dialect = RD.for_provider_config config in
   check string "toggle wire" "no_toggle" (RD.toggle_wire_to_string dialect.toggle_wire);
@@ -348,6 +375,7 @@ let test_mimo_v25_uses_thinking_object_and_json_mode () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
+      ~provider_id:"mimo"
       ~enable_thinking:false
       ~response_format_json:true
       "mimo-v2.5-pro"
@@ -401,33 +429,38 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     (option string)
-    "preserve minimal"
+    "typed preserve minimal"
     (Some "minimal")
-    (RD.normalize_effort dialect "minimal");
-  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high");
+    (RD.normalize_effort_value dialect RE.Minimal);
   check
     (option string)
-    "preserve xhigh"
-    (Some "xhigh")
-    (RD.normalize_effort dialect "xhigh");
+    "typed preserve high"
+    (Some "high")
+    (RD.normalize_effort_value dialect RE.High);
   check
     (option string)
     "typed preserve xhigh"
     (Some "xhigh")
-    (RD.normalize_effort_value dialect RE.XHigh)
+    (RD.normalize_effort_value dialect RE.XHigh);
+  check
+    (option string)
+    "typed preserve max"
+    (Some "max")
+    (RD.normalize_effort_value dialect RE.Max)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
   with_manifest
-    {|{"schema_version":1,"models":[{"id_prefix":"openai-reasoning-test-9fx","base":"openai_chat_extended","thinking_control_format":"reasoning_effort"}]}|}
+    {|{"schema_version":1,"models":[{"id_prefix":"openai-reasoning-test-9fx","base":"openai_chat_extended","thinking_control_format":"reasoning_effort","accepted_reasoning_efforts":["low","medium","high"]}]}|}
     (fun () ->
        let config =
          PC.make
            ~kind:OpenAI_compat
            ~model_id:"openai-reasoning-test-9fx"
            ~base_url:"https://api.openai.com/v1"
+           ~model_capabilities_override:(catalog_capabilities "openai-reasoning-test-9fx")
            ~enable_thinking:true
-           ~thinking_budget:4096
+           ~reasoning_effort:RE.Medium
            ()
        in
        let json =
@@ -447,8 +480,8 @@ let test_deepseek_openai_compat_uses_thinking_object () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:false
-      ~thinking_budget:4096
       "deepseek-v4-flash"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -533,6 +566,7 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
   let config =
     PC.make
       ~kind:OpenAI_compat
+      ~provider_id:"ollama_cloud"
       ~model_id:"minimax-m3"
       ~base_url:"https://ollama.com/v1"
       ()
@@ -598,6 +632,7 @@ let test_deepseek_reasoning_dialect_semantics () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:true
       "deepseek-v4-pro"
   in
@@ -627,21 +662,20 @@ let test_deepseek_reasoning_dialect_semantics () =
     "requires tool-call replay"
     true
     (RD.requires_reasoning_replay_on_tool_call dialect);
-  check (option string) "low maps high" (Some "high") (RD.normalize_effort dialect "low");
   check
     (option string)
-    "medium maps high"
+    "typed high stays high"
     (Some "high")
-    (RD.normalize_effort dialect "medium");
+    (RD.normalize_effort_value dialect RE.High);
   check
     (option string)
-    "xhigh maps max"
+    "typed max stays max"
     (Some "max")
-    (RD.normalize_effort dialect "xhigh");
+    (RD.normalize_effort_value dialect RE.Max);
   check
     (option string)
-    "typed low maps high"
-    (Some "high")
+    "typed low is unsupported"
+    None
     (RD.normalize_effort_value dialect RE.Low);
   check
     (option string)
@@ -659,6 +693,7 @@ let test_deepseek_sampling_suppressed_in_thinking_mode () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~temperature:0.7
       ~top_p:0.9
       "deepseek-v4-flash"
@@ -672,6 +707,7 @@ let test_deepseek_disabled_thinking_keeps_sampling () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       ~enable_thinking:false
       ~temperature:0.7
       ~top_p:0.9
@@ -682,7 +718,7 @@ let test_deepseek_disabled_thinking_keeps_sampling () =
   check (float 0.001) "top_p" 0.9 (json |> member "top_p" |> to_float)
 ;;
 
-let assistant_with_reasoning ?(tool = false) () =
+let assistant_with_reasoning ?(tool = false) config =
   let content =
     if tool
     then
@@ -691,20 +727,32 @@ let assistant_with_reasoning ?(tool = false) () =
       ]
     else [ Thinking { signature = None; content = "plain thought" }; Text "answer" ]
   in
-  { role = Assistant; content; name = None; tool_call_id = None; metadata = [] }
+  let source =
+    match RD.reasoning_source_for_provider_config config with
+    | Ok source -> source
+    | Error detail -> fail ("invalid reasoning source fixture: " ^ detail)
+  in
+  { role = Assistant
+  ; content
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = Reasoning_source.metadata source
+  }
 ;;
 
 let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
   let config =
     declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
+      ~provider_id:"deepseek"
       "deepseek-v4-flash"
   in
   let plain =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let tool =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true config ] ()
     |> json_of_body
   in
   let plain_assistant = plain |> member "messages" |> index 0 in
@@ -725,7 +773,8 @@ let test_qwen_preserve_replays_reasoning_content () =
       "Qwen/Qwen3.6-35B-A3B"
   in
   let json =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let assistant = json |> member "messages" |> index 0 in
   check
@@ -735,17 +784,16 @@ let test_qwen_preserve_replays_reasoning_content () =
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
-let test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking () =
-  (* Real models.toml lookup (via [declared_catalog_openai_compat_config], not a
-     hand-written capability record): proves the catalog qwen3.6 row resolves to
-     the reasoning_content streaming dialect AND that multiple reasoning_content
-     deltas accumulate into one Thinking block rather than re-opening a block
-     per chunk. *)
+let test_declared_reasoning_content_accumulates_as_typed_thinking () =
+  (* The typed capability override declares the wire dialect explicitly. This
+     test is only about streaming accumulation: multiple [reasoning_content]
+     deltas must produce one Thinking block rather than re-opening a block per
+     chunk. *)
   let config =
-    declared_catalog_openai_compat_config
+    declared_qwen_openai_compat_config
       ~enable_thinking:true
       ~preserve_thinking:false
-      "vllm-qwen3-mtp.qwen36-35b-a3b-mtp"
+      "opaque-qwen-runtime-model"
   in
   let dialect = RD.for_provider_config config in
   (match dialect.streaming with
@@ -821,7 +869,7 @@ let test_thinking_object_keep_all_axis_replays_reasoning () =
       false
       (RD.requires_reasoning_replay_on_tool_call dialect);
     let json =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
       |> json_of_body
     in
     let assistant = json |> member "messages" |> index 0 in
@@ -847,11 +895,14 @@ let test_thinking_object_keep_all_axis_defaults_to_tool_replay () =
       true
       (RD.requires_reasoning_replay_on_tool_call dialect);
     let plain =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
       |> json_of_body
     in
     let tool =
-      BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+      BOR.build_request
+        ~config
+        ~messages:[ assistant_with_reasoning ~tool:true config ]
+        ()
       |> json_of_body
     in
     let plain_assistant = plain |> member "messages" |> index 0 in
@@ -892,10 +943,11 @@ let test_kimi_k26_defaults_to_tool_call_replay () =
   in
   check_member_absent "thinking" user_json;
   let plain =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let tool =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true config ] ()
     |> json_of_body
   in
   check_member_absent "reasoning_content" (plain |> member "messages" |> index 0);
@@ -965,7 +1017,8 @@ let test_kimi_latest_always_preserved_omits_thinking_param () =
   check_member_absent "chat_template_kwargs" user_json;
   check_member_absent "preserve_thinking" user_json;
   let reasoning_json =
-    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning config ] ()
+    |> json_of_body
   in
   let assistant = reasoning_json |> member "messages" |> index 0 in
   check
@@ -1180,14 +1233,14 @@ let test_anthropic_reasoning_dialect_preserves_thinking () =
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     (option string)
-    "xhigh effort alias"
-    (Some "max")
+    "xhigh effort stays exact"
+    (Some "xhigh")
     (RD.normalize_effort_value dialect RE.XHigh);
   check
     (option string)
-    "minimal effort omitted"
-    None
-    (RD.normalize_effort_value dialect RE.Minimal)
+    "max effort stays exact"
+    (Some "max")
+    (RD.normalize_effort_value dialect RE.Max)
 ;;
 
 let test_anthropic_manual_model_uses_budget_tokens () =
@@ -1203,10 +1256,7 @@ let test_anthropic_manual_model_uses_budget_tokens () =
 
 let test_anthropic_opus48_uses_adaptive_effort () =
   let config =
-    anthropic_config
-      ~enable_thinking:true
-      ~thinking_budget:(RE.low_budget_max_tokens + 1)
-      "claude-opus-4-8"
+    anthropic_config ~enable_thinking:true ~reasoning_effort:RE.Medium "claude-opus-4-8"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   let thinking = json |> member "thinking" in
@@ -1223,7 +1273,7 @@ let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:(RE.low_budget_max_tokens + 1)
+      ~reasoning_effort:RE.Medium
       "claude-sonnet-4-6-20250514"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -1256,7 +1306,7 @@ let test_anthropic_output_config_merges_format_and_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:(RE.high_budget_max_tokens + 1)
+      ~reasoning_effort:RE.Max
       ~output_schema:schema
       "claude-opus-4-8"
   in
@@ -1287,7 +1337,7 @@ let test_gemini_reasoning_dialect_uses_thinking_config () =
   check
     string
     "replay policy"
-    "drop_without_tool_preserve_with_tool"
+    "preserve_always"
     (RD.replay_policy_to_string dialect.replay_policy)
 ;;
 
@@ -1369,9 +1419,9 @@ let () =
               `Quick
               test_qwen_preserve_replays_reasoning_content
           ; test_case
-              "qwen catalog reasoning_content accumulates as typed thinking"
+              "declared reasoning_content accumulates as typed thinking"
               `Quick
-              test_qwen_catalog_reasoning_content_accumulates_as_typed_thinking
+              test_declared_reasoning_content_accumulates_as_typed_thinking
           ; test_case
               "thinking_object_keep_all axis uses thinking keep all"
               `Quick

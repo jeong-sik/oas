@@ -24,11 +24,11 @@ val response_format_of_json : Yojson.Safe.t -> (response_format, Error.sdk_error
 (* Agent-specific types                                              *)
 (* ================================================================ *)
 
-(** Model identifier — a plain string.
-    Use {!Model_registry.resolve_model_id} to resolve aliases. *)
+(** Exact provider model identifier. OAS performs no implicit alias expansion
+    or ambient default selection. *)
 type model = string [@@deriving yojson, show]
 
-(** Resolve a model alias to its canonical API model ID. *)
+(** Project an exact model identifier to its wire representation. *)
 val model_to_string : model -> string
 
 (** Agent configuration *)
@@ -37,8 +37,6 @@ type agent_config =
   ; model : model
   ; system_prompt : string option
   ; max_tokens : int option
-  ; max_turns : int
-    (** [0] = no turn-count limit; positive values enforce a finite limit. *)
   ; temperature : float option
   ; top_p : float option
   ; top_k : int option
@@ -47,6 +45,7 @@ type agent_config =
   ; preserve_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; tool_choice : tool_choice option
   ; disable_parallel_tool_use : bool
   ; cache_system_prompt : bool
@@ -57,75 +56,24 @@ type agent_config =
       for long-running agents that go idle 5+ minutes between turns.
       @since 0.151.0 *)
   ; initial_messages : message list
-  ; context_compact_ratio : float option
-  ; context_prepare_ratio : float option
-  ; context_handoff_ratio : float option
-  ; priority : Llm_provider.Request_priority.t option (** @since 0.96.0 *)
-  ; yield_on_tool : bool (** Release LLM slot during tool execution. @since 0.100.0 *)
-  ; exit_condition : ((int -> bool)[@opaque]) option
-    (** Custom exit predicate called with turn_count after each turn. When it returns true the agent loop exits cleanly. @since 0.115.0 *)
-  ; ensure_final_text : bool
-    (** When [true], a run must not terminate with tool activity but no
-        user-facing final text (downstream renders this as "Tool-only turn
-        ended without a final reply"). If the run is about to end that way —
-        either a terminal turn with no visible text, or [max_turns] reached
-        after a tool turn — the agent performs exactly ONE additional model
-        turn with the tool set withheld, so the model itself authors a textual
-        answer. Convergence, not a cap: it adds no turn/token limit and the
-        answer is LLM-authored. Default [false] preserves prior behavior. *)
-  ; call_time_pruner_keep_recent : int
-    (** Number of most recent turns whose tool results are NOT stubbed by the
-        call-time pruner in {!Agent_turn.prepare_messages}.  Default [2]. *)
-  ; call_time_pruner_keep_last : int
-    (** Maximum number of most recent turns retained by the call-time pruner
-        in {!Agent_turn.prepare_messages}.  Default [100]. *)
+  ; yield_on_tool : bool
+    (** Release provider capacity before tool execution. @since 0.100.0 *)
   }
 [@@deriving show]
 
-(** The canonical [agent_config.max_turns] value for an unbounded run.
-    Consumers must use this value instead of copying its integer
-    representation or reading it from a default configuration snapshot. *)
-val unbounded_max_turns : int
+(** Build the non-model defaults around an exact caller-selected model.
+    There is deliberately no ambient or compile-time model fallback. *)
+val default_config : model:model -> agent_config
 
-val has_finite_max_turns : int -> bool
-
-(** Build a fresh default configuration.
-
-    Unlike {!default_config}, this consults call-time default resolvers such as
-    {!Model_registry.default_model_id_value}. Use it when a newly created agent
-    should observe environment/configuration changes made after module
-    initialization. *)
-val default_config_value : ?getenv:(string -> string option) -> unit -> agent_config
-
-(** Compatibility snapshot of the default configuration at module load time.
-    Prefer {!default_config_value} for new agent/session defaults. *)
-val default_config : agent_config
-
-(** Default proactive context compaction watermark used when
-    [agent_config.context_compact_ratio] is [None]. *)
-val default_context_compact_ratio : float
-
-(** Default budget ratio for the context reducer's normal compaction path.
-
-    Distinct from {!default_context_compact_ratio}: the budget ratio limits
-    how much of [max_tokens] the reducer may keep, while the watermark ratio
-    triggers proactive compaction in the pipeline. *)
-val default_context_compact_budget_ratio : float
-
-(** [valid_context_ratio ratio] is [true] for ratios accepted by
-    context-threshold configuration. *)
-val valid_context_ratio : float -> bool
-
-(** Require [ratio] to be a valid context ratio, or raise [Invalid_argument]. *)
-val require_context_ratio : name:string -> float -> float
+type pricing_gap =
+  | Model_identity_unavailable
+  | Pricing_unavailable of string
+[@@deriving show]
 
 (** Usage tracking accumulated across provider calls. Per-response usage stays
-    in {!Llm_provider.Types.api_usage}.
-
-    [unpriced_model] is [Some model_id] when at least one accumulated turn
-    ran a model with no entry in {!Llm_provider.Pricing.pricing_for_model_opt},
-    so [estimated_cost_usd] under-reports.  Only the first such model_id is
-    recorded for stable telemetry; cost thresholds never gate execution. *)
+    in {!Llm_provider.Types.api_usage}. [pricing_gap] records why the observed
+    cost is incomplete without inventing a model identifier. Cost is telemetry
+    only and never gates execution. *)
 type usage_stats =
   { total_input_tokens : int
   ; total_output_tokens : int
@@ -133,7 +81,7 @@ type usage_stats =
   ; total_cache_read_input_tokens : int
   ; api_calls : int
   ; estimated_cost_usd : float
-  ; unpriced_model : string option
+  ; pricing_gap : pricing_gap option
   }
 [@@deriving show]
 

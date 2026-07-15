@@ -88,27 +88,6 @@ val run_structured
   -> extract:'a extractor
   -> ('a, Error.sdk_error) result
 
-(** {1 Retry with validation feedback} *)
-
-type 'a retry_result =
-  { value : 'a
-  ; total_usage : usage_stats
-  ; attempts : int
-  }
-
-val extract_with_retry
-  :  sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?base_url:string
-  -> ?provider:Provider.config
-  -> ?clock:float Eio.Time.clock_ty Eio.Resource.t
-  -> config:agent_config
-  -> schema:'a schema
-  -> ?max_retries:int
-  -> ?on_validation_error:(int -> string -> unit)
-  -> string
-  -> ('a retry_result, Error.sdk_error) result
-
 (** {1 Streaming extraction} *)
 
 val extract_stream

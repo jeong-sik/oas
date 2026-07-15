@@ -42,7 +42,7 @@ let test_create_sets_model () =
   let agent =
     Builder.create ~net ~model:"claude-haiku-4-5" |> Builder.build_safe |> Result.get_ok
   in
-  check_model "model" "claude-haiku-4-5-20251001" (Agent.state agent).config.model
+  check_model "model" "claude-haiku-4-5" (Agent.state agent).config.model
 ;;
 
 (* --- 2. with_system_prompt --- *)
@@ -91,36 +91,6 @@ let test_with_max_tokens () =
     "max_tokens"
     (Some 8192)
     (Agent.state agent).config.max_tokens
-;;
-
-(* --- 5. with_max_turns --- *)
-
-let test_with_max_turns () =
-  with_net
-  @@ fun net ->
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_max_turns 25
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check int) "max_turns" 25 (Agent.state agent).config.max_turns
-;;
-
-let test_without_turn_limit () =
-  with_net
-  @@ fun net ->
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_max_turns 25
-    |> Builder.without_turn_limit
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check int)
-    "max_turns"
-    Types.unbounded_max_turns
-    (Agent.state agent).config.max_turns
 ;;
 
 (* --- 6. with_temperature --- *)
@@ -213,7 +183,7 @@ let test_with_tool_appends () =
 let test_with_hooks () =
   with_net
   @@ fun net ->
-  let hook _event = Hooks.Skip in
+  let hook _event = Hooks.Continue in
   let hooks = { Hooks.empty with before_turn = Some hook } in
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
@@ -242,82 +212,6 @@ let test_with_tracer () =
     "tracer not null"
     true
     ((Agent.options agent).tracer != Tracing.null)
-;;
-
-(* --- 11. with_approval --- *)
-
-let test_with_approval () =
-  with_net
-  @@ fun net ->
-  let approval ~tool_name:_ ~input:_ = Hooks.Approve in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_approval approval
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "approval set"
-    true
-    (Option.is_some (Agent.options agent).approval)
-;;
-
-let test_with_missing_approval_callback_policy () =
-  with_net
-  @@ fun net ->
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_missing_approval_callback_policy Hooks.Reject_without_callback
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "missing approval callback policy set"
-    true
-    ((Agent.options agent).missing_approval_callback_policy
-     = Hooks.Reject_without_callback)
-;;
-
-(* --- 13. with_context_reducer --- *)
-
-let test_with_context_reducer () =
-  with_net
-  @@ fun net ->
-  let reducer = Context_reducer.keep_last 5 in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_context_reducer reducer
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "context_reducer set"
-    true
-    (Option.is_some (Agent.options agent).context_reducer)
-;;
-
-(* --- 13b. with_summarizer --- *)
-
-let test_with_summarizer () =
-  with_net
-  @@ fun net ->
-  let marker = "<<SUMMARIZER_MARKER>>" in
-  let custom : Types.message list -> string = fun _ -> marker in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_summarizer custom
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  let opts = Agent.options agent in
-  Alcotest.(check bool) "summarizer set" true (Option.is_some opts.summarizer);
-  (* Apply the stored summarizer and confirm it's the one we registered. *)
-  let applied =
-    match opts.summarizer with
-    | Some s -> s []
-    | None -> ""
-  in
-  Alcotest.(check string) "summarizer identity" marker applied
 ;;
 
 (* --- 13d. with_transport --- *)
@@ -376,7 +270,7 @@ let test_with_context () =
 let test_with_provider () =
   with_net
   @@ fun net ->
-  let provider = Provider.anthropic_haiku () in
+  let provider = Provider.anthropic ~model_id:"claude-haiku-4-5-20251001" () in
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_provider provider
@@ -387,6 +281,302 @@ let test_with_provider () =
     "provider set"
     true
     (Option.is_some (Agent.options agent).provider)
+;;
+
+let exact_provider_config () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let capabilities =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_tools = true
+    ; supports_structured_output = true
+    }
+  in
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.Ollama
+    ~provider_id:"ollama"
+    ~model_id:"builder-exact-model"
+    ~base_url:"https://builder-exact.invalid/api"
+    ~api_key:"builder-exact-secret"
+    ~headers:[ "Content-Type", "application/json"; "x-builder-tenant", "exact" ]
+    ~request_path:"/exact/chat"
+    ~max_tokens:111
+    ~max_context:65536
+    ~temperature:0.75
+    ~top_p:0.8
+    ~top_k:32
+    ~min_p:0.05
+    ~system_prompt:"exact provider prompt"
+    ~enable_thinking:true
+    ~preserve_thinking:true
+    ~thinking_budget:4096
+    ~clear_thinking:false
+    ~tool_stream:true
+    ~tool_choice:Types.Auto
+    ~response_format:(Types.JsonSchema schema)
+    ~cache_system_prompt:true
+    ~supports_tool_choice_override:true
+    ~supports_structured_output_override:true
+    ~model_capabilities_override:capabilities
+    ~keep_alive:"-1"
+    ~num_ctx:32768
+    ~seed:2590
+    ~previous_response_id:"response-before-builder"
+    ~connect_timeout_s:12.5
+    ()
+;;
+
+let test_with_provider_config_reaches_dispatch_losslessly () =
+  with_net
+  @@ fun net ->
+  let observed = ref None in
+  let response : Types.api_response =
+    { id = "builder-exact-response"
+    ; model = "builder-exact-model"
+    ; stop_reason = Types.EndTurn
+    ; content = [ Types.Text "ok" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          observed := Some request.Llm_provider.Llm_transport.config;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let provider_config = exact_provider_config () in
+  let legacy =
+    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
+  in
+  let agent =
+    Builder.create ~net ~model:"initial-model"
+    |> Builder.with_provider legacy
+    |> Builder.with_provider_config provider_config
+    |> Builder.with_max_tokens 777
+    |> Builder.with_temperature 0.25
+    |> Builder.with_response_format Types.JsonMode
+    |> Builder.with_transport transport
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "typed selection clears legacy provider"
+    true
+    (Option.is_none (Agent.options agent).provider);
+  Alcotest.(check bool)
+    "exact carrier retained"
+    true
+    (Option.is_some (Agent.provider_config agent));
+  Alcotest.(check (list string))
+    "agent card observes canonical provider identity"
+    [ "ollama" ]
+    (Agent.card agent).supported_providers;
+  let result = Eio.Switch.run (fun sw -> Agent.run ~sw agent "hello") in
+  (match result with
+   | Ok _ -> ()
+   | Error error -> Alcotest.fail (Error.to_string error));
+  (match Agent.lifecycle agent with
+   | Some snapshot ->
+     Alcotest.(check (option string))
+       "lifecycle observes canonical provider identity"
+       (Some "ollama")
+       snapshot.requested_provider
+   | None -> Alcotest.fail "completed agent has no lifecycle snapshot");
+  let dispatched =
+    match !observed with
+    | Some config -> config
+    | None -> Alcotest.fail "transport did not observe a provider config"
+  in
+  Alcotest.(check bool) "wire kind" true (dispatched.kind = provider_config.kind);
+  Alcotest.(check (option string))
+    "provider identity"
+    provider_config.provider_id
+    dispatched.provider_id;
+  Alcotest.(check string) "endpoint" provider_config.base_url dispatched.base_url;
+  Alcotest.(check string)
+    "request path"
+    provider_config.request_path
+    dispatched.request_path;
+  Alcotest.(check string)
+    "credential"
+    (provider_config.api_key :> string)
+    (dispatched.api_key :> string);
+  Alcotest.(check (list (pair string string)))
+    "headers"
+    provider_config.headers
+    dispatched.headers;
+  Alcotest.(check (option bool))
+    "tool choice override"
+    provider_config.supports_tool_choice_override
+    dispatched.supports_tool_choice_override;
+  Alcotest.(check (option bool))
+    "structured output override"
+    provider_config.supports_structured_output_override
+    dispatched.supports_structured_output_override;
+  Alcotest.(check bool)
+    "capability override"
+    true
+    (match dispatched.model_capabilities_override with
+     | Some capabilities ->
+       capabilities.supports_tools && capabilities.supports_structured_output
+     | None -> false);
+  Alcotest.(check (option string)) "keep alive" (Some "-1") dispatched.keep_alive;
+  Alcotest.(check (option int)) "num ctx" (Some 32768) dispatched.num_ctx;
+  Alcotest.(check (option int)) "seed" (Some 2590) dispatched.seed;
+  Alcotest.(check (option string))
+    "previous response id"
+    (Some "response-before-builder")
+    dispatched.previous_response_id;
+  Alcotest.(check (option (float 0.001)))
+    "connect timeout"
+    (Some 12.5)
+    dispatched.connect_timeout_s;
+  Alcotest.(check string)
+    "model seeded from exact config"
+    "builder-exact-model"
+    dispatched.model_id;
+  Alcotest.(check (option int))
+    "later max_tokens setter wins"
+    (Some 777)
+    dispatched.max_tokens;
+  Alcotest.(check (option (float 0.001)))
+    "later temperature setter wins"
+    (Some 0.25)
+    dispatched.temperature;
+  Alcotest.(check string)
+    "later response format setter wins"
+    (Types.show_response_format Types.JsonMode)
+    (Types.show_response_format dispatched.response_format);
+  Alcotest.(check bool)
+    "changed response format clears stale output schema"
+    true
+    (Option.is_none dispatched.output_schema)
+;;
+
+let test_handoff_inherits_injected_transport () =
+  with_net
+  @@ fun net ->
+  let response ~id ~stop_reason content : Types.api_response =
+    { id
+    ; model = "builder-exact-model"
+    ; stop_reason
+    ; content
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let responses =
+    ref
+      [ response
+          ~id:"parent-handoff"
+          ~stop_reason:Types.StopToolUse
+          [ Types.ToolUse
+              { id = "handoff-tool"
+              ; name = "researcher"
+              ; input = `Assoc [ "prompt", `String "inspect" ]
+              }
+          ]
+      ; response
+          ~id:"subagent-complete"
+          ~stop_reason:Types.EndTurn
+          [ Types.Text "sub ok" ]
+      ; response
+          ~id:"parent-complete"
+          ~stop_reason:Types.EndTurn
+          [ Types.Text "parent done" ]
+      ]
+  in
+  let calls = ref 0 in
+  let transport_error () =
+    Llm_provider.Http_client.NetworkError
+      { message = "scripted transport exhausted"; kind = Unknown }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          incr calls;
+          match !responses with
+          | next :: rest ->
+            responses := rest;
+            { response = Ok next; latency_ms = Some 0 }
+          | [] -> { response = Error (transport_error ()); latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _request -> Error (transport_error ()))
+    }
+  in
+  let target =
+    Subagent.to_handoff_target
+      ~parent_config:(Types.default_config ~model:"parent-model")
+      ~base_tools:[]
+      (Subagent.of_markdown
+         "---\n\
+          name: researcher\n\
+          description: Inspect the requested subject\n\
+          model: subagent-model\n\
+          ---\n\
+          Inspect the request.")
+  in
+  let agent =
+    Builder.create ~net ~model:"parent-model"
+    |> Builder.with_provider_config (exact_provider_config ())
+    |> Builder.with_transport transport
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  let result =
+    Eio.Switch.run (fun sw ->
+      Agent.run_with_handoffs ~sw agent ~targets:[ target ] "delegate")
+  in
+  (match result with
+   | Ok response ->
+     Alcotest.(check string)
+       "parent completes"
+       "parent done"
+       (Types.visible_text_of_response response)
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check int) "parent and subagent use one transport" 3 !calls;
+  Alcotest.(check int) "all scripted responses consumed" 0 (List.length !responses)
+;;
+
+let test_provider_selection_last_setter_wins () =
+  with_net
+  @@ fun net ->
+  let exact = exact_provider_config () in
+  let legacy =
+    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
+  in
+  let legacy_last =
+    Builder.create ~net ~model:"initial"
+    |> Builder.with_provider_config exact
+    |> Builder.with_provider legacy
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "legacy selection clears exact carrier"
+    true
+    (Option.is_none (Agent.provider_config legacy_last));
+  Alcotest.(check bool)
+    "legacy selection retained"
+    true
+    (Option.is_some (Agent.options legacy_last).provider);
+  let exact_last =
+    Builder.create ~net ~model:"initial"
+    |> Builder.with_provider legacy
+    |> Builder.with_provider_config exact
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "exact selection clears legacy provider"
+    true
+    (Option.is_none (Agent.options exact_last).provider);
+  Alcotest.(check bool)
+    "exact selection retained"
+    true
+    (Option.is_some (Agent.provider_config exact_last))
 ;;
 
 (* --- 15. with_base_url --- *)
@@ -420,27 +610,7 @@ let test_with_mcp_clients () =
   Alcotest.(check int) "mcp_clients" 0 (List.length (Agent.options agent).mcp_clients)
 ;;
 
-(* --- 17. with_guardrails --- *)
-
-let test_with_guardrails () =
-  with_net
-  @@ fun net ->
-  let guardrails : Guardrails.t =
-    { tool_filter = Guardrails.AllowList [ "safe" ]; max_tool_calls_per_turn = Some 3 }
-  in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_guardrails guardrails
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "max_tool_calls set"
-    true
-    ((Agent.options agent).guardrails.max_tool_calls_per_turn = Some 3)
-;;
-
-(* --- 18. with_contract composes prompt --- *)
+(* --- 17. with_contract composes prompt --- *)
 
 let test_with_contract_composes_prompt () =
   with_net
@@ -523,29 +693,7 @@ let test_with_skill_appends_prompt () =
     (contains_substring ~needle:"State concrete findings first." prompt)
 ;;
 
-(* --- 20. with_tool_grants filters tools --- *)
-
-let test_with_tool_grants_filters_tools () =
-  with_net
-  @@ fun net ->
-  let t1 = make_tool "alpha" in
-  let t2 = make_tool "beta" in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_tool t1
-    |> Builder.with_tool t2
-    |> Builder.with_tool_grants [ "beta" ]
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check int) "tool count" 1 (Tool_set.size (Agent.tools agent));
-  Alcotest.(check string)
-    "filtered tool name"
-    "beta"
-    (List.hd (Tool_set.to_list (Agent.tools agent))).schema.name
-;;
-
-(* --- 21. with_contract injects context metadata --- *)
+(* --- 20. with_contract injects context metadata --- *)
 
 let test_with_contract_injects_context_metadata () =
   with_net
@@ -617,137 +765,21 @@ let test_with_thinking_budget () =
     (Agent.state agent).config.thinking_budget
 ;;
 
-(** Probe message large enough to push [from_context_config]'s dynamic strategy
-    into its budgeted branch for the context sizes covered below. *)
-let context_budget_probe_messages =
-  [ { Types.role = Types.User
-    ; content = [ Types.Text (String.make 1_200_000 'x') ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  ]
-;;
-
-(** Extract the [Token_budget] value from reducer strategies produced by
-    [Context_reducer.from_context_config]. Returns [None] if not found. *)
-let extract_token_budget reducer =
-  let cache = Context_reducer.create_estimate_cache () in
-  let rec loop strategy =
-    match strategy with
-    | Context_reducer.Token_budget n -> Some n
-    | Context_reducer.Dynamic selector ->
-      loop (selector ~cache ~turn:1 ~messages:context_budget_probe_messages)
-    | Context_reducer.Compose strategies -> List.find_map loop strategies
-    | _ -> None
-  in
-  loop reducer.Context_reducer.strategy
-;;
-
-(* --- 26. with_context_thresholds: explicit context_window_tokens --- *)
-
-let test_with_context_thresholds_explicit () =
+let test_with_reasoning_effort () =
   with_net
   @@ fun net ->
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_context_thresholds ~compact_ratio:0.5 ~context_window_tokens:262144
+    |> Builder.with_reasoning_effort Llm_provider.Reasoning_effort.Max
     |> Builder.build_safe
     |> Result.get_ok
   in
-  let reducer = Option.get (Agent.options agent).context_reducer in
-  (* budget = 262144 * 0.5 = 131072 *)
-  Alcotest.(check (option int))
-    "explicit context_window_tokens budget"
-    (Some 131072)
-    (extract_token_budget reducer);
-  Alcotest.(check (option (float 0.0)))
-    "stores compact ratio"
-    (Some 0.5)
-    (Agent.state agent).config.context_compact_ratio
-;;
-
-(* --- 30. with_context_thresholds: default fallback 200_000 --- *)
-
-let test_with_context_thresholds_default_fallback () =
-  with_net
-  @@ fun net ->
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_context_thresholds ~compact_ratio:0.5
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  let reducer = Option.get (Agent.options agent).context_reducer in
-  (* No provider set and no explicit tokens — falls through to the
-     literal 200_000 final fallback. budget = 200_000 * 0.5 = 100_000 *)
-  Alcotest.(check (option int))
-    "default fallback 200_000 budget"
-    (Some 100_000)
-    (extract_token_budget reducer)
-;;
-
-(* --- 30b. with_context_thresholds: fallback via provider capabilities --- *)
-
-let test_with_context_thresholds_fallback_from_provider () =
-  with_net
-  @@ fun net ->
-  (* Construct a Provider.config whose provider has a distinctive declared
-     max_context_tokens. The built-in Kimi provider resolves to 256K. *)
-  let provider : Provider.config =
-    Provider.custom_provider ~name:"kimi" ~model_id:"kimi-k2.7-code" ()
-  in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_provider provider
-    |> Builder.with_context_thresholds ~compact_ratio:0.5
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  let reducer = Option.get (Agent.options agent).context_reducer in
-  (* No explicit input/total tokens on the builder, so resolution
-     falls through to the provider-capability branch. Kimi →
-     max_context_tokens = 256_000, budget = 256_000 * 0.5 = 128_000 *)
-  Alcotest.(check (option int))
-    "provider-derived fallback budget"
-    (Some 128_000)
-    (extract_token_budget reducer)
-;;
-
-(* --- 31. with_context_thresholds: zero/negative context_window_tokens ignored --- *)
-
-let test_with_context_thresholds_invalid_ignored () =
-  with_net
-  @@ fun net ->
-  (* The built-in Kimi provider yields a known max_context_tokens (256K); an explicit
-     [context_window_tokens:0] must be ignored, so the budget falls through to
-     the provider-derived value (256K * 0.5 = 128_000) rather than 0. *)
-  let provider : Provider.config =
-    Provider.custom_provider ~name:"kimi" ~model_id:"kimi-k2.7-code" ()
-  in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_provider provider
-    |> Builder.with_context_thresholds ~compact_ratio:0.5 ~context_window_tokens:0
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  let reducer = Option.get (Agent.options agent).context_reducer in
-  Alcotest.(check (option int))
-    "zero context_window_tokens ignored; provider fallback"
-    (Some 128_000)
-    (extract_token_budget reducer)
-;;
-
-let test_with_context_thresholds_invalid_compact_ratio_rejected () =
-  with_net
-  @@ fun net ->
-  match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_context_thresholds ~compact_ratio:1.0
-  with
-  | exception Invalid_argument _ -> ()
-  | _ -> Alcotest.fail "expected Invalid_argument for compact_ratio >= 1.0"
+  Alcotest.(check (option string))
+    "reasoning_effort"
+    (Some "max")
+    (Option.map
+       Llm_provider.Reasoning_effort.to_string
+       (Agent.state agent).config.reasoning_effort)
 ;;
 
 (* --- 26. build produces valid agent --- *)
@@ -760,17 +792,15 @@ let test_build_produces_valid_agent () =
     |> Builder.with_name "full-agent"
     |> Builder.with_system_prompt "Be concise."
     |> Builder.with_max_tokens 2048
-    |> Builder.with_max_turns 5
     |> Builder.with_temperature 0.3
     |> Builder.build_safe
     |> Result.get_ok
   in
   let cfg = (Agent.state agent).config in
   Alcotest.(check string) "name" "full-agent" cfg.name;
-  check_model "model" "claude-opus-4-5-20251101" cfg.model;
+  check_model "model" "claude-opus-4-5" cfg.model;
   Alcotest.(check (option string)) "system_prompt" (Some "Be concise.") cfg.system_prompt;
   Alcotest.(check (option int)) "max_tokens" (Some 2048) cfg.max_tokens;
-  Alcotest.(check int) "max_turns" 5 cfg.max_turns;
   Alcotest.(check (option (float 0.001))) "temperature" (Some 0.3) cfg.temperature;
   Alcotest.(check int) "messages empty" 0 (List.length (Agent.state agent).messages);
   Alcotest.(check int) "turn_count zero" 0 (Agent.state agent).turn_count;
@@ -789,13 +819,10 @@ let test_chain_multiple () =
     |> Builder.with_name "chained"
     |> Builder.with_system_prompt "system"
     |> Builder.with_max_tokens 1024
-    |> Builder.with_max_turns 3
     |> Builder.with_temperature 0.5
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.with_base_url "http://test:9090"
-    |> Builder.with_max_idle_turns 3
-    |> Builder.with_idle_final_warning_at 2
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 5000
     |> Builder.build_safe
@@ -806,14 +833,8 @@ let test_chain_multiple () =
     "max_tokens"
     (Some 1024)
     (Agent.state agent).config.max_tokens;
-  Alcotest.(check int) "max_turns" 3 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
-  Alcotest.(check int) "max_idle_turns" 3 (Agent.options agent).max_idle_turns;
-  Alcotest.(check (option int))
-    "idle_final_warning_at"
-    (Some 2)
-    (Agent.options agent).idle_final_warning_at;
   Alcotest.(check (option int))
     "thinking_budget"
     (Some 5000)
@@ -842,14 +863,15 @@ let test_defaults_match_agent_create () =
   let builder_agent =
     Builder.create ~net ~model:"claude-sonnet-4-6" |> Builder.build_safe |> Result.get_ok
   in
-  let direct_agent = Agent.create ~net () in
+  let direct_agent =
+    Agent.create ~config:(Types.default_config ~model:"claude-sonnet-4-6") ~net ()
+  in
   let bc = (Agent.state builder_agent).config in
   let dc = (Agent.state direct_agent).config in
   Alcotest.(check string) "name" dc.name bc.name;
   check_model "model" dc.model bc.model;
   Alcotest.(check (option string)) "system_prompt" dc.system_prompt bc.system_prompt;
   Alcotest.(check (option int)) "max_tokens" dc.max_tokens bc.max_tokens;
-  Alcotest.(check int) "max_turns" dc.max_turns bc.max_turns;
   Alcotest.(check (option (float 0.001))) "temperature" dc.temperature bc.temperature;
   Alcotest.(check string)
     "response_format"
@@ -899,10 +921,9 @@ let test_build_minimal_required_only () =
   let agent =
     Builder.create ~net ~model:"claude-3-7-sonnet" |> Builder.build_safe |> Result.get_ok
   in
-  check_model "model" "claude-3-7-sonnet-20250219" (Agent.state agent).config.model;
+  check_model "model" "claude-3-7-sonnet" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
   Alcotest.(check (option int)) "max_tokens" None (Agent.state agent).config.max_tokens;
-  Alcotest.(check int) "max_turns" 0 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string)
     "base_url"
@@ -920,62 +941,41 @@ let () =
       , [ Alcotest.test_case "system_prompt" `Quick test_with_system_prompt
         ; Alcotest.test_case "name" `Quick test_with_name
         ; Alcotest.test_case "max_tokens" `Quick test_with_max_tokens
-        ; Alcotest.test_case "max_turns" `Quick test_with_max_turns
-        ; Alcotest.test_case "without turn limit" `Quick test_without_turn_limit
         ; Alcotest.test_case "temperature" `Quick test_with_temperature
         ; Alcotest.test_case "dashscope sampling" `Quick test_with_provider_m_sampling
         ; Alcotest.test_case "tools replaces" `Quick test_with_tools_replaces
         ; Alcotest.test_case "tool appends" `Quick test_with_tool_appends
         ; Alcotest.test_case "hooks" `Quick test_with_hooks
         ; Alcotest.test_case "tracer" `Quick test_with_tracer
-        ; Alcotest.test_case "approval" `Quick test_with_approval
-        ; Alcotest.test_case
-            "missing approval callback policy"
-            `Quick
-            test_with_missing_approval_callback_policy
-        ; Alcotest.test_case "context_reducer" `Quick test_with_context_reducer
-        ; Alcotest.test_case "summarizer" `Quick test_with_summarizer
         ; Alcotest.test_case "transport" `Quick test_with_transport
         ; Alcotest.test_case "context" `Quick test_with_context
         ; Alcotest.test_case "provider" `Quick test_with_provider
+        ; Alcotest.test_case
+            "exact provider config reaches dispatch losslessly"
+            `Quick
+            test_with_provider_config_reaches_dispatch_losslessly
+        ; Alcotest.test_case
+            "handoff inherits injected transport"
+            `Quick
+            test_handoff_inherits_injected_transport
+        ; Alcotest.test_case
+            "provider selection last setter wins"
+            `Quick
+            test_provider_selection_last_setter_wins
         ; Alcotest.test_case "base_url" `Quick test_with_base_url
         ; Alcotest.test_case "mcp_clients" `Quick test_with_mcp_clients
-        ; Alcotest.test_case "guardrails" `Quick test_with_guardrails
         ; Alcotest.test_case
             "contract composes prompt"
             `Quick
             test_with_contract_composes_prompt
         ; Alcotest.test_case "skill appends prompt" `Quick test_with_skill_appends_prompt
         ; Alcotest.test_case
-            "tool grants filter tools"
-            `Quick
-            test_with_tool_grants_filters_tools
-        ; Alcotest.test_case
             "contract injects context metadata"
             `Quick
             test_with_contract_injects_context_metadata
         ; Alcotest.test_case "tool_choice" `Quick test_with_tool_choice
         ; Alcotest.test_case "thinking_budget" `Quick test_with_thinking_budget
-        ; Alcotest.test_case
-            "context_thresholds explicit"
-            `Quick
-            test_with_context_thresholds_explicit
-        ; Alcotest.test_case
-            "context_thresholds default fallback"
-            `Quick
-            test_with_context_thresholds_default_fallback
-        ; Alcotest.test_case
-            "context_thresholds fallback from provider"
-            `Quick
-            test_with_context_thresholds_fallback_from_provider
-        ; Alcotest.test_case
-            "context_thresholds invalid ignored"
-            `Quick
-            test_with_context_thresholds_invalid_ignored
-        ; Alcotest.test_case
-            "context_thresholds invalid compact ratio rejected"
-            `Quick
-            test_with_context_thresholds_invalid_compact_ratio_rejected
+        ; Alcotest.test_case "reasoning_effort" `Quick test_with_reasoning_effort
         ] )
     ; ( "build"
       , [ Alcotest.test_case "valid agent" `Quick test_build_produces_valid_agent

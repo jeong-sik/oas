@@ -58,18 +58,18 @@ let result_usage = function
 ;;
 
 let trajectory_of_trace_ref = function
-  | None -> None
+  | None -> Ok None
   | Some (trace_ref : Raw_trace.run_ref) ->
     (match Raw_trace.read_all ~path:trace_ref.path () with
-     | Ok records -> Some (Trajectory.of_raw_trace_records records)
-     | Error _ -> None)
+     | Ok records -> Ok (Some (Trajectory.of_raw_trace_records records))
+     | Error error -> Error error)
 ;;
 
 let observation_of_trajectory (trajectory : Trajectory.trajectory) =
   let tools_called = trajectory.steps |> List.filter_map trajectory_tool_name in
   let _, _, _, respond_count = Trajectory.count_steps trajectory in
   { Harness.Behavioral.tools_called
-  ; turn_count = max 1 respond_count
+  ; turn_count = respond_count
   ; final_response = final_response_of_trajectory trajectory
   ; messages = []
   }
@@ -175,15 +175,6 @@ let trace_verdict
       ; Printf.sprintf "actual_tool_calls=%d" actual
       ]
       ~detail:(if passed then None else Some "tool call count mismatch")
-  | Harness_case.Max_turns expected ->
-    let passed = obs.turn_count <= expected in
-    mk_verdict
-      ~score:(if passed then 1.0 else 0.0)
-      passed
-      [ Printf.sprintf "max_turns=%d" expected
-      ; Printf.sprintf "actual_turns=%d" obs.turn_count
-      ]
-      ~detail:(if passed then None else Some "turn limit exceeded")
 ;;
 
 let compare_numeric_threshold ~goal ~target ~tolerance_pct current =
@@ -444,20 +435,27 @@ let run_case ~sw ~clock ~build_agent (case_ : Harness_case.t) =
   | Ok agent ->
     let run_result = Consumer.run_agent ~sw ~clock agent case_.prompt in
     let obs = Harness.Behavioral.observe agent run_result.response in
-    let trajectory = trajectory_of_trace_ref run_result.trace_ref in
     let raw_trace_path =
       match run_result.trace_ref with
       | Some trace_ref -> Some trace_ref.path
       | None -> case_.source_trace_path
     in
-    grade_case
-      ~agent_name:(Agent.card agent).Agent_card.name
-      ~elapsed:run_result.elapsed
-      ~response:run_result.response
-      ~observation:obs
-      ?trajectory
-      ?raw_trace_path
-      case_
+    (match trajectory_of_trace_ref run_result.trace_ref with
+     | Error error ->
+       case_failure
+         case_
+         ~detail:(Printf.sprintf "raw trace read failed: %s" (Error.to_string error))
+         ~response_text:(response_text_of_result run_result.response)
+         ?raw_trace_path
+     | Ok trajectory ->
+       grade_case
+         ~agent_name:(Agent.card agent).Agent_card.name
+         ~elapsed:run_result.elapsed
+         ~response:run_result.response
+         ~observation:obs
+         ?trajectory
+         ?raw_trace_path
+         case_)
 ;;
 
 let run_dataset_mixed ?run_fixture cases =

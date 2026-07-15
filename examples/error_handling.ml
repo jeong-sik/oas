@@ -59,10 +59,9 @@ let () =
   @@ fun sw ->
   let options = { Agent.default_options with hooks = error_hooks } in
   let config =
-    { default_config with
+    { (default_config ~model:"claude-sonnet-4-6") with
       name = "error-demo"
     ; system_prompt = Some "Try to read /tmp/nonexistent.txt."
-    ; max_turns = 3
     }
   in
   let agent = Agent.create ~net:env#net ~config ~options ~tools:[ fragile_tool ] () in

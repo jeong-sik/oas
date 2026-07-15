@@ -53,16 +53,6 @@ let test_merge_last_writer_wins () =
   | Some found -> Alcotest.(check string) "right wins" "v2_y" found.schema.description
 ;;
 
-let test_filter () =
-  let s = Tool_set.of_list [ make_tool "allow_me"; make_tool "deny_me" ] in
-  let g =
-    Guardrails.{ tool_filter = AllowList [ "allow_me" ]; max_tool_calls_per_turn = None }
-  in
-  let filtered = Tool_set.filter g s in
-  Alcotest.(check int) "filtered size" 1 (Tool_set.size filtered);
-  Alcotest.(check (list string)) "filtered names" [ "allow_me" ] (Tool_set.names filtered)
-;;
-
 let test_validate_ok () =
   let s = Tool_set.of_list [ make_tool "a"; make_tool "b" ] in
   match Tool_set.validate s with
@@ -165,7 +155,6 @@ let () =
         ; Alcotest.test_case "singleton" `Quick test_singleton
         ; Alcotest.test_case "of_list dedup" `Quick test_of_list_dedup
         ; Alcotest.test_case "merge last-writer-wins" `Quick test_merge_last_writer_wins
-        ; Alcotest.test_case "filter" `Quick test_filter
         ; Alcotest.test_case "validate ok" `Quick test_validate_ok
         ; Alcotest.test_case "concat" `Quick test_concat
         ] )

@@ -8,15 +8,13 @@
 
 type transport =
   | Http
-  | Managed
   | Injected
 
 type t
 
-(** Resolve the transport identity for one concrete call.  Catalog-declared
-    managed transports remain [Managed].  An explicitly injected transport for
-    an HTTP/unregistered binding is [Injected]; otherwise it is [Http]. *)
-val transport_for_call : injected:bool -> Llm_provider.Provider_config.t -> transport
+(** Resolve the transport identity for one concrete call. An explicitly
+    injected transport is [Injected]; otherwise it is [Http]. *)
+val transport_for_call : injected:bool -> transport
 
 (** Construct an immutable identity from a resolved config. *)
 val of_provider_config : transport:transport -> Llm_provider.Provider_config.t -> t

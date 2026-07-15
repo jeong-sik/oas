@@ -83,7 +83,7 @@ let mk_response
 ;;
 
 (* ═══════════════════════════════════════════════════
-   1. Complete — gemini_url, is_retryable, default_retry_config
+   1. Complete — Gemini URL construction
    ═══════════════════════════════════════════════════ *)
 
 let test_gemini_url_sync_no_key () =
@@ -142,85 +142,6 @@ let test_gemini_url_stream_no_key () =
   in
   let url = Complete.gemini_url ~config ~stream:true in
   Alcotest.(check string) "stream no key" (gemini25_url ~stream:true ()) url
-;;
-
-let test_is_retryable_429 () =
-  Alcotest.(check bool)
-    "429 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 429; body = "" }))
-;;
-
-let test_is_retryable_500 () =
-  Alcotest.(check bool)
-    "500 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 500; body = "" }))
-;;
-
-let test_is_retryable_502 () =
-  Alcotest.(check bool)
-    "502 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 502; body = "" }))
-;;
-
-let test_is_retryable_503 () =
-  Alcotest.(check bool)
-    "503 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 503; body = "" }))
-;;
-
-let test_is_retryable_529 () =
-  Alcotest.(check bool)
-    "529 retryable"
-    true
-    (Complete.is_retryable (Http_client.HttpError { code = 529; body = "" }))
-;;
-
-let test_is_retryable_400 () =
-  Alcotest.(check bool)
-    "400 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 400; body = "" }))
-;;
-
-let test_is_retryable_401 () =
-  Alcotest.(check bool)
-    "401 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 401; body = "" }))
-;;
-
-let test_is_retryable_403 () =
-  Alcotest.(check bool)
-    "403 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 403; body = "" }))
-;;
-
-let test_is_retryable_404 () =
-  Alcotest.(check bool)
-    "404 not retryable"
-    false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
-;;
-
-let test_is_retryable_network () =
-  Alcotest.(check bool)
-    "network always retryable"
-    true
-    (Complete.is_retryable
-       (Http_client.NetworkError { message = "refused"; kind = Unknown }))
-;;
-
-let test_default_retry_config () =
-  let c = Complete.default_retry_config in
-  Alcotest.(check int) "max_retries" 3 c.max_retries;
-  Alcotest.(check (float 0.01)) "initial_delay" 1.0 c.initial_delay_sec;
-  Alcotest.(check (float 0.01)) "max_delay" 30.0 c.max_delay_sec;
-  Alcotest.(check (float 0.01)) "backoff" 2.0 c.backoff_multiplier
 ;;
 
 (* ═══════════════════════════════════════════════════
@@ -813,84 +734,29 @@ let test_build_request_with_thinking () =
   Alcotest.(check bool) "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
 ;;
 
-let test_build_request_with_thinking_default_budget () =
+let test_build_request_with_thinking_rejects_unspecified_budget () =
   let config =
     make_config ~kind:Gemini ~model_id:gemini25_flash_model ~enable_thinking:true ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] ()
-  in
-  let json = Yojson.Safe.from_string body_str in
-  let open Yojson.Safe.Util in
-  let gc = json |> member "generationConfig" in
-  let tc = gc |> member "thinkingConfig" in
-  Alcotest.(check int)
-    "default thinkingBudget"
-    (Constants.Thinking.gemini_budget ())
-    (tc |> member "thinkingBudget" |> to_int)
+  match Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] () with
+  | _ -> Alcotest.fail "expected explicit thinking budget rejection"
+  | exception Invalid_argument message ->
+    Alcotest.(check string)
+      "rejection"
+      "Backend_gemini.build_request: enable_thinking=true on a thinkingBudget wire \
+       requires an explicit thinking_budget"
+      message
 ;;
-
-let with_env name value f =
-  let saved = Sys.getenv_opt name in
-  (match value with
-   | Some v -> Unix.putenv name v
-   | None -> Unix.putenv name "");
-  Fun.protect
-    ~finally:(fun () ->
-      match saved with
-      | Some v -> Unix.putenv name v
-      | None -> Unix.putenv name "")
-    f
-;;
-
-let getenv_from pairs name = List.assoc_opt name pairs
 
 let test_constants_http_code_sets () =
-  Alcotest.(check (list int))
-    "retryable"
-    [ 429; 500; 502; 503; 529 ]
-    Constants.Http.retryable_codes;
   Alcotest.(check (list int))
     "cascadable"
     [ 401; 403; 429; 498; 500; 502; 503; 529 ]
     Constants.Http.cascadable_codes
 ;;
 
-let test_constants_inference_profiles () =
-  let check_profile label expected_temp expected_max profile =
-    Alcotest.(check (float 0.001))
-      (label ^ " temp")
-      expected_temp
-      profile.Constants.Inference_profile.temperature;
-    Alcotest.(check int) (label ^ " max") expected_max profile.max_tokens;
-    Alcotest.(check (option (float 0.001))) (label ^ " top_p") None profile.top_p;
-    Alcotest.(check (option int)) (label ^ " top_k") None profile.top_k;
-    Alcotest.(check (option (float 0.001))) (label ^ " min_p") None profile.min_p
-  in
-  check_profile "coordinator" 0.3 500 Constants.Inference_profile.coordinator_default;
-  check_profile "cascade alias" 0.3 500 Constants.Inference_profile.cascade_default;
-  Alcotest.(check bool)
-    "cascade_default aliases coordinator_default"
-    true
-    (Constants.Inference_profile.cascade_default
-     = Constants.Inference_profile.coordinator_default);
-  check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
-  check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
-  check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;
-  check_profile "deterministic" 0.0 4096 Constants.Inference_profile.deterministic
-;;
-
-let test_constants_retry_cache_sampling_and_endpoints () =
+let test_constants_cache_truncation_and_endpoints () =
   Alcotest.(check int) "cache ttl" 300 Constants.Cache.default_ttl_sec;
-  Alcotest.(check int) "retry max" 3 Constants.Retry.max_retries;
-  Alcotest.(check (float 0.001)) "retry initial" 1.0 Constants.Retry.initial_delay_sec;
-  Alcotest.(check (float 0.001)) "retry max delay" 30.0 Constants.Retry.max_delay_sec;
-  Alcotest.(check int) "structured max" 3 Constants.Structured_retry.max_retries;
-  Alcotest.(check (float 0.001))
-    "structured max delay"
-    60.0
-    Constants.Structured_retry.max_delay;
-  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.openai_compat_min_p;
   Alcotest.(check int) "truncate" 200 Constants.Truncation.max_error_body_length;
   Alcotest.(check int) "llama port" 8085 Constants.Endpoints.default_llama_port;
   Alcotest.(check string)
@@ -900,57 +766,7 @@ let test_constants_retry_cache_sampling_and_endpoints () =
   Alcotest.(check string)
     "localhost url"
     "http://localhost:8085"
-    Constants.Endpoints.default_url_localhost;
-  Alcotest.(check int) "chars per token" 4 Constants.Token_estimation.chars_per_token
-;;
-
-let test_constants_env_helpers () =
-  let getenv =
-    getenv_from
-      [ Constants.Env.thinking_budget_default, "4096"
-      ; Constants.Env.anthropic_thinking_budget, "2048"
-      ; Constants.Env.gemini_thinking_budget, "3072"
-      ; Constants.Env.default_seed, "123"
-      ]
-  in
-  Alcotest.(check int)
-    "default thinking env override"
-    4096
-    (Constants.Thinking.default_budget_for_env ~getenv ());
-  Alcotest.(check int)
-    "anthropic provider override"
-    2048
-    (Constants.Thinking.anthropic_budget ~getenv ());
-  Alcotest.(check int)
-    "gemini provider override"
-    3072
-    (Constants.Thinking.gemini_budget ~getenv ());
-  Alcotest.(check (option int))
-    "seed env override"
-    (Some 123)
-    (Constants.Deterministic.seed_of_env ~getenv ());
-  let invalid_getenv = getenv_from [ Constants.Env.default_seed, "not-an-int" ] in
-  Alcotest.(check (option int))
-    "seed invalid"
-    None
-    (Constants.Deterministic.seed_of_env ~getenv:invalid_getenv ());
-  with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "4096") (fun () ->
-    Alcotest.(check (option int))
-      "env budget valid"
-      (Some 4096)
-      (Constants.Thinking.env_budget Constants.Env.thinking_budget_default));
-  with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "0") (fun () ->
-    Alcotest.(check (option int))
-      "env budget zero invalid"
-      None
-      (Constants.Thinking.env_budget Constants.Env.thinking_budget_default));
-  with_env "OAS_ANTHROPIC_THINKING_BUDGET" (Some "2048") (fun () ->
-    Alcotest.(check int)
-      "anthropic override"
-      2048
-      (Constants.Thinking.anthropic_budget ()));
-  with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
-    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()))
+    Constants.Endpoints.default_url_localhost
 ;;
 
 let test_slot_cache_helpers () =
@@ -974,58 +790,6 @@ let test_slot_cache_helpers () =
        Slot_cache.cleanup_file ~filename ~save_dir:dir;
        Alcotest.(check bool) "file removed" false (Sys.file_exists path);
        Slot_cache.cleanup_file ~filename:"missing.bin" ~save_dir:dir)
-;;
-
-let test_llm_transport_runtime_mcp_policy_json () =
-  let stdio =
-    Llm_transport.Stdio_server
-      { name = "local"
-      ; command = "python"
-      ; args = [ "-m"; "server" ]
-      ; env = [ "TOKEN", "redacted" ]
-      }
-  in
-  let http =
-    Llm_transport.Http_server
-      { name = "remote"
-      ; url = "http://127.0.0.1:8931/mcp"
-      ; headers = [ "Authorization", "Bearer token" ]
-      }
-  in
-  Alcotest.(check string)
-    "stdio name"
-    "local"
-    (Llm_transport.runtime_mcp_server_name stdio);
-  Alcotest.(check string)
-    "http name"
-    "remote"
-    (Llm_transport.runtime_mcp_server_name http);
-  let policy =
-    { Llm_transport.servers = [ stdio; http ]
-    ; allowed_server_names = [ "local"; "remote" ]
-    ; allowed_tool_names = [ "read"; "write" ]
-    ; permission_mode = Some "ask"
-    ; approval_mode = Some "manual"
-    ; strict = false
-    ; disable_builtin_tools = true
-    }
-  in
-  let json = Llm_transport.runtime_mcp_policy_to_yojson policy in
-  let open Yojson.Safe.Util in
-  Alcotest.(check int)
-    "server count"
-    2
-    (json |> member "servers" |> to_list |> List.length);
-  Alcotest.(check string)
-    "permission"
-    "ask"
-    (json |> member "permission_mode" |> to_string);
-  Alcotest.(check string) "approval" "manual" (json |> member "approval_mode" |> to_string);
-  Alcotest.(check bool) "strict" false (json |> member "strict" |> to_bool);
-  Alcotest.(check bool)
-    "disable builtins"
-    true
-    (json |> member "disable_builtin_tools" |> to_bool)
 ;;
 
 let test_build_request_json_mode () =
@@ -1790,8 +1554,12 @@ let test_for_model_id_llama4_alt () =
   | None -> Alcotest.fail "expected Some for llama4"
 ;;
 
-let test_for_model_id_deepseek_v4_flash () =
-  match Capabilities.for_model_id "deepseek-v4-flash" with
+let provider_model_capabilities provider_label model_id =
+  Capabilities.for_provider_model_id ~allow_bare_fallback:false ~provider_label ~model_id
+;;
+
+let test_for_provider_model_deepseek_v4_flash () =
+  match provider_model_capabilities "deepseek" "deepseek-v4-flash" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1805,8 +1573,8 @@ let test_for_model_id_deepseek_v4_flash () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
 
-let test_for_model_id_deepseek_v4_pro () =
-  match Capabilities.for_model_id "deepseek-v4-pro" with
+let test_for_provider_model_deepseek_v4_pro () =
+  match provider_model_capabilities "deepseek" "deepseek-v4-pro" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
@@ -1820,32 +1588,32 @@ let test_for_model_id_deepseek_v4_pro () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;
 
-let test_for_model_id_mistral_large () =
-  match Capabilities.for_model_id "mistral-large-2025" with
+let test_for_provider_model_mistral_large () =
+  match provider_model_capabilities "mistral" "mistral-large" with
   | Some c ->
     Alcotest.(check bool) "structured" true c.supports_structured_output;
     Alcotest.(check (option int)) "260K context" (Some 260_000) c.max_context_tokens
   | None -> Alcotest.fail "expected Some for mistral-large"
 ;;
 
-let test_for_model_id_mistral_small () =
-  match Capabilities.for_model_id "mistral-small-latest" with
+let test_for_provider_model_mistral_small () =
+  match provider_model_capabilities "mistral" "mistral-small" with
   | Some c ->
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens
   | None -> Alcotest.fail "expected Some for mistral-small"
 ;;
 
-let test_for_model_id_command () =
-  match Capabilities.for_model_id "command-r-plus" with
+let test_for_provider_model_command () =
+  match provider_model_capabilities "cohere" "command-r-plus" with
   | Some c ->
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens;
     Alcotest.(check (option int)) "32K output" (Some 32_000) c.max_output_tokens
   | None -> Alcotest.fail "expected Some for command"
 ;;
 
-let test_for_model_id_grok () =
-  match Capabilities.for_model_id "grok-4.3" with
+let test_for_provider_model_grok () =
+  match provider_model_capabilities "xai" "grok-4.3" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning
@@ -1974,20 +1742,6 @@ let () =
         ; Alcotest.test_case "stream with key" `Quick test_gemini_url_stream_with_key
         ; Alcotest.test_case "stream no key" `Quick test_gemini_url_stream_no_key
         ] )
-    ; ( "complete.is_retryable"
-      , [ Alcotest.test_case "429" `Quick test_is_retryable_429
-        ; Alcotest.test_case "500" `Quick test_is_retryable_500
-        ; Alcotest.test_case "502" `Quick test_is_retryable_502
-        ; Alcotest.test_case "503" `Quick test_is_retryable_503
-        ; Alcotest.test_case "529" `Quick test_is_retryable_529
-        ; Alcotest.test_case "400" `Quick test_is_retryable_400
-        ; Alcotest.test_case "401" `Quick test_is_retryable_401
-        ; Alcotest.test_case "403" `Quick test_is_retryable_403
-        ; Alcotest.test_case "404" `Quick test_is_retryable_404
-        ; Alcotest.test_case "network" `Quick test_is_retryable_network
-        ] )
-    ; ( "complete.retry_config"
-      , [ Alcotest.test_case "defaults" `Quick test_default_retry_config ] )
     ; ( "api_common.constants"
       , [ Alcotest.test_case "default_base_url" `Quick test_default_base_url
         ; Alcotest.test_case "api_version" `Quick test_api_version
@@ -2082,9 +1836,9 @@ let () =
             test_build_request_with_system_prompt
         ; Alcotest.test_case "with thinking" `Quick test_build_request_with_thinking
         ; Alcotest.test_case
-            "thinking default budget"
+            "thinking rejects unspecified budget"
             `Quick
-            test_build_request_with_thinking_default_budget
+            test_build_request_with_thinking_rejects_unspecified_budget
         ; Alcotest.test_case "json mode" `Quick test_build_request_json_mode
         ; Alcotest.test_case "with tools" `Quick test_build_request_with_tools
         ; Alcotest.test_case "tool_choice auto" `Quick test_build_request_tool_choice_auto
@@ -2098,20 +1852,12 @@ let () =
         ] )
     ; ( "constants"
       , [ Alcotest.test_case "http code sets" `Quick test_constants_http_code_sets
-        ; Alcotest.test_case "inference profiles" `Quick test_constants_inference_profiles
         ; Alcotest.test_case
-            "retry cache sampling endpoints"
+            "cache truncation endpoints"
             `Quick
-            test_constants_retry_cache_sampling_and_endpoints
-        ; Alcotest.test_case "env helpers" `Quick test_constants_env_helpers
+            test_constants_cache_truncation_and_endpoints
         ] )
     ; "slot_cache", [ Alcotest.test_case "file helpers" `Quick test_slot_cache_helpers ]
-    ; ( "llm_transport"
-      , [ Alcotest.test_case
-            "runtime mcp policy json"
-            `Quick
-            test_llm_transport_runtime_mcp_policy_json
-        ] )
     ; ( "backend_gemini.parse_response"
       , [ Alcotest.test_case "basic" `Quick test_parse_response_basic
         ; Alcotest.test_case "with thinking" `Quick test_parse_response_with_thinking
@@ -2192,18 +1938,29 @@ let () =
         ; Alcotest.test_case "dashscope-3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
-        ; Alcotest.test_case
-            "deepseek-v4-flash"
-            `Quick
-            test_for_model_id_deepseek_v4_flash
-        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_deepseek_v4_pro
-        ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_mistral_large
-        ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_mistral_small
-        ; Alcotest.test_case "command" `Quick test_for_model_id_command
-        ; Alcotest.test_case "grok" `Quick test_for_model_id_grok
         ; Alcotest.test_case "glm" `Quick test_for_model_id_glm
         ; Alcotest.test_case "unknown" `Quick test_for_model_id_unknown
         ; Alcotest.test_case "case insensitive" `Quick test_for_model_id_case_insensitive
+        ] )
+    ; ( "capabilities.for_provider_model_id"
+      , [ Alcotest.test_case
+            "deepseek/deepseek-v4-flash"
+            `Quick
+            test_for_provider_model_deepseek_v4_flash
+        ; Alcotest.test_case
+            "deepseek/deepseek-v4-pro"
+            `Quick
+            test_for_provider_model_deepseek_v4_pro
+        ; Alcotest.test_case
+            "mistral/mistral-large"
+            `Quick
+            test_for_provider_model_mistral_large
+        ; Alcotest.test_case
+            "mistral/mistral-small"
+            `Quick
+            test_for_provider_model_mistral_small
+        ; Alcotest.test_case "cohere/command" `Quick test_for_provider_model_command
+        ; Alcotest.test_case "xai/grok" `Quick test_for_provider_model_grok
         ] )
     ; ( "capabilities.with_context_size"
       , [ Alcotest.test_case "set" `Quick test_with_context_size

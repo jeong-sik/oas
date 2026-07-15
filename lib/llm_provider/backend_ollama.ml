@@ -14,7 +14,6 @@ type request_artifact = string Request_artifact_internal.t
 let request_payload = Request_artifact_internal.payload
 let request_output_token_receipt = Request_artifact_internal.output_token_receipt
 let ( let* ) = Result.bind
-let keep_alive_env_var = "OAS_OLLAMA_KEEP_ALIVE"
 
 (* ── Request building ────────────────────────────────── *)
 
@@ -33,11 +32,7 @@ let build_request_artifact
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let think_requested =
-    Backend_openai_serialize.thinking_requested
-      ~default:(Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT")
-      config
-  in
+  let think_requested = Option.value config.enable_thinking ~default:false in
   let caps =
     match Provider_config.capabilities_for_config_model config with
     | Some c -> c
@@ -65,7 +60,31 @@ let build_request_artifact
       ~config
       ~caps
   in
-  let messages = Tool_message_pairs.close_for_provider_request messages in
+  let projected_messages =
+    match
+      Reasoning_history_projection.project_for_provider_config
+        ~assistant_has_payload:(fun content -> content <> [])
+        ~reasoning_block_supported:(function
+          | Thinking _ -> true
+          | ReasoningDetails _
+          | RedactedThinking _
+          | Text _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        config
+        messages
+    with
+    | Error error ->
+      invalid_arg
+        ("Backend_ollama.build_request: "
+         ^ Reasoning_history_projection.error_to_string error)
+    | Ok projection ->
+      Reasoning_history_projection.observe ~component:"backend_ollama" projection;
+      projection.messages
+  in
   let provider_messages =
     (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -75,15 +94,11 @@ let build_request_artifact
      | _ -> [])
     @ List.concat_map
         (Backend_openai_serialize.ollama_messages_of_message ~model_id:config.model_id)
-        messages
+        projected_messages
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
-  (* think: false by default for Ollama to prevent thinking models from
-     consuming all tokens in reasoning. Only enable when explicitly requested.
-     Override with OAS_OLLAMA_THINK_DEFAULT=true to enable thinking for all
-     Ollama requests by default.
-
-     Some token-controlled models are the exception: current Ollama rejects
+  (* Emit native thinking control only when the caller supplied it. Some
+     token-controlled models are the exception: current Ollama rejects
      [think:true] even though the model's documented control is a
      chat-template token. For those catalog-declared rows we inject the token
      into the system turn and omit the top-level [think] field so Ollama returns
@@ -91,54 +106,29 @@ let build_request_artifact
   let body =
     if chat_template_token_thinking
     then body
-    else ("think", `Bool think_requested) :: body
+    else (
+      match config.enable_thinking with
+      | Some enabled -> ("think", `Bool enabled) :: body
+      | None -> body)
   in
   (* Ollama defaults to stream=true, so always send explicit value *)
   let body = ("stream", `Bool stream) :: body in
-  (* keep_alive: controls how long the model stays loaded in memory after
-     the request. Ollama's default is 5 minutes, which causes models to be
-     unloaded between automated cycles and re-loaded on demand — slow and
-     eviction-prone when other processes ping different models.
-
-     We default to -1 (permanent) so the caller's pinned model stays
-     resident. Resolution order:
-     1. [config.keep_alive] (routing profile / per-call override; the
-        first-class SSOT a TOML editor reaches for)
-     2. [OAS_OLLAMA_KEEP_ALIVE] env var (operator-wide default)
-     3. SDK default ["-1"] (permanent residency)
-     Accepted values:
-     - integer seconds: "-1", "0", "3600" → sent as [`Int n]
-     - duration strings: "5m", "30m", "24h", "-1m" → sent as [`String v]
-
-     Wire format matters: Ollama parses [keep_alive] in two ways depending
-     on JSON type. Integer [-1] is the documented sentinel for "keep
-     forever" and is always accepted. A string value goes through Go's
-     [time.ParseDuration], which requires a unit suffix — [time.ParseDuration "-1"]
-     fails with "missing unit in duration". Sending the plain string "-1"
-     therefore produces [Invalid request: time: missing unit in duration "-1"]
-     and every automated turn errors out in <2s.
-
-     Empirical rationale:
-     - 2026-04-11 incident 1: a 35b-a3b model was evicted ~every 30 min
-       because each consumer turn reset keep_alive to the 5m default.
-     - 2026-04-11 incident 2: after pinning keep_alive=-1 (PR #813), every
-       ollama request failed with the duration parse error above because
-       -1 was serialized as [`String "-1"]. This fix sends an integer for
-       parseable values and a duration string otherwise. *)
-  let keep_alive_raw =
-    match Cli_common_env.trim_non_empty_opt config.keep_alive with
-    | Some v -> v
-    | None ->
-      (match Cli_common_env.get keep_alive_env_var with
-       | Some v -> v
-       | None -> "-1")
+  (* Ollama accepts [keep_alive] as either integer seconds or a duration
+     string. Preserve caller omission; in particular, permanent residency is
+     an operator policy and is never injected by the SDK. Explicit integer
+     values such as [-1] must use the JSON integer wire form because Ollama
+     parses string values as durations. *)
+  let body =
+    match config.keep_alive with
+    | None -> body
+    | Some value ->
+      let keep_alive_json : Yojson.Safe.t =
+        match int_of_string_opt value with
+        | Some seconds -> `Int seconds
+        | None -> `String value
+      in
+      ("keep_alive", keep_alive_json) :: body
   in
-  let keep_alive_json : Yojson.Safe.t =
-    match int_of_string_opt keep_alive_raw with
-    | Some n -> `Int n
-    | None -> `String keep_alive_raw
-  in
-  let body = ("keep_alive", keep_alive_json) :: body in
   let body =
     match config.output_schema, config.response_format with
     | Some schema, _ -> ("format", schema) :: body
@@ -192,13 +182,23 @@ let build_request_artifact
    | Some _ ->
      Backend_openai.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
    | None -> ());
+  (match caps.supports_seed, config.seed with
+   | true, Some seed -> options := ("seed", `Int seed) :: !options
+   | false, Some _ ->
+     invalid_arg
+       (Printf.sprintf
+          "Backend_ollama.build_request: model %S does not support seed"
+          config.model_id)
+   | true, None | false, None -> ());
   (* num_ctx: per-request KV cache allocation in tokens. Honored by Ollama
-     only. [None] omits the field so Ollama uses its own default
-     (Modelfile-declared or 4096). Profile-level setting; non-positive
-     values are treated as "unset" to keep profile authoring forgiving. *)
+     only. [None] omits the field so Ollama uses its own default. Invalid
+     explicit values fail at the request boundary instead of disappearing. *)
   (match config.num_ctx with
    | Some n when n > 0 -> options := ("num_ctx", `Int n) :: !options
-   | _ -> ());
+   | Some n ->
+     invalid_arg
+       (Printf.sprintf "Backend_ollama.build_request: num_ctx must be positive, got %d" n)
+   | None -> ());
   let body = ("options", `Assoc !options) :: body in
   Request_artifact_internal.create
     ~payload:(Yojson.Safe.to_string (`Assoc body))
@@ -283,15 +283,19 @@ let parse_ollama_response json_str =
   match json |> member "error" with
   | `String s -> Error s
   | `Assoc _ as err -> Error (Yojson.Safe.to_string err)
-  | _ ->
+  | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error "malformed_ollama_error:not_string_or_object"
+  | `Null ->
     let message = json |> member "message" in
     let* text_content, tool_blocks, thinking_blocks =
       match message with
       | `Assoc _ ->
-        let txt =
+        let* txt =
           match message |> member "content" with
-          | `String s -> s
-          | _ -> ""
+          | `String s -> Ok s
+          | `Null -> Ok ""
+          | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+            Error "malformed_ollama_message:content_not_string"
         in
         let* tools = parse_ollama_tool_calls (message |> member "tool_calls") in
         if List.length tools > 1
@@ -300,14 +304,18 @@ let parse_ollama_response json_str =
             "backend_ollama"
             "parsed %d Ollama tool_calls from one assistant response"
             (List.length tools);
-        let thinking =
+        let* thinking =
           match message |> member "thinking" with
           | `String s when not (Api_common.string_is_blank s) ->
-            [ Thinking { signature = None; content = s } ]
-          | _ -> []
+            Ok [ Thinking { signature = None; content = s } ]
+          | `String _ | `Null -> Ok []
+          | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+            Error "malformed_ollama_message:thinking_not_string"
         in
         Ok (txt, tools, thinking)
-      | _ -> Ok ("", [], [])
+      | `Null -> Error "malformed_ollama_response:missing_message"
+      | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+        Error "malformed_ollama_response:message_not_object"
     in
     let done_reason =
       json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
@@ -395,271 +403,166 @@ let parse_ollama_response json_str =
 
 [@@@coverage off]
 
-(** Run [f] with the [OAS_OLLAMA_KEEP_ALIVE] env var set to [value], then
-    restore the caller's original setting. Guaranteed restore on exception.
-    OCaml 5.5 adds [Unix.unsetenv], but the supported 5.4.1 floor used here
-    does not expose it (nor does [Sys]). A var that was originally unset is
-    restored to [""] rather than truly removed from the process environment.
-    This is equivalent for every current reader ([Cli_common_env.get] treats
-    [Some ""] the same as [None] via [trim_non_empty_opt]), but is not a true
-    unset for code that reads the var via bare
-    [Sys.getenv_opt]/[Cli_common_env.default_getenv]. *)
-let with_keep_alive_env value f =
-  let orig = Cli_common_env.default_getenv keep_alive_env_var in
-  let restore () =
-    match orig with
-    | None -> Unix.putenv keep_alive_env_var ""
-    | Some v -> Unix.putenv keep_alive_env_var v
+let%test "build_request omits keep_alive when caller omits it" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434"
+      ()
   in
-  Fun.protect ~finally:restore (fun () ->
-    Unix.putenv keep_alive_env_var value;
-    f ())
+  let messages =
+    [ { role = User
+      ; content = [ Text "hi" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  Yojson.Safe.Util.member "keep_alive" json = `Null
 ;;
 
-let%test "build_request pins keep_alive=-1 as integer by default" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    (* Integer wire format: -1 as [`Int (-1)] avoids Ollama's
-       [time.ParseDuration "-1"] failure ("missing unit in duration"). *)
-    json |> member "keep_alive" |> to_int = -1)
+let%test "build_request preserves explicit keep_alive duration" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434"
+      ~keep_alive:"5m"
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "hi" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "keep_alive" |> to_string = "5m"
 ;;
 
-let%test "build_request integer override sent as `Int" =
-  with_keep_alive_env "3600" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_int = 3600)
-;;
-
-let%test "build_request duration string override sent as `String" =
-  with_keep_alive_env "30m" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "30m")
-;;
-
-let%test "build_request trims whitespace around override" =
-  with_keep_alive_env "  -1m  " (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "-1m")
-;;
-
-let%test "build_request whitespace-only env falls back to default integer" =
-  with_keep_alive_env "   " (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_int = -1)
-;;
-
-let%test "build_request config.keep_alive overrides env (string form)" =
-  with_keep_alive_env "-1" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ~keep_alive:"5m"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "5m")
-;;
-
-let%test "build_request config.keep_alive integer form sent as `Int" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
-        ~keep_alive:"600"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_int = 600)
+let%test "build_request serializes explicit keep_alive integer as JSON integer" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434"
+      ~keep_alive:"-1"
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "hi" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "keep_alive" |> to_int = -1
 ;;
 
 let%test "build_request config.num_ctx injected into options" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~num_ctx:8192
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "options" |> member "num_ctx" |> to_int = 8192)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~num_ctx:8192
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "hi" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "options" |> member "num_ctx" |> to_int = 8192
 ;;
 
 let%test "build_request omits num_ctx when None" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "options" |> member "num_ctx" = `Null)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "hi" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "options" |> member "num_ctx" = `Null
 ;;
 
-let%test "build_request num_ctx<=0 treated as unset" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~num_ctx:0
-        ()
-    in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hi" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    let body = build_request ~config ~messages () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "options" |> member "num_ctx" = `Null)
+let%test "build_request emits only an explicit supported seed" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~seed:42
+      ~model_capabilities_override:
+        { Capabilities.default_capabilities with supports_seed = true }
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "options" |> member "seed" |> to_int = 42
+;;
+
+let%test "build_request omits seed when caller omits it" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  Yojson.Safe.Util.(json |> member "options" |> member "seed") = `Null
+;;
+
+let%test "build_request rejects non-positive explicit num_ctx" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~num_ctx:0
+      ()
+  in
+  match build_request ~config ~messages:[] () with
+  | _ -> false
+  | exception Invalid_argument message ->
+    String.equal message "Backend_ollama.build_request: num_ctx must be positive, got 0"
 ;;
 
 let%test "parse_ollama_response populates timings from eval_count/eval_duration" =
@@ -735,51 +638,61 @@ let%test "parse_ollama_response returns timings=None when no timing fields prese
 ;;
 
 let%test "build_request sets think=true when enable_thinking=true" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~enable_thinking:true
-        ()
-    in
-    let body = build_request ~config ~messages:[] () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "think" |> to_bool = true)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~enable_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "think" |> to_bool = true
 ;;
 
 let%test "build_request sets think=false when enable_thinking=false" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~enable_thinking:false
-        ()
-    in
-    let body = build_request ~config ~messages:[] () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "think" |> to_bool = false)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~enable_thinking:false
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "think" |> to_bool = false
+;;
+
+let%test "build_request omits think when caller omits it" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  Yojson.Safe.Util.member "think" json = `Null
 ;;
 
 let%test "build_request maps max_tokens to num_predict in options" =
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~max_tokens:2048
-        ()
-    in
-    let body = build_request ~config ~messages:[] () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "options" |> member "num_predict" |> to_int = 2048)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~max_tokens:2048
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "options" |> member "num_predict" |> to_int = 2048
 ;;
 
 let%test
@@ -791,19 +704,18 @@ let%test
      The capability-gated drop path (supports_top_k=false ->
      warn_capability_drop) is covered by the OpenAI-compat tests in
      backend_openai.ml; Ollama uses the same gate via shared helpers. *)
-  with_keep_alive_env "" (fun () ->
-    let config =
-      Provider_config.make
-        ~kind:Ollama
-        ~model_id:"dashscope-3:8b"
-        ~base_url:"http://127.0.0.1:11434"
-        ~top_k:40
-        ()
-    in
-    let body = build_request ~config ~messages:[] () in
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "options" |> member "top_k" |> to_int = 40)
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"dashscope-3:8b"
+      ~base_url:"http://127.0.0.1:11434"
+      ~top_k:40
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "options" |> member "top_k" |> to_int = 40
 ;;
 
 let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
@@ -827,6 +739,24 @@ let%test "parse_ollama_response returns Error on error field" =
   match parse_ollama_response json with
   | Error msg -> String.starts_with ~prefix:"model" msg
   | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a missing message" =
+  match parse_ollama_response {|{"model":"dashscope-3:8b","done":true}|} with
+  | Error "malformed_ollama_response:missing_message" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a non-object message" =
+  match parse_ollama_response {|{"message":"not-an-object"}|} with
+  | Error "malformed_ollama_response:message_not_object" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects malformed message content" =
+  match parse_ollama_response {|{"message":{"content":["not","text"]}}|} with
+  | Error "malformed_ollama_message:content_not_string" -> true
+  | Error _ | Ok _ -> false
 ;;
 
 let%test "parse_ollama_response extracts thinking block from message" =

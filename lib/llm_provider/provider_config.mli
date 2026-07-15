@@ -30,8 +30,6 @@ type provider_kind = Provider_kind.t =
     helper to avoid the two fields drifting out of sync. *)
 val request_path_default_for_kind : provider_kind -> string
 
-val default_connect_timeout_s : provider_kind -> float
-
 (** Derive [output_schema] from a [response_format].
     Returns [Some schema] when [response_format = JsonSchema schema]
     and [None] otherwise. With [?override:(Some s)] the helper
@@ -46,6 +44,10 @@ val output_schema_of_response_format
 
 type t =
   { kind : provider_kind
+  ; provider_id : string option
+    (** Exact provider/catalog identity carried independently from [model_id]
+        and endpoint location. [None] means only the generic wire [kind] is
+        known; OAS never reconstructs a provider id from URL or model syntax. *)
   ; model_id : string
   ; base_url : string
   ; api_key : Secret.t
@@ -72,6 +74,14 @@ type t =
         always-preserved models.
         @since 0.205.12 *)
   ; thinking_budget : int option
+    (** Explicit token budget for provider wires that accept a numeric thinking
+        budget. [None] omits it. This value is never converted into
+        {!Reasoning_effort.t}. *)
+  ; reasoning_effort : Reasoning_effort.t option
+    (** Explicit effort value for provider wires that accept categorical
+        reasoning effort. [None] omits the field. This is independent of
+        [thinking_budget]; the SDK never converts token counts into effort
+        categories. *)
   ; clear_thinking : bool option
   ; tool_stream : bool
   ; tool_choice : Types.tool_choice option
@@ -126,11 +136,10 @@ type t =
   ; keep_alive : string option
     (** Ollama [keep_alive] request field. Accepted values: integer
       seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
-      {"30m"}, {"24h"}). [None] falls back to the
-      [OAS_OLLAMA_KEEP_ALIVE] env var, then to the SDK default
-      ({"-1"}, permanent). Honored only by the Ollama backend; ignored
-      by other kinds. Profiles may surface this field to declare
-      their own residency policy without a global env variable.
+      {"30m"}, {"24h"}). [None] omits the field. The SDK does not
+      invent a residency policy; callers that require permanent residency
+      must explicitly provide {"-1"}. Honored only by the Ollama backend;
+      ignored by other kinds.
       @since 0.171.0 *)
   ; internal_model_rotation_count : int option
     (** Number of model attempts the subprocess CLI is configured to
@@ -138,39 +147,33 @@ type t =
       [None] = SDK has no opinion (the default for non-CLI providers
       and CLI providers that do not expose rotation visibility).
 
-      Originally surfaced for [Codex], whose vendor binary cycles
-      through 5 candidate models per [codex exec] invocation and
-      returns only the final attempt's outcome. Without this hint a
-      single CLI call appears as one provider attempt to the
-      downstream observer, even though it can take ~180s
-      worst-case (5 model retries with internal backoff). Consumers
-      that want to render the rotation in traces or apply
-      a per-attempt timeout budget can read this hint instead of
-      hard-coding a Codex-specific constant.
+      Some vendor CLIs cycle through multiple candidate models and return only
+      the final attempt's outcome. Without this hint a single CLI call appears
+      as one provider attempt to the downstream observer even though the vendor
+      may perform multiple internal attempts with its own delay policy.
+      Consumers can render that declared rotation in traces without hard-coding
+      a vendor-specific count.
 
       The SDK does not enforce or schedule the rotation; it remains
       the CLI binary's responsibility. This field is purely
-      declarative metadata so the consumer can reason about the
-      worst-case behaviour of one [Complete.complete] call.
+      declarative metadata for observing one [Complete.complete] call.
 
       Honored only as an advisory hint; ignored for non-CLI kinds.
       @since 0.182.0 *)
   ; num_ctx : int option
     (** Ollama [num_ctx] option. Per-request context window allocation
       in tokens. Drives KV cache RAM allocation. [None] leaves the
-      field unset so Ollama uses its own default (Modelfile or 4096).
+      field unset so Ollama uses its own default. Non-positive explicit
+      values are rejected at request construction.
       Honored only by the Ollama backend; ignored by other kinds.
       Profiles may surface this field so small-model configurations
       can pick a smaller window than long-context configurations.
       @since 0.171.0 *)
   ; seed : int option
     (** Deterministic seed for providers that support it. When [Some n],
-      injected into the request body as ["seed": n] if the model's
-      {!Capabilities.t.supports_seed} is [true]. [None] = use the
-      [OAS_DEFAULT_SEED] env var, then fallback to
-      {!Constants.Deterministic.default_seed} (42).
-      Anthropic (Claude) does not support seed — the field is silently
-      ignored for that provider.
+      injected into the request body as ["seed": n] when the model's
+      {!Capabilities.t.supports_seed} is [true], otherwise rejected.
+      [None] omits the field.
       @since 0.185.0 *)
   ; previous_response_id : string option
     (** OpenAI Responses API conversation-state pointer. When [Some id] and
@@ -181,21 +184,14 @@ type t =
       builders.
       @since 0.207.10 *)
   ; connect_timeout_s : float option
-    (** Per-config override for the connect + initial-response-headers
-      wall-clock timeout. See {!default_connect_timeout_s} for the
-      kind-based default this overrides. [None] keeps the kind default
-      ([Ollama] -> 600.0s, other kinds -> 60.0s). [Some s] forces [s]
-      seconds for the connect/headers phase only — it is independent of
+    (** Explicit connect + initial-response-headers wall-clock timeout.
+      [None] applies no SDK-owned deadline. [Some s] forces [s] seconds for
+      the connect/headers phase only — it is independent of
       the body deadline ([body_timeout_s]) and the inter-chunk stream-idle
       deadline ([stream_idle_timeout_s]).
 
-      Use case (oas#2163, RFC-OAS-026 I2): an OpenAI-compatible endpoint
-      whose upstream behaves like a queued/cloud model (long cold-start or
-      admission wait before the first response header) needs a larger
-      connect budget than the 60s cloud default, without changing its
-      wire-format [kind]. The consumer declares the budget; OAS owns
-      enforcement and [phase=Http_operation] attribution. No URL/string
-      matching is performed on the SDK side.
+      The consumer declares any deadline; OAS never selects one from provider
+      kind, URL, model, or process environment.
       @since 0.207.9 *)
   }
 
@@ -205,6 +201,7 @@ val make
   :  kind:provider_kind
   -> model_id:string
   -> base_url:string
+  -> ?provider_id:string
   -> ?api_key:string
   -> ?headers:(string * string) list
   -> ?request_path:string
@@ -218,6 +215,7 @@ val make
   -> ?enable_thinking:bool
   -> ?preserve_thinking:bool
   -> ?thinking_budget:int
+  -> ?reasoning_effort:Reasoning_effort.t
   -> ?clear_thinking:bool
   -> ?tool_stream:bool
   -> ?tool_choice:Types.tool_choice
@@ -300,55 +298,11 @@ type reasoning_effort = Reasoning_effort.t =
   | Medium
   | High
   | XHigh
+  | Max
 
 val all_reasoning_efforts : reasoning_effort list
 val reasoning_effort_to_string : reasoning_effort -> string
 val reasoning_effort_of_string : string -> reasoning_effort option
-
-(** Typed default reasoning effort.
-    [getenv] exists for deterministic tests; production callers use the
-    default {!Cli_common_env.get} boundary. *)
-val default_reasoning_effort_value
-  :  ?getenv:(string -> string option)
-  -> unit
-  -> reasoning_effort
-
-(** Typed form of {!effort_of_thinking_config}. [None] means the request must
-    omit [reasoning_effort] or expose the legacy ["none"] sentinel through the
-    string compatibility wrapper. *)
-val effort_of_thinking_config_value
-  :  ?getenv:(string -> string option)
-  -> enable_thinking:bool option
-  -> thinking_budget:int option
-  -> unit
-  -> reasoning_effort option
-
-(** Map thinking configuration fields to reasoning_effort string.
-    Returns ["none"], one of the budget-derived levels ["low" | "medium" |
-    "high"], or a supported [OAS_DEFAULT_REASONING_EFFORT] override
-    ["minimal" | "low" | "medium" | "high" | "xhigh"].
-    @since 0.114.0 *)
-val effort_of_thinking_config
-  :  enable_thinking:bool option
-  -> thinking_budget:int option
-  -> string
-
-(** Typed provider request body value for OpenAI-compatible
-    [reasoning_effort]. [None] means callers omit the field. Production
-    serializers should prefer this over the string compatibility wrapper. *)
-val reasoning_effort_request_value_typed
-  :  enable_thinking:bool option
-  -> thinking_budget:int option
-  -> reasoning_effort option
-
-(** Provider request body value for OpenAI-compatible [reasoning_effort].
-    Returns [None] when thinking is disabled, unset, or resolved to ["none"],
-    so callers omit the field instead of sending a provider-rejected sentinel.
-    @since 0.206.5 *)
-val reasoning_effort_request_value
-  :  enable_thinking:bool option
-  -> thinking_budget:int option
-  -> string option
 
 (** Resolve GLM [clear_thinking]: the explicit field, else the inverse of
     [preserve_thinking], else the API default [true]. SSOT for both request
@@ -384,30 +338,23 @@ val glm_should_replay_reasoning_fields
 
 val glm_should_replay_reasoning : t -> bool
 
-(** Compute reasoning_effort for a provider config.
-    Returns [None] for non-Ollama providers.
-    @since 0.114.0 *)
-val reasoning_effort_of_config : t -> string option
-
-(** Capability catalog provider namespace for [config].
-
-    This is usually {!string_of_provider_kind}, except vendor-canonical hosts
-    (RFC-OAS-034 §2 rule 2): official Ollama Cloud endpoints are scoped as
-    ["ollama_cloud"], and DeepSeek's canonical host [api.deepseek.com] as
-    ["deepseek"], even when they use the OpenAI-compatible wire kind. Both are
-    matched by exact [Uri.host] equality (no prefix, no look-alike). *)
+(** Capability catalog provider identity for [config]. Uses the explicitly
+    carried [provider_id], otherwise the typed wire kind. Endpoint URLs and
+    model-id syntax never participate. *)
 val capability_provider_label : t -> string
 
-(** Resolve model capabilities using provider-qualified catalog entries first.
-    Raw OpenAI-compatible endpoints may use bare catalog entries only for
-    generic model facts; entries that change thinking/reasoning/replay wire
-    semantics require an explicit endpoint capability declaration or an
-    explicitly provider-qualified model id whose prefix matches the catalog
-    entry's [provider_name]. *)
+(** Resolve model capabilities using the explicit provider/model pair. A
+    config with [provider_id] only accepts an exact provider-scoped row. Without
+    [provider_id], native typed provider kinds may use a provider-independent
+    model row; [OpenAI_compat] never does, because its wire kind alone cannot
+    select a vendor/model dialect. Generic compatibility callers can provide
+    [model_capabilities_override] or an exact [provider_id]. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
-(** True when [config] targets Z.AI GLM semantics, either through the native
-    [Glm] kind or an OpenAI-compatible Z.AI endpoint with a GLM model id. *)
+(** [true] exactly when [config.kind = Glm]. An [OpenAI_compat] config is never
+    promoted to GLM semantics from its provider id, endpoint URL, or model id;
+    callers targeting the native Z.AI contract must select the typed [Glm]
+    kind explicitly. *)
 val is_zai_glm_config : t -> bool
 
 (** Derive a provider-safe schema name for native structured-output APIs
@@ -489,14 +436,20 @@ val validate_tool_choice_request : t -> (unit, string) result
 
 (** Validate provider/model-specific reasoning effort subsets before request
     serialization. The canonical effort vocabulary lives in
-    {!Reasoning_effort}; this guard enforces the selected model's accepted
-    subset when the capability catalog declares one. *)
+    {!Reasoning_effort}. A categorical effort is valid only when the selected
+    model or explicit capability override declares an accepted subset; an
+    absent declaration fails closed. *)
 type reasoning_effort_request_rejection =
   | Unsupported_reasoning_effort of
       { provider_kind : provider_kind
       ; model_id : string
       ; effort : reasoning_effort
       ; accepted : reasoning_effort list
+      }
+  | Undeclared_reasoning_effort_capability of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
       }
 
 val reasoning_effort_request_rejection_to_message

@@ -7,8 +7,9 @@ type t =
   | Medium
   | High
   | XHigh
+  | Max
 
-let all = [ None_; Minimal; Low; Medium; High; XHigh ]
+let all = [ None_; Minimal; Low; Medium; High; XHigh; Max ]
 
 let to_string = function
   | None_ -> "none"
@@ -17,8 +18,11 @@ let to_string = function
   | Medium -> "medium"
   | High -> "high"
   | XHigh -> "xhigh"
+  | Max -> "max"
 ;;
 
+let pp formatter effort = Format.pp_print_string formatter (to_string effort)
+let show = to_string
 let all_wire_values = List.map to_string all
 
 let of_string value =
@@ -27,16 +31,3 @@ let of_string value =
 ;;
 
 let values_for_log = String.concat "/" (List.map to_string all)
-let low_budget_max_tokens = 2048
-let medium_budget_max_tokens = 8192
-let high_budget_max_tokens = 32768
-
-let of_budget = function
-  | n when n <= 0 -> None
-  | n when n <= low_budget_max_tokens -> Some Low
-  | n when n <= medium_budget_max_tokens -> Some Medium
-  | n when n <= high_budget_max_tokens -> Some High
-  | _ -> Some XHigh
-;;
-
-let of_budget_with_xhigh = of_budget

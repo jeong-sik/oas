@@ -61,7 +61,7 @@ let with_temp_model_catalog contents f =
 
 let isolate_ambient_runtime_sources () =
   Capability_manifest.set_global [];
-  Model_catalog_test_support.install_repo_model_catalog ~suite:"Capabilities"
+  Model_catalog_test_support.install_embedded_model_catalog ~suite:"Capabilities"
 ;;
 
 (* ── Default capabilities ────────────────────────────── *)
@@ -128,7 +128,12 @@ let test_openai_extended () =
 ;;
 
 let test_lookup_mimo_v25_pro () =
-  match Capabilities.for_model_id "mimo-v2.5-pro" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"mimo"
+      ~model_id:"mimo-v2.5-pro"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
@@ -168,7 +173,12 @@ let test_lookup_mimo_v25_pro () =
 ;;
 
 let test_lookup_mimo_v25_multimodal () =
-  match Capabilities.for_model_id "mimo-v2.5" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"mimo"
+      ~model_id:"mimo-v2.5"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
@@ -234,72 +244,9 @@ let test_lookup_gemini () =
   | None -> fail "should match gemini"
 ;;
 
-(* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
-
-let pp_gemini_family ppf = function
-  | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
-  | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
-  | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
-  | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
-;;
-
-let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
-
-let test_gemini_family_3_1 () =
-  check
-    gemini_family_testable
-    "gemini-3.1-pro-preview classifies as Gemini_3_1"
-    Capabilities.Gemini_3_1
-    (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
-;;
-
-let test_gemini_family_3_1_flash_lite () =
-  check
-    gemini_family_testable
-    "gemini-3.1-flash-lite-preview classifies as Gemini_3_1"
-    Capabilities.Gemini_3_1
-    (Capabilities.gemini_family_of_id "gemini-3.1-flash-lite-preview")
-;;
-
-let test_gemini_family_3 () =
-  check
-    gemini_family_testable
-    "gemini-3-flash-preview classifies as Gemini_3 (not 3.1)"
-    Capabilities.Gemini_3
-    (Capabilities.gemini_family_of_id "gemini-3-flash-preview")
-;;
-
-let test_gemini_family_2_5 () =
-  check
-    gemini_family_testable
-    "gemini-2.5-flash classifies as Gemini_2_5"
-    Capabilities.Gemini_2_5
-    (Capabilities.gemini_family_of_id "gemini-2.5-flash")
-;;
-
-let test_gemini_family_other_non_gemini () =
-  check
-    gemini_family_testable
-    "non-gemini id falls into Gemini_other with literal retained"
-    (Capabilities.Gemini_other "claude-opus-4")
-    (Capabilities.gemini_family_of_id "claude-opus-4")
-;;
-
-let test_gemini_family_other_unknown_gemini () =
-  (* A future gemini line not yet classified should land in Gemini_other —
-     not be silently absorbed into an existing arm. *)
-  check
-    gemini_family_testable
-    "gemini-4-foo lands in Gemini_other (no silent fallback)"
-    (Capabilities.Gemini_other "gemini-4-foo")
-    (Capabilities.gemini_family_of_id "gemini-4-foo")
-;;
-
-let test_gemini_family_drives_capabilities () =
+let test_gemini_catalog_drives_capabilities () =
   (* Behavioural cross-check: all three live variants resolve to
-     gemini_capabilities (1M context). This is the property the #968 drift
-     gate was trying to assert via string-grep; now it is enforced by the
-     type system at the dispatch site and by this test. *)
+     their declared catalog capability rows (1M context). *)
   let ctx id =
     match Capabilities.for_model_id id with
     | Some c -> c.max_context_tokens
@@ -489,7 +436,7 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | None -> fail "should match Kimi K2.7 highspeed route");
     (match
        Capabilities.for_provider_model_id
-         ~allow_bare_fallback:true
+         ~allow_bare_fallback:false
          ~provider_label:"ollama_cloud"
          ~model_id:"kimi-k2.7-code"
      with
@@ -535,8 +482,13 @@ let test_lookup_provider_m_dashscope_gguf_name () =
   | None -> fail "should match qwen3.6 model id"
 ;;
 
-let test_lookup_provider_m_qwen3_mtp_dot_name () =
-  match Capabilities.for_model_id "vllm-qwen3-mtp.qwen36-35b-a3b-mtp" with
+let test_lookup_provider_m_qwen3_mtp_explicit_provider () =
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"vllm-qwen3-mtp"
+      ~model_id:"qwen36-35b-a3b-mtp"
+  with
   | Some c ->
     check (option int) "context 128K" (Some 131_072) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
@@ -544,7 +496,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
     check bool "reasoning" true c.supports_reasoning;
     check
       bool
-      "vllm-qwen3-mtp dot-qualified qwen3.6 uses chat_template_kwargs"
+      "explicit vllm-qwen3-mtp qwen3.6 uses chat_template_kwargs"
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs);
     let dialect = Reasoning_dialect.of_capabilities c in
@@ -560,7 +512,7 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
       "vllm-qwen3-mtp replays tool-call reasoning by default"
       "drop_without_tool_preserve_with_tool"
       (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
-  | None -> fail "should match dot-qualified qwen3.6 model id"
+  | None -> fail "explicit provider/model lookup should match qwen3.6 model id"
 ;;
 
 let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
@@ -589,10 +541,12 @@ let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
    with
    | Some c -> check_gemma4_coder "runpod_rtxa6000 gemma4 coder" c
    | None -> fail "strict provider lookup should match runpod_rtxa6000 gemma4 coder");
-  (match Capabilities.for_model_id "runpod_rtxa6000.gemma4-coder-fable5-q4km" with
-   | Some c -> check_gemma4_coder "dot-qualified runpod_rtxa6000 gemma4 coder" c
-   | None ->
-     fail "dot-qualified runtime id should match runpod_rtxa6000.gemma4-coder-fable5-q4km");
+  check
+    bool
+    "dot-qualified runtime id is not inferred"
+    true
+    (Option.is_none
+       (Capabilities.for_model_id "runpod_rtxa6000.gemma4-coder-fable5-q4km"));
   match Capabilities.for_model_id "gemma4-coder-fable5-q4km" with
   | Some c -> check_gemma4_coder "bare gemma4 coder" c
   | None -> fail "bare lookup should match gemma4-coder-fable5-q4km"
@@ -626,26 +580,24 @@ let test_lookup_local_ollama_gemma4_e2b_qat_catalog () =
   in
   (match
      Capabilities.for_provider_model_id
-       ~allow_bare_fallback:false
+       ~allow_bare_fallback:true
        ~provider_label:"ollama"
        ~model_id
    with
-   | Some c -> check_gemma4_e2b "strict ollama Gemma4 E2B QAT" c
-   | None -> fail "strict Ollama lookup should match local Gemma4 E2B QAT");
-  (match Capabilities.for_model_id model_id with
-   | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
-   | None -> fail "bare lookup should match local Gemma4 E2B QAT");
-  check
-    (option string)
-    "Gemma4 E2B chat-template token"
-    (Some "<|think|>")
-    (Capabilities.thinking_control_token_for_provider_model_id
-       ~provider_label:"ollama"
-       ~model_id)
+   | Some c -> check_gemma4_e2b "ollama Gemma4 E2B QAT via bare fallback" c
+   | None -> fail "Ollama lookup with bare fallback should match local Gemma4 E2B QAT");
+  match Capabilities.for_model_id model_id with
+  | Some c -> check_gemma4_e2b "bare local Gemma4 E2B QAT" c
+  | None -> fail "bare lookup should match local Gemma4 E2B QAT"
 ;;
 
 let test_lookup_deepseek_v4_flash () =
-  match Capabilities.for_model_id "deepseek-v4-flash" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"deepseek"
+      ~model_id:"deepseek-v4-flash"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
@@ -663,7 +615,12 @@ let test_lookup_deepseek_v4_flash () =
 ;;
 
 let test_lookup_deepseek_v4_pro () =
-  match Capabilities.for_model_id "deepseek-v4-pro" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"deepseek"
+      ~model_id:"deepseek-v4-pro"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
@@ -733,7 +690,12 @@ let test_lookup_minimax_m3_official_chat_dialect () =
 ;;
 
 let test_lookup_grok () =
-  match Capabilities.for_model_id "grok-4.3" with
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label:"xai"
+      ~model_id:"grok-4.3"
+  with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check bool "structured" true c.supports_structured_output;
@@ -860,7 +822,7 @@ let test_ollama_cloud_current_catalog_resolves () =
     (fun (model_id, context, vision) ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -896,7 +858,7 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
     (fun model_id ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -941,7 +903,7 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
     (fun model_id ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -963,7 +925,7 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
 let test_ollama_cloud_kimi_preserves_historical_reasoning () =
   match
     Capabilities.for_provider_model_id
-      ~allow_bare_fallback:true
+      ~allow_bare_fallback:false
       ~provider_label:"ollama_cloud"
       ~model_id:"kimi-k2.7-code"
   with
@@ -994,7 +956,7 @@ let test_ollama_cloud_structured_output_is_disabled_by_provider_contract () =
     (fun (model_id, structured_output) ->
        match
          Capabilities.for_provider_model_id
-           ~allow_bare_fallback:true
+           ~allow_bare_fallback:false
            ~provider_label:"ollama_cloud"
            ~model_id
        with
@@ -1029,7 +991,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_glm =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"glm-5.1"
     with
@@ -1050,7 +1012,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_glm52 =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"glm-5.2"
     with
@@ -1073,7 +1035,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let cloud_kimi =
     match
       for_provider_model_id
-        ~allow_bare_fallback:true
+        ~allow_bare_fallback:false
         ~provider_label:"ollama_cloud"
         ~model_id:"kimi-k2.7-code"
     with
@@ -1148,7 +1110,10 @@ let frontier_capabilities route model_id =
   match route with
   | Direct_model -> Capabilities.for_model_id model_id
   | Provider_qualified provider_label ->
-    Capabilities.for_provider_model_id ~allow_bare_fallback:true ~provider_label ~model_id
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:false
+      ~provider_label
+      ~model_id
   | Native_provider _ -> Capabilities.for_model_id model_id
 ;;
 
@@ -1312,21 +1277,21 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
      only need stream separation here. *)
   let cases =
     [ ( "Xiaomi MiMo V2.5"
-      , Direct_model
+      , Provider_qualified "mimo"
       , "mimo-v2.5-pro"
       , Reasoning_only
       , No_structured_output
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Pro"
-      , Direct_model
+      , Provider_qualified "deepseek"
       , "deepseek-v4-pro"
       , Extended_thinking
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Flash"
-      , Direct_model
+      , Provider_qualified "deepseek"
       , "deepseek-v4-flash"
       , Extended_thinking
       , Response_format_json_schema
@@ -1701,6 +1666,77 @@ thinking_control_format = "chat_template_kwargs"
               | None -> fail "expected catalog-backed capabilities"))
 ;;
 
+let test_provider_scoped_catalog_identity_is_exact () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "exact-model"
+base = "openai_chat"
+supports_tools = false
+thinking_control_format = "chat_template_token"
+thinking_control_token = "<|bare|>"
+
+[[models]]
+id_prefix = "exact-model"
+provider_name = "acme"
+base = "openai_chat"
+supports_tools = true
+thinking_control_format = "chat_template_token"
+thinking_control_token = "<|provider|>"
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg -> Alcotest.failf "model catalog parse error: %s" msg
+       | Ok catalog ->
+         let previous_catalog = Model_catalog.global () in
+         let restore () =
+           match previous_catalog with
+           | Some catalog -> Model_catalog.set_global catalog
+           | None -> Model_catalog.clear_global ()
+         in
+         Fun.protect ~finally:restore (fun () ->
+           Model_catalog.set_global catalog;
+           (match
+              Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:" ACME "
+                ~model_id:" EXACT-MODEL "
+            with
+            | Some caps ->
+              check bool "exact normalized pair resolves" true caps.supports_tools
+            | None -> fail "exact normalized provider/model pair must resolve");
+           check
+             (option reject)
+             "provider-scoped model prefix extension is absent"
+             None
+             (Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:"acme"
+                ~model_id:"exact-model-preview");
+           (match Capabilities.for_model_id "exact-model-preview" with
+            | Some caps ->
+              check
+                bool
+                "bare family lookup retains prefix semantics"
+                false
+                caps.supports_tools
+            | None -> fail "provider-independent family lookup must remain available");
+           check
+             (option string)
+             "exact provider/model token resolves"
+             (Some "<|provider|>")
+             (Capabilities.thinking_control_token_for_provider_model_id
+                ~provider_label:"acme"
+                ~model_id:"exact-model");
+           check
+             (option string)
+             "provider token near-miss does not fall back to bare family"
+             None
+             (Capabilities.thinking_control_token_for_provider_model_id
+                ~provider_label:"acme"
+                ~model_id:"exact-model-preview")))
+;;
+
 let test_apply_manifest_entry_all_none_uses_base () =
   (* Entry with only id_prefix set — should be identical to base. *)
   let json =
@@ -1716,36 +1752,111 @@ let test_apply_manifest_entry_all_none_uses_base () =
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
-let test_manifest_wrong_type_feature_fields_warn_and_ignore () =
-  let warnings = ref [] in
+let check_manifest_rejects_typed_field ~field ~value ~expected_type =
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List [ `Assoc [ "id_prefix", `String "typed-manifest-field"; field, value ] ] )
+      ]
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains (field ^ " mentions field") msg field;
+    check_contains (field ^ " mentions expected type") msg expected_type
+  | Ok _ -> Alcotest.failf "wrong-type manifest field %s should reject" field
+;;
+
+let test_manifest_rejects_wrong_type_bool () =
+  check_manifest_rejects_typed_field
+    ~field:"supports_tools"
+    ~value:(`String "yes")
+    ~expected_type:"expected bool"
+;;
+
+let test_manifest_rejects_wrong_type_int () =
+  check_manifest_rejects_typed_field
+    ~field:"max_context_tokens"
+    ~value:(`String "131072")
+    ~expected_type:"expected int"
+;;
+
+let test_manifest_rejects_wrong_type_string_list () =
+  List.iter
+    (fun (label, value) ->
+       let json =
+         `Assoc
+           [ "schema_version", `Int 1
+           ; ( "models"
+             , `List
+                 [ `Assoc
+                     [ "id_prefix", `String "typed-string-list"
+                     ; "accepted_reasoning_efforts", value
+                     ]
+                 ] )
+           ]
+       in
+       match Capability_manifest.of_json json with
+       | Error msg ->
+         check_contains (label ^ " mentions field") msg "accepted_reasoning_efforts";
+         check_contains (label ^ " mentions expected type") msg "expected string array"
+       | Ok _ -> Alcotest.failf "%s string-list value should reject" label)
+    [ "scalar", `String "low"; "non-string item", `List [ `String "low"; `Bool true ] ]
+;;
+
+let test_manifest_rejects_empty_id_prefix () =
+  let json =
+    Yojson.Safe.from_string {|{"schema_version":1,"models":[{"id_prefix":""}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions id_prefix" msg "id_prefix";
+    check_contains "mentions empty" msg "must not be empty"
+  | Ok _ -> Alcotest.fail "empty manifest id_prefix should reject"
+;;
+
+let test_manifest_rejects_padded_id_prefix () =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"typed","max_context_tokens":"131072","supports_tools":"yes"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":" padded-model "}]}|}
   in
-  let manifest =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () -> Capability_manifest.of_json json)
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions id_prefix" msg "id_prefix";
+    check_contains "mentions exact value" msg "leading or trailing whitespace"
+  | Ok _ -> Alcotest.fail "padded manifest id_prefix should reject"
+;;
+
+let test_manifest_rejects_duplicate_root_field () =
+  let json =
+    `Assoc [ "schema_version", `Int 1; "models", `List []; "schema_version", `Int 1 ]
   in
-  let entry =
-    match manifest with
-    | Ok [ entry ] -> entry
-    | Ok _ -> Alcotest.fail "expected one manifest entry"
-    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "identifies duplicate" msg "duplicate field";
+    check_contains "names duplicate" msg "schema_version"
+  | Ok _ -> Alcotest.fail "duplicate manifest root field should reject"
+;;
+
+let test_manifest_rejects_duplicate_entry_field () =
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List
+            [ `Assoc
+                [ "id_prefix", `String "duplicate-entry"
+                ; "supports_tools", `Bool true
+                ; "supports_tools", `Bool false
+                ]
+            ] )
+      ]
   in
-  check (option int) "wrong-type int ignored" None entry.max_context_tokens;
-  check (option bool) "wrong-type bool ignored" None entry.supports_tools;
-  let has_warning field expected =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "capability_manifest"
-         && string_contains_sub msg (Printf.sprintf "field %S" field)
-         && string_contains_sub msg (Printf.sprintf "expected %s" expected))
-      !warnings
-  in
-  check bool "warned for max_context_tokens" true (has_warning "max_context_tokens" "int");
-  check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "identifies duplicate" msg "duplicate field";
+    check_contains "names duplicate" msg "supports_tools"
+  | Ok _ -> Alcotest.fail "duplicate manifest entry field should reject"
 ;;
 
 let test_manifest_rejects_wrong_type_base () =
@@ -2012,8 +2123,8 @@ let test_manifest_rejects_unknown_accepted_reasoning_effort () =
 ;;
 
 let test_manifest_intlit_in_range_accepted () =
-  (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
-     directly to exercise the Intlit branch deterministically. *)
+  (* Exercise the exact upper native-int boundary through Yojson's [Intlit]
+     constructor rather than relying on parser/platform representation. *)
   let json =
     `Assoc
       [ "schema_version", `Int 1
@@ -2021,21 +2132,20 @@ let test_manifest_intlit_in_range_accepted () =
         , `List
             [ `Assoc
                 [ "id_prefix", `String "intlit-ok"
-                ; "max_context_tokens", `Intlit "131072"
+                ; "max_context_tokens", `Intlit (string_of_int max_int)
                 ]
             ] )
       ]
   in
   match Capability_manifest.of_json json with
   | Ok [ entry ] ->
-    check (option int) "intlit accepted" (Some 131_072) entry.max_context_tokens
+    check (option int) "max_int intlit accepted" (Some max_int) entry.max_context_tokens
   | Ok _ -> Alcotest.fail "expected one manifest entry"
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
-let test_manifest_intlit_out_of_range_warns () =
-  let warnings = ref [] in
-  let huge = "99999999999999999999999999" in
+let test_manifest_intlit_out_of_range_rejects () =
+  let first_out_of_range = Int64.add (Int64.of_int max_int) 1L |> Int64.to_string in
   let json =
     `Assoc
       [ "schema_version", `Int 1
@@ -2043,33 +2153,17 @@ let test_manifest_intlit_out_of_range_warns () =
         , `List
             [ `Assoc
                 [ "id_prefix", `String "intlit-overflow"
-                ; "max_context_tokens", `Intlit huge
+                ; "max_context_tokens", `Intlit first_out_of_range
                 ]
             ] )
       ]
   in
-  let manifest =
-    Diag.with_sink
-      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
-      (fun () -> Capability_manifest.of_json json)
-  in
-  let entry =
-    match manifest with
-    | Ok [ entry ] -> entry
-    | Ok _ -> Alcotest.fail "expected one manifest entry"
-    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
-  in
-  check (option int) "out-of-range intlit ignored" None entry.max_context_tokens;
-  let has_warning =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Diag.Warn
-         && String.equal ctx "capability_manifest"
-         && string_contains_sub msg "max_context_tokens"
-         && string_contains_sub msg "out of native int range")
-      !warnings
-  in
-  check bool "warned about overflow" true has_warning
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "max_context_tokens";
+    check_contains "mentions exact literal" msg first_out_of_range;
+    check_contains "mentions overflow" msg "out of native int range"
+  | Ok _ -> Alcotest.fail "out-of-range manifest int literal should reject"
 ;;
 
 let test_manifest_load_file_missing_returns_error () =
@@ -2089,33 +2183,6 @@ let test_manifest_load_file_malformed_returns_error () =
       check_contains "mentions JSON parse" msg "capability manifest JSON parse error";
       check_contains "mentions path" msg path
     | Ok _ -> Alcotest.fail "expected malformed manifest JSON to fail")
-;;
-
-let test_manifest_load_runtime_file_success_logs_info () =
-  let logs = ref [] in
-  with_temp_manifest
-    {|{"schema_version":1,"models":[{"id_prefix":"runtime-visible","supports_tools":true}] }|}
-    (fun path ->
-       let manifest =
-         Diag.with_sink
-           (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
-           (fun () -> Capability_manifest.load_runtime_file path)
-       in
-       (match manifest with
-        | Some [ entry ] ->
-          check string "loaded id_prefix" "runtime-visible" entry.id_prefix
-        | Some _ -> Alcotest.fail "expected one runtime manifest entry"
-        | None -> Alcotest.fail "expected runtime manifest to load");
-       let has_info =
-         List.exists
-           (fun (level, ctx, msg) ->
-              level = Diag.Info
-              && String.equal ctx "capability_manifest"
-              && string_contains_sub msg "loaded 1 entries"
-              && string_contains_sub msg path)
-           !logs
-       in
-       check bool "logs info load success" true has_info)
 ;;
 
 let test_model_catalog_rejects_unknown_reasoning_replay () =
@@ -2191,6 +2258,80 @@ base = 17
          check_contains "mentions base" msg "base";
          check_contains "mentions expected type" msg "expected string"
        | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
+;;
+
+let check_model_catalog_rejects_typed_field ~field ~value ~expected_type =
+  with_temp_model_catalog
+    (Printf.sprintf
+       {|
+[[models]]
+id_prefix = "typed-field"
+%s = %s
+|}
+       field
+       value)
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains (field ^ " mentions field") msg field;
+         check_contains (field ^ " mentions expected type") msg expected_type
+       | Ok _ -> Alcotest.failf "wrong-type model catalog %s should reject" field)
+;;
+
+let test_model_catalog_rejects_wrong_type_bool () =
+  check_model_catalog_rejects_typed_field
+    ~field:"supports_tools"
+    ~value:{|"true"|}
+    ~expected_type:"expected bool"
+;;
+
+let test_model_catalog_rejects_wrong_type_int () =
+  check_model_catalog_rejects_typed_field
+    ~field:"max_context_tokens"
+    ~value:{|"131072"|}
+    ~expected_type:"expected integer"
+;;
+
+let test_model_catalog_rejects_wrong_type_float () =
+  check_model_catalog_rejects_typed_field
+    ~field:"input_per_million"
+    ~value:{|"1.0"|}
+    ~expected_type:"expected float"
+;;
+
+let test_model_catalog_rejects_wrong_type_string_list () =
+  check_model_catalog_rejects_typed_field
+    ~field:"accepted_reasoning_efforts"
+    ~value:{|"low"|}
+    ~expected_type:"expected string array"
+;;
+
+let test_model_catalog_rejects_empty_id_prefix () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = ""
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions id_prefix" msg "id_prefix";
+         check_contains "mentions empty" msg "must not be empty"
+       | Ok _ -> Alcotest.fail "empty model catalog id_prefix should reject")
+;;
+
+let test_model_catalog_rejects_padded_id_prefix () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = " padded-model "
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions id_prefix" msg "id_prefix";
+         check_contains "mentions exact value" msg "leading or trailing whitespace"
+       | Ok _ -> Alcotest.fail "padded model catalog id_prefix should reject")
 ;;
 
 let test_model_catalog_rejects_empty_provider_name () =
@@ -2428,9 +2569,17 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
     ; "kimi", Some Capabilities.kimi_capabilities
     ; "mimo", Some Capabilities.mimo_capabilities
     ; "dashscope", Some Capabilities.dashscope_capabilities
-    ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
+    ; ( "mimo-v2.5-pro"
+      , Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"mimo"
+          ~model_id:"mimo-v2.5-pro" )
     ; "dashscope-3.5", Capabilities.for_model_id "dashscope-3.5-35b-a3b"
-    ; "deepseek-v4-flash", Capabilities.for_model_id "deepseek-v4-flash"
+    ; ( "deepseek-v4-flash"
+      , Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"deepseek"
+          ~model_id:"deepseek-v4-flash" )
     ; "nvidia-ultra", Capabilities.for_model_id "nvidia-ultra-253b"
     ]
   in
@@ -2452,49 +2601,47 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
 
 (* ── Prefix ordering invariant (M01) ────────────────────── *)
 
-(* [for_model_id] resolves capabilities via a sequential if-else chain of
-   [starts_with] prefix checks.  Whenever prefix A is a string prefix of
-   prefix B (every model-id starting with B also starts with A), the branch
-   for B *must* be evaluated before the branch for A; otherwise any model-id
-   that starts with B is permanently captured by A, silently returning wrong
-   capabilities (e.g. tool_choice sent to a model that does not support it
-   → 400 error, anti-pattern M01).
+(* Provider-independent catalog lookup selects the longest exact declared
+   prefix. Whenever prefix A is a string prefix of prefix B (every model-id
+   starting with B also starts with A), B must win; otherwise A captures the
+   request and silently returns the wrong capabilities (e.g. tool_choice sent
+   to a model that does not support it → 400 error, anti-pattern M01).
 
    Each case below uses a concrete model-id that begins with the *longer*
    (more-specific) prefix — and therefore also with the *shorter* one — and
    asserts the capability fingerprint that is unique to the longer branch.
-   If the two branches were swapped the assertion would fail.
-
-   When adding a new prefix to [for_model_id], check whether it creates a
-   new shadow pair with an existing prefix and add a corresponding entry
-   here.  The full ordered prefix list lives in
-   [lib/llm_provider/capabilities.ml]. *)
+   If the two branches were swapped the assertion would fail. Provider-scoped
+   rows are exact identities and therefore do not participate in this test. *)
 let test_prefix_ordering_invariant () =
-  (* Each entry: (model_id, label, discriminating_predicate).
+  (* Each entry: (route, model_id, label, discriminating_predicate).
      The predicate is true only when the more-specific (longer-prefix)
      branch wins. *)
   let cases =
     [ (* glm-5v-turbo must precede glm-5 (inside broad branch).
          Discriminator: supports_image_input (5v-turbo) vs not (broad glm-5). *)
-      ( "glm-5v-turbo-x"
+      ( Direct_model
+      , "glm-5v-turbo-x"
       , "glm-5v-turbo must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input && c.max_output_tokens = Some 128_000 )
     ; (* glm-5-code must precede glm-5 (inside broad branch).
          Discriminator: 128K context (code branch) vs 200K (broad glm-5). *)
-      ( "glm-5-code-x"
+      ( Direct_model
+      , "glm-5-code-x"
       , "glm-5-code must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.max_context_tokens = Some 128_000 && c.supports_extended_thinking )
     ; (* glm-4.6v must precede glm-4.6 (inside broad branch) *)
-      ( "glm-4.6v-x"
+      ( Direct_model
+      , "glm-4.6v-x"
       , "glm-4.6v must precede broad glm-4.6"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 32_768 )
     ; (* glm-4.5v must precede glm-4.5 (inside broad branch) *)
-      ( "glm-4.5v-x"
+      ( Direct_model
+      , "glm-4.5v-x"
       , "glm-4.5v must precede broad glm-4.5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
@@ -2502,21 +2649,16 @@ let test_prefix_ordering_invariant () =
           && c.max_output_tokens = Some 16_384 )
     ; (* broad glm-4.5 branch must precede glm-4.
          Discriminator: supports_reasoning + 96K output (broad) vs neither (glm-4). *)
-      ( "glm-4.5-latest"
+      ( Direct_model
+      , "glm-4.5-latest"
       , "broad glm-4.5 branch must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_reasoning && c.max_output_tokens = Some 96_000 )
-    ; (* glm-4v must precede glm-4.
-         Discriminator: supports_image_input (glm-4v) vs not (glm-4). *)
-      ( "glm-4v-x"
-      , "glm-4v must precede glm-4"
-      , fun (c : Capabilities.capabilities) ->
-          c.supports_image_input && c.supports_multimodal_inputs )
     ]
   in
   List.iter
-    (fun (model_id, label, ok) ->
-       match Capabilities.for_model_id model_id with
+    (fun (route, model_id, label, ok) ->
+       match frontier_capabilities route model_id with
        | None ->
          fail
            (Printf.sprintf
@@ -2554,25 +2696,10 @@ let () =
         ; test_case "claude sonnet" `Quick test_lookup_claude_sonnet
         ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
-        ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
         ; test_case
-            "gemini_family Gemini_3_1 flash-lite"
+            "gemini catalog drives 1M ctx capabilities"
             `Quick
-            test_gemini_family_3_1_flash_lite
-        ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
-        ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
-        ; test_case
-            "gemini_family Gemini_other (non-gemini)"
-            `Quick
-            test_gemini_family_other_non_gemini
-        ; test_case
-            "gemini_family Gemini_other (unknown gemini)"
-            `Quick
-            test_gemini_family_other_unknown_gemini
-        ; test_case
-            "gemini_family drives 1M ctx capabilities"
-            `Quick
-            test_gemini_family_drives_capabilities
+            test_gemini_catalog_drives_capabilities
         ; test_case
             "kimi-k2 native cloud suffix vs Ollama Cloud"
             `Quick
@@ -2583,9 +2710,9 @@ let () =
             `Quick
             test_lookup_provider_m_dashscope_gguf_name
         ; test_case
-            "vllm-qwen3-mtp dot-qualified name"
+            "vllm-qwen3-mtp explicit provider"
             `Quick
-            test_lookup_provider_m_qwen3_mtp_dot_name
+            test_lookup_provider_m_qwen3_mtp_explicit_provider
         ; test_case
             "runpod rtxa6000 gemma4 coder catalog"
             `Quick
@@ -2638,6 +2765,10 @@ let () =
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive
+        ; test_case
+            "provider-scoped identity is exact"
+            `Quick
+            test_provider_scoped_catalog_identity_is_exact
         ] )
     ; "merge", [ test_case "with_context_size" `Quick test_with_context_size ]
     ; ( "manifest"
@@ -2677,10 +2808,25 @@ let () =
             "all-None entry matches base"
             `Quick
             test_apply_manifest_entry_all_none_uses_base
+        ; test_case "wrong-type bool rejects" `Quick test_manifest_rejects_wrong_type_bool
+        ; test_case "wrong-type int rejects" `Quick test_manifest_rejects_wrong_type_int
         ; test_case
-            "wrong-type feature fields warn and ignore"
+            "wrong-type string list rejects"
             `Quick
-            test_manifest_wrong_type_feature_fields_warn_and_ignore
+            test_manifest_rejects_wrong_type_string_list
+        ; test_case "empty id_prefix rejects" `Quick test_manifest_rejects_empty_id_prefix
+        ; test_case
+            "padded id_prefix rejects"
+            `Quick
+            test_manifest_rejects_padded_id_prefix
+        ; test_case
+            "duplicate root field rejects"
+            `Quick
+            test_manifest_rejects_duplicate_root_field
+        ; test_case
+            "duplicate entry field rejects"
+            `Quick
+            test_manifest_rejects_duplicate_entry_field
         ; test_case "wrong-type base rejects" `Quick test_manifest_rejects_wrong_type_base
         ; test_case
             "wrong-type policy string rejects"
@@ -2759,9 +2905,9 @@ let () =
             `Quick
             test_manifest_intlit_in_range_accepted
         ; test_case
-            "intlit out of range warns"
+            "intlit out of range rejects"
             `Quick
-            test_manifest_intlit_out_of_range_warns
+            test_manifest_intlit_out_of_range_rejects
         ; test_case
             "missing manifest file errors"
             `Quick
@@ -2770,10 +2916,6 @@ let () =
             "malformed manifest file errors"
             `Quick
             test_manifest_load_file_malformed_returns_error
-        ; test_case
-            "runtime manifest load logs success"
-            `Quick
-            test_manifest_load_runtime_file_success_logs_info
         ; test_case
             "model catalog rejects unknown reasoning_replay"
             `Quick
@@ -2790,6 +2932,30 @@ let () =
             "model catalog rejects wrong-type base"
             `Quick
             test_model_catalog_rejects_wrong_type_base_label
+        ; test_case
+            "model catalog rejects wrong-type bool"
+            `Quick
+            test_model_catalog_rejects_wrong_type_bool
+        ; test_case
+            "model catalog rejects wrong-type int"
+            `Quick
+            test_model_catalog_rejects_wrong_type_int
+        ; test_case
+            "model catalog rejects wrong-type float"
+            `Quick
+            test_model_catalog_rejects_wrong_type_float
+        ; test_case
+            "model catalog rejects wrong-type string list"
+            `Quick
+            test_model_catalog_rejects_wrong_type_string_list
+        ; test_case
+            "model catalog rejects empty id_prefix"
+            `Quick
+            test_model_catalog_rejects_empty_id_prefix
+        ; test_case
+            "model catalog rejects padded id_prefix"
+            `Quick
+            test_model_catalog_rejects_padded_id_prefix
         ; test_case
             "model catalog rejects empty provider_name"
             `Quick

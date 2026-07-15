@@ -1,9 +1,9 @@
 (** Canonical OpenAI-compatible reasoning effort values.
 
-    This module is the single source of truth for the typed effort set,
-    canonical wire serialization, parsing at env/API boundaries, and budget
-    threshold mapping. Provider-specific aliasing belongs in
-    {!Reasoning_dialect}. *)
+    This module is the single source of truth for the typed effort set and
+    canonical wire serialization. Token budgets are a distinct provider wire;
+    this module never guesses an effort category from a numeric budget.
+    Provider-specific aliasing belongs in {!Reasoning_dialect}. *)
 
 type t =
   | None_
@@ -12,16 +12,12 @@ type t =
   | Medium
   | High
   | XHigh
+  | Max
 
 val all : t list
 val to_string : t -> string
+val pp : Format.formatter -> t -> unit
+val show : t -> string
 val all_wire_values : string list
 val of_string : string -> t option
 val values_for_log : string
-val low_budget_max_tokens : int
-val medium_budget_max_tokens : int
-val high_budget_max_tokens : int
-val of_budget : int -> t option
-
-(** Budget mapping for providers that expose the top effort tier separately. *)
-val of_budget_with_xhigh : int -> t option

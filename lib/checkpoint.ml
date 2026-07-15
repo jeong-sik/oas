@@ -28,6 +28,7 @@ type t = Checkpoint_types.t =
   ; preserve_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   ; cache_system_prompt : bool
   ; context : Context.t
   ; mcp_sessions : Mcp_session.info list
@@ -55,6 +56,7 @@ type sampling_patch = Checkpoint_types.sampling_patch =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; thinking_budget : int option
+  ; reasoning_effort : Llm_provider.Reasoning_effort.t option
   }
 
 type limits_patch = Checkpoint_types.limits_patch =
@@ -86,15 +88,6 @@ type delta = Checkpoint_types.delta =
   ; operations : delta_op list
   }
 
-type delta_restore_mode = Checkpoint_types.delta_restore_mode =
-  | Delta_applied
-  | Full_restore
-
-type delta_restore_result = Checkpoint_types.delta_restore_result =
-  { checkpoint : t
-  ; mode : delta_restore_mode
-  }
-
 let checkpoint_version = Checkpoint_types.checkpoint_version
 let usage_to_json = Checkpoint_codec.usage_to_json
 let usage_of_json = Checkpoint_codec.usage_of_json
@@ -104,9 +97,7 @@ let to_string = Checkpoint_codec.to_string
 let of_string = Checkpoint_codec.of_string
 let delta_to_json = Checkpoint_codec.delta_to_json
 let delta_of_json = Checkpoint_codec.delta_of_json
-let delta_enabled = Checkpoint_delta.delta_enabled
 let compute_delta = Checkpoint_delta.compute_delta
 let apply_delta = Checkpoint_delta.apply_delta
-let restore_with_delta_fallback = Checkpoint_delta.restore_with_delta_fallback
 let message_count cp = List.length cp.messages
 let token_usage cp = cp.usage

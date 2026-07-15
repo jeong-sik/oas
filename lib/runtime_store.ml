@@ -86,20 +86,6 @@ let ensure_tree store session_id =
   ensure_dir (raw_traces_dir store session_id)
 ;;
 
-let default_root () =
-  match Llm_provider.Cli_common_env.get "OAS_RUNTIME_SESSION_ROOT" with
-  | Some value -> Ok value
-  | None ->
-    Error
-      (Error.Config
-         (InvalidConfig
-            { field = "session_root"
-            ; detail =
-                "missing runtime session root; pass ~root/session_root or set \
-                 OAS_RUNTIME_SESSION_ROOT to an absolute path"
-            }))
-;;
-
 let validate_root root =
   if Filename.is_relative root
   then
@@ -116,7 +102,14 @@ let create ?root () =
   let* resolved =
     match Util.trim_non_empty_opt root with
     | Some value -> Ok value
-    | None -> default_root ()
+    | None ->
+      Error
+        (Error.Config
+           (InvalidConfig
+              { field = "session_root"
+              ; detail =
+                  "missing runtime session root; pass an explicit ~root/session_root"
+              }))
   in
   let* resolved = validate_root resolved in
   let store = { root = resolved } in
@@ -148,7 +141,6 @@ let parse_session raw =
          |> with_default "runtime_actor" `Null
          |> with_default "requested_provider" `Null
          |> with_default "requested_model" `Null
-         |> with_default "requested_policy" `Null
          |> with_default "resolved_provider" `Null
          |> with_default "resolved_model" `Null
          |> with_default "accepted_at" `Null

@@ -18,11 +18,7 @@ let () =
             check string "name" "reviewer" spec.name;
             check (option string) "desc" (Some "Code review agent") spec.description;
             check string "prompt" "You review code." spec.prompt;
-            check
-              bool
-              "model is sonnet"
-              true
-              (spec.model = Subagent.Use_model "claude-sonnet-4-6-20250514"))
+            check bool "model is sonnet" true (spec.model = Subagent.Use_model "sonnet"))
         ; test_case "inherit model" `Quick (fun () ->
             let spec = Subagent.of_markdown "Just a prompt" in
             check bool "inherit" true (spec.model = Subagent.Inherit_model))
@@ -52,18 +48,6 @@ let () =
             let md = "---\ndisallowed-tools: Bash\ndisallowed_tools: Write\n---\nbody" in
             let spec = Subagent.of_markdown md in
             check int "combined count" 2 (List.length spec.disallowed_tools))
-        ; test_case "max-turns" `Quick (fun () ->
-            let md = "---\nmax-turns: 5\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" (Some 5) spec.max_turns)
-        ; test_case "max_turns underscore" `Quick (fun () ->
-            let md = "---\nmax_turns: 10\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" (Some 10) spec.max_turns)
-        ; test_case "max_turns invalid -> None" `Quick (fun () ->
-            let md = "---\nmax-turns: abc\n---\nbody" in
-            let spec = Subagent.of_markdown md in
-            check (option int) "max_turns" None spec.max_turns)
         ; test_case "skill_refs" `Quick (fun () ->
             let md = "---\nskills: helper.md, reviewer.md\n---\nbody" in
             let spec = Subagent.of_markdown md in
@@ -180,70 +164,67 @@ let () =
               "inherit"
               true
               (Subagent.model_override_of_string "INHERIT" = Subagent.Inherit_model))
-        ; test_case "sonnet alias" `Quick (fun () ->
+        ; test_case "sonnet is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet"
               true
-              (Subagent.model_override_of_string "sonnet"
-               = Subagent.Use_model "claude-sonnet-4-6-20250514"))
-        ; test_case "claude-sonnet-4-6" `Quick (fun () ->
+              (Subagent.model_override_of_string "sonnet" = Subagent.Use_model "sonnet"))
+        ; test_case "claude-sonnet-4-6 is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet 4.6"
               true
               (Subagent.model_override_of_string "claude-sonnet-4-6"
-               = Subagent.Use_model "claude-sonnet-4-6-20250514"))
-        ; test_case "opus alias" `Quick (fun () ->
+               = Subagent.Use_model "claude-sonnet-4-6"))
+        ; test_case "opus is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus"
               true
-              (Subagent.model_override_of_string "opus"
-               = Subagent.Use_model "claude-opus-4-6-20250514"))
-        ; test_case "claude-opus-4-6" `Quick (fun () ->
+              (Subagent.model_override_of_string "opus" = Subagent.Use_model "opus"))
+        ; test_case "claude-opus-4-6 is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus 4.6"
               true
               (Subagent.model_override_of_string "claude-opus-4-6"
-               = Subagent.Use_model "claude-opus-4-6-20250514"))
-        ; test_case "claude-opus-4-5" `Quick (fun () ->
+               = Subagent.Use_model "claude-opus-4-6"))
+        ; test_case "claude-opus-4-5 is preserved exactly" `Quick (fun () ->
             check
               bool
               "opus 4.5"
               true
               (Subagent.model_override_of_string "claude-opus-4-5"
-               = Subagent.Use_model "claude-opus-4-5-20251101"))
-        ; test_case "claude-sonnet-4" `Quick (fun () ->
+               = Subagent.Use_model "claude-opus-4-5"))
+        ; test_case "claude-sonnet-4 is preserved exactly" `Quick (fun () ->
             check
               bool
               "sonnet 4"
               true
               (Subagent.model_override_of_string "claude-sonnet-4"
-               = Subagent.Use_model "claude-sonnet-4-20250514"))
-        ; test_case "haiku alias" `Quick (fun () ->
+               = Subagent.Use_model "claude-sonnet-4"))
+        ; test_case "haiku is preserved exactly" `Quick (fun () ->
             check
               bool
               "haiku"
               true
-              (Subagent.model_override_of_string "haiku"
-               = Subagent.Use_model "claude-haiku-4-5-20251001"))
-        ; test_case "claude-haiku-4-5" `Quick (fun () ->
+              (Subagent.model_override_of_string "haiku" = Subagent.Use_model "haiku"))
+        ; test_case "claude-haiku-4-5 is preserved exactly" `Quick (fun () ->
             check
               bool
               "haiku"
               true
               (Subagent.model_override_of_string "claude-haiku-4-5"
-               = Subagent.Use_model "claude-haiku-4-5-20251001"))
-        ; test_case "claude-3-7-sonnet" `Quick (fun () ->
+               = Subagent.Use_model "claude-haiku-4-5"))
+        ; test_case "claude-3-7-sonnet is preserved exactly" `Quick (fun () ->
             check
               bool
               "3.7"
               true
               (Subagent.model_override_of_string "claude-3-7-sonnet"
-               = Subagent.Use_model "claude-3-7-sonnet-20250219"))
-        ; test_case "custom fallback" `Quick (fun () ->
+               = Subagent.Use_model "claude-3-7-sonnet"))
+        ; test_case "arbitrary model is preserved exactly" `Quick (fun () ->
             match Subagent.model_override_of_string "gpt" with
             | Subagent.Use_model "gpt" -> ()
             | _ -> fail "expected Custom")
@@ -442,13 +423,7 @@ let () =
     ; ( "handoff"
       , [ test_case "to_handoff_target with model" `Quick (fun () ->
             let md =
-              "---\n\
-               name: helper\n\
-               description: Helps out\n\
-               model: haiku\n\
-               max-turns: 3\n\
-               ---\n\
-               You help."
+              "---\nname: helper\ndescription: Helps out\nmodel: haiku\n---\nYou help."
             in
             let spec = Subagent.of_markdown md in
             let tools =
@@ -458,14 +433,13 @@ let () =
             in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:tools
                 spec
             in
             check string "name" "helper" target.name;
             check string "desc" "Helps out" target.description;
-            check bool "model" true (target.config.model = "claude-haiku-4-5-20251001");
-            check int "max_turns" 3 target.config.max_turns;
+            check bool "model" true (target.config.model = "haiku");
             check
               (option string)
               "system_prompt"
@@ -476,7 +450,7 @@ let () =
             let spec = Subagent.of_markdown md in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:[]
                 spec
             in
@@ -484,10 +458,12 @@ let () =
               bool
               "inherited model"
               true
-              (target.config.model = Types.default_config.model))
+              (target.config.model = (Types.default_config ~model:"test-model").model))
         ; test_case "to_handoff_target empty prompt inherits parent" `Quick (fun () ->
             let parent =
-              { Types.default_config with system_prompt = Some "Parent prompt" }
+              { (Types.default_config ~model:"test-model") with
+                system_prompt = Some "Parent prompt"
+              }
             in
             let spec = Subagent.of_markdown "" in
             let target =
@@ -502,18 +478,11 @@ let () =
             let spec = Subagent.of_markdown "---\nname: x\n---\nbody" in
             let target =
               Subagent.to_handoff_target
-                ~parent_config:Types.default_config
+                ~parent_config:(Types.default_config ~model:"test-model")
                 ~base_tools:[]
                 spec
             in
             check string "desc fallback" "Subagent" target.description)
-        ; test_case "to_handoff_target no max_turns inherits parent" `Quick (fun () ->
-            let parent = { Types.default_config with max_turns = 20 } in
-            let spec = Subagent.of_markdown "body" in
-            let target =
-              Subagent.to_handoff_target ~parent_config:parent ~base_tools:[] spec
-            in
-            check int "parent turns" 20 target.config.max_turns)
         ] )
     ]
 ;;
