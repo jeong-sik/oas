@@ -6,6 +6,13 @@ let notify_attribution callback attribution =
   Option.iter (fun notify -> notify attribution) callback
 ;;
 
+let binding_identity_error ?on_provider_failure detail =
+  let error = Error.Config (InvalidConfig { field = "model_id"; detail }) in
+  let detailed = Provider_failure_attribution.of_provider_configuration_error error in
+  notify_attribution on_provider_failure detailed.provider_failure;
+  detailed.error
+;;
+
 let binding_identity_for_call agent provider_config =
   let transport =
     Binding_identity.transport_for_call ~injected:(Option.is_some agent.options.transport)
@@ -33,6 +40,7 @@ let dispatch_sync
       agent
       (prep : Agent_turn.turn_preparation)
   =
+  let ( let* ) = Result.bind in
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   match provider_config_for_turn ~turn_config agent with
   | Error error ->
@@ -40,6 +48,10 @@ let dispatch_sync
     notify_attribution on_provider_failure detailed.provider_failure;
     Error detailed.error
   | Ok pc ->
+    let* binding =
+      binding_identity_for_call agent pc
+      |> Result.map_error (binding_identity_error ?on_provider_failure)
+    in
     let call () =
       Llm_provider.Complete.complete
         ~sw
@@ -58,7 +70,6 @@ let dispatch_sync
        notify_attribution on_provider_failure None;
        Ok resp
      | Error err ->
-       let binding = binding_identity_for_call agent pc in
        let detailed = Provider_failure_attribution.of_http_error ~binding err in
        notify_attribution on_provider_failure detailed.provider_failure;
        Error detailed.error)
@@ -77,6 +88,7 @@ let dispatch_stream
       ?on_provider_failure
       ()
   =
+  let ( let* ) = Result.bind in
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   match provider_config_for_turn ~turn_config agent with
   | Error error ->
@@ -84,6 +96,10 @@ let dispatch_stream
     notify_attribution on_provider_failure detailed.provider_failure;
     Error detailed.error
   | Ok pc ->
+    let* binding =
+      binding_identity_for_call agent pc
+      |> Result.map_error (binding_identity_error ?on_provider_failure)
+    in
     let call () =
       Llm_provider.Complete.complete_stream
         ~sw
@@ -105,7 +121,6 @@ let dispatch_stream
        notify_attribution on_provider_failure None;
        Ok resp
      | Error err ->
-       let binding = binding_identity_for_call agent pc in
        let detailed = Provider_failure_attribution.of_http_error ~binding err in
        notify_attribution on_provider_failure detailed.provider_failure;
        Error detailed.error)

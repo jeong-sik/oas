@@ -19,10 +19,16 @@ type t =
   ; seq : int option
   ; parent_event_id : string option
   ; caused_by : string option
+    (** Untyped compatibility causation field. Canonical {!Execution_event}
+        values require this to be [None] and use their typed, plural [causes]
+        field instead. *)
   ; source_clock : source_clock
   }
 
+(** Generate a process-local compatibility identifier. Canonical
+    {!Execution_event} construction supplies its own typed random identity. *)
 val fresh_id : unit -> string
+
 val source_clock_to_string : source_clock -> string
 val source_clock_of_string : string -> (source_clock, string) result
 

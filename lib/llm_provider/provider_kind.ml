@@ -41,18 +41,11 @@ let default_api_key_env = function
     None
 ;;
 
-let of_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "anthropic" -> Some Anthropic
-  | "kimi" -> Some Kimi
-  | "openai_compat" -> Some OpenAI_compat
-  | "ollama" -> Some Ollama
-  | "gemini" -> Some Gemini
-  | "glm" -> Some Glm
-  | "dashscope" -> Some DashScope
-  | _ -> None
+let of_canonical_string raw =
+  List.find_opt (fun kind -> String.equal raw (to_string kind)) all
 ;;
 
+let of_string raw = raw |> String.trim |> String.lowercase_ascii |> of_canonical_string
 let pp fmt k = Format.pp_print_string fmt (to_string k)
 let show = to_string
 let to_yojson (k : t) : Yojson.Safe.t = `String (to_string k)

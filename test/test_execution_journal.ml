@@ -8,6 +8,9 @@ let require_ok = function
   | Error error -> fail (Journal.error_to_string error)
 ;;
 
+let require_started_run result = fst (require_ok result)
+let require_opened_node result = fst (require_ok result)
+
 let require_codec_ok = function
   | Ok value -> value
   | Error detail -> fail detail
@@ -17,19 +20,22 @@ let serial_schedule : Hooks.tool_schedule =
   { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
 ;;
 
-let provider_turn turn =
-  Event.Provider_turn
-    { turn
-    ; model = "test-model"
-    ; provider_response_id = Some ("response-" ^ string_of_int turn)
-    }
+let provider_attempt ?(model_id = "test-model") ordinal =
+  let config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_kind.OpenAI_compat
+      ~provider_id:"test-provider"
+      ~model_id
+      ~base_url:"https://provider.test"
+      ()
+  in
+  require_codec_ok (Event.provider_attempt ~ordinal config)
 ;;
 
 let tool_invocation name =
   Event.Tool_invocation
     { provider_tool_use_id = Some ("provider-" ^ name)
     ; tool_name = name
-    ; input = None
     ; schedule = serial_schedule
     }
 ;;
@@ -40,16 +46,45 @@ let check_contiguous events =
     events
 ;;
 
-let build_recursive_run journal =
-  let parent_run = require_ok (Journal.start_run journal ~agent_name:"keeper") in
-  let parent_turn =
-    require_ok
+let cursor_at cursor seq =
+  let json = Journal.cursor_to_yojson cursor in
+  match json with
+  | `Assoc fields ->
+    require_codec_ok
+      (Journal.cursor_of_yojson
+         (`Assoc (("seq", `Int seq) :: List.remove_assoc "seq" fields)))
+  | _ -> fail "cursor encoder did not return an object"
+;;
+
+let open_provider_attempt
+      ?(turn_ordinal = 0)
+      ?(attempt_ordinal = 0)
+      ?(model_id = "test-model")
+      journal
+      run
+  =
+  let agent_turn =
+    require_opened_node
       (Journal.open_node
          journal
-         ~run:parent_run
-         ~parent:(Journal.run_root parent_run)
-         ~kind:(provider_turn 0))
+         ~run
+         ~parent:(Journal.run_root run)
+         ~kind:(Event.Agent_turn { ordinal = turn_ordinal }))
   in
+  let attempt =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:agent_turn
+         ~kind:(provider_attempt ~model_id attempt_ordinal))
+  in
+  agent_turn, attempt
+;;
+
+let build_recursive_run journal =
+  let parent_run = require_started_run (Journal.start_run journal ~agent_name:"keeper") in
+  let parent_agent_turn, parent_turn = open_provider_attempt journal parent_run in
   ignore
     (require_ok
        (Journal.update_node
@@ -57,7 +92,7 @@ let build_recursive_run journal =
           ~node:parent_turn
           (Event.Provider_event (`Assoc [ "phase", `String "started" ]))));
   let thinking =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run:parent_run
@@ -78,7 +113,7 @@ let build_recursive_run journal =
           (Event.Output_snapshot (`Assoc [ "text", `String "inspect source" ]))));
   ignore (require_ok (Journal.close_node journal ~node:thinking Event.Succeeded));
   let invocation =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run:parent_run
@@ -98,7 +133,7 @@ let build_recursive_run journal =
           ~node:invocation
           (Event.Tool_input_snapshot (`Assoc [ "path", `String "lib/agent.ml" ]))));
   let attempt =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run:parent_run
@@ -111,29 +146,32 @@ let build_recursive_run journal =
           journal
           ~node:attempt
           (Event.Tool_progress (`Assoc [ "bytes", `Int 512 ]))));
-  ignore (require_ok (Journal.close_node journal ~node:attempt Event.Succeeded));
+  let attempt_closed =
+    require_ok (Journal.close_node journal ~node:attempt Event.Succeeded)
+  in
   let child_run =
-    require_ok
+    require_started_run
       (Journal.start_run ~parent_invocation:invocation journal ~agent_name:"reviewer")
   in
-  let child_turn =
-    require_ok
-      (Journal.open_node
-         journal
-         ~run:child_run
-         ~parent:(Journal.run_root child_run)
-         ~kind:(provider_turn 0))
-  in
+  let child_agent_turn, child_turn = open_provider_attempt journal child_run in
   ignore (require_ok (Journal.close_node journal ~node:child_turn Event.Succeeded));
-  ignore (require_ok (Journal.finish_run journal ~run:child_run Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:child_agent_turn Event.Succeeded));
+  let child_finished =
+    require_ok (Journal.finish_run journal ~run:child_run Event.Succeeded)
+  in
   ignore
     (require_ok
        (Journal.update_node
+          ~causes:
+            [ Event.Internal_event (Event.event_id attempt_closed)
+            ; Event.Internal_event (Event.event_id child_finished)
+            ]
           journal
           ~node:invocation
           (Event.Tool_result (`Assoc [ "review", `String "accepted" ]))));
   ignore (require_ok (Journal.close_node journal ~node:invocation Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:parent_turn Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:parent_agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run:parent_run Event.Succeeded));
   parent_run, child_run
 ;;
@@ -141,29 +179,68 @@ let build_recursive_run journal =
 let test_recursive_tree_and_global_sequence () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
+  let journal = require_ok (Journal.create ()) in
   let parent_run, child_run = build_recursive_run journal in
   let events = Journal.events journal in
-  check int "all events retained" 21 (List.length events);
+  check int "all events retained" 25 (List.length events);
   check_contiguous events;
-  let tail = require_ok (Journal.events_after journal ~after_seq:15) in
-  check int "exclusive cursor" 6 (List.length tail);
+  let tool_result_event =
+    List.find
+      (fun event ->
+         match Event.payload event with
+         | Event.Node_updated { update = Event.Tool_result _; _ } -> true
+         | Event.Node_opened _ | Event.Node_updated _ | Event.Node_closed _ -> false)
+      events
+  in
+  (match Event.causes tool_result_event with
+   | [ Event.Internal_event attempt; Event.Internal_event child ] ->
+     check bool "fan-in causes are distinct" false (Event.Event_id.equal attempt child)
+   | _ -> fail "tool result did not retain attempt plus child-run fan-in");
+  let after_fifteen = cursor_at (Journal.current_cursor journal) 15 in
+  let tail, next = require_ok (Journal.events_after journal ~after:after_fifteen) in
+  check int "exclusive cursor" 10 (List.length tail);
   check bool "cursor order" true (List.for_all (fun event -> Event.seq event > 15) tail);
+  check int "returned cursor watermark" 25 (Journal.cursor_seq next);
+  let ahead = cursor_at next 26 in
+  (match Journal.events_after journal ~after:ahead with
+   | Error (Journal.Cursor_ahead { after_seq = 26; last_seq = 25 }) -> ()
+   | _ -> fail "a cursor ahead of the journal was silently accepted");
+  let foreign = Journal.beginning_cursor (require_ok (Journal.create ())) in
+  (match Journal.events_after journal ~after:foreign with
+   | Error Journal.Cursor_scope_mismatch -> ()
+   | _ -> fail "a cursor from another journal was silently accepted");
+  let expected_correlation = Event.correlation_id (List.hd events) in
+  check
+    bool
+    "recursive runs share one execution correlation"
+    true
+    (List.for_all
+       (fun event ->
+          Event.Correlation_id.equal (Event.correlation_id event) expected_correlation)
+       events);
   (match Journal.find_run journal (Journal.run_id parent_run) with
-   | Some { status = Journal.Finished Event.Succeeded; parent_invocation = None; _ } -> ()
+   | Some
+       { status = Journal.Finished { value = Event.Succeeded; _ }
+       ; parent_invocation = None
+       ; _
+       } -> ()
    | _ -> fail "parent run was not finished as a root run");
   match Journal.find_run journal (Journal.run_id child_run) with
-  | Some { status = Journal.Finished Event.Succeeded; parent_invocation = Some _; _ } ->
-    ()
+  | Some
+      { status = Journal.Finished { value = Event.Succeeded; _ }
+      ; parent_invocation = Some _
+      ; _
+      } -> ()
   | _ -> fail "child run did not retain its invocation parent"
 ;;
 
 let test_codec_roundtrip_and_exactness () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"codec") in
+  let journal = require_ok (Journal.create ()) in
+  let run, opened = require_ok (Journal.start_run journal ~agent_name:"codec") in
   let event = List.hd (Journal.events journal) in
+  check bool "start_run returns its exact event" true (Event.equal opened event);
   let decoded = require_codec_ok (Event.of_json_string (Event.to_json_string event)) in
   check bool "event round-trip" true (Event.equal event decoded);
   (match
@@ -187,26 +264,32 @@ let test_codec_roundtrip_and_exactness () =
   (match Event.of_yojson with_unknown_envelope_field with
    | Error _ -> ()
    | Ok _ -> fail "unknown envelope field was accepted");
-  let pending_input =
-    require_codec_ok
-      (Event.node_kind_of_yojson (Event.node_kind_to_yojson (tool_invocation "pending")))
+  let decoded_invocation =
+    let json = require_codec_ok (Event.node_kind_to_yojson (tool_invocation "pending")) in
+    require_codec_ok (Event.node_kind_of_yojson json)
   in
-  (match pending_input with
-   | Event.Tool_invocation { input = None; _ } -> ()
-   | _ -> fail "absent tool input did not round-trip as None");
-  let null_input =
-    Event.Tool_invocation
-      { provider_tool_use_id = None
-      ; tool_name = "null_input"
-      ; input = Some `Null
-      ; schedule = serial_schedule
-      }
+  (match decoded_invocation with
+   | Event.Tool_invocation { tool_name = "pending"; _ } -> ()
+   | _ -> fail "tool invocation identity did not round-trip");
+  let agent_turn, turn = open_provider_attempt journal run in
+  let invocation =
+    require_opened_node
+      (Journal.open_node journal ~run ~parent:turn ~kind:(tool_invocation "null_input"))
   in
-  (match
-     require_codec_ok (Event.node_kind_of_yojson (Event.node_kind_to_yojson null_input))
-   with
-   | Event.Tool_invocation { input = Some `Null; _ } -> ()
+  ignore
+    (require_ok
+       (Journal.update_node journal ~node:invocation (Event.Tool_input_snapshot `Null)));
+  (match Journal.find_node journal invocation with
+   | Some { materialized = Journal.Tool_invocation_state { input = Some `Null; _ }; _ } ->
+     ()
    | _ -> fail "canonical JSON null was confused with absent input");
+  let failed =
+    Event.Failed
+      { kind = Event.Tool_failure; detail = "expected codec test stop"; data = None }
+  in
+  ignore (require_ok (Journal.close_node journal ~node:invocation failed));
+  ignore (require_ok (Journal.close_node journal ~node:turn Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded))
 ;;
 
@@ -216,17 +299,28 @@ let id module_id value =
   | Error detail -> fail detail
 ;;
 
-let make_manual_event ~event_id ~run_id ~seq ?parent_event_id payload =
+let make_manual_event
+      ~event_id
+      ~run_id
+      ~seq
+      ?correlation_id
+      ?parent_event_id
+      ?causes
+      payload
+  =
+  let correlation_id =
+    Option.value correlation_id ~default:(Event.Run_id.to_string run_id)
+  in
   let envelope =
     Event_envelope.make
       ~event_id:(Event.Event_id.to_string event_id)
-      ~correlation_id:(Event.Run_id.to_string run_id)
+      ~correlation_id
       ~run_id:(Event.Run_id.to_string run_id)
       ~seq
       ?parent_event_id
       ()
   in
-  require_codec_ok (Event.make ~envelope ~payload)
+  require_codec_ok (Event.make ?causes ~envelope payload)
 ;;
 
 let test_reducer_rejects_sequence_and_unknown_parent_event () =
@@ -254,16 +348,74 @@ let test_reducer_rejects_sequence_and_unknown_parent_event () =
       ~parent_event_id:unknown_parent
       (Event.Node_opened node)
   in
-  match Journal.Reducer.apply Journal.Reducer.empty seq_one with
-  | Error (Journal.Unknown_parent_event _) -> ()
-  | _ -> fail "unknown event reference was not rejected"
+  (match Journal.Reducer.apply Journal.Reducer.empty seq_one with
+   | Error (Journal.Unknown_parent_event _) -> ()
+   | _ -> fail "unknown parent event reference was not rejected");
+  let unknown_cause = id Event.Event_id.of_string "execution-event-unknown-cause" in
+  let dangling_cause =
+    make_manual_event
+      ~event_id
+      ~run_id
+      ~seq:1
+      ~causes:[ Event.Internal_event unknown_cause ]
+      (Event.Node_opened node)
+  in
+  match Journal.Reducer.apply Journal.Reducer.empty dangling_cause with
+  | Error (Journal.Unknown_cause_event event_id)
+    when Event.Event_id.equal event_id unknown_cause -> ()
+  | _ -> fail "unknown typed cause event was not rejected"
+;;
+
+let test_reducer_rejects_correlation_drift () =
+  let run_id = id Event.Run_id.of_string "execution-run-correlation" in
+  let root_id = id Event.Node_id.of_string "execution-node-correlation" in
+  let opened_id = id Event.Event_id.of_string "execution-event-correlation-opened" in
+  let closed_id = id Event.Event_id.of_string "execution-event-correlation-closed" in
+  let node =
+    require_codec_ok
+      (Event.make_node
+         ~node_id:root_id
+         ~run_id
+         ~parent_node_id:None
+         ~kind:(Event.Agent_run { agent_name = "manual" }))
+  in
+  let opened =
+    make_manual_event
+      ~event_id:opened_id
+      ~run_id
+      ~seq:1
+      ~correlation_id:"execution-scope-one"
+      ~causes:
+        [ Event.External_event { source = "test"; event_id = "external-trigger-one" } ]
+      (Event.Node_opened node)
+  in
+  let state =
+    match Journal.Reducer.apply Journal.Reducer.empty opened with
+    | Ok state -> state
+    | Error violation -> fail (Journal.show_invariant_violation violation)
+  in
+  let closed =
+    make_manual_event
+      ~event_id:closed_id
+      ~run_id
+      ~seq:2
+      ~correlation_id:"execution-scope-two"
+      ~parent_event_id:(Event.Event_id.to_string opened_id)
+      (Event.Node_closed { node_id = root_id; terminal = Event.Succeeded })
+  in
+  match Journal.Reducer.apply state closed with
+  | Error (Journal.Correlation_mismatch { expected; actual })
+    when String.equal (Event.Correlation_id.to_string expected) "execution-scope-one"
+         && String.equal (Event.Correlation_id.to_string actual) "execution-scope-two" ->
+    ()
+  | _ -> fail "execution correlation drift was accepted"
 ;;
 
 let test_hierarchy_and_lifecycle_rejections () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"invalid") in
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"invalid") in
   let root = Journal.run_root run in
   (match
      Journal.open_node
@@ -280,16 +432,14 @@ let test_hierarchy_and_lifecycle_rejections () =
         | Ok _ -> "accepted"
         | Error e -> Journal.error_to_string e));
   check int "rejected open is not committed" 1 (Journal.length journal);
-  let turn =
-    require_ok (Journal.open_node journal ~run ~parent:root ~kind:(provider_turn 0))
-  in
+  let agent_turn, turn = open_provider_attempt journal run in
   (match
      Journal.update_node journal ~node:turn (Event.Output_delta (`String "wrong"))
    with
    | Error (Journal.Invariant_violation (Journal.Invalid_update_for_node _)) -> ()
    | _ -> fail "invalid update was not rejected");
   let output =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run
@@ -305,9 +455,19 @@ let test_hierarchy_and_lifecycle_rejections () =
   (match Journal.close_node journal ~node:root Event.Succeeded with
    | Error (Journal.Invariant_violation (Journal.Root_must_use_finish_run _)) -> ()
    | _ -> fail "root was closed without finish_run");
+  (match Journal.close_node journal ~node:output Event.Succeeded with
+   | Error (Journal.Invariant_violation (Journal.Output_snapshot_not_materialized _)) ->
+     ()
+   | _ -> fail "an output block succeeded without a canonical snapshot");
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:output
+          (Event.Output_snapshot (`String "materialized"))));
   ignore (require_ok (Journal.close_node journal ~node:output Event.Succeeded));
   let invocation =
-    require_ok
+    require_opened_node
       (Journal.open_node journal ~run ~parent:turn ~kind:(tool_invocation "streamed"))
   in
   (match
@@ -347,7 +507,7 @@ let test_hierarchy_and_lifecycle_rejections () =
    | Error (Journal.Invariant_violation (Journal.Tool_result_not_materialized _)) -> ()
    | _ -> fail "tool invocation succeeded without a canonical result");
   let attempt =
-    require_ok
+    require_opened_node
       (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
   in
   (match
@@ -379,7 +539,7 @@ let test_hierarchy_and_lifecycle_rejections () =
    | _ -> fail "a tool attempt was opened after the canonical result");
   ignore (require_ok (Journal.close_node journal ~node:invocation Event.Succeeded));
   let failed_invocation =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run
@@ -397,24 +557,20 @@ let test_hierarchy_and_lifecycle_rejections () =
              ; data = None
              })));
   ignore (require_ok (Journal.close_node journal ~node:turn Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded))
 ;;
 
 let test_output_snapshot_is_terminal_for_output_updates () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"output-snapshot") in
-  let turn =
-    require_ok
-      (Journal.open_node
-         journal
-         ~run
-         ~parent:(Journal.run_root run)
-         ~kind:(provider_turn 0))
+  let journal = require_ok (Journal.create ()) in
+  let run =
+    require_started_run (Journal.start_run journal ~agent_name:"output-snapshot")
   in
+  let agent_turn, turn = open_provider_attempt journal run in
   let output =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run
@@ -446,22 +602,148 @@ let test_output_snapshot_is_terminal_for_output_updates () =
    | _ -> fail "an output delta was accepted after its snapshot");
   ignore (require_ok (Journal.close_node journal ~node:output Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:turn Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded))
+;;
+
+let test_streaming_provider_identity_and_projection () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let run =
+    require_started_run (Journal.start_run journal ~agent_name:"streaming-projection")
+  in
+  let agent_turn =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:(Journal.run_root run)
+         ~kind:(Event.Agent_turn { ordinal = 0 }))
+  in
+  let attempt, opened =
+    require_ok
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:agent_turn
+         ~kind:(provider_attempt ~model_id:"streaming-model" 0))
+  in
+  (match Event.payload opened with
+   | Event.Node_opened node when Event.Node_id.equal (Event.node_id node) attempt -> ()
+   | _ -> fail "open_node did not return its exact opened event");
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:attempt
+          (Event.Provider_event (`Assoc [ "phase", `String "headers" ]))));
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:attempt
+          (Event.Provider_response_id_snapshot "response-stream-1")));
+  (match
+     Journal.update_node
+       journal
+       ~node:attempt
+       (Event.Provider_response_id_snapshot "response-stream-2")
+   with
+   | Error
+       (Journal.Invariant_violation (Journal.Provider_response_id_already_materialized _))
+     -> ()
+   | _ -> fail "a second provider response identifier was accepted");
+  let output =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:attempt
+         ~kind:(Event.Output_block { ordinal = 0; block_kind = Event.Text_block }))
+  in
+  ignore
+    (require_ok
+       (Journal.update_node journal ~node:output (Event.Output_delta (`String "a"))));
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:output
+          (Event.Output_snapshot (`String "answer"))));
+  ignore (require_ok (Journal.close_node journal ~node:output Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:attempt Event.Succeeded));
+  let fallback_attempt =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:agent_turn
+         ~kind:(provider_attempt ~model_id:"streaming-model" 1))
+  in
+  check
+    bool
+    "attempt node identity is occurrence identity"
+    false
+    (Event.Node_id.equal attempt fallback_attempt);
+  ignore
+    (require_ok
+       (Journal.close_node
+          journal
+          ~node:fallback_attempt
+          (Event.Failed
+             { kind = Event.Provider_failure
+             ; detail = "fallback attempt not selected"
+             ; data = None
+             })));
+  ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
+  ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded));
+  (match Journal.find_node journal (Journal.run_root run) with
+   | Some { children = [ { value = child; _ } ]; _ }
+     when Event.Node_id.equal (Event.node_id child) agent_turn -> ()
+   | _ -> fail "run projection lost its logical agent-turn child");
+  (match Journal.find_node journal agent_turn with
+   | Some
+       { children = [ { value = first; _ }; { value = second; _ } ]
+       ; materialized = Journal.Agent_turn_state
+       ; _
+       }
+     when Event.Node_id.equal (Event.node_id first) attempt
+          && Event.Node_id.equal (Event.node_id second) fallback_attempt -> ()
+   | _ -> fail "logical agent turn lost ordered provider attempts");
+  (match Journal.find_node journal attempt with
+   | Some
+       { status = Journal.Closed { value = Event.Succeeded; _ }
+       ; updates =
+           [ { value = Event.Provider_event _; _ }
+           ; { value = Event.Provider_response_id_snapshot "response-stream-1"; _ }
+           ]
+       ; children = [ { value = child; _ } ]
+       ; materialized =
+           Journal.Provider_attempt_state
+             { provider_response_id = Some "response-stream-1" }
+       ; _
+       }
+     when Event.Node_id.equal (Event.node_id child) output -> ()
+   | _ -> fail "provider attempt projection lost updates or its output child");
+  match Journal.find_node journal output with
+  | Some
+      { status = Journal.Closed { value = Event.Succeeded; _ }
+      ; updates =
+          [ { value = Event.Output_delta _; _ }; { value = Event.Output_snapshot _; _ } ]
+      ; children = []
+      ; materialized = Journal.Output_block_state { snapshot = Some (`String "answer") }
+      ; _
+      } -> ()
+  | _ -> fail "output projection lost its chronological updates"
 ;;
 
 let test_json_terminal_and_id_boundaries () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"validation") in
-  let turn =
-    require_ok
-      (Journal.open_node
-         journal
-         ~run
-         ~parent:(Journal.run_root run)
-         ~kind:(provider_turn 0))
-  in
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"validation") in
+  let agent_turn, turn = open_provider_attempt journal run in
   let before_invalid_updates = Journal.length journal in
   let invalid_json_values = [ `Float nan; `Intlit "not-a-json-integer" ] in
   List.iter
@@ -490,53 +772,28 @@ let test_json_terminal_and_id_boundaries () =
     (fun update ->
        let envelope =
          Event_envelope.make
-           ~event_id:(Event.Event_id.to_string (Event.Event_id.fresh ()))
+           ~event_id:
+             (Event.Event_id.to_string (require_codec_ok (Event.Event_id.fresh ())))
            ~correlation_id:(Event.Run_id.to_string (Journal.run_id run))
            ~run_id:(Event.Run_id.to_string (Journal.run_id run))
            ~seq:1
            ()
        in
-       match
-         Event.make ~envelope ~payload:(Event.Node_updated { node_id = turn; update })
-       with
+       match Event.make ~envelope (Event.Node_updated { node_id = turn; update }) with
        | Error _ -> ()
        | Ok _ -> fail "an opaque non-finite JSON update passed Event.make")
     invalid_updates;
-  (match
-     Event.make_node
-       ~node_id:(Event.Node_id.fresh ())
-       ~run_id:(Journal.run_id run)
-       ~parent_node_id:(Some turn)
-       ~kind:
-         (Event.Tool_invocation
-            { provider_tool_use_id = None
-            ; tool_name = "invalid_input"
-            ; input = Some invalid_payload
-            ; schedule = serial_schedule
-            })
-   with
-   | Error _ -> ()
-   | Ok _ -> fail "non-finite canonical tool input passed make_node");
   (match
      Event.node_update_of_yojson
        (`Assoc [ "type", `String "provider_event"; "value", `Float nan ])
    with
    | Error _ -> ()
    | Ok _ -> fail "non-finite JSON passed the node update decoder");
-  (match
-     Event.node_kind_of_yojson
-       (Event.node_kind_to_yojson
-          (Event.Tool_invocation
-             { provider_tool_use_id = None
-             ; tool_name = "invalid_codec_input"
-             ; input = Some invalid_payload
-             ; schedule = serial_schedule
-             }))
-   with
+  (match Event.node_update_to_yojson (Event.Tool_input_snapshot invalid_payload) with
    | Error _ -> ()
-   | Ok _ -> fail "non-finite JSON passed the node kind decoder");
+   | Ok _ -> fail "non-finite JSON passed the public node update encoder");
   let output =
-    require_ok
+    require_opened_node
       (Journal.open_node
          journal
          ~run
@@ -578,6 +835,7 @@ let test_json_terminal_and_id_boundaries () =
           ~node:output
           (Event.Cancelled { reason = Some "operator requested stop"; data = None })));
   ignore (require_ok (Journal.close_node journal ~node:turn Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded));
   let expect_prefix_only_rejected result =
     match result with
@@ -589,11 +847,49 @@ let test_json_terminal_and_id_boundaries () =
   expect_prefix_only_rejected (Event.Node_id.of_string "execution-node-")
 ;;
 
+let test_terminal_certificate_preserves_payload () =
+  let run_id = id Event.Run_id.of_string "execution-run-certified-terminal" in
+  let node_id = id Event.Node_id.of_string "execution-node-certified-terminal" in
+  let terminal =
+    Event.Failed
+      { kind = Event.Protocol_failure
+      ; detail = "provider returned a typed protocol failure"
+      ; data = Some (`Assoc [ "wire_code", `String "invalid_frame" ])
+      }
+  in
+  let certified = require_codec_ok (Event.validate_terminal terminal) in
+  let payload = Event.close_payload ~node_id certified in
+  let envelope =
+    Event_envelope.make
+      ~event_id:(Event.Event_id.to_string (require_codec_ok (Event.Event_id.fresh ())))
+      ~correlation_id:"certified-terminal-test"
+      ~run_id:(Event.Run_id.to_string run_id)
+      ~seq:1
+      ()
+  in
+  let event = require_codec_ok (Event.make_validated ~envelope payload) in
+  match Event.payload event with
+  | Event.Node_closed { node_id = actual_node_id; terminal = actual_terminal } ->
+    check
+      bool
+      "certificate retains target node identity"
+      true
+      (Event.Node_id.equal actual_node_id node_id);
+    check
+      string
+      "certificate retains the exact terminal payload"
+      (Yojson.Safe.to_string (require_codec_ok (Event.terminal_to_yojson terminal)))
+      (Yojson.Safe.to_string
+         (require_codec_ok (Event.terminal_to_yojson actual_terminal)))
+  | Event.Node_opened _ | Event.Node_updated _ ->
+    fail "terminal certificate produced a non-close payload"
+;;
+
 let test_one_top_level_run_per_journal () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"root") in
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"root") in
   let expect_existing_root = function
     | Error (Journal.Invariant_violation Journal.Top_level_run_already_exists) -> ()
     | Error error -> fail (Journal.error_to_string error)
@@ -606,21 +902,206 @@ let test_one_top_level_run_per_journal () =
   check int "finished scope is not reused" 2 (Journal.length journal)
 ;;
 
-let test_concurrent_updates_keep_one_sequence () =
+let test_abort_run_closes_recursive_subtree_atomically () =
   Eio_main.run
   @@ fun _env ->
-  let journal = Journal.create () in
-  let run = require_ok (Journal.start_run journal ~agent_name:"concurrent") in
-  let turn =
-    require_ok
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"abort-root") in
+  let _agent_turn, turn = open_provider_attempt journal run in
+  let output =
+    require_opened_node
       (Journal.open_node
          journal
          ~run
-         ~parent:(Journal.run_root run)
-         ~kind:(provider_turn 0))
+         ~parent:turn
+         ~kind:(Event.Output_block { ordinal = 0; block_kind = Event.Thinking_block }))
   in
+  ignore
+    (require_ok
+       (Journal.update_node journal ~node:output (Event.Output_delta (`String "partial"))));
+  let invocation =
+    require_opened_node
+      (Journal.open_node journal ~run ~parent:turn ~kind:(tool_invocation "delegate"))
+  in
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:invocation
+          (Event.Tool_input_snapshot (`Assoc [ "task", `String "review" ]))));
+  let child =
+    require_started_run
+      (Journal.start_run ~parent_invocation:invocation journal ~agent_name:"child")
+  in
+  let _child_agent_turn, child_turn = open_provider_attempt journal child in
+  let before_rejected_success = Journal.length journal in
+  (match Journal.abort_run journal ~run Event.Succeeded with
+   | Error (Journal.Invalid_argument _) -> ()
+   | _ -> fail "abort_run accepted a successful terminal");
+  check int "rejected abort is atomic" before_rejected_success (Journal.length journal);
+  let invalid_terminal =
+    Event.Failed
+      { kind = Event.Protocol_failure
+      ; detail = "provider returned invalid terminal data"
+      ; data = Some (`Assoc [ "nested", `List [ `String "valid-prefix"; `Float nan ] ])
+      }
+  in
+  let before_invalid_terminal = Journal.length journal in
+  (match Journal.abort_run journal ~run invalid_terminal with
+   | Error (Journal.Invalid_event _) -> ()
+   | _ -> fail "abort_run accepted invalid terminal JSON");
+  check
+    int
+    "invalid abort terminal leaves sequence and state unchanged"
+    before_invalid_terminal
+    (Journal.length journal);
+  let terminal =
+    Event.Cancelled { reason = Some "owning fiber cancelled"; data = None }
+  in
+  let cancellation_trigger =
+    Event.External_event { source = "test-runtime"; event_id = "cancel-signal-1" }
+  in
+  let closed =
+    require_ok (Journal.abort_run ~causes:[ cancellation_trigger ] journal ~run terminal)
+  in
+  check int "every open recursive node was closed" 8 (List.length closed);
+  let root_closed = List.hd (List.rev closed) in
+  (match Event.causes root_closed with
+   | [ Event.External_event _; Event.Internal_event child_terminal ] ->
+     check
+       bool
+       "abort root records its direct child terminal cause"
+       true
+       (List.exists
+          (fun event -> Event.Event_id.equal (Event.event_id event) child_terminal)
+          closed)
+   | _ -> fail "abort root did not retain trigger plus direct child fan-in");
+  check_contiguous (Journal.events journal);
+  let check_cancelled label node_id =
+    match Journal.find_node journal node_id with
+    | Some { status = Journal.Closed { value = Event.Cancelled _; _ }; _ } -> ()
+    | _ -> fail (label ^ " remained open after abort")
+  in
+  check_cancelled "output" output;
+  check_cancelled "child turn" child_turn;
+  (match Journal.find_run journal (Journal.run_id child) with
+   | Some { status = Journal.Finished { value = Event.Cancelled _; _ }; _ } -> ()
+   | _ -> fail "child run remained running after parent abort");
+  match Journal.find_run journal (Journal.run_id run) with
+  | Some { status = Journal.Finished { value = Event.Cancelled _; _ }; _ } -> ()
+  | _ -> fail "top-level run remained running after abort"
+;;
+
+let test_abort_run_handles_deep_recursive_composition_iteratively () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let beginning = Journal.beginning_cursor journal in
+  let root = require_started_run (Journal.start_run journal ~agent_name:"deep-root") in
+  let current_run = ref root in
+  let deep_chain_depth = 2048 in
+  for index = 0 to deep_chain_depth - 1 do
+    let run = !current_run in
+    let _agent_turn, turn = open_provider_attempt ~turn_ordinal:index journal run in
+    let invocation =
+      require_opened_node
+        (Journal.open_node
+           journal
+           ~run
+           ~parent:turn
+           ~kind:(tool_invocation ("deep-" ^ string_of_int index)))
+    in
+    ignore
+      (require_ok
+         (Journal.update_node
+            journal
+            ~node:invocation
+            (Event.Tool_input_snapshot (`Assoc [ "depth", `Int index ]))));
+    current_run
+    := require_started_run
+         (Journal.start_run
+            ~parent_invocation:invocation
+            journal
+            ~agent_name:("deep-agent-" ^ string_of_int index))
+  done;
+  let terminal =
+    Event.Cancelled { reason = Some "deep composition cancelled"; data = None }
+  in
+  let closed = require_ok (Journal.abort_run journal ~run:root terminal) in
+  check
+    int
+    "every deep recursive node closed"
+    (1 + (4 * deep_chain_depth))
+    (List.length closed);
+  let all_events, cursor = require_ok (Journal.events_after journal ~after:beginning) in
+  check
+    int
+    "deep journal cursor is exact"
+    (List.length all_events)
+    (Journal.cursor_seq cursor)
+;;
+
+let test_abort_is_cancellation_protected_and_serializes_a_writer () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"abort-race") in
+  let _agent_turn, attempt = open_provider_attempt journal run in
   let output =
-    require_ok
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:attempt
+         ~kind:(Event.Output_block { ordinal = 0; block_kind = Event.Thinking_block }))
+  in
+  let terminal = Event.Cancelled { reason = Some "test cancellation"; data = None } in
+  let start, release_start = Eio.Promise.create () in
+  let abort_result, resolve_abort = Eio.Promise.create () in
+  let writer_result, resolve_writer = Eio.Promise.create () in
+  Eio.Switch.run (fun sw ->
+    Eio.Fiber.fork ~sw (fun () ->
+      Eio.Promise.await start;
+      let result =
+        Eio.Cancel.sub (fun cancellation ->
+          Eio.Cancel.cancel cancellation Exit;
+          Journal.abort_run journal ~run terminal)
+      in
+      Eio.Promise.resolve resolve_abort result);
+    Eio.Fiber.fork ~sw (fun () ->
+      Eio.Promise.await start;
+      Eio.Promise.resolve
+        resolve_writer
+        (Journal.update_node
+           journal
+           ~node:output
+           (Event.Output_delta (`String "concurrent"))));
+    Eio.Promise.resolve release_start ());
+  let closed = require_ok (Eio.Promise.await abort_result) in
+  check int "abort closes one four-node provider path" 4 (List.length closed);
+  let writer_committed =
+    match Eio.Promise.await writer_result with
+    | Ok _ -> true
+    | Error (Journal.Invariant_violation (Journal.Node_already_closed node_id))
+      when Event.Node_id.equal node_id output -> false
+    | Error error -> fail (Journal.error_to_string error)
+  in
+  check
+    int
+    "writer observes only one side of the abort batch"
+    (if writer_committed then 9 else 8)
+    (Journal.length journal);
+  check_contiguous (Journal.events journal)
+;;
+
+let test_concurrent_updates_keep_one_sequence () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"concurrent") in
+  let _agent_turn, turn = open_provider_attempt journal run in
+  let output =
+    require_opened_node
       (Journal.open_node
          journal
          ~run
@@ -638,7 +1119,7 @@ let test_concurrent_updates_keep_one_sequence () =
                 ~node:output
                 (Event.Output_delta (`Assoc [ "index", `Int index ])))))));
   let events = Journal.events journal in
-  check int "every update retained" 35 (List.length events);
+  check int "every update retained" 36 (List.length events);
   check_contiguous events
 ;;
 
@@ -663,9 +1144,25 @@ let () =
             `Quick
             test_output_snapshot_is_terminal_for_output_updates
         ; test_case
+            "streaming provider identity and recursive projection"
+            `Quick
+            test_streaming_provider_identity_and_projection
+        ; test_case
             "one top-level run defines the execution scope"
             `Quick
             test_one_top_level_run_per_journal
+        ; test_case
+            "abort closes a recursive subtree atomically"
+            `Quick
+            test_abort_run_closes_recursive_subtree_atomically
+        ; test_case
+            "abort handles deep recursive composition iteratively"
+            `Slow
+            test_abort_run_handles_deep_recursive_composition_iteratively
+        ; test_case
+            "abort is cancellation-protected and serializes writers"
+            `Quick
+            test_abort_is_cancellation_protected_and_serializes_a_writer
         ] )
     ; ( "codec"
       , [ test_case
@@ -677,9 +1174,17 @@ let () =
             `Quick
             test_reducer_rejects_sequence_and_unknown_parent_event
         ; test_case
+            "reducer rejects execution correlation drift"
+            `Quick
+            test_reducer_rejects_correlation_drift
+        ; test_case
             "JSON terminal and identifier boundaries"
             `Quick
             test_json_terminal_and_id_boundaries
+        ; test_case
+            "terminal validation certificate preserves payload"
+            `Quick
+            test_terminal_certificate_preserves_payload
         ] )
     ]
 ;;

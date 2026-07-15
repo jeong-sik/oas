@@ -17,7 +17,10 @@ type t
 val transport_for_call : injected:bool -> transport
 
 (** Construct an immutable identity from a resolved config. *)
-val of_provider_config : transport:transport -> Llm_provider.Provider_config.t -> t
+val of_provider_config
+  :  transport:transport
+  -> Llm_provider.Provider_config.t
+  -> (t, string) result
 
 (** Construct from a successfully resolved legacy {!Provider.config} call.
     [base_url], [request_path], and [api_key] are the exact values selected by
@@ -29,7 +32,7 @@ val of_resolved_provider
   -> base_url:string
   -> request_path:string
   -> api_key:string
-  -> t
+  -> (t, string) result
 
 val equal : t -> t -> bool
 val hash : t -> int

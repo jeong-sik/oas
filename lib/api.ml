@@ -158,6 +158,7 @@ let create_message_detailed
       ?slot_id
       ()
   =
+  let ( let* ) = Result.bind in
   let configuration_error field detail =
     Provider_failure_attribution.of_provider_configuration_error
       (Error.Config (InvalidConfig { field; detail }))
@@ -187,13 +188,14 @@ let create_message_detailed
        let provider_cfg = provider in
        let provider_id = Provider_runtime_binding.provider_id_of_config provider_cfg in
        let model_spec = Provider.model_spec_of_config provider_cfg in
-       let binding =
+       let* binding =
          Binding_identity.of_resolved_provider
            ~transport:Binding_identity.Http
            ~provider:provider_cfg
            ~base_url
            ~request_path:model_spec.request_path
            ~api_key
+         |> Result.map_error (configuration_error "model_id")
        in
        let kind = model_spec.request_kind in
        let path = model_spec.request_path in

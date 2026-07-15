@@ -58,6 +58,23 @@ causally triggered this event — enabling A→B→C cascade reconstruction
 within a session. Root events and legacy producers set `caused_by =
 None`. Envelopes are filled by producers, never rewritten by subscribers.
 
+`Execution_event` does not overload this singular string convention. Its
+canonical JSON requires `envelope.caused_by = null` and carries a top-level
+typed `causes` array instead: each cause is either an exact prior execution
+event ID or an explicit `{source, event_id}` external reference. Multiple
+causes preserve Tool/Fusion/Agent fan-in without inferring causality from
+adjacent sequence numbers. `parent_event_id` remains the structural per-node
+event chain and is not a causation substitute.
+
+The canonical execution hierarchy is `Agent_run → Agent_turn →
+Provider_attempt → (Output_block | Tool_invocation)`. A tool invocation may
+own `Tool_attempt` children or recursively start another `Agent_run`; the
+journal retains that child run beneath the invocation instead of flattening it
+into chat text. Every provider retry, fallback, and tool-loop continuation is a
+distinct `Provider_attempt` occurrence with its own `Node_id`. Its typed,
+redacted resolved-target snapshot records the exact provider/model selection
+but is not a second occurrence identifier.
+
 ### 2.2 Native payload variants
 
 Pattern-matchable OCaml sum type. **Stable across every provider.**

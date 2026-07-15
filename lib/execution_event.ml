@@ -1,54 +1,20 @@
 open Result_syntax
 
-module type ID = sig
-  type t
+module type ID = Execution_id.S
 
-  val fresh : unit -> t
-  val of_string : string -> (t, string) result
-  val to_string : t -> string
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val pp : Format.formatter -> t -> unit
-  val show : t -> string
-end
-
-module Make_id (Prefix : sig
-    val value : string
-  end) : ID = struct
-  type t = string
-
-  let fresh () = Prefix.value ^ Event_envelope.fresh_id ()
-
-  let of_string value =
-    if String.equal value ""
-    then Error (Prefix.value ^ "identifier must not be empty")
-    else if not (String.equal value (String.trim value))
-    then Error (Prefix.value ^ "identifier must not have surrounding whitespace")
-    else if not (String.starts_with ~prefix:Prefix.value value)
-    then Error ("identifier must start with " ^ Prefix.value)
-    else if String.length value = String.length Prefix.value
-    then Error (Prefix.value ^ "identifier suffix must not be empty")
-    else Ok value
-  ;;
-
-  let to_string value = value
-  let equal = String.equal
-  let compare = String.compare
-  let pp = Format.pp_print_string
-  let show value = value
-end
-
-module Event_id = Make_id (struct
+module Event_id = Execution_id.Make (struct
     let value = "execution-event-"
   end)
 
-module Run_id = Make_id (struct
+module Run_id = Execution_id.Make (struct
     let value = "execution-run-"
   end)
 
-module Node_id = Make_id (struct
+module Node_id = Execution_id.Make (struct
     let value = "execution-node-"
   end)
+
+module Correlation_id = Execution_id.Correlation
 
 type output_block_kind =
   | Text_block
@@ -65,10 +31,10 @@ let equal_output_block_kind left right = left = right
 
 type node_kind =
   | Agent_run of { agent_name : string }
-  | Provider_turn of
-      { turn : int
-      ; model : string
-      ; provider_response_id : string option
+  | Agent_turn of { ordinal : int }
+  | Provider_attempt of
+      { ordinal : int
+      ; target : Provider_runtime_binding.Resolved_target.t
       }
   | Output_block of
       { ordinal : int
@@ -77,7 +43,6 @@ type node_kind =
   | Tool_invocation of
       { provider_tool_use_id : string option
       ; tool_name : string
-      ; input : Yojson.Safe.t option
       ; schedule : Hooks.tool_schedule
       }
   | Tool_attempt
@@ -85,14 +50,14 @@ type node_kind =
 let pp_node_kind formatter = function
   | Agent_run { agent_name } ->
     Format.fprintf formatter "Agent_run {agent_name=%S}" agent_name
-  | Provider_turn { turn; model; provider_response_id } ->
+  | Agent_turn { ordinal } -> Format.fprintf formatter "Agent_turn {ordinal=%d}" ordinal
+  | Provider_attempt { ordinal; target } ->
     Format.fprintf
       formatter
-      "Provider_turn {turn=%d; model=%S; provider_response_id=%a}"
-      turn
-      model
-      (Format.pp_print_option Format.pp_print_string)
-      provider_response_id
+      "Provider_attempt {ordinal=%d; target=%a}"
+      ordinal
+      Provider_runtime_binding.Resolved_target.pp
+      target
   | Output_block { ordinal; block_kind } ->
     Format.fprintf
       formatter
@@ -100,16 +65,14 @@ let pp_node_kind formatter = function
       ordinal
       pp_output_block_kind
       block_kind
-  | Tool_invocation { provider_tool_use_id; tool_name; input; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
     Format.fprintf
       formatter
-      "Tool_invocation {provider_tool_use_id=%a; tool_name=%S; input=%a; \
+      "Tool_invocation {provider_tool_use_id=%a; tool_name=%S; \
        schedule={planned_index=%d; batch_index=%d; batch_size=%d; execution_mode=%a}}"
       (Format.pp_print_option Format.pp_print_string)
       provider_tool_use_id
       tool_name
-      (Format.pp_print_option Yojson.Safe.pp)
-      input
       schedule.planned_index
       schedule.batch_index
       schedule.batch_size
@@ -138,79 +101,31 @@ let validate_optional_non_empty field = function
   | Some _ -> Ok ()
 ;;
 
-let finite value =
-  match classify_float value with
-  | FP_normal | FP_subnormal | FP_zero -> true
-  | FP_infinite | FP_nan -> false
+let validate_non_empty field value =
+  if String.equal value "" then Error (field ^ " must not be empty") else Ok ()
 ;;
 
-let validate_json ~context json =
-  let invalid detail = Error (context ^ " is not serializable JSON: " ^ detail) in
-  let validate_intlit value =
-    try
-      match Yojson.Safe.from_string value with
-      | `Int _ | `Intlit _ -> Ok ()
-      | `Null | `Bool _ | `Float _ | `String _ | `Assoc _ | `List _ ->
-        invalid "Intlit is not an integer JSON literal"
-    with
-    | Yojson.Json_error detail -> invalid ("invalid Intlit: " ^ detail)
-  in
-  let rec loop = function
-    | [] -> Ok ()
-    | (path, value) :: rest ->
-      (match value with
-       | `Null | `Bool _ | `Int _ | `String _ -> loop rest
-       | `Intlit value ->
-         let* () = validate_intlit value in
-         loop rest
-       | `Float value ->
-         if finite value then loop rest else Error (path ^ " contains a non-finite float")
-       | `List values ->
-         let children =
-           List.mapi (fun index value -> Printf.sprintf "%s[%d]" path index, value) values
-         in
-         loop (List.rev_append children rest)
-       | `Assoc fields ->
-         let children =
-           List.mapi
-             (fun index (_, value) ->
-                Printf.sprintf "%s.object_value[%d]" path index, value)
-             fields
-         in
-         loop (List.rev_append children rest))
-  in
-  loop [ context, json ]
+let provider_attempt ~ordinal config =
+  let+ target = Provider_runtime_binding.Resolved_target.of_provider_config config in
+  Provider_attempt { ordinal; target }
 ;;
+
+let validate_json = Execution_json.validate
 
 let validate_node_kind = function
   | Agent_run { agent_name } ->
     if String.equal agent_name "" then Error "agent_name must not be empty" else Ok ()
-  | Provider_turn { turn; model; provider_response_id } ->
-    if turn < 0
-    then Error "provider turn must be non-negative"
-    else if String.equal model ""
-    then Error "provider model must not be empty"
-    else validate_optional_non_empty "provider_response_id" provider_response_id
+  | Agent_turn { ordinal } ->
+    if ordinal < 0 then Error "agent turn ordinal must be non-negative" else Ok ()
+  | Provider_attempt { ordinal; _ } ->
+    if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
-  | Tool_invocation { provider_tool_use_id; tool_name; input; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
     let* () = validate_optional_non_empty "provider_tool_use_id" provider_tool_use_id in
-    let* () =
-      match input with
-      | None -> Ok ()
-      | Some input -> validate_json ~context:"tool invocation input" input
-    in
     if String.equal tool_name ""
     then Error "tool_name must not be empty"
-    else if schedule.planned_index < 0
-    then Error "tool schedule planned_index must be non-negative"
-    else if schedule.batch_index < 0
-    then Error "tool schedule batch_index must be non-negative"
-    else if schedule.batch_size <= 0
-    then Error "tool schedule batch_size must be positive"
-    else if schedule.batch_index >= schedule.batch_size
-    then Error "tool schedule batch_index must be less than batch_size"
-    else Ok ()
+    else Execution_tool_schedule.validate schedule
   | Tool_attempt -> Ok ()
 ;;
 
@@ -219,31 +134,28 @@ let make_node ~node_id ~run_id ~parent_node_id ~kind =
   Ok { node_id; run_id; parent_node_id; kind }
 ;;
 
-let equal_schedule (left : Hooks.tool_schedule) (right : Hooks.tool_schedule) =
-  left.planned_index = right.planned_index
-  && left.batch_index = right.batch_index
-  && left.batch_size = right.batch_size
-  && left.execution_mode = right.execution_mode
-;;
-
 let equal_node_kind left right =
   match left, right with
   | Agent_run left, Agent_run right -> String.equal left.agent_name right.agent_name
-  | Provider_turn left, Provider_turn right ->
-    left.turn = right.turn
-    && String.equal left.model right.model
-    && Option.equal String.equal left.provider_response_id right.provider_response_id
+  | Agent_turn left, Agent_turn right -> left.ordinal = right.ordinal
+  | Provider_attempt left, Provider_attempt right ->
+    left.ordinal = right.ordinal
+    && Provider_runtime_binding.Resolved_target.equal left.target right.target
   | Output_block left, Output_block right ->
     left.ordinal = right.ordinal
     && equal_output_block_kind left.block_kind right.block_kind
   | Tool_invocation left, Tool_invocation right ->
     Option.equal String.equal left.provider_tool_use_id right.provider_tool_use_id
     && String.equal left.tool_name right.tool_name
-    && Option.equal Yojson.Safe.equal left.input right.input
-    && equal_schedule left.schedule right.schedule
+    && Execution_tool_schedule.equal left.schedule right.schedule
   | Tool_attempt, Tool_attempt -> true
-  | (Agent_run _ | Provider_turn _ | Output_block _ | Tool_invocation _ | Tool_attempt), _
-    -> false
+  | ( ( Agent_run _
+      | Agent_turn _
+      | Provider_attempt _
+      | Output_block _
+      | Tool_invocation _
+      | Tool_attempt )
+    , _ ) -> false
 ;;
 
 let equal_node left right =
@@ -269,6 +181,7 @@ let show_node node = Format.asprintf "%a" pp_node node
 
 type node_update =
   | Provider_event of Yojson.Safe.t
+  | Provider_response_id_snapshot of string
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Yojson.Safe.t
   | Tool_input_delta of Yojson.Safe.t
@@ -317,23 +230,38 @@ type payload =
       }
 [@@deriving show]
 
+module Cause = Execution_cause.Make (Event_id)
+
+type cause = Cause.t =
+  | Internal_event of Event_id.t
+  | External_event of
+      { source : string
+      ; event_id : string
+      }
+[@@deriving show]
+
 type t =
-  { envelope : Event_envelope.t
+  { event_id : Event_id.t
+  ; run_id : Run_id.t
+  ; correlation_id : Correlation_id.t
+  ; seq : int
+  ; parent_event_id : Event_id.t option
+  ; envelope : Event_envelope.t
+  ; causes : cause list
   ; payload : payload
   }
 
 let validate_node_update update =
-  let context, value =
-    match update with
-    | Provider_event value -> "provider event", value
-    | Output_delta value -> "output delta", value
-    | Output_snapshot value -> "output snapshot", value
-    | Tool_input_delta value -> "tool input delta", value
-    | Tool_input_snapshot value -> "tool input snapshot", value
-    | Tool_progress value -> "tool progress", value
-    | Tool_result value -> "tool result", value
-  in
-  validate_json ~context value
+  match update with
+  | Provider_response_id_snapshot value ->
+    validate_non_empty "provider response identifier" value
+  | Provider_event value -> validate_json ~context:"provider event" value
+  | Output_delta value -> validate_json ~context:"output delta" value
+  | Output_snapshot value -> validate_json ~context:"output snapshot" value
+  | Tool_input_delta value -> validate_json ~context:"tool input delta" value
+  | Tool_input_snapshot value -> validate_json ~context:"tool input snapshot" value
+  | Tool_progress value -> validate_json ~context:"tool progress" value
+  | Tool_result value -> validate_json ~context:"tool result" value
 ;;
 
 let validate_failure failure =
@@ -345,7 +273,7 @@ let validate_failure failure =
     | Some data -> validate_json ~context:"failure data" data)
 ;;
 
-let validate_terminal = function
+let validate_terminal_value = function
   | Succeeded -> Ok ()
   | Failed failure -> validate_failure failure
   | Cancelled { reason; data } ->
@@ -365,10 +293,28 @@ let validate_terminal = function
     Ok ()
 ;;
 
-let validate_payload = function
+type validated_terminal = Validated_terminal of terminal
+
+let validate_terminal terminal =
+  let+ () = validate_terminal_value terminal in
+  Validated_terminal terminal
+;;
+
+let validate_payload_value = function
   | Node_opened _ -> Ok ()
   | Node_updated { update; _ } -> validate_node_update update
-  | Node_closed { terminal; _ } -> validate_terminal terminal
+  | Node_closed { terminal; _ } -> validate_terminal_value terminal
+;;
+
+type validated_payload = Validated_payload of payload
+
+let validate_payload payload =
+  let+ () = validate_payload_value payload in
+  Validated_payload payload
+;;
+
+let close_payload ~node_id (Validated_terminal terminal) =
+  Validated_payload (Node_closed { node_id; terminal })
 ;;
 
 let payload_run_id = function
@@ -376,34 +322,32 @@ let payload_run_id = function
   | Node_updated _ | Node_closed _ -> None
 ;;
 
-let make ~envelope ~payload =
-  let* _event_id = Event_id.of_string envelope.Event_envelope.event_id in
+let make_validated ?(causes = []) ~envelope (Validated_payload payload) =
+  let* event_id = Event_id.of_string envelope.Event_envelope.event_id in
   let* envelope_run_id = Run_id.of_string envelope.run_id in
-  let* () =
+  let* correlation_id = Correlation_id.of_string envelope.correlation_id in
+  let* parent_event_id =
     match envelope.parent_event_id with
-    | None -> Ok ()
+    | None -> Ok None
     | Some value ->
-      let+ _ = Event_id.of_string value in
-      ()
+      let+ event_id = Event_id.of_string value in
+      Some event_id
   in
   let* () =
     match envelope.caused_by with
     | None -> Ok ()
-    | Some value ->
-      let+ _ = Event_id.of_string value in
-      ()
+    | Some _ ->
+      Error "execution event envelope caused_by must be null; use the typed cause field"
   in
+  let* () = Cause.validate_all causes in
   let* () =
-    if String.equal envelope.correlation_id ""
-    then Error "event correlation_id must not be empty"
-    else Ok ()
-  in
-  let* () =
-    if finite envelope.event_time && finite envelope.observed_at
+    if
+      Execution_json.is_finite_number envelope.event_time
+      && Execution_json.is_finite_number envelope.observed_at
     then Ok ()
     else Error "event timestamps must be finite"
   in
-  let* _seq =
+  let* seq =
     match envelope.seq with
     | Some seq when seq > 0 -> Ok seq
     | Some _ -> Error "event seq must be positive"
@@ -415,30 +359,30 @@ let make ~envelope ~payload =
     | Some payload_run_id when Run_id.equal payload_run_id envelope_run_id -> Ok ()
     | Some _ -> Error "opened node run_id must match event envelope run_id"
   in
-  let* () = validate_payload payload in
-  Ok { envelope; payload }
+  Ok
+    { event_id
+    ; run_id = envelope_run_id
+    ; correlation_id
+    ; seq
+    ; parent_event_id
+    ; envelope
+    ; causes
+    ; payload
+    }
+;;
+
+let make ?(causes = []) ~envelope payload =
+  let* payload = validate_payload payload in
+  make_validated ~causes ~envelope payload
 ;;
 
 let envelope event = event.envelope
-
-let event_id event =
-  match Event_id.of_string event.envelope.event_id with
-  | Ok id -> id
-  | Error detail -> invalid_arg detail
-;;
-
-let run_id event =
-  match Run_id.of_string event.envelope.run_id with
-  | Ok id -> id
-  | Error detail -> invalid_arg detail
-;;
-
-let seq event =
-  match event.envelope.seq with
-  | Some seq -> seq
-  | None -> invalid_arg "Execution_event.seq: event has no sequence"
-;;
-
+let event_id event = event.event_id
+let run_id event = event.run_id
+let correlation_id event = event.correlation_id
+let seq event = event.seq
+let parent_event_id event = event.parent_event_id
+let causes event = event.causes
 let payload event = event.payload
 
 let equal_update left right =
@@ -450,7 +394,10 @@ let equal_update left right =
   | Tool_input_snapshot left, Tool_input_snapshot right
   | Tool_progress left, Tool_progress right
   | Tool_result left, Tool_result right -> Yojson.Safe.equal left right
+  | Provider_response_id_snapshot left, Provider_response_id_snapshot right ->
+    String.equal left right
   | ( ( Provider_event _
+      | Provider_response_id_snapshot _
       | Output_delta _
       | Output_snapshot _
       | Tool_input_delta _
@@ -491,65 +438,16 @@ let equal left right =
   Yojson.Safe.equal
     (Event_envelope.to_json left.envelope)
     (Event_envelope.to_json right.envelope)
+  && List.equal Cause.equal left.causes right.causes
   && equal_payload left.payload right.payload
 ;;
 
-module String_set = Set.Make (String)
-
-let object_fields ~context ~required ~optional = function
-  | `Assoc fields ->
-    let allowed = String_set.of_list (required @ optional) in
-    let rec validate seen = function
-      | [] ->
-        let missing =
-          List.find_opt (fun name -> not (String_set.mem name seen)) required
-        in
-        (match missing with
-         | None -> Ok fields
-         | Some name -> Error (Printf.sprintf "%s is missing field %s" context name))
-      | (name, _) :: rest ->
-        if String_set.mem name seen
-        then Error (Printf.sprintf "%s has duplicate field %s" context name)
-        else if not (String_set.mem name allowed)
-        then Error (Printf.sprintf "%s has unknown field %s" context name)
-        else validate (String_set.add name seen) rest
-    in
-    validate String_set.empty fields
-  | _ -> Error (context ^ " must be a JSON object")
-;;
-
-let field name fields =
-  match List.assoc_opt name fields with
-  | Some value -> Ok value
-  | None -> Error ("missing field " ^ name)
-;;
-
-let string_field name fields =
-  let* value = field name fields in
-  match value with
-  | `String value -> Ok value
-  | _ -> Error ("field " ^ name ^ " must be a string")
-;;
-
-let int_field name fields =
-  let* value = field name fields in
-  match value with
-  | `Int value -> Ok value
-  | _ -> Error ("field " ^ name ^ " must be an int")
-;;
-
-let option_string_field name fields =
-  let* value = field name fields in
-  match value with
-  | `Null -> Ok None
-  | `String value -> Ok (Some value)
-  | _ -> Error ("field " ^ name ^ " must be a string or null")
-;;
-
-let option_json = function
-  | None -> `Null
-  | Some value -> value
-;;
+let object_fields = Execution_json.object_fields
+let field = Execution_json.field
+let string_field = Execution_json.string_field
+let int_field = Execution_json.int_field
+let option_string_field = Execution_json.option_string_field
+let option_json = Execution_json.option_json
 
 let output_block_kind_to_string = function
   | Text_block -> "text"
@@ -574,49 +472,19 @@ let output_block_kind_of_string = function
   | value -> Error ("unknown output block kind: " ^ value)
 ;;
 
-let schedule_to_yojson (schedule : Hooks.tool_schedule) =
-  `Assoc
-    [ "planned_index", `Int schedule.planned_index
-    ; "batch_index", `Int schedule.batch_index
-    ; "batch_size", `Int schedule.batch_size
-    ; "execution_mode", Tool.execution_mode_to_yojson schedule.execution_mode
-    ]
-;;
+let schedule_to_yojson = Execution_tool_schedule.to_yojson
+let schedule_of_yojson = Execution_tool_schedule.of_yojson
 
-let schedule_of_yojson json =
-  let* fields =
-    object_fields
-      ~context:"tool schedule"
-      ~required:[ "planned_index"; "batch_index"; "batch_size"; "execution_mode" ]
-      ~optional:[]
-      json
-  in
-  let* planned_index = int_field "planned_index" fields in
-  let* batch_index = int_field "batch_index" fields in
-  let* batch_size = int_field "batch_size" fields in
-  let* execution_mode_json = field "execution_mode" fields in
-  let* execution_mode = Tool.execution_mode_of_yojson execution_mode_json in
-  let schedule : Hooks.tool_schedule =
-    { planned_index; batch_index; batch_size; execution_mode }
-  in
-  let* () =
-    validate_node_kind
-      (Tool_invocation
-         { provider_tool_use_id = None; tool_name = "validation"; input = None; schedule })
-  in
-  Ok schedule
-;;
-
-let node_kind_to_yojson = function
+let node_kind_to_yojson_unchecked = function
   | Agent_run { agent_name } ->
     `Assoc [ "type", `String "agent_run"; "agent_name", `String agent_name ]
-  | Provider_turn { turn; model; provider_response_id } ->
+  | Agent_turn { ordinal } ->
+    `Assoc [ "type", `String "agent_turn"; "ordinal", `Int ordinal ]
+  | Provider_attempt { ordinal; target } ->
     `Assoc
-      [ "type", `String "provider_turn"
-      ; "turn", `Int turn
-      ; "model", `String model
-      ; ( "provider_response_id"
-        , option_json (Option.map (fun v -> `String v) provider_response_id) )
+      [ "type", `String "provider_attempt"
+      ; "ordinal", `Int ordinal
+      ; "target", Provider_runtime_binding.Resolved_target.to_yojson target
       ]
   | Output_block { ordinal; block_kind } ->
     `Assoc
@@ -624,20 +492,20 @@ let node_kind_to_yojson = function
       ; "ordinal", `Int ordinal
       ; "block_kind", `String (output_block_kind_to_string block_kind)
       ]
-  | Tool_invocation { provider_tool_use_id; tool_name; input; schedule } ->
-    let fields =
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
+    `Assoc
       [ "type", `String "tool_invocation"
       ; ( "provider_tool_use_id"
         , option_json (Option.map (fun v -> `String v) provider_tool_use_id) )
       ; "tool_name", `String tool_name
+      ; "schedule", schedule_to_yojson schedule
       ]
-      @ (match input with
-         | None -> []
-         | Some input -> [ "input", input ])
-      @ [ "schedule", schedule_to_yojson schedule ]
-    in
-    `Assoc fields
   | Tool_attempt -> `Assoc [ "type", `String "tool_attempt" ]
+;;
+
+let node_kind_to_yojson kind =
+  let+ () = validate_node_kind kind in
+  node_kind_to_yojson_unchecked kind
 ;;
 
 let node_kind_of_yojson json =
@@ -647,14 +515,11 @@ let node_kind_of_yojson json =
       ~required:[ "type" ]
       ~optional:
         [ "agent_name"
-        ; "turn"
-        ; "model"
-        ; "provider_response_id"
         ; "ordinal"
+        ; "target"
         ; "block_kind"
         ; "provider_tool_use_id"
         ; "tool_name"
-        ; "input"
         ; "schedule"
         ]
       json
@@ -676,17 +541,16 @@ let node_kind_of_yojson json =
       decode ~required:[ "agent_name" ] ~optional:[] (fun fields ->
         let+ agent_name = string_field "agent_name" fields in
         Agent_run { agent_name })
-    | "provider_turn" ->
-      decode
-        ~required:[ "turn"; "model"; "provider_response_id" ]
-        ~optional:[]
-        (fun fields ->
-           let* turn = int_field "turn" fields in
-           let* model = string_field "model" fields in
-           let+ provider_response_id =
-             option_string_field "provider_response_id" fields
-           in
-           Provider_turn { turn; model; provider_response_id })
+    | "agent_turn" ->
+      decode ~required:[ "ordinal" ] ~optional:[] (fun fields ->
+        let+ ordinal = int_field "ordinal" fields in
+        Agent_turn { ordinal })
+    | "provider_attempt" ->
+      decode ~required:[ "ordinal"; "target" ] ~optional:[] (fun fields ->
+        let* ordinal = int_field "ordinal" fields in
+        let* target_json = field "target" fields in
+        let+ target = Provider_runtime_binding.Resolved_target.of_yojson target_json in
+        Provider_attempt { ordinal; target })
     | "output_block" ->
       decode ~required:[ "ordinal"; "block_kind" ] ~optional:[] (fun fields ->
         let* ordinal = int_field "ordinal" fields in
@@ -696,16 +560,15 @@ let node_kind_of_yojson json =
     | "tool_invocation" ->
       decode
         ~required:[ "provider_tool_use_id"; "tool_name"; "schedule" ]
-        ~optional:[ "input" ]
+        ~optional:[]
         (fun fields ->
            let* provider_tool_use_id =
              option_string_field "provider_tool_use_id" fields
            in
            let* tool_name = string_field "tool_name" fields in
-           let input = List.assoc_opt "input" fields in
            let* schedule_json = field "schedule" fields in
            let+ schedule = schedule_of_yojson schedule_json in
-           Tool_invocation { provider_tool_use_id; tool_name; input; schedule })
+           Tool_invocation { provider_tool_use_id; tool_name; schedule })
     | "tool_attempt" -> decode ~required:[] ~optional:[] (fun _ -> Ok Tool_attempt)
     | value -> Error ("unknown node kind: " ^ value)
   in
@@ -722,7 +585,7 @@ let node_to_yojson node =
           (Option.map
              (fun value -> `String (Node_id.to_string value))
              node.parent_node_id) )
-    ; "kind", node_kind_to_yojson node.kind
+    ; "kind", node_kind_to_yojson_unchecked node.kind
     ]
 ;;
 
@@ -751,18 +614,24 @@ let node_of_yojson json =
   make_node ~node_id ~run_id ~parent_node_id ~kind
 ;;
 
+let node_update_to_yojson_unchecked update =
+  match update with
+  | Provider_response_id_snapshot value ->
+    `Assoc [ "type", `String "provider_response_id_snapshot"; "value", `String value ]
+  | Provider_event value -> `Assoc [ "type", `String "provider_event"; "value", value ]
+  | Output_delta value -> `Assoc [ "type", `String "output_delta"; "value", value ]
+  | Output_snapshot value -> `Assoc [ "type", `String "output_snapshot"; "value", value ]
+  | Tool_input_delta value ->
+    `Assoc [ "type", `String "tool_input_delta"; "value", value ]
+  | Tool_input_snapshot value ->
+    `Assoc [ "type", `String "tool_input_snapshot"; "value", value ]
+  | Tool_progress value -> `Assoc [ "type", `String "tool_progress"; "value", value ]
+  | Tool_result value -> `Assoc [ "type", `String "tool_result"; "value", value ]
+;;
+
 let node_update_to_yojson update =
-  let kind, value =
-    match update with
-    | Provider_event value -> "provider_event", value
-    | Output_delta value -> "output_delta", value
-    | Output_snapshot value -> "output_snapshot", value
-    | Tool_input_delta value -> "tool_input_delta", value
-    | Tool_input_snapshot value -> "tool_input_snapshot", value
-    | Tool_progress value -> "tool_progress", value
-    | Tool_result value -> "tool_result", value
-  in
-  `Assoc [ "type", `String kind; "value", value ]
+  let+ () = validate_node_update update in
+  node_update_to_yojson_unchecked update
 ;;
 
 let node_update_of_yojson json =
@@ -774,6 +643,10 @@ let node_update_of_yojson json =
   let* update =
     match kind with
     | "provider_event" -> Ok (Provider_event value)
+    | "provider_response_id_snapshot" ->
+      (match value with
+       | `String value -> Ok (Provider_response_id_snapshot value)
+       | _ -> Error "provider response identifier snapshot must be a string")
     | "output_delta" -> Ok (Output_delta value)
     | "output_snapshot" -> Ok (Output_snapshot value)
     | "tool_input_delta" -> Ok (Tool_input_delta value)
@@ -835,7 +708,7 @@ let failure_of_yojson json =
   Ok { kind; detail; data }
 ;;
 
-let terminal_to_yojson = function
+let terminal_to_yojson_unchecked = function
   | Succeeded -> `Assoc [ "type", `String "succeeded" ]
   | Failed failure ->
     `Assoc [ "type", `String "failed"; "failure", failure_to_yojson failure ]
@@ -845,6 +718,11 @@ let terminal_to_yojson = function
       ; "reason", option_json (Option.map (fun value -> `String value) reason)
       ; "data", option_json data
       ]
+;;
+
+let terminal_to_yojson terminal =
+  let+ _validated = validate_terminal terminal in
+  terminal_to_yojson_unchecked terminal
 ;;
 
 let terminal_of_yojson json =
@@ -892,7 +770,7 @@ let terminal_of_yojson json =
       Ok (Cancelled { reason; data })
     | value -> Error ("unknown terminal: " ^ value)
   in
-  let+ () = validate_terminal terminal in
+  let+ _validated = validate_terminal terminal in
   terminal
 ;;
 
@@ -903,13 +781,13 @@ let payload_to_yojson = function
     `Assoc
       [ "type", `String "node_updated"
       ; "node_id", `String (Node_id.to_string node_id)
-      ; "update", node_update_to_yojson update
+      ; "update", node_update_to_yojson_unchecked update
       ]
   | Node_closed { node_id; terminal } ->
     `Assoc
       [ "type", `String "node_closed"
       ; "node_id", `String (Node_id.to_string node_id)
-      ; "terminal", terminal_to_yojson terminal
+      ; "terminal", terminal_to_yojson_unchecked terminal
       ]
 ;;
 
@@ -969,6 +847,7 @@ let to_yojson event =
   `Assoc
     [ "schema_version", `Int schema_version_current
     ; "envelope", Event_envelope.to_json event.envelope
+    ; "causes", `List (List.map Cause.to_yojson event.causes)
     ; "payload", payload_to_yojson event.payload
     ]
 ;;
@@ -977,7 +856,7 @@ let of_yojson json =
   let* fields =
     object_fields
       ~context:"execution event"
-      ~required:[ "schema_version"; "envelope"; "payload" ]
+      ~required:[ "schema_version"; "envelope"; "causes"; "payload" ]
       ~optional:[]
       json
   in
@@ -1005,9 +884,23 @@ let of_yojson json =
         envelope_json
     in
     let* envelope = Event_envelope.of_json envelope_json in
+    let* causes_json = field "causes" fields in
+    let* causes =
+      match causes_json with
+      | `List values ->
+        List.fold_left
+          (fun result value ->
+             let* reverse_causes = result in
+             let+ cause = Cause.of_yojson value in
+             cause :: reverse_causes)
+          (Ok [])
+          values
+        |> Result.map List.rev
+      | _ -> Error "execution event causes must be a JSON array"
+    in
     let* payload_json = field "payload" fields in
     let* payload = payload_of_yojson payload_json in
-    make ~envelope ~payload
+    make ~causes ~envelope payload
 ;;
 
 let to_json_string event = Yojson.Safe.to_string (to_yojson event)

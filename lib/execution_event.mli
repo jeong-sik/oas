@@ -11,7 +11,7 @@
 module type ID = sig
   type t
 
-  val fresh : unit -> t
+  val fresh : unit -> (t, string) result
   val of_string : string -> (t, string) result
   val to_string : t -> string
   val equal : t -> t -> bool
@@ -23,6 +23,7 @@ end
 module Event_id : ID
 module Run_id : ID
 module Node_id : ID
+module Correlation_id : ID
 
 type output_block_kind =
   | Text_block
@@ -41,17 +42,15 @@ type output_block_kind =
     identity. It may be absent or reused by a provider; {!Node_id.t} remains
     authoritative.
 
-    A tool [input] is [Some json] only when the provider codec has already
-    materialized canonical parsed input when opening the node. Streaming opens
-    use [None], retain raw chunks as [Tool_input_delta], and commit exactly one
-    [Tool_input_snapshot]. JSON [null] remains representable as [Some `Null]; no
-    sentinel value is used. *)
+    Provider response identity and canonical tool input are mutable stream
+    outcomes, not node identity. They are therefore materialized exactly once
+    through [Provider_response_id_snapshot] and [Tool_input_snapshot]. *)
 type node_kind =
   | Agent_run of { agent_name : string }
-  | Provider_turn of
-      { turn : int
-      ; model : string
-      ; provider_response_id : string option
+  | Agent_turn of { ordinal : int }
+  | Provider_attempt of
+      { ordinal : int
+      ; target : Provider_runtime_binding.Resolved_target.t
       }
   | Output_block of
       { ordinal : int
@@ -60,10 +59,17 @@ type node_kind =
   | Tool_invocation of
       { provider_tool_use_id : string option
       ; tool_name : string
-      ; input : Yojson.Safe.t option
       ; schedule : Hooks.tool_schedule
       }
   | Tool_attempt
+
+(** Construct one concrete provider-attempt kind from the exact config selected
+    for dispatch. The target snapshot is owned by OAS resolution; the journal
+    allocates the attempt's occurrence identity when the node opens. *)
+val provider_attempt
+  :  ordinal:int
+  -> Llm_provider.Provider_config.t
+  -> (node_kind, string) result
 
 val pp_node_kind : Format.formatter -> node_kind -> unit
 val show_node_kind : node_kind -> string
@@ -88,6 +94,7 @@ val equal_node : node -> node -> bool
     by the execution journal. *)
 type node_update =
   | Provider_event of Yojson.Safe.t
+  | Provider_response_id_snapshot of string
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Yojson.Safe.t
   | Tool_input_delta of Yojson.Safe.t
@@ -134,31 +141,72 @@ type payload =
       }
 [@@deriving show]
 
+(** Explicit execution causality. [Internal_event] references an event in the
+    same journal. [External_event] identifies an event owned by another typed
+    event domain without overloading the execution event identifier namespace. *)
+type cause =
+  | Internal_event of Event_id.t
+  | External_event of
+      { source : string
+      ; event_id : string
+      }
+[@@deriving show]
+
 type t
+type validated_payload
+type validated_terminal
+
+(** Validate terminal-owned JSON and semantic boundaries once. The immutable
+    certificate can be reused to close every node in one atomic subtree. *)
+val validate_terminal : terminal -> (validated_terminal, string) result
+
+(** Build a close payload from an already validated terminal without walking
+    the terminal JSON again. This certifies payload data only; journal reducer
+    topology and lifecycle validation still run when the event is appended. *)
+val close_payload : node_id:Node_id.t -> validated_terminal -> validated_payload
+
+(** Validate all payload-owned JSON and semantic boundaries. The returned
+    value is immutable evidence that expensive payload validation completed. *)
+val validate_payload : payload -> (validated_payload, string) result
 
 (** Build a decoded or journal-issued event. The envelope must contain a
     positive sequence number and its [run_id] must match the payload's node or
     target node at reducer time. Graph invariants are enforced by
     {!Execution_journal.Reducer.apply}. *)
-val make : envelope:Event_envelope.t -> payload:payload -> (t, string) result
+val make
+  :  ?causes:cause list
+  -> envelope:Event_envelope.t
+  -> payload
+  -> (t, string) result
+
+(** Construct an event from a validation certificate. Envelope, cause, and
+    graph validation still run; payload JSON is not traversed again. *)
+val make_validated
+  :  ?causes:cause list
+  -> envelope:Event_envelope.t
+  -> validated_payload
+  -> (t, string) result
 
 val envelope : t -> Event_envelope.t
 val event_id : t -> Event_id.t
 val run_id : t -> Run_id.t
+val correlation_id : t -> Correlation_id.t
 val seq : t -> int
+val parent_event_id : t -> Event_id.t option
+val causes : t -> cause list
 val payload : t -> payload
 val equal : t -> t -> bool
-val node_kind_to_yojson : node_kind -> Yojson.Safe.t
+val node_kind_to_yojson : node_kind -> (Yojson.Safe.t, string) result
 val node_kind_of_yojson : Yojson.Safe.t -> (node_kind, string) result
-val node_update_to_yojson : node_update -> Yojson.Safe.t
+val node_update_to_yojson : node_update -> (Yojson.Safe.t, string) result
 val node_update_of_yojson : Yojson.Safe.t -> (node_update, string) result
-val terminal_to_yojson : terminal -> Yojson.Safe.t
+val terminal_to_yojson : terminal -> (Yojson.Safe.t, string) result
 val terminal_of_yojson : Yojson.Safe.t -> (terminal, string) result
 val to_yojson : t -> Yojson.Safe.t
 val of_yojson : Yojson.Safe.t -> (t, string) result
 
-(** One canonical JSON object. Newline framing is owned by
-    {!Execution_journal}. *)
+(** One canonical JSON object. Transport framing belongs to the durable store
+    or transport adapter, not to this in-memory event model. *)
 val to_json_string : t -> string
 
 val of_json_string : string -> (t, string) result

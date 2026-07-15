@@ -259,12 +259,126 @@ let known_labels () =
 
 let binding_for_provider_config (cfg : PConfig.t) = Option.bind cfg.provider_id find
 
-let provider_id_of_provider_config cfg =
-  match cfg.PConfig.provider_id with
+let canonical_explicit_provider_id (cfg : PConfig.t) =
+  match cfg.provider_id with
   | Some provider_id ->
     (match find provider_id with
-     | Some binding -> binding.id
-     | None -> normalize provider_id)
+     | Some binding -> Some binding.id
+     | None -> Some (normalize provider_id))
+  | None -> None
+;;
+
+module Resolved_target = struct
+  type t =
+    { provider_kind : Llm_provider.Provider_kind.t
+    ; provider_id : string option
+    ; model_id : Llm_provider.Model_id.t
+    }
+
+  let exact_provider_id = function
+    | None -> Ok None
+    | Some provider_id ->
+      let trimmed = String.trim provider_id in
+      if String.equal trimmed ""
+      then Error "provider_id must contain non-whitespace text"
+      else if not (String.equal provider_id trimmed)
+      then Error "provider_id must not have surrounding whitespace"
+      else if not (String.equal provider_id (normalize provider_id))
+      then Error "provider_id must use its canonical lowercase form"
+      else Ok (Some provider_id)
+  ;;
+
+  let make ~provider_kind ~provider_id ~model_id =
+    let open Result_syntax in
+    let* provider_id = exact_provider_id provider_id in
+    let+ model_id = Llm_provider.Model_id.of_string model_id in
+    { provider_kind; provider_id; model_id }
+  ;;
+
+  let of_provider_config (config : PConfig.t) =
+    let provider_id = canonical_explicit_provider_id config in
+    make ~provider_kind:config.kind ~provider_id ~model_id:config.model_id
+  ;;
+
+  let provider_kind target = target.provider_kind
+  let provider_id target = target.provider_id
+  let model_id target = target.model_id
+
+  let equal left right =
+    left.provider_kind = right.provider_kind
+    && Option.equal String.equal left.provider_id right.provider_id
+    && Llm_provider.Model_id.equal left.model_id right.model_id
+  ;;
+
+  let pp formatter target =
+    Format.fprintf
+      formatter
+      "{provider_kind=%a; provider_id=%a; model_id=%a}"
+      Llm_provider.Provider_kind.pp
+      target.provider_kind
+      (Format.pp_print_option Format.pp_print_string)
+      target.provider_id
+      Llm_provider.Model_id.pp
+      target.model_id
+  ;;
+
+  let to_yojson target =
+    `Assoc
+      [ "provider_kind", Llm_provider.Provider_kind.to_yojson target.provider_kind
+      ; ( "provider_id"
+        , match target.provider_id with
+          | Some provider_id -> `String provider_id
+          | None -> `Null )
+      ; "model_id", `String (Llm_provider.Model_id.to_string target.model_id)
+      ]
+  ;;
+
+  let exact_fields fields =
+    let expected = [ "model_id"; "provider_id"; "provider_kind" ] in
+    let actual = List.map fst fields |> List.sort String.compare in
+    if actual = expected
+    then Ok ()
+    else
+      Error
+        "resolved provider target must contain exactly provider_kind, provider_id, and \
+         model_id"
+  ;;
+
+  let string_field name fields =
+    match List.assoc_opt name fields with
+    | Some (`String value) -> Ok value
+    | Some _ -> Error (name ^ " must be a string")
+    | None -> Error (name ^ " is required")
+  ;;
+
+  let option_string_field name fields =
+    match List.assoc_opt name fields with
+    | Some `Null -> Ok None
+    | Some (`String value) -> Ok (Some value)
+    | Some _ -> Error (name ^ " must be a string or null")
+    | None -> Error (name ^ " is required")
+  ;;
+
+  let of_yojson = function
+    | `Assoc fields ->
+      let open Result_syntax in
+      let* () = exact_fields fields in
+      let* provider_kind_text = string_field "provider_kind" fields in
+      let* provider_kind =
+        match Llm_provider.Provider_kind.of_canonical_string provider_kind_text with
+        | Some provider_kind -> Ok provider_kind
+        | None -> Error ("unknown canonical provider_kind: " ^ provider_kind_text)
+      in
+      let* provider_id = option_string_field "provider_id" fields in
+      let* model_id = string_field "model_id" fields in
+      make ~provider_kind ~provider_id ~model_id
+    | _ -> Error "resolved provider target must be a JSON object"
+  ;;
+end
+
+let provider_id_of_provider_config cfg =
+  match canonical_explicit_provider_id cfg with
+  | Some provider_id -> provider_id
   | None -> PConfig.string_of_provider_kind cfg.kind
 ;;
 

@@ -4,22 +4,6 @@ module PC = Llm_provider.Provider_config
 module PK = Llm_provider.Provider_kind
 module Secret = Llm_provider.Secret
 
-module Model_identity : sig
-  type t
-
-  val of_string : string -> t
-  val equal : t -> t -> bool
-  val hash : t -> int
-  val to_observation_string : t -> string
-end = struct
-  type t = string
-
-  let of_string value = value
-  let equal = String.equal
-  let hash = Hashtbl.hash
-  let to_observation_string value = value
-end
-
 type transport =
   | Http
   | Injected
@@ -36,7 +20,7 @@ type auth_scheme =
 
 type t =
   { provider : provider_identity
-  ; model_id : Model_identity.t
+  ; model_id : Llm_provider.Model_id.t
   ; transport : transport
   ; endpoint : Uri.t
   ; request_path : Uri.t
@@ -66,14 +50,16 @@ let auth_scheme_of_binding (binding : Provider_runtime_binding.t) =
 let transport_for_call ~injected = if injected then Injected else Http
 
 let of_provider_config ~transport config =
+  let open Result_syntax in
   let provider, binding = provider_and_binding config in
   let auth_scheme, credential_scope =
     match binding with
     | Some binding -> auth_scheme_of_binding binding, binding.credential_scope
     | None -> (if Secret.is_empty config.PC.api_key then No_auth else Api_key), None
   in
+  let+ model_id = Llm_provider.Model_id.of_string config.PC.model_id in
   { provider
-  ; model_id = Model_identity.of_string config.PC.model_id
+  ; model_id
   ; transport
   ; endpoint = canonical_uri config.PC.base_url
   ; request_path = canonical_uri config.PC.request_path
@@ -90,6 +76,7 @@ let of_resolved_provider
       ~request_path
       ~api_key
   =
+  let open Result_syntax in
   let api_key_secret = Secret.of_string api_key in
   let non_custom_identity kind =
     let config =
@@ -113,8 +100,9 @@ let of_resolved_provider
     | Provider.Anthropic -> non_custom_identity PC.Anthropic
     | Provider.Local _ | Provider.OpenAICompat _ -> non_custom_identity PC.OpenAI_compat
   in
+  let+ model_id = Llm_provider.Model_id.of_string provider.model_id in
   { provider = provider_identity
-  ; model_id = Model_identity.of_string provider.model_id
+  ; model_id
   ; transport
   ; endpoint = canonical_uri base_url
   ; request_path = canonical_uri request_path
@@ -140,7 +128,7 @@ let equal_credential left right =
 
 let equal left right =
   equal_provider left.provider right.provider
-  && Model_identity.equal left.model_id right.model_id
+  && Llm_provider.Model_id.equal left.model_id right.model_id
   && left.transport = right.transport
   && Uri.equal left.endpoint right.endpoint
   && Uri.equal left.request_path right.request_path
@@ -162,7 +150,7 @@ let hash_credential = function
 let hash identity =
   Hashtbl.hash
     ( hash_provider identity.provider
-    , Model_identity.hash identity.model_id
+    , Llm_provider.Model_id.hash identity.model_id
     , identity.transport
     , Uri.to_string identity.endpoint
     , Uri.to_string identity.request_path
@@ -218,7 +206,7 @@ let credential_fingerprint_to_yojson = function
 let to_redacted_yojson identity =
   `Assoc
     [ "provider", provider_to_yojson identity.provider
-    ; "model", `String (Model_identity.to_observation_string identity.model_id)
+    ; "model", `String (Llm_provider.Model_id.to_string identity.model_id)
     ; "transport", `String (transport_to_string identity.transport)
     ; "endpoint", `String (redacted_uri identity.endpoint)
     ; "request_path", `String (redacted_uri identity.request_path)
