@@ -1,5 +1,6 @@
 open Result_syntax
 module Event = Execution_event
+module Store = Execution_event_store
 
 module Event_id_set = Set.Make (struct
     type t = Event.Event_id.t
@@ -79,51 +80,11 @@ type run_view =
   ; through_seq : int
   }
 
-type cursor =
-  { scope_id : string
-  ; seq : int
-  }
+type cursor = Store.cursor
 
-let cursor_seq cursor = cursor.seq
-
-let cursor_to_yojson cursor =
-  `Assoc [ "scope_id", `String cursor.scope_id; "seq", `Int cursor.seq ]
-;;
-
-let cursor_of_yojson = function
-  | `Assoc fields ->
-    let field name =
-      match List.filter (fun (candidate, _) -> String.equal candidate name) fields with
-      | [ (_, value) ] -> Ok value
-      | [] -> Error ("execution cursor is missing field " ^ name)
-      | _ -> Error ("execution cursor has duplicate field " ^ name)
-    in
-    let* () =
-      match
-        List.find_opt
-          (fun (name, _) -> not (String.equal name "scope_id" || String.equal name "seq"))
-          fields
-      with
-      | None -> Ok ()
-      | Some (name, _) -> Error ("execution cursor has unknown field " ^ name)
-    in
-    let* scope_json = field "scope_id" in
-    let* scope_id =
-      match scope_json with
-      | `String value when not (String.equal (String.trim value) "") -> Ok value
-      | `String _ -> Error "execution cursor scope_id must contain non-whitespace text"
-      | _ -> Error "execution cursor scope_id must be a string"
-    in
-    let* seq_json = field "seq" in
-    let* seq =
-      match seq_json with
-      | `Int value when value >= 0 -> Ok value
-      | `Int _ -> Error "execution cursor seq must be non-negative"
-      | _ -> Error "execution cursor seq must be an int"
-    in
-    Ok { scope_id; seq }
-  | _ -> Error "execution cursor must be a JSON object"
-;;
+let cursor_seq = Store.cursor_seq
+let cursor_to_yojson = Store.cursor_to_yojson
+let cursor_of_yojson = Store.cursor_of_yojson
 
 type invariant_violation =
   | Sequence_mismatch of
@@ -201,6 +162,7 @@ type error =
       { after_seq : int
       ; last_seq : int
       }
+  | Persistence_failure of Store.error
   | Invariant_violation of invariant_violation
 
 let error_to_string = function
@@ -213,6 +175,8 @@ let error_to_string = function
       "execution journal cursor %d is ahead of last sequence %d"
       after_seq
       last_seq
+  | Persistence_failure error ->
+    "execution journal persistence failed: " ^ Store.error_to_string error
   | Invariant_violation violation -> show_invariant_violation violation
 ;;
 
@@ -829,26 +793,22 @@ type journal_state =
   }
 
 type snapshot =
-  { scope_id : string
+  { scope_id : Store.Scope_id.t
   ; reducer : Reducer.t
   }
 
 type t =
-  { scope_id : string
+  { scope_id : Store.Scope_id.t
   ; correlation_id : Event.Correlation_id.t
+  ; store_writer : Store.writer option
   ; writer_gate : Eio.Mutex.t
   ; mu : Eio.Mutex.t
   ; mutable state : journal_state
   }
 
 let with_read journal f = Eio.Mutex.use_ro journal.mu (fun () -> f journal.state)
-
-let with_state_write journal f =
-  Eio.Mutex.use_rw ~protect:true journal.mu (fun () -> f journal.state)
-;;
-
+let with_state_write journal f = Eio.Mutex.use_rw ~protect:true journal.mu f
 let with_writer_gate journal f = Eio.Mutex.use_rw ~protect:true journal.writer_gate f
-let with_write journal f = with_writer_gate journal (fun () -> with_state_write journal f)
 let length journal = with_read journal (fun state -> Reducer.last_seq state.reducer)
 let last_seq journal = with_read journal (fun state -> Reducer.last_seq state.reducer)
 
@@ -857,31 +817,38 @@ let events journal =
   List.rev events_rev
 ;;
 
-let beginning_cursor journal = { scope_id = journal.scope_id; seq = 0 }
+let make_cursor scope_id seq =
+  match Store.make_cursor ~scope_id ~seq with
+  | Ok cursor -> cursor
+  | Error detail -> invalid_arg detail
+;;
+
+let beginning_cursor journal = make_cursor journal.scope_id 0
 
 let current_cursor journal =
   let seq = last_seq journal in
-  { scope_id = journal.scope_id; seq }
+  make_cursor journal.scope_id seq
 ;;
 
 let events_after journal ~(after : cursor) =
-  if not (String.equal after.scope_id journal.scope_id)
+  if not (Store.Scope_id.equal (Store.cursor_scope_id after) journal.scope_id)
   then Error Cursor_scope_mismatch
-  else if after.seq < 0
+  else if Store.cursor_seq after < 0
   then Error (Invalid_argument "cursor sequence must be non-negative")
   else (
+    let after_seq = Store.cursor_seq after in
     let last_seq, events_rev =
       with_read journal (fun state -> Reducer.last_seq state.reducer, state.events_rev)
     in
-    if after.seq > last_seq
-    then Error (Cursor_ahead { after_seq = after.seq; last_seq })
+    if after_seq > last_seq
+    then Error (Cursor_ahead { after_seq; last_seq })
     else (
       let rec collect chronological = function
-        | event :: rest when Event.seq event > after.seq ->
+        | event :: rest when Event.seq event > after_seq ->
           collect (event :: chronological) rest
         | _ -> chronological
       in
-      Ok (collect [] events_rev, { scope_id = journal.scope_id; seq = last_seq })))
+      Ok (collect [] events_rev, make_cursor journal.scope_id last_seq)))
 ;;
 
 let snapshot journal =
@@ -890,7 +857,7 @@ let snapshot journal =
 ;;
 
 let snapshot_cursor (snapshot : snapshot) =
-  { scope_id = snapshot.scope_id; seq = Reducer.last_seq snapshot.reducer }
+  make_cursor snapshot.scope_id (Reducer.last_seq snapshot.reducer)
 ;;
 
 let snapshot_find_node (snapshot : snapshot) node_id =
@@ -947,7 +914,13 @@ let append_to_state
   Ok ({ reducer; events_rev = event :: state.events_rev }, event)
 ;;
 
-let append_locked
+type 'a mutation =
+  { next_state : journal_state
+  ; events : Event.t list
+  ; value : 'a
+  }
+
+let append_one
       journal
       (state : journal_state)
       ~event_id
@@ -966,8 +939,34 @@ let append_locked
       ?causes
       payload
   in
-  journal.state <- next_state;
-  event
+  { next_state; events = [ event ]; value = event }
+;;
+
+let persist_mutation journal (captured_state : journal_state) events =
+  match journal.store_writer with
+  | None -> Ok ()
+  | Some store_writer ->
+    let expected_next_seq = Reducer.last_seq captured_state.reducer + 1 in
+    (match Store.append_batch store_writer ~expected_next_seq events with
+     | Ok (Store.Stored | Store.Already_committed) -> Ok ()
+     | Error error -> Error (Persistence_failure error))
+;;
+
+let commit_mutation journal (captured_state : journal_state) mutation =
+  let* () = persist_mutation journal captured_state mutation.events in
+  with_state_write journal (fun () ->
+    if not (journal.state == captured_state)
+    then Error (Invalid_event "execution writer gate invariant violated")
+    else (
+      journal.state <- mutation.next_state;
+      Ok mutation.value))
+;;
+
+let with_write journal f =
+  with_writer_gate journal (fun () ->
+    let captured_state = with_read journal Fun.id in
+    let* mutation = f captured_state in
+    Eio.Cancel.protect (fun () -> commit_mutation journal captured_state mutation))
 ;;
 
 let node_record_or_error (state : journal_state) node_id =
@@ -1006,10 +1005,13 @@ let start_run ?parent_invocation ?causes journal ~agent_name =
         let+ event_id = node_last_event state node_id in
         Some event_id
     in
-    let+ event =
-      append_locked journal state ~event_id ~run_id ~parent_event_id ?causes payload
+    let+ mutation =
+      append_one journal state ~event_id ~run_id ~parent_event_id ?causes payload
     in
-    { id = run_id; root }, event)
+    { next_state = mutation.next_state
+    ; events = mutation.events
+    ; value = { id = run_id; root }, mutation.value
+    })
 ;;
 
 let validate_run_handle (state : journal_state) run =
@@ -1043,8 +1045,8 @@ let open_node ?causes journal ~run ~parent ~kind =
     with_write journal (fun state ->
       let* () = validate_run_handle state run in
       let* parent_event_id = node_last_event state parent in
-      let+ event =
-        append_locked
+      let+ mutation =
+        append_one
           journal
           state
           ~event_id
@@ -1053,7 +1055,10 @@ let open_node ?causes journal ~run ~parent ~kind =
           ?causes
           payload
       in
-      node_id, event)
+      { next_state = mutation.next_state
+      ; events = mutation.events
+      ; value = node_id, mutation.value
+      })
 ;;
 
 let update_node ?causes journal ~node update =
@@ -1065,7 +1070,7 @@ let update_node ?causes journal ~node update =
   with_write journal (fun state ->
     let* view = node_record_or_error state node in
     let* parent_event_id = node_last_event state node in
-    append_locked
+    append_one
       journal
       state
       ~event_id
@@ -1089,7 +1094,7 @@ let close_node ?causes journal ~node terminal =
     | Event.Tool_invocation _
     | Event.Tool_attempt ->
       let* parent_event_id = node_last_event state node in
-      append_locked
+      append_one
         journal
         state
         ~event_id
@@ -1106,7 +1111,7 @@ let finish_run ?causes journal ~run terminal =
   with_write journal (fun state ->
     let* () = validate_run_handle state run in
     let* parent_event_id = node_last_event state run.root in
-    append_locked
+    append_one
       journal
       state
       ~event_id
@@ -1122,72 +1127,116 @@ let abort_run ?causes journal ~run terminal =
     Error (Invalid_argument "abort_run requires a failed or cancelled terminal")
   | Event.Failed _ | Event.Cancelled _ ->
     let* terminal = payload_result (Event.validate_terminal terminal) in
-    Eio.Cancel.protect (fun () ->
-      with_writer_gate journal (fun () ->
-        let captured_state = with_read journal Fun.id in
-        let* () = validate_run_handle captured_state run in
-        let* order =
-          match Reducer.open_subtree_postorder captured_state.reducer run.root with
-          | Ok order -> Ok order
-          | Error violation -> Error (Invariant_violation violation)
-        in
-        let rec apply_closes state events_rev closed_by_node = function
-          | [] -> Ok (state, events_rev)
-          | node_id :: nodes ->
-            let* event_id = identity_result (Event.Event_id.fresh ()) in
-            let* record = node_record_or_error state node_id in
-            let* parent_event_id = node_last_event state node_id in
-            let payload = Event.close_payload ~node_id terminal in
-            let child_causes =
-              record.children_rev
-              |> List.rev
-              |> List.filter_map (fun child ->
-                let child_id = Event.node_id child.value in
-                Option.map
-                  (fun event -> Event.Internal_event (Event.event_id event))
-                  (Node_id_map.find_opt child_id closed_by_node))
-            in
-            let event_causes = Option.value causes ~default:[] @ child_causes in
-            let* next_state, event =
-              append_to_state
-                state
-                ~event_id
-                ~correlation_id:journal.correlation_id
-                ~run_id:(Event.node_run_id record.node)
-                ~parent_event_id:(Some parent_event_id)
-                ~causes:event_causes
-                payload
-            in
-            Eio.Fiber.yield ();
-            apply_closes
-              next_state
-              (event :: events_rev)
-              (Node_id_map.add node_id event closed_by_node)
-              nodes
-        in
-        let* final_state, events_rev =
-          apply_closes captured_state [] Node_id_map.empty order
-        in
-        with_state_write journal (fun current_state ->
-          if not (current_state == captured_state)
-          then Error (Invalid_event "execution writer gate invariant violated")
-          else (
-            journal.state <- final_state;
-            Ok (List.rev events_rev)))))
+    with_writer_gate journal (fun () ->
+      let captured_state = with_read journal Fun.id in
+      let* () = validate_run_handle captured_state run in
+      let* order =
+        match Reducer.open_subtree_postorder captured_state.reducer run.root with
+        | Ok order -> Ok order
+        | Error violation -> Error (Invariant_violation violation)
+      in
+      let rec apply_closes state events_rev closed_by_node = function
+        | [] -> Ok (state, events_rev)
+        | node_id :: nodes ->
+          let* event_id = identity_result (Event.Event_id.fresh ()) in
+          let* record = node_record_or_error state node_id in
+          let* parent_event_id = node_last_event state node_id in
+          let payload = Event.close_payload ~node_id terminal in
+          let child_causes =
+            record.children_rev
+            |> List.rev
+            |> List.filter_map (fun (child : Event.node event_record) ->
+              let child_id = Event.node_id child.value in
+              Option.map
+                (fun event -> Event.Internal_event (Event.event_id event))
+                (Node_id_map.find_opt child_id closed_by_node))
+          in
+          let event_causes = Option.value causes ~default:[] @ child_causes in
+          let* next_state, event =
+            append_to_state
+              state
+              ~event_id
+              ~correlation_id:journal.correlation_id
+              ~run_id:(Event.node_run_id record.node)
+              ~parent_event_id:(Some parent_event_id)
+              ~causes:event_causes
+              payload
+          in
+          Eio.Fiber.yield ();
+          apply_closes
+            next_state
+            (event :: events_rev)
+            (Node_id_map.add node_id event closed_by_node)
+            nodes
+      in
+      let* final_state, events_rev =
+        apply_closes captured_state [] Node_id_map.empty order
+      in
+      let events = List.rev events_rev in
+      Eio.Cancel.protect (fun () ->
+        commit_mutation
+          journal
+          captured_state
+          { next_state = final_state; events; value = events }))
 ;;
 
-let create ?correlation_id () =
-  let* scope_id = identity_result (Random_id.create ()) in
-  let* correlation_id =
-    match correlation_id with
-    | Some correlation_id -> Ok correlation_id
-    | None -> identity_result (Event.Correlation_id.fresh ())
+let replay_events events =
+  let rec loop (state : journal_state) = function
+    | [] -> Ok state
+    | event :: rest ->
+      let* reducer =
+        match Reducer.apply state.reducer event with
+        | Ok reducer -> Ok reducer
+        | Error violation -> Error (Invariant_violation violation)
+      in
+      loop { reducer; events_rev = event :: state.events_rev } rest
+  in
+  loop ({ reducer = Reducer.empty; events_rev = [] } : journal_state) events
+;;
+
+let create ?correlation_id ?store () =
+  let* scope_id, correlation_id, state, store_writer =
+    match store with
+    | None ->
+      let* scope_id =
+        match Store.Scope_id.fresh () with
+        | Ok value -> Ok value
+        | Error detail -> Error (Identity_failure detail)
+      in
+      let* correlation_id =
+        match correlation_id with
+        | Some correlation_id -> Ok correlation_id
+        | None -> identity_result (Event.Correlation_id.fresh ())
+      in
+      Ok (scope_id, correlation_id, { reducer = Reducer.empty; events_rev = [] }, None)
+    | Some store ->
+      let store_correlation = Store.correlation_id store in
+      let* () =
+        match correlation_id with
+        | None -> Ok ()
+        | Some correlation_id
+          when Event.Correlation_id.equal correlation_id store_correlation -> Ok ()
+        | Some _ -> Error (Invalid_argument "store correlation identity mismatch")
+      in
+      let* events =
+        match Store.load_all store with
+        | Ok events -> Ok events
+        | Error error -> Error (Persistence_failure error)
+      in
+      let* state = replay_events events in
+      let* store_writer =
+        match Store.attach store with
+        | Ok writer -> Ok writer
+        | Error error -> Error (Persistence_failure error)
+      in
+      Ok (Store.scope_id store, store_correlation, state, Some store_writer)
   in
   Ok
     { scope_id
     ; correlation_id
+    ; store_writer
     ; writer_gate = Eio.Mutex.create ()
     ; mu = Eio.Mutex.create ()
-    ; state = { reducer = Reducer.empty; events_rev = [] }
+    ; state
     }
 ;;

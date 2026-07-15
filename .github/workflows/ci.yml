@@ -39,6 +39,9 @@ jobs:
       - name: Pin fork packages and install dependencies
         run: opam exec -- bash scripts/ci-setup-deps.sh
 
+      - name: Check execution store single-writer boundary
+        run: opam exec -- bash scripts/check-execution-store-boundary.sh
+
       - name: Build
         run: opam exec -- dune build @all
 

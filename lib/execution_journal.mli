@@ -59,7 +59,7 @@ type run_view = private
 
 (** Journal-scoped event cursor. A cursor from another journal is rejected even
     when its numeric sequence happens to fit this journal. *)
-type cursor
+type cursor = Execution_event_store.cursor
 
 val cursor_seq : cursor -> int
 val cursor_to_yojson : cursor -> Yojson.Safe.t
@@ -141,6 +141,7 @@ type error =
       { after_seq : int
       ; last_seq : int
       }
+  | Persistence_failure of Execution_event_store.error
   | Invariant_violation of invariant_violation
 
 val error_to_string : error -> string
@@ -163,8 +164,15 @@ type t
     [through_seq] watermark. *)
 type snapshot
 
-(** Create an empty in-memory execution scope. *)
-val create : ?correlation_id:Execution_event.Correlation_id.t -> unit -> (t, error) result
+(** Create an execution scope. With [store], all committed store events are
+    replayed through {!Reducer} and every later mutation is durably appended
+    before its immutable in-memory state is published. Without [store], the
+    journal remains explicitly volatile. *)
+val create
+  :  ?correlation_id:Execution_event.Correlation_id.t
+  -> ?store:Execution_event_store.t
+  -> unit
+  -> (t, error) result
 
 val length : t -> int
 val last_seq : t -> int
