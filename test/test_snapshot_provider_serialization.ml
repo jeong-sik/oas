@@ -455,19 +455,37 @@ let raw_zai_openai_compat_cfg () =
     ()
 ;;
 
-let zai_glm_messages_with_reasoning =
+(* Provenance stamp mirroring the production response path:
+   [Complete_common.patch_telemetry] resolves the source with
+   [Reasoning_dialect.reasoning_source_for_provider_config] and
+   [Types.assistant_message_of_response] moves it onto the stored assistant
+   message metadata. A reasoning-bearing history message without this stamp is
+   unrepresentable through the production path, and
+   [Reasoning_history_projection] drops its reasoning fail-closed
+   (missing_source) before the replay policy is even consulted. *)
+let reasoning_source_metadata config =
+  match Reasoning_dialect.reasoning_source_for_provider_config config with
+  | Ok source -> Reasoning_source.metadata source
+  | Error detail -> Alcotest.fail detail
+;;
+
+let zai_glm_messages_with_reasoning ~config =
   [ msg User [ Text "solve" ]
-  ; msg
-      Assistant
-      [ Text "answer"; Thinking { signature = None; content = "chain of thought" } ]
+  ; { (msg
+         Assistant
+         [ Text "answer"; Thinking { signature = None; content = "chain of thought" } ])
+      with
+      metadata = reasoning_source_metadata config
+    }
   ]
 ;;
 
 let test_raw_openai_compat_does_not_infer_glm_thinking_or_replay () =
+  let config = raw_zai_openai_compat_cfg () in
   let body =
     Backend_openai_request.build_request
-      ~config:(raw_zai_openai_compat_cfg ())
-      ~messages:zai_glm_messages_with_reasoning
+      ~config
+      ~messages:(zai_glm_messages_with_reasoning ~config)
       ()
   in
   check
@@ -503,10 +521,11 @@ let native_glm_cfg ?(enable_thinking = Some true) ?preserve_thinking ?clear_thin
 ;;
 
 let test_native_glm_replays_reasoning_when_preserve_thinking () =
+  let config = native_glm_cfg ~preserve_thinking:true () in
   let body =
     Backend_openai_request.build_request
-      ~config:(native_glm_cfg ~preserve_thinking:true ())
-      ~messages:zai_glm_messages_with_reasoning
+      ~config
+      ~messages:(zai_glm_messages_with_reasoning ~config)
       ()
   in
   check_reasoning_content
@@ -516,10 +535,11 @@ let test_native_glm_replays_reasoning_when_preserve_thinking () =
 ;;
 
 let test_native_glm_drops_reasoning_by_default () =
+  let config = native_glm_cfg () in
   let body =
     Backend_openai_request.build_request
-      ~config:(native_glm_cfg ())
-      ~messages:zai_glm_messages_with_reasoning
+      ~config
+      ~messages:(zai_glm_messages_with_reasoning ~config)
       ()
   in
   check_reasoning_content
@@ -529,10 +549,11 @@ let test_native_glm_drops_reasoning_by_default () =
 ;;
 
 let test_native_glm_drops_reasoning_when_thinking_disabled () =
+  let config = native_glm_cfg ~enable_thinking:(Some false) ~preserve_thinking:true () in
   let body =
     Backend_openai_request.build_request
-      ~config:(native_glm_cfg ~enable_thinking:(Some false) ~preserve_thinking:true ())
-      ~messages:zai_glm_messages_with_reasoning
+      ~config
+      ~messages:(zai_glm_messages_with_reasoning ~config)
       ()
   in
   check_reasoning_content
