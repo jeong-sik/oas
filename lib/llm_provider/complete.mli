@@ -90,8 +90,8 @@ val complete
     (AcceptRejected _)] even when a cached response exists.
 
     With no injected [transport], the built-in HTTP path owns the single
-    deadline around [Http_client.post_sync]; [complete] does not add a second
-    timeout. With an injected [transport], [complete] applies the resolved
+    deadline around [Http_client.post_sync]; [config.connect_timeout_s] is not
+    added as a nested sync deadline. With an injected [transport], [complete] applies the resolved
     deadline around [Llm_transport.t.complete_sync]. On expiry the result is
     [Error (TimeoutError { phase = Non_streaming_body; _ })] with a
     message that identifies the body deadline. The typed failure is returned
@@ -143,17 +143,14 @@ val complete
     [ProviderFailure { kind = Empty_completion { stop_reason } }] for built-in
     HTTP and injected transports alike.
 
-    [clock] and [stream_idle_timeout_s] together bound two streaming
-    stalls on every HTTP streaming path: inter-line idle, and
-    thinking-only generation before the first deliverable text/tool
-    signal. The line-idle deadline covers Ollama native NDJSON
+    [clock] and [stream_idle_timeout_s] bound inter-line stalls on every HTTP
+    streaming path. The idle deadline covers Ollama native NDJSON
     (see {!Http_client.read_ndjson}) and the SSE format used by
     Anthropic, OpenAI-compatible, Gemini, and Glm
     (see {!Http_client.read_sse}). The deadline resets after each
-    successful line. The thinking-only guard does not reset on hidden
-    reasoning deltas; it is cleared by text or tool-call progress.
-    Together these do not cap total stream duration after answer/tool
-    progress has started.
+    successful line. Thinking, answer, tool-call, heartbeat, substrate, and
+    terminal lines are all liveness; there is no thinking-only or total stream
+    wall-clock cutoff.
     SSE keepalive comments reset the deadline like any other line.
     A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], where [state]

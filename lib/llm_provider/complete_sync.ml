@@ -151,7 +151,6 @@ let complete_http
             ~url
             ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
             ~body:body_str
-            ?timeout_s:config.connect_timeout_s
             ()
         in
         (* Body-level deadline (since 0.195.0): wraps the entire

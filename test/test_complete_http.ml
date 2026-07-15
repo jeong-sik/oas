@@ -1211,6 +1211,40 @@ let read_http_request flow =
   if content_length > 0 then ignore (Eio.Buf_read.take content_length reader : string)
 ;;
 
+let start_raw_sync_server ~sw ~net ~clock ~body_delay_sec response_body =
+  let port = fresh_port () in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork
+      ~sw
+      socket
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         try
+           read_http_request flow;
+           Eio.Flow.copy_string
+             (Printf.sprintf
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: %d\r\n\
+                 Connection: close\r\n\
+                 \r\n"
+                (String.length response_body))
+             flow;
+           Eio.Time.sleep clock body_delay_sec;
+           Eio.Flow.copy_string response_body flow
+         with
+         | _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
 let start_raw_sse_server ~sw ~net ~clock delayed_frames =
   let port = fresh_port () in
   let socket =
@@ -2109,6 +2143,38 @@ let test_complete_body_timeout_does_not_fire_on_fast_response () =
   | Exit -> ()
 ;;
 
+let test_complete_sync_uses_only_outer_body_timeout () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_raw_sync_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~body_delay_sec:0.08
+        (anthropic_response "slow body")
+    in
+    let config = { (make_config url) with connect_timeout_s = Some 0.02 } in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~clock:env#clock
+         ~config
+         ~messages
+         ~body_timeout_s:0.5
+         ()
+     with
+     | Ok response -> check string "body" "slow body" (text_of_response response)
+     | Error _ -> fail "nested connect timeout incorrectly capped sync body");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_body_timeout_without_clock_rejected_before_request () =
   Eio_main.run
   @@ fun env ->
@@ -2617,6 +2683,10 @@ let () =
             "body_timeout_s no-op on fast response"
             `Quick
             test_complete_body_timeout_does_not_fire_on_fast_response
+        ; test_case
+            "sync uses only outer body timeout"
+            `Quick
+            test_complete_sync_uses_only_outer_body_timeout
         ; test_case
             "body_timeout_s without clock rejects before request"
             `Quick
