@@ -21,7 +21,6 @@ type output_block_kind =
   | Thinking_block
   | Reasoning_details_block
   | Redacted_thinking_block
-  | Tool_result_block
   | Image_block
   | Document_block
   | Audio_block
@@ -29,12 +28,32 @@ type output_block_kind =
 
 let equal_output_block_kind left right = left = right
 
+type content_block_classification =
+  | Output_content of output_block_kind
+  | Tool_use_content
+  | Tool_result_content
+[@@deriving show]
+
+let classify_content_block (block : Llm_provider.Types.content_block) =
+  let open Llm_provider.Types in
+  match block with
+  | Text _ -> Output_content Text_block
+  | Thinking _ -> Output_content Thinking_block
+  | ReasoningDetails _ -> Output_content Reasoning_details_block
+  | RedactedThinking _ -> Output_content Redacted_thinking_block
+  | ToolUse _ -> Tool_use_content
+  | ToolResult _ -> Tool_result_content
+  | Image _ -> Output_content Image_block
+  | Document _ -> Output_content Document_block
+  | Audio _ -> Output_content Audio_block
+;;
+
 type node_kind =
   | Agent_run of { agent_name : string }
   | Agent_turn of { ordinal : int }
   | Provider_attempt of
       { ordinal : int
-      ; target : Provider_runtime_binding.Resolved_target.t
+      ; target : Binding_identity.Redacted_snapshot.t
       }
   | Output_block of
       { ordinal : int
@@ -56,7 +75,7 @@ let pp_node_kind formatter = function
       formatter
       "Provider_attempt {ordinal=%d; target=%a}"
       ordinal
-      Provider_runtime_binding.Resolved_target.pp
+      Binding_identity.Redacted_snapshot.pp
       target
   | Output_block { ordinal; block_kind } ->
     Format.fprintf
@@ -106,11 +125,6 @@ let validate_optional_non_blank field = function
   | Some value -> validate_non_blank field value
 ;;
 
-let provider_attempt ~ordinal config =
-  let+ target = Provider_runtime_binding.Resolved_target.of_provider_config config in
-  Provider_attempt { ordinal; target }
-;;
-
 let validate_json = Execution_json.validate
 
 let validate_node_kind = function
@@ -128,6 +142,14 @@ let validate_node_kind = function
   | Tool_attempt -> Ok ()
 ;;
 
+let provider_attempt ~ordinal binding =
+  let kind =
+    Provider_attempt { ordinal; target = Binding_identity.redacted_snapshot binding }
+  in
+  let+ () = validate_node_kind kind in
+  kind
+;;
+
 let make_node ~node_id ~run_id ~parent_node_id ~kind =
   let* () = validate_node_kind kind in
   Ok { node_id; run_id; parent_node_id; kind }
@@ -139,7 +161,7 @@ let equal_node_kind left right =
   | Agent_turn left, Agent_turn right -> left.ordinal = right.ordinal
   | Provider_attempt left, Provider_attempt right ->
     left.ordinal = right.ordinal
-    && Provider_runtime_binding.Resolved_target.equal left.target right.target
+    && Binding_identity.Redacted_snapshot.equal left.target right.target
   | Output_block left, Output_block right ->
     left.ordinal = right.ordinal
     && equal_output_block_kind left.block_kind right.block_kind
@@ -182,11 +204,11 @@ type node_update =
   | Provider_event of Yojson.Safe.t
   | Provider_response_id_snapshot of string
   | Output_delta of Yojson.Safe.t
-  | Output_snapshot of Yojson.Safe.t
+  | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t
-  | Tool_input_snapshot of Yojson.Safe.t
+  | Tool_input_snapshot of Llm_provider.Types.content_block
   | Tool_progress of Yojson.Safe.t
-  | Tool_result of Yojson.Safe.t
+  | Tool_result of Llm_provider.Types.content_block
 [@@deriving show]
 
 type failure_kind =
@@ -229,12 +251,13 @@ type payload =
       }
 [@@deriving show]
 
+module External_source = Execution_cause.External_source
 module Cause = Execution_cause.Make (Event_id)
 
 type cause = Cause.t =
   | Internal_event of Event_id.t
   | External_event of
-      { source : string
+      { source : External_source.t
       ; event_id : string
       }
 [@@deriving show]
@@ -250,17 +273,63 @@ type t =
   ; payload : payload
   }
 
+let durable_content_to_yojson block =
+  try Ok (Checkpoint_codec.checkpoint_content_block_to_json block) with
+  | exn ->
+    Llm_provider.Reserved_exn.reraise_if_reserved exn;
+    Error ("durable content snapshot encoding failed: " ^ Printexc.to_string exn)
+;;
+
+let durable_content_of_yojson json =
+  let decoded =
+    try
+      Checkpoint_codec.content_block_of_json_strict json
+      |> Result.map_error Error.to_string
+    with
+    | exn ->
+      Llm_provider.Reserved_exn.reraise_if_reserved exn;
+      Error ("durable content snapshot decoding failed: " ^ Printexc.to_string exn)
+  in
+  let* block = decoded in
+  let* canonical = durable_content_to_yojson block in
+  if Yojson.Safe.equal json canonical
+  then Ok block
+  else Error "durable content snapshot is not in canonical closed form"
+;;
+
+let validate_content_block block =
+  let open Llm_provider.Types in
+  let* json = durable_content_to_yojson block in
+  let* () = validate_json ~context:"canonical content snapshot" json in
+  let* decoded = durable_content_of_yojson json in
+  if block = decoded
+  then (
+    match block with
+    | ToolUse { id; name; _ } ->
+      let* () = validate_non_blank "tool-use identifier" id in
+      validate_non_blank "tool-use name" name
+    | ToolResult { tool_use_id; _ } ->
+      validate_non_blank "tool-result tool-use identifier" tool_use_id
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | Image _
+    | Document _
+    | Audio _ -> Ok ())
+  else Error "canonical content snapshot is not losslessly durable"
+;;
+
 let validate_node_update update =
   match update with
   | Provider_response_id_snapshot value ->
     validate_non_blank "provider response identifier" value
   | Provider_event value -> validate_json ~context:"provider event" value
   | Output_delta value -> validate_json ~context:"output delta" value
-  | Output_snapshot value -> validate_json ~context:"output snapshot" value
   | Tool_input_delta value -> validate_json ~context:"tool input delta" value
-  | Tool_input_snapshot value -> validate_json ~context:"tool input snapshot" value
   | Tool_progress value -> validate_json ~context:"tool progress" value
-  | Tool_result value -> validate_json ~context:"tool result" value
+  | Output_snapshot block | Tool_input_snapshot block | Tool_result block ->
+    validate_content_block block
 ;;
 
 let validate_failure failure =
@@ -388,11 +457,11 @@ let equal_update left right =
   match left, right with
   | Provider_event left, Provider_event right
   | Output_delta left, Output_delta right
-  | Output_snapshot left, Output_snapshot right
   | Tool_input_delta left, Tool_input_delta right
+  | Tool_progress left, Tool_progress right -> Yojson.Safe.equal left right
+  | Output_snapshot left, Output_snapshot right
   | Tool_input_snapshot left, Tool_input_snapshot right
-  | Tool_progress left, Tool_progress right
-  | Tool_result left, Tool_result right -> Yojson.Safe.equal left right
+  | Tool_result left, Tool_result right -> left = right
   | Provider_response_id_snapshot left, Provider_response_id_snapshot right ->
     String.equal left right
   | ( ( Provider_event _
@@ -453,7 +522,6 @@ let output_block_kind_to_string = function
   | Thinking_block -> "thinking"
   | Reasoning_details_block -> "reasoning_details"
   | Redacted_thinking_block -> "redacted_thinking"
-  | Tool_result_block -> "tool_result"
   | Image_block -> "image"
   | Document_block -> "document"
   | Audio_block -> "audio"
@@ -464,7 +532,6 @@ let output_block_kind_of_string = function
   | "thinking" -> Ok Thinking_block
   | "reasoning_details" -> Ok Reasoning_details_block
   | "redacted_thinking" -> Ok Redacted_thinking_block
-  | "tool_result" -> Ok Tool_result_block
   | "image" -> Ok Image_block
   | "document" -> Ok Document_block
   | "audio" -> Ok Audio_block
@@ -483,7 +550,7 @@ let node_kind_to_yojson_unchecked = function
     `Assoc
       [ "type", `String "provider_attempt"
       ; "ordinal", `Int ordinal
-      ; "target", Provider_runtime_binding.Resolved_target.to_yojson target
+      ; "target", Binding_identity.Redacted_snapshot.to_yojson target
       ]
   | Output_block { ordinal; block_kind } ->
     `Assoc
@@ -548,7 +615,7 @@ let node_kind_of_yojson json =
       decode ~required:[ "ordinal"; "target" ] ~optional:[] (fun fields ->
         let* ordinal = int_field "ordinal" fields in
         let* target_json = field "target" fields in
-        let+ target = Provider_runtime_binding.Resolved_target.of_yojson target_json in
+        let+ target = Binding_identity.Redacted_snapshot.of_yojson target_json in
         Provider_attempt { ordinal; target })
     | "output_block" ->
       decode ~required:[ "ordinal"; "block_kind" ] ~optional:[] (fun fields ->
@@ -619,13 +686,24 @@ let node_update_to_yojson_unchecked update =
     `Assoc [ "type", `String "provider_response_id_snapshot"; "value", `String value ]
   | Provider_event value -> `Assoc [ "type", `String "provider_event"; "value", value ]
   | Output_delta value -> `Assoc [ "type", `String "output_delta"; "value", value ]
-  | Output_snapshot value -> `Assoc [ "type", `String "output_snapshot"; "value", value ]
+  | Output_snapshot value ->
+    `Assoc
+      [ "type", `String "output_snapshot"
+      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
+      ]
   | Tool_input_delta value ->
     `Assoc [ "type", `String "tool_input_delta"; "value", value ]
   | Tool_input_snapshot value ->
-    `Assoc [ "type", `String "tool_input_snapshot"; "value", value ]
+    `Assoc
+      [ "type", `String "tool_input_snapshot"
+      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
+      ]
   | Tool_progress value -> `Assoc [ "type", `String "tool_progress"; "value", value ]
-  | Tool_result value -> `Assoc [ "type", `String "tool_result"; "value", value ]
+  | Tool_result value ->
+    `Assoc
+      [ "type", `String "tool_result"
+      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
+      ]
 ;;
 
 let node_update_to_yojson update =
@@ -647,11 +725,17 @@ let node_update_of_yojson json =
        | `String value -> Ok (Provider_response_id_snapshot value)
        | _ -> Error "provider response identifier snapshot must be a string")
     | "output_delta" -> Ok (Output_delta value)
-    | "output_snapshot" -> Ok (Output_snapshot value)
+    | "output_snapshot" ->
+      let+ block = durable_content_of_yojson value in
+      Output_snapshot block
     | "tool_input_delta" -> Ok (Tool_input_delta value)
-    | "tool_input_snapshot" -> Ok (Tool_input_snapshot value)
+    | "tool_input_snapshot" ->
+      let+ block = durable_content_of_yojson value in
+      Tool_input_snapshot block
     | "tool_progress" -> Ok (Tool_progress value)
-    | "tool_result" -> Ok (Tool_result value)
+    | "tool_result" ->
+      let+ block = durable_content_of_yojson value in
+      Tool_result block
     | value -> Error ("unknown node update: " ^ value)
   in
   let+ () = validate_node_update update in

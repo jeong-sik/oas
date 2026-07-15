@@ -28,10 +28,10 @@ type materialized =
   | Agent_run_state
   | Agent_turn_state
   | Provider_attempt_state of { provider_response_id : string option }
-  | Output_block_state of { snapshot : Yojson.Safe.t option }
+  | Output_block_state of { snapshot : Llm_provider.Types.content_block option }
   | Tool_invocation_state of
-      { input : Yojson.Safe.t option
-      ; result : Yojson.Safe.t option
+      { input : Llm_provider.Types.content_block option
+      ; result : Llm_provider.Types.content_block option
       }
   | Tool_attempt_state
 
@@ -107,12 +107,21 @@ type invariant_violation =
   | Invalid_update_for_node of Execution_event.Node_id.t
   | Provider_response_id_already_materialized of Execution_event.Node_id.t
   | Output_snapshot_already_materialized of Execution_event.Node_id.t
+  | Output_snapshot_kind_mismatch of
+      { node : Execution_event.Node_id.t
+      ; expected : Execution_event.output_block_kind
+      ; actual : Execution_event.content_block_classification
+      }
   | Output_delta_after_snapshot of Execution_event.Node_id.t
   | Output_snapshot_not_materialized of Execution_event.Node_id.t
   | Tool_input_already_materialized of Execution_event.Node_id.t
+  | Tool_input_snapshot_not_tool_use of Execution_event.Node_id.t
+  | Tool_input_snapshot_identity_mismatch of Execution_event.Node_id.t
   | Tool_input_delta_after_snapshot of Execution_event.Node_id.t
   | Tool_input_not_materialized of Execution_event.Node_id.t
   | Tool_result_already_materialized of Execution_event.Node_id.t
+  | Tool_result_snapshot_not_tool_result of Execution_event.Node_id.t
+  | Tool_result_snapshot_identity_mismatch of Execution_event.Node_id.t
   | Tool_result_while_children_open of Execution_event.Node_id.t
   | Tool_result_not_materialized of Execution_event.Node_id.t
   | Child_after_tool_result of Execution_event.Node_id.t

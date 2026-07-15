@@ -52,30 +52,6 @@ val known_labels : unit -> string list
     request paths, and model ids are never reverse-matched. *)
 val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
 
-(** Redacted immutable identity of the exact provider/model target selected for
-    one concrete call.  Attempt occurrence identity remains the execution
-    journal's node id; this value records only OAS-owned resolution facts. *)
-module Resolved_target : sig
-  type t
-
-  (** Resolve a durable snapshot from a concrete dispatch config. Known
-      provider aliases are replaced by their canonical catalog id. *)
-  val of_provider_config : Llm_provider.Provider_config.t -> (t, string) result
-
-  val provider_kind : t -> Llm_provider.Provider_kind.t
-  val provider_id : t -> string option
-  val model_id : t -> Llm_provider.Model_id.t
-  val equal : t -> t -> bool
-  val pp : Format.formatter -> t -> unit
-
-  (** Closed canonical durable codec. Decoding validates the recorded snapshot
-      without consulting the current catalog, so replay cannot drift when the
-      catalog changes. *)
-  val to_yojson : t -> Yojson.Safe.t
-
-  val of_yojson : Yojson.Safe.t -> (t, string) result
-end
-
 (** Runtime provider id for a concrete provider config. A known explicit id or
     alias resolves to the canonical binding id; an unknown explicit id remains
     an opaque normalized id. Configs without an id use only their typed wire

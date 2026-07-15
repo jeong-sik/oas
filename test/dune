@@ -102,7 +102,6 @@
   test_initial_messages
   test_injection
   test_integration
-  test_execution_journal
   test_journal_bridge
   test_llm_cache
   test_llm_call
@@ -268,7 +267,6 @@
   test_initial_messages
   test_injection
   test_integration
-  test_execution_journal
   test_journal_bridge
   test_llm_cache
   test_llm_call
@@ -351,6 +349,20 @@
   test_vcs_graph_snapshot)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../docs/example-capability-manifest.json ../models.toml)
+ (action
+  (run %{test})))
+
+; The recursive execution foundation is deliberately private until OAS owns
+; its production writer. This regression suite uses Dune's library-internal
+; alias only inside the repository; no installed Agent_sdk API exposes it.
+
+(test
+ (name test_execution_journal)
+ (modules test_execution_journal)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
+ (deps ../models.toml)
+ (flags
+  (:standard -open Agent_sdk__))
  (action
   (run %{test})))
 

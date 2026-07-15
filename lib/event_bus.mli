@@ -213,8 +213,8 @@ val payload_kind : payload -> string
 
 (** {2 ID generation} *)
 
-(** Generate a process-local compatibility identifier. Canonical
-    {!Execution_event} construction supplies its own typed random identity. *)
+(** Generate a process-local compatibility identifier. OAS's private canonical
+    execution writer owns its own typed random identity. *)
 val fresh_id : unit -> string
 
 (** Create an envelope with optional correlation/run IDs (defaults to fresh)

@@ -8,7 +8,9 @@
   execution_id
   execution_cause
   execution_json
-  execution_tool_schedule)
+  execution_tool_schedule
+  execution_event
+  execution_journal)
  (libraries
   llm_provider
   (re_export agent_sdk_base)

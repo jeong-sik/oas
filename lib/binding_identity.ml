@@ -198,21 +198,193 @@ let option_string_to_yojson = function
   | None -> `Null
 ;;
 
-let credential_fingerprint_to_yojson = function
-  | Some identity -> `String (Secret.identity_fingerprint identity)
-  | None -> `Null
+type redacted_snapshot =
+  { provider : provider_identity
+  ; model_id : Llm_provider.Model_id.t
+  ; transport : transport
+  ; endpoint : string
+  ; request_path : string
+  ; auth_scheme : auth_scheme
+  ; credential_scope : string option
+  ; credential_fingerprint : string option
+  }
+
+let redacted_snapshot (identity : t) =
+  { provider = identity.provider
+  ; model_id = identity.model_id
+  ; transport = identity.transport
+  ; endpoint = redacted_uri identity.endpoint
+  ; request_path = redacted_uri identity.request_path
+  ; auth_scheme = identity.auth_scheme
+  ; credential_scope = identity.credential_scope
+  ; credential_fingerprint =
+      Option.map Secret.identity_fingerprint identity.credential_identity
+  }
 ;;
 
+module Redacted_snapshot = struct
+  type t = redacted_snapshot
+
+  let equal left right =
+    equal_provider left.provider right.provider
+    && Llm_provider.Model_id.equal left.model_id right.model_id
+    && left.transport = right.transport
+    && String.equal left.endpoint right.endpoint
+    && String.equal left.request_path right.request_path
+    && left.auth_scheme = right.auth_scheme
+    && Option.equal String.equal left.credential_scope right.credential_scope
+    && Option.equal String.equal left.credential_fingerprint right.credential_fingerprint
+  ;;
+
+  let credential_fingerprint_to_yojson = function
+    | Some fingerprint -> `String fingerprint
+    | None -> `Null
+  ;;
+
+  let to_yojson snapshot =
+    `Assoc
+      [ "provider", provider_to_yojson snapshot.provider
+      ; "model", `String (Llm_provider.Model_id.to_string snapshot.model_id)
+      ; "transport", `String (transport_to_string snapshot.transport)
+      ; "endpoint", `String snapshot.endpoint
+      ; "request_path", `String snapshot.request_path
+      ; "auth_scheme", `String (auth_scheme_to_string snapshot.auth_scheme)
+      ; "credential_scope", option_string_to_yojson snapshot.credential_scope
+      ; ( "credential_fingerprint"
+        , credential_fingerprint_to_yojson snapshot.credential_fingerprint )
+      ]
+  ;;
+
+  let pp formatter snapshot =
+    Format.pp_print_string formatter (Yojson.Safe.to_string (to_yojson snapshot))
+  ;;
+
+  let exact_non_empty_text ~field value =
+    let trimmed = String.trim value in
+    if String.equal trimmed ""
+    then Error (field ^ " must contain non-whitespace text")
+    else if not (String.equal value trimmed)
+    then Error (field ^ " must not have surrounding whitespace")
+    else Ok value
+  ;;
+
+  let provider_of_yojson json =
+    let open Result_syntax in
+    let* fields =
+      Execution_json.object_fields
+        ~context:"binding redacted snapshot provider"
+        ~required:[ "registration" ]
+        ~optional:[ "id"; "kind" ]
+        json
+    in
+    let* registration = Execution_json.string_field "registration" fields in
+    match registration with
+    | "registered" ->
+      let* fields =
+        Execution_json.object_fields
+          ~context:"registered binding redacted snapshot provider"
+          ~required:[ "registration"; "id" ]
+          ~optional:[]
+          json
+      in
+      let* id = Execution_json.string_field "id" fields in
+      let+ id = exact_non_empty_text ~field:"provider id" id in
+      Registered id
+    | "unregistered" ->
+      let* fields =
+        Execution_json.object_fields
+          ~context:"unregistered binding redacted snapshot provider"
+          ~required:[ "registration"; "kind" ]
+          ~optional:[]
+          json
+      in
+      let* kind = Execution_json.string_field "kind" fields in
+      (match PK.of_canonical_string kind with
+       | Some kind -> Ok (Unregistered kind)
+       | None -> Error ("unknown canonical provider kind: " ^ kind))
+    | value -> Error ("unknown provider registration: " ^ value)
+  ;;
+
+  let transport_of_string = function
+    | "http" -> Ok Http
+    | "injected" -> Ok Injected
+    | value -> Error ("unknown binding transport: " ^ value)
+  ;;
+
+  let auth_scheme_of_string = function
+    | "none" -> Ok No_auth
+    | "api_key" -> Ok Api_key
+    | "setup_token" -> Ok Setup_token
+    | "provider_defined" -> Ok Provider_defined
+    | value -> Error ("unknown binding auth_scheme: " ^ value)
+  ;;
+
+  let exact_redacted_uri ~field value =
+    let canonical = value |> canonical_uri |> redacted_uri in
+    if String.equal value canonical
+    then Ok value
+    else Error (field ^ " must be a canonical redacted URI")
+  ;;
+
+  let credential_fingerprint_of_option = function
+    | None -> Ok None
+    | Some fingerprint ->
+      Result.map
+        (fun fingerprint -> Some fingerprint)
+        (exact_non_empty_text ~field:"credential_fingerprint" fingerprint)
+  ;;
+
+  let of_yojson json =
+    let open Result_syntax in
+    let* fields =
+      Execution_json.object_fields
+        ~context:"binding redacted snapshot"
+        ~required:
+          [ "provider"
+          ; "model"
+          ; "transport"
+          ; "endpoint"
+          ; "request_path"
+          ; "auth_scheme"
+          ; "credential_scope"
+          ; "credential_fingerprint"
+          ]
+        ~optional:[]
+        json
+    in
+    let* provider_json = Execution_json.field "provider" fields in
+    let* provider = provider_of_yojson provider_json in
+    let* model = Execution_json.string_field "model" fields in
+    let* model_id = Llm_provider.Model_id.of_string model in
+    let* transport_text = Execution_json.string_field "transport" fields in
+    let* transport = transport_of_string transport_text in
+    let* endpoint = Execution_json.string_field "endpoint" fields in
+    let* endpoint = exact_redacted_uri ~field:"endpoint" endpoint in
+    let* request_path = Execution_json.string_field "request_path" fields in
+    let* request_path = exact_redacted_uri ~field:"request_path" request_path in
+    let* auth_scheme_text = Execution_json.string_field "auth_scheme" fields in
+    let* auth_scheme = auth_scheme_of_string auth_scheme_text in
+    let* credential_scope =
+      Execution_json.option_string_field "credential_scope" fields
+    in
+    let* credential_fingerprint =
+      Execution_json.option_string_field "credential_fingerprint" fields
+    in
+    let+ credential_fingerprint =
+      credential_fingerprint_of_option credential_fingerprint
+    in
+    { provider
+    ; model_id
+    ; transport
+    ; endpoint
+    ; request_path
+    ; auth_scheme
+    ; credential_scope
+    ; credential_fingerprint
+    }
+  ;;
+end
+
 let to_redacted_yojson identity =
-  `Assoc
-    [ "provider", provider_to_yojson identity.provider
-    ; "model", `String (Llm_provider.Model_id.to_string identity.model_id)
-    ; "transport", `String (transport_to_string identity.transport)
-    ; "endpoint", `String (redacted_uri identity.endpoint)
-    ; "request_path", `String (redacted_uri identity.request_path)
-    ; "auth_scheme", `String (auth_scheme_to_string identity.auth_scheme)
-    ; "credential_scope", option_string_to_yojson identity.credential_scope
-    ; ( "credential_fingerprint"
-      , credential_fingerprint_to_yojson identity.credential_identity )
-    ]
+  identity |> redacted_snapshot |> Redacted_snapshot.to_yojson
 ;;

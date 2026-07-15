@@ -29,7 +29,13 @@ let provider_attempt ?(model_id = "test-model") ordinal =
       ~base_url:"https://provider.test"
       ()
   in
-  require_codec_ok (Event.provider_attempt ~ordinal config)
+  let binding =
+    Binding_identity.of_provider_config
+      ~transport:(Binding_identity.transport_for_call ~injected:false)
+      config
+    |> require_codec_ok
+  in
+  require_codec_ok (Event.provider_attempt ~ordinal binding)
 ;;
 
 let tool_invocation name =
@@ -39,6 +45,22 @@ let tool_invocation name =
     ; schedule = serial_schedule
     }
 ;;
+
+let tool_use name input =
+  Llm_provider.Types.ToolUse { id = "provider-" ^ name; name; input }
+;;
+
+let tool_result name value =
+  Llm_provider.Types.ToolResult
+    { tool_use_id = "provider-" ^ name
+    ; content = Yojson.Safe.to_string value
+    ; outcome = Llm_provider.Types.Tool_succeeded
+    ; json = Some value
+    ; content_blocks = None
+    }
+;;
+
+let external_source value = require_codec_ok (Event.External_source.of_string value)
 
 let check_contiguous events =
   List.iteri
@@ -110,7 +132,8 @@ let build_recursive_run journal =
        (Journal.update_node
           journal
           ~node:thinking
-          (Event.Output_snapshot (`Assoc [ "text", `String "inspect source" ]))));
+          (Event.Output_snapshot
+             (Llm_provider.Types.Thinking { content = "inspect source"; signature = None }))));
   ignore (require_ok (Journal.close_node journal ~node:thinking Event.Succeeded));
   let invocation =
     require_opened_node
@@ -131,7 +154,8 @@ let build_recursive_run journal =
        (Journal.update_node
           journal
           ~node:invocation
-          (Event.Tool_input_snapshot (`Assoc [ "path", `String "lib/agent.ml" ]))));
+          (Event.Tool_input_snapshot
+             (tool_use "read_source" (`Assoc [ "path", `String "lib/agent.ml" ])))));
   let attempt =
     require_opened_node
       (Journal.open_node
@@ -168,7 +192,8 @@ let build_recursive_run journal =
             ]
           journal
           ~node:invocation
-          (Event.Tool_result (`Assoc [ "review", `String "accepted" ]))));
+          (Event.Tool_result
+             (tool_result "read_source" (`Assoc [ "review", `String "accepted" ])))));
   ignore (require_ok (Journal.close_node journal ~node:invocation Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:parent_turn Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:parent_agent_turn Event.Succeeded));
@@ -237,6 +262,18 @@ let test_recursive_tree_and_global_sequence () =
 let test_codec_roundtrip_and_exactness () =
   Eio_main.run
   @@ fun _env ->
+  (match
+     ( Event.classify_content_block (tool_use "classification" (`Assoc []))
+     , Event.classify_content_block (tool_result "classification" (`Assoc [])) )
+   with
+   | Event.Tool_use_content, Event.Tool_result_content -> ()
+   | _ -> fail "tool use and tool result lost their distinct structural classes");
+  (match Event.classify_content_block (Llm_provider.Types.Text "output") with
+   | Event.Output_content Event.Text_block -> ()
+   | _ -> fail "text content did not project to a text output block");
+  (match Event.External_source.of_string " test-domain" with
+   | Error _ -> ()
+   | Ok _ -> fail "external source accepted surrounding whitespace");
   let journal = require_ok (Journal.create ()) in
   let run, opened = require_ok (Journal.start_run journal ~agent_name:"codec") in
   let event = List.hd (Journal.events journal) in
@@ -278,10 +315,17 @@ let test_codec_roundtrip_and_exactness () =
   in
   ignore
     (require_ok
-       (Journal.update_node journal ~node:invocation (Event.Tool_input_snapshot `Null)));
+       (Journal.update_node
+          journal
+          ~node:invocation
+          (Event.Tool_input_snapshot (tool_use "null_input" `Null))));
   (match Journal.find_node journal invocation with
-   | Some { materialized = Journal.Tool_invocation_state { input = Some `Null; _ }; _ } ->
-     ()
+   | Some
+       { materialized =
+           Journal.Tool_invocation_state
+             { input = Some (Llm_provider.Types.ToolUse { input = `Null; _ }); _ }
+       ; _
+       } -> ()
    | _ -> fail "canonical JSON null was confused with absent input");
   let failed =
     Event.Failed
@@ -386,7 +430,9 @@ let test_reducer_rejects_correlation_drift () =
       ~seq:1
       ~correlation_id:"execution-scope-one"
       ~causes:
-        [ Event.External_event { source = "test"; event_id = "external-trigger-one" } ]
+        [ Event.External_event
+            { source = external_source "test"; event_id = "external-trigger-one" }
+        ]
       (Event.Node_opened node)
   in
   let state =
@@ -459,19 +505,30 @@ let test_hierarchy_and_lifecycle_rejections () =
    | Error (Journal.Invariant_violation (Journal.Output_snapshot_not_materialized _)) ->
      ()
    | _ -> fail "an output block succeeded without a canonical snapshot");
+  (match
+     Journal.update_node
+       journal
+       ~node:output
+       (Event.Output_snapshot (tool_result "streamed" (`String "not-output")))
+   with
+   | Error (Journal.Invariant_violation (Journal.Output_snapshot_kind_mismatch _)) -> ()
+   | _ -> fail "a tool result was accepted as an output block snapshot");
   ignore
     (require_ok
        (Journal.update_node
           journal
           ~node:output
-          (Event.Output_snapshot (`String "materialized"))));
+          (Event.Output_snapshot (Llm_provider.Types.Text "materialized"))));
   ignore (require_ok (Journal.close_node journal ~node:output Event.Succeeded));
   let invocation =
     require_opened_node
       (Journal.open_node journal ~run ~parent:turn ~kind:(tool_invocation "streamed"))
   in
   (match
-     Journal.update_node journal ~node:invocation (Event.Tool_result (`String "early"))
+     Journal.update_node
+       journal
+       ~node:invocation
+       (Event.Tool_result (tool_result "streamed" (`String "early")))
    with
    | Error (Journal.Invariant_violation (Journal.Tool_input_not_materialized _)) -> ()
    | _ -> fail "tool result was accepted before canonical input");
@@ -481,17 +538,35 @@ let test_hierarchy_and_lifecycle_rejections () =
   (match Journal.close_node journal ~node:invocation Event.Succeeded with
    | Error (Journal.Invariant_violation (Journal.Tool_input_not_materialized _)) -> ()
    | _ -> fail "tool invocation succeeded without canonical input");
+  (match
+     Journal.update_node
+       journal
+       ~node:invocation
+       (Event.Tool_input_snapshot (Llm_provider.Types.Text "not a tool use"))
+   with
+   | Error (Journal.Invariant_violation (Journal.Tool_input_snapshot_not_tool_use _)) ->
+     ()
+   | _ -> fail "non-tool-use content was accepted as a tool input snapshot");
+  (match
+     Journal.update_node
+       journal
+       ~node:invocation
+       (Event.Tool_input_snapshot (tool_use "another_tool" (`Assoc [])))
+   with
+   | Error (Journal.Invariant_violation (Journal.Tool_input_snapshot_identity_mismatch _))
+     -> ()
+   | _ -> fail "a mismatched tool use was accepted as invocation input");
   ignore
     (require_ok
        (Journal.update_node
           journal
           ~node:invocation
-          (Event.Tool_input_snapshot (`Assoc [ "value", `Int 1 ]))));
+          (Event.Tool_input_snapshot (tool_use "streamed" (`Assoc [ "value", `Int 1 ])))));
   (match
      Journal.update_node
        journal
        ~node:invocation
-       (Event.Tool_input_snapshot (`Assoc [ "value", `Int 2 ]))
+       (Event.Tool_input_snapshot (tool_use "streamed" (`Assoc [ "value", `Int 2 ])))
    with
    | Error (Journal.Invariant_violation (Journal.Tool_input_already_materialized _)) -> ()
    | _ -> fail "a second canonical tool input snapshot was accepted");
@@ -506,6 +581,25 @@ let test_hierarchy_and_lifecycle_rejections () =
   (match Journal.close_node journal ~node:invocation Event.Succeeded with
    | Error (Journal.Invariant_violation (Journal.Tool_result_not_materialized _)) -> ()
    | _ -> fail "tool invocation succeeded without a canonical result");
+  (match
+     Journal.update_node
+       journal
+       ~node:invocation
+       (Event.Tool_result (Llm_provider.Types.Text "not a tool result"))
+   with
+   | Error (Journal.Invariant_violation (Journal.Tool_result_snapshot_not_tool_result _))
+     -> ()
+   | _ -> fail "non-tool-result content was accepted as a tool result snapshot");
+  (match
+     Journal.update_node
+       journal
+       ~node:invocation
+       (Event.Tool_result (tool_result "another_tool" (`Assoc [])))
+   with
+   | Error
+       (Journal.Invariant_violation (Journal.Tool_result_snapshot_identity_mismatch _)) ->
+     ()
+   | _ -> fail "a mismatched tool result was accepted by an invocation");
   let attempt =
     require_opened_node
       (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
@@ -514,7 +608,7 @@ let test_hierarchy_and_lifecycle_rejections () =
      Journal.update_node
        journal
        ~node:invocation
-       (Event.Tool_result (`Assoc [ "value", `Int 1 ]))
+       (Event.Tool_result (tool_result "streamed" (`Assoc [ "value", `Int 1 ])))
    with
    | Error (Journal.Invariant_violation (Journal.Tool_result_while_children_open _)) -> ()
    | _ -> fail "tool result was accepted while an attempt was open");
@@ -524,12 +618,12 @@ let test_hierarchy_and_lifecycle_rejections () =
        (Journal.update_node
           journal
           ~node:invocation
-          (Event.Tool_result (`Assoc [ "value", `Int 1 ]))));
+          (Event.Tool_result (tool_result "streamed" (`Assoc [ "value", `Int 1 ])))));
   (match
      Journal.update_node
        journal
        ~node:invocation
-       (Event.Tool_result (`Assoc [ "value", `Int 2 ]))
+       (Event.Tool_result (tool_result "streamed" (`Assoc [ "value", `Int 2 ])))
    with
    | Error (Journal.Invariant_violation (Journal.Tool_result_already_materialized _)) ->
      ()
@@ -556,6 +650,57 @@ let test_hierarchy_and_lifecycle_rejections () =
              ; detail = "tool input was not valid JSON"
              ; data = None
              })));
+  let invocation_without_provider_id =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:turn
+         ~kind:
+           (Event.Tool_invocation
+              { provider_tool_use_id = None
+              ; tool_name = "late_identity"
+              ; schedule = serial_schedule
+              }))
+  in
+  let canonical_tool_use =
+    Llm_provider.Types.ToolUse
+      { id = "canonical-late-identity"; name = "late_identity"; input = `Assoc [] }
+  in
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:invocation_without_provider_id
+          (Event.Tool_input_snapshot canonical_tool_use)));
+  (match
+     Journal.update_node
+       journal
+       ~node:invocation_without_provider_id
+       (Event.Tool_result (tool_result "late_identity" (`Assoc [])))
+   with
+   | Error
+       (Journal.Invariant_violation (Journal.Tool_result_snapshot_identity_mismatch _)) ->
+     ()
+   | _ -> fail "tool result ignored the canonical input correlation identity");
+  let matching_tool_result =
+    Llm_provider.Types.ToolResult
+      { tool_use_id = "canonical-late-identity"
+      ; content = "{}"
+      ; outcome = Llm_provider.Types.Tool_succeeded
+      ; json = Some (`Assoc [])
+      ; content_blocks = None
+      }
+  in
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:invocation_without_provider_id
+          (Event.Tool_result matching_tool_result)));
+  ignore
+    (require_ok
+       (Journal.close_node journal ~node:invocation_without_provider_id Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:turn Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:agent_turn Event.Succeeded));
   ignore (require_ok (Journal.finish_run journal ~run Event.Succeeded))
@@ -585,12 +730,12 @@ let test_output_snapshot_is_terminal_for_output_updates () =
        (Journal.update_node
           journal
           ~node:output
-          (Event.Output_snapshot (`String "answer"))));
+          (Event.Output_snapshot (Llm_provider.Types.Text "answer"))));
   (match
      Journal.update_node
        journal
        ~node:output
-       (Event.Output_snapshot (`String "replacement"))
+       (Event.Output_snapshot (Llm_provider.Types.Text "replacement"))
    with
    | Error (Journal.Invariant_violation (Journal.Output_snapshot_already_materialized _))
      -> ()
@@ -670,7 +815,7 @@ let test_streaming_provider_identity_and_projection () =
        (Journal.update_node
           journal
           ~node:output
-          (Event.Output_snapshot (`String "answer"))));
+          (Event.Output_snapshot (Llm_provider.Types.Text "answer"))));
   ignore (require_ok (Journal.close_node journal ~node:output Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:attempt Event.Succeeded));
   let fallback_attempt =
@@ -732,7 +877,9 @@ let test_streaming_provider_identity_and_projection () =
       ; updates =
           [ { value = Event.Output_delta _; _ }; { value = Event.Output_snapshot _; _ } ]
       ; children = []
-      ; materialized = Journal.Output_block_state { snapshot = Some (`String "answer") }
+      ; materialized =
+          Journal.Output_block_state
+            { snapshot = Some (Llm_provider.Types.Text "answer") }
       ; _
       } -> ()
   | _ -> fail "output projection lost its chronological updates"
@@ -788,14 +935,31 @@ let test_json_terminal_and_id_boundaries () =
     before_invalid_updates
     (Journal.length journal);
   let invalid_payload = `Assoc [ "nested", `List [ `Float infinity ] ] in
+  let invalid_output =
+    Llm_provider.Types.ReasoningDetails
+      { reasoning_content = None; details = [ { raw = invalid_payload; text = None } ] }
+  in
+  let invalid_tool_input =
+    Llm_provider.Types.ToolUse
+      { id = "provider-invalid"; name = "invalid"; input = invalid_payload }
+  in
+  let invalid_tool_result =
+    Llm_provider.Types.ToolResult
+      { tool_use_id = "provider-invalid"
+      ; content = "valid"
+      ; outcome = Llm_provider.Types.Tool_succeeded
+      ; json = Some invalid_payload
+      ; content_blocks = None
+      }
+  in
   let invalid_updates =
     [ Event.Provider_event invalid_payload
     ; Event.Output_delta invalid_payload
-    ; Event.Output_snapshot invalid_payload
+    ; Event.Output_snapshot invalid_output
     ; Event.Tool_input_delta invalid_payload
-    ; Event.Tool_input_snapshot invalid_payload
+    ; Event.Tool_input_snapshot invalid_tool_input
     ; Event.Tool_progress invalid_payload
-    ; Event.Tool_result invalid_payload
+    ; Event.Tool_result invalid_tool_result
     ]
   in
   List.iter
@@ -819,9 +983,35 @@ let test_json_terminal_and_id_boundaries () =
    with
    | Error _ -> ()
    | Ok _ -> fail "non-finite JSON passed the node update decoder");
-  (match Event.node_update_to_yojson (Event.Tool_input_snapshot invalid_payload) with
+  (match
+     Event.node_update_of_yojson
+       (`Assoc
+           [ "type", `String "output_snapshot"
+           ; ( "value"
+             , `Assoc
+                 [ "type", `String "text"
+                 ; "text", `String "answer"
+                 ; "unknown", `Bool true
+                 ] )
+           ])
+   with
+   | Error _ -> ()
+   | Ok _ -> fail "unknown canonical snapshot field passed the closed decoder");
+  (match Event.node_update_to_yojson (Event.Tool_input_snapshot invalid_tool_input) with
    | Error _ -> ()
    | Ok _ -> fail "non-finite JSON passed the public node update encoder");
+  let non_lossless_tool_result =
+    Llm_provider.Types.ToolResult
+      { tool_use_id = "provider-non-lossless"
+      ; content = "{\"value\":1}"
+      ; outcome = Llm_provider.Types.Tool_succeeded
+      ; json = None
+      ; content_blocks = None
+      }
+  in
+  (match Event.node_update_to_yojson (Event.Tool_result non_lossless_tool_result) with
+   | Error _ -> ()
+   | Ok _ -> fail "a non-lossless canonical tool result was silently normalized");
   let output =
     require_opened_node
       (Journal.open_node
@@ -958,7 +1148,8 @@ let test_abort_run_closes_recursive_subtree_atomically () =
        (Journal.update_node
           journal
           ~node:invocation
-          (Event.Tool_input_snapshot (`Assoc [ "task", `String "review" ]))));
+          (Event.Tool_input_snapshot
+             (tool_use "delegate" (`Assoc [ "task", `String "review" ])))));
   let child =
     require_started_run
       (Journal.start_run ~parent_invocation:invocation journal ~agent_name:"child")
@@ -989,7 +1180,8 @@ let test_abort_run_closes_recursive_subtree_atomically () =
     Event.Cancelled { reason = Some "owning fiber cancelled"; data = None }
   in
   let cancellation_trigger =
-    Event.External_event { source = "test-runtime"; event_id = "cancel-signal-1" }
+    Event.External_event
+      { source = external_source "test-runtime"; event_id = "cancel-signal-1" }
   in
   let closed =
     require_ok (Journal.abort_run ~causes:[ cancellation_trigger ] journal ~run terminal)
@@ -1046,7 +1238,8 @@ let test_abort_run_handles_deep_recursive_composition_iteratively () =
          (Journal.update_node
             journal
             ~node:invocation
-            (Event.Tool_input_snapshot (`Assoc [ "depth", `Int index ]))));
+            (Event.Tool_input_snapshot
+               (tool_use ("deep-" ^ string_of_int index) (`Assoc [ "depth", `Int index ])))));
     current_run
     := require_started_run
          (Journal.start_run

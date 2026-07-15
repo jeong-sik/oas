@@ -1,10 +1,32 @@
 open Result_syntax
 
+module External_source = struct
+  type t = External_source of string
+
+  let of_string value =
+    let trimmed = String.trim value in
+    if String.equal trimmed ""
+    then Error "external cause source must contain non-whitespace text"
+    else if not (String.equal trimmed value)
+    then Error "external cause source must not contain surrounding whitespace"
+    else Ok (External_source value)
+  ;;
+
+  let equal (External_source left) (External_source right) = String.equal left right
+  let compare (External_source left) (External_source right) = String.compare left right
+
+  let pp formatter (External_source value) =
+    Format.fprintf formatter "External_source(%S)" value
+  ;;
+
+  let to_string (External_source value) = value
+end
+
 module Make (Event_id : Execution_id.S) = struct
   type t =
     | Internal_event of Event_id.t
     | External_event of
-        { source : string
+        { source : External_source.t
         ; event_id : string
         }
 
@@ -16,8 +38,7 @@ module Make (Event_id : Execution_id.S) = struct
 
   let validate = function
     | Internal_event _ -> Ok ()
-    | External_event { source; event_id } ->
-      let* () = validate_non_blank "external cause source" source in
+    | External_event { event_id; _ } ->
       validate_non_blank "external cause event_id" event_id
   ;;
 
@@ -27,7 +48,7 @@ module Make (Event_id : Execution_id.S) = struct
     | Internal_event _, External_event _ -> -1
     | External_event _, Internal_event _ -> 1
     | External_event left, External_event right ->
-      let by_source = String.compare left.source right.source in
+      let by_source = External_source.compare left.source right.source in
       if by_source <> 0 then by_source else String.compare left.event_id right.event_id
   ;;
 
@@ -60,7 +81,7 @@ module Make (Event_id : Execution_id.S) = struct
     | External_event { source; event_id } ->
       `Assoc
         [ "type", `String "external_event"
-        ; "source", `String source
+        ; "source", `String (External_source.to_string source)
         ; "event_id", `String event_id
         ]
   ;;
@@ -92,7 +113,8 @@ module Make (Event_id : Execution_id.S) = struct
         Internal_event event_id)
     | "external_event" ->
       decode ~required:[ "source"; "event_id" ] (fun fields ->
-        let* source = Execution_json.string_field "source" fields in
+        let* source_string = Execution_json.string_field "source" fields in
+        let* source = External_source.of_string source_string in
         let* event_id = Execution_json.string_field "event_id" fields in
         let cause = External_event { source; event_id } in
         let+ () = validate cause in

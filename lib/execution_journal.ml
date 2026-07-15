@@ -50,10 +50,10 @@ type materialized =
   | Agent_run_state
   | Agent_turn_state
   | Provider_attempt_state of { provider_response_id : string option }
-  | Output_block_state of { snapshot : Yojson.Safe.t option }
+  | Output_block_state of { snapshot : Llm_provider.Types.content_block option }
   | Tool_invocation_state of
-      { input : Yojson.Safe.t option
-      ; result : Yojson.Safe.t option
+      { input : Llm_provider.Types.content_block option
+      ; result : Llm_provider.Types.content_block option
       }
   | Tool_attempt_state
 
@@ -167,12 +167,21 @@ type invariant_violation =
   | Invalid_update_for_node of Event.Node_id.t
   | Provider_response_id_already_materialized of Event.Node_id.t
   | Output_snapshot_already_materialized of Event.Node_id.t
+  | Output_snapshot_kind_mismatch of
+      { node : Event.Node_id.t
+      ; expected : Event.output_block_kind
+      ; actual : Event.content_block_classification
+      }
   | Output_delta_after_snapshot of Event.Node_id.t
   | Output_snapshot_not_materialized of Event.Node_id.t
   | Tool_input_already_materialized of Event.Node_id.t
+  | Tool_input_snapshot_not_tool_use of Event.Node_id.t
+  | Tool_input_snapshot_identity_mismatch of Event.Node_id.t
   | Tool_input_delta_after_snapshot of Event.Node_id.t
   | Tool_input_not_materialized of Event.Node_id.t
   | Tool_result_already_materialized of Event.Node_id.t
+  | Tool_result_snapshot_not_tool_result of Event.Node_id.t
+  | Tool_result_snapshot_identity_mismatch of Event.Node_id.t
   | Tool_result_while_children_open of Event.Node_id.t
   | Tool_result_not_materialized of Event.Node_id.t
   | Child_after_tool_result of Event.Node_id.t
@@ -217,9 +226,9 @@ module Reducer = struct
     ; children_rev : Event.node event_record list
     ; updates_rev : Event.node_update event_record list
     ; provider_response_id : string option
-    ; output_snapshot : Yojson.Safe.t option
-    ; tool_input : Yojson.Safe.t option
-    ; tool_result : Yojson.Safe.t option
+    ; output_snapshot : Llm_provider.Types.content_block option
+    ; tool_input : Llm_provider.Types.content_block option
+    ; tool_result : Llm_provider.Types.content_block option
     }
 
   type run_record =
@@ -402,26 +411,64 @@ module Reducer = struct
       if Option.is_some record.output_snapshot
       then Error (Output_delta_after_snapshot node_id)
       else Ok ()
-    | Event.Output_block _, Event.Output_snapshot _ ->
+    | Event.Output_block { block_kind = expected; _ }, Event.Output_snapshot block ->
       if Option.is_some record.output_snapshot
       then Error (Output_snapshot_already_materialized node_id)
-      else Ok ()
+      else (
+        let actual = Event.classify_content_block block in
+        match actual with
+        | Event.Output_content actual when actual = expected -> Ok ()
+        | Event.Output_content _ | Event.Tool_use_content | Event.Tool_result_content ->
+          Error (Output_snapshot_kind_mismatch { node = node_id; expected; actual }))
     | Event.Tool_invocation _, Event.Tool_input_delta _ ->
       if Option.is_some record.tool_input
       then Error (Tool_input_delta_after_snapshot node_id)
       else Ok ()
-    | Event.Tool_invocation _, Event.Tool_input_snapshot _ ->
+    | ( Event.Tool_invocation { provider_tool_use_id; tool_name; _ }
+      , Event.Tool_input_snapshot block ) ->
       if Option.is_some record.tool_input
       then Error (Tool_input_already_materialized node_id)
-      else Ok ()
-    | Event.Tool_invocation _, Event.Tool_result _ ->
+      else (
+        match block with
+        | Llm_provider.Types.ToolUse { id; name; _ }
+          when String.equal name tool_name
+               && Option.fold ~none:true ~some:(String.equal id) provider_tool_use_id ->
+          Ok ()
+        | Llm_provider.Types.ToolUse _ ->
+          Error (Tool_input_snapshot_identity_mismatch node_id)
+        | Llm_provider.Types.Text _
+        | Llm_provider.Types.Thinking _
+        | Llm_provider.Types.ReasoningDetails _
+        | Llm_provider.Types.RedactedThinking _
+        | Llm_provider.Types.ToolResult _
+        | Llm_provider.Types.Image _
+        | Llm_provider.Types.Document _
+        | Llm_provider.Types.Audio _ -> Error (Tool_input_snapshot_not_tool_use node_id))
+    | Event.Tool_invocation _, Event.Tool_result block ->
       if Option.is_none record.tool_input
       then Error (Tool_input_not_materialized node_id)
       else if Option.is_some record.tool_result
       then Error (Tool_result_already_materialized node_id)
       else if not (Node_id_set.is_empty record.open_children)
       then Error (Tool_result_while_children_open node_id)
-      else Ok ()
+      else (
+        match block, record.tool_input with
+        | ( Llm_provider.Types.ToolResult { tool_use_id; _ }
+          , Some (Llm_provider.Types.ToolUse { id; _ }) )
+          when String.equal tool_use_id id -> Ok ()
+        | Llm_provider.Types.ToolResult _, Some (Llm_provider.Types.ToolUse _) ->
+          Error (Tool_result_snapshot_identity_mismatch node_id)
+        | Llm_provider.Types.ToolResult _, (None | Some _) ->
+          Error (Tool_input_not_materialized node_id)
+        | ( ( Llm_provider.Types.Text _
+            | Llm_provider.Types.Thinking _
+            | Llm_provider.Types.ReasoningDetails _
+            | Llm_provider.Types.RedactedThinking _
+            | Llm_provider.Types.ToolUse _
+            | Llm_provider.Types.Image _
+            | Llm_provider.Types.Document _
+            | Llm_provider.Types.Audio _ )
+          , _ ) -> Error (Tool_result_snapshot_not_tool_result node_id))
     | Event.Tool_attempt, Event.Tool_progress _ -> Ok ()
     | ( ( Event.Agent_run _
         | Event.Agent_turn _

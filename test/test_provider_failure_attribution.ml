@@ -11,6 +11,11 @@ let require_identity = function
   | Error detail -> Alcotest.fail detail
 ;;
 
+let require_redacted_snapshot = function
+  | Ok snapshot -> snapshot
+  | Error detail -> Alcotest.fail detail
+;;
+
 let config
       ?(base_url = "https://example.test/api")
       ?(request_path = "/v1/messages")
@@ -76,6 +81,68 @@ let test_identity_observation_is_redacted () =
     "query values visibly redacted"
     true
     (Util.string_contains ~needle:"redacted" rendered)
+;;
+
+let test_redacted_snapshot_closed_codec () =
+  let first = identity ~api_key:"credential-a" () in
+  let snapshot = Binding_identity.redacted_snapshot first in
+  let json = Binding_identity.Redacted_snapshot.to_yojson snapshot in
+  let decoded =
+    Binding_identity.Redacted_snapshot.of_yojson json |> require_redacted_snapshot
+  in
+  check_bool
+    "redacted snapshot roundtrips"
+    true
+    (Binding_identity.Redacted_snapshot.equal snapshot decoded);
+  Alcotest.(check string)
+    "convenience observation API is the snapshot codec"
+    (Yojson.Safe.to_string json)
+    (Binding_identity.to_redacted_yojson first |> Yojson.Safe.to_string);
+  let other = identity ~api_key:"credential-b" () |> Binding_identity.redacted_snapshot in
+  check_bool
+    "snapshot observes a different credential fingerprint"
+    false
+    (Binding_identity.Redacted_snapshot.equal snapshot other)
+;;
+
+let test_redacted_snapshot_rejects_noncanonical_input () =
+  let snapshot =
+    identity ~api_key:"credential-a" () |> Binding_identity.redacted_snapshot
+  in
+  let json = Binding_identity.Redacted_snapshot.to_yojson snapshot in
+  let fields =
+    match json with
+    | `Assoc fields -> fields
+    | _ -> Alcotest.fail "redacted snapshot encoder did not return an object"
+  in
+  let replace name value = `Assoc ((name, value) :: List.remove_assoc name fields) in
+  let reject label json =
+    match Binding_identity.Redacted_snapshot.of_yojson json with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail (label ^ " was accepted")
+  in
+  reject "unknown field" (`Assoc (("legacy", `Bool true) :: fields));
+  reject "duplicate field" (`Assoc (("model", `String "other") :: fields));
+  reject "missing field" (`Assoc (List.remove_assoc "model" fields));
+  reject "unknown transport" (replace "transport" (`String "HTTP"));
+  reject "unknown auth scheme" (replace "auth_scheme" (`String "bearer"));
+  reject "padded model" (replace "model" (`String " model-a "));
+  reject
+    "unredacted endpoint query"
+    (replace "endpoint" (`String "https://example.test/api?secret=value"));
+  reject
+    "endpoint userinfo"
+    (replace "endpoint" (`String "https://user:password@example.test/api"));
+  reject
+    "ambiguous provider shape"
+    (replace
+       "provider"
+       (`Assoc
+           [ "registration", `String "unregistered"
+           ; "kind", `String "openai_compat"
+           ; "id", `String "also-registered"
+           ]));
+  reject "blank credential fingerprint" (replace "credential_fingerprint" (`String " "))
 ;;
 
 let test_custom_provider_keeps_registered_identity () =
@@ -495,6 +562,14 @@ let () =
             "redacted observation"
             `Quick
             test_identity_observation_is_redacted
+        ; Alcotest.test_case
+            "redacted snapshot closed codec"
+            `Quick
+            test_redacted_snapshot_closed_codec
+        ; Alcotest.test_case
+            "redacted snapshot strict boundary"
+            `Quick
+            test_redacted_snapshot_rejects_noncanonical_input
         ; Alcotest.test_case
             "custom registry identity"
             `Quick

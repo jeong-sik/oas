@@ -926,105 +926,6 @@ let test_unregistered_openai_compat_identity_remains_typed () =
     (Provider_runtime_binding.provider_id_of_config config)
 ;;
 
-let require_target = function
-  | Ok target -> target
-  | Error detail -> Alcotest.fail detail
-;;
-
-let target_config ?provider_id ?(kind = Llm_provider.Provider_kind.OpenAI_compat) model_id
-  =
-  Llm_provider.Provider_config.make
-    ~kind
-    ?provider_id
-    ~model_id
-    ~base_url:"https://target.example/v1"
-    ()
-;;
-
-let test_resolved_target_canonical_codec_and_accessors () =
-  with_provider_catalog catalog_json (fun () ->
-    let target =
-      target_config ~provider_id:"Subscriber-Alias" "local-model"
-      |> Provider_runtime_binding.Resolved_target.of_provider_config
-      |> require_target
-    in
-    Alcotest.(check bool)
-      "provider kind accessor"
-      true
-      (Provider_runtime_binding.Resolved_target.provider_kind target
-       = Llm_provider.Provider_kind.OpenAI_compat);
-    Alcotest.(check (option string))
-      "known alias becomes canonical id"
-      (Some "subscriber-local")
-      (Provider_runtime_binding.Resolved_target.provider_id target);
-    Alcotest.(check string)
-      "model accessor"
-      "local-model"
-      (target
-       |> Provider_runtime_binding.Resolved_target.model_id
-       |> Llm_provider.Model_id.to_string);
-    let json = Provider_runtime_binding.Resolved_target.to_yojson target in
-    let decoded =
-      Provider_runtime_binding.Resolved_target.of_yojson json |> require_target
-    in
-    Alcotest.(check bool)
-      "durable target roundtrip"
-      true
-      (Provider_runtime_binding.Resolved_target.equal target decoded))
-;;
-
-let test_resolved_target_strict_durable_boundary () =
-  let target =
-    target_config "exact-model"
-    |> Provider_runtime_binding.Resolved_target.of_provider_config
-    |> require_target
-  in
-  let base_fields =
-    match Provider_runtime_binding.Resolved_target.to_yojson target with
-    | `Assoc fields -> fields
-    | _ -> Alcotest.fail "resolved target encoder did not return an object"
-  in
-  let reject label json =
-    match Provider_runtime_binding.Resolved_target.of_yojson json with
-    | Error _ -> ()
-    | Ok _ -> Alcotest.fail (label ^ " was accepted")
-  in
-  let replace name value = `Assoc ((name, value) :: List.remove_assoc name base_fields) in
-  reject
-    "uppercase durable provider kind"
-    (replace "provider_kind" (`String "OPENAI_COMPAT"));
-  reject
-    "padded durable provider kind"
-    (replace "provider_kind" (`String " openai_compat "));
-  reject
-    "uppercase durable provider id"
-    (replace "provider_id" (`String "UNKNOWN-PROVIDER"));
-  reject "padded durable model id" (replace "model_id" (`String " exact-model "));
-  reject
-    "duplicate durable field"
-    (`Assoc (("model_id", `String "duplicate") :: base_fields));
-  reject "unknown durable field" (`Assoc (("legacy", `Bool true) :: base_fields));
-  List.iter
-    (fun kind ->
-       let encoded = Llm_provider.Provider_kind.to_string kind in
-       match Llm_provider.Provider_kind.of_canonical_string encoded with
-       | Some decoded when decoded = kind -> ()
-       | Some _ | None -> Alcotest.fail ("canonical provider kind failed: " ^ encoded))
-    Llm_provider.Provider_kind.all
-;;
-
-let test_resolved_target_normalizes_direct_record_provider_id () =
-  let config = target_config ~provider_id:"placeholder" "exact-model" in
-  let config = { config with provider_id = Some "UNKNOWN-PROVIDER" } in
-  let target =
-    Provider_runtime_binding.Resolved_target.of_provider_config config |> require_target
-  in
-  Alcotest.(check (option string))
-    "unknown explicit id uses provider-id SSOT normalization"
-    (Some "unknown-provider")
-    (Provider_runtime_binding.Resolved_target.provider_id target)
-;;
-
 let () =
   Alcotest.run
     "Provider_runtime_binding"
@@ -1117,20 +1018,6 @@ let () =
             "unregistered OpenAI-compatible identity remains typed"
             `Quick
             test_unregistered_openai_compat_identity_remains_typed
-        ] )
-    ; ( "resolved-target"
-      , [ Alcotest.test_case
-            "canonical codec and total accessors"
-            `Quick
-            test_resolved_target_canonical_codec_and_accessors
-        ; Alcotest.test_case
-            "strict durable boundary"
-            `Quick
-            test_resolved_target_strict_durable_boundary
-        ; Alcotest.test_case
-            "direct-record provider id normalization"
-            `Quick
-            test_resolved_target_normalizes_direct_record_provider_id
         ] )
     ]
 ;;

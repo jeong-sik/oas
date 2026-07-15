@@ -30,11 +30,24 @@ type output_block_kind =
   | Thinking_block
   | Reasoning_details_block
   | Redacted_thinking_block
-  | Tool_result_block
   | Image_block
   | Document_block
   | Audio_block
 [@@deriving show]
+
+(** Exhaustive structural projection of the canonical provider content type.
+    A new [Llm_provider.Types.content_block] variant must be classified here
+    before the execution journal can compile. Tool calls and their results are
+    structural nodes/updates, never provider output blocks. *)
+type content_block_classification =
+  | Output_content of output_block_kind
+  | Tool_use_content
+  | Tool_result_content
+[@@deriving show]
+
+val classify_content_block
+  :  Llm_provider.Types.content_block
+  -> content_block_classification
 
 (** A node's immutable semantic identity.
 
@@ -50,7 +63,7 @@ type node_kind =
   | Agent_turn of { ordinal : int }
   | Provider_attempt of
       { ordinal : int
-      ; target : Provider_runtime_binding.Resolved_target.t
+      ; target : Binding_identity.Redacted_snapshot.t
       }
   | Output_block of
       { ordinal : int
@@ -63,13 +76,11 @@ type node_kind =
       }
   | Tool_attempt
 
-(** Construct one concrete provider-attempt kind from the exact config selected
-    for dispatch. The target snapshot is owned by OAS resolution; the journal
-    allocates the attempt's occurrence identity when the node opens. *)
-val provider_attempt
-  :  ordinal:int
-  -> Llm_provider.Provider_config.t
-  -> (node_kind, string) result
+(** Construct one concrete provider-attempt kind from the authoritative binding
+    identity already selected for dispatch. The stored target is its durable
+    redacted observation, never a second config resolution or dispatch key. The
+    journal allocates the attempt's occurrence identity when the node opens. *)
+val provider_attempt : ordinal:int -> Binding_identity.t -> (node_kind, string) result
 
 val pp_node_kind : Format.formatter -> node_kind -> unit
 val show_node_kind : node_kind -> string
@@ -89,18 +100,19 @@ val parent_node_id : node -> Node_id.t option
 val node_kind : node -> node_kind
 val equal_node : node -> node -> bool
 
-(** Typed progress carriers. JSON values are opaque evidence produced and
-    consumed by the relevant provider/tool codec; they are never discriminated
-    by the execution journal. *)
+(** Typed progress carriers. Streaming deltas and provider/tool progress remain
+    opaque codec-owned JSON. Final output, tool-use input, and tool-result
+    snapshots retain the canonical provider content type, so their structural
+    classification cannot disagree with an untyped JSON label. *)
 type node_update =
   | Provider_event of Yojson.Safe.t
   | Provider_response_id_snapshot of string
   | Output_delta of Yojson.Safe.t
-  | Output_snapshot of Yojson.Safe.t
+  | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t
-  | Tool_input_snapshot of Yojson.Safe.t
+  | Tool_input_snapshot of Llm_provider.Types.content_block
   | Tool_progress of Yojson.Safe.t
-  | Tool_result of Yojson.Safe.t
+  | Tool_result of Llm_provider.Types.content_block
 [@@deriving show]
 
 type failure_kind =
@@ -141,13 +153,24 @@ type payload =
       }
 [@@deriving show]
 
+(** Opaque external event-domain identity. Its diagnostic representation is not
+    a control-flow protocol. *)
+module External_source : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+end
+
 (** Explicit execution causality. [Internal_event] references an event in the
     same journal. [External_event] identifies an event owned by another typed
     event domain without overloading the execution event identifier namespace. *)
 type cause =
   | Internal_event of Event_id.t
   | External_event of
-      { source : string
+      { source : External_source.t
       ; event_id : string
       }
 [@@deriving show]
