@@ -742,8 +742,38 @@ let test_json_terminal_and_id_boundaries () =
   Eio_main.run
   @@ fun _env ->
   let journal = require_ok (Journal.create ()) in
+  (match Journal.start_run journal ~agent_name:" \t\n" with
+   | Error (Journal.Invalid_argument _) -> ()
+   | _ -> fail "whitespace-only agent name entered the journal");
+  check int "invalid agent name did not advance journal" 0 (Journal.length journal);
   let run = require_started_run (Journal.start_run journal ~agent_name:"validation") in
   let agent_turn, turn = open_provider_attempt journal run in
+  let expect_invalid_node_kind kind =
+    match Event.node_kind_to_yojson kind with
+    | Error _ -> ()
+    | Ok _ -> fail "whitespace-only node identity passed the public codec"
+  in
+  expect_invalid_node_kind (Event.Agent_run { agent_name = "  " });
+  expect_invalid_node_kind
+    (Event.Tool_invocation
+       { provider_tool_use_id = None; tool_name = " \t"; schedule = serial_schedule });
+  expect_invalid_node_kind
+    (Event.Tool_invocation
+       { provider_tool_use_id = Some " \n"
+       ; tool_name = "valid_tool"
+       ; schedule = serial_schedule
+       });
+  let before_invalid_response_id = Journal.length journal in
+  (match
+     Journal.update_node journal ~node:turn (Event.Provider_response_id_snapshot " \t")
+   with
+   | Error (Journal.Invalid_event _) -> ()
+   | _ -> fail "whitespace-only provider response id entered the journal");
+  check
+    int
+    "invalid provider response id did not advance journal"
+    before_invalid_response_id
+    (Journal.length journal);
   let before_invalid_updates = Journal.length journal in
   let invalid_json_values = [ `Float nan; `Intlit "not-a-json-integer" ] in
   List.iter
@@ -1027,7 +1057,27 @@ let test_abort_run_handles_deep_recursive_composition_iteratively () =
   let terminal =
     Event.Cancelled { reason = Some "deep composition cancelled"; data = None }
   in
-  let closed = require_ok (Journal.abort_run journal ~run:root terminal) in
+  let peer_ready, resolve_peer_ready = Eio.Promise.create () in
+  let abort_result = ref None in
+  let peer_observed_abort_in_progress = ref false in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Promise.await peer_ready;
+       abort_result := Some (Journal.abort_run journal ~run:root terminal))
+    (fun () ->
+       Eio.Promise.resolve resolve_peer_ready ();
+       Eio.Fiber.yield ();
+       peer_observed_abort_in_progress := Option.is_none !abort_result);
+  check
+    bool
+    "unrelated fiber progresses before deep abort publishes"
+    true
+    !peer_observed_abort_in_progress;
+  let closed =
+    match !abort_result with
+    | Some result -> require_ok result
+    | None -> fail "deep abort fiber returned without a result"
+  in
   check
     int
     "every deep recursive node closed"

@@ -1069,17 +1069,6 @@ let finish_run ?causes journal ~run terminal =
       payload)
 ;;
 
-let allocate_event_ids count =
-  let rec loop remaining reverse_ids =
-    if remaining = 0
-    then Ok (List.rev reverse_ids)
-    else
-      let* event_id = identity_result (Event.Event_id.fresh ()) in
-      loop (remaining - 1) (event_id :: reverse_ids)
-  in
-  loop count []
-;;
-
 let abort_run ?causes journal ~run terminal =
   match terminal with
   | Event.Succeeded ->
@@ -1095,17 +1084,10 @@ let abort_run ?causes journal ~run terminal =
           | Ok order -> Ok order
           | Error violation -> Error (Invariant_violation violation)
         in
-        let* event_ids = allocate_event_ids (List.length order) in
-        let rec apply_closes
-                  state
-                  events_rev
-                  closed_by_node
-                  remaining_nodes
-                  remaining_event_ids
-          =
-          match remaining_nodes, remaining_event_ids with
-          | [], [] -> Ok (state, events_rev)
-          | node_id :: nodes, event_id :: event_ids ->
+        let rec apply_closes state events_rev closed_by_node = function
+          | [] -> Ok (state, events_rev)
+          | node_id :: nodes ->
+            let* event_id = identity_result (Event.Event_id.fresh ()) in
             let* record = node_record_or_error state node_id in
             let* parent_event_id = node_last_event state node_id in
             let payload = Event.close_payload ~node_id terminal in
@@ -1129,17 +1111,15 @@ let abort_run ?causes journal ~run terminal =
                 ~causes:event_causes
                 payload
             in
+            Eio.Fiber.yield ();
             apply_closes
               next_state
               (event :: events_rev)
               (Node_id_map.add node_id event closed_by_node)
               nodes
-              event_ids
-          | [], _ | _, [] ->
-            Error (Invalid_event "abort event identity cardinality mismatch")
         in
         let* final_state, events_rev =
-          apply_closes captured_state [] Node_id_map.empty order event_ids
+          apply_closes captured_state [] Node_id_map.empty order
         in
         with_state_write journal (fun current_state ->
           if not (current_state == captured_state)

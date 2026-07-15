@@ -225,9 +225,12 @@ val finish_run
     whole cleanup is cancellation-protected. A journal-local writer gate fences
     concurrent mutations while traversal and validation run outside the state
     mutex, so readers remain available and abort cannot starve behind a stream
-    of optimistic retries. The immutable final state is published only if every
-    terminal event satisfies the reducer. [Succeeded] is rejected: normal
-    completion must use the explicit close/finish lifecycle. *)
+    of optimistic retries. It yields between semantic nodes without releasing
+    the journal-local writer fence, allowing unrelated fibers and other journal
+    scopes on the same Eio domain to progress. The immutable final state is
+    published only if every terminal event satisfies the reducer. [Succeeded]
+    is rejected: normal completion must use the explicit close/finish
+    lifecycle. *)
 val abort_run
   :  ?causes:Execution_event.cause list
   -> t

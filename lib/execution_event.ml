@@ -95,14 +95,15 @@ let node_run_id node = node.run_id
 let parent_node_id node = node.parent_node_id
 let node_kind node = node.kind
 
-let validate_optional_non_empty field = function
-  | None -> Ok ()
-  | Some value when String.equal value "" -> Error (field ^ " must not be empty")
-  | Some _ -> Ok ()
+let validate_non_blank field value =
+  if String.equal (String.trim value) ""
+  then Error (field ^ " must contain non-whitespace text")
+  else Ok ()
 ;;
 
-let validate_non_empty field value =
-  if String.equal value "" then Error (field ^ " must not be empty") else Ok ()
+let validate_optional_non_blank field = function
+  | None -> Ok ()
+  | Some value -> validate_non_blank field value
 ;;
 
 let provider_attempt ~ordinal config =
@@ -113,8 +114,7 @@ let provider_attempt ~ordinal config =
 let validate_json = Execution_json.validate
 
 let validate_node_kind = function
-  | Agent_run { agent_name } ->
-    if String.equal agent_name "" then Error "agent_name must not be empty" else Ok ()
+  | Agent_run { agent_name } -> validate_non_blank "agent_name" agent_name
   | Agent_turn { ordinal } ->
     if ordinal < 0 then Error "agent turn ordinal must be non-negative" else Ok ()
   | Provider_attempt { ordinal; _ } ->
@@ -122,10 +122,9 @@ let validate_node_kind = function
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
   | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
-    let* () = validate_optional_non_empty "provider_tool_use_id" provider_tool_use_id in
-    if String.equal tool_name ""
-    then Error "tool_name must not be empty"
-    else Execution_tool_schedule.validate schedule
+    let* () = validate_optional_non_blank "provider_tool_use_id" provider_tool_use_id in
+    let* () = validate_non_blank "tool_name" tool_name in
+    Execution_tool_schedule.validate schedule
   | Tool_attempt -> Ok ()
 ;;
 
@@ -254,7 +253,7 @@ type t =
 let validate_node_update update =
   match update with
   | Provider_response_id_snapshot value ->
-    validate_non_empty "provider response identifier" value
+    validate_non_blank "provider response identifier" value
   | Provider_event value -> validate_json ~context:"provider event" value
   | Output_delta value -> validate_json ~context:"output delta" value
   | Output_snapshot value -> validate_json ~context:"output snapshot" value

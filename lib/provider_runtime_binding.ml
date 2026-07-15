@@ -333,46 +333,24 @@ module Resolved_target = struct
       ]
   ;;
 
-  let exact_fields fields =
-    let expected = [ "model_id"; "provider_id"; "provider_kind" ] in
-    let actual = List.map fst fields |> List.sort String.compare in
-    if actual = expected
-    then Ok ()
-    else
-      Error
-        "resolved provider target must contain exactly provider_kind, provider_id, and \
-         model_id"
-  ;;
-
-  let string_field name fields =
-    match List.assoc_opt name fields with
-    | Some (`String value) -> Ok value
-    | Some _ -> Error (name ^ " must be a string")
-    | None -> Error (name ^ " is required")
-  ;;
-
-  let option_string_field name fields =
-    match List.assoc_opt name fields with
-    | Some `Null -> Ok None
-    | Some (`String value) -> Ok (Some value)
-    | Some _ -> Error (name ^ " must be a string or null")
-    | None -> Error (name ^ " is required")
-  ;;
-
-  let of_yojson = function
-    | `Assoc fields ->
-      let open Result_syntax in
-      let* () = exact_fields fields in
-      let* provider_kind_text = string_field "provider_kind" fields in
-      let* provider_kind =
-        match Llm_provider.Provider_kind.of_canonical_string provider_kind_text with
-        | Some provider_kind -> Ok provider_kind
-        | None -> Error ("unknown canonical provider_kind: " ^ provider_kind_text)
-      in
-      let* provider_id = option_string_field "provider_id" fields in
-      let* model_id = string_field "model_id" fields in
-      make ~provider_kind ~provider_id ~model_id
-    | _ -> Error "resolved provider target must be a JSON object"
+  let of_yojson json =
+    let open Result_syntax in
+    let* fields =
+      Execution_json.object_fields
+        ~context:"resolved provider target"
+        ~required:[ "provider_kind"; "provider_id"; "model_id" ]
+        ~optional:[]
+        json
+    in
+    let* provider_kind_text = Execution_json.string_field "provider_kind" fields in
+    let* provider_kind =
+      match Llm_provider.Provider_kind.of_canonical_string provider_kind_text with
+      | Some provider_kind -> Ok provider_kind
+      | None -> Error ("unknown canonical provider_kind: " ^ provider_kind_text)
+    in
+    let* provider_id = Execution_json.option_string_field "provider_id" fields in
+    let* model_id = Execution_json.string_field "model_id" fields in
+    make ~provider_kind ~provider_id ~model_id
   ;;
 end
 
