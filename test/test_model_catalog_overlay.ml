@@ -304,6 +304,100 @@ let test_lookup_for_provider_prefers_verbatim_over_alias () =
           ~model_id:"model-1"))
 ;;
 
+(* --- review hardening (oas#2604 Codex P2s) --- *)
+
+let test_merge_overlay_provider_wins_endpoint_identity () =
+  let suite = "merge endpoint identity" in
+  let base =
+    catalog_of
+      ~suite
+      (provider_entry ~id:"embedded-prov" ~base_url:"https://shared.example" ())
+  in
+  let overlay =
+    catalog_of
+      ~suite
+      (provider_entry ~id:"deployment-prov" ~base_url:"https://shared.example" ())
+  in
+  let merged = Model_catalog.merge ~base ~overlay in
+  check
+    (option string)
+    "overlay provider entry wins order-sensitive endpoint identity"
+    (Some "deployment-prov")
+    (Model_catalog.provider_label_for_base_url
+       merged
+       ~kind:Llm_provider.Provider_kind.OpenAI_compat
+       ~base_url:"https://shared.example")
+;;
+
+let test_wire_kind_label_is_never_alias_canonicalized () =
+  let suite = "wire-kind alias guard" in
+  let catalog =
+    catalog_of
+      ~suite
+      (provider_entry
+         ~id:"hijack-prov"
+         ~aliases:[ "openai_compat" ]
+         ~base_url:"https://hijack.example"
+         ()
+       ^ scoped_row ~provider:"hijack-prov" ~model:"model-1" ~max_context:333 ())
+  in
+  check
+    bool
+    "an alias claiming a wire-kind label captures nothing"
+    true
+    (Option.is_none
+       (Model_catalog.lookup_for_provider
+          catalog
+          ~provider_name:"openai_compat"
+          ~model_id:"model-1"));
+  check
+    (option int)
+    "the provider's own id still resolves its scoped row"
+    (Some 333)
+    (max_context
+       ~suite
+       ~what:"verbatim"
+       (Model_catalog.lookup_for_provider
+          catalog
+          ~provider_name:"hijack-prov"
+          ~model_id:"model-1"))
+;;
+
+let test_overlay_swap_replaces_merged_cache () =
+  let suite = "overlay swap" in
+  with_clean_model_catalog_override
+  @@ fun () ->
+  let lookup_overlay_row () =
+    match Model_catalog.global () with
+    | None -> failf "%s: global catalog should be available" suite
+    | Some catalog ->
+      max_context
+        ~suite
+        ~what:"overlay"
+        (Model_catalog.lookup_for_provider
+           catalog
+           ~provider_name:overlay_only_row_provider
+           ~model_id:overlay_only_row_model)
+  in
+  Model_catalog.set_global_overlay (tiny_overlay ~suite);
+  check (option int) "first overlay serves its row" (Some 4242) (lookup_overlay_row ());
+  let replacement =
+    catalog_of
+      ~suite
+      (scoped_row
+         ~provider:overlay_only_row_provider
+         ~model:overlay_only_row_model
+         ~max_context:7777
+         ())
+  in
+  Model_catalog.set_global_overlay replacement;
+  check
+    (option int)
+    "swapped overlay replaces the cached merge"
+    (Some 7777)
+    (lookup_overlay_row ())
+;;
+
 let () =
   run
     "model_catalog_overlay"
@@ -320,6 +414,10 @@ let () =
             "provider entries replace by id"
             `Quick
             test_merge_provider_entries_replace_by_id
+        ; test_case
+            "overlay provider wins endpoint identity"
+            `Quick
+            test_merge_overlay_provider_wins_endpoint_identity
         ] )
     ; ( "global"
       , [ test_case
@@ -331,6 +429,10 @@ let () =
             `Quick
             test_set_global_still_wins_over_overlay
         ; test_case "clear_global drops overlay" `Quick test_clear_global_drops_overlay
+        ; test_case
+            "overlay swap replaces merged cache"
+            `Quick
+            test_overlay_swap_replaces_merged_cache
         ] )
     ; ( "alias"
       , [ test_case
@@ -341,6 +443,10 @@ let () =
             "verbatim row wins over alias"
             `Quick
             test_lookup_for_provider_prefers_verbatim_over_alias
+        ; test_case
+            "wire-kind label never canonicalized"
+            `Quick
+            test_wire_kind_label_is_never_alias_canonicalized
         ] )
     ]
 ;;

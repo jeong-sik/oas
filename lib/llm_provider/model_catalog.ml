@@ -735,24 +735,36 @@ let lookup t model_id =
 
 let normalize_label value = String.lowercase_ascii (String.trim value)
 
+(* Wire-kind labels ("openai_compat", "gemini", ...) are what
+   [capability_provider_label] synthesizes when a config declares no
+   [provider_id]. They stay opaque to alias canonicalization: letting a
+   catalog entry claim one as an alias would route every anonymous config of
+   that wire kind onto that provider's scoped capabilities/pricing. *)
+let wire_kind_labels =
+  List.map (fun kind -> Provider_kind.to_string kind) Provider_kind.all
+;;
+
 (* Canonical provider label per the catalog's own [[providers]] alias data.
    This applies the alias-to-canonical-id policy the binding registry already
    uses ([Provider_runtime_binding.provider_id_of_provider_config]); the
    capability path previously compared the raw label only, so the same config
    could resolve capabilities on one path and miss on the other. The first
    declaring entry wins and resolution is single-step (a canonical id is
-   never re-resolved). *)
+   never re-resolved). Wire-kind labels are never canonicalized. *)
 let canonical_provider_name t provider_name =
   let provider_name = normalize_label provider_name in
-  let matches (entry : provider_entry) =
-    String.equal provider_name (normalize_label entry.id)
-    || List.exists
-         (fun alias -> String.equal provider_name (normalize_label alias))
-         entry.aliases
-  in
-  match List.find_opt matches t.providers with
-  | Some entry -> normalize_label entry.id
-  | None -> provider_name
+  if List.mem provider_name wire_kind_labels
+  then provider_name
+  else (
+    let matches (entry : provider_entry) =
+      String.equal provider_name (normalize_label entry.id)
+      || List.exists
+           (fun alias -> String.equal provider_name (normalize_label alias))
+           entry.aliases
+    in
+    match List.find_opt matches t.providers with
+    | Some entry -> normalize_label entry.id
+    | None -> provider_name)
 ;;
 
 let lookup_for_provider t ~provider_name ~model_id =
@@ -801,8 +813,14 @@ let merge ~base ~overlay =
       (fun entry -> not (List.mem (provider_entry_key entry) overlay_provider_keys))
       base.providers
   in
-  { models = kept_models @ overlay.models
-  ; providers = kept_providers @ overlay.providers
+  (* Overlay rows come first: provider-entry consumers such as
+     [provider_label_for_base_url]/[provider_label_for_endpoint] scan in
+     declaration order, so a deployment entry whose endpoint identity is also
+     covered by an embedded entry must win. Model-row lookups are
+     order-independent (exact key or longest-prefix), so the same ordering is
+     applied there purely for consistency. *)
+  { models = overlay.models @ kept_models
+  ; providers = overlay.providers @ kept_providers
   }
 ;;
 
@@ -860,7 +878,14 @@ let runtime_override : t option Atomic.t = Atomic.make None
    OAS_MODEL_CATALOG-style callers) still wins outright, and so the merged
    result can be cached and invalidated independently. *)
 let overlay_catalog : t option Atomic.t = Atomic.make None
-let merged_cache : t option Atomic.t = Atomic.make None
+
+(* The cache pairs the merged result with the exact overlay value it was
+   derived from. Readers accept a hit only when the cached overlay is
+   physically the current one, so a racing writer that publishes a merge of a
+   just-replaced overlay can never pin stale capabilities: the identity check
+   fails and the next call recomputes from the fresh overlay. The worst case
+   under contention is a redundant pure merge, never a stale read. *)
+let merged_cache : (t * t) option Atomic.t = Atomic.make None
 let set_global t = Atomic.set runtime_override (Some t)
 
 let set_global_overlay t =
@@ -887,12 +912,9 @@ let global () =
         | None -> Some embedded_value
         | Some overlay ->
           (match Atomic.get merged_cache with
-           | Some merged -> Some merged
-           | None ->
-             (* A concurrent [set_global_overlay] may race this merge; the
-                worst case is one redundant pure merge, and the cache is
-                re-derived from the freshest overlay on the next call. *)
+           | Some (cached_overlay, merged) when cached_overlay == overlay -> Some merged
+           | Some _ | None ->
              let merged = merge ~base:embedded_value ~overlay in
-             Atomic.set merged_cache (Some merged);
+             Atomic.set merged_cache (Some (overlay, merged));
              Some merged)))
 ;;
