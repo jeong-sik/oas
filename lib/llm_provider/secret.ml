@@ -10,6 +10,37 @@
 type t = string
 type identity = Identity of string
 
+module Identity_fingerprint = struct
+  type t = Identity_fingerprint of string
+
+  let width = 8
+
+  let is_lower_hex = function
+    | '0' .. '9' | 'a' .. 'f' -> true
+    | _ -> false
+  ;;
+
+  let of_string value =
+    if String.length value <> width
+    then
+      Error
+        (Printf.sprintf
+           "secret identity fingerprint must contain exactly %d characters"
+           width)
+    else if not (String.for_all is_lower_hex value)
+    then Error "secret identity fingerprint must contain lowercase hexadecimal characters"
+    else Ok (Identity_fingerprint value)
+  ;;
+
+  let of_digest digest = Identity_fingerprint (String.sub digest 0 width)
+  let of_identity (Identity digest) = of_digest digest
+  let to_string (Identity_fingerprint value) = value
+
+  let equal (Identity_fingerprint left) (Identity_fingerprint right) =
+    String.equal left right
+  ;;
+end
+
 let of_string s = s
 
 let of_env ?(getenv = Cli_common_env.default_getenv) var =
@@ -27,13 +58,8 @@ let identity s = if is_empty s then None else Some (Identity (digest s))
 let equal_identity (Identity left) (Identity right) = String.equal left right
 let hash_identity (Identity digest) = Hashtbl.hash digest
 
-let identity_fingerprint (Identity digest) =
-  if String.length digest >= 8 then String.sub digest 0 8 else digest
-;;
-
 let fingerprint s =
-  let hex = digest s in
-  if String.length hex >= 8 then String.sub hex 0 8 else hex
+  s |> digest |> Identity_fingerprint.of_digest |> Identity_fingerprint.to_string
 ;;
 
 let%test "fingerprint is stable" =
@@ -50,9 +76,15 @@ let%test "empty secret has no identity" = Option.is_none (identity empty)
 let%test "secret identity is stable and opaque" =
   match identity (of_string "my-secret-key"), identity (of_string "my-secret-key") with
   | Some left, Some right ->
+    let left_fingerprint = Identity_fingerprint.of_identity left in
     equal_identity left right
     && hash_identity left = hash_identity right
-    && String.equal (identity_fingerprint left) (fingerprint (of_string "my-secret-key"))
+    && Identity_fingerprint.equal
+         left_fingerprint
+         (Identity_fingerprint.of_identity right)
+    && String.equal
+         (Identity_fingerprint.to_string left_fingerprint)
+         (fingerprint (of_string "my-secret-key"))
   | None, _ | _, None -> false
 ;;
 

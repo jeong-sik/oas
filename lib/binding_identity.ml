@@ -206,7 +206,7 @@ type redacted_snapshot =
   ; request_path : string
   ; auth_scheme : auth_scheme
   ; credential_scope : string option
-  ; credential_fingerprint : string option
+  ; credential_fingerprint : Secret.Identity_fingerprint.t option
   }
 
 let redacted_snapshot (identity : t) =
@@ -218,7 +218,7 @@ let redacted_snapshot (identity : t) =
   ; auth_scheme = identity.auth_scheme
   ; credential_scope = identity.credential_scope
   ; credential_fingerprint =
-      Option.map Secret.identity_fingerprint identity.credential_identity
+      Option.map Secret.Identity_fingerprint.of_identity identity.credential_identity
   }
 ;;
 
@@ -233,11 +233,14 @@ module Redacted_snapshot = struct
     && String.equal left.request_path right.request_path
     && left.auth_scheme = right.auth_scheme
     && Option.equal String.equal left.credential_scope right.credential_scope
-    && Option.equal String.equal left.credential_fingerprint right.credential_fingerprint
+    && Option.equal
+         Secret.Identity_fingerprint.equal
+         left.credential_fingerprint
+         right.credential_fingerprint
   ;;
 
   let credential_fingerprint_to_yojson = function
-    | Some fingerprint -> `String fingerprint
+    | Some fingerprint -> `String (Secret.Identity_fingerprint.to_string fingerprint)
     | None -> `Null
   ;;
 
@@ -331,7 +334,7 @@ module Redacted_snapshot = struct
     | Some fingerprint ->
       Result.map
         (fun fingerprint -> Some fingerprint)
-        (exact_non_empty_text ~field:"credential_fingerprint" fingerprint)
+        (Secret.Identity_fingerprint.of_string fingerprint)
   ;;
 
   let of_yojson json =

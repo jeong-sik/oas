@@ -142,7 +142,15 @@ let test_redacted_snapshot_rejects_noncanonical_input () =
            ; "kind", `String "openai_compat"
            ; "id", `String "also-registered"
            ]));
-  reject "blank credential fingerprint" (replace "credential_fingerprint" (`String " "))
+  reject "blank credential fingerprint" (replace "credential_fingerprint" (`String " "));
+  reject
+    "raw credential fingerprint"
+    (replace "credential_fingerprint" (`String "credential-a"));
+  reject
+    "full digest fingerprint"
+    (replace "credential_fingerprint" (`String (String.make 64 'a')));
+  reject "uppercase fingerprint" (replace "credential_fingerprint" (`String "ABCDEF01"));
+  reject "short fingerprint" (replace "credential_fingerprint" (`String "abcdef0"))
 ;;
 
 let test_custom_provider_keeps_registered_identity () =
