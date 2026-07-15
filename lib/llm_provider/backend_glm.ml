@@ -398,25 +398,6 @@ let%test
      (clear_thinking=true) must not. Reverting the dialect resolution leaves the
      GLM dialect at the dead [No_replay] default and turns the [preserved] case
      red. *)
-  let messages =
-    [ { role = Assistant
-      ; content =
-          [ Thinking { content = "prior reasoning"; signature = None }; Text "answer" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let replays config =
-    let body = build_request ~config ~messages () in
-    let open Yojson.Safe.Util in
-    Yojson.Safe.from_string body
-    |> member "messages"
-    |> to_list
-    |> List.exists (fun m ->
-      m |> member "reasoning_content" |> to_string_option = Some "prior reasoning")
-  in
   let preserved =
     Provider_config.make
       ~kind:Glm
@@ -433,6 +414,34 @@ let%test
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
+  (* Provenance stamp mirroring the production response path; the projection
+     drops unstamped reasoning fail-closed (missing_source) before the replay
+     policy is consulted. The source identity is request-knob independent, so
+     one stamp is valid for both configs. *)
+  let metadata =
+    match Reasoning_dialect.reasoning_source_for_provider_config preserved with
+    | Ok source -> Reasoning_source.metadata source
+    | Error detail -> failwith detail
+  in
+  let messages =
+    [ { role = Assistant
+      ; content =
+          [ Thinking { content = "prior reasoning"; signature = None }; Text "answer" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata
+      }
+    ]
+  in
+  let replays config =
+    let body = build_request ~config ~messages () in
+    let open Yojson.Safe.Util in
+    Yojson.Safe.from_string body
+    |> member "messages"
+    |> to_list
+    |> List.exists (fun m ->
+      m |> member "reasoning_content" |> to_string_option = Some "prior reasoning")
+  in
   replays preserved && not (replays default_config)
 ;;
 
@@ -447,6 +456,11 @@ let%test "build_request preserves ZAI GLM OpenAI-compatible replay and tool cont
       ~preserve_thinking:true
       ()
   in
+  let metadata =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> Reasoning_source.metadata source
+    | Error detail -> failwith detail
+  in
   let messages =
     [ { role = Assistant
       ; content =
@@ -456,7 +470,7 @@ let%test "build_request preserves ZAI GLM OpenAI-compatible replay and tool cont
           ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = []
+      ; metadata
       }
     ]
   in

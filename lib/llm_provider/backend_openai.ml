@@ -1241,6 +1241,11 @@ let%test
       ~preserve_thinking:true
       ()
   in
+  let metadata =
+    match Reasoning_dialect.reasoning_source_for_provider_config config with
+    | Ok source -> Reasoning_source.metadata source
+    | Error detail -> failwith detail
+  in
   let messages =
     [ { role = Assistant
       ; content =
@@ -1250,7 +1255,7 @@ let%test
           ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = []
+      ; metadata
       }
     ]
   in
