@@ -48,9 +48,17 @@ config could resolve capabilities on one path and miss on the other.
    requested name) and the exact lookup is retried with that entry's `id`.
    A verbatim row always wins. This closes the two-path asymmetry and lets an
    overlay express a deployment alias as data: a provider entry
-   `id = "vllm-qwen3-mtp"` with `aliases = ["runpod_mtp"]` routes the
-   deployment label to the upstream serving-contract rows without duplicating
-   capability data.
+   `id = "vllm-qwen3-mtp"` with `aliases = ["runpod_mtp"]` and
+   `capabilities_base = "openai_compat"` routes the deployment label to the
+   upstream serving-contract rows without duplicating capability data.
+   `capabilities_base` is required in practice for deployment-only ids:
+   `Provider_registry.default` resolves an absent `capabilities_base` to the
+   entry `id` (`lib/llm_provider/provider_registry.ml`), and a label unknown
+   to `Capabilities.capabilities_for_provider_label` raises `Invalid_argument`
+   at registry construction — before any request is served. Overlay authors
+   must pick a label the capability table already resolves (a
+   `Provider_kind.to_string` value or a declared alias such as
+   `"openai_chat"`).
 
 No lookup behavior changes for names that already resolved: the alias pass
 only runs where the previous implementation returned `None`.
