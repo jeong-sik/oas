@@ -251,6 +251,19 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.212.1](https://github.com/jeong-sik/oas/compare/v0.212.0...v0.212.1) (2026-07-15)
+
+
+### Features
+
+* **catalog:** deployment overlay merge + alias-canonicalized provider lookup (RFC-OAS-036) ([#2604](https://github.com/jeong-sik/oas/issues/2604)) ([3624bca](https://github.com/jeong-sik/oas/commit/3624bca0c25763e7e94d352badfa6f8bbf7b16b0))
+
+
+### Bug Fixes
+
+* **agent-tool:** align declared and consumed inputs ([#2602](https://github.com/jeong-sik/oas/issues/2602)) ([92dbe27](https://github.com/jeong-sik/oas/commit/92dbe272e7d35e4294f8a40dd908f069bca8d63b))
+* **provider:** keep one sync timeout boundary ([#2607](https://github.com/jeong-sik/oas/issues/2607)) ([fd9f460](https://github.com/jeong-sik/oas/commit/fd9f460ca200d01726303cf3862086cc8dea4374))
+
 ## [0.212.0](https://github.com/jeong-sik/oas/compare/v0.211.10...v0.212.0) (2026-07-14)
 
 
