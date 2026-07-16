@@ -12,7 +12,9 @@
 
     The directory is caller-owned and dedicated to one execution scope. The
     implementation acquires an exclusive writer lock for the lifetime of the
-    supplied {!Eio.Switch.t}. *)
+    supplied {!Eio.Switch.t}. Store and writer capabilities are switch-bound;
+    after release, every operation that depends on live resources returns
+    [Store_released] rather than touching a closed descriptor. *)
 
 module Scope_id : sig
   type t
@@ -66,6 +68,13 @@ type error =
       }
   | Writer_already_active
   | Store_already_attached
+  | Store_released
+  | Store_release_forbidden
+  | Resource_cleanup_failed of { operations : string list }
+  | Construction_cleanup_failed of
+      { primary : error
+      ; cleanup : error
+      }
   | Store_already_exists
   | Store_not_found
   | Store_initialization_incomplete
@@ -122,9 +131,16 @@ val open_existing
 
 val scope_id : t -> Scope_id.t
 val correlation_id : t -> Execution_event.Correlation_id.t
-val last_seq : t -> int
+val last_seq : t -> (int, error) result
 val beginning_cursor : t -> cursor
-val current_cursor : t -> cursor
+val current_cursor : t -> (cursor, error) result
+
+(** Release a store that its construction wrapper failed to publish. This is
+    idempotent with the owning switch's later cleanup and exists only so a
+    higher-level atomic constructor cannot leak the writer claim on replay or
+    semantic initialization failure. Published stores must remain owned by
+    their switch. *)
+val release_unpublished : t -> (unit, error) result
 
 (** Mint the store's sole semantic append capability. A store can be attached
     to exactly one journal for its lifetime. Read projections continue to use
