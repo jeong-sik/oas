@@ -237,56 +237,48 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_17 () =
+(* Exact provider-name set: additions/removals in models.toml must update this
+   list, and a mismatch reports the differing names instead of a bare count. *)
+let expected_default_provider_names =
+  [ "claude"
+  ; "cohere"
+  ; "dashscope"
+  ; "deepseek"
+  ; "gemini"
+  ; "glm"
+  ; "glm-coding"
+  ; "groq"
+  ; "kimi"
+  ; "mimo"
+  ; "mistral"
+  ; "nous"
+  ; "ollama"
+  ; "ollama_cloud"
+  ; "openai-image"
+  ; "openrouter"
+  ; "siliconflow"
+  ; "xai"
+  ; "zai-image"
+  ]
+;;
+
+let test_default_provider_names () =
   let reg = Provider_registry.default () in
-  let all = Provider_registry.all reg in
-  check int "17 declared providers" 17 (List.length all);
-  check bool "llama exists" true (Option.is_some (Provider_registry.find reg "nous"));
-  check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
+  let actual =
+    Provider_registry.all reg
+    |> List.map (fun (e : Provider_registry.entry) -> e.name)
+    |> List.sort String.compare
+  in
   check
-    bool
-    "ollama_cloud exists"
-    true
-    (Option.is_some (Provider_registry.find reg "ollama_cloud"));
-  check bool "claude exists" true (Option.is_some (Provider_registry.find reg "claude"));
-  check bool "gemini exists" true (Option.is_some (Provider_registry.find reg "gemini"));
-  check bool "glm exists" true (Option.is_some (Provider_registry.find reg "glm"));
-  check
-    bool
-    "glm-coding exists"
-    true
-    (Option.is_some (Provider_registry.find reg "glm-coding"));
-  check bool "kimi exists" true (Option.is_some (Provider_registry.find reg "kimi"));
-  check
-    bool
-    "openrouter exists"
-    true
-    (Option.is_some (Provider_registry.find reg "openrouter"));
-  check bool "groq exists" true (Option.is_some (Provider_registry.find reg "groq"));
-  check
-    bool
-    "deepseek exists"
-    true
-    (Option.is_some (Provider_registry.find reg "deepseek"));
+    (list string)
+    "default provider set"
+    (List.sort String.compare expected_default_provider_names)
+    actual;
   check
     bool
     "alibaba alias absent"
     false
-    (Option.is_some (Provider_registry.find reg "alibaba"));
-  check
-    bool
-    "dashscope exists"
-    true
-    (Option.is_some (Provider_registry.find reg "dashscope"));
-  check
-    bool
-    "siliconflow exists"
-    true
-    (Option.is_some (Provider_registry.find reg "siliconflow"));
-  check bool "xai exists" true (Option.is_some (Provider_registry.find reg "xai"));
-  check bool "mistral exists" true (Option.is_some (Provider_registry.find reg "mistral"));
-  check bool "cohere exists" true (Option.is_some (Provider_registry.find reg "cohere"));
-  check bool "mimo exists" true (Option.is_some (Provider_registry.find reg "mimo"))
+    (Option.is_some (Provider_registry.find reg "alibaba"))
 ;;
 
 let test_default_capabilities () =
@@ -1130,7 +1122,7 @@ let () =
         ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
-      , [ test_case "has 17 providers" `Quick test_default_has_17
+      , [ test_case "default provider set" `Quick test_default_provider_names
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case "deepseek entry" `Quick test_default_deepseek_entry
