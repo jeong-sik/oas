@@ -7,7 +7,10 @@
 type source =
   | Remote_url of string
   | Inline_base64 of
-      { media_type : string
+      { media_type : string option
+        (** Populated only when the response declares its format (the
+            OpenAI-style top-level [output_format] field). [None] means the
+            wire did not state a type; callers must not assume one. *)
       ; data : string
       }
 

@@ -1,7 +1,7 @@
 type source =
   | Remote_url of string
   | Inline_base64 of
-      { media_type : string
+      { media_type : string option
       ; data : string
       }
 
@@ -115,23 +115,34 @@ let request_body ~protocol ~(config : Provider_config.t) ~prompt =
     |> Yojson.Safe.to_string
 ;;
 
-let source_of_json json =
+(* Closed mapping of the OpenAI-style response [output_format] field; an
+   absent or unrecognized value yields no media type rather than a guess. *)
+let media_type_of_output_format json =
+  match Yojson.Safe.Util.member "output_format" json with
+  | `String "png" -> Some "image/png"
+  | `String "jpeg" -> Some "image/jpeg"
+  | `String "webp" -> Some "image/webp"
+  | _ -> None
+;;
+
+let source_of_json ~media_type json =
   let open Yojson.Safe.Util in
   match member "url" json, member "b64_json" json with
   | `String url, `Null when String.trim url <> "" -> Ok (Remote_url url)
   | `Null, `String data when String.trim data <> "" ->
-    Ok (Inline_base64 { media_type = "image/png"; data })
+    Ok (Inline_base64 { media_type; data })
   | `String _, `String _ -> parse_failure "image item contains both url and b64_json"
   | _ -> parse_failure "image item must contain exactly one non-empty url or b64_json"
 ;;
 
 let images_of_json json =
+  let media_type = media_type_of_output_format json in
   match Yojson.Safe.Util.member "data" json with
   | `List [] -> parse_failure "image response data is empty"
   | `List items ->
     List.fold_left
       (fun acc item ->
-         match acc, source_of_json item with
+         match acc, source_of_json ~media_type item with
          | Ok images, Ok source -> Ok ({ source } :: images)
          | (Error _ as error), _ | _, (Error _ as error) -> error)
       (Ok [])
@@ -192,11 +203,16 @@ let filter_role_of_string = function
   | other -> Other other
 ;;
 
+(* Z.AI content_filter severity levels are declared as the closed range 0-3. *)
+let content_filter_level_is_declared level = level >= 0 && level <= 3
+
 let content_filter_item json =
   match Yojson.Safe.Util.member "role" json, Yojson.Safe.Util.member "level" json with
-  | `String role, `Int level when String.trim role <> "" && level >= 0 && level <= 3 ->
+  | `String role, `Int level
+    when String.trim role <> "" && content_filter_level_is_declared level ->
     Ok { role = Some (filter_role_of_string role); level }
-  | `Null, `Int level when level >= 0 && level <= 3 -> Ok { role = None; level }
+  | `Null, `Int level when content_filter_level_is_declared level ->
+    Ok { role = None; level }
   | _ ->
     parse_failure
       "image response content_filter item requires level in [0,3] and an optional role"
@@ -218,8 +234,7 @@ let content_filter_of_json json =
 ;;
 
 let parse_openai_response body =
-  try
-    let json = Yojson.Safe.from_string body in
+  let decode json =
     match created_at_of_json json with
     | Error _ as error -> error
     | Ok created_at ->
@@ -240,8 +255,10 @@ let parse_openai_response body =
                  ; usage
                  ; content_filter
                  })))
-  with
-  | Yojson.Json_error message -> parse_failure ("invalid image response JSON: " ^ message)
+  in
+  match Json_util.decode_json_with decode body with
+  | Ok result -> result
+  | Error message -> parse_failure ("invalid image response JSON: " ^ message)
 ;;
 
 let required_non_empty_string name json =
@@ -262,7 +279,7 @@ let gemini_source_of_json json =
   match member "data" json, member "uri" json, member "mime_type" json with
   | `String data, `Null, `String media_type
     when String.trim data <> "" && String.trim media_type <> "" ->
-    Ok (Inline_base64 { media_type; data })
+    Ok (Inline_base64 { media_type = Some media_type; data })
   | `Null, `String uri, _ when String.trim uri <> "" -> Ok (Remote_url uri)
   | `String _, `String _, _ -> parse_failure "Gemini image contains both data and uri"
   | _ -> parse_failure "Gemini image requires exactly one data+mime_type or uri source"
@@ -335,16 +352,29 @@ let gemini_usage_of_json json =
   | _ -> parse_failure "Gemini interaction usage must be an object"
 ;;
 
+(* A well-formed interaction whose status is not "completed" is a
+   provider-reported outcome, not a parser defect: keep it out of
+   Provider_parse_error so parse-error alarms stay meaningful. *)
+let gemini_status_failure status =
+  Error
+    (Http_client.ProviderFailure
+       { kind =
+           Http_client.Unknown_provider_failure
+             { reason = Some (Printf.sprintf "gemini interaction status %s" status) }
+       ; message =
+           Printf.sprintf
+             "Gemini interaction finished with status %S, not completed"
+             status
+       })
+;;
+
 let parse_gemini_response body =
-  try
-    let json = Yojson.Safe.from_string body in
+  let decode json =
     let ( let* ) = Result.bind in
     let* provider_response_id = required_non_empty_string "id" json in
     let* status = required_non_empty_string "status" json in
     let* () =
-      if String.equal status "completed"
-      then Ok ()
-      else parse_failure (Printf.sprintf "Gemini interaction status is %S" status)
+      if String.equal status "completed" then Ok () else gemini_status_failure status
     in
     let* created_at_rfc3339 = optional_non_empty_string "created" json in
     let* images = gemini_images_of_json json in
@@ -357,9 +387,10 @@ let parse_gemini_response body =
       ; usage
       ; content_filter = []
       }
-  with
-  | Yojson.Json_error message ->
-    parse_failure ("invalid Gemini interaction JSON: " ^ message)
+  in
+  match Json_util.decode_json_with decode body with
+  | Ok result -> result
+  | Error message -> parse_failure ("invalid Gemini interaction JSON: " ^ message)
 ;;
 
 let parse_response ~protocol body =
@@ -468,14 +499,14 @@ let%test "Z.AI URL response and safety observation are typed" =
   | Ok _ | Error _ -> false
 ;;
 
-let%test "OpenAI base64 response preserves usage" =
+let%test "OpenAI base64 response preserves usage and declared format" =
   match
     parse_response
       ~protocol:Openai_image
-      {|{"created":8,"data":[{"b64_json":"aGVsbG8="}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}|}
+      {|{"created":8,"output_format":"png","data":[{"b64_json":"aGVsbG8="}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}|}
   with
   | Ok
-      { images = [ { source = Inline_base64 { media_type = "image/png"; data } } ]
+      { images = [ { source = Inline_base64 { media_type = Some "image/png"; data } } ]
       ; usage =
           Some
             { input_tokens = Some 1
@@ -488,6 +519,27 @@ let%test "OpenAI base64 response preserves usage" =
       ; content_filter = []
       ; _
       } -> String.equal data "aGVsbG8="
+  | Ok _ | Error _ -> false
+;;
+
+let%test "base64 without a declared format carries no media type" =
+  match
+    parse_response
+      ~protocol:Openai_image
+      {|{"created":8,"data":[{"b64_json":"aGVsbG8="}]}|}
+  with
+  | Ok { images = [ { source = Inline_base64 { media_type = None; data } } ]; _ } ->
+    String.equal data "aGVsbG8="
+  | Ok _ | Error _ -> false
+;;
+
+let%test "non-object 2xx body is a typed parse failure" =
+  match parse_response ~protocol:Openai_image "null" with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Provider_parse_error { parser = Some "image_generation" }
+         ; _
+         }) -> true
   | Ok _ | Error _ -> false
 ;;
 
@@ -512,7 +564,7 @@ let%test "Gemini interaction preserves image, identity, time, and usage" =
       ; created_at_rfc3339 = Some "2026-07-16T00:00:00Z"
       ; provider_response_id = Some "ix-1"
       ; images =
-          [ { source = Inline_base64 { media_type = "image/webp"; data = "eA==" } } ]
+          [ { source = Inline_base64 { media_type = Some "image/webp"; data = "eA==" } } ]
       ; usage =
           Some
             { input_tokens = Some 4
@@ -524,6 +576,29 @@ let%test "Gemini interaction preserves image, identity, time, and usage" =
             }
       ; content_filter = []
       } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini non-object 2xx body is a typed parse failure" =
+  match parse_response ~protocol:Gemini_interaction "[]" with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Provider_parse_error { parser = Some "image_generation" }
+         ; _
+         }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini non-completed status is a provider failure, not a parse error" =
+  match
+    parse_response
+      ~protocol:Gemini_interaction
+      {|{"id":"ix-4","status":"failed","steps":[]}|}
+  with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Unknown_provider_failure { reason = Some reason }; _ }) ->
+    String.equal reason "gemini interaction status failed"
   | Ok _ | Error _ -> false
 ;;
 

@@ -2221,6 +2221,13 @@ api_key_env = "ZAI_API_KEY"
 capabilities_base = "glm"
 identity_hosts = ["api.z.ai"]
 
+# zai-image shares (kind, base_url) with the earlier "glm" entry — the two
+# services sit behind one endpoint prefix and differ only by request_path.
+# provider_label_for_base_url therefore resolves this endpoint to "glm"
+# (declaration order); consumers needing this row's identity must resolve via
+# provider_label_for_endpoint (request_path-qualified) or an explicit
+# provider_id. Capability rows for image models are provider-qualified under
+# "zai-image".
 [[providers]]
 id = "zai-image"
 kind = "glm"
@@ -2239,6 +2246,12 @@ api_key_env = "OPENAI_API_KEY"
 capabilities_base = "openai_chat_extended"
 default_model = "gpt-image-2"
 
+# gemini-image shares (kind, base_url) with the earlier "gemini" entry — one
+# endpoint prefix, distinguished only by request_path. provider_label_for_base_url
+# resolves this endpoint to "gemini" (declaration order); consumers needing this
+# row's identity must resolve via provider_label_for_endpoint or an explicit
+# provider_id. Capability rows for image models are provider-qualified under
+# "gemini-image".
 [[providers]]
 id = "gemini-image"
 kind = "gemini"
