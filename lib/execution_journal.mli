@@ -216,6 +216,7 @@ val create : ?correlation_id:Execution_event.Correlation_id.t -> unit -> (t, err
     capability is the proof required by a durability-owning writer actor. *)
 val create_durable_writer
   :  sw:Eio.Switch.t
+  -> codec:Execution_codec_executor.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t
   -> ?correlation_id:Execution_event.Correlation_id.t
   -> unit
@@ -223,6 +224,7 @@ val create_durable_writer
 
 val open_durable_writer
   :  sw:Eio.Switch.t
+  -> codec:Execution_codec_executor.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t
   -> (durable_writer * Execution_event_store.recovery, error) result
 

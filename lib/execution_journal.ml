@@ -1714,7 +1714,7 @@ let abort_run ?causes journal ~run terminal =
     commit_mutation journal captured_state mutation)
 ;;
 
-let replay_events events =
+let replay_validated_events events =
   let rec loop (state : journal_state) = function
     | [] -> Ok state
     | event :: rest ->
@@ -1737,10 +1737,17 @@ let replay_events events =
     events
 ;;
 
-let create_internal ?correlation_id store =
+type construction_source =
+  | Volatile
+  | Durable of
+      { store : Store.t
+      ; replay_events : Event.t list
+      }
+
+let create_internal ?correlation_id source =
   let* scope_id, correlation_id, state, store_writer =
-    match store with
-    | None ->
+    match source with
+    | Volatile ->
       let* scope_id =
         match Store.Scope_id.fresh () with
         | Ok value -> Ok value
@@ -1759,7 +1766,7 @@ let create_internal ?correlation_id store =
           ; events_by_seq = Event_seq_map.empty
           }
         , None )
-    | Some store ->
+    | Durable { store; replay_events } ->
       let store_correlation = Store.correlation_id store in
       let* () =
         match correlation_id with
@@ -1768,12 +1775,7 @@ let create_internal ?correlation_id store =
           when Event.Correlation_id.equal correlation_id store_correlation -> Ok ()
         | Some _ -> Error (Invalid_argument "store correlation identity mismatch")
       in
-      let* events =
-        match Store.load_all store with
-        | Ok events -> Ok events
-        | Error error -> Error (Persistence_failure error)
-      in
-      let* state = replay_events events in
+      let* state = replay_validated_events replay_events in
       let* store_writer =
         match Store.attach store with
         | Ok writer -> Ok writer
@@ -1792,7 +1794,7 @@ let create_internal ?correlation_id store =
     }
 ;;
 
-let create ?correlation_id () = create_internal ?correlation_id None
+let create ?correlation_id () = create_internal ?correlation_id Volatile
 
 let make_durable_writer journal =
   let claim = ref () in
@@ -1844,8 +1846,8 @@ let release_after_construction_error store construction_error =
       backtrace
 ;;
 
-let journal_writer_of_store store =
-  match create_internal (Some store) with
+let journal_writer_of_store ~replay_events store =
+  match create_internal (Durable { store; replay_events }) with
   | Ok journal -> Ok (make_durable_writer journal)
   | Error construction_error -> release_after_construction_error store construction_error
   | exception exn ->
@@ -1863,22 +1865,24 @@ let journal_writer_of_store store =
          bt)
 ;;
 
-let create_durable_writer ~sw ~dir ?correlation_id () =
+let create_durable_writer ~sw ~codec ~dir ?correlation_id () =
   let* store, initialization =
-    match Store.create ~sw ~dir ?correlation_id () with
+    match Store.create ~sw ~codec ~dir ?correlation_id () with
     | Ok result -> Ok result
     | Error error -> Error (Persistence_failure error)
   in
-  let+ writer = journal_writer_of_store store in
+  let+ writer = journal_writer_of_store ~replay_events:[] store in
   writer, initialization
 ;;
 
-let open_durable_writer ~sw ~dir =
-  let* store, recovery =
-    match Store.open_existing ~sw ~dir with
+let open_durable_writer ~sw ~codec ~dir =
+  let* opened =
+    match Store.open_existing ~sw ~codec ~dir with
     | Ok result -> Ok result
     | Error error -> Error (Persistence_failure error)
   in
-  let+ writer = journal_writer_of_store store in
-  writer, recovery
+  let+ writer =
+    journal_writer_of_store ~replay_events:opened.replay_events opened.store
+  in
+  writer, opened.recovery
 ;;

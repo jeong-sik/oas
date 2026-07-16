@@ -367,6 +367,16 @@
   (run %{test})))
 
 (test
+ (name test_execution_codec_executor)
+ (modules test_execution_codec_executor)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
+ (deps ../models.toml)
+ (flags
+  (:standard -open Agent_sdk__))
+ (action
+  (run %{test})))
+
+(test
  (name test_execution_event_store)
  (modules test_execution_event_store)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)

@@ -131,6 +131,7 @@ type open_mode =
 
 type t =
   { dir : Eio.Fs.dir_ty Eio.Path.t
+  ; codec : Execution_codec_executor.t
   ; initial_mode : open_mode
   ; mu : Eio.Mutex.t
   ; changed : Eio.Condition.t
@@ -479,12 +480,19 @@ let rec run_ready writer durable_writer journal =
 let open_writer writer ~sw mode =
   match mode with
   | Create correlation_id ->
-    (match Journal.create_durable_writer ~sw ~dir:writer.dir ?correlation_id () with
+    (match
+       Journal.create_durable_writer
+         ~sw
+         ~codec:writer.codec
+         ~dir:writer.dir
+         ?correlation_id
+         ()
+     with
      | Error error -> Error error
      | Ok (durable_writer, _initialization) ->
        Ok (durable_writer, Journal.durable_writer_journal durable_writer))
   | Open_existing ->
-    (match Journal.open_durable_writer ~sw ~dir:writer.dir with
+    (match Journal.open_durable_writer ~sw ~codec:writer.codec ~dir:writer.dir with
      | Error error -> Error error
      | Ok (durable_writer, _recovery) ->
        Ok (durable_writer, Journal.durable_writer_journal durable_writer))
@@ -723,11 +731,12 @@ let run_actor writer =
   | exception exn -> fail_actor writer (Unexpected_exception exn)
 ;;
 
-let spawn ~sw ~dir initial_mode =
+let spawn ~sw ~codec ~dir initial_mode =
   let ready, resolve_ready = Eio.Promise.create () in
   let closed, resolve_closed = Eio.Promise.create () in
   let writer =
     { dir
+    ; codec
     ; initial_mode
     ; mu = Eio.Mutex.create ()
     ; changed = Eio.Condition.create ()
@@ -827,9 +836,9 @@ let close_and_await writer =
   await_closed writer
 ;;
 
-let run_with_mode ~dir mode f =
+let run_with_mode ~codec ~dir mode f =
   Eio.Switch.run (fun sw ->
-    let writer = spawn ~sw ~dir mode in
+    let writer = spawn ~sw ~codec ~dir mode in
     match f ~sw writer with
     | value ->
       (match close_and_await writer with
@@ -855,8 +864,11 @@ let run_with_mode ~dir mode f =
            backtrace))
 ;;
 
-let run ~dir ?correlation_id f = run_with_mode ~dir (Create correlation_id) f
-let resume ~dir f = run_with_mode ~dir Open_existing f
+let run ~codec ~dir ?correlation_id f =
+  run_with_mode ~codec ~dir (Create correlation_id) f
+;;
+
+let resume ~codec ~dir f = run_with_mode ~codec ~dir Open_existing f
 
 let read_journal writer f =
   let journal_view = with_lock writer.mu (fun () -> writer.journal_view) in
