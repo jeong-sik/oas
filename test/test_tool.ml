@@ -96,47 +96,74 @@ let test_context_handler_requires_context () =
   | Ok _ -> fail "expected missing-context error"
 ;;
 
-let test_invocation_handler_receives_exact_id () =
+let missing_invocation_error () =
+  Error
+    { Types.message = "execution environment requires exact invocation"
+    ; recoverable = false
+    ; error_class = Some Types.Deterministic
+    }
+;;
+
+let test_execution_env_handler_receives_context_and_invocation () =
   let tool =
-    Tool.create_with_invocation
-      ~name:"invocation"
-      ~description:"Read invocation"
+    Tool.create_with_execution_env
+      ~name:"execution_env"
+      ~description:"Read context and invocation"
       ~parameters:[]
-      (fun invocation _input ->
-         Ok
-           { Types.content =
-               Printf.sprintf
-                 "%s:%d:%d"
-                 (Tool.Invocation.tool_use_id invocation)
-                 (Tool.Invocation.turn invocation)
-                 (Tool.Invocation.planned_index invocation)
-           ; _meta = None
-           })
+      (fun execution_env _input ->
+         match
+           ( Tool.Execution_env.context execution_env
+           , Tool.Execution_env.invocation execution_env )
+         with
+         | Some context, Some invocation ->
+           let context_value =
+             match Context.get context "key" with
+             | Some (`String value) -> value
+             | _ -> "missing"
+           in
+           Ok
+             { Types.content =
+                 Printf.sprintf
+                   "%s:%s:%d:%d"
+                   context_value
+                   (Tool.Invocation.tool_use_id invocation)
+                   (Tool.Invocation.turn invocation)
+                   (Tool.Invocation.planned_index invocation)
+             ; _meta = None
+             }
+         | _, None -> missing_invocation_error ()
+         | None, Some _ ->
+           Error
+             { Types.message = "execution environment requires context"
+             ; recoverable = false
+             ; error_class = Some Types.Deterministic
+             })
   in
+  let context = Context.create_sync () in
+  Context.set context "key" (`String "ctx");
   let invocation =
     Tool.Invocation.create ~tool_use_id:"provider-call-17" ~turn:4 ~planned_index:2
   in
-  match Tool.execute ~invocation tool `Null with
+  match Tool.execute ~context ~invocation tool `Null with
   | Ok { content; _meta = _ } ->
-    check string "exact occurrence" "provider-call-17:4:2" content
-  | Error _ -> fail "expected invocation-aware tool to run"
+    check string "orthogonal execution resources" "ctx:provider-call-17:4:2" content
+  | Error _ -> fail "expected execution-environment tool to run"
 ;;
 
-let test_invocation_handler_requires_invocation () =
+let test_execution_env_handler_observes_missing_invocation () =
   let tool =
-    Tool.create_with_invocation
-      ~name:"invocation"
+    Tool.create_with_execution_env
+      ~name:"execution_env"
       ~description:"Read invocation"
       ~parameters:[]
-      (fun _invocation _input -> Ok { Types.content = "unexpected"; _meta = None })
+      (fun execution_env _input ->
+         match Tool.Execution_env.invocation execution_env with
+         | Some _ -> Ok { Types.content = "unexpected"; _meta = None }
+         | None -> missing_invocation_error ())
   in
   match Tool.execute tool `Null with
   | Error { message; recoverable; error_class } ->
-    check
-      string
-      "error message"
-      "invocation-aware tool requires explicit invocation"
-      message;
+    check string "error message" "execution environment requires exact invocation" message;
     check bool "not recoverable" false recoverable;
     check
       bool
@@ -281,12 +308,15 @@ let () =
         ; test_case "writes context" `Quick test_context_handler_writes_context
         ; test_case "requires context" `Quick test_context_handler_requires_context
         ] )
-    ; ( "invocation_handler"
-      , [ test_case "receives exact id" `Quick test_invocation_handler_receives_exact_id
-        ; test_case
-            "requires invocation"
+    ; ( "execution_env_handler"
+      , [ test_case
+            "receives context and exact invocation"
             `Quick
-            test_invocation_handler_requires_invocation
+            test_execution_env_handler_receives_context_and_invocation
+        ; test_case
+            "observes missing invocation"
+            `Quick
+            test_execution_env_handler_observes_missing_invocation
         ] )
     ; ( "schema"
       , [ test_case "json structure" `Quick test_schema_to_json_structure
@@ -357,21 +387,24 @@ let () =
             | Ok { content; _meta = _ } ->
               check string "default in ctx handler" "worker-1" content
             | Error _ -> fail "expected Ok")
-        ; test_case "works with invocation handler" `Quick (fun () ->
+        ; test_case "works with execution environment handler" `Quick (fun () ->
             let tool =
-              Tool.create_with_invocation
-                ~name:"invocation_greet"
-                ~description:"Greet from invocation"
+              Tool.create_with_execution_env
+                ~name:"execution_env_greet"
+                ~description:"Greet from execution environment"
                 ~parameters:[]
-                (fun invocation input ->
+                (fun execution_env input ->
                    let open Yojson.Safe.Util in
-                   Ok
-                     { Types.content =
-                         Tool.Invocation.tool_use_id invocation
-                         ^ ":"
-                         ^ (input |> member "name" |> to_string)
-                     ; _meta = None
-                     })
+                   match Tool.Execution_env.invocation execution_env with
+                   | Some invocation ->
+                     Ok
+                       { Types.content =
+                           Tool.Invocation.tool_use_id invocation
+                           ^ ":"
+                           ^ (input |> member "name" |> to_string)
+                       ; _meta = None
+                       }
+                   | None -> missing_invocation_error ())
             in
             let wrapped = Tool.with_defaults [ "name", `String "default" ] tool in
             let invocation =

@@ -703,22 +703,30 @@ let test_serial_barrier_splits_concurrent_batches () =
 
 let test_dispatch_passes_exact_tool_invocation () =
   let tool =
-    Tool.create_with_invocation
+    Tool.create_with_execution_env
       ~descriptor:(descriptor_with Tool.Concurrent)
       ~name:"observe_invocation"
       ~description:"Return exact invocation identity"
       ~parameters:[]
-      (fun invocation _ ->
-         Eio.Fiber.yield ();
-         Ok
-           { Types.content =
-               Printf.sprintf
-                 "%s:%d:%d"
-                 (Tool.Invocation.tool_use_id invocation)
-                 (Tool.Invocation.turn invocation)
-                 (Tool.Invocation.planned_index invocation)
-           ; _meta = None
-           })
+      (fun execution_env _ ->
+         match Tool.Execution_env.invocation execution_env with
+         | Some invocation ->
+           Eio.Fiber.yield ();
+           Ok
+             { Types.content =
+                 Printf.sprintf
+                   "%s:%d:%d"
+                   (Tool.Invocation.tool_use_id invocation)
+                   (Tool.Invocation.turn invocation)
+                   (Tool.Invocation.planned_index invocation)
+             ; _meta = None
+             }
+         | None ->
+           Error
+             { Types.message = "missing exact invocation"
+             ; recoverable = false
+             ; error_class = Some Types.Deterministic
+             })
   in
   match
     run_execute_with_tools

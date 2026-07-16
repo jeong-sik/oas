@@ -21,7 +21,22 @@ module Invocation : sig
   val planned_index : t -> int
 end
 
-type invocation_tool_handler = Invocation.t -> Yojson.Safe.t -> Types.tool_result
+(** Explicit resources available at one tool execution occurrence.
+    Context and invocation are orthogonal optional capabilities, not mutually
+    exclusive handler variants. Future execution metadata belongs in this
+    record-shaped boundary rather than in additional [handler_kind]
+    constructors.
+
+    @since 0.215.0 *)
+module Execution_env : sig
+  type t
+
+  val create : ?context:Context.t -> ?invocation:Invocation.t -> unit -> t
+  val context : t -> Context.t option
+  val invocation : t -> Invocation.t option
+end
+
+type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
 
 type execution_mode =
   | Concurrent
@@ -36,7 +51,7 @@ type descriptor = { execution_mode : execution_mode }
 type handler_kind =
   | Simple of tool_handler
   | WithContext of context_tool_handler
-  | WithInvocation of invocation_tool_handler
+  | WithExecutionEnv of execution_env_tool_handler
 
 type t =
   { schema : Types.tool_schema
@@ -60,16 +75,17 @@ val create_with_context
   -> context_tool_handler
   -> t
 
-(** Creates a raw JSON tool whose handler receives exact invocation occurrence
-    metadata. Typed-tool projection is a separate API surface.
+(** Creates a raw JSON tool whose handler receives the explicit execution
+    environment. The environment can contain both shared {!Context.t} and exact
+    {!Invocation.t} occurrence metadata.
 
     @since 0.215.0 *)
-val create_with_invocation
+val create_with_execution_env
   :  ?descriptor:descriptor
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
-  -> invocation_tool_handler
+  -> execution_env_tool_handler
   -> t
 
 val execute
