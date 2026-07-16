@@ -86,6 +86,20 @@ type https_init_error =
 
 val https_init_error_to_string : https_init_error -> string
 
+(** Process-wide cached TLS client configuration.
+
+    [Ca_certs.authenticator ()] loads the system trust store on every
+    call: on macOS it spawns one [security find-certificate] subprocess
+    per keychain and parses the resulting multi-hundred-KB PEM dump
+    (X509 decode + fingerprints for the whole anchor set); on Linux it
+    scans the certificate directories. The first successful result is
+    cached for the process lifetime and reused by every subsequent
+    connection. Certificate validity is still checked against the
+    current time at each handshake (the authenticator captures a clock
+    closure, not a timestamp). Errors are not cached: a failed load is
+    retried on the next call. *)
+val tls_client_config : unit -> (Tls.Config.client, https_init_error) result
+
 val make_https_result
   :  unit
   -> ( Uri.t -> [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t -> Tls_eio.t

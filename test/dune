@@ -428,6 +428,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main eio.mock))
 
 (test
+ (name test_tls_config_cache)
+ (modules test_tls_config_cache)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
  (name test_llm_provider_cov)
  (modules test_llm_provider_cov)
  (libraries agent_sdk llm_provider alcotest))
