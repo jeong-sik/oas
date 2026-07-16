@@ -251,6 +251,35 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.214.0](https://github.com/jeong-sik/oas/compare/v0.213.0...v0.214.0) (2026-07-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** make_http_transport no longer accepts a construction-time stream idle timeout; callers must use the request/agent option. Provider timeout hint and turn-cap no-op APIs are removed.
+
+### Features
+
+* **audio:** add typed Gemini Interactions TTS ([#2615](https://github.com/jeong-sik/oas/issues/2615)) ([476bdc5](https://github.com/jeong-sik/oas/commit/476bdc5609d7857f23002c5981a0ddc27bc84cea))
+* **audio:** add typed OpenAI speech generation ([#2629](https://github.com/jeong-sik/oas/issues/2629)) ([0e13bb0](https://github.com/jeong-sik/oas/commit/0e13bb0c5891299732955d5ba92873cce9a264f2))
+* **execution:** add crash-durable journal store foundation ([#2611](https://github.com/jeong-sik/oas/issues/2611)) ([d912ab4](https://github.com/jeong-sik/oas/commit/d912ab44119ef4cbfc3e17d5f11410b2549c2559))
+* **execution:** add private recursive journal foundation ([#2608](https://github.com/jeong-sik/oas/issues/2608)) ([10e8fef](https://github.com/jeong-sik/oas/commit/10e8fef6f2ec3f74d3810f155cc80e790c7ceae7))
+* **execution:** add shared canonical codec executor ([#2622](https://github.com/jeong-sik/oas/issues/2622)) ([b9f0192](https://github.com/jeong-sik/oas/commit/b9f019210021fa93a38359128ee049bbedd5512e))
+* **image:** add typed catalog-driven generation ([#2610](https://github.com/jeong-sik/oas/issues/2610)) ([245a725](https://github.com/jeong-sik/oas/commit/245a72567c8009c500d6132f55e907f842deae47))
+* **image:** add typed Gemini Interactions generation ([#2612](https://github.com/jeong-sik/oas/issues/2612)) ([e11d18b](https://github.com/jeong-sik/oas/commit/e11d18b78f7ca011ac892c9a5877c055bbbf0756))
+* **llm_provider:** add Anthropic input token count transport ([#2624](https://github.com/jeong-sik/oas/issues/2624)) ([845d9f9](https://github.com/jeong-sik/oas/commit/845d9f9529c9f0dabb4be40ef653d1ab8ccee7b7))
+* **llm_provider:** add typed input token count contract ([#2623](https://github.com/jeong-sik/oas/issues/2623)) ([3a6c92c](https://github.com/jeong-sik/oas/commit/3a6c92c715dadf83a1f992f3d516f873aa84aac5))
+
+
+### Performance Improvements
+
+* **tls:** cache process-wide TLS client config ([#2626](https://github.com/jeong-sik/oas/issues/2626)) ([2dfccdf](https://github.com/jeong-sik/oas/commit/2dfccdf98ab1e43e3fa24cdb5e28b8380488bdf5))
+
+
+### Code Refactoring
+
+* **runtime:** hard-delete implicit execution limits ([#2589](https://github.com/jeong-sik/oas/issues/2589)) ([84f941c](https://github.com/jeong-sik/oas/commit/84f941c5a596866f48ac688615bb5680e52c026d))
+
 ## [0.213.0](https://github.com/jeong-sik/oas/compare/v0.212.1...v0.213.0) (2026-07-16)
 
 
