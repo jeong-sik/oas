@@ -17,6 +17,8 @@ type source =
   | Inline_base64 of
       { media_type : string
       ; data : string
+        (** Base64 payload exactly as the provider sent it — not decoded and
+            not validated here; decoding is the caller's responsibility. *)
       }
   | Remote_url of string
 

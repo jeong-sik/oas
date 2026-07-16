@@ -144,8 +144,7 @@ let format_of_media_type value =
   in
   match canonical, List.assoc_opt essence gemini_response_aliases with
   | Some (format, _), _ | None, Some format -> Ok format
-  | None, None ->
-    parse_failure (Printf.sprintf "unsupported Gemini audio MIME %S" value)
+  | None, None -> parse_failure (Printf.sprintf "unsupported Gemini audio MIME %S" value)
 ;;
 
 let request_body ~(config : Provider_config.t) ~text ~voice ~format =
@@ -196,8 +195,8 @@ let optional_string name json =
 let required_string name json =
   match optional_string name json with
   | Ok (Some value) -> Ok value
-  | Ok None | Error _ ->
-    parse_failure (Printf.sprintf "Gemini interaction %s is required" name)
+  | Ok None -> parse_failure (Printf.sprintf "Gemini interaction %s is required" name)
+  | Error _ as error -> error
 ;;
 
 let optional_int name json =
@@ -306,7 +305,9 @@ let gemini_status_failure status =
            Http_client.Unknown_provider_failure
              { reason = Some (Printf.sprintf "gemini interaction status %s" status) }
        ; message =
-           Printf.sprintf "Gemini interaction finished with status %S, not completed" status
+           Printf.sprintf
+             "Gemini interaction finished with status %S, not completed"
+             status
        })
 ;;
 
@@ -315,7 +316,9 @@ let parse_gemini_response expected body =
     let ( let* ) = Result.bind in
     let* provider_response_id = required_string "id" json in
     let* status = required_string "status" json in
-    let* () = if String.equal status "completed" then Ok () else gemini_status_failure status in
+    let* () =
+      if String.equal status "completed" then Ok () else gemini_status_failure status
+    in
     let* created_at_rfc3339 = optional_string "created" json in
     let* audios = audios_of_json expected json in
     let* usage = usage_of_json json in
@@ -460,5 +463,42 @@ let%test "Gemini response preserves exact audio and absent usage" =
       ; usage = Some { input_tokens = None; output_tokens = None; _ }
       ; _
       } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Opus maps to the documented audio/opus in both directions" =
+  (match gemini_media_type Opus with
+   | Ok "audio/opus" -> true
+   | Ok _ | Error _ -> false)
+  &&
+  match format_of_media_type "audio/opus" with
+  | Ok Opus -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "parameterized and case-variant MIME still resolves" =
+  (match format_of_media_type "audio/L16;codec=pcm;rate=24000" with
+   | Ok Pcm -> true
+   | Ok _ | Error _ -> false)
+  &&
+  match format_of_media_type "audio/mpeg" with
+  | Ok Mp3 -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini non-object 2xx body is a typed parse failure" =
+  match parse_gemini_response Wav "null" with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Provider_parse_error { parser = Some _ }; _ }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini non-completed status is a provider failure, not a parse error" =
+  match parse_gemini_response Wav {|{"id":"ix-c","status":"cancelled","steps":[]}|} with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Unknown_provider_failure { reason = Some reason }; _ }) ->
+    String.equal reason "gemini interaction status cancelled"
   | Ok _ | Error _ -> false
 ;;
