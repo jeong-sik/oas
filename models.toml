@@ -2110,6 +2110,16 @@ id_prefix = "gemini-3-pro-image"
 provider_name = "gemini-image"
 task = "image_generation"
 
+[[models]]
+id_prefix = "gpt-4o-mini-tts"
+provider_name = "openai-speech"
+task = "speech"
+
+[[models]]
+id_prefix = "tts-1"
+provider_name = "openai-speech"
+task = "speech"
+
 [[providers]]
 id = "nous"
 kind = "openai_compat"
@@ -2260,6 +2270,15 @@ request_path = "/interactions"
 api_key_env = "GEMINI_API_KEY"
 capabilities_base = "gemini"
 default_model = "gemini-3.1-flash-image"
+
+[[providers]]
+id = "openai-speech"
+kind = "openai_compat"
+base_url = "https://api.openai.com/v1"
+request_path = "/audio/speech"
+api_key_env = "OPENAI_API_KEY"
+capabilities_base = "openai_chat_extended"
+default_model = "gpt-4o-mini-tts"
 
 [[providers]]
 id = "xai"

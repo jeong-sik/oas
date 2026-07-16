@@ -256,6 +256,7 @@ let expected_default_provider_names =
   ; "ollama"
   ; "ollama_cloud"
   ; "openai-image"
+  ; "openai-speech"
   ; "openrouter"
   ; "siliconflow"
   ; "xai"
