@@ -2120,6 +2120,21 @@ id_prefix = "tts-1"
 provider_name = "openai-speech"
 task = "speech"
 
+[[models]]
+id_prefix = "gemini-3.1-flash-tts-preview"
+provider_name = "gemini-speech"
+task = "speech"
+
+[[models]]
+id_prefix = "gemini-2.5-flash-preview-tts"
+provider_name = "gemini-speech"
+task = "speech"
+
+[[models]]
+id_prefix = "gemini-2.5-pro-preview-tts"
+provider_name = "gemini-speech"
+task = "speech"
+
 [[providers]]
 id = "nous"
 kind = "openai_compat"
@@ -2279,6 +2294,15 @@ request_path = "/audio/speech"
 api_key_env = "OPENAI_API_KEY"
 capabilities_base = "openai_chat_extended"
 default_model = "gpt-4o-mini-tts"
+
+[[providers]]
+id = "gemini-speech"
+kind = "gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+request_path = "/interactions"
+api_key_env = "GEMINI_API_KEY"
+capabilities_base = "gemini"
+default_model = "gemini-3.1-flash-tts-preview"
 
 [[providers]]
 id = "xai"
