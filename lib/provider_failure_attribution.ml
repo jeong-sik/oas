@@ -57,6 +57,23 @@ let sdk_error_of_http_error ?(accept_rejected = Api_invalid_request) err =
      | Api_invalid_request -> invalid_request reason
      | Config_invalid_config { field } ->
        Error.Config (Error.InvalidConfig { field; detail = reason }))
+  | Http.ProviderFailure
+      { kind =
+          Http.Empty_completion { stop_reason = Llm_provider.Types.ContextWindowExceeded }
+      ; message
+      } ->
+    (* An empty turn whose typed stop_reason is ContextWindowExceeded is a
+       context-overflow contract, not provider unavailability: retrying or
+       rotating replays the same oversized prompt, so only the consumer's
+       context recovery (compaction) can make progress. Surfacing it as
+       [Api ContextOverflow] lets downstream overflow classifiers fire on the
+       streaming path exactly as they do for HTTP-classified overflows. *)
+    Error.Api
+      (Retry.ContextOverflow
+         { message =
+             "empty completion (stop_reason=model_context_window_exceeded): " ^ message
+         ; limit = None
+         })
   | Http.ProviderTerminal _ | Http.ProviderFailure _ ->
     Error.Provider (Llm_provider.Error.of_http_error err)
 ;;

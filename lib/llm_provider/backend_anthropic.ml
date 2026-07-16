@@ -207,9 +207,15 @@ let required_max_output_tokens config =
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
-let build_request_artifact_from_receipt
-      ~output_token_receipt
-      ?(stream = false)
+type request_mode =
+  | Completion of
+      { output_token_receipt : Types.output_token_receipt
+      ; stream : bool
+      }
+  | Count_tokens
+
+let build_request_payload
+      ~request_mode
       ~(config : Provider_config.t)
       ~(messages : message list)
       ?(tools : Yojson.Safe.t list = [])
@@ -231,14 +237,14 @@ let build_request_artifact_from_receipt
        | Provider_config.Glm
        | Provider_config.DashScope -> Capabilities.default_capabilities)
   in
-  (match config.seed with
-   | Some _ ->
+  (match request_mode, config.seed with
+   | Completion _, Some _ ->
      invalid_arg
        (Printf.sprintf
           "Backend_anthropic.build_request: the Anthropic Messages wire does not support \
            seed for model %S"
           config.model_id)
-   | None -> ());
+   | Count_tokens, _ | Completion _, None -> ());
   let tools_present = tools <> [] in
   let disable_parallel_tool_use =
     Capabilities.effective_disable_parallel_tool_use
@@ -246,10 +252,10 @@ let build_request_artifact_from_receipt
       ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
       ~tools_present
   in
-  (match config.min_p with
-   | Some _ ->
+  (match request_mode, config.min_p with
+   | Completion _, Some _ ->
      Backend_openai_request.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
-   | None -> ());
+   | Count_tokens, _ | Completion _, None -> ());
   let thinking_mode =
     match config.kind with
     | Provider_config.Kimi -> Capabilities.Anthropic_manual_budget
@@ -317,11 +323,14 @@ let build_request_artifact_from_receipt
   in
   let msgs_json = List.map message_to_json messages in
   let body =
-    [ "model", `String config.model_id
-    ; "max_tokens", `Int (required_output_token_value output_token_receipt)
-    ; "messages", `List msgs_json
-    ; "stream", `Bool stream
-    ]
+    match request_mode with
+    | Completion { output_token_receipt; stream } ->
+      [ "model", `String config.model_id
+      ; "max_tokens", `Int (required_output_token_value output_token_receipt)
+      ; "messages", `List msgs_json
+      ; "stream", `Bool stream
+      ]
+    | Count_tokens -> [ "model", `String config.model_id; "messages", `List msgs_json ]
   in
   let body =
     match config.system_prompt with
@@ -345,19 +354,19 @@ let build_request_artifact_from_receipt
     | _ -> body
   in
   let body =
-    match config.temperature with
-    | Some t -> ("temperature", `Float t) :: body
-    | None -> body
+    match request_mode, config.temperature with
+    | Completion _, Some t -> ("temperature", `Float t) :: body
+    | Count_tokens, _ | Completion _, None -> body
   in
   let body =
-    match config.top_p with
-    | Some p -> ("top_p", `Float p) :: body
-    | None -> body
+    match request_mode, config.top_p with
+    | Completion _, Some p -> ("top_p", `Float p) :: body
+    | Count_tokens, _ | Completion _, None -> body
   in
   let body =
-    match config.top_k with
-    | Some k -> ("top_k", `Int k) :: body
-    | None -> body
+    match request_mode, config.top_k with
+    | Completion _, Some k -> ("top_k", `Int k) :: body
+    | Count_tokens, _ | Completion _, None -> body
   in
   let body =
     match thinking_config_for_config thinking_mode config with
@@ -429,9 +438,26 @@ let build_request_artifact_from_receipt
         ("tool_choice", tc) :: body)
       else body
   in
-  Request_artifact_internal.create
-    ~payload:(Yojson.Safe.to_string (`Assoc body))
-    ~output_token_receipt
+  Yojson.Safe.to_string (`Assoc body)
+;;
+
+let build_request_artifact_from_receipt
+      ~output_token_receipt
+      ?(stream = false)
+      ~config
+      ~messages
+      ?tools
+      ()
+  =
+  let payload =
+    build_request_payload
+      ~request_mode:(Completion { output_token_receipt; stream })
+      ~config
+      ~messages
+      ?tools
+      ()
+  in
+  Request_artifact_internal.create ~payload ~output_token_receipt
 ;;
 
 let build_request_artifact ?stream ~config ~messages ?tools () =
@@ -452,4 +478,17 @@ let build_request ?stream ~config ~messages ?tools () =
   match build_request_artifact ?stream ~config ~messages ?tools () with
   | Ok artifact -> request_payload artifact
   | Error error -> invalid_arg (required_output_token_error_message config error)
+;;
+
+let build_count_tokens_request ~config ~messages ?tools () =
+  match config.Provider_config.kind with
+  | Provider_config.Anthropic ->
+    build_request_payload ~request_mode:Count_tokens ~config ~messages ?tools ()
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope ->
+    invalid_arg "Backend_anthropic.build_count_tokens_request: Anthropic required"
 ;;
