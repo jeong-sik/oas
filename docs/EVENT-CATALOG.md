@@ -186,6 +186,12 @@ See `lib/base/hooks.mli` for the full decision contract.
 Event-sourced record of everything needed to reconstruct agent state on
 crash recovery. Events are immutable; append-only.
 
+`Durable_event` remains the only production durable-journal authority. OAS has
+no second public execution journal and external consumers must not dual-write
+an alternative occurrence history. Any internal execution-topology work is
+outside this public catalog until a production single-writer hard cut is
+implemented.
+
 ### 4.1 Journal variants
 
 | Variant | Purpose |

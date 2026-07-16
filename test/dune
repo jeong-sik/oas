@@ -352,6 +352,20 @@
  (action
   (run %{test})))
 
+; The recursive execution foundation is deliberately private until OAS owns
+; its production writer. This regression suite uses Dune's library-internal
+; alias only inside the repository; no installed Agent_sdk API exposes it.
+
+(test
+ (name test_execution_journal)
+ (modules test_execution_journal)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
+ (deps ../models.toml)
+ (flags
+  (:standard -open Agent_sdk__))
+ (action
+  (run %{test})))
+
 ; QCheck-based property tests
 
 (tests
