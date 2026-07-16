@@ -2,6 +2,37 @@ open Result_syntax
 module Event = Execution_event
 module Store = Execution_event_store
 
+let reverse_append_cooperatively values tail =
+  let rec loop reversed = function
+    | [] -> reversed
+    | value :: rest ->
+      Eio.Fiber.yield ();
+      loop (value :: reversed) rest
+  in
+  loop tail values
+;;
+
+let reverse_cooperatively values = reverse_append_cooperatively values []
+
+let reverse_filter_map_cooperatively f values =
+  let rec loop filtered = function
+    | [] -> filtered
+    | value :: rest ->
+      let filtered =
+        match f value with
+        | None -> filtered
+        | Some value -> value :: filtered
+      in
+      Eio.Fiber.yield ();
+      loop filtered rest
+  in
+  loop [] values
+;;
+
+let append_cooperatively left right =
+  reverse_append_cooperatively (reverse_cooperatively left) right
+;;
+
 module Event_id_set = Set.Make (struct
     type t = Event.Event_id.t
 
@@ -159,6 +190,32 @@ type error =
   | Identity_failure of string
   | Empty_batch
   | Durable_batch_owner_mismatch
+  | Direct_mutation_forbidden
+  | Durable_writer_owner_mismatch
+  | Durable_store_unavailable
+  | Durable_construction_cleanup_failed of
+      { construction_error : error
+      ; cleanup_error : Store.error
+      }
+  | Reconciliation_scope_mismatch
+  | Reconciliation_correlation_mismatch
+  | Reconciliation_content_conflict of
+      { first_seq : int
+      ; last_seq : int
+      }
+  | Reconciliation_conflict of
+      { base_seq : int
+      ; final_seq : int
+      ; current_seq : int
+      }
+  | Reconciliation_store_diverged of
+      { first_seq : int
+      ; last_seq : int
+      }
+  | Projection_index_diverged of
+      { expected_seq : int
+      ; high_watermark : int
+      }
   | Stale_batch of
       { expected_last_seq : int
       ; actual_last_seq : int
@@ -171,13 +228,51 @@ type error =
   | Persistence_failure of Store.error
   | Invariant_violation of invariant_violation
 
-let error_to_string = function
+let rec error_to_string = function
   | Invalid_argument detail -> "invalid execution journal argument: " ^ detail
   | Invalid_event detail -> "invalid execution event: " ^ detail
   | Identity_failure detail -> "execution journal identity allocation failed: " ^ detail
   | Empty_batch -> "execution journal batch contains no semantic mutations"
   | Durable_batch_owner_mismatch ->
     "execution journal durable capability does not own the staged batch"
+  | Direct_mutation_forbidden ->
+    "execution journal direct mutation is forbidden after durable writer claim"
+  | Durable_writer_owner_mismatch ->
+    "execution journal durable writer claim does not own this journal"
+  | Durable_store_unavailable ->
+    "execution journal durable writer has no persistent store"
+  | Durable_construction_cleanup_failed { construction_error; cleanup_error } ->
+    "execution journal durable construction failed with "
+    ^ error_to_string construction_error
+    ^ "; unpublished store cleanup also failed: "
+    ^ Store.error_to_string cleanup_error
+  | Reconciliation_scope_mismatch ->
+    "execution journal batch reconciliation scope does not match"
+  | Reconciliation_correlation_mismatch ->
+    "execution journal batch reconciliation correlation does not match"
+  | Reconciliation_content_conflict { first_seq; last_seq } ->
+    Printf.sprintf
+      "execution journal batch reconciliation content differs at sequence range %d..%d"
+      first_seq
+      last_seq
+  | Reconciliation_conflict { base_seq; final_seq; current_seq } ->
+    Printf.sprintf
+      "execution journal batch reconciliation expected current sequence %d or %d but \
+       found %d"
+      base_seq
+      final_seq
+      current_seq
+  | Reconciliation_store_diverged { first_seq; last_seq } ->
+    Printf.sprintf
+      "execution journal reducer contains sequence range %d..%d absent from its durable \
+       store"
+      first_seq
+      last_seq
+  | Projection_index_diverged { expected_seq; high_watermark } ->
+    Printf.sprintf
+      "execution journal projection index is missing sequence %d below high watermark %d"
+      expected_seq
+      high_watermark
   | Stale_batch { expected_last_seq; actual_last_seq } ->
     Printf.sprintf
       "execution journal batch base is stale: expected last sequence %d but found %d"
@@ -192,6 +287,34 @@ let error_to_string = function
   | Persistence_failure error ->
     "execution journal persistence failed: " ^ Store.error_to_string error
   | Invariant_violation violation -> show_invariant_violation violation
+;;
+
+type commit_error_disposition =
+  | Reconcile_required
+  | Final_failure
+
+let commit_error_disposition = function
+  | Persistence_failure (Store.Commit_outcome_unknown _) -> Reconcile_required
+  | Invalid_argument _
+  | Invalid_event _
+  | Identity_failure _
+  | Empty_batch
+  | Durable_batch_owner_mismatch
+  | Direct_mutation_forbidden
+  | Durable_writer_owner_mismatch
+  | Durable_store_unavailable
+  | Durable_construction_cleanup_failed _
+  | Reconciliation_scope_mismatch
+  | Reconciliation_correlation_mismatch
+  | Reconciliation_content_conflict _
+  | Reconciliation_conflict _
+  | Reconciliation_store_diverged _
+  | Projection_index_diverged _
+  | Stale_batch _
+  | Cursor_scope_mismatch
+  | Cursor_ahead _
+  | Persistence_failure _
+  | Invariant_violation _ -> Final_failure
 ;;
 
 module Reducer = struct
@@ -247,19 +370,26 @@ module Reducer = struct
     | Event.Tool_attempt -> Tool_attempt_state
   ;;
 
-  let node_view state (record : node_record) =
+  let node_view_from_histories state (record : node_record) ~updates ~children =
     { node = record.node
     ; opened = record.opened
     ; status = record.status
-    ; updates = List.rev record.updates_rev
-    ; children = List.rev record.children_rev
+    ; updates
+    ; children
     ; materialized = materialized record
     ; through_seq = state.last_seq
     }
   ;;
 
   let find_node state node_id =
-    Option.map (node_view state) (find_node_record state node_id)
+    Option.map
+      (fun record ->
+         node_view_from_histories
+           state
+           record
+           ~updates:(List.rev record.updates_rev)
+           ~children:(List.rev record.children_rev))
+      (find_node_record state node_id)
   ;;
 
   let find_run_record state run_id = Run_id_map.find_opt run_id state.runs
@@ -275,24 +405,33 @@ module Reducer = struct
   ;;
 
   let open_subtree_postorder state root =
-    let open_children_chronological (record : node_record) =
-      record.children_rev
-      |> List.rev
-      |> List.filter_map (fun child ->
-        let child_id = Event.node_id child.value in
-        if Node_id_set.mem child_id record.open_children then Some child_id else None)
+    let prepend_open_children (record : node_record) tail =
+      let rec loop work = function
+        | [] -> work
+        | child :: rest ->
+          let child_id = Event.node_id child.value in
+          let work =
+            if Node_id_set.mem child_id record.open_children
+            then `Enter child_id :: work
+            else work
+          in
+          Eio.Fiber.yield ();
+          loop work rest
+      in
+      loop tail record.children_rev
     in
     let rec loop work reverse_postorder =
       match work with
-      | [] -> Ok (List.rev reverse_postorder)
-      | `Exit node_id :: rest -> loop rest (node_id :: reverse_postorder)
+      | [] -> Ok (reverse_cooperatively reverse_postorder)
+      | `Exit node_id :: rest ->
+        Eio.Fiber.yield ();
+        loop rest (node_id :: reverse_postorder)
       | `Enter node_id :: rest ->
         (match find_node_record state node_id with
          | None -> Error (Unknown_node node_id)
          | Some record ->
-           let children = open_children_chronological record in
-           let children_rev = List.rev_map (fun child -> `Enter child) children in
-           let work = List.rev_append children_rev (`Exit node_id :: rest) in
+           let work = prepend_open_children record (`Exit node_id :: rest) in
+           Eio.Fiber.yield ();
            loop work reverse_postorder)
     in
     loop [ `Enter root ] []
@@ -801,9 +940,12 @@ module Reducer = struct
   ;;
 end
 
+module Event_seq_map = Map.Make (Int)
+
 type journal_state =
   { reducer : Reducer.t
   ; events_rev : Event.t list
+  ; events_by_seq : Event.t Event_seq_map.t
   }
 
 type snapshot =
@@ -811,27 +953,50 @@ type snapshot =
   ; reducer : Reducer.t
   }
 
+type writer_authority =
+  | Unclaimed_writer
+  | Direct_writer
+  | Claimed_durable_writer of unit ref
+
 type t =
   { scope_id : Store.Scope_id.t
   ; correlation_id : Event.Correlation_id.t
   ; store_writer : Store.writer option
   ; writer_gate : Eio.Mutex.t
   ; mu : Eio.Mutex.t
+  ; mutable writer_authority : writer_authority
   ; mutable state : journal_state
   }
 
-type durable = { journal : t }
+type durable_writer =
+  { journal : t
+  ; claim : unit ref
+  }
 
 let with_read journal f = Eio.Mutex.use_ro journal.mu (fun () -> f journal.state)
-
-let with_state_write journal f =
-  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro journal.mu f)
-;;
-
+let with_state_write journal f = Eio.Mutex.use_rw ~protect:true journal.mu f
 let with_writer_gate journal f = Eio.Mutex.use_ro journal.writer_gate f
 
-let with_abort_gate journal f =
-  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro journal.writer_gate f)
+let claim_direct_writer_locked journal =
+  match journal.writer_authority with
+  | Unclaimed_writer ->
+    journal.writer_authority <- Direct_writer;
+    Ok ()
+  | Direct_writer -> Ok ()
+  | Claimed_durable_writer _ -> Error Direct_mutation_forbidden
+;;
+
+let ensure_direct_writer_allowed_locked journal =
+  match journal.writer_authority with
+  | Unclaimed_writer | Direct_writer -> Ok ()
+  | Claimed_durable_writer _ -> Error Direct_mutation_forbidden
+;;
+
+let validate_durable_writer_locked (writer : durable_writer) =
+  match writer.journal.writer_authority with
+  | Claimed_durable_writer claim when claim == writer.claim -> Ok ()
+  | Unclaimed_writer | Direct_writer | Claimed_durable_writer _ ->
+    Error Durable_writer_owner_mismatch
 ;;
 
 let length journal = with_read journal (fun state -> Reducer.last_seq state.reducer)
@@ -839,7 +1004,7 @@ let last_seq journal = with_read journal (fun state -> Reducer.last_seq state.re
 
 let events journal =
   let events_rev = with_read journal (fun state -> state.events_rev) in
-  List.rev events_rev
+  reverse_cooperatively events_rev
 ;;
 
 let make_cursor scope_id seq =
@@ -855,25 +1020,53 @@ let current_cursor journal =
   make_cursor journal.scope_id seq
 ;;
 
-let events_after journal ~(after : cursor) =
-  if not (Store.Scope_id.equal (Store.cursor_scope_id after) journal.scope_id)
+type page =
+  { events : Event.t list
+  ; next_cursor : cursor
+  ; high_watermark : cursor
+  ; has_more : bool
+  }
+
+let read_page journal ~after ?through ~limit () =
+  if limit <= 0
+  then Error (Invalid_argument "page limit must be positive")
+  else if not (Store.Scope_id.equal (Store.cursor_scope_id after) journal.scope_id)
   then Error Cursor_scope_mismatch
-  else if Store.cursor_seq after < 0
-  then Error (Invalid_argument "cursor sequence must be non-negative")
+  else if
+    match through with
+    | Some through ->
+      not (Store.Scope_id.equal (Store.cursor_scope_id through) journal.scope_id)
+    | None -> false
+  then Error Cursor_scope_mismatch
   else (
+    let state = with_read journal Fun.id in
+    let current_seq = Reducer.last_seq state.reducer in
     let after_seq = Store.cursor_seq after in
-    let last_seq, events_rev =
-      with_read journal (fun state -> Reducer.last_seq state.reducer, state.events_rev)
-    in
-    if after_seq > last_seq
-    then Error (Cursor_ahead { after_seq; last_seq })
+    let high_watermark = Option.fold ~none:current_seq ~some:Store.cursor_seq through in
+    if high_watermark > current_seq
+    then Error (Cursor_ahead { after_seq = high_watermark; last_seq = current_seq })
+    else if after_seq > high_watermark
+    then Error (Cursor_ahead { after_seq; last_seq = high_watermark })
     else (
-      let rec collect chronological = function
-        | event :: rest when Event.seq event > after_seq ->
-          collect (event :: chronological) rest
-        | _ -> chronological
+      let page_event_count = min limit (high_watermark - after_seq) in
+      let page_last_seq = after_seq + page_event_count in
+      let rec collect seq events_rev =
+        if seq > page_last_seq
+        then Ok (reverse_cooperatively events_rev)
+        else (
+          match Event_seq_map.find_opt seq state.events_by_seq with
+          | None ->
+            Error (Projection_index_diverged { expected_seq = seq; high_watermark })
+          | Some event ->
+            Eio.Fiber.yield ();
+            collect (seq + 1) (event :: events_rev))
       in
-      Ok (collect [] events_rev, make_cursor journal.scope_id last_seq)))
+      let+ events = collect (after_seq + 1) [] in
+      { events
+      ; next_cursor = make_cursor journal.scope_id page_last_seq
+      ; high_watermark = make_cursor journal.scope_id high_watermark
+      ; has_more = page_last_seq < high_watermark
+      }))
 ;;
 
 let snapshot journal =
@@ -886,7 +1079,12 @@ let snapshot_cursor (snapshot : snapshot) =
 ;;
 
 let snapshot_find_node (snapshot : snapshot) node_id =
-  Reducer.find_node snapshot.reducer node_id
+  match Reducer.find_node_record snapshot.reducer node_id with
+  | None -> None
+  | Some record ->
+    let updates = reverse_cooperatively record.updates_rev in
+    let children = reverse_cooperatively record.children_rev in
+    Some (Reducer.node_view_from_histories snapshot.reducer record ~updates ~children)
 ;;
 
 let snapshot_find_run (snapshot : snapshot) run_id =
@@ -936,7 +1134,12 @@ let append_to_state
     | Ok reducer -> Ok reducer
     | Error violation -> Error (Invariant_violation violation)
   in
-  Ok ({ reducer; events_rev = event :: state.events_rev }, event)
+  Ok
+    ( { reducer
+      ; events_rev = event :: state.events_rev
+      ; events_by_seq = Event_seq_map.add (Event.seq event) event state.events_by_seq
+      }
+    , event )
 ;;
 
 type 'a mutation =
@@ -996,8 +1199,10 @@ let commit_mutation journal (captured_state : journal_state) mutation =
 
 let with_write journal f =
   with_writer_gate journal (fun () ->
+    let* () = ensure_direct_writer_allowed_locked journal in
     let captured_state = with_read journal Fun.id in
     let* mutation = f captured_state in
+    let* () = claim_direct_writer_locked journal in
     commit_mutation journal captured_state mutation)
 ;;
 
@@ -1148,6 +1353,61 @@ let stage_finish_run ?causes journal state ~run terminal =
     payload
 ;;
 
+let stage_abort_run ?causes journal captured_state ~run terminal =
+  match terminal with
+  | Event.Succeeded ->
+    Error (Invalid_argument "abort_run requires a failed or cancelled terminal")
+  | Event.Failed _ | Event.Cancelled _ ->
+    let* terminal = payload_result (Event.validate_terminal terminal) in
+    let* () = validate_run_handle captured_state run in
+    let* order =
+      match Reducer.open_subtree_postorder captured_state.reducer run.root with
+      | Ok order -> Ok order
+      | Error violation -> Error (Invariant_violation violation)
+    in
+    let rec apply_closes state events_rev closed_by_node = function
+      | [] -> Ok (state, events_rev)
+      | node_id :: nodes ->
+        let* event_id = identity_result (Event.Event_id.fresh ()) in
+        let* record = node_record_or_error state node_id in
+        let* parent_event_id = node_last_event state node_id in
+        let payload = Event.close_payload ~node_id terminal in
+        let child_causes =
+          reverse_filter_map_cooperatively
+            (fun (child : Event.node event_record) ->
+               let child_id = Event.node_id child.value in
+               Option.map
+                 (fun event -> Event.Internal_event (Event.event_id event))
+                 (Node_id_map.find_opt child_id closed_by_node))
+            record.children_rev
+        in
+        let event_causes =
+          append_cooperatively (Option.value causes ~default:[]) child_causes
+        in
+        let* next_state, event =
+          append_to_state
+            state
+            ~event_id
+            ~correlation_id:journal.correlation_id
+            ~run_id:(Event.node_run_id record.node)
+            ~parent_event_id:(Some parent_event_id)
+            ~causes:event_causes
+            payload
+        in
+        Eio.Fiber.yield ();
+        apply_closes
+          next_state
+          (event :: events_rev)
+          (Node_id_map.add node_id event closed_by_node)
+          nodes
+    in
+    let+ next_state, events_rev =
+      apply_closes captured_state [] Node_id_map.empty order
+    in
+    let events = reverse_cooperatively events_rev in
+    { next_state; events; value = events }
+;;
+
 let start_run ?parent_invocation ?causes journal ~agent_name =
   with_write journal (fun state ->
     stage_start_run ?parent_invocation ?causes journal state ~agent_name)
@@ -1177,19 +1437,36 @@ type batch =
   ; events_rev : Event.t list
   }
 
+type batch_metadata =
+  { base_cursor : cursor
+  ; final_cursor : cursor
+  ; correlation_id : Event.Correlation_id.t
+  }
+
 let begin_batch journal =
   let base_state = with_read journal Fun.id in
   { journal; base_state; staged_state = base_state; events_rev = [] }
 ;;
 
+let begin_durable_batch (writer : durable_writer) = begin_batch writer.journal
+
 let batch_length batch =
   Reducer.last_seq batch.staged_state.reducer - Reducer.last_seq batch.base_state.reducer
+;;
+
+let batch_metadata batch =
+  { base_cursor =
+      make_cursor batch.journal.scope_id (Reducer.last_seq batch.base_state.reducer)
+  ; final_cursor =
+      make_cursor batch.journal.scope_id (Reducer.last_seq batch.staged_state.reducer)
+  ; correlation_id = batch.journal.correlation_id
+  }
 ;;
 
 let extend_batch batch mutation =
   ( { batch with
       staged_state = mutation.next_state
-    ; events_rev = List.rev_append mutation.events batch.events_rev
+    ; events_rev = reverse_append_cooperatively mutation.events batch.events_rev
     }
   , mutation.value )
 ;;
@@ -1227,6 +1504,12 @@ module Transaction = struct
         ; terminal : Event.terminal
         }
         -> Event.t t
+    | Abort_run :
+        { causes : Event.cause list
+        ; run : run
+        ; terminal : Event.terminal
+        }
+        -> Event.t list t
 
   let start_run ?parent_invocation ?(causes = []) ~agent_name () =
     Start_run { parent_invocation; causes; agent_name }
@@ -1239,6 +1522,7 @@ module Transaction = struct
   let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
   let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
   let finish_run ?(causes = []) ~run terminal = Finish_run { causes; run; terminal }
+  let abort_run ?(causes = []) ~run terminal = Abort_run { causes; run; terminal }
 end
 
 let stage : type value. batch -> value Transaction.t -> (batch * value, error) result =
@@ -1268,91 +1552,129 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
   | Transaction.Finish_run { causes; run; terminal } ->
     stage_mutation
       (stage_finish_run ~causes batch.journal batch.staged_state ~run terminal)
+  | Transaction.Abort_run { causes; run; terminal } ->
+    stage_mutation
+      (stage_abort_run ~causes batch.journal batch.staged_state ~run terminal)
+;;
+
+let commit_batch_locked batch =
+  if batch_length batch = 0
+  then Error Empty_batch
+  else (
+    let actual_state = with_read batch.journal Fun.id in
+    if not (actual_state == batch.base_state)
+    then
+      Error
+        (Stale_batch
+           { expected_last_seq = Reducer.last_seq batch.base_state.reducer
+           ; actual_last_seq = Reducer.last_seq actual_state.reducer
+           })
+    else (
+      let events = reverse_cooperatively batch.events_rev in
+      commit_mutation
+        batch.journal
+        batch.base_state
+        { next_state = batch.staged_state; events; value = events }))
 ;;
 
 let commit_batch batch =
-  if batch_length batch = 0
-  then Error Empty_batch
-  else
-    with_writer_gate batch.journal (fun () ->
-      let actual_state = with_read batch.journal Fun.id in
-      if not (actual_state == batch.base_state)
-      then
-        Error
-          (Stale_batch
-             { expected_last_seq = Reducer.last_seq batch.base_state.reducer
-             ; actual_last_seq = Reducer.last_seq actual_state.reducer
-             })
-      else (
-        let events = List.rev batch.events_rev in
-        commit_mutation
-          batch.journal
-          batch.base_state
-          { next_state = batch.staged_state; events; value = events }))
+  with_writer_gate batch.journal (fun () ->
+    let* () = ensure_direct_writer_allowed_locked batch.journal in
+    if batch_length batch = 0
+    then Error Empty_batch
+    else
+      let* () = claim_direct_writer_locked batch.journal in
+      commit_batch_locked batch)
 ;;
 
-let commit_durable_batch (durable : durable) (batch : batch) =
-  if durable.journal != batch.journal
+let commit_durable_batch (writer : durable_writer) (batch : batch) =
+  if writer.journal != batch.journal
   then Error Durable_batch_owner_mismatch
-  else commit_batch batch
+  else
+    with_writer_gate writer.journal (fun () ->
+      let* () = validate_durable_writer_locked writer in
+      commit_batch_locked batch)
+;;
+
+type durable_batch_reconciliation =
+  | Applied of Event.t list
+  | Already_durable of Event.t list
+
+let replay_exact_batch (state : journal_state) events =
+  let rec loop (state : journal_state) = function
+    | [] -> Ok state
+    | event :: rest ->
+      let* reducer =
+        match Reducer.apply state.reducer event with
+        | Ok reducer -> Ok reducer
+        | Error violation -> Error (Invariant_violation violation)
+      in
+      Eio.Fiber.yield ();
+      loop
+        { reducer
+        ; events_rev = event :: state.events_rev
+        ; events_by_seq = Event_seq_map.add (Event.seq event) event state.events_by_seq
+        }
+        rest
+  in
+  loop state events
+;;
+
+let reconcile_durable_batch (writer : durable_writer) (batch : batch) =
+  with_writer_gate writer.journal (fun () ->
+    let* () = validate_durable_writer_locked writer in
+    if batch_length batch = 0
+    then Error Empty_batch
+    else if not (Store.Scope_id.equal writer.journal.scope_id batch.journal.scope_id)
+    then Error Reconciliation_scope_mismatch
+    else if
+      not
+        (Event.Correlation_id.equal
+           writer.journal.correlation_id
+           batch.journal.correlation_id)
+    then Error Reconciliation_correlation_mismatch
+    else (
+      let base_seq = Reducer.last_seq batch.base_state.reducer in
+      let final_seq = Reducer.last_seq batch.staged_state.reducer in
+      let actual_state = with_read writer.journal Fun.id in
+      let current_seq = Reducer.last_seq actual_state.reducer in
+      let events = reverse_cooperatively batch.events_rev in
+      if current_seq = base_seq
+      then
+        let* next_state = replay_exact_batch actual_state events in
+        let+ committed =
+          commit_mutation
+            writer.journal
+            actual_state
+            { next_state; events; value = events }
+        in
+        Applied committed
+      else if current_seq = final_seq
+      then (
+        match writer.journal.store_writer with
+        | None -> Error Durable_store_unavailable
+        | Some store_writer ->
+          (match
+             Store.append_batch store_writer ~expected_next_seq:(base_seq + 1) events
+           with
+           | Ok Store.Already_committed -> Ok (Already_durable events)
+           | Ok Store.Stored ->
+             Error
+               (Reconciliation_store_diverged
+                  { first_seq = base_seq + 1; last_seq = final_seq })
+           | Error (Store.Committed_content_conflict { first_seq; last_seq }) ->
+             Error (Reconciliation_content_conflict { first_seq; last_seq })
+           | Error error -> Error (Persistence_failure error)))
+      else Error (Reconciliation_conflict { base_seq; final_seq; current_seq })))
 ;;
 
 let abort_run ?causes journal ~run terminal =
-  match terminal with
-  | Event.Succeeded ->
-    Error (Invalid_argument "abort_run requires a failed or cancelled terminal")
-  | Event.Failed _ | Event.Cancelled _ ->
-    let* terminal = payload_result (Event.validate_terminal terminal) in
-    with_abort_gate journal (fun () ->
-      let captured_state = with_read journal Fun.id in
-      let* () = validate_run_handle captured_state run in
-      let* order =
-        match Reducer.open_subtree_postorder captured_state.reducer run.root with
-        | Ok order -> Ok order
-        | Error violation -> Error (Invariant_violation violation)
-      in
-      let rec apply_closes state events_rev closed_by_node = function
-        | [] -> Ok (state, events_rev)
-        | node_id :: nodes ->
-          let* event_id = identity_result (Event.Event_id.fresh ()) in
-          let* record = node_record_or_error state node_id in
-          let* parent_event_id = node_last_event state node_id in
-          let payload = Event.close_payload ~node_id terminal in
-          let child_causes =
-            record.children_rev
-            |> List.rev
-            |> List.filter_map (fun (child : Event.node event_record) ->
-              let child_id = Event.node_id child.value in
-              Option.map
-                (fun event -> Event.Internal_event (Event.event_id event))
-                (Node_id_map.find_opt child_id closed_by_node))
-          in
-          let event_causes = Option.value causes ~default:[] @ child_causes in
-          let* next_state, event =
-            append_to_state
-              state
-              ~event_id
-              ~correlation_id:journal.correlation_id
-              ~run_id:(Event.node_run_id record.node)
-              ~parent_event_id:(Some parent_event_id)
-              ~causes:event_causes
-              payload
-          in
-          Eio.Fiber.yield ();
-          apply_closes
-            next_state
-            (event :: events_rev)
-            (Node_id_map.add node_id event closed_by_node)
-            nodes
-      in
-      let* final_state, events_rev =
-        apply_closes captured_state [] Node_id_map.empty order
-      in
-      let events = List.rev events_rev in
-      commit_mutation
-        journal
-        captured_state
-        { next_state = final_state; events; value = events })
+  with_writer_gate journal (fun () ->
+    let* () = ensure_direct_writer_allowed_locked journal in
+    let captured_state = with_read journal Fun.id in
+    let* mutation = stage_abort_run ?causes journal captured_state ~run terminal in
+    let* () = claim_direct_writer_locked journal in
+    commit_mutation journal captured_state mutation)
 ;;
 
 let replay_events events =
@@ -1365,12 +1687,20 @@ let replay_events events =
         | Error violation -> Error (Invariant_violation violation)
       in
       Eio.Fiber.yield ();
-      loop { reducer; events_rev = event :: state.events_rev } rest
+      loop
+        { reducer
+        ; events_rev = event :: state.events_rev
+        ; events_by_seq = Event_seq_map.add (Event.seq event) event state.events_by_seq
+        }
+        rest
   in
-  loop ({ reducer = Reducer.empty; events_rev = [] } : journal_state) events
+  loop
+    ({ reducer = Reducer.empty; events_rev = []; events_by_seq = Event_seq_map.empty }
+     : journal_state)
+    events
 ;;
 
-let create ?correlation_id ?store () =
+let create_internal ?correlation_id store =
   let* scope_id, correlation_id, state, store_writer =
     match store with
     | None ->
@@ -1384,7 +1714,14 @@ let create ?correlation_id ?store () =
         | Some correlation_id -> Ok correlation_id
         | None -> identity_result (Event.Correlation_id.fresh ())
       in
-      Ok (scope_id, correlation_id, { reducer = Reducer.empty; events_rev = [] }, None)
+      Ok
+        ( scope_id
+        , correlation_id
+        , { reducer = Reducer.empty
+          ; events_rev = []
+          ; events_by_seq = Event_seq_map.empty
+          }
+        , None )
     | Some store ->
       let store_correlation = Store.correlation_id store in
       let* () =
@@ -1413,28 +1750,69 @@ let create ?correlation_id ?store () =
     ; store_writer
     ; writer_gate = Eio.Mutex.create ()
     ; mu = Eio.Mutex.create ()
+    ; writer_authority = Unclaimed_writer
     ; state
     }
 ;;
 
-let durable_journal (durable : durable) = durable.journal
+let create ?correlation_id () = create_internal ?correlation_id None
 
-let create_durable ~sw ~dir ?correlation_id () =
+let make_durable_writer journal =
+  let claim = ref () in
+  journal.writer_authority <- Claimed_durable_writer claim;
+  { journal; claim }
+;;
+
+let durable_writer_journal (writer : durable_writer) = writer.journal
+
+exception Unpublished_store_release_failed of Store.error
+
+let () =
+  Printexc.register_printer (function
+    | Unpublished_store_release_failed error ->
+      Some ("unpublished execution store cleanup failed: " ^ Store.error_to_string error)
+    | _ -> None)
+;;
+
+let release_after_construction_error store construction_error =
+  match Store.release_unpublished store with
+  | Ok () -> Error construction_error
+  | Error cleanup_error ->
+    Error (Durable_construction_cleanup_failed { construction_error; cleanup_error })
+;;
+
+let journal_writer_of_store store =
+  match create_internal (Some store) with
+  | Ok journal -> Ok (make_durable_writer journal)
+  | Error construction_error -> release_after_construction_error store construction_error
+  | exception exn ->
+    let bt = Printexc.get_raw_backtrace () in
+    (match Store.release_unpublished store with
+     | Ok () -> Printexc.raise_with_backtrace exn bt
+     | Error cleanup_error ->
+       let cleanup_exn = Unpublished_store_release_failed cleanup_error in
+       let combined, combined_bt =
+         Eio.Exn.combine (exn, bt) (cleanup_exn, Eio.Exn.empty_backtrace)
+       in
+       Printexc.raise_with_backtrace combined combined_bt)
+;;
+
+let create_durable_writer ~sw ~dir ?correlation_id () =
   let* store, initialization =
     match Store.create ~sw ~dir ?correlation_id () with
     | Ok result -> Ok result
     | Error error -> Error (Persistence_failure error)
   in
-  let+ journal = create ~store () in
-  { journal }, initialization
+  let+ writer = journal_writer_of_store store in
+  writer, initialization
 ;;
 
-let open_durable ~sw ~dir =
+let open_durable_writer ~sw ~dir =
   let* store, recovery =
     match Store.open_existing ~sw ~dir with
     | Ok result -> Ok result
     | Error error -> Error (Persistence_failure error)
   in
-  let+ journal = create ~store () in
-  { journal }, recovery
+  let+ writer = journal_writer_of_store store in
+  writer, recovery
 ;;

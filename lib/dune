@@ -11,7 +11,8 @@
   execution_tool_schedule
   execution_event
   execution_event_store
-  execution_journal)
+  execution_journal
+  execution_lane_writer)
  (libraries
   llm_provider
   (re_export agent_sdk_base)

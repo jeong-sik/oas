@@ -2,6 +2,28 @@ open Result_syntax
 module Event = Execution_event
 module Sha256 = Digestif.SHA256
 
+let reverse_append_cooperatively values tail =
+  let rec loop reversed = function
+    | [] -> reversed
+    | value :: rest ->
+      Eio.Fiber.yield ();
+      loop (value :: reversed) rest
+  in
+  loop tail values
+;;
+
+let reverse_cooperatively values = reverse_append_cooperatively values []
+
+let length_cooperatively values =
+  let rec loop length = function
+    | [] -> length
+    | _ :: rest ->
+      Eio.Fiber.yield ();
+      loop (length + 1) rest
+  in
+  loop 0 values
+;;
+
 module Scope_id = Execution_id.Make (struct
     let value = "execution-scope-"
   end)
@@ -75,6 +97,13 @@ type error =
       }
   | Writer_already_active
   | Store_already_attached
+  | Store_released
+  | Store_release_forbidden
+  | Resource_cleanup_failed of { operations : string list }
+  | Construction_cleanup_failed of
+      { primary : error
+      ; cleanup : error
+      }
   | Store_already_exists
   | Store_not_found
   | Store_initialization_incomplete
@@ -101,13 +130,24 @@ type error =
   | Commit_outcome_unknown of string
 [@@deriving show]
 
-let error_to_string = function
+let rec error_to_string = function
   | Invalid_argument detail -> "invalid execution store argument: " ^ detail
   | Identity_failure detail -> "execution store identity failure: " ^ detail
   | Io_failure { operation; detail } ->
     Printf.sprintf "execution store %s failed: %s" operation detail
   | Writer_already_active -> "execution store already has an active writer"
   | Store_already_attached -> "execution store is already attached to a journal"
+  | Store_released -> "execution store resources have been released"
+  | Store_release_forbidden ->
+    "execution store cannot release resources after journal publication"
+  | Resource_cleanup_failed { operations } ->
+    "execution store resource cleanup failed: " ^ String.concat "; " operations
+  | Construction_cleanup_failed { primary; cleanup } ->
+    "execution store construction failed ("
+    ^ error_to_string primary
+    ^ ") and cleanup also failed ("
+    ^ error_to_string cleanup
+    ^ ")"
   | Store_already_exists -> "execution store already exists"
   | Store_not_found -> "execution store does not exist"
   | Store_initialization_incomplete -> "execution store has an uncommitted initialization"
@@ -337,14 +377,42 @@ let fsync_directory dir =
      | exn -> Error (io_error "sync directory" exn))
 ;;
 
-let release_acquired_resources ?file lock_file claim =
-  Fun.protect
-    ~finally:(fun () -> release_writer_path claim)
-    (fun () ->
-       Fun.protect
-         ~finally:(fun () -> Eio.Resource.close lock_file)
-         (fun () -> Option.iter Eio.Resource.close file))
+let release_acquired_resources ?file lock_file claim claim_hook =
+  let close (operations, reserved) name resource =
+    match Eio.Resource.close resource with
+    | () -> operations, reserved
+    | exception
+        ((Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _) as exn) ->
+      let reserved =
+        match reserved with
+        | Some _ -> reserved
+        | None -> Some (exn, Printexc.get_raw_backtrace ())
+      in
+      operations, reserved
+    | exception exn -> (name ^ ": " ^ Printexc.to_string exn) :: operations, reserved
+  in
+  let cleanup =
+    match file with
+    | None -> [], None
+    | Some file -> close ([], None) "close WAL" file
+  in
+  let operations, reserved = close cleanup "close writer lock" lock_file in
+  ignore (Eio.Switch.try_remove_hook claim_hook);
+  release_writer_path claim;
+  match reserved with
+  | Some (exn, backtrace) -> Printexc.raise_with_backtrace exn backtrace
+  | None ->
+    (match List.rev operations with
+     | [] -> Ok ()
+     | operations -> Error (Resource_cleanup_failed { operations }))
 ;;
+
+let combine_cleanup primary = function
+  | Ok () -> Error primary
+  | Error cleanup -> Error (Construction_cleanup_failed { primary; cleanup })
+;;
+
+exception Cleanup_failed_after_exception of exn * error
 
 let acquire_writer_lock ~sw dir =
   let* writer_path =
@@ -363,42 +431,38 @@ let acquire_writer_lock ~sw dir =
   match claim_writer_path writer_path with
   | None -> Error Writer_already_active
   | Some claim ->
-    let lock_file = ref None in
-    let acquired = ref false in
-    Fun.protect
-      ~finally:(fun () ->
-        if not !acquired
-        then (
-          match !lock_file with
-          | Some file -> release_acquired_resources file claim
-          | None -> release_writer_path claim))
-      (fun () ->
-         Eio.Switch.on_release sw (fun () -> release_writer_path claim);
-         match
-           with_io "open writer lock" (fun () ->
-             Eio.Path.open_out ~sw ~create:(`If_missing 0o600) (lock_path dir))
-         with
-         | Error error -> Error error
-         | Ok file ->
-           lock_file := Some file;
-           (match Eio_unix.Resource.fd_opt file with
-            | None ->
-              Error
-                (Io_failure
-                   { operation = "lock writer"
-                   ; detail = "the writer lock is not backed by a Unix file descriptor"
-                   })
-            | Some fd ->
-              (try
-                 Eio_unix.Fd.use_exn "execution store writer lock" fd (fun unix_fd ->
-                   Eio_unix.run_in_systhread ~label:"execution store lockf" (fun () ->
-                     Unix.lockf unix_fd Unix.F_TLOCK 0));
-                 acquired := true;
-                 Ok (file, claim)
-               with
-               | Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
-                 Error Writer_already_active
-               | exn -> Error (io_error "lock writer" exn))))
+    let claim_hook =
+      Eio.Switch.on_release_cancellable sw (fun () -> release_writer_path claim)
+    in
+    (match
+       with_io "open writer lock" (fun () ->
+         Eio.Path.open_out ~sw ~create:(`If_missing 0o600) (lock_path dir))
+     with
+     | Error error ->
+       ignore (Eio.Switch.try_remove_hook claim_hook);
+       release_writer_path claim;
+       Error error
+     | Ok file ->
+       let fail primary =
+         combine_cleanup primary (release_acquired_resources file claim claim_hook)
+       in
+       (match Eio_unix.Resource.fd_opt file with
+        | None ->
+          fail
+            (Io_failure
+               { operation = "lock writer"
+               ; detail = "the writer lock is not backed by a Unix file descriptor"
+               })
+        | Some fd ->
+          (try
+             Eio_unix.Fd.use_exn "execution store writer lock" fd (fun unix_fd ->
+               Eio_unix.run_in_systhread ~label:"execution store lockf" (fun () ->
+                 Unix.lockf unix_fd Unix.F_TLOCK 0));
+             Ok (file, claim, claim_hook)
+           with
+           | Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
+             fail Writer_already_active
+           | exn -> fail (io_error "lock writer" exn))))
 ;;
 
 type frame_guard =
@@ -425,17 +489,25 @@ type committed_state =
   ; committed_offset : int64
   }
 
+type lifecycle =
+  | Unpublished of writer_claim
+  | Published
+  | Releasing
+  | Released
+
 type t =
   { scope_id : Scope_id.t
   ; correlation_id : Event.Correlation_id.t
   ; dir : Eio.Fs.dir_ty Eio.Path.t
   ; file : Eio.File.rw_ty Eio.Resource.t
   ; lock_file : Eio.File.rw_ty Eio.Resource.t
+  ; mutable claim_hook : Eio.Switch.hook
+  ; mutable lifecycle_hook : Eio.Switch.hook
   ; writer_gate : Eio.Mutex.t
   ; mu : Eio.Mutex.t
   ; mutable committed : committed_state
   ; mutable health : health
-  ; mutable attached : bool
+  ; mutable lifecycle : lifecycle
   }
 
 type writer = { store : t }
@@ -443,7 +515,7 @@ type writer = { store : t }
 let scope_id store = store.scope_id
 let correlation_id store = store.correlation_id
 let with_read store f = Eio.Mutex.use_ro store.mu f
-let with_state_write store f = Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro store.mu f)
+let with_state_write store f = Eio.Mutex.use_rw ~protect:true store.mu f
 let with_writer store f = Eio.Mutex.use_ro store.writer_gate f
 
 let fence_store store error =
@@ -457,17 +529,64 @@ let require_reconciliation store error =
   with_state_write store (fun () -> store.health <- Fenced error)
 ;;
 
-let last_seq store = with_read store (fun () -> store.committed.last_seq)
+let lifecycle_available = function
+  | Unpublished _ | Published -> true
+  | Releasing | Released -> false
+;;
+
+let require_available store =
+  with_read store (fun () ->
+    if lifecycle_available store.lifecycle then Ok () else Error Store_released)
+;;
+
+let last_seq store =
+  with_read store (fun () ->
+    if lifecycle_available store.lifecycle
+    then Ok store.committed.last_seq
+    else Error Store_released)
+;;
+
 let beginning_cursor store = { scope_id = store.scope_id; seq = 0 }
-let current_cursor store = { scope_id = store.scope_id; seq = last_seq store }
+
+let current_cursor store =
+  let+ seq = last_seq store in
+  { scope_id = store.scope_id; seq }
+;;
+
+let release_unpublished store =
+  Eio.Cancel.protect (fun () ->
+    match
+      with_state_write store (fun () ->
+        match store.lifecycle with
+        | Unpublished claim ->
+          store.lifecycle <- Releasing;
+          let claim_hook = store.claim_hook in
+          let lifecycle_hook = store.lifecycle_hook in
+          store.claim_hook <- Eio.Switch.null_hook;
+          store.lifecycle_hook <- Eio.Switch.null_hook;
+          Ok (Some (claim, claim_hook, lifecycle_hook))
+        | Releasing | Released -> Ok None
+        | Published -> Error Store_release_forbidden)
+    with
+    | Error _ as error -> error
+    | Ok None -> Ok ()
+    | Ok (Some (claim, claim_hook, lifecycle_hook)) ->
+      ignore (Eio.Switch.try_remove_hook lifecycle_hook);
+      Fun.protect
+        ~finally:(fun () ->
+          with_state_write store (fun () -> store.lifecycle <- Released))
+        (fun () ->
+           release_acquired_resources ~file:store.file store.lock_file claim claim_hook))
+;;
 
 let attach store =
   with_state_write store (fun () ->
-    if store.attached
-    then Error Store_already_attached
-    else (
-      store.attached <- true;
-      Ok { store }))
+    match store.lifecycle with
+    | Unpublished _ ->
+      store.lifecycle <- Published;
+      Ok { store }
+    | Published -> Error Store_already_attached
+    | Releasing | Released -> Error Store_released)
 ;;
 
 type decoded_frame =
@@ -1061,7 +1180,7 @@ let scan_store file ~file_size =
                 Error
                   (Corrupt_store
                      { offset = event_offset; detail = "batch event digest mismatch" })
-              else Ok (next_offset, expected_last, List.rev locations_rev)
+              else Ok (next_offset, expected_last, reverse_cooperatively locations_rev)
             | Complete_frame _ ->
               Error
                 (Corrupt_store
@@ -1140,6 +1259,8 @@ let make_store
       ~dir
       ~file
       ~lock_file
+      ~claim
+      ~claim_hook
       ~locations
       ~last_seq
       ~committed_offset
@@ -1149,25 +1270,40 @@ let make_store
   ; dir
   ; file
   ; lock_file
+  ; claim_hook
+  ; lifecycle_hook = Eio.Switch.null_hook
   ; writer_gate = Eio.Mutex.create ()
   ; mu = Eio.Mutex.create ()
   ; committed = { locations; last_seq; committed_offset }
   ; health = Writable
-  ; attached = false
+  ; lifecycle = Unpublished claim
   }
 ;;
 
-let protect_store_resources lock_file claim opened_file f =
-  let keep = ref false in
-  Fun.protect
-    ~finally:(fun () ->
-      if not !keep then release_acquired_resources ?file:!opened_file lock_file claim)
-    (fun () ->
-       let result = f () in
-       (match result with
-        | Ok _ -> keep := true
-        | Error _ -> ());
-       result)
+let bind_lifecycle_to_switch ~sw store =
+  store.lifecycle_hook
+  <- Eio.Switch.on_release_cancellable sw (fun () ->
+       with_state_write store (fun () ->
+         store.lifecycle_hook <- Eio.Switch.null_hook;
+         store.lifecycle <- Released));
+  store
+;;
+
+let protect_store_resources lock_file claim claim_hook opened_file f =
+  match f () with
+  | Ok _ as result -> result
+  | Error primary ->
+    combine_cleanup
+      primary
+      (release_acquired_resources ?file:!opened_file lock_file claim claim_hook)
+  | exception primary ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    (match release_acquired_resources ?file:!opened_file lock_file claim claim_hook with
+     | Ok () -> Printexc.raise_with_backtrace primary backtrace
+     | Error cleanup ->
+       Printexc.raise_with_backtrace
+         (Cleanup_failed_after_exception (primary, cleanup))
+         backtrace)
 ;;
 
 let create ~sw ~dir ?correlation_id () =
@@ -1175,9 +1311,9 @@ let create ~sw ~dir ?correlation_id () =
     with_io "check store directory" (fun () -> Eio.Path.is_directory dir)
   in
   let* () = if directory_exists then Ok () else Error Store_not_found in
-  let* lock_file, claim = acquire_writer_lock ~sw dir in
+  let* lock_file, claim, claim_hook = acquire_writer_lock ~sw dir in
   let opened_file = ref None in
-  protect_store_resources lock_file claim opened_file (fun () ->
+  protect_store_resources lock_file claim claim_hook opened_file (fun () ->
     let* wal_exists =
       with_io "check WAL existence" (fun () -> Eio.Path.is_file (wal_path dir))
     in
@@ -1267,15 +1403,19 @@ let create ~sw ~dir ?correlation_id () =
           | result -> result)
       in
       Ok
-        ( make_store
-            ~scope_id
-            ~correlation_id
-            ~dir
-            ~file
-            ~lock_file
-            ~locations:Sequence_map.empty
-            ~last_seq:0
-            ~committed_offset
+        ( bind_lifecycle_to_switch
+            ~sw
+            (make_store
+               ~scope_id
+               ~correlation_id
+               ~dir
+               ~file
+               ~lock_file
+               ~claim
+               ~claim_hook
+               ~locations:Sequence_map.empty
+               ~last_seq:0
+               ~committed_offset)
         , initialization ))
 ;;
 
@@ -1286,9 +1426,9 @@ let open_existing ~sw ~dir =
   if not directory_exists
   then Error Store_not_found
   else
-    let* lock_file, claim = acquire_writer_lock ~sw dir in
+    let* lock_file, claim, claim_hook = acquire_writer_lock ~sw dir in
     let opened_file = ref None in
-    protect_store_resources lock_file claim opened_file (fun () ->
+    protect_store_resources lock_file claim claim_hook opened_file (fun () ->
       let* wal_exists =
         with_io "check WAL existence" (fun () -> Eio.Path.is_file (wal_path dir))
       in
@@ -1412,15 +1552,19 @@ let open_existing ~sw ~dir =
         | actions -> Recovered actions
       in
       Ok
-        ( make_store
-            ~scope_id
-            ~correlation_id
-            ~dir
-            ~file
-            ~lock_file
-            ~locations
-            ~last_seq
-            ~committed_offset
+        ( bind_lifecycle_to_switch
+            ~sw
+            (make_store
+               ~scope_id
+               ~correlation_id
+               ~dir
+               ~file
+               ~lock_file
+               ~claim
+               ~claim_hook
+               ~locations
+               ~last_seq
+               ~committed_offset)
         , recovery ))
 ;;
 
@@ -1431,7 +1575,7 @@ let validate_append (store : t) ~expected_next_seq events =
     match events with
     | [] -> Error (Invalid_argument "append batch must contain at least one event")
     | _ ->
-      let count = List.length events in
+      let count = length_cooperatively events in
       let* () =
         if expected_next_seq > max_int - count + 1
         then
@@ -1463,7 +1607,8 @@ let validate_append (store : t) ~expected_next_seq events =
             | [] -> Ok ()
             | _ -> loop (expected + 1) rest)
       in
-      loop expected_next_seq events)
+      let+ () = loop expected_next_seq events in
+      count)
 ;;
 
 let location_at locations seq = Sequence_map.find seq locations
@@ -1552,7 +1697,7 @@ let read_range store ~committed_offset locations ~first_seq ~count =
   in
   let rec loop seq remaining events_rev =
     if remaining = 0
-    then Ok (List.rev events_rev)
+    then Ok (reverse_cooperatively events_rev)
     else (
       let location = location_at locations seq in
       let* event = read_location_locked store ~file_size:committed_offset location in
@@ -1667,13 +1812,12 @@ let prepare_frame ~file_offset kind payload =
   , payload_digest )
 ;;
 
-let append_new_batch store ~expected_next_seq events =
+let append_new_batch store ~expected_next_seq ~count events =
   let* batch_id =
     match Random_id.create () with
     | Ok value -> Ok value
     | Error detail -> Error (Identity_failure detail)
   in
-  let count = List.length events in
   let last_seq = expected_next_seq + count - 1 in
   let payloads = event_payloads events in
   let digest = events_digest payloads in
@@ -1734,7 +1878,7 @@ let append_new_batch store ~expected_next_seq events =
     let commit_write, committed_offset, _ =
       prepare_frame ~file_offset:commit_offset Batch_commit commit_payload
     in
-    let locations = List.rev locations_rev in
+    let locations = reverse_cooperatively locations_rev in
     let next_locations =
       List.fold_left
         (fun locations location ->
@@ -1753,7 +1897,7 @@ let append_new_batch store ~expected_next_seq events =
         }
     in
     let prepared =
-      { writes = List.rev (commit_write :: writes_rev)
+      { writes = reverse_cooperatively (commit_write :: writes_rev)
       ; committed = next_committed
       ; authority_payload
       }
@@ -1835,8 +1979,8 @@ let append_new_batch store ~expected_next_seq events =
       | Ok outcome -> Ok outcome))
 ;;
 
-let compare_committed store ~expected_next_seq events committed_last =
-  let last_seq = expected_next_seq + List.length events - 1 in
+let compare_committed store ~expected_next_seq ~count events committed_last =
+  let last_seq = expected_next_seq + count - 1 in
   if last_seq > committed_last
   then
     Error (Sequence_conflict { expected_next_seq; actual_next_seq = committed_last + 1 })
@@ -1865,20 +2009,22 @@ let compare_committed store ~expected_next_seq events committed_last =
 let append_batch writer ~expected_next_seq events =
   let store = writer.store in
   Eio.Fiber.check ();
-  let* () = validate_append store ~expected_next_seq events in
+  let* () = require_available store in
+  let* count = validate_append store ~expected_next_seq events in
   with_writer store (fun () ->
     Eio.Fiber.check ();
-    let health, committed_last =
-      with_read store (fun () -> store.health, store.committed.last_seq)
+    let lifecycle, health, committed_last =
+      with_read store (fun () -> store.lifecycle, store.health, store.committed.last_seq)
     in
-    match health with
-    | Fenced error -> Error error
-    | Writable ->
+    match lifecycle, health with
+    | (Releasing | Released), _ -> Error Store_released
+    | (Unpublished _ | Published), Fenced error -> Error error
+    | (Unpublished _ | Published), Writable ->
       let* () = verify_write_fence_locked store in
       if expected_next_seq = committed_last + 1
-      then append_new_batch store ~expected_next_seq events
+      then append_new_batch store ~expected_next_seq ~count events
       else if expected_next_seq <= committed_last
-      then compare_committed store ~expected_next_seq events committed_last
+      then compare_committed store ~expected_next_seq ~count events committed_last
       else
         Error
           (Sequence_conflict { expected_next_seq; actual_next_seq = committed_last + 1 }))
@@ -1893,6 +2039,7 @@ type page =
   }
 
 let read_page (store : t) ~(after : cursor) ?through ~limit () =
+  let* () = require_available store in
   if limit <= 0
   then Error (Invalid_argument "page limit must be positive")
   else if not (Scope_id.equal after.scope_id store.scope_id)
@@ -1905,9 +2052,10 @@ let read_page (store : t) ~(after : cursor) ?through ~limit () =
   else
     let* high, committed_offset, committed_locations, count =
       with_read store (fun () ->
-        match store.health with
-        | Fenced error -> Error error
-        | Writable ->
+        match store.lifecycle, store.health with
+        | (Releasing | Released), _ -> Error Store_released
+        | (Unpublished _ | Published), Fenced error -> Error error
+        | (Unpublished _ | Published), Writable ->
           let committed = store.committed in
           let current = committed.last_seq in
           let high =
@@ -1929,7 +2077,7 @@ let read_page (store : t) ~(after : cursor) ?through ~limit () =
         ~first_seq:(after.seq + 1)
         ~count
     in
-    let next_seq = after.seq + List.length events in
+    let next_seq = after.seq + count in
     Ok
       { events
       ; next_cursor = { scope_id = store.scope_id; seq = next_seq }
@@ -1940,11 +2088,13 @@ let read_page (store : t) ~(after : cursor) ?through ~limit () =
 ;;
 
 let load_all (store : t) =
+  let* () = require_available store in
   let* committed_offset, committed_locations, last_seq =
     with_read store (fun () ->
-      match store.health with
-      | Fenced error -> Error error
-      | Writable ->
+      match store.lifecycle, store.health with
+      | (Releasing | Released), _ -> Error Store_released
+      | (Unpublished _ | Published), Fenced error -> Error error
+      | (Unpublished _ | Published), Writable ->
         let committed = store.committed in
         Ok (committed.committed_offset, committed.locations, committed.last_seq))
   in

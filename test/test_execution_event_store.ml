@@ -5,6 +5,7 @@ module Journal = Execution_journal
 module Store = Execution_event_store
 
 exception Cancel_before_append
+exception Store_scope_failed
 
 let require_store = function
   | Ok value -> value
@@ -94,6 +95,20 @@ let rewrite_cursor cursor ~scope_id ~seq =
   | _ -> fail "cursor encoder did not produce an object"
 ;;
 
+let rewrite_event_seq event seq =
+  match Event.to_yojson event with
+  | `Assoc fields ->
+    (match List.assoc_opt "envelope" fields with
+     | Some (`Assoc envelope) ->
+       let envelope = ("seq", `Int seq) :: List.remove_assoc "seq" envelope in
+       let json =
+         `Assoc (("envelope", `Assoc envelope) :: List.remove_assoc "envelope" fields)
+       in
+       require_event (Event.of_yojson json)
+     | Some _ | None -> fail "event encoder did not return an envelope object")
+  | _ -> fail "event encoder did not return an object"
+;;
+
 let test_append_reopen_idempotency_and_paging () =
   Eio_main.run
   @@ fun env ->
@@ -155,7 +170,7 @@ let test_append_reopen_idempotency_and_paging () =
       (match recovery with
        | Store.Clean -> ()
        | _ -> fail "clean WAL reported recovery");
-      check int "recovered sequence" 4 (Store.last_seq store);
+      check int "recovered sequence" 4 (require_store (Store.last_seq store));
       check_events "full replay" !expected (require_store (Store.load_all store));
       let after = Option.get !first_cursor in
       let page = require_store (Store.read_page store ~after ~limit:8 ()) in
@@ -547,10 +562,10 @@ let test_uncommitted_initialization_is_explicitly_recovered () =
       (match initialization with
        | Store.Recovered_uncommitted_initialization -> ()
        | Store.Fresh -> fail "orphan initialization recovery was silent");
-      check int "recovered store begins empty" 0 (Store.last_seq store));
+      check int "recovered store begins empty" 0 (require_store (Store.last_seq store)));
     Eio.Switch.run (fun sw ->
       let store, recovery = require_store (open_store ~sw ~dir) in
-      check int "recovered store reopens" 0 (Store.last_seq store);
+      check int "recovered store reopens" 0 (require_store (Store.last_seq store));
       match recovery with
       | Store.Clean -> ()
       | _ -> fail "recovered initialization did not produce a clean WAL"))
@@ -566,7 +581,11 @@ let test_initial_commit_authority_is_rebuilt_explicitly () =
     Eio.Path.rename authority initializing;
     Eio.Switch.run (fun sw ->
       let store, recovery = require_store (open_store ~sw ~dir) in
-      check int "rebuilt authority keeps the empty store" 0 (Store.last_seq store);
+      check
+        int
+        "rebuilt authority keeps the empty store"
+        0
+        (require_store (Store.last_seq store));
       match recovery with
       | Store.Recovered
           [ Store.Discarded_uncommitted_authority; Store.Rebuilt_initial_authority ] -> ()
@@ -597,6 +616,32 @@ let test_failed_create_releases_writer_immediately () =
       | _ -> fail "create did not recover after its prior explicit failure"))
 ;;
 
+let test_failed_journal_replay_releases_store_immediately () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      let writer = attach_store store in
+      let invalid = List.nth (make_four_events (Store.correlation_id store)) 1 in
+      let invalid = rewrite_event_seq invalid 1 in
+      match Store.append_batch writer ~expected_next_seq:1 [ invalid ] with
+      | Ok Store.Stored -> ()
+      | Ok Store.Already_committed -> fail "invalid fixture was already committed"
+      | Error error -> fail (Store.error_to_string error));
+    Eio.Switch.run (fun sw ->
+      let expect_semantic_replay_failure () =
+        match Journal.open_durable_writer ~sw ~dir with
+        | Error
+            (Journal.Invariant_violation
+               (Journal.Unknown_parent_event _ | Journal.Unknown_parent_node _)) -> ()
+        | Error error -> fail (Journal.error_to_string error)
+        | Ok _ -> fail "semantically invalid WAL opened as a journal"
+      in
+      expect_semantic_replay_failure ();
+      expect_semantic_replay_failure ()))
+;;
+
 let test_create_unknown_outcome_reconciles_through_open () =
   Eio_main.run
   @@ fun env ->
@@ -611,7 +656,11 @@ let test_create_unknown_outcome_reconciles_through_open () =
     Eio.Path.rmtree ~missing_ok:false blocker;
     Eio.Switch.run (fun sw ->
       let store, recovery = require_store (open_store ~sw ~dir) in
-      check int "reconciled unknown create is empty" 0 (Store.last_seq store);
+      check
+        int
+        "reconciled unknown create is empty"
+        0
+        (require_store (Store.last_seq store));
       match recovery with
       | Store.Recovered [ Store.Rebuilt_initial_authority ] -> ()
       | _ -> fail "unknown create was not reconciled explicitly by open"))
@@ -630,15 +679,19 @@ let test_append_failure_rolls_back_before_authority () =
       (match Store.append_batch writer ~expected_next_seq:1 events with
        | Error (Store.Io_failure _) -> ()
        | _ -> fail "pre-authority append failure did not surface its I/O error");
-      check int "failed append did not advance store" 0 (Store.last_seq store);
+      check
+        int
+        "failed append did not advance store"
+        0
+        (require_store (Store.last_seq store));
       Eio.Path.rmtree ~missing_ok:false blocker;
       (match Store.append_batch writer ~expected_next_seq:1 events with
        | Ok Store.Stored -> ()
        | _ -> fail "append could not retry after proven rollback");
-      check int "retried append committed" 4 (Store.last_seq store));
+      check int "retried append committed" 4 (require_store (Store.last_seq store)));
     Eio.Switch.run (fun sw ->
       let store, recovery = require_store (open_store ~sw ~dir) in
-      check int "retried append reopens" 4 (Store.last_seq store);
+      check int "retried append reopens" 4 (require_store (Store.last_seq store));
       match recovery with
       | Store.Clean -> ()
       | _ -> fail "proven append rollback left recovery residue"))
@@ -666,7 +719,11 @@ let test_cancelled_append_does_not_mutate_store () =
         | exception Eio.Cancel.Cancelled _ -> true
       in
       check bool "append observed pre-existing cancellation" true cancelled;
-      check int "cancelled append did not publish" 0 (Store.last_seq store);
+      check
+        int
+        "cancelled append did not publish"
+        0
+        (require_store (Store.last_seq store));
       check string "cancelled append did not mutate WAL" wal_before (Eio.Path.load wal);
       check
         string
@@ -682,38 +739,61 @@ let test_journal_persists_before_publish_and_replays () =
   Eio_main.run
   @@ fun env ->
   with_temp_dir env (fun dir ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let run_handle = ref None in
     let opened_event = ref None in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
-      let journal = require_journal (Journal.create ~store ()) in
-      let run, opened =
-        require_journal (Journal.start_run journal ~agent_name:"durable-journal")
+      let writer, initialization =
+        require_journal (Journal.create_durable_writer ~sw ~dir ())
+      in
+      (match initialization with
+       | Store.Fresh -> ()
+       | Store.Recovered_uncommitted_initialization ->
+         fail "new durable journal recovered an unexpected initialization");
+      let journal = Journal.durable_writer_journal writer in
+      let batch, (run, opened) =
+        require_journal
+          (Journal.stage
+             (Journal.begin_durable_batch writer)
+             (Journal.Transaction.start_run ~agent_name:"durable-journal" ()))
       in
       run_handle := Some run;
       opened_event := Some opened;
-      check int "store committed before call returns" 1 (Store.last_seq store);
+      check_events
+        "durable commit returns the staged event"
+        [ opened ]
+        (require_journal (Journal.commit_durable_batch writer batch));
       check int "journal published one event" 1 (Journal.length journal));
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let writer, recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
       (match recovery with
        | Store.Clean -> ()
        | _ -> fail "unexpected recovery");
-      let journal = require_journal (Journal.create ~store ()) in
+      let journal = Journal.durable_writer_journal writer in
       check int "journal reducer replayed" 1 (Journal.length journal);
       check_events
         "replayed exact event"
         [ Option.get !opened_event ]
         (Journal.events journal);
-      ignore
-        (require_journal
-           (Journal.finish_run journal ~run:(Option.get !run_handle) Event.Succeeded));
-      check int "finish durably committed" 2 (Store.last_seq store));
+      let batch, _closed =
+        require_journal
+          (Journal.stage
+             (Journal.begin_durable_batch writer)
+             (Journal.Transaction.finish_run
+                ~run:(Option.get !run_handle)
+                Event.Succeeded))
+      in
+      ignore (require_journal (Journal.commit_durable_batch writer batch));
+      check int "finish durably committed" 2 (Journal.last_seq journal));
     Eio.Switch.run (fun sw ->
-      let store, _recovery = require_store (open_store ~sw ~dir) in
-      let journal = require_journal (Journal.create ~store ()) in
+      let writer, _recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
+      let journal = Journal.durable_writer_journal writer in
       check int "finished scope fully replayed" 2 (Journal.length journal);
-      match Journal.start_run journal ~agent_name:"second-top-level" with
+      match
+        Journal.stage
+          (Journal.begin_durable_batch writer)
+          (Journal.Transaction.start_run ~agent_name:"second-top-level" ())
+      with
       | Error (Journal.Invariant_violation Journal.Top_level_run_already_exists) -> ()
       | _ -> fail "recovered scope admitted a second top-level run"))
 ;;
@@ -725,14 +805,14 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let exact_events = ref [] in
     Eio.Switch.run (fun sw ->
-      let durable, initialization =
-        require_journal (Journal.create_durable ~sw ~dir ())
+      let writer, initialization =
+        require_journal (Journal.create_durable_writer ~sw ~dir ())
       in
       (match initialization with
        | Store.Fresh -> ()
        | Store.Recovered_uncommitted_initialization ->
          fail "new durable journal recovered an unexpected initialization");
-      let journal = Journal.durable_journal durable in
+      let journal = Journal.durable_writer_journal writer in
       let volatile = require_journal (Journal.create ()) in
       let foreign_batch, _ =
         require_journal
@@ -740,7 +820,7 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
              (Journal.begin_batch volatile)
              (Journal.Transaction.start_run ~agent_name:"volatile" ()))
       in
-      (match Journal.commit_durable_batch durable foreign_batch with
+      (match Journal.commit_durable_batch writer foreign_batch with
        | Error Journal.Durable_batch_owner_mismatch -> ()
        | Error error -> fail (Journal.error_to_string error)
        | Ok _ -> fail "durable capability accepted another journal's batch");
@@ -758,7 +838,7 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
       let batch, (run, opened_run) =
         require_journal
           (Journal.stage
-             (Journal.begin_batch journal)
+             (Journal.begin_durable_batch writer)
              (Journal.Transaction.start_run ~agent_name:"durable-batch" ()))
       in
       let batch, (turn, opened_turn) =
@@ -782,25 +862,25 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
           (Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded))
       in
       check int "no durable prefix is published before commit" 0 (Journal.length journal);
-      let committed = require_journal (Journal.commit_durable_batch durable batch) in
+      let committed = require_journal (Journal.commit_durable_batch writer batch) in
       let expected = [ opened_run; opened_turn; closed_turn; closed_run ] in
       check_events "durable commit keeps exact staged events" expected committed;
-      let visible, cursor =
-        require_journal (Journal.events_after journal ~after:beginning)
+      let page =
+        require_journal (Journal.read_page journal ~after:beginning ~limit:4 ())
       in
-      check_events "authority exposes the entire semantic batch" expected visible;
+      check_events "authority exposes the entire semantic batch" expected page.events;
       check
         int
         "authority advances from zero through all four events"
         4
-        (Journal.cursor_seq cursor);
+        (Journal.cursor_seq page.next_cursor);
       exact_events := expected);
     Eio.Switch.run (fun sw ->
-      let durable, recovery = require_journal (Journal.open_durable ~sw ~dir) in
+      let writer, recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
       (match recovery with
        | Store.Clean -> ()
        | Store.Recovered _ -> fail "clean durable batch required recovery");
-      let journal = Journal.durable_journal durable in
+      let journal = Journal.durable_writer_journal writer in
       check int "reopened authority retains final sequence" 4 (Journal.last_seq journal);
       check_events
         "reopen replays the exact atomic batch"
@@ -812,22 +892,35 @@ let test_external_wal_mutation_fails_without_journal_publish () =
   Eio_main.run
   @@ fun env ->
   with_temp_dir env (fun dir ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
-      let journal = require_journal (Journal.create ~store ()) in
-      let run, _opened =
-        require_journal (Journal.start_run journal ~agent_name:"mutation-fence")
+      let writer, _initialization =
+        require_journal (Journal.create_durable_writer ~sw ~dir ())
       in
+      let journal = Journal.durable_writer_journal writer in
+      let batch, (run, _opened) =
+        require_journal
+          (Journal.stage
+             (Journal.begin_durable_batch writer)
+             (Journal.Transaction.start_run ~agent_name:"mutation-fence" ()))
+      in
+      ignore (require_journal (Journal.commit_durable_batch writer batch));
       let before = Journal.events journal in
       let wal = Eio.Path.(dir / "events.v1.wal") in
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.File.sync file);
-      (match Journal.finish_run journal ~run Event.Succeeded with
+      let finish_batch, _closed =
+        require_journal
+          (Journal.stage
+             (Journal.begin_durable_batch writer)
+             (Journal.Transaction.finish_run ~run Event.Succeeded))
+      in
+      (match Journal.commit_durable_batch writer finish_batch with
        | Error (Journal.Persistence_failure (Store.Corrupt_store _)) -> ()
        | _ -> fail "physical WAL drift did not surface as persistence failure");
       check_events "failed persistence did not publish" before (Journal.events journal);
       check int "failed persistence did not advance reducer" 1 (Journal.length journal);
-      match Journal.finish_run journal ~run Event.Succeeded with
+      match Journal.commit_durable_batch writer finish_batch with
       | Error (Journal.Persistence_failure (Store.Store_poisoned _)) -> ()
       | _ -> fail "detected physical WAL drift did not fence later journal writes"))
 ;;
@@ -862,6 +955,322 @@ let test_cursor_scope_and_writer_exclusivity () =
       match Store.read_page store ~after:cursor ~limit:0 () with
       | Error (Store.Invalid_argument _) -> ()
       | _ -> fail "non-positive page size was accepted"))
+;;
+
+let stage_started_batch writer agent_name =
+  Journal.stage
+    (Journal.begin_durable_batch writer)
+    (Journal.Transaction.start_run ~agent_name ())
+  |> require_journal
+;;
+
+let stage_finished_batch writer agent_name =
+  let batch, (run, opened_run) = stage_started_batch writer agent_name in
+  let batch, (turn, opened_turn) =
+    require_journal
+      (Journal.stage
+         batch
+         (Journal.Transaction.open_node
+            ~run
+            ~parent:(Journal.run_root run)
+            ~kind:(Event.Agent_turn { ordinal = 0 })
+            ()))
+  in
+  let batch, closed_turn =
+    require_journal
+      (Journal.stage batch (Journal.Transaction.close_node ~node:turn Event.Succeeded))
+  in
+  let batch, closed_run =
+    require_journal
+      (Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded))
+  in
+  batch, [ opened_run; opened_turn; closed_turn; closed_run ]
+;;
+
+let test_durable_writer_rejects_direct_mutation () =
+  Eio_main.run
+  @@ fun env ->
+  (match
+     Journal.commit_error_disposition
+       (Journal.Persistence_failure (Store.Commit_outcome_unknown "test fence"))
+   with
+   | Journal.Reconcile_required -> ()
+   | Journal.Final_failure ->
+     fail "unknown commit outcome was not routed to reconciliation");
+  (match Journal.commit_error_disposition Journal.Direct_mutation_forbidden with
+   | Journal.Final_failure -> ()
+   | Journal.Reconcile_required ->
+     fail "definite writer conflict requested reconciliation");
+  with_temp_dir env (fun dir ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+    Eio.Switch.run (fun sw ->
+      let writer, _initialization =
+        require_journal (Journal.create_durable_writer ~sw ~dir ())
+      in
+      let journal = Journal.durable_writer_journal writer in
+      (match Journal.start_run journal ~agent_name:"bypass" with
+       | Error Journal.Direct_mutation_forbidden -> ()
+       | Error error -> fail (Journal.error_to_string error)
+       | Ok _ -> fail "start_run bypassed the durable actor claim");
+      let batch, (run, _opened) = stage_started_batch writer "claimed" in
+      let metadata = Journal.batch_metadata batch in
+      check int "durable batch base cursor" 0 (Journal.cursor_seq metadata.base_cursor);
+      check int "durable batch final cursor" 1 (Journal.cursor_seq metadata.final_cursor);
+      (match Journal.commit_batch batch with
+       | Error Journal.Direct_mutation_forbidden -> ()
+       | Error error -> fail (Journal.error_to_string error)
+       | Ok _ -> fail "commit_batch bypassed the durable actor claim");
+      check int "rejected direct commits do not publish" 0 (Journal.length journal);
+      ignore (require_journal (Journal.commit_durable_batch writer batch));
+      (match Journal.finish_run journal ~run Event.Succeeded with
+       | Error Journal.Direct_mutation_forbidden -> ()
+       | Error error -> fail (Journal.error_to_string error)
+       | Ok _ -> fail "finish_run bypassed the durable actor claim");
+      (match
+         Journal.abort_run
+           journal
+           ~run
+           (Event.Cancelled { reason = Some "bypass"; data = None })
+       with
+       | Error Journal.Direct_mutation_forbidden -> ()
+       | Error error -> fail (Journal.error_to_string error)
+       | Ok _ -> fail "abort_run bypassed the durable actor claim");
+      check int "rejected direct paths do not publish" 1 (Journal.length journal)))
+;;
+
+let test_reopened_writer_reconciles_only_exact_batch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun root ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 root;
+    let applied_dir = Eio.Path.(root / "applied") in
+    let sequence_dir = Eio.Path.(root / "sequence") in
+    let content_dir = Eio.Path.(root / "content") in
+    let foreign_dir = Eio.Path.(root / "foreign") in
+    List.iter
+      (fun dir -> Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir)
+      [ applied_dir; sequence_dir; content_dir; foreign_dir ];
+    let applied_batch = ref None in
+    let applied_events = ref [] in
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.create_durable_writer ~sw ~dir:applied_dir ())
+      in
+      let batch, (_run, opened) = stage_started_batch writer "reconcile-applied" in
+      applied_batch := Some batch;
+      applied_events := [ opened ]);
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.open_durable_writer ~sw ~dir:applied_dir)
+      in
+      match
+        require_journal
+          (Journal.reconcile_durable_batch writer (Option.get !applied_batch))
+      with
+      | Journal.Applied events ->
+        check_events "reconcile applies exact staged events" !applied_events events
+      | Journal.Already_durable _ -> fail "uncommitted batch was reported durable");
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.open_durable_writer ~sw ~dir:applied_dir)
+      in
+      match
+        require_journal
+          (Journal.reconcile_durable_batch writer (Option.get !applied_batch))
+      with
+      | Journal.Already_durable events ->
+        check_events "reconcile compares the exact committed range" !applied_events events
+      | Journal.Applied _ -> fail "committed batch was applied twice");
+    let sequence_batch = ref None in
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.create_durable_writer ~sw ~dir:sequence_dir ())
+      in
+      sequence_batch := Some (fst (stage_finished_batch writer "four-events"));
+      let winner, _ = stage_started_batch writer "one-event" in
+      ignore (require_journal (Journal.commit_durable_batch writer winner)));
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.open_durable_writer ~sw ~dir:sequence_dir)
+      in
+      match Journal.reconcile_durable_batch writer (Option.get !sequence_batch) with
+      | Error
+          (Journal.Reconciliation_conflict
+             { base_seq = 0; final_seq = 4; current_seq = 1 }) -> ()
+      | Error error -> fail (Journal.error_to_string error)
+      | Ok _ -> fail "reconcile guessed across an intermediate sequence");
+    let conflicting_batch = ref None in
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.create_durable_writer ~sw ~dir:content_dir ())
+      in
+      conflicting_batch := Some (fst (stage_started_batch writer "candidate"));
+      let winner, _ = stage_started_batch writer "different-bytes" in
+      ignore (require_journal (Journal.commit_durable_batch writer winner)));
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.open_durable_writer ~sw ~dir:content_dir)
+      in
+      match Journal.reconcile_durable_batch writer (Option.get !conflicting_batch) with
+      | Error (Journal.Reconciliation_content_conflict { first_seq = 1; last_seq = 1 }) ->
+        ()
+      | Error error -> fail (Journal.error_to_string error)
+      | Ok _ -> fail "reconcile accepted different canonical event bytes");
+    Eio.Switch.run (fun sw ->
+      let writer, _ =
+        require_journal (Journal.create_durable_writer ~sw ~dir:foreign_dir ())
+      in
+      match Journal.reconcile_durable_batch writer (Option.get !applied_batch) with
+      | Error Journal.Reconciliation_scope_mismatch -> ()
+      | Error error -> fail (Journal.error_to_string error)
+      | Ok _ -> fail "reconcile accepted a batch from another scope"))
+;;
+
+let test_store_lifecycle_transition_matrix () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      ignore (require_store (Store.release_unpublished store));
+      ignore (require_store (Store.release_unpublished store));
+      (match Store.attach store with
+       | Error Store.Store_released -> ()
+       | Error error -> fail (Store.error_to_string error)
+       | Ok _ -> fail "released unpublished store minted a writer");
+      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let writer = attach_store reopened in
+      (match Store.release_unpublished reopened with
+       | Error Store.Store_release_forbidden -> ()
+       | Error error -> fail (Store.error_to_string error)
+       | Ok () -> fail "published store released switch-owned resources");
+      let events = make_four_events (Store.correlation_id reopened) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
+      check
+        int
+        "published store remains writable"
+        4
+        (require_store (Store.last_seq reopened))))
+;;
+
+let test_explicit_release_removes_long_lived_switch_hooks () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw ->
+      let release_and_keep_only_weak_reference () =
+        let store = create_store ~sw ~dir in
+        let weak = Weak.create 1 in
+        Weak.set weak 0 (Some store);
+        ignore (require_store (Store.release_unpublished store));
+        weak
+      in
+      let released = release_and_keep_only_weak_reference () in
+      Gc.full_major ();
+      (match Weak.get released 0 with
+       | None -> ()
+       | Some _ -> fail "released store remained retained by a long-lived switch hook");
+      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      ignore (require_store (Store.release_unpublished reopened))))
+;;
+
+let test_unpublished_store_is_released_with_switch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    let escaped = ref None in
+    Eio.Switch.run (fun sw -> escaped := Some (create_store ~sw ~dir));
+    let store = Option.get !escaped in
+    (match Store.attach store with
+     | Error Store.Store_released -> ()
+     | Error error -> fail (Store.error_to_string error)
+     | Ok _ -> fail "switch-released store minted a writer");
+    (match Store.last_seq store with
+     | Error Store.Store_released -> ()
+     | Error error -> fail (Store.error_to_string error)
+     | Ok _ -> fail "switch-released store exposed a stale sequence");
+    Eio.Switch.run (fun sw ->
+      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      ignore (attach_store reopened)))
+;;
+
+let test_unpublished_store_is_released_with_failed_switch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    let escaped = ref None in
+    (match
+       Eio.Switch.run (fun sw ->
+         escaped := Some (create_store ~sw ~dir);
+         Eio.Switch.fail sw Store_scope_failed)
+     with
+     | () -> fail "failed switch returned normally"
+     | exception Store_scope_failed -> ()
+     | exception exn -> raise exn);
+    let store = Option.get !escaped in
+    (match Store.last_seq store with
+     | Error Store.Store_released -> ()
+     | Error error -> fail (Store.error_to_string error)
+     | Ok _ -> fail "failed-switch store exposed a stale sequence");
+    Eio.Switch.run (fun sw ->
+      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      ignore (attach_store reopened)))
+;;
+
+let test_published_store_rejects_use_after_switch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    let escaped_store = ref None in
+    let escaped_writer = ref None in
+    let events = ref [] in
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      let writer = attach_store store in
+      let committed = make_four_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 committed));
+      escaped_store := Some store;
+      escaped_writer := Some writer;
+      events := committed);
+    let store = Option.get !escaped_store in
+    let writer = Option.get !escaped_writer in
+    let next_events =
+      List.mapi (fun index event -> rewrite_event_seq event (index + 5)) !events
+    in
+    let expect_released = function
+      | Error Store.Store_released -> ()
+      | Error error -> fail (Store.error_to_string error)
+      | Ok _ -> fail "switch-released store operation succeeded"
+    in
+    expect_released (Store.last_seq store);
+    expect_released (Store.current_cursor store);
+    expect_released (Store.load_all store);
+    expect_released
+      (Store.read_page store ~after:(Store.beginning_cursor store) ~limit:1 ());
+    expect_released (Store.append_batch writer ~expected_next_seq:5 next_events);
+    Eio.Switch.run (fun sw ->
+      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let current_writer = attach_store reopened in
+      check
+        int
+        "new owner sees committed prefix"
+        4
+        (require_store (Store.last_seq reopened));
+      expect_released (Store.append_batch writer ~expected_next_seq:5 next_events);
+      check
+        int
+        "stale writer cannot move the new owner's authority"
+        4
+        (require_store (Store.last_seq reopened));
+      (match Store.append_batch current_writer ~expected_next_seq:5 next_events with
+       | Ok Store.Stored -> ()
+       | Ok Store.Already_committed -> fail "valid next batch was already committed"
+       | Error error -> fail (Store.error_to_string error));
+      check
+        int
+        "new owner commits the valid next batch"
+        8
+        (require_store (Store.last_seq reopened))))
 ;;
 
 let () =
@@ -921,6 +1330,10 @@ let () =
             `Quick
             test_failed_create_releases_writer_immediately
         ; test_case
+            "failed journal replay releases store immediately"
+            `Quick
+            test_failed_journal_replay_releases_store_immediately
+        ; test_case
             "create unknown outcome reconciles through open"
             `Quick
             test_create_unknown_outcome_reconciles_through_open
@@ -948,6 +1361,34 @@ let () =
             "cursor scope and writer exclusivity"
             `Quick
             test_cursor_scope_and_writer_exclusivity
+        ; test_case
+            "durable writer rejects direct mutation"
+            `Quick
+            test_durable_writer_rejects_direct_mutation
+        ; test_case
+            "reopened writer reconciles only an exact batch"
+            `Quick
+            test_reopened_writer_reconciles_only_exact_batch
+        ; test_case
+            "store lifecycle transitions are explicit"
+            `Quick
+            test_store_lifecycle_transition_matrix
+        ; test_case
+            "explicit release removes long-lived switch hooks"
+            `Quick
+            test_explicit_release_removes_long_lived_switch_hooks
+        ; test_case
+            "unpublished store is released with switch"
+            `Quick
+            test_unpublished_store_is_released_with_switch
+        ; test_case
+            "unpublished store is released with failed switch"
+            `Quick
+            test_unpublished_store_is_released_with_failed_switch
+        ; test_case
+            "published store rejects use after switch"
+            `Quick
+            test_published_store_rejects_use_after_switch
         ] )
     ]
 ;;
