@@ -139,42 +139,17 @@ let manual_event ~correlation_id ~run_id ~seq ?parent_event_id payload =
 ;;
 
 let legacy_recursive_events correlation_id =
-  let parent_run_id = fresh Event.Run_id.fresh in
-  let child_run_id = fresh Event.Run_id.fresh in
-  let root_id = fresh Event.Node_id.fresh in
-  let turn_id = fresh Event.Node_id.fresh in
-  let provider_id = fresh Event.Node_id.fresh in
-  let invocation_id = fresh Event.Node_id.fresh in
-  let child_root_id = fresh Event.Node_id.fresh in
-  let node ~node_id ~run_id ~parent_node_id ~kind =
-    require_event (Event.make_node ~node_id ~run_id ~parent_node_id ~kind)
+  let journal = require_journal (Journal.create ~correlation_id ()) in
+  let parent_run, _ =
+    require_journal (Journal.start_run journal ~agent_name:"legacy-parent")
   in
-  let open_node ~run_id ~seq ?parent_event node =
-    manual_event
-      ~correlation_id
-      ~run_id
-      ~seq
-      ?parent_event_id:
-        (Option.map Event.event_id parent_event |> Option.map Event.Event_id.to_string)
-      (Event.Node_opened node)
-  in
-  let root =
-    node
-      ~node_id:root_id
-      ~run_id:parent_run_id
-      ~parent_node_id:None
-      ~kind:(Event.Agent_run { agent_name = "legacy-parent" })
-  in
-  let root_opened = open_node ~run_id:parent_run_id ~seq:1 root in
-  let turn =
-    node
-      ~node_id:turn_id
-      ~run_id:parent_run_id
-      ~parent_node_id:(Some root_id)
-      ~kind:(Event.Agent_turn { ordinal = 0 })
-  in
-  let turn_opened =
-    open_node ~run_id:parent_run_id ~seq:2 ~parent_event:root_opened turn
+  let turn, _ =
+    require_journal
+      (Journal.open_node
+         journal
+         ~run:parent_run
+         ~parent:(Journal.run_root parent_run)
+         ~kind:(Event.Agent_turn { ordinal = 0 }))
   in
   let config =
     Llm_provider.Provider_config.make
@@ -191,67 +166,56 @@ let legacy_recursive_events correlation_id =
     |> require_event
   in
   let provider_kind = require_event (Event.provider_attempt ~ordinal:0 binding) in
-  let provider =
-    node
-      ~node_id:provider_id
-      ~run_id:parent_run_id
-      ~parent_node_id:(Some turn_id)
-      ~kind:provider_kind
+  let provider, _ =
+    require_journal
+      (Journal.open_node journal ~run:parent_run ~parent:turn ~kind:provider_kind)
   in
-  let provider_opened =
-    open_node ~run_id:parent_run_id ~seq:3 ~parent_event:turn_opened provider
-  in
-  let invocation =
-    node
-      ~node_id:invocation_id
-      ~run_id:parent_run_id
-      ~parent_node_id:(Some provider_id)
-      ~kind:
-        (Event.Tool_invocation
-           { provider_tool_use_id = Some "legacy-tool-use"
-           ; tool_name = "legacy-tool"
-           ; schedule =
-               { planned_index = 0
-               ; batch_index = 0
-               ; batch_size = 1
-               ; execution_mode = Tool.Serial
-               }
-           })
-  in
-  let invocation_opened =
-    open_node ~run_id:parent_run_id ~seq:4 ~parent_event:provider_opened invocation
+  let invocation, _ =
+    require_journal
+      (Journal.open_node
+         journal
+         ~run:parent_run
+         ~parent:provider
+         ~kind:
+           (Event.Tool_invocation
+              { provider_tool_use_id = Some "legacy-tool-use"
+              ; tool_name = "legacy-tool"
+              ; schedule =
+                  { planned_index = 0
+                  ; batch_index = 0
+                  ; batch_size = 1
+                  ; execution_mode = Tool.Serial
+                  }
+              }))
   in
   let input_materialized =
-    manual_event
-      ~correlation_id
-      ~run_id:parent_run_id
-      ~seq:5
-      ~parent_event_id:(Event.Event_id.to_string (Event.event_id invocation_opened))
-      (Event.Node_updated
-         { node_id = invocation_id
-         ; update =
-             Event.Tool_input_snapshot
-               (Llm_provider.Types.ToolUse
-                  { id = "legacy-tool-use"; name = "legacy-tool"; input = `Assoc [] })
-         })
+    require_journal
+      (Journal.update_node
+         journal
+         ~node:invocation
+         (Event.Tool_input_snapshot
+            (Llm_provider.Types.ToolUse
+               { id = "legacy-tool-use"; name = "legacy-tool"; input = `Assoc [] })))
   in
+  let child_run_id = fresh Event.Run_id.fresh in
+  let child_root_id = fresh Event.Node_id.fresh in
   let child_root =
-    node
-      ~node_id:child_root_id
-      ~run_id:child_run_id
-      ~parent_node_id:(Some invocation_id)
-      ~kind:(Event.Agent_run { agent_name = "legacy-child" })
+    require_event
+      (Event.make_node
+         ~node_id:child_root_id
+         ~run_id:child_run_id
+         ~parent_node_id:(Some invocation)
+         ~kind:(Event.Agent_run { agent_name = "legacy-child" }))
   in
   let child_opened =
-    open_node ~run_id:child_run_id ~seq:6 ~parent_event:input_materialized child_root
+    manual_event
+      ~correlation_id
+      ~run_id:child_run_id
+      ~seq:(Journal.last_seq journal + 1)
+      ~parent_event_id:(Event.Event_id.to_string (Event.event_id input_materialized))
+      (Event.Node_opened child_root)
   in
-  [ root_opened
-  ; turn_opened
-  ; provider_opened
-  ; invocation_opened
-  ; input_materialized
-  ; child_opened
-  ]
+  Journal.events journal @ [ child_opened ]
 ;;
 
 let rec reverse_failure_data = function
