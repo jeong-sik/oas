@@ -2,14 +2,17 @@ open Alcotest
 open Llm_provider
 open Input_token_count
 
+(* Each protocol paired with a builder for its provider-native success body.
+   Anthropic count_tokens and Gemini countTokens report at the top level; the
+   OpenAI Responses API nests the count inside the "usage" envelope. *)
 let protocols =
-  [ Anthropic_messages_count_tokens, "input_tokens"
-  ; Openai_responses_input_tokens, "input_tokens"
-  ; Gemini_count_tokens, "totalTokens"
+  [ ( Anthropic_messages_count_tokens
+    , fun value -> Printf.sprintf {|{"input_tokens":%s}|} value )
+  ; ( Openai_responses_input_tokens
+    , fun value -> Printf.sprintf {|{"usage":{"input_tokens":%s}}|} value )
+  ; (Gemini_count_tokens, fun value -> Printf.sprintf {|{"totalTokens":%s}|} value)
   ]
 ;;
-
-let body field value = Printf.sprintf {|{"%s":%s}|} field value
 
 let expect_count ~protocol ~model_id expected response =
   match decode_response ~protocol ~model_id response with
@@ -32,15 +35,15 @@ let expect_invalid ~protocol ~model_id response =
 
 let test_positive_counts () =
   List.iter
-    (fun (protocol, field) ->
-       expect_count ~protocol ~model_id:"model/exact" 42 (body field "42"))
+    (fun (protocol, make_body) ->
+       expect_count ~protocol ~model_id:"model/exact" 42 (make_body "42"))
     protocols
 ;;
 
 let test_zero_is_valid () =
   List.iter
-    (fun (protocol, field) ->
-       expect_count ~protocol ~model_id:"zero-model" 0 (body field "0"))
+    (fun (protocol, make_body) ->
+       expect_count ~protocol ~model_id:"zero-model" 0 (make_body "0"))
     protocols
 ;;
 
@@ -53,25 +56,25 @@ let test_missing_field_is_invalid () =
 
 let test_non_integer_is_invalid () =
   List.iter
-    (fun (protocol, field) ->
-       expect_invalid ~protocol ~model_id:"non-integer-model" (body field {|1.5|}))
+    (fun (protocol, make_body) ->
+       expect_invalid ~protocol ~model_id:"non-integer-model" (make_body {|1.5|}))
     protocols
 ;;
 
 let test_negative_is_invalid () =
   List.iter
-    (fun (protocol, field) ->
-       expect_invalid ~protocol ~model_id:"negative-model" (body field "-1"))
+    (fun (protocol, make_body) ->
+       expect_invalid ~protocol ~model_id:"negative-model" (make_body "-1"))
     protocols
 ;;
 
 let test_out_of_range_is_invalid () =
   List.iter
-    (fun (protocol, field) ->
+    (fun (protocol, make_body) ->
        expect_invalid
          ~protocol
          ~model_id:"out-of-range-model"
-         (body field "999999999999999999999999999999999999"))
+         (make_body "999999999999999999999999999999999999"))
     protocols
 ;;
 
@@ -81,6 +84,19 @@ let test_malformed_and_non_object_are_invalid () =
        expect_invalid ~protocol ~model_id:"bad-json-model" "{";
        expect_invalid ~protocol ~model_id:"array-model" "[]")
     protocols
+;;
+
+let test_responses_usage_envelope_is_required () =
+  (* A top-level count is the Anthropic shape; the Responses protocol must
+     reject it rather than silently reading a sibling field. *)
+  expect_invalid
+    ~protocol:Openai_responses_input_tokens
+    ~model_id:"flat-shape-model"
+    {|{"input_tokens":42}|};
+  expect_invalid
+    ~protocol:Openai_responses_input_tokens
+    ~model_id:"usage-non-object-model"
+    {|{"usage":[]}|}
 ;;
 
 let test_transport_error_is_preserved () =
@@ -127,6 +143,10 @@ let () =
             "malformed and non-object are invalid"
             `Quick
             test_malformed_and_non_object_are_invalid
+        ; test_case
+            "responses usage envelope is required"
+            `Quick
+            test_responses_usage_envelope_is_required
         ] )
     ; ( "transport"
       , [ test_case
