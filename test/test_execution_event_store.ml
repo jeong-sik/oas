@@ -718,6 +718,96 @@ let test_journal_persists_before_publish_and_replays () =
       | _ -> fail "recovered scope admitted a second top-level run"))
 ;;
 
+let test_durable_journal_batch_commits_one_exact_authority_step () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+    let exact_events = ref [] in
+    Eio.Switch.run (fun sw ->
+      let durable, initialization =
+        require_journal (Journal.create_durable ~sw ~dir ())
+      in
+      (match initialization with
+       | Store.Fresh -> ()
+       | Store.Recovered_uncommitted_initialization ->
+         fail "new durable journal recovered an unexpected initialization");
+      let journal = Journal.durable_journal durable in
+      let volatile = require_journal (Journal.create ()) in
+      let foreign_batch, _ =
+        require_journal
+          (Journal.stage
+             (Journal.begin_batch volatile)
+             (Journal.Transaction.start_run ~agent_name:"volatile" ()))
+      in
+      (match Journal.commit_durable_batch durable foreign_batch with
+       | Error Journal.Durable_batch_owner_mismatch -> ()
+       | Error error -> fail (Journal.error_to_string error)
+       | Ok _ -> fail "durable capability accepted another journal's batch");
+      check
+        int
+        "ownership rejection leaves durable journal empty"
+        0
+        (Journal.length journal);
+      check
+        int
+        "ownership rejection leaves volatile batch unpublished"
+        0
+        (Journal.length volatile);
+      let beginning = Journal.beginning_cursor journal in
+      let batch, (run, opened_run) =
+        require_journal
+          (Journal.stage
+             (Journal.begin_batch journal)
+             (Journal.Transaction.start_run ~agent_name:"durable-batch" ()))
+      in
+      let batch, (turn, opened_turn) =
+        require_journal
+          (Journal.stage
+             batch
+             (Journal.Transaction.open_node
+                ~run
+                ~parent:(Journal.run_root run)
+                ~kind:(Event.Agent_turn { ordinal = 0 })
+                ()))
+      in
+      let batch, closed_turn =
+        require_journal
+          (Journal.stage
+             batch
+             (Journal.Transaction.close_node ~node:turn Event.Succeeded))
+      in
+      let batch, closed_run =
+        require_journal
+          (Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded))
+      in
+      check int "no durable prefix is published before commit" 0 (Journal.length journal);
+      let committed = require_journal (Journal.commit_durable_batch durable batch) in
+      let expected = [ opened_run; opened_turn; closed_turn; closed_run ] in
+      check_events "durable commit keeps exact staged events" expected committed;
+      let visible, cursor =
+        require_journal (Journal.events_after journal ~after:beginning)
+      in
+      check_events "authority exposes the entire semantic batch" expected visible;
+      check
+        int
+        "authority advances from zero through all four events"
+        4
+        (Journal.cursor_seq cursor);
+      exact_events := expected);
+    Eio.Switch.run (fun sw ->
+      let durable, recovery = require_journal (Journal.open_durable ~sw ~dir) in
+      (match recovery with
+       | Store.Clean -> ()
+       | Store.Recovered _ -> fail "clean durable batch required recovery");
+      let journal = Journal.durable_journal durable in
+      check int "reopened authority retains final sequence" 4 (Journal.last_seq journal);
+      check_events
+        "reopen replays the exact atomic batch"
+        !exact_events
+        (Journal.events journal)))
+;;
+
 let test_external_wal_mutation_fails_without_journal_publish () =
   Eio_main.run
   @@ fun env ->
@@ -846,6 +936,10 @@ let () =
             "journal persists before publish and replays"
             `Quick
             test_journal_persists_before_publish_and_replays
+        ; test_case
+            "durable journal batch commits one exact authority step"
+            `Quick
+            test_durable_journal_batch_commits_one_exact_authority_step
         ; test_case
             "external WAL mutation fails without publish"
             `Quick

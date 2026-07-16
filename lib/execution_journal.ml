@@ -157,6 +157,12 @@ type error =
   | Invalid_argument of string
   | Invalid_event of string
   | Identity_failure of string
+  | Empty_batch
+  | Durable_batch_owner_mismatch
+  | Stale_batch of
+      { expected_last_seq : int
+      ; actual_last_seq : int
+      }
   | Cursor_scope_mismatch
   | Cursor_ahead of
       { after_seq : int
@@ -169,6 +175,14 @@ let error_to_string = function
   | Invalid_argument detail -> "invalid execution journal argument: " ^ detail
   | Invalid_event detail -> "invalid execution event: " ^ detail
   | Identity_failure detail -> "execution journal identity allocation failed: " ^ detail
+  | Empty_batch -> "execution journal batch contains no semantic mutations"
+  | Durable_batch_owner_mismatch ->
+    "execution journal durable capability does not own the staged batch"
+  | Stale_batch { expected_last_seq; actual_last_seq } ->
+    Printf.sprintf
+      "execution journal batch base is stale: expected last sequence %d but found %d"
+      expected_last_seq
+      actual_last_seq
   | Cursor_scope_mismatch -> "execution journal cursor belongs to another scope"
   | Cursor_ahead { after_seq; last_seq } ->
     Printf.sprintf
@@ -806,6 +820,8 @@ type t =
   ; mutable state : journal_state
   }
 
+type durable = { journal : t }
+
 let with_read journal f = Eio.Mutex.use_ro journal.mu (fun () -> f journal.state)
 
 let with_state_write journal f =
@@ -997,7 +1013,7 @@ let node_last_event (state : journal_state) node_id =
   | Some event_id -> Ok event_id
 ;;
 
-let start_run ?parent_invocation ?causes journal ~agent_name =
+let stage_start_run ?parent_invocation ?causes journal state ~agent_name =
   let* run_id = identity_result (Event.Run_id.fresh ()) in
   let* root = identity_result (Event.Node_id.fresh ()) in
   let* event_id = identity_result (Event.Event_id.fresh ()) in
@@ -1013,21 +1029,20 @@ let start_run ?parent_invocation ?causes journal ~agent_name =
     | Error detail -> Error (Invalid_argument detail)
   in
   let* payload = payload_result (Event.validate_payload (Event.Node_opened node)) in
-  with_write journal (fun state ->
-    let* parent_event_id =
-      match parent_invocation with
-      | None -> Ok None
-      | Some node_id ->
-        let+ event_id = node_last_event state node_id in
-        Some event_id
-    in
-    let+ mutation =
-      append_one journal state ~event_id ~run_id ~parent_event_id ?causes payload
-    in
-    { next_state = mutation.next_state
-    ; events = mutation.events
-    ; value = { id = run_id; root }, mutation.value
-    })
+  let* parent_event_id =
+    match parent_invocation with
+    | None -> Ok None
+    | Some node_id ->
+      let+ event_id = node_last_event state node_id in
+      Some event_id
+  in
+  let+ mutation =
+    append_one journal state ~event_id ~run_id ~parent_event_id ?causes payload
+  in
+  { next_state = mutation.next_state
+  ; events = mutation.events
+  ; value = { id = run_id; root }, mutation.value
+  }
 ;;
 
 let validate_run_handle (state : journal_state) run =
@@ -1040,7 +1055,7 @@ let validate_run_handle (state : journal_state) run =
   | Some { status = Running; _ } -> Ok ()
 ;;
 
-let open_node ?causes journal ~run ~parent ~kind =
+let stage_open_node ?causes journal state ~run ~parent ~kind =
   match kind with
   | Event.Agent_run _ -> Error (Invariant_violation Agent_run_must_use_start_run)
   | Event.Agent_turn _
@@ -1058,33 +1073,54 @@ let open_node ?causes journal ~run ~parent ~kind =
       | Error detail -> Error (Invalid_argument detail)
     in
     let* payload = payload_result (Event.validate_payload (Event.Node_opened node)) in
-    with_write journal (fun state ->
-      let* () = validate_run_handle state run in
-      let* parent_event_id = node_last_event state parent in
-      let+ mutation =
-        append_one
-          journal
-          state
-          ~event_id
-          ~run_id:run.id
-          ~parent_event_id:(Some parent_event_id)
-          ?causes
-          payload
-      in
-      { next_state = mutation.next_state
-      ; events = mutation.events
-      ; value = node_id, mutation.value
-      })
+    let* () = validate_run_handle state run in
+    let* parent_event_id = node_last_event state parent in
+    let+ mutation =
+      append_one
+        journal
+        state
+        ~event_id
+        ~run_id:run.id
+        ~parent_event_id:(Some parent_event_id)
+        ?causes
+        payload
+    in
+    { next_state = mutation.next_state
+    ; events = mutation.events
+    ; value = node_id, mutation.value
+    }
 ;;
 
-let update_node ?causes journal ~node update =
+let stage_update_node ?causes journal state ~node update =
   let* event_id = identity_result (Event.Event_id.fresh ()) in
   let* payload =
     payload_result
       (Event.validate_payload (Event.Node_updated { node_id = node; update }))
   in
-  with_write journal (fun state ->
-    let* view = node_record_or_error state node in
+  let* view = node_record_or_error state node in
+  let* parent_event_id = node_last_event state node in
+  append_one
+    journal
+    state
+    ~event_id
+    ~run_id:(Event.node_run_id view.node)
+    ~parent_event_id:(Some parent_event_id)
+    ?causes
+    payload
+;;
+
+let stage_close_node ?causes journal state ~node terminal =
+  let* event_id = identity_result (Event.Event_id.fresh ()) in
+  let* terminal = payload_result (Event.validate_terminal terminal) in
+  let payload = Event.close_payload ~node_id:node terminal in
+  let* view = node_record_or_error state node in
+  match Event.node_kind view.node with
+  | Event.Agent_run _ -> Error (Invariant_violation (Root_must_use_finish_run node))
+  | Event.Agent_turn _
+  | Event.Provider_attempt _
+  | Event.Output_block _
+  | Event.Tool_invocation _
+  | Event.Tool_attempt ->
     let* parent_event_id = node_last_event state node in
     append_one
       journal
@@ -1093,48 +1129,172 @@ let update_node ?causes journal ~node update =
       ~run_id:(Event.node_run_id view.node)
       ~parent_event_id:(Some parent_event_id)
       ?causes
-      payload)
+      payload
 ;;
 
-let close_node ?causes journal ~node terminal =
-  let* event_id = identity_result (Event.Event_id.fresh ()) in
-  let* terminal = payload_result (Event.validate_terminal terminal) in
-  let payload = Event.close_payload ~node_id:node terminal in
-  with_write journal (fun state ->
-    let* view = node_record_or_error state node in
-    match Event.node_kind view.node with
-    | Event.Agent_run _ -> Error (Invariant_violation (Root_must_use_finish_run node))
-    | Event.Agent_turn _
-    | Event.Provider_attempt _
-    | Event.Output_block _
-    | Event.Tool_invocation _
-    | Event.Tool_attempt ->
-      let* parent_event_id = node_last_event state node in
-      append_one
-        journal
-        state
-        ~event_id
-        ~run_id:(Event.node_run_id view.node)
-        ~parent_event_id:(Some parent_event_id)
-        ?causes
-        payload)
-;;
-
-let finish_run ?causes journal ~run terminal =
+let stage_finish_run ?causes journal state ~run terminal =
   let* event_id = identity_result (Event.Event_id.fresh ()) in
   let* terminal = payload_result (Event.validate_terminal terminal) in
   let payload = Event.close_payload ~node_id:run.root terminal in
+  let* () = validate_run_handle state run in
+  let* parent_event_id = node_last_event state run.root in
+  append_one
+    journal
+    state
+    ~event_id
+    ~run_id:run.id
+    ~parent_event_id:(Some parent_event_id)
+    ?causes
+    payload
+;;
+
+let start_run ?parent_invocation ?causes journal ~agent_name =
   with_write journal (fun state ->
-    let* () = validate_run_handle state run in
-    let* parent_event_id = node_last_event state run.root in
-    append_one
-      journal
-      state
-      ~event_id
-      ~run_id:run.id
-      ~parent_event_id:(Some parent_event_id)
-      ?causes
-      payload)
+    stage_start_run ?parent_invocation ?causes journal state ~agent_name)
+;;
+
+let open_node ?causes journal ~run ~parent ~kind =
+  with_write journal (fun state ->
+    stage_open_node ?causes journal state ~run ~parent ~kind)
+;;
+
+let update_node ?causes journal ~node update =
+  with_write journal (fun state -> stage_update_node ?causes journal state ~node update)
+;;
+
+let close_node ?causes journal ~node terminal =
+  with_write journal (fun state -> stage_close_node ?causes journal state ~node terminal)
+;;
+
+let finish_run ?causes journal ~run terminal =
+  with_write journal (fun state -> stage_finish_run ?causes journal state ~run terminal)
+;;
+
+type batch =
+  { journal : t
+  ; base_state : journal_state
+  ; staged_state : journal_state
+  ; events_rev : Event.t list
+  }
+
+let begin_batch journal =
+  let base_state = with_read journal Fun.id in
+  { journal; base_state; staged_state = base_state; events_rev = [] }
+;;
+
+let batch_length batch =
+  Reducer.last_seq batch.staged_state.reducer - Reducer.last_seq batch.base_state.reducer
+;;
+
+let extend_batch batch mutation =
+  ( { batch with
+      staged_state = mutation.next_state
+    ; events_rev = List.rev_append mutation.events batch.events_rev
+    }
+  , mutation.value )
+;;
+
+module Transaction = struct
+  type _ t =
+    | Start_run :
+        { parent_invocation : Event.Node_id.t option
+        ; causes : Event.cause list
+        ; agent_name : string
+        }
+        -> (run * Event.t) t
+    | Open_node :
+        { causes : Event.cause list
+        ; run : run
+        ; parent : Event.Node_id.t
+        ; kind : Event.node_kind
+        }
+        -> (Event.Node_id.t * Event.t) t
+    | Update_node :
+        { causes : Event.cause list
+        ; node : Event.Node_id.t
+        ; update : Event.node_update
+        }
+        -> Event.t t
+    | Close_node :
+        { causes : Event.cause list
+        ; node : Event.Node_id.t
+        ; terminal : Event.terminal
+        }
+        -> Event.t t
+    | Finish_run :
+        { causes : Event.cause list
+        ; run : run
+        ; terminal : Event.terminal
+        }
+        -> Event.t t
+
+  let start_run ?parent_invocation ?(causes = []) ~agent_name () =
+    Start_run { parent_invocation; causes; agent_name }
+  ;;
+
+  let open_node ?(causes = []) ~run ~parent ~kind () =
+    Open_node { causes; run; parent; kind }
+  ;;
+
+  let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
+  let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
+  let finish_run ?(causes = []) ~run terminal = Finish_run { causes; run; terminal }
+end
+
+let stage : type value. batch -> value Transaction.t -> (batch * value, error) result =
+  fun batch transaction ->
+  let stage_mutation result =
+    let+ mutation = result in
+    extend_batch batch mutation
+  in
+  match transaction with
+  | Transaction.Start_run { parent_invocation; causes; agent_name } ->
+    stage_mutation
+      (stage_start_run
+         ?parent_invocation
+         ~causes
+         batch.journal
+         batch.staged_state
+         ~agent_name)
+  | Transaction.Open_node { causes; run; parent; kind } ->
+    stage_mutation
+      (stage_open_node ~causes batch.journal batch.staged_state ~run ~parent ~kind)
+  | Transaction.Update_node { causes; node; update } ->
+    stage_mutation
+      (stage_update_node ~causes batch.journal batch.staged_state ~node update)
+  | Transaction.Close_node { causes; node; terminal } ->
+    stage_mutation
+      (stage_close_node ~causes batch.journal batch.staged_state ~node terminal)
+  | Transaction.Finish_run { causes; run; terminal } ->
+    stage_mutation
+      (stage_finish_run ~causes batch.journal batch.staged_state ~run terminal)
+;;
+
+let commit_batch batch =
+  if batch_length batch = 0
+  then Error Empty_batch
+  else
+    with_writer_gate batch.journal (fun () ->
+      let actual_state = with_read batch.journal Fun.id in
+      if not (actual_state == batch.base_state)
+      then
+        Error
+          (Stale_batch
+             { expected_last_seq = Reducer.last_seq batch.base_state.reducer
+             ; actual_last_seq = Reducer.last_seq actual_state.reducer
+             })
+      else (
+        let events = List.rev batch.events_rev in
+        commit_mutation
+          batch.journal
+          batch.base_state
+          { next_state = batch.staged_state; events; value = events }))
+;;
+
+let commit_durable_batch (durable : durable) (batch : batch) =
+  if durable.journal != batch.journal
+  then Error Durable_batch_owner_mismatch
+  else commit_batch batch
 ;;
 
 let abort_run ?causes journal ~run terminal =
@@ -1255,4 +1415,26 @@ let create ?correlation_id ?store () =
     ; mu = Eio.Mutex.create ()
     ; state
     }
+;;
+
+let durable_journal (durable : durable) = durable.journal
+
+let create_durable ~sw ~dir ?correlation_id () =
+  let* store, initialization =
+    match Store.create ~sw ~dir ?correlation_id () with
+    | Ok result -> Ok result
+    | Error error -> Error (Persistence_failure error)
+  in
+  let+ journal = create ~store () in
+  { journal }, initialization
+;;
+
+let open_durable ~sw ~dir =
+  let* store, recovery =
+    match Store.open_existing ~sw ~dir with
+    | Ok result -> Ok result
+    | Error error -> Error (Persistence_failure error)
+  in
+  let+ journal = create ~store () in
+  { journal }, recovery
 ;;

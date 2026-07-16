@@ -136,6 +136,12 @@ type error =
   | Invalid_argument of string
   | Invalid_event of string
   | Identity_failure of string
+  | Empty_batch
+  | Durable_batch_owner_mismatch
+  | Stale_batch of
+      { expected_last_seq : int
+      ; actual_last_seq : int
+      }
   | Cursor_scope_mismatch
   | Cursor_ahead of
       { after_seq : int
@@ -158,6 +164,7 @@ module Reducer : sig
 end
 
 type t
+type durable
 
 (** An immutable, O(1)-captured reducer snapshot. Materializing node histories
     from it does not hold the journal mutex, and every projection shares one
@@ -174,6 +181,22 @@ val create
   -> unit
   -> (t, error) result
 
+(** Explicit durable construction. The directory is caller-owned and dedicated
+    to one execution scope; no path or runtime mode is inferred. The abstract
+    capability is the proof required by a durability-owning writer actor. *)
+val create_durable
+  :  sw:Eio.Switch.t
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> ?correlation_id:Execution_event.Correlation_id.t
+  -> unit
+  -> (durable * Execution_event_store.initialization, error) result
+
+val open_durable
+  :  sw:Eio.Switch.t
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> (durable * Execution_event_store.recovery, error) result
+
+val durable_journal : durable -> t
 val length : t -> int
 val last_seq : t -> int
 val events : t -> Execution_event.t list
@@ -190,6 +213,75 @@ val snapshot_find_node : snapshot -> Execution_event.Node_id.t -> node_view opti
 val snapshot_find_run : snapshot -> Execution_event.Run_id.t -> run_view option
 val find_node : t -> Execution_event.Node_id.t -> node_view option
 val find_run : t -> Execution_event.Run_id.t -> run_view option
+
+(** An immutable semantic transaction staged from one exact journal snapshot.
+    Callers can construct only the closed journal mutation set below, never raw
+    events or caller-selected sequence and identity fields. A rejected stage
+    leaves the input [batch] unchanged.
+
+    Event and node identities are allocated while staging and retained by the
+    returned batch. Retrying [commit_batch] therefore submits the exact same
+    canonical events; callers must not rebuild a failed batch to retry durable
+    persistence. *)
+type batch
+
+val begin_batch : t -> batch
+val batch_length : batch -> int
+
+module Transaction : sig
+  type 'a t
+
+  val start_run
+    :  ?parent_invocation:Execution_event.Node_id.t
+    -> ?causes:Execution_event.cause list
+    -> agent_name:string
+    -> unit
+    -> (run * Execution_event.t) t
+
+  val open_node
+    :  ?causes:Execution_event.cause list
+    -> run:run
+    -> parent:Execution_event.Node_id.t
+    -> kind:Execution_event.node_kind
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t) t
+
+  val update_node
+    :  ?causes:Execution_event.cause list
+    -> node:Execution_event.Node_id.t
+    -> Execution_event.node_update
+    -> Execution_event.t t
+
+  val close_node
+    :  ?causes:Execution_event.cause list
+    -> node:Execution_event.Node_id.t
+    -> Execution_event.terminal
+    -> Execution_event.t t
+
+  val finish_run
+    :  ?causes:Execution_event.cause list
+    -> run:run
+    -> Execution_event.terminal
+    -> Execution_event.t t
+end
+
+(** Validate and stage one typed semantic transaction against the batch's
+    current immutable reducer state. The result type is carried by
+    [Transaction.t], allowing a writer actor to pair heterogeneous commands
+    with correctly typed completion tickets. *)
+val stage : batch -> 'a Transaction.t -> (batch * 'a, error) result
+
+(** Commit every staged event with one store append and then publish the final
+    immutable reducer state once. [Stale_batch] is returned before persistence
+    if another mutation has advanced the journal since [begin_batch]. An empty
+    batch is rejected explicitly. [Commit_outcome_unknown] remains a typed
+    {!Persistence_failure}; reconciliation requires reopening the owning store,
+    so this API does not pretend that a live journal can resolve it. *)
+val commit_batch : batch -> (Execution_event.t list, error) result
+
+(** Commit through an explicit durable capability. A batch captured from any
+    other journal is rejected before persistence. *)
+val commit_durable_batch : durable -> batch -> (Execution_event.t list, error) result
 
 (** Start the journal's sole top-level run, or a child run beneath an existing
     open [Tool_invocation]. Once the top-level run has started, the journal can

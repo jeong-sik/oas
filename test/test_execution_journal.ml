@@ -1366,6 +1366,101 @@ let test_concurrent_updates_keep_one_sequence () =
   check_contiguous events
 ;;
 
+let test_batch_stages_immutably_and_publishes_once () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let empty = Journal.begin_batch journal in
+  check int "empty batch has no events" 0 (Journal.batch_length empty);
+  (match Journal.commit_batch empty with
+   | Error Journal.Empty_batch -> ()
+   | Error error -> fail (Journal.error_to_string error)
+   | Ok _ -> fail "an empty batch was committed");
+  let batch, (run, opened_run) =
+    require_ok
+      (Journal.stage empty (Journal.Transaction.start_run ~agent_name:"batched-run" ()))
+  in
+  let batch, (turn, opened_turn) =
+    require_ok
+      (Journal.stage
+         batch
+         (Journal.Transaction.open_node
+            ~run
+            ~parent:(Journal.run_root run)
+            ~kind:(Event.Agent_turn { ordinal = 0 })
+            ()))
+  in
+  check int "two semantic mutations are staged" 2 (Journal.batch_length batch);
+  (match Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded) with
+   | Error (Journal.Invariant_violation (Journal.Node_has_open_children node_id)) ->
+     check
+       bool
+       "invalid stage reports the exact run root"
+       true
+       (Event.Node_id.equal node_id (Journal.run_root run))
+   | Error error -> fail (Journal.error_to_string error)
+   | Ok _ -> fail "an invalid finish entered the batch");
+  check int "rejected stage leaves input batch unchanged" 2 (Journal.batch_length batch);
+  check int "staging does not publish a prefix" 0 (Journal.length journal);
+  (match Journal.find_run journal (Journal.run_id run) with
+   | None -> ()
+   | Some _ -> fail "a staged run was visible before the batch commit");
+  let batch, closed_turn =
+    require_ok
+      (Journal.stage batch (Journal.Transaction.close_node ~node:turn Event.Succeeded))
+  in
+  let batch, closed_run =
+    require_ok (Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded))
+  in
+  check int "valid replacement extends original batch" 4 (Journal.batch_length batch);
+  let committed = require_ok (Journal.commit_batch batch) in
+  check int "all staged events committed together" 4 (List.length committed);
+  check int "one final reducer snapshot is visible" 4 (Journal.length journal);
+  check_contiguous committed;
+  check
+    bool
+    "commit retains staged event identities and order"
+    true
+    (List.equal
+       Event.equal
+       [ opened_run; opened_turn; closed_turn; closed_run ]
+       committed);
+  match Journal.find_run journal (Journal.run_id run) with
+  | Some { status = Journal.Finished { value = Event.Succeeded; _ }; through_seq; _ } ->
+    check int "published projection uses final batch watermark" 4 through_seq
+  | _ -> fail "committed batch did not publish its finished run projection"
+;;
+
+let test_batch_rejects_a_stale_base_without_rebuilding_events () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let batch, (_staged_run, staged_event) =
+    require_ok
+      (Journal.stage
+         (Journal.begin_batch journal)
+         (Journal.Transaction.start_run ~agent_name:"staged-before-race" ()))
+  in
+  let _committed_run, committed_event =
+    require_ok (Journal.start_run journal ~agent_name:"concurrent-winner")
+  in
+  let expect_stale () =
+    match Journal.commit_batch batch with
+    | Error (Journal.Stale_batch { expected_last_seq = 0; actual_last_seq = 1 }) -> ()
+    | Error error -> fail (Journal.error_to_string error)
+    | Ok _ -> fail "a batch from a stale reducer snapshot was committed"
+  in
+  expect_stale ();
+  expect_stale ();
+  check int "stale rejection retains the immutable batch" 1 (Journal.batch_length batch);
+  check int "stale commit does not mutate journal" 1 (Journal.length journal);
+  check
+    bool
+    "staged identity was not substituted for committed state"
+    false
+    (Event.Event_id.equal (Event.event_id staged_event) (Event.event_id committed_event))
+;;
+
 let () =
   run
     "Execution journal"
@@ -1406,6 +1501,14 @@ let () =
             "abort is cancellation-protected and serializes writers"
             `Quick
             test_abort_is_cancellation_protected_and_serializes_a_writer
+        ; test_case
+            "immutable batch rejects a stage and publishes once"
+            `Quick
+            test_batch_stages_immutably_and_publishes_once
+        ; test_case
+            "stale batch is rejected without rebuilding events"
+            `Quick
+            test_batch_rejects_a_stale_base_without_rebuilding_events
         ] )
     ; ( "codec"
       , [ test_case
