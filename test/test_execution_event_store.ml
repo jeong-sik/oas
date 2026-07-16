@@ -122,6 +122,138 @@ let require_event = function
   | Error detail -> fail detail
 ;;
 
+let fresh identity = require_event (identity ())
+
+let manual_event ~correlation_id ~run_id ~seq ?parent_event_id payload =
+  let event_id = fresh Event.Event_id.fresh in
+  let envelope =
+    Event_envelope.make
+      ~event_id:(Event.Event_id.to_string event_id)
+      ~correlation_id:(Event.Correlation_id.to_string correlation_id)
+      ~run_id:(Event.Run_id.to_string run_id)
+      ~seq
+      ?parent_event_id
+      ()
+  in
+  require_event (Event.make ~envelope payload)
+;;
+
+let legacy_recursive_events correlation_id =
+  let parent_run_id = fresh Event.Run_id.fresh in
+  let child_run_id = fresh Event.Run_id.fresh in
+  let root_id = fresh Event.Node_id.fresh in
+  let turn_id = fresh Event.Node_id.fresh in
+  let provider_id = fresh Event.Node_id.fresh in
+  let invocation_id = fresh Event.Node_id.fresh in
+  let child_root_id = fresh Event.Node_id.fresh in
+  let node ~node_id ~run_id ~parent_node_id ~kind =
+    require_event (Event.make_node ~node_id ~run_id ~parent_node_id ~kind)
+  in
+  let open_node ~run_id ~seq ?parent_event node =
+    manual_event
+      ~correlation_id
+      ~run_id
+      ~seq
+      ?parent_event_id:
+        (Option.map Event.event_id parent_event |> Option.map Event.Event_id.to_string)
+      (Event.Node_opened node)
+  in
+  let root =
+    node
+      ~node_id:root_id
+      ~run_id:parent_run_id
+      ~parent_node_id:None
+      ~kind:(Event.Agent_run { agent_name = "legacy-parent" })
+  in
+  let root_opened = open_node ~run_id:parent_run_id ~seq:1 root in
+  let turn =
+    node
+      ~node_id:turn_id
+      ~run_id:parent_run_id
+      ~parent_node_id:(Some root_id)
+      ~kind:(Event.Agent_turn { ordinal = 0 })
+  in
+  let turn_opened =
+    open_node ~run_id:parent_run_id ~seq:2 ~parent_event:root_opened turn
+  in
+  let config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_kind.OpenAI_compat
+      ~provider_id:"legacy-provider"
+      ~model_id:"legacy-model"
+      ~base_url:"https://provider.test"
+      ()
+  in
+  let binding =
+    Binding_identity.of_provider_config
+      ~transport:(Binding_identity.transport_for_call ~injected:false)
+      config
+    |> require_event
+  in
+  let provider_kind = require_event (Event.provider_attempt ~ordinal:0 binding) in
+  let provider =
+    node
+      ~node_id:provider_id
+      ~run_id:parent_run_id
+      ~parent_node_id:(Some turn_id)
+      ~kind:provider_kind
+  in
+  let provider_opened =
+    open_node ~run_id:parent_run_id ~seq:3 ~parent_event:turn_opened provider
+  in
+  let invocation =
+    node
+      ~node_id:invocation_id
+      ~run_id:parent_run_id
+      ~parent_node_id:(Some provider_id)
+      ~kind:
+        (Event.Tool_invocation
+           { provider_tool_use_id = Some "legacy-tool-use"
+           ; tool_name = "legacy-tool"
+           ; schedule =
+               { planned_index = 0
+               ; batch_index = 0
+               ; batch_size = 1
+               ; execution_mode = Tool.Serial
+               }
+           })
+  in
+  let invocation_opened =
+    open_node ~run_id:parent_run_id ~seq:4 ~parent_event:provider_opened invocation
+  in
+  let input_materialized =
+    manual_event
+      ~correlation_id
+      ~run_id:parent_run_id
+      ~seq:5
+      ~parent_event_id:(Event.Event_id.to_string (Event.event_id invocation_opened))
+      (Event.Node_updated
+         { node_id = invocation_id
+         ; update =
+             Event.Tool_input_snapshot
+               (Llm_provider.Types.ToolUse
+                  { id = "legacy-tool-use"; name = "legacy-tool"; input = `Assoc [] })
+         })
+  in
+  let child_root =
+    node
+      ~node_id:child_root_id
+      ~run_id:child_run_id
+      ~parent_node_id:(Some invocation_id)
+      ~kind:(Event.Agent_run { agent_name = "legacy-child" })
+  in
+  let child_opened =
+    open_node ~run_id:child_run_id ~seq:6 ~parent_event:input_materialized child_root
+  in
+  [ root_opened
+  ; turn_opened
+  ; provider_opened
+  ; invocation_opened
+  ; input_materialized
+  ; child_opened
+  ]
+;;
+
 let rec reverse_failure_data = function
   | `Assoc fields ->
     `Assoc
@@ -299,8 +431,16 @@ let test_old_store_format_is_explicitly_rejected () =
     Eio.Switch.run (fun sw ->
       let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
-      let events = make_four_events (Store.correlation_id store) in
+      let events = legacy_recursive_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
+    Eio.Switch.run (fun sw ->
+      match Journal.open_durable_writer ~sw ~codec ~dir with
+      | Error (Journal.Invariant_violation (Journal.Child_run_parent_not_tool_attempt _))
+        -> ()
+      | Error error ->
+        fail ("legacy fixture failed elsewhere: " ^ Journal.error_to_string error)
+      | Ok _ ->
+        fail "legacy recursive fixture did not reach the changed reducer invariant");
     let wal = Eio.Path.(dir / "events.v1.wal") in
     let authority = Eio.Path.(dir / "events.v1.commit") in
     let wal_before = Eio.Path.load wal in
@@ -311,10 +451,13 @@ let test_old_store_format_is_explicitly_rejected () =
       Eio.Flow.copy_string old_authority file;
       Eio.File.sync file);
     Eio.Switch.run (fun sw ->
-      match open_store ~codec ~sw ~dir with
-      | Error (Store.Unsupported_store_version { expected = 2; actual = 1 }) -> ()
-      | Error error -> fail ("unexpected open failure: " ^ Store.error_to_string error)
-      | Ok _ -> fail "old execution store format was reopened");
+      match Journal.open_durable_writer ~sw ~codec ~dir with
+      | Error
+          (Journal.Persistence_failure
+             (Store.Unsupported_store_version { expected = 2; actual = 1 })) -> ()
+      | Error error ->
+        fail ("unexpected journal failure: " ^ Journal.error_to_string error)
+      | Ok _ -> fail "old recursive execution store was reopened");
     check string "rejected store remains untouched" wal_before (Eio.Path.load wal))
 ;;
 
