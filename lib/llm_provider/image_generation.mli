@@ -17,9 +17,12 @@ type source =
 type image = { source : source }
 
 type usage =
-  { input_tokens : int
-  ; output_tokens : int
-  ; total_tokens : int
+  { input_tokens : int option
+  ; output_tokens : int option
+  ; total_tokens : int option
+  ; cached_tokens : int option
+  ; thought_tokens : int option
+  ; tool_use_tokens : int option
   }
 
 type filter_role =
@@ -35,6 +38,8 @@ type content_filter =
 
 type response =
   { created_at : int option
+  ; created_at_rfc3339 : string option
+  ; provider_response_id : string option
   ; images : image list
   ; usage : usage option
   ; content_filter : content_filter list
@@ -43,9 +48,9 @@ type response =
 (** Generate images through an exact provider config.
 
     [Glm] uses the Z.AI image-generation wire. [OpenAI_compat] uses the OpenAI
-    Image API wire and explicitly requests PNG output. Other provider kinds are
-    rejected before I/O. The caller owns any [timeout_s]; omission installs no
-    OAS deadline. *)
+    Image API wire. [Gemini] uses the current Interactions API and requests an
+    image-only PNG response. Other provider kinds are rejected before I/O. The
+    caller owns any [timeout_s]; omission installs no OAS deadline. *)
 val generate
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t

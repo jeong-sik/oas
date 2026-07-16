@@ -245,6 +245,7 @@ let expected_default_provider_names =
   ; "dashscope"
   ; "deepseek"
   ; "gemini"
+  ; "gemini-image"
   ; "glm"
   ; "glm-coding"
   ; "groq"
