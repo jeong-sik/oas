@@ -423,24 +423,54 @@ let https_init_error_to_string = function
   | Tls_config_unavailable msg -> "TLS client configuration unavailable: " ^ msg
 ;;
 
+(* Process-wide cache for the TLS client configuration.
+
+   [Ca_certs.authenticator ()] loads the system trust store on every call:
+   on macOS it spawns one [security find-certificate] subprocess per
+   keychain and parses the multi-hundred-KB PEM dump (X509 decode +
+   fingerprints for the whole anchor set). Rebuilding it per connection
+   dominated the masc main event loop under fleet LLM traffic (~73% of the
+   loop thread across two 10s `sample` profiles, 2026-07-17).
+
+   The authenticator validates certificate time with a clock closure
+   evaluated at each handshake, so a process-lifetime cache does not
+   freeze time-based validation.
+
+   Errors are deliberately not cached: a transient failure (e.g. fork
+   EAGAIN under load) must not wedge TLS for the process lifetime.
+   Concurrent first calls may compute the config more than once; the
+   results are equivalent and the last write wins. *)
+let tls_client_config_cache : Tls.Config.client option Atomic.t = Atomic.make None
+
+let tls_client_config () : (Tls.Config.client, https_init_error) result =
+  match Atomic.get tls_client_config_cache with
+  | Some config -> Ok config
+  | None ->
+    (match Ca_certs.authenticator () with
+     | Error (`Msg msg) -> Error (Ca_certs_unavailable msg)
+     | Ok authenticator ->
+       (match Tls.Config.client ~authenticator () with
+        | Error (`Msg msg) -> Error (Tls_config_unavailable msg)
+        | Ok config ->
+          Atomic.set tls_client_config_cache (Some config);
+          Ok config))
+;;
+
 let make_https_result () : (Uri.t -> _ -> _, https_init_error) result =
-  match Ca_certs.authenticator () with
-  | Error (`Msg msg) -> Error (Ca_certs_unavailable msg)
-  | Ok authenticator ->
-    (match Tls.Config.client ~authenticator () with
-     | Error (`Msg msg) -> Error (Tls_config_unavailable msg)
-     | Ok tls_config ->
-       Ok
-         (fun uri flow ->
-           let host =
-             match Uri.host uri with
-             | None -> None
-             | Some h ->
-               (match Domain_name.of_string h with
-                | Error _ -> None
-                | Ok dn -> Some (Domain_name.host_exn dn))
-           in
-           Tls_eio.client_of_flow tls_config ?host flow))
+  match tls_client_config () with
+  | Error _ as e -> e
+  | Ok tls_config ->
+    Ok
+      (fun uri flow ->
+        let host =
+          match Uri.host uri with
+          | None -> None
+          | Some h ->
+            (match Domain_name.of_string h with
+             | Error _ -> None
+             | Ok dn -> Some (Domain_name.host_exn dn))
+        in
+        Tls_eio.client_of_flow tls_config ?host flow)
 ;;
 
 let make_https () =

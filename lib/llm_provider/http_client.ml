@@ -775,7 +775,6 @@ let cache_return (cache : cache) uri (entry : cache_entry) : unit =
     The result is reused by both one-shot clients and cached connections. *)
 let resolve_origin net uri =
   let net = (net :> [ `Generic ] Eio.Net.ty Eio.Resource.t) in
-  let https = Api_common.make_https_result () in
   let* host =
     match Uri.host uri with
     | Some host when String.trim host <> "" -> Ok host
@@ -821,7 +820,7 @@ let resolve_origin net uri =
           ; kind = https_init_error_network_kind reason
           }
       in
-      let+ wrap = Result.map_error wrap_error https in
+      let+ wrap = Result.map_error wrap_error (Api_common.make_https_result ()) in
       Some wrap
     | Some "http" | Some _ | None -> Ok None
   in
