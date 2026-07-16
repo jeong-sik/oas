@@ -699,7 +699,11 @@ module Reducer = struct
       | None -> Error (Unknown_parent_node parent_id)
       | Some parent_record -> Ok parent_record
     in
-    let* () = ensure_node_open parent_id parent_record in
+    let* () =
+      match parent_record.status with
+      | Open -> Ok ()
+      | Closed _ -> Error (Parent_node_closed parent_id)
+    in
     let parent_run_id = Event.node_run_id parent_record.node in
     let* () =
       if Event.Run_id.equal run_id parent_run_id
@@ -712,14 +716,21 @@ module Reducer = struct
       else Error (Invalid_parent_kind { parent = parent_id; child = node_id })
     in
     let* () =
-      match Event.node_kind parent_record.node, Event.node_kind node with
-      | Event.Tool_invocation _, Event.Tool_attempt
-        when Option.is_none parent_record.tool_input ->
-        Error (Tool_input_not_materialized parent_id)
-      | Event.Tool_invocation _, Event.Tool_attempt
-        when Option.is_some parent_record.tool_result ->
-        Error (Child_after_tool_result parent_id)
-      | _ -> Ok ()
+      (* Ordering fences per parent kind. The match is exhaustive on parent
+         kind (parent_accepts_child already admitted the pair) so widening the
+         accepted pairs forces a compile-time review of this fence. *)
+      match Event.node_kind parent_record.node with
+      | Event.Tool_invocation _ ->
+        if Option.is_none parent_record.tool_input
+        then Error (Tool_input_not_materialized parent_id)
+        else if Option.is_some parent_record.tool_result
+        then Error (Child_after_tool_result parent_id)
+        else Ok ()
+      | Event.Agent_run _
+      | Event.Agent_turn _
+      | Event.Provider_attempt _
+      | Event.Output_block _
+      | Event.Tool_attempt -> Ok ()
     in
     let* () = validate_parent_event event parent_record.last_event_id in
     let* state = add_node state node event in
@@ -835,14 +846,30 @@ module Reducer = struct
       else Ok ()
     in
     let* () =
-      match Event.node_kind record.node, terminal with
-      | Event.Tool_invocation _, Event.Succeeded when Option.is_none record.tool_input ->
-        Error (Tool_input_not_materialized node_id)
-      | Event.Tool_invocation _, Event.Succeeded when Option.is_none record.tool_result ->
-        Error (Tool_result_not_materialized node_id)
-      | Event.Output_block _, Event.Succeeded when Option.is_none record.output_snapshot
-        -> Error (Output_snapshot_not_materialized node_id)
-      | _ -> Ok ()
+      (* Materialization completeness per (node kind, terminal) pair. Both
+         matches are exhaustive so adding a node kind or terminal forces a
+         compile-time review of this gate. *)
+      match Event.node_kind record.node with
+      | Event.Tool_invocation _ ->
+        (match terminal with
+         | Event.Succeeded ->
+           if Option.is_none record.tool_input
+           then Error (Tool_input_not_materialized node_id)
+           else if Option.is_none record.tool_result
+           then Error (Tool_result_not_materialized node_id)
+           else Ok ()
+         | Event.Failed _ | Event.Cancelled _ -> Ok ())
+      | Event.Output_block _ ->
+        (match terminal with
+         | Event.Succeeded ->
+           if Option.is_none record.output_snapshot
+           then Error (Output_snapshot_not_materialized node_id)
+           else Ok ()
+         | Event.Failed _ | Event.Cancelled _ -> Ok ())
+      | Event.Agent_run _
+      | Event.Agent_turn _
+      | Event.Provider_attempt _
+      | Event.Tool_attempt -> Ok ()
     in
     let closed_record =
       { node = record.node
