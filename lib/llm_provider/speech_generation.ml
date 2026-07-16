@@ -108,20 +108,44 @@ let format_to_wire = function
   | Pcm -> "pcm"
 ;;
 
-let gemini_media_type = function
-  | Mp3 -> Ok "audio/mp3"
-  | Opus -> Ok "audio/ogg_opus"
-  | Wav -> Ok "audio/wav"
-  | Pcm -> Ok "audio/l16"
-  | Aac | Flac -> reject "Gemini Interactions TTS does not support the requested format"
+(* Single source for the Gemini Interactions audio MIME vocabulary
+   (documented enum at ai.google.dev/api/interactions-api — Opus is
+   "audio/opus", not "audio/ogg_opus"); both wire directions derive from
+   this list so they cannot drift apart. *)
+let gemini_supported_formats =
+  [ Mp3, "audio/mp3"; Opus, "audio/opus"; Wav, "audio/wav"; Pcm, "audio/l16" ]
 ;;
 
-let format_of_media_type = function
-  | "audio/mp3" -> Ok Mp3
-  | "audio/ogg_opus" -> Ok Opus
-  | "audio/wav" -> Ok Wav
-  | "audio/l16" -> Ok Pcm
-  | value -> parse_failure (Printf.sprintf "unsupported Gemini audio MIME %S" value)
+(* Documented near-synonyms Gemini may return for a format we requested. *)
+let gemini_response_aliases = [ "audio/mpeg", Mp3 ]
+
+let gemini_media_type format =
+  match List.assoc_opt format gemini_supported_formats with
+  | Some media_type -> Ok media_type
+  | None -> reject "Gemini Interactions TTS does not support the requested format"
+;;
+
+(* MIME types are case-insensitive and may carry parameters (RFC 2045);
+   Gemini surfaces return forms like "audio/L16;codec=pcm;rate=24000".
+   Compare on the case-folded type/subtype only. *)
+let media_type_essence value =
+  let without_parameters =
+    match String.index_opt value ';' with
+    | None -> value
+    | Some semicolon -> String.sub value 0 semicolon
+  in
+  String.lowercase_ascii (String.trim without_parameters)
+;;
+
+let format_of_media_type value =
+  let essence = media_type_essence value in
+  let canonical =
+    List.find_opt (fun (_, mime) -> String.equal mime essence) gemini_supported_formats
+  in
+  match canonical, List.assoc_opt essence gemini_response_aliases with
+  | Some (format, _), _ | None, Some format -> Ok format
+  | None, None ->
+    parse_failure (Printf.sprintf "unsupported Gemini audio MIME %S" value)
 ;;
 
 let request_body ~(config : Provider_config.t) ~text ~voice ~format =
@@ -272,17 +296,26 @@ let audios_of_json expected json =
   | _ -> parse_failure "Gemini interaction steps must be a list"
 ;;
 
+(* A well-formed interaction whose status is not "completed" is a
+   provider-reported outcome, not a parser defect: keep it out of
+   Provider_parse_error so parse-error alarms stay meaningful. *)
+let gemini_status_failure status =
+  Error
+    (Http_client.ProviderFailure
+       { kind =
+           Http_client.Unknown_provider_failure
+             { reason = Some (Printf.sprintf "gemini interaction status %s" status) }
+       ; message =
+           Printf.sprintf "Gemini interaction finished with status %S, not completed" status
+       })
+;;
+
 let parse_gemini_response expected body =
-  try
-    let json = Yojson.Safe.from_string body in
+  let decode json =
     let ( let* ) = Result.bind in
     let* provider_response_id = required_string "id" json in
     let* status = required_string "status" json in
-    let* () =
-      if String.equal status "completed"
-      then Ok ()
-      else parse_failure (Printf.sprintf "Gemini interaction status is %S" status)
-    in
+    let* () = if String.equal status "completed" then Ok () else gemini_status_failure status in
     let* created_at_rfc3339 = optional_string "created" json in
     let* audios = audios_of_json expected json in
     let* usage = usage_of_json json in
@@ -292,9 +325,10 @@ let parse_gemini_response expected body =
       ; audios
       ; usage
       }
-  with
-  | Yojson.Json_error message ->
-    parse_failure ("invalid Gemini interaction JSON: " ^ message)
+  in
+  match Json_util.decode_json_with decode body with
+  | Ok result -> result
+  | Error message -> parse_failure ("invalid Gemini interaction JSON: " ^ message)
 ;;
 
 let generate
