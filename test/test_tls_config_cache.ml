@@ -6,8 +6,8 @@
     trust-store load (macOS: one `security find-certificate` subprocess
     per keychain + a full PEM parse and X509 decode of the anchor set)
     on every LLM connection and every OTel flush — measured at ~73% of
-    the masc main event-loop thread across two 10s `sample` profiles
-    (2026-07-17) while the keeper fleet was making LLM calls.
+    a consuming server's main event-loop thread across two 10s `sample`
+    profiles (2026-07-17) under sustained LLM traffic.
 
     Hosts without a readable trust store make the loader error; errors
     must not be cached (transient failures retry on the next call), so

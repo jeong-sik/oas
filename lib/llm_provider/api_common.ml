@@ -429,8 +429,9 @@ let https_init_error_to_string = function
    on macOS it spawns one [security find-certificate] subprocess per
    keychain and parses the multi-hundred-KB PEM dump (X509 decode +
    fingerprints for the whole anchor set). Rebuilding it per connection
-   dominated the masc main event loop under fleet LLM traffic (~73% of the
-   loop thread across two 10s `sample` profiles, 2026-07-17).
+   dominated a consuming server's main event loop under sustained LLM
+   traffic (~73% of the loop thread across two 10s `sample` profiles,
+   2026-07-17).
 
    The authenticator validates certificate time with a clock closure
    evaluated at each handshake, so a process-lifetime cache does not
