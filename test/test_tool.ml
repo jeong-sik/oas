@@ -96,6 +96,58 @@ let test_context_handler_requires_context () =
   | Ok _ -> fail "expected missing-context error"
 ;;
 
+let test_invocation_handler_receives_exact_id () =
+  let tool =
+    Tool.create_with_invocation
+      ~name:"invocation"
+      ~description:"Read invocation"
+      ~parameters:[]
+      (fun invocation _input ->
+         Ok
+           { Types.content =
+               Printf.sprintf
+                 "%s:%d:%d"
+                 (Tool.Invocation.tool_use_id invocation)
+                 (Tool.Invocation.turn invocation)
+                 (Tool.Invocation.planned_index invocation)
+           ; _meta = None
+           })
+  in
+  let invocation =
+    Tool.Invocation.create ~tool_use_id:"provider-call-17" ~turn:4 ~planned_index:2
+  in
+  match Tool.execute ~invocation tool `Null with
+  | Ok { content; _meta = _ } ->
+    check string "exact occurrence" "provider-call-17:4:2" content
+  | Error _ -> fail "expected invocation-aware tool to run"
+;;
+
+let test_invocation_handler_requires_invocation () =
+  let tool =
+    Tool.create_with_invocation
+      ~name:"invocation"
+      ~description:"Read invocation"
+      ~parameters:[]
+      (fun _invocation _input -> Ok { Types.content = "unexpected"; _meta = None })
+  in
+  match Tool.execute tool `Null with
+  | Error { message; recoverable; error_class } ->
+    check
+      string
+      "error message"
+      "invocation-aware tool requires explicit invocation"
+      message;
+    check bool "not recoverable" false recoverable;
+    check
+      bool
+      "deterministic"
+      true
+      (match error_class with
+       | Some Types.Deterministic -> true
+       | _ -> false)
+  | Ok _ -> fail "expected missing-invocation error"
+;;
+
 let test_schema_to_json_structure () =
   let tool =
     Tool.create
@@ -229,6 +281,13 @@ let () =
         ; test_case "writes context" `Quick test_context_handler_writes_context
         ; test_case "requires context" `Quick test_context_handler_requires_context
         ] )
+    ; ( "invocation_handler"
+      , [ test_case "receives exact id" `Quick test_invocation_handler_receives_exact_id
+        ; test_case
+            "requires invocation"
+            `Quick
+            test_invocation_handler_requires_invocation
+        ] )
     ; ( "schema"
       , [ test_case "json structure" `Quick test_schema_to_json_structure
         ; test_case "param types" `Quick test_schema_param_types
@@ -297,6 +356,30 @@ let () =
             match Tool.execute ~context:ctx wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->
               check string "default in ctx handler" "worker-1" content
+            | Error _ -> fail "expected Ok")
+        ; test_case "works with invocation handler" `Quick (fun () ->
+            let tool =
+              Tool.create_with_invocation
+                ~name:"invocation_greet"
+                ~description:"Greet from invocation"
+                ~parameters:[]
+                (fun invocation input ->
+                   let open Yojson.Safe.Util in
+                   Ok
+                     { Types.content =
+                         Tool.Invocation.tool_use_id invocation
+                         ^ ":"
+                         ^ (input |> member "name" |> to_string)
+                     ; _meta = None
+                     })
+            in
+            let wrapped = Tool.with_defaults [ "name", `String "default" ] tool in
+            let invocation =
+              Tool.Invocation.create ~tool_use_id:"call-1" ~turn:3 ~planned_index:1
+            in
+            match Tool.execute ~invocation wrapped (`Assoc []) with
+            | Ok { content; _meta = _ } ->
+              check string "invocation and default preserved" "call-1:default" content
             | Error _ -> fail "expected Ok")
         ] )
     ]
