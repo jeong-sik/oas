@@ -74,6 +74,27 @@ let directory_snapshot dir =
   |> List.map (fun name -> name, Eio.Path.load Eio.Path.(dir / name))
 ;;
 
+let authority_with_format_version ~version payload =
+  let authority =
+    match Yojson.Safe.from_string payload with
+    | `Assoc fields ->
+      (match List.assoc_opt "authority" fields with
+       | Some (`Assoc authority_fields) ->
+         `Assoc
+           (List.map
+              (function
+                | "format_version", _ -> "format_version", `Int version
+                | field -> field)
+              authority_fields)
+       | Some _ | None -> fail "authority fixture has no object payload")
+    | _ -> fail "authority fixture is not an object"
+  in
+  let authority_bytes = Yojson.Safe.to_string authority in
+  let authority_sha256 = Digestif.SHA256.(to_hex (digest_string authority_bytes)) in
+  Yojson.Safe.to_string
+    (`Assoc [ "authority", authority; "authority_sha256", `String authority_sha256 ])
+;;
+
 let make_four_events correlation_id =
   let journal = require_journal (Journal.create ~correlation_id ()) in
   let run, _opened =
@@ -269,6 +290,32 @@ let test_idempotent_retry_requires_exact_canonical_bytes () =
       with
       | Error (Store.Committed_content_conflict { first_seq = 2; last_seq = 2 }) -> ()
       | _ -> fail "semantic-only equality admitted a non-byte-identical retry"))
+;;
+
+let test_old_store_format_is_explicitly_rejected () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~codec ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
+    let wal = Eio.Path.(dir / "events.v1.wal") in
+    let authority = Eio.Path.(dir / "events.v1.commit") in
+    let wal_before = Eio.Path.load wal in
+    let old_authority =
+      Eio.Path.load authority |> authority_with_format_version ~version:1
+    in
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o600) authority (fun file ->
+      Eio.Flow.copy_string old_authority file;
+      Eio.File.sync file);
+    Eio.Switch.run (fun sw ->
+      match open_store ~codec ~sw ~dir with
+      | Error (Store.Unsupported_store_version { expected = 2; actual = 1 }) -> ()
+      | Error error -> fail ("unexpected open failure: " ^ Store.error_to_string error)
+      | Ok _ -> fail "old execution store format was reopened");
+    check string "rejected store remains untouched" wal_before (Eio.Path.load wal))
 ;;
 
 let test_torn_tail_is_explicitly_truncated () =
@@ -1486,6 +1533,10 @@ let () =
             "idempotent retry requires exact canonical bytes"
             `Quick
             test_idempotent_retry_requires_exact_canonical_bytes
+        ; test_case
+            "old store format is explicitly rejected"
+            `Quick
+            test_old_store_format_is_explicitly_rejected
         ; test_case
             "torn tail is explicitly truncated"
             `Quick

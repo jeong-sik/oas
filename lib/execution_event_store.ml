@@ -110,6 +110,10 @@ type error =
   | Store_not_found
   | Store_initialization_incomplete
   | Store_initialization_conflict
+  | Unsupported_store_version of
+      { expected : int
+      ; actual : int
+      }
   | Corrupt_store of
       { offset : int64
       ; detail : string
@@ -156,6 +160,11 @@ let rec error_to_string = function
   | Store_initialization_incomplete -> "execution store has an uncommitted initialization"
   | Store_initialization_conflict ->
     "execution store has both committed and initializing WAL paths"
+  | Unsupported_store_version { expected; actual } ->
+    Printf.sprintf
+      "execution store format version %d is unsupported; expected version %d"
+      actual
+      expected
   | Corrupt_store { offset; detail } ->
     Printf.sprintf "execution store is corrupt at byte %Ld: %s" offset detail
   | Correlation_mismatch -> "execution store correlation identity mismatch"
@@ -208,6 +217,9 @@ let authority_initializing_name = "events.v1.commit.initializing"
 let lock_name = ".writer.lock"
 let frame_magic = "OASE"
 let frame_version = 1
+
+(* Version 2 hard-cuts recursive work to exact tool attempts; WAL framing is unchanged. *)
+let store_format_version = 2
 let frame_header_size = 48
 
 module Active_path_map = Map.Make (String)
@@ -916,7 +928,7 @@ type commit_authority =
 
 let authority_payload_to_yojson authority =
   `Assoc
-    [ "format_version", `Int 1
+    [ "format_version", `Int store_format_version
     ; "scope_id", `String (Scope_id.to_string authority.scope_id)
     ; "correlation_id", `String (Event.Correlation_id.to_string authority.correlation_id)
     ; "committed_offset", `String (Int64.to_string authority.committed_offset)
@@ -992,6 +1004,14 @@ let authority_of_string payload =
     | Error detail -> corrupt detail
   in
   let* format_version = int_field "format_version" in
+  let* () =
+    if format_version = store_format_version
+    then Ok ()
+    else
+      Error
+        (Unsupported_store_version
+           { expected = store_format_version; actual = format_version })
+  in
   let* scope_text = string_field "scope_id" in
   let* correlation_text = string_field "correlation_id" in
   let* committed_offset_text = string_field "committed_offset" in
@@ -1012,11 +1032,6 @@ let authority_of_string payload =
       when Int64.compare value 0L > 0
            && String.equal committed_offset_text (Int64.to_string value) -> Ok value
     | Some _ | None -> corrupt "commit authority offset is not canonical and positive"
-  in
-  let* () =
-    if format_version = 1
-    then Ok ()
-    else corrupt "unsupported commit authority format version"
   in
   let* () =
     if last_seq >= 0 then Ok () else corrupt "commit authority sequence is negative"
