@@ -1,7 +1,7 @@
 type source =
   | Remote_url of string
   | Inline_base64 of
-      { media_type : string
+      { media_type : string option
       ; data : string
       }
 
@@ -95,23 +95,34 @@ let request_body ~protocol ~(config : Provider_config.t) ~prompt =
   `Assoc fields |> Yojson.Safe.to_string
 ;;
 
-let source_of_json json =
+(* Closed mapping of the OpenAI-style response [output_format] field; an
+   absent or unrecognized value yields no media type rather than a guess. *)
+let media_type_of_output_format json =
+  match Yojson.Safe.Util.member "output_format" json with
+  | `String "png" -> Some "image/png"
+  | `String "jpeg" -> Some "image/jpeg"
+  | `String "webp" -> Some "image/webp"
+  | _ -> None
+;;
+
+let source_of_json ~media_type json =
   let open Yojson.Safe.Util in
   match member "url" json, member "b64_json" json with
   | `String url, `Null when String.trim url <> "" -> Ok (Remote_url url)
   | `Null, `String data when String.trim data <> "" ->
-    Ok (Inline_base64 { media_type = "image/png"; data })
+    Ok (Inline_base64 { media_type; data })
   | `String _, `String _ -> parse_failure "image item contains both url and b64_json"
   | _ -> parse_failure "image item must contain exactly one non-empty url or b64_json"
 ;;
 
 let images_of_json json =
+  let media_type = media_type_of_output_format json in
   match Yojson.Safe.Util.member "data" json with
   | `List [] -> parse_failure "image response data is empty"
   | `List items ->
     List.fold_left
       (fun acc item ->
-         match acc, source_of_json item with
+         match acc, source_of_json ~media_type item with
          | Ok images, Ok source -> Ok ({ source } :: images)
          | (Error _ as error), _ | _, (Error _ as error) -> error)
       (Ok [])
@@ -156,11 +167,16 @@ let filter_role_of_string = function
   | other -> Other other
 ;;
 
+(* Z.AI content_filter severity levels are declared as the closed range 0-3. *)
+let content_filter_level_is_declared level = level >= 0 && level <= 3
+
 let content_filter_item json =
   match Yojson.Safe.Util.member "role" json, Yojson.Safe.Util.member "level" json with
-  | `String role, `Int level when String.trim role <> "" && level >= 0 && level <= 3 ->
+  | `String role, `Int level
+    when String.trim role <> "" && content_filter_level_is_declared level ->
     Ok { role = Some (filter_role_of_string role); level }
-  | `Null, `Int level when level >= 0 && level <= 3 -> Ok { role = None; level }
+  | `Null, `Int level when content_filter_level_is_declared level ->
+    Ok { role = None; level }
   | _ ->
     parse_failure
       "image response content_filter item requires level in [0,3] and an optional role"
@@ -182,8 +198,7 @@ let content_filter_of_json json =
 ;;
 
 let parse_response body =
-  try
-    let json = Yojson.Safe.from_string body in
+  let decode json =
     match created_at_of_json json with
     | Error _ as error -> error
     | Ok created_at ->
@@ -196,8 +211,10 @@ let parse_response body =
             (match content_filter_of_json json with
              | Error _ as error -> error
              | Ok content_filter -> Ok { created_at; images; usage; content_filter })))
-  with
-  | Yojson.Json_error message -> parse_failure ("invalid image response JSON: " ^ message)
+  in
+  match Json_util.decode_json_with decode body with
+  | Ok result -> result
+  | Error message -> parse_failure ("invalid image response JSON: " ^ message)
 ;;
 
 let generate
@@ -285,17 +302,34 @@ let%test "Z.AI URL response and safety observation are typed" =
   | Ok _ | Error _ -> false
 ;;
 
-let%test "OpenAI base64 response preserves usage" =
+let%test "OpenAI base64 response preserves usage and declared format" =
   match
     parse_response
-      {|{"created":8,"data":[{"b64_json":"aGVsbG8="}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}|}
+      {|{"created":8,"output_format":"png","data":[{"b64_json":"aGVsbG8="}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}|}
   with
   | Ok
-      { images = [ { source = Inline_base64 { media_type = "image/png"; data } } ]
+      { images = [ { source = Inline_base64 { media_type = Some "image/png"; data } } ]
       ; usage = Some { input_tokens = 1; output_tokens = 2; total_tokens = 3 }
       ; content_filter = []
       ; _
       } -> String.equal data "aGVsbG8="
+  | Ok _ | Error _ -> false
+;;
+
+let%test "base64 without a declared format carries no media type" =
+  match parse_response {|{"created":8,"data":[{"b64_json":"aGVsbG8="}]}|} with
+  | Ok { images = [ { source = Inline_base64 { media_type = None; data } } ]; _ } ->
+    String.equal data "aGVsbG8="
+  | Ok _ | Error _ -> false
+;;
+
+let%test "non-object 2xx body is a typed parse failure" =
+  match parse_response "null" with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Provider_parse_error { parser = Some "image_generation" }
+         ; _
+         }) -> true
   | Ok _ | Error _ -> false
 ;;
 
