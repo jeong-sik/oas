@@ -31,6 +31,8 @@
     "lib/llm_provider/capability_manifest.mli",
     "lib/llm_provider/model_catalog.ml",
     "lib/llm_provider/model_catalog.mli",
+    "lib/llm_provider/model_id.ml",
+    "lib/llm_provider/model_id.mli",
     "lib/llm_provider/pricing.ml",
     "lib/llm_provider/pricing.mli",
     "lib/llm_provider/provider_catalog.ml",

@@ -6,6 +6,16 @@ module PC = Llm_provider.Provider_config
 let check_bool label expected actual = Alcotest.(check bool) label expected actual
 let check_string label expected actual = Alcotest.(check string) label expected actual
 
+let require_identity = function
+  | Ok identity -> identity
+  | Error detail -> Alcotest.fail detail
+;;
+
+let require_redacted_snapshot = function
+  | Ok snapshot -> snapshot
+  | Error detail -> Alcotest.fail detail
+;;
+
 let config
       ?(base_url = "https://example.test/api")
       ?(request_path = "/v1/messages")
@@ -19,6 +29,7 @@ let identity ?base_url ?request_path ?api_key () =
   Binding_identity.of_provider_config
     ~transport:Binding_identity.Http
     (config ?base_url ?request_path ?api_key ())
+  |> require_identity
 ;;
 
 let test_identity_is_structural () =
@@ -32,6 +43,7 @@ let test_identity_is_structural () =
     Binding_identity.of_provider_config
       ~transport:Binding_identity.Injected
       (config ~api_key:key_a ())
+    |> require_identity
   in
   check_bool "RFC canonical configs equal" true (Binding_identity.equal first equivalent);
   Alcotest.(check int)
@@ -55,6 +67,7 @@ let test_identity_observation_is_redacted () =
       ~api_key:raw_key
       ()
     |> Binding_identity.of_provider_config ~transport:Binding_identity.Http
+    |> require_identity
   in
   let rendered = Binding_identity.to_redacted_yojson identity |> Yojson.Safe.to_string in
   List.iter
@@ -68,6 +81,76 @@ let test_identity_observation_is_redacted () =
     "query values visibly redacted"
     true
     (Util.string_contains ~needle:"redacted" rendered)
+;;
+
+let test_redacted_snapshot_closed_codec () =
+  let first = identity ~api_key:"credential-a" () in
+  let snapshot = Binding_identity.redacted_snapshot first in
+  let json = Binding_identity.Redacted_snapshot.to_yojson snapshot in
+  let decoded =
+    Binding_identity.Redacted_snapshot.of_yojson json |> require_redacted_snapshot
+  in
+  check_bool
+    "redacted snapshot roundtrips"
+    true
+    (Binding_identity.Redacted_snapshot.equal snapshot decoded);
+  Alcotest.(check string)
+    "convenience observation API is the snapshot codec"
+    (Yojson.Safe.to_string json)
+    (Binding_identity.to_redacted_yojson first |> Yojson.Safe.to_string);
+  let other = identity ~api_key:"credential-b" () |> Binding_identity.redacted_snapshot in
+  check_bool
+    "snapshot observes a different credential fingerprint"
+    false
+    (Binding_identity.Redacted_snapshot.equal snapshot other)
+;;
+
+let test_redacted_snapshot_rejects_noncanonical_input () =
+  let snapshot =
+    identity ~api_key:"credential-a" () |> Binding_identity.redacted_snapshot
+  in
+  let json = Binding_identity.Redacted_snapshot.to_yojson snapshot in
+  let fields =
+    match json with
+    | `Assoc fields -> fields
+    | _ -> Alcotest.fail "redacted snapshot encoder did not return an object"
+  in
+  let replace name value = `Assoc ((name, value) :: List.remove_assoc name fields) in
+  let reject label json =
+    match Binding_identity.Redacted_snapshot.of_yojson json with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail (label ^ " was accepted")
+  in
+  reject "unknown field" (`Assoc (("legacy", `Bool true) :: fields));
+  reject "duplicate field" (`Assoc (("model", `String "other") :: fields));
+  reject "missing field" (`Assoc (List.remove_assoc "model" fields));
+  reject "unknown transport" (replace "transport" (`String "HTTP"));
+  reject "unknown auth scheme" (replace "auth_scheme" (`String "bearer"));
+  reject "padded model" (replace "model" (`String " model-a "));
+  reject
+    "unredacted endpoint query"
+    (replace "endpoint" (`String "https://example.test/api?secret=value"));
+  reject
+    "endpoint userinfo"
+    (replace "endpoint" (`String "https://user:password@example.test/api"));
+  reject
+    "ambiguous provider shape"
+    (replace
+       "provider"
+       (`Assoc
+           [ "registration", `String "unregistered"
+           ; "kind", `String "openai_compat"
+           ; "id", `String "also-registered"
+           ]));
+  reject "blank credential fingerprint" (replace "credential_fingerprint" (`String " "));
+  reject
+    "raw credential fingerprint"
+    (replace "credential_fingerprint" (`String "credential-a"));
+  reject
+    "full digest fingerprint"
+    (replace "credential_fingerprint" (`String (String.make 64 'a')));
+  reject "uppercase fingerprint" (replace "credential_fingerprint" (`String "ABCDEF01"));
+  reject "short fingerprint" (replace "credential_fingerprint" (`String "abcdef0"))
 ;;
 
 let test_custom_provider_keeps_registered_identity () =
@@ -84,6 +167,7 @@ let test_custom_provider_keeps_registered_identity () =
       ~base_url:"https://dynamic.example.test"
       ~request_path:"/v1/dynamic"
       ~api_key:"credential-a"
+    |> require_identity
   in
   let json = Binding_identity.to_redacted_yojson identity in
   let provider_json = Yojson.Safe.Util.member "provider" json in
@@ -99,6 +183,13 @@ let test_custom_provider_keeps_registered_identity () =
     "unknown custom auth stays typed instead of guessed"
     "provider_defined"
     (Yojson.Safe.Util.member "auth_scheme" json |> Yojson.Safe.Util.to_string)
+;;
+
+let test_binding_identity_rejects_invalid_model_identity () =
+  let invalid = { (config ()) with model_id = "  " } in
+  match Binding_identity.of_provider_config ~transport:Binding_identity.Http invalid with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "blank model identity was accepted"
 ;;
 
 let ownership binding error =
@@ -505,9 +596,21 @@ let () =
             `Quick
             test_identity_observation_is_redacted
         ; Alcotest.test_case
+            "redacted snapshot closed codec"
+            `Quick
+            test_redacted_snapshot_closed_codec
+        ; Alcotest.test_case
+            "redacted snapshot strict boundary"
+            `Quick
+            test_redacted_snapshot_rejects_noncanonical_input
+        ; Alcotest.test_case
             "custom registry identity"
             `Quick
             test_custom_provider_keeps_registered_identity
+        ; Alcotest.test_case
+            "invalid model identity"
+            `Quick
+            test_binding_identity_rejects_invalid_model_identity
         ] )
     ; ( "ownership"
       , [ Alcotest.test_case "closed matrix" `Quick test_closed_ownership_matrix

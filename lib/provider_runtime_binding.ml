@@ -259,12 +259,18 @@ let known_labels () =
 
 let binding_for_provider_config (cfg : PConfig.t) = Option.bind cfg.provider_id find
 
-let provider_id_of_provider_config cfg =
-  match cfg.PConfig.provider_id with
+let canonical_explicit_provider_id (cfg : PConfig.t) =
+  match cfg.provider_id with
   | Some provider_id ->
     (match find provider_id with
-     | Some binding -> binding.id
-     | None -> normalize provider_id)
+     | Some binding -> Some binding.id
+     | None -> Some (normalize provider_id))
+  | None -> None
+;;
+
+let provider_id_of_provider_config cfg =
+  match canonical_explicit_provider_id cfg with
+  | Some provider_id -> provider_id
   | None -> PConfig.string_of_provider_kind cfg.kind
 ;;
 

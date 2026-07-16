@@ -40,9 +40,17 @@ val identity : t -> identity option
 val equal_identity : identity -> identity -> bool
 val hash_identity : identity -> int
 
-(** Redacted observation label for an opaque identity.  This is diagnostic
-    only and must never be used as an equality key. *)
-val identity_fingerprint : identity -> string
+(** Canonical short redacted observation of an opaque secret identity. The
+    parser and renderer share the same closed lowercase-hex grammar as the
+    identity-derived value; arbitrary strings and full digests are rejected. *)
+module Identity_fingerprint : sig
+  type t
+
+  val of_identity : identity -> t
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+  val equal : t -> t -> bool
+end
 
 (** SHA-256 digest of the secret rendered as the first 8 hex characters.
     Suitable for distinguishing different keys in telemetry without leaking

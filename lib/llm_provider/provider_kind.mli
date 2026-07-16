@@ -35,11 +35,14 @@ val default_api_key_env : t -> string option
     Exhaustive — adding a new variant forces a compile error. *)
 val to_string : t -> string
 
-(** Canonical inverse of {!to_string}. Accepts only the 7 canonical forms.
-    Match is case-insensitive with leading/trailing whitespace trimmed. Returns
-    [None] for anything else so callers fail fast instead of silently
-    defaulting. *)
+(** Tolerant configuration/CLI parser for the 7 known forms. Matching is
+    case-insensitive and ignores leading/trailing whitespace. Durable codecs
+    must use {!of_canonical_string}. *)
 val of_string : string -> t option
+
+(** Exact inverse of {!to_string} for durable codecs. Unlike {!of_string},
+    this rejects case changes and surrounding whitespace. *)
+val of_canonical_string : string -> t option
 
 val pp : Format.formatter -> t -> unit
 val show : t -> string
