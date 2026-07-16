@@ -115,9 +115,10 @@ type page = private
     returns its value. A callback exception also stops admission and lets the
     actor finish or reconcile every actor-owned durability operation before the
     original exception is re-raised; the supervisor fiber never settles an
-    in-flight durability group itself. [codec] borrows a shared executor whose
-    owning switch must be outside and outlive this complete call; the lane
-    never creates, sizes, or closes that application resource. *)
+    in-flight durability group itself. [codec] borrows a shared
+    {!Execution_runtime.t} whose owning switch must be outside and outlive this
+    complete call; the lane never creates, sizes, or closes that application
+    resource. *)
 val run
   :  codec:Execution_codec_executor.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t

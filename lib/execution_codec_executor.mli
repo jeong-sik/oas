@@ -1,16 +1,15 @@
-(** Shared parallel boundary for canonical execution-event codecs.
+(** Private typed codec service backed by one {!Execution_runtime.t}.
 
-    This module is private to OAS. The application owns one long-lived
-    {!Eio.Executor_pool.t}, chooses its domain count at startup, and injects it
-    into every execution lane. The wrapper never creates domains, applies a
-    payload-size threshold, or controls admission. *)
+    Requests are closed and CPU-only. The runtime owns pool lifetime and raw
+    submission; this module adds event-specific failure causality,
+    cancellation checkpoints, and observations. *)
 
 type t
 
 type operation =
   | Encode_events
-  | Decode_canonical_events
-  | Compare_canonical_payloads
+  | Decode_canonical_event
+  | Compare_canonical_payload
 [@@deriving show]
 
 type cause
@@ -26,17 +25,15 @@ type failure =
       }
 
 type decode_failure =
-  | Invalid_event of
-      { ordinal : int
-      ; detail : string
-      }
-  | Noncanonical_event of { ordinal : int }
+  | Invalid_event of { detail : string }
+  | Noncanonical_event
 
 type operation_stats =
   { requested : int
   ; started : int
   ; completed : int
   ; job_failed : int
+  ; worker_cancelled : int
   ; executor_failed : int
   ; caller_cancelled : int
   ; last_caller_domain : Domain.id option
@@ -45,28 +42,27 @@ type operation_stats =
 
 type stats =
   { encode_events : operation_stats
-  ; decode_canonical_events : operation_stats
-  ; compare_canonical_payloads : operation_stats
+  ; decode_canonical_event : operation_stats
+  ; compare_canonical_payload : operation_stats
   }
 
-val of_executor_pool : Eio.Executor_pool.t -> t
+val of_runtime : Execution_runtime.t -> t
 
-(** These are the only codec requests. Their operation identity is derived by
-    the executor and cannot be supplied independently by callers. Every
-    request uses executor weight [1.0] because it is CPU-bound work, not as a
-    runtime budget or heuristic. Caller cancellation and reserved worker
-    exceptions propagate; non-reserved failures remain typed. *)
+(** Encode one append batch. Cancellation is checked at every event boundary;
+    no payload-size threshold or per-request pool is used. *)
 val encode_events : t -> Execution_event.t list -> (string list, failure) result
 
-val decode_canonical_events
+(** Decode one durable payload. Store callers retain at most that raw payload
+    while accumulating their required decoded output. *)
+val decode_canonical_event
   :  t
-  -> string list
-  -> ((Execution_event.t list, decode_failure) result, failure) result
+  -> string
+  -> ((Execution_event.t, decode_failure) result, failure) result
 
-val compare_canonical_payloads
+val compare_canonical_payload
   :  t
-  -> expected:string list
-  -> actual:string list
+  -> expected:string
+  -> actual:string
   -> (bool, failure) result
 
 val failure_to_string : failure -> string

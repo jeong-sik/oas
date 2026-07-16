@@ -1,4 +1,5 @@
 open Alcotest
+module Runtime_internal = Execution_runtime
 open Agent_sdk
 module Event = Execution_event
 module Codec = Execution_codec_executor
@@ -16,6 +17,11 @@ let require_store = function
 let require_journal = function
   | Ok value -> value
   | Error error -> fail (Journal.error_to_string error)
+;;
+
+let require_runtime = function
+  | Ok value -> value
+  | Error error -> fail (Runtime_internal.create_error_to_string error)
 ;;
 
 let create_store ~codec ~sw ~dir =
@@ -37,10 +43,14 @@ let attach_store store = require_store (Store.attach store)
 
 let with_temp_dir env f =
   Eio.Switch.run (fun codec_sw ->
-    let pool =
-      Eio.Executor_pool.create ~sw:codec_sw ~domain_count:1 (Eio.Stdenv.domain_mgr env)
+    let runtime =
+      require_runtime
+        (Runtime_internal.create
+           ~sw:codec_sw
+           ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+           ~domain_count:1)
     in
-    let codec = Codec.of_executor_pool pool in
+    let codec = Codec.of_runtime runtime in
     let native_path = Filename.temp_file "oas-execution-store-" ".dir" in
     Sys.remove native_path;
     let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
@@ -531,6 +541,43 @@ let test_projection_detects_middle_event_corruption () =
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
       | Error (Store.Store_poisoned _) -> ()
       | _ -> fail "projection corruption did not fence the writer"))
+;;
+
+let test_retry_validates_later_frames_after_content_mismatch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~codec ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
+      let later_payload = Event.to_json_string (List.nth events 1) in
+      let wal = Eio.Path.(dir / "events.v1.wal") in
+      let bytes = Bytes.of_string (Eio.Path.load wal) in
+      let payload_offset =
+        try
+          Str.search_forward (Str.regexp_string later_payload) (Bytes.to_string bytes) 0
+        with
+        | Not_found -> fail "later event payload was not found in WAL fixture"
+      in
+      Bytes.set
+        bytes
+        payload_offset
+        (Char.chr (Char.code (Bytes.get bytes payload_offset) lxor 1));
+      Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
+        Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
+        Eio.File.sync file);
+      let different_events = make_four_events (Store.correlation_id store) in
+      (match Store.append_batch writer ~expected_next_seq:1 different_events with
+       | Error (Store.Corrupt_store _) -> ()
+       | Error (Store.Committed_content_conflict _) ->
+         fail "retry stopped at the first content mismatch before later corruption"
+       | Error error -> fail ("unexpected retry failure: " ^ Store.error_to_string error)
+       | Ok _ -> fail "corrupt committed range was accepted as an idempotent retry");
+      match Store.append_batch writer ~expected_next_seq:1 different_events with
+      | Error (Store.Store_poisoned _) -> ()
+      | _ -> fail "retry corruption did not fence the writer"))
 ;;
 
 let test_projection_verifies_middle_event_frame_header () =
@@ -1318,7 +1365,7 @@ let test_shared_codec_executor_routes_store_work () =
       | Error error -> fail (Store.error_to_string error));
     let after_append = Codec.stats codec in
     check int "append submits one encode batch" 1 after_append.encode_events.requested;
-    check int "append does not decode" 0 after_append.decode_canonical_events.requested;
+    check int "append does not decode" 0 after_append.decode_canonical_event.requested;
     Eio.Switch.run (fun sw ->
       let durable_writer, _recovery =
         require_journal (Journal.open_durable_writer ~sw ~codec ~dir)
@@ -1331,9 +1378,9 @@ let test_shared_codec_executor_routes_store_work () =
     let after_journal_open = Codec.stats codec in
     check
       int
-      "journal open decodes each durable batch once"
-      1
-      after_journal_open.decode_canonical_events.requested;
+      "journal open decodes each durable event once"
+      (List.length !events)
+      after_journal_open.decode_canonical_event.requested;
     Eio.Switch.run (fun sw ->
       let opened = require_store (Store.open_existing ~sw ~codec ~dir) in
       check_events "open replay artifact is exact" !events opened.replay_events;
@@ -1355,14 +1402,14 @@ let test_shared_codec_executor_routes_store_work () =
     check int "retry reuses one encoded expected batch" 2 stats.encode_events.requested;
     check
       int
-      "two opens plus one page are three batch decodes"
-      3
-      stats.decode_canonical_events.requested;
+      "two opens plus one page decode each event without raw batch retention"
+      (3 * List.length !events)
+      stats.decode_canonical_event.requested;
     check
       int
-      "exact retry is one canonical payload comparison"
-      1
-      stats.compare_canonical_payloads.requested;
+      "exact retry compares each canonical payload without retaining committed batch"
+      (List.length !events)
+      stats.compare_canonical_payload.requested;
     let worker name (operation : Codec.operation_stats) =
       match operation.last_worker_domain with
       | None -> fail (name ^ " did not record a worker domain")
@@ -1371,8 +1418,8 @@ let test_shared_codec_executor_routes_store_work () =
         worker
     in
     let encode_worker = worker "encode" stats.encode_events in
-    let decode_worker = worker "decode" stats.decode_canonical_events in
-    let compare_worker = worker "compare" stats.compare_canonical_payloads in
+    let decode_worker = worker "decode" stats.decode_canonical_event in
+    let compare_worker = worker "compare" stats.compare_canonical_payload in
     check
       bool
       "encode/decode share the application worker"
@@ -1392,13 +1439,14 @@ let test_released_codec_fails_before_store_mutation () =
     Eio.Switch.run (fun store_sw ->
       let store =
         Eio.Switch.run (fun codec_sw ->
-          let pool =
-            Eio.Executor_pool.create
-              ~sw:codec_sw
-              ~domain_count:1
-              (Eio.Stdenv.domain_mgr env)
+          let runtime =
+            require_runtime
+              (Runtime_internal.create
+                 ~sw:codec_sw
+                 ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+                 ~domain_count:1)
           in
-          create_store ~codec:(Codec.of_executor_pool pool) ~sw:store_sw ~dir)
+          create_store ~codec:(Codec.of_runtime runtime) ~sw:store_sw ~dir)
       in
       let events = make_four_events (Store.correlation_id store) in
       let writer = attach_store store in
@@ -1465,6 +1513,10 @@ let () =
             "projection detects middle event corruption"
             `Quick
             test_projection_detects_middle_event_corruption
+        ; test_case
+            "retry validates later corruption after an earlier mismatch"
+            `Quick
+            test_retry_validates_later_frames_after_content_mismatch
         ; test_case
             "projection verifies middle event frame header"
             `Quick

@@ -1,4 +1,5 @@
 open Alcotest
+module Runtime_internal = Execution_runtime
 open Agent_sdk
 module Event = Execution_event
 module Codec = Execution_codec_executor
@@ -44,12 +45,21 @@ let require_codec = function
   | Error detail -> fail detail
 ;;
 
+let require_runtime = function
+  | Ok value -> value
+  | Error error -> fail (Runtime_internal.create_error_to_string error)
+;;
+
 let with_temp_dir env f =
   Eio.Switch.run (fun codec_sw ->
-    let pool =
-      Eio.Executor_pool.create ~sw:codec_sw ~domain_count:1 (Eio.Stdenv.domain_mgr env)
+    let runtime =
+      require_runtime
+        (Runtime_internal.create
+           ~sw:codec_sw
+           ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+           ~domain_count:1)
     in
-    let codec = Codec.of_executor_pool pool in
+    let codec = Codec.of_runtime runtime in
     let native_path = Filename.temp_file "oas-execution-lane-writer-" ".dir" in
     Sys.remove native_path;
     let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in

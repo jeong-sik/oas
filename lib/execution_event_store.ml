@@ -15,31 +15,6 @@ let reverse_append_cooperatively values tail =
 
 let reverse_cooperatively values = reverse_append_cooperatively values []
 
-let map_cooperatively f values =
-  let rec loop mapped_rev = function
-    | [] -> reverse_cooperatively mapped_rev
-    | value :: rest ->
-      Eio.Fiber.check ();
-      Eio.Fiber.yield ();
-      loop (f value :: mapped_rev) rest
-  in
-  loop [] values
-;;
-
-let nth_opt_cooperatively values index =
-  let rec loop current = function
-    | [] -> None
-    | value :: rest ->
-      Eio.Fiber.check ();
-      if current = 0
-      then Some value
-      else (
-        Eio.Fiber.yield ();
-        loop (current - 1) rest)
-  in
-  if index < 0 then None else loop index values
-;;
-
 let length_cooperatively values =
   let rec loop length = function
     | [] -> length
@@ -122,10 +97,6 @@ type error =
       ; detail : string
       }
   | Codec_failure of Codec.failure
-  | Codec_protocol_failure of
-      { operation : Codec.operation
-      ; detail : string
-      }
   | Writer_already_active
   | Store_already_attached
   | Store_released
@@ -167,11 +138,6 @@ let rec error_to_string = function
   | Io_failure { operation; detail } ->
     Printf.sprintf "execution store %s failed: %s" operation detail
   | Codec_failure failure -> Codec.failure_to_string failure
-  | Codec_protocol_failure { operation; detail } ->
-    Printf.sprintf
-      "execution codec %s violated its closed request contract: %s"
-      (Codec.show_operation operation)
-      detail
   | Writer_already_active -> "execution store already has an active writer"
   | Store_already_attached -> "execution store is already attached to a journal"
   | Store_released -> "execution store resources have been released"
@@ -1221,77 +1187,38 @@ type located_payload =
   ; payload : string
   }
 
-let decode_located_payloads codec located_payloads =
-  match located_payloads with
-  | [] -> Ok []
-  | _ :: _ ->
-    let payloads = map_cooperatively (fun located -> located.payload) located_payloads in
-    let* decoded =
-      Codec.decode_canonical_events codec payloads
-      |> Result.map_error (fun failure -> Codec_failure failure)
-    in
-    (match decoded with
-     | Ok events -> Ok events
-     | Error (Invalid_event { ordinal; detail }) ->
-       (match nth_opt_cooperatively located_payloads ordinal with
-        | Some located ->
-          Error
-            (Corrupt_store
-               { offset = located.offset; detail = "invalid event: " ^ detail })
-        | None ->
-          Error
-            (Codec_protocol_failure
-               { operation = Decode_canonical_events
-               ; detail = "invalid-event ordinal is outside the submitted payload list"
-               }))
-     | Error (Noncanonical_event { ordinal }) ->
-       (match nth_opt_cooperatively located_payloads ordinal with
-        | Some located ->
-          Error
-            (Corrupt_store
-               { offset = located.offset; detail = "event bytes are not canonical" })
-        | None ->
-          Error
-            (Codec_protocol_failure
-               { operation = Decode_canonical_events
-               ; detail =
-                   "noncanonical-event ordinal is outside the submitted payload list"
-               })))
+let decode_located_payload codec located =
+  let* decoded =
+    Codec.decode_canonical_event codec located.payload
+    |> Result.map_error (fun failure -> Codec_failure failure)
+  in
+  match decoded with
+  | Ok event -> Ok event
+  | Error (Invalid_event { detail }) ->
+    Error (Corrupt_store { offset = located.offset; detail = "invalid event: " ^ detail })
+  | Error Noncanonical_event ->
+    Error
+      (Corrupt_store { offset = located.offset; detail = "event bytes are not canonical" })
 ;;
 
-let validate_scanned_events correlation_id ~expected_seq located_payloads events =
-  let rec loop expected located_payloads events =
-    match located_payloads, events with
-    | [], [] -> Ok ()
-    | located :: located_rest, event :: event_rest ->
-      Eio.Fiber.check ();
-      if Event.seq event <> expected
-      then
-        Error
-          (Corrupt_store
-             { offset = located.offset
-             ; detail =
-                 Printf.sprintf
-                   "event sequence %d does not match expected sequence %d"
-                   (Event.seq event)
-                   expected
-             })
-      else if not (Event.Correlation_id.equal (Event.correlation_id event) correlation_id)
-      then
-        Error
-          (Corrupt_store
-             { offset = located.offset; detail = "event correlation mismatch" })
-      else (
-        Eio.Fiber.yield ();
-        loop (expected + 1) located_rest event_rest)
-    | [], _ :: _ | _ :: _, [] ->
-      Error
-        (Codec_protocol_failure
-           { operation = Decode_canonical_events
-           ; detail = "decoded event count does not match submitted payload count"
-           })
-  in
-  loop expected_seq located_payloads events
+let validate_scanned_event correlation_id ~expected_seq located event =
+  Eio.Fiber.check ();
+  if Event.seq event <> expected_seq
+  then
+    Error
+      (Corrupt_store
+         { offset = located.offset
+         ; detail =
+             Printf.sprintf
+               "event sequence %d does not match expected sequence %d"
+               (Event.seq event)
+               expected_seq
+         })
+  else if not (Event.Correlation_id.equal (Event.correlation_id event) correlation_id)
+  then
+    Error
+      (Corrupt_store { offset = located.offset; detail = "event correlation mismatch" })
+  else Ok ()
 ;;
 
 let scan_store codec file ~file_size =
@@ -1336,8 +1263,7 @@ let scan_store codec file ~file_size =
                    committed_seq
              })
       else (
-        let rec scan_events event_offset ordinal digest_context locations_rev payloads_rev
-          =
+        let rec scan_events event_offset ordinal digest_context locations_rev events_rev =
           if ordinal = header.count
           then
             let* commit_frame = decode_frame file ~file_size event_offset in
@@ -1374,16 +1300,8 @@ let scan_store codec file ~file_size =
                      { offset = event_offset; detail = "batch event digest mismatch" })
               else (
                 let locations = reverse_cooperatively locations_rev in
-                let located_payloads = reverse_cooperatively payloads_rev in
-                let* events = decode_located_payloads codec located_payloads in
-                let+ () =
-                  validate_scanned_events
-                    correlation_id
-                    ~expected_seq:header.expected_next_seq
-                    located_payloads
-                    events
-                in
-                next_offset, expected_last, locations, events)
+                let events = reverse_cooperatively events_rev in
+                Ok (next_offset, expected_last, locations, events))
             | Complete_frame _ ->
               Error
                 (Corrupt_store
@@ -1408,13 +1326,18 @@ let scan_store codec file ~file_size =
                 ; frame = frame_guard event_offset event_frame
                 }
               in
+              let located = { offset = event_offset; payload } in
+              let* event = decode_located_payload codec located in
+              let* () =
+                validate_scanned_event correlation_id ~expected_seq located event
+              in
               Eio.Fiber.yield ();
               scan_events
                 next_offset
                 (ordinal + 1)
                 (feed_payload_digest digest_context payload)
                 (location :: locations_rev)
-                ({ offset = event_offset; payload } :: payloads_rev)
+                (event :: events_rev)
             | Complete_frame _ ->
               Error
                 (Corrupt_store
@@ -1853,34 +1776,20 @@ let read_location_payload_locked store ~file_size location =
   protect_corrupt_read store (read_location_payload_raw store ~file_size location)
 ;;
 
-let validate_indexed_events locations events =
-  let rec loop locations events =
-    match locations, events with
-    | [], [] -> Ok ()
-    | location :: location_rest, event :: event_rest ->
-      Eio.Fiber.check ();
-      if Event.seq event = location.seq
-      then (
-        Eio.Fiber.yield ();
-        loop location_rest event_rest)
-      else
-        Error
-          (Corrupt_store
-             { offset = location.frame.frame_offset
-             ; detail =
-                 Printf.sprintf
-                   "indexed sequence %d contains event sequence %d"
-                   location.seq
-                   (Event.seq event)
-             })
-    | [], _ :: _ | _ :: _, [] ->
-      Error
-        (Codec_protocol_failure
-           { operation = Decode_canonical_events
-           ; detail = "decoded event count does not match indexed payload count"
-           })
-  in
-  loop locations events
+let validate_indexed_event location event =
+  Eio.Fiber.check ();
+  if Event.seq event = location.seq
+  then Ok ()
+  else
+    Error
+      (Corrupt_store
+         { offset = location.frame.frame_offset
+         ; detail =
+             Printf.sprintf
+               "indexed sequence %d contains event sequence %d"
+               location.seq
+               (Event.seq event)
+         })
 ;;
 
 let corrupt_tail store offset detail =
@@ -1912,26 +1821,23 @@ let read_range store ~committed_offset locations ~first_seq ~count =
            committed_offset
            actual_size)
   in
-  let rec gather seq remaining locations_rev payloads_rev =
+  let rec gather seq remaining events_rev =
     if remaining = 0
-    then Ok (reverse_cooperatively locations_rev, reverse_cooperatively payloads_rev)
+    then Ok (reverse_cooperatively events_rev)
     else (
       let location = location_at locations seq in
       let* payload =
         read_location_payload_locked store ~file_size:committed_offset location
       in
+      let located = { offset = location.frame.frame_offset; payload } in
+      let* event =
+        protect_corrupt_read store (decode_located_payload store.codec located)
+      in
+      let* () = protect_corrupt_read store (validate_indexed_event location event) in
       Eio.Fiber.yield ();
-      gather
-        (seq + 1)
-        (remaining - 1)
-        (location :: locations_rev)
-        ({ offset = location.frame.frame_offset; payload } :: payloads_rev))
+      gather (seq + 1) (remaining - 1) (event :: events_rev))
   in
-  let* locations, located_payloads = gather first_seq count [] [] in
-  let* events =
-    protect_corrupt_read store (decode_located_payloads store.codec located_payloads)
-  in
-  let* () = protect_corrupt_read store (validate_indexed_events locations events) in
+  let* events = gather first_seq count [] in
   let+ () = require_writable store in
   events
 ;;
@@ -2215,27 +2121,23 @@ let compare_committed store ~expected_next_seq ~count payloads committed_last =
       with_read store (fun () ->
         store.committed.committed_offset, store.committed.locations)
     in
-    let rec committed_payloads reverse_payloads seq = function
-      | [] -> Ok (reverse_cooperatively reverse_payloads)
-      | _expected :: expected_payloads ->
+    let rec compare all_identical seq = function
+      | [] ->
+        if all_identical
+        then Ok Already_committed
+        else
+          Error (Committed_content_conflict { first_seq = expected_next_seq; last_seq })
+      | expected :: expected_payloads ->
         let location = location_at committed_locations seq in
-        let* payload = read_location_payload_locked store ~file_size location in
+        let* actual = read_location_payload_locked store ~file_size location in
+        let* identical =
+          Codec.compare_canonical_payload store.codec ~expected ~actual
+          |> Result.map_error (fun failure -> Codec_failure failure)
+        in
         Eio.Fiber.yield ();
-        committed_payloads (payload :: reverse_payloads) (seq + 1) expected_payloads
+        compare (all_identical && identical) (seq + 1) expected_payloads
     in
-    let* committed_payloads = committed_payloads [] expected_next_seq payloads in
-    let* identical =
-      Codec.compare_canonical_payloads
-        store.codec
-        ~expected:payloads
-        ~actual:committed_payloads
-      |> Result.map_error (fun failure -> Codec_failure failure)
-    in
-    let* outcome =
-      if identical
-      then Ok Already_committed
-      else Error (Committed_content_conflict { first_seq = expected_next_seq; last_seq })
-    in
+    let* outcome = compare true expected_next_seq payloads in
     let+ () = require_writable store in
     outcome)
 ;;

@@ -15,8 +15,8 @@
     supplied {!Eio.Switch.t}. Store and writer capabilities are switch-bound;
     after release, every operation that depends on live resources returns
     [Store_released] rather than touching a closed descriptor. The injected
-    codec executor is borrowed: its application-owned switch must be outside
-    and outlive every store switch. *)
+    codec service borrows an {!Execution_runtime.t}; that runtime's
+    application-owned switch must be outside and outlive every store switch. *)
 
 module Scope_id : sig
   type t
@@ -69,10 +69,6 @@ type error =
       ; detail : string
       }
   | Codec_failure of Execution_codec_executor.failure
-  | Codec_protocol_failure of
-      { operation : Execution_codec_executor.operation
-      ; detail : string
-      }
   | Writer_already_active
   | Store_already_attached
   | Store_released
