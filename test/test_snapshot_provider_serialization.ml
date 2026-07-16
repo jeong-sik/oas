@@ -767,6 +767,50 @@ let test_ollama_output_schema () =
     (contains ~needle:{|"required":["answer"]|} body)
 ;;
 
+let test_anthropic_tools_with_output_schema () =
+  (* Tools + structured output in ONE request: the output_config format merge
+     must not clobber tool wiring, and vice versa. *)
+  let body =
+    Backend_anthropic.build_request
+      ~config:anthropic_schema_cfg
+      ~messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  check
+    bool
+    "format.json_schema coexists with tools"
+    true
+    (contains ~needle:{|"format":{"type":"json_schema","schema":{|} body);
+  check
+    bool
+    "tool declaration on the wire"
+    true
+    (contains ~needle:{|"name":"get_weather"|} body);
+  check
+    bool
+    "tool input_schema on the wire"
+    true
+    (contains ~needle:{|"input_schema"|} body)
+;;
+
+let test_openai_tools_with_response_format () =
+  let cfg = schema_cfg ~kind:OpenAI_compat ~base_url:"https://api.openai.com/v1" in
+  let body =
+    Backend_openai_request.build_request ~config:cfg ~messages ~tools:[ tool_decl ] ()
+  in
+  check
+    bool
+    "response_format json_schema coexists with tools"
+    true
+    (contains ~needle:{|"response_format":{"type":"json_schema"|} body);
+  check
+    bool
+    "tool declaration on the wire"
+    true
+    (contains ~needle:{|"function":{"name":"get_weather"|} body)
+;;
+
 let test_anthropic_output_schema () =
   let body =
     Backend_anthropic.build_request
@@ -855,6 +899,14 @@ let () =
             "anthropic output_schema -> format.json_schema"
             `Quick
             test_anthropic_output_schema
+        ; test_case
+            "anthropic tools coexist with output_schema"
+            `Quick
+            test_anthropic_tools_with_output_schema
+        ; test_case
+            "openai tools coexist with response_format"
+            `Quick
+            test_openai_tools_with_response_format
         ] )
     ]
 ;;

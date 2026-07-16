@@ -140,6 +140,20 @@ let build_request_artifact
     match tools with
     | [] -> body
     | ts ->
+      (* The native /api/chat wire has no parallel-disable field (unlike
+         OpenAI [parallel_tool_calls] or Anthropic
+         [tool_choice.disable_parallel_tool_use]), so an effective disable
+         request cannot be honored — surface the drop instead of ignoring
+         it silently, mirroring the Gemini backend. *)
+      if
+        Capabilities.effective_disable_parallel_tool_use
+          ~caller_disabled:config.disable_parallel_tool_use
+          ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
+          ~tools_present:true
+      then
+        Backend_openai.warn_capability_drop
+          ~model_id:config.model_id
+          ~field:"disable_parallel_tool_use";
       ("tools", `List (List.map Backend_openai_serialize.build_openai_tool_json ts))
       :: body
   in

@@ -34,7 +34,7 @@ let warn_capability_drop ~model_id ~field =
     (Metrics.get_global ()).on_capability_drop ~model_id ~field;
     Diag.warn
       "backend_openai"
-      "dropping sampling field %s for model %s: capability record reports supports_%s = \
+      "dropping request field %s for model %s: capability record reports supports_%s = \
        false. Update Capabilities.for_model_id if this model actually supports it, \
        otherwise remove the field from your request config."
       field
