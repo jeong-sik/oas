@@ -5,8 +5,7 @@
     Forensic context (2026-06-09): masc keepers were observed stuck in the
     [streaming] FSM state with Ollama Cloud connections (34.36.133.15:443)
     held in CLOSE_WAIT — the peer had sent FIN but the local side had not
-    closed.  PR #1978 armed a default 60s stream idle timeout
-    ([complete.ml]: [None -> Some 60.0]) and threaded [?clock ?idle_timeout]
+    closed.  PR #1978 threaded an explicit stream idle timeout
     through [streaming.ml].  This regression test exercises the production
     [Http_client.with_post_stream] + [read_sse] path directly to decide
     whether the cut / silent-stall paths are now bounded, or whether the
@@ -52,8 +51,14 @@ let send_prelude flow ~n_lines =
 (* Variant (a): send prelude, then FIN the write side and keep the fd open
    on the server (mimics a peer that cut mid-stream without closing the
    whole socket). *)
-let half_close_server ~sw ~net port ~n_lines =
-  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
+let listening_port socket =
+  match Eio.Net.listening_addr socket with
+  | `Tcp (_, port) -> port
+  | `Unix _ -> invalid_arg "expected a TCP listening socket"
+;;
+
+let half_close_server ~sw ~net ~n_lines =
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 0) in
   let listening = Eio.Net.listen ~sw ~backlog:5 ~reuse_addr:true net addr in
   Eio.Fiber.fork ~sw (fun () ->
     Eio.Net.accept_fork
@@ -65,13 +70,14 @@ let half_close_server ~sw ~net port ~n_lines =
          send_prelude flow ~n_lines;
          Eio.Flow.shutdown flow `Send;
          (* hold the (now half-closed) fd so teardown is the client's job *)
-         Eio_unix.sleep (outer_budget_s +. 1.0)))
+         Eio_unix.sleep (outer_budget_s +. 1.0)));
+  listening_port listening
 ;;
 
 (* Variant (b): send prelude, then go silent (no FIN) — the inter-event
    idle deadline is the only thing that can unstick the reader. *)
-let silent_stall_server ~sw ~net port ~n_lines =
-  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
+let silent_stall_server ~sw ~net ~n_lines =
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 0) in
   let listening = Eio.Net.listen ~sw ~backlog:5 ~reuse_addr:true net addr in
   Eio.Fiber.fork ~sw (fun () ->
     Eio.Net.accept_fork
@@ -81,7 +87,8 @@ let silent_stall_server ~sw ~net port ~n_lines =
       (fun flow _addr ->
          drain_request_headers flow;
          send_prelude flow ~n_lines;
-         Eio_unix.sleep (outer_budget_s +. 1.0)))
+         Eio_unix.sleep (outer_budget_s +. 1.0)));
+  listening_port listening
 ;;
 
 type outcome =
@@ -156,9 +163,8 @@ let test_half_close_is_bounded () =
   and clock = env#clock in
   try
     Eio.Switch.run (fun sw ->
-      half_close_server ~sw ~net 19751 ~n_lines:3;
-      Eio_unix.sleep 0.2;
-      let outcome, elapsed, lines = run_client ~clock ~net ~port:19751 in
+      let port = half_close_server ~sw ~net ~n_lines:3 in
+      let outcome, elapsed, lines = run_client ~clock ~net ~port in
       assert_bounded
         ~label:"half-close (FIN mid-stream)"
         ~elapsed
@@ -177,9 +183,8 @@ let test_silent_stall_is_bounded () =
   and clock = env#clock in
   try
     Eio.Switch.run (fun sw ->
-      silent_stall_server ~sw ~net 19752 ~n_lines:3;
-      Eio_unix.sleep 0.2;
-      let outcome, elapsed, lines = run_client ~clock ~net ~port:19752 in
+      let port = silent_stall_server ~sw ~net ~n_lines:3 in
+      let outcome, elapsed, lines = run_client ~clock ~net ~port in
       assert_bounded
         ~label:"silent stall (no FIN)"
         ~elapsed

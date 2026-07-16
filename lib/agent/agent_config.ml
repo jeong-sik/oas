@@ -402,7 +402,15 @@ let rollback_connected ~close connected =
   |> List.rev
 ;;
 
-let connect_mcp_servers_transactionally ~connect ~close ~report_cleanup_failures mcp_cfgs =
+let trace_cleanup_reporter_failure diagnostic = Eio.traceln "%s" diagnostic
+
+let connect_mcp_servers_transactionally
+      ?(report_reporter_failure = trace_cleanup_reporter_failure)
+      ~connect
+      ~close
+      ~report_cleanup_failures
+      mcp_cfgs
+  =
   let rollback connected =
     Eio.Cancel.protect (fun () ->
       match rollback_connected ~close connected with
@@ -423,11 +431,12 @@ let connect_mcp_servers_transactionally ~connect ~close ~report_cleanup_failures
                failures
              |> String.concat "\n"
            in
-           Eio.traceln
-             "agent_config: MCP cleanup failure reporter raised: %s\n%s\n%s"
-             (Log.redact (Printexc.to_string reporter_exception))
-             (Printexc.raw_backtrace_to_string reporter_backtrace)
-             cleanup_diagnostics))
+           report_reporter_failure
+             (Printf.sprintf
+                "agent_config: MCP cleanup failure reporter raised: %s\n%s\n%s"
+                (Log.redact (Printexc.to_string reporter_exception))
+                (Printexc.raw_backtrace_to_string reporter_backtrace)
+                cleanup_diagnostics)))
   in
   let rec loop connected = function
     | [] -> Ok (List.rev connected)
@@ -590,9 +599,12 @@ let%test "required MCP rollback survives cancellation and preserves every failur
        in
        let closed = ref [] in
        let reported = ref [] in
+       let reporter_diagnostic = ref None in
        let observed_backtrace =
          match
            connect_mcp_servers_transactionally
+             ~report_reporter_failure:(fun diagnostic ->
+               reporter_diagnostic := Some diagnostic)
              ~connect
              ~close:(fun connected ->
                closed := connected :: !closed;
@@ -625,6 +637,7 @@ let%test "required MCP rollback survives cancellation and preserves every failur
          | None, _ | _, None -> false
        in
        original_backtrace_preserved
+       && Option.is_some !reporter_diagnostic
        && List.rev !closed = [ "connected-second"; "connected-first" ]
        && reported_resources = [ "connected-second"; "connected-first" ]
        && List.for_all
