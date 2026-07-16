@@ -246,6 +246,7 @@ let expected_default_provider_names =
   ; "deepseek"
   ; "gemini"
   ; "gemini-image"
+  ; "gemini-speech"
   ; "glm"
   ; "glm-coding"
   ; "groq"

@@ -38,21 +38,24 @@ type export_result =
       }
   | Failed of { reason : string }
 
-(* ── TLS helper (self-contained, no llm_provider dep) ───────── *)
+(* ── TLS helper ─────────────────────────────────────────────── *)
 
 let _log = Log.create ~module_name:"otel_export" ()
 
+(* Reuses the process-wide cached TLS configuration
+   ({!Llm_provider.Api_common.tls_client_config}). [flush_to_collector]
+   builds a client per flush tick; loading the system trust store each
+   time re-ran `security find-certificate` + a full PEM parse every
+   [flush_interval_sec] on macOS. *)
 let make_https () =
-  match Ca_certs.authenticator () with
-  | Error (`Msg msg) ->
-    Log.warn _log "TLS CA certificate loading failed" [ Log.S ("error", msg) ];
+  match Llm_provider.Api_common.tls_client_config () with
+  | Error err ->
+    Log.warn
+      _log
+      "TLS client configuration unavailable"
+      [ Log.S ("error", Llm_provider.Api_common.https_init_error_to_string err) ];
     None
-  | Ok authenticator ->
-    (match Tls.Config.client ~authenticator () with
-     | Error (`Msg msg) ->
-       Log.warn _log "TLS client configuration failed" [ Log.S ("error", msg) ];
-       None
-     | Ok tls_config -> Some (fun _uri socket -> Tls_eio.client_of_flow tls_config socket))
+  | Ok tls_config -> Some (fun _uri socket -> Tls_eio.client_of_flow tls_config socket)
 ;;
 
 let make_client ~net = Cohttp_eio.Client.make ~https:(make_https ()) net
