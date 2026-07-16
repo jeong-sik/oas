@@ -1,8 +1,9 @@
 (** In-memory, append-only journal for one finite execution scope.
 
     A journal admits exactly one top-level [Agent_run] and any child runs
-    recursively invoked beneath it. It owns one global logical sequence across
-    that tree. Timestamps are observations only; ordering uses [seq].
+    recursively invoked beneath exact [Tool_attempt] occurrences. It owns one
+    global logical sequence across that tree. Timestamps are observations only;
+    ordering uses [seq].
 
     Events remain in memory for the lifetime of [t]. A claimed durable writer
     hides the physical store behind this semantic boundary; consumers obtain
@@ -52,7 +53,7 @@ type run_status =
 type run_view = private
   { run : run
   ; opened : Execution_event.node event_record
-  ; parent_invocation : Execution_event.Node_id.t option
+  ; parent_attempt : Execution_event.Node_id.t option
   ; status : run_status
   ; through_seq : int
   }
@@ -98,7 +99,7 @@ type invariant_violation =
       { parent : Execution_event.Node_id.t
       ; child : Execution_event.Node_id.t
       }
-  | Invalid_child_run_parent of Execution_event.Node_id.t
+  | Child_run_parent_not_tool_attempt of Execution_event.Node_id.t
   | Root_parent_event_mismatch
   | Parent_event_mismatch of
       { expected : Execution_event.Event_id.t
@@ -293,7 +294,7 @@ module Transaction : sig
   type 'a t
 
   val start_run
-    :  ?parent_invocation:Execution_event.Node_id.t
+    :  ?parent_attempt:Execution_event.Node_id.t
     -> ?causes:Execution_event.cause list
     -> agent_name:string
     -> unit
@@ -367,12 +368,12 @@ val reconcile_durable_batch
   -> batch
   -> (durable_batch_reconciliation, error) result
 
-(** Start the journal's sole top-level run, or a child run beneath an existing
-    open [Tool_invocation]. Once the top-level run has started, the journal can
+(** Start the journal's sole top-level run, or a child run beneath one exact
+    open [Tool_attempt]. Once the top-level run has started, the journal can
     never be reused for another top-level run, including after it finishes. The
     journal allocates both run and root-node identity. *)
 val start_run
-  :  ?parent_invocation:Execution_event.Node_id.t
+  :  ?parent_attempt:Execution_event.Node_id.t
   -> ?causes:Execution_event.cause list
   -> t
   -> agent_name:string
@@ -380,7 +381,8 @@ val start_run
 
 (** Open a non-root node. The journal allocates node identity and enforces the
     hierarchy [Agent_run -> Agent_turn -> Provider_attempt ->
-    (Output_block | Tool_invocation)] and [Tool_invocation -> Tool_attempt]. *)
+    (Output_block | Tool_invocation)], [Tool_invocation -> Tool_attempt], and
+    recursive [Tool_attempt -> Tool_invocation]. *)
 val open_node
   :  ?causes:Execution_event.cause list
   -> t

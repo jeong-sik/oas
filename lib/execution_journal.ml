@@ -106,7 +106,7 @@ type run_status =
 type run_view =
   { run : run
   ; opened : Event.node event_record
-  ; parent_invocation : Event.Node_id.t option
+  ; parent_attempt : Event.Node_id.t option
   ; status : run_status
   ; through_seq : int
   }
@@ -150,7 +150,7 @@ type invariant_violation =
       { parent : Event.Node_id.t
       ; child : Event.Node_id.t
       }
-  | Invalid_child_run_parent of Event.Node_id.t
+  | Child_run_parent_not_tool_attempt of Event.Node_id.t
   | Root_parent_event_mismatch
   | Parent_event_mismatch of
       { expected : Event.Event_id.t
@@ -508,6 +508,7 @@ module Reducer = struct
     | Event.Agent_turn _, Event.Provider_attempt _ -> true
     | Event.Provider_attempt _, (Event.Output_block _ | Event.Tool_invocation _) -> true
     | Event.Tool_invocation _, Event.Tool_attempt -> true
+    | Event.Tool_attempt, Event.Tool_invocation _ -> true
     | ( ( Event.Agent_run _
         | Event.Agent_turn _
         | Event.Provider_attempt _
@@ -638,7 +639,7 @@ module Reducer = struct
     if Run_id_map.mem run_id state.runs
     then Error (Duplicate_run_id run_id)
     else
-      let* parent_invocation =
+      let* parent_attempt =
         match Event.parent_node_id node with
         | None ->
           let* () = validate_root_parent event in
@@ -654,22 +655,17 @@ module Reducer = struct
            | Some parent_record ->
              let* () = ensure_node_open parent_id parent_record in
              (match Event.node_kind parent_record.node with
-              | Event.Tool_invocation _ ->
-                if Option.is_none parent_record.tool_input
-                then Error (Tool_input_not_materialized parent_id)
-                else if Option.is_some parent_record.tool_result
-                then Error (Child_after_tool_result parent_id)
-                else
-                  let+ () = validate_parent_event event parent_record.last_event_id in
-                  Some parent_id
-              | _ -> Error (Invalid_child_run_parent parent_id)))
+              | Event.Tool_attempt ->
+                let+ () = validate_parent_event event parent_record.last_event_id in
+                Some parent_id
+              | _ -> Error (Child_run_parent_not_tool_attempt parent_id)))
       in
       let run = { id = run_id; root = node_id } in
       let run_record =
         { view =
             { run
             ; opened = { event; value = node }
-            ; parent_invocation
+            ; parent_attempt
             ; status = Running
             ; through_seq = 0
             }
@@ -1255,7 +1251,7 @@ let node_last_event (state : journal_state) node_id =
   | Some event_id -> Ok event_id
 ;;
 
-let stage_start_run ?parent_invocation ?causes journal state ~agent_name =
+let stage_start_run ?parent_attempt ?causes journal state ~agent_name =
   let* run_id = identity_result (Event.Run_id.fresh ()) in
   let* root = identity_result (Event.Node_id.fresh ()) in
   let* event_id = identity_result (Event.Event_id.fresh ()) in
@@ -1264,7 +1260,7 @@ let stage_start_run ?parent_invocation ?causes journal state ~agent_name =
       Event.make_node
         ~node_id:root
         ~run_id
-        ~parent_node_id:parent_invocation
+        ~parent_node_id:parent_attempt
         ~kind:(Event.Agent_run { agent_name })
     with
     | Ok node -> Ok node
@@ -1272,7 +1268,7 @@ let stage_start_run ?parent_invocation ?causes journal state ~agent_name =
   in
   let* payload = payload_result (Event.validate_payload (Event.Node_opened node)) in
   let* parent_event_id =
-    match parent_invocation with
+    match parent_attempt with
     | None -> Ok None
     | Some node_id ->
       let+ event_id = node_last_event state node_id in
@@ -1445,9 +1441,9 @@ let stage_abort_run ?causes journal captured_state ~run terminal =
     { next_state; events; value = events }
 ;;
 
-let start_run ?parent_invocation ?causes journal ~agent_name =
+let start_run ?parent_attempt ?causes journal ~agent_name =
   with_write journal (fun state ->
-    stage_start_run ?parent_invocation ?causes journal state ~agent_name)
+    stage_start_run ?parent_attempt ?causes journal state ~agent_name)
 ;;
 
 let open_node ?causes journal ~run ~parent ~kind =
@@ -1511,7 +1507,7 @@ let extend_batch batch mutation =
 module Transaction = struct
   type _ t =
     | Start_run :
-        { parent_invocation : Event.Node_id.t option
+        { parent_attempt : Event.Node_id.t option
         ; causes : Event.cause list
         ; agent_name : string
         }
@@ -1548,8 +1544,8 @@ module Transaction = struct
         }
         -> Event.t list t
 
-  let start_run ?parent_invocation ?(causes = []) ~agent_name () =
-    Start_run { parent_invocation; causes; agent_name }
+  let start_run ?parent_attempt ?(causes = []) ~agent_name () =
+    Start_run { parent_attempt; causes; agent_name }
   ;;
 
   let open_node ?(causes = []) ~run ~parent ~kind () =
@@ -1569,10 +1565,10 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
     extend_batch batch mutation
   in
   match transaction with
-  | Transaction.Start_run { parent_invocation; causes; agent_name } ->
+  | Transaction.Start_run { parent_attempt; causes; agent_name } ->
     stage_mutation
       (stage_start_run
-         ?parent_invocation
+         ?parent_attempt
          ~causes
          batch.journal
          batch.staged_state

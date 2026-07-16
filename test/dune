@@ -361,8 +361,6 @@
  (modules test_execution_journal)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../models.toml)
- (flags
-  (:standard -open Agent_sdk__))
  (action
   (run %{test})))
 
@@ -371,8 +369,6 @@
  (modules test_execution_codec_executor)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../models.toml)
- (flags
-  (:standard -open Agent_sdk__))
  (action
   (run %{test})))
 
@@ -381,8 +377,6 @@
  (modules test_execution_event_store)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../models.toml)
- (flags
-  (:standard -open Agent_sdk__))
  (action
   (run %{test})))
 
@@ -391,8 +385,6 @@
  (modules test_execution_lane_writer)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../models.toml)
- (flags
-  (:standard -open Agent_sdk__))
  (action
   (run %{test})))
 

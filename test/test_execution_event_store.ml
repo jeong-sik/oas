@@ -1,10 +1,11 @@
 open Alcotest
-module Runtime_internal = Execution_runtime
 open Agent_sdk
-module Event = Execution_event
-module Codec = Execution_codec_executor
-module Journal = Execution_journal
-module Store = Execution_event_store
+module Internal = Agent_sdk__
+module Runtime_internal = Internal.Execution_runtime
+module Event = Internal.Execution_event
+module Codec = Internal.Execution_codec_executor
+module Journal = Internal.Execution_journal
+module Store = Internal.Execution_event_store
 
 exception Cancel_before_append
 exception Store_scope_failed

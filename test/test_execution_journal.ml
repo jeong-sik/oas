@@ -1,7 +1,8 @@
 open Alcotest
 open Agent_sdk
-module Event = Execution_event
-module Journal = Execution_journal
+module Internal = Agent_sdk__
+module Event = Internal.Execution_event
+module Journal = Internal.Execution_journal
 
 let require_ok = function
   | Ok value -> value
@@ -170,18 +171,18 @@ let build_recursive_run journal =
           journal
           ~node:attempt
           (Event.Tool_progress (`Assoc [ "bytes", `Int 512 ]))));
-  let attempt_closed =
-    require_ok (Journal.close_node journal ~node:attempt Event.Succeeded)
-  in
   let child_run =
     require_started_run
-      (Journal.start_run ~parent_invocation:invocation journal ~agent_name:"reviewer")
+      (Journal.start_run ~parent_attempt:attempt journal ~agent_name:"reviewer")
   in
   let child_agent_turn, child_turn = open_provider_attempt journal child_run in
   ignore (require_ok (Journal.close_node journal ~node:child_turn Event.Succeeded));
   ignore (require_ok (Journal.close_node journal ~node:child_agent_turn Event.Succeeded));
   let child_finished =
     require_ok (Journal.finish_run journal ~run:child_run Event.Succeeded)
+  in
+  let attempt_closed =
+    require_ok (Journal.close_node journal ~node:attempt Event.Succeeded)
   in
   ignore
     (require_ok
@@ -248,17 +249,17 @@ let test_recursive_tree_and_global_sequence () =
   (match Journal.find_run journal (Journal.run_id parent_run) with
    | Some
        { status = Journal.Finished { value = Event.Succeeded; _ }
-       ; parent_invocation = None
+       ; parent_attempt = None
        ; _
        } -> ()
    | _ -> fail "parent run was not finished as a root run");
   match Journal.find_run journal (Journal.run_id child_run) with
   | Some
       { status = Journal.Finished { value = Event.Succeeded; _ }
-      ; parent_invocation = Some _
+      ; parent_attempt = Some _
       ; _
       } -> ()
-  | _ -> fail "child run did not retain its invocation parent"
+  | _ -> fail "child run did not retain its exact attempt parent"
 ;;
 
 let test_codec_roundtrip_and_exactness () =
@@ -517,8 +518,9 @@ let test_hierarchy_and_lifecycle_rejections () =
   (match Journal.close_node journal ~node:turn Event.Succeeded with
    | Error (Journal.Invariant_violation (Journal.Node_has_open_children _)) -> ()
    | _ -> fail "node with an open child was closed");
-  (match Journal.start_run ~parent_invocation:turn journal ~agent_name:"bad-child" with
-   | Error (Journal.Invariant_violation (Journal.Invalid_child_run_parent _)) -> ()
+  (match Journal.start_run ~parent_attempt:turn journal ~agent_name:"bad-child" with
+   | Error (Journal.Invariant_violation (Journal.Child_run_parent_not_tool_attempt _)) ->
+     ()
    | _ -> fail "child run under a provider turn was accepted");
   (match Journal.close_node journal ~node:root Event.Succeeded with
    | Error (Journal.Invariant_violation (Journal.Root_must_use_finish_run _)) -> ()
@@ -626,6 +628,26 @@ let test_hierarchy_and_lifecycle_rejections () =
     require_opened_node
       (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
   in
+  (match
+     Journal.start_run ~parent_attempt:invocation journal ~agent_name:"merged-retry"
+   with
+   | Error (Journal.Invariant_violation (Journal.Child_run_parent_not_tool_attempt _)) ->
+     ()
+   | _ -> fail "child run was attached to a logical invocation instead of an attempt");
+  let nested_invocation =
+    require_opened_node
+      (Journal.open_node journal ~run ~parent:attempt ~kind:(tool_invocation "nested"))
+  in
+  (match Journal.close_node journal ~node:attempt Event.Succeeded with
+   | Error (Journal.Invariant_violation (Journal.Node_has_open_children _)) -> ()
+   | _ -> fail "tool attempt closed while exact nested work remained open");
+  ignore
+    (require_ok
+       (Journal.close_node
+          journal
+          ~node:nested_invocation
+          (Event.Failed
+             { kind = Event.Tool_failure; detail = "nested tool rejected"; data = None })));
   (match
      Journal.update_node
        journal
@@ -1172,9 +1194,13 @@ let test_abort_run_closes_recursive_subtree_atomically () =
           ~node:invocation
           (Event.Tool_input_snapshot
              (tool_use "delegate" (`Assoc [ "task", `String "review" ])))));
+  let attempt =
+    require_opened_node
+      (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
+  in
   let child =
     require_started_run
-      (Journal.start_run ~parent_invocation:invocation journal ~agent_name:"child")
+      (Journal.start_run ~parent_attempt:attempt journal ~agent_name:"child")
   in
   let _child_agent_turn, child_turn = open_provider_attempt journal child in
   let before_rejected_success = Journal.length journal in
@@ -1208,7 +1234,7 @@ let test_abort_run_closes_recursive_subtree_atomically () =
   let closed =
     require_ok (Journal.abort_run ~causes:[ cancellation_trigger ] journal ~run terminal)
   in
-  check int "every open recursive node was closed" 8 (List.length closed);
+  check int "every open recursive node was closed" 9 (List.length closed);
   let root_closed = List.hd (List.rev closed) in
   (match Event.causes root_closed with
    | [ Event.External_event _; Event.Internal_event child_terminal ] ->
@@ -1262,10 +1288,14 @@ let test_abort_run_handles_deep_recursive_composition_iteratively () =
             ~node:invocation
             (Event.Tool_input_snapshot
                (tool_use ("deep-" ^ string_of_int index) (`Assoc [ "depth", `Int index ])))));
+    let attempt =
+      require_opened_node
+        (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
+    in
     current_run
     := require_started_run
          (Journal.start_run
-            ~parent_invocation:invocation
+            ~parent_attempt:attempt
             journal
             ~agent_name:("deep-agent-" ^ string_of_int index))
   done;
@@ -1296,7 +1326,7 @@ let test_abort_run_handles_deep_recursive_composition_iteratively () =
   check
     int
     "every deep recursive node closed"
-    (1 + (4 * deep_chain_depth))
+    (1 + (5 * deep_chain_depth))
     (List.length closed);
   let page =
     require_ok

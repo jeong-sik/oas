@@ -1,9 +1,10 @@
 open Alcotest
-module Runtime_internal = Execution_runtime
 open Agent_sdk
-module Codec = Execution_codec_executor
-module Event = Execution_event
-module Journal = Execution_journal
+module Internal = Agent_sdk__
+module Runtime_internal = Internal.Execution_runtime
+module Codec = Internal.Execution_codec_executor
+module Event = Internal.Execution_event
+module Journal = Internal.Execution_journal
 
 exception Cancel_running_codec
 exception Cancel_queued_codec
