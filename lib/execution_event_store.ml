@@ -377,42 +377,116 @@ let fsync_directory dir =
      | exn -> Error (io_error "sync directory" exn))
 ;;
 
-let release_acquired_resources ?file lock_file claim claim_hook =
-  let close (operations, reserved) name resource =
-    match Eio.Resource.close resource with
-    | () -> operations, reserved
-    | exception
-        ((Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _) as exn) ->
-      let reserved =
-        match reserved with
-        | Some _ -> reserved
-        | None -> Some (exn, Printexc.get_raw_backtrace ())
-      in
-      operations, reserved
-    | exception exn -> (name ^ ": " ^ Printexc.to_string exn) :: operations, reserved
-  in
-  let cleanup =
-    match file with
-    | None -> [], None
-    | Some file -> close ([], None) "close WAL" file
-  in
-  let operations, reserved = close cleanup "close writer lock" lock_file in
-  ignore (Eio.Switch.try_remove_hook claim_hook);
-  release_writer_path claim;
-  match reserved with
-  | Some (exn, backtrace) -> Printexc.raise_with_backtrace exn backtrace
-  | None ->
-    (match List.rev operations with
-     | [] -> Ok ()
-     | operations -> Error (Resource_cleanup_failed { operations }))
+type cleanup_operation =
+  | Close_wal
+  | Close_writer_lock
+
+let cleanup_operation_to_string = function
+  | Close_wal -> "close WAL"
+  | Close_writer_lock -> "close writer lock"
 ;;
 
-let combine_cleanup primary = function
+exception Resource_cleanup_operation_raised of cleanup_operation * exn
+exception Construction_cleanup_raised of error * exn
+
+let () =
+  Printexc.register_printer (function
+    | Resource_cleanup_operation_raised (operation, cause) ->
+      Some
+        (cleanup_operation_to_string operation
+         ^ " raised during execution store cleanup: "
+         ^ Printexc.to_string cause)
+    | Construction_cleanup_raised (primary, cleanup) ->
+      Some
+        ("execution store construction failed ("
+         ^ error_to_string primary
+         ^ ") and cleanup raised ("
+         ^ Printexc.to_string cleanup
+         ^ ")")
+    | _ -> None)
+;;
+
+let is_reserved_exception = function
+  | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ -> true
+  | _ -> false
+;;
+
+let release_acquired_resources ?file lock_file claim claim_hook =
+  let close failures operation resource =
+    match Eio.Resource.close resource with
+    | () -> failures
+    | exception exn -> (operation, exn, Printexc.get_raw_backtrace ()) :: failures
+  in
+  let failures =
+    match file with
+    | None -> []
+    | Some file -> close [] Close_wal file
+  in
+  let failures = close failures Close_writer_lock lock_file |> List.rev in
+  (* A close failure leaves physical ownership uncertain. Keep the in-process
+     claim attached to the switch so another writer cannot be admitted before
+     the owning scope finishes its remaining cleanup. *)
+  match failures with
+  | [] ->
+    ignore (Eio.Switch.try_remove_hook claim_hook);
+    release_writer_path claim;
+    Ok ()
+  | [ (_, cause, backtrace) ] when is_reserved_exception cause ->
+    Printexc.raise_with_backtrace cause backtrace
+  | (first_operation, first_cause, first_backtrace) :: rest
+    when List.exists (fun (_, exn, _) -> is_reserved_exception exn) failures ->
+    let combined, combined_backtrace =
+      List.fold_left
+        (fun combined (operation, cause, backtrace) ->
+           Eio.Exn.combine
+             combined
+             (Resource_cleanup_operation_raised (operation, cause), backtrace))
+        (Resource_cleanup_operation_raised (first_operation, first_cause), first_backtrace)
+        rest
+    in
+    Printexc.raise_with_backtrace combined combined_backtrace
+  | failures ->
+    let operations =
+      List.map
+        (fun (operation, cause, _) ->
+           cleanup_operation_to_string operation ^ ": " ^ Printexc.to_string cause)
+        failures
+    in
+    Error (Resource_cleanup_failed { operations })
+;;
+
+let combine_cleanup primary cleanup =
+  match cleanup () with
   | Ok () -> Error primary
   | Error cleanup -> Error (Construction_cleanup_failed { primary; cleanup })
+  | exception cleanup_exn ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    Printexc.raise_with_backtrace
+      (Construction_cleanup_raised (primary, cleanup_exn))
+      backtrace
 ;;
 
 exception Cleanup_failed_after_exception of exn * error
+exception Cleanup_raised_after_exception of Eio.Exn.with_bt * Eio.Exn.with_bt
+
+let () =
+  Printexc.register_printer (function
+    | Cleanup_failed_after_exception (primary, cleanup) ->
+      Some
+        ("execution store construction raised ("
+         ^ Printexc.to_string primary
+         ^ ") and cleanup failed ("
+         ^ error_to_string cleanup
+         ^ ")")
+    | Cleanup_raised_after_exception ((primary, _), (cleanup, _)) ->
+      Some
+        ("execution store construction raised ("
+         ^ Printexc.to_string primary
+         ^ ") and cleanup also raised ("
+         ^ Printexc.to_string cleanup
+         ^ ")")
+    | _ -> None)
+;;
 
 let acquire_writer_lock ~sw dir =
   let* writer_path =
@@ -444,7 +518,8 @@ let acquire_writer_lock ~sw dir =
        Error error
      | Ok file ->
        let fail primary =
-         combine_cleanup primary (release_acquired_resources file claim claim_hook)
+         combine_cleanup primary (fun () ->
+           release_acquired_resources file claim claim_hook)
        in
        (match Eio_unix.Resource.fd_opt file with
         | None ->
@@ -1293,9 +1368,8 @@ let protect_store_resources lock_file claim claim_hook opened_file f =
   match f () with
   | Ok _ as result -> result
   | Error primary ->
-    combine_cleanup
-      primary
-      (release_acquired_resources ?file:!opened_file lock_file claim claim_hook)
+    combine_cleanup primary (fun () ->
+      release_acquired_resources ?file:!opened_file lock_file claim claim_hook)
   | exception primary ->
     let backtrace = Printexc.get_raw_backtrace () in
     (match release_acquired_resources ?file:!opened_file lock_file claim claim_hook with
@@ -1303,6 +1377,12 @@ let protect_store_resources lock_file claim claim_hook opened_file f =
      | Error cleanup ->
        Printexc.raise_with_backtrace
          (Cleanup_failed_after_exception (primary, cleanup))
+         backtrace
+     | exception cleanup_exn ->
+       let cleanup_backtrace = Printexc.get_raw_backtrace () in
+       Printexc.raise_with_backtrace
+         (Cleanup_raised_after_exception
+            ((primary, backtrace), (cleanup_exn, cleanup_backtrace)))
          backtrace)
 ;;
 

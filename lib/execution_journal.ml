@@ -1765,12 +1765,33 @@ let make_durable_writer journal =
 
 let durable_writer_journal (writer : durable_writer) = writer.journal
 
-exception Unpublished_store_release_failed of Store.error
+exception Durable_construction_cleanup_raised of error * exn
+exception Journal_construction_cleanup_failed of exn * Store.error
+exception Journal_construction_cleanup_raised of Eio.Exn.with_bt * Eio.Exn.with_bt
 
 let () =
   Printexc.register_printer (function
-    | Unpublished_store_release_failed error ->
-      Some ("unpublished execution store cleanup failed: " ^ Store.error_to_string error)
+    | Durable_construction_cleanup_raised (construction_error, cleanup_exn) ->
+      Some
+        ("durable journal construction failed ("
+         ^ error_to_string construction_error
+         ^ ") and unpublished store cleanup raised ("
+         ^ Printexc.to_string cleanup_exn
+         ^ ")")
+    | Journal_construction_cleanup_failed (construction_exn, cleanup_error) ->
+      Some
+        ("durable journal construction raised ("
+         ^ Printexc.to_string construction_exn
+         ^ ") and unpublished store cleanup failed ("
+         ^ Store.error_to_string cleanup_error
+         ^ ")")
+    | Journal_construction_cleanup_raised ((construction_exn, _), (cleanup_exn, _)) ->
+      Some
+        ("durable journal construction raised ("
+         ^ Printexc.to_string construction_exn
+         ^ ") and unpublished store cleanup also raised ("
+         ^ Printexc.to_string cleanup_exn
+         ^ ")")
     | _ -> None)
 ;;
 
@@ -1779,6 +1800,11 @@ let release_after_construction_error store construction_error =
   | Ok () -> Error construction_error
   | Error cleanup_error ->
     Error (Durable_construction_cleanup_failed { construction_error; cleanup_error })
+  | exception cleanup_exn ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    Printexc.raise_with_backtrace
+      (Durable_construction_cleanup_raised (construction_error, cleanup_exn))
+      backtrace
 ;;
 
 let journal_writer_of_store store =
@@ -1790,11 +1816,14 @@ let journal_writer_of_store store =
     (match Store.release_unpublished store with
      | Ok () -> Printexc.raise_with_backtrace exn bt
      | Error cleanup_error ->
-       let cleanup_exn = Unpublished_store_release_failed cleanup_error in
-       let combined, combined_bt =
-         Eio.Exn.combine (exn, bt) (cleanup_exn, Eio.Exn.empty_backtrace)
-       in
-       Printexc.raise_with_backtrace combined combined_bt)
+       Printexc.raise_with_backtrace
+         (Journal_construction_cleanup_failed (exn, cleanup_error))
+         bt
+     | exception cleanup_exn ->
+       let cleanup_bt = Printexc.get_raw_backtrace () in
+       Printexc.raise_with_backtrace
+         (Journal_construction_cleanup_raised ((exn, bt), (cleanup_exn, cleanup_bt)))
+         bt)
 ;;
 
 let create_durable_writer ~sw ~dir ?correlation_id () =
