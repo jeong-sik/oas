@@ -25,7 +25,7 @@ type audio =
   ; channels : int option
   }
 
-type usage =
+type usage = Gemini_interactions.usage =
   { input_tokens : int option
   ; output_tokens : int option
   ; total_tokens : int option
@@ -185,49 +185,8 @@ let gemini_request_body ~(config : Provider_config.t) ~text ~voice ~format =
       (gemini_media_type format)
 ;;
 
-let optional_string name json =
-  match Yojson.Safe.Util.member name json with
-  | `Null -> Ok None
-  | `String value when String.trim value <> "" -> Ok (Some value)
-  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be non-empty" name)
-;;
-
-let required_string name json =
-  match optional_string name json with
-  | Ok (Some value) -> Ok value
-  | Ok None -> parse_failure (Printf.sprintf "Gemini interaction %s is required" name)
-  | Error _ as error -> error
-;;
-
-let optional_int name json =
-  match Yojson.Safe.Util.member name json with
-  | `Null -> Ok None
-  | `Int value -> Ok (Some value)
-  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be an integer" name)
-;;
-
-let usage_of_json json =
-  match Yojson.Safe.Util.member "usage" json with
-  | `Null -> Ok None
-  | `Assoc _ as usage ->
-    let ( let* ) = Result.bind in
-    let* input_tokens = optional_int "total_input_tokens" usage in
-    let* output_tokens = optional_int "total_output_tokens" usage in
-    let* total_tokens = optional_int "total_tokens" usage in
-    let* cached_tokens = optional_int "total_cached_tokens" usage in
-    let* thought_tokens = optional_int "total_thought_tokens" usage in
-    let* tool_use_tokens = optional_int "total_tool_use_tokens" usage in
-    Ok
-      (Some
-         { input_tokens
-         ; output_tokens
-         ; total_tokens
-         ; cached_tokens
-         ; thought_tokens
-         ; tool_use_tokens
-         })
-  | _ -> parse_failure "Gemini interaction usage must be an object"
-;;
+let gemini_parser = "speech_generation"
+let optional_int = Gemini_interactions.optional_int ~parser:gemini_parser
 
 let audio_of_json expected json =
   let open Yojson.Safe.Util in
@@ -257,81 +216,30 @@ let audio_of_json expected json =
 ;;
 
 let audios_of_json expected json =
-  let open Yojson.Safe.Util in
-  let add_content acc content =
-    match member "type" content with
-    | `String "audio" ->
-      Result.map (fun audio -> audio :: acc) (audio_of_json expected content)
-    | `String kind ->
-      parse_failure (Printf.sprintf "unexpected Gemini speech content %S" kind)
-    | _ -> parse_failure "Gemini speech content requires a type"
+  let items =
+    Gemini_interactions.model_output_items
+      ~parser:gemini_parser
+      ~content_type:"audio"
+      ~item_of_json:(audio_of_json expected)
+      json
   in
-  let add_step acc step =
-    match member "type" step with
-    | `String "thought" -> Ok acc
-    | `String "model_output" ->
-      (match member "content" step with
-       | `List items ->
-         List.fold_left
-           (fun result item -> Result.bind result (fun acc -> add_content acc item))
-           (Ok acc)
-           items
-       | _ -> parse_failure "Gemini model_output content must be a list")
-    | `String kind ->
-      parse_failure (Printf.sprintf "unexpected Gemini speech step %S" kind)
-    | _ -> parse_failure "Gemini speech step requires a type"
-  in
-  match member "steps" json with
-  | `List steps ->
-    let result =
-      List.fold_left
-        (fun result step -> Result.bind result (fun acc -> add_step acc step))
-        (Ok [])
-        steps
-    in
-    Result.bind result (function
-      | [] -> parse_failure "Gemini interaction returned no audio"
-      | audios -> Ok (List.rev audios))
-  | _ -> parse_failure "Gemini interaction steps must be a list"
-;;
-
-(* A well-formed interaction whose status is not "completed" is a
-   provider-reported outcome, not a parser defect: keep it out of
-   Provider_parse_error so parse-error alarms stay meaningful. *)
-let gemini_status_failure status =
-  Error
-    (Http_client.ProviderFailure
-       { kind =
-           Http_client.Unknown_provider_failure
-             { reason = Some (Printf.sprintf "gemini interaction status %s" status) }
-       ; message =
-           Printf.sprintf
-             "Gemini interaction finished with status %S, not completed"
-             status
-       })
+  Result.bind items (function
+    | [] -> parse_failure "Gemini interaction returned no audio"
+    | audios -> Ok audios)
 ;;
 
 let parse_gemini_response expected body =
-  let decode json =
-    let ( let* ) = Result.bind in
-    let* provider_response_id = required_string "id" json in
-    let* status = required_string "status" json in
-    let* () =
-      if String.equal status "completed" then Ok () else gemini_status_failure status
-    in
-    let* created_at_rfc3339 = optional_string "created" json in
-    let* audios = audios_of_json expected json in
-    let* usage = usage_of_json json in
-    Ok
-      { provider_response_id = Some provider_response_id
-      ; created_at_rfc3339
-      ; audios
-      ; usage
-      }
-  in
-  match Json_util.decode_json_with decode body with
-  | Ok result -> result
-  | Error message -> parse_failure ("invalid Gemini interaction JSON: " ^ message)
+  Result.map
+    (fun { Gemini_interactions.provider_response_id; created_at_rfc3339; payload; usage } ->
+       { provider_response_id = Some provider_response_id
+       ; created_at_rfc3339
+       ; audios = payload
+       ; usage
+       })
+    (Gemini_interactions.decode_envelope
+       ~parser:gemini_parser
+       ~payload_of_json:(audios_of_json expected)
+       body)
 ;;
 
 let generate

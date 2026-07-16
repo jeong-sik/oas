@@ -7,7 +7,7 @@ type source =
 
 type image = { source : source }
 
-type usage =
+type usage = Gemini_interactions.usage =
   { input_tokens : int option
   ; output_tokens : int option
   ; total_tokens : int option
@@ -261,19 +261,6 @@ let parse_openai_response body =
   | Error message -> parse_failure ("invalid image response JSON: " ^ message)
 ;;
 
-let required_non_empty_string name json =
-  match Yojson.Safe.Util.member name json with
-  | `String value when String.trim value <> "" -> Ok value
-  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be non-empty" name)
-;;
-
-let optional_non_empty_string name json =
-  match Yojson.Safe.Util.member name json with
-  | `Null -> Ok None
-  | `String value when String.trim value <> "" -> Ok (Some value)
-  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be non-empty" name)
-;;
-
 let gemini_source_of_json json =
   let open Yojson.Safe.Util in
   match member "data" json, member "uri" json, member "mime_type" json with
@@ -285,112 +272,36 @@ let gemini_source_of_json json =
   | _ -> parse_failure "Gemini image requires exactly one data+mime_type or uri source"
 ;;
 
+let gemini_parser = "image_generation"
+
 let gemini_images_of_json json =
-  let open Yojson.Safe.Util in
-  let add_content acc = function
-    | `Assoc _ as content ->
-      (match member "type" content with
-       | `String "image" ->
-         Result.map (fun source -> { source } :: acc) (gemini_source_of_json content)
-       | `String kind ->
-         parse_failure
-           (Printf.sprintf "unexpected Gemini model_output content type %S" kind)
-       | _ -> parse_failure "Gemini model_output content requires a type")
-    | _ -> parse_failure "Gemini model_output content must be an object"
+  let items =
+    Gemini_interactions.model_output_items
+      ~parser:gemini_parser
+      ~content_type:"image"
+      ~item_of_json:(fun content ->
+        Result.map (fun source -> { source }) (gemini_source_of_json content))
+      json
   in
-  let add_step acc = function
-    | `Assoc _ as step ->
-      (match member "type" step with
-       | `String "thought" -> Ok acc
-       | `String "model_output" ->
-         (match member "content" step with
-          | `List contents ->
-            List.fold_left
-              (fun result item -> Result.bind result (fun acc -> add_content acc item))
-              (Ok acc)
-              contents
-          | _ -> parse_failure "Gemini model_output content must be a list")
-       | `String kind ->
-         parse_failure (Printf.sprintf "unexpected Gemini interaction step %S" kind)
-       | _ -> parse_failure "Gemini interaction step requires a type")
-    | _ -> parse_failure "Gemini interaction step must be an object"
-  in
-  match member "steps" json with
-  | `List steps ->
-    (match
-       List.fold_left
-         (fun result step -> Result.bind result (fun acc -> add_step acc step))
-         (Ok [])
-         steps
-     with
-     | Ok [] -> parse_failure "Gemini interaction returned no image"
-     | Ok images -> Ok (List.rev images)
-     | Error _ as error -> error)
-  | _ -> parse_failure "Gemini interaction steps must be a list"
-;;
-
-let gemini_usage_of_json json =
-  match Yojson.Safe.Util.member "usage" json with
-  | `Null -> Ok None
-  | `Assoc _ as usage_json ->
-    let ( let* ) = Result.bind in
-    let* input_tokens = optional_int_field "total_input_tokens" usage_json in
-    let* output_tokens = optional_int_field "total_output_tokens" usage_json in
-    let* total_tokens = optional_int_field "total_tokens" usage_json in
-    let* cached_tokens = optional_int_field "total_cached_tokens" usage_json in
-    let* thought_tokens = optional_int_field "total_thought_tokens" usage_json in
-    let* tool_use_tokens = optional_int_field "total_tool_use_tokens" usage_json in
-    Ok
-      (Some
-         { input_tokens
-         ; output_tokens
-         ; total_tokens
-         ; cached_tokens
-         ; thought_tokens
-         ; tool_use_tokens
-         })
-  | _ -> parse_failure "Gemini interaction usage must be an object"
-;;
-
-(* A well-formed interaction whose status is not "completed" is a
-   provider-reported outcome, not a parser defect: keep it out of
-   Provider_parse_error so parse-error alarms stay meaningful. *)
-let gemini_status_failure status =
-  Error
-    (Http_client.ProviderFailure
-       { kind =
-           Http_client.Unknown_provider_failure
-             { reason = Some (Printf.sprintf "gemini interaction status %s" status) }
-       ; message =
-           Printf.sprintf
-             "Gemini interaction finished with status %S, not completed"
-             status
-       })
+  Result.bind items (function
+    | [] -> parse_failure "Gemini interaction returned no image"
+    | images -> Ok images)
 ;;
 
 let parse_gemini_response body =
-  let decode json =
-    let ( let* ) = Result.bind in
-    let* provider_response_id = required_non_empty_string "id" json in
-    let* status = required_non_empty_string "status" json in
-    let* () =
-      if String.equal status "completed" then Ok () else gemini_status_failure status
-    in
-    let* created_at_rfc3339 = optional_non_empty_string "created" json in
-    let* images = gemini_images_of_json json in
-    let* usage = gemini_usage_of_json json in
-    Ok
-      { created_at = None
-      ; created_at_rfc3339
-      ; provider_response_id = Some provider_response_id
-      ; images
-      ; usage
-      ; content_filter = []
-      }
-  in
-  match Json_util.decode_json_with decode body with
-  | Ok result -> result
-  | Error message -> parse_failure ("invalid Gemini interaction JSON: " ^ message)
+  Result.map
+    (fun { Gemini_interactions.provider_response_id; created_at_rfc3339; payload; usage } ->
+       { created_at = None
+       ; created_at_rfc3339
+       ; provider_response_id = Some provider_response_id
+       ; images = payload
+       ; usage
+       ; content_filter = []
+       })
+    (Gemini_interactions.decode_envelope
+       ~parser:gemini_parser
+       ~payload_of_json:gemini_images_of_json
+       body)
 ;;
 
 let parse_response ~protocol body =
