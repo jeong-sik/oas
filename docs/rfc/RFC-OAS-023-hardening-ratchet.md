@@ -64,6 +64,9 @@ The script's `--self-test` mode guards these cases before any CI check result is
 - `(*` / `*)` inside normal OCaml strings are preserved and do not corrupt scanning.
 - Plain user-facing error strings such as `"connection refused"` are not counted as exception-message classifiers.
 - Model-id string classifiers are allowed only in configured catalog/capability boundary paths.
+  The opaque exact-identity owner [lib/llm_provider/model_id.ml] is part of that
+  boundary; it validates and compares complete identifiers but performs no
+  family, provider, prefix, or endpoint inference.
 - `assert false` is not counted as a stub marker.
 - Env reads in configured env boundary files count only toward `direct_env_reads`, not `direct_env_reads_outside_env_boundary`.
 

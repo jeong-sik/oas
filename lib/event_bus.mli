@@ -16,9 +16,9 @@ type envelope =
   ; run_id : string (** Per-run identifier (formerly worker_run_id). *)
   ; ts : float (** Event timestamp (Unix epoch). *)
   ; caused_by : string option
-    (** ID of the event that causally triggered this one. Distinct from
-        [correlation_id] (same-session scoping): [caused_by] points at a
-        specific prior [run_id] or [correlation_id] to reconstruct
+    (** Causal scope identifier. Distinct from [correlation_id]
+        (same-session scoping): [caused_by] points at a specific prior
+        [run_id] or [correlation_id] to reconstruct
         A→B→C cascades within a session. [None] means "no known parent
         event" (root of a causation chain). Convention:
         [caused_by = Some parent.run_id] when the trigger is a concrete
@@ -213,7 +213,8 @@ val payload_kind : payload -> string
 
 (** {2 ID generation} *)
 
-(** Generate a fresh unique identifier (pid-counter). *)
+(** Generate a process-local compatibility identifier. OAS's private canonical
+    execution writer owns its own typed random identity. *)
 val fresh_id : unit -> string
 
 (** Create an envelope with optional correlation/run IDs (defaults to fresh)

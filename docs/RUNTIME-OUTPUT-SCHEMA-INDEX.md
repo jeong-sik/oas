@@ -30,3 +30,9 @@ Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`
 - Downstream product domains should not become native OAS event variants.
 - When a schema source or test file moves, update the machine-readable catalog
   in the same change.
+- This index lists production output surfaces only. Internal execution-topology
+  types are not a seventh runtime schema and do not authorize external writes.
+- Until an explicit production single-writer hard cut, `Durable_event` remains
+  the durable journal authority. A later cut must make Event_bus, Raw_trace,
+  durable persistence, and dashboard data read projections of that one writer;
+  it must not introduce a second event-history SSOT.
