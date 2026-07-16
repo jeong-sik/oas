@@ -98,6 +98,7 @@ let request_body ~protocol ~(config : Provider_config.t) ~prompt =
     `Assoc
       [ "model", `String config.model_id
       ; "input", `String prompt
+      ; "store", `Bool false
       ; ( "response_format"
         , `Assoc [ "type", `String "image"; "mime_type", `String "image/png" ] )
       ]
@@ -438,6 +439,15 @@ let%test "request requires an exact image-generation task" =
   match validate_request (test_config Provider_config.Glm None) "draw" with
   | Error (Http_client.AcceptRejected _) -> true
   | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini image interaction is explicitly stateless" =
+  let config = test_config Provider_config.Gemini (Some Capabilities.Image_generation) in
+  let json =
+    request_body ~protocol:Gemini_interaction ~config ~prompt:"draw"
+    |> Yojson.Safe.from_string
+  in
+  Yojson.Safe.Util.member "store" json = `Bool false
 ;;
 
 let%test "Z.AI URL response and safety observation are typed" =
