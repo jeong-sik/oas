@@ -987,6 +987,22 @@ let test_events_reasoning_details_accumulates_typed () =
   | Error _ -> Alcotest.fail "expected successful accumulator finalization"
 ;;
 
+let test_responses_non_object_frame_is_parse_failure () =
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  (* Valid JSON that is not an object: Util.member raises Type_error, which
+     must surface as SSEParseFailed instead of escaping the parser (#2632). *)
+  List.iter
+    (fun frame ->
+       match S.responses_sse_to_events state (Some "response.created") frame with
+       | [ SSEParseFailed { raw; reason } ], None ->
+         Alcotest.(check string) "raw preserved" frame raw;
+         Alcotest.(check bool) "reason non-empty" true (String.length reason > 0)
+       | _ -> Alcotest.fail ("non-object frame must fail closed: " ^ frame))
+    [ "null"; "[]"; "42" ]
+;;
+
 let test_responses_stream_reasoning_tool_and_terminal () =
   let state =
     S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
@@ -1600,6 +1616,10 @@ let () =
         ] )
     ; ( "responses_sse_to_events"
       , [ test_case
+            "non-object frame is a typed parse failure"
+            `Quick
+            test_responses_non_object_frame_is_parse_failure
+        ; test_case
             "reasoning tool and terminal"
             `Quick
             test_responses_stream_reasoning_tool_and_terminal
