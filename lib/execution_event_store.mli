@@ -139,7 +139,18 @@ val attach : t -> (writer, error) result
     [Already_committed]. Any overlap with different canonical event bytes is a
     typed conflict. [Commit_outcome_unknown] forbids blind retry: release this
     store and call [open_existing] to reconcile the authority before deciding
-    whether an exact retry is already committed. *)
+    whether an exact retry is already committed. Once this outcome occurs, the
+    live store remains fenced with the same typed reconciliation requirement;
+    later calls cannot downgrade it to a generic poisoned-store error.
+
+    Canonical encoding, indexing, and write-fence validation run outside the
+    protected phase, with an explicit cancellation check immediately before
+    mutation. Once physical WAL mutation starts, recoverable failures produce
+    a definite [Stored] result or a typed error; parent cancellation cannot
+    split WAL durability, authority replacement, and immutable in-memory
+    publication. Reserved runtime exceptions still propagate. If one escapes
+    after authority replacement starts, the live store remains fenced for
+    explicit reconciliation. *)
 val append_batch
   :  writer
   -> expected_next_seq:int

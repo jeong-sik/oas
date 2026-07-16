@@ -4,6 +4,8 @@ module Event = Execution_event
 module Journal = Execution_journal
 module Store = Execution_event_store
 
+exception Cancel_before_append
+
 let require_store = function
   | Ok value -> value
   | Error error -> fail (Store.error_to_string error)
@@ -642,6 +644,40 @@ let test_append_failure_rolls_back_before_authority () =
       | _ -> fail "proven append rollback left recovery residue"))
 ;;
 
+let test_cancelled_append_does_not_mutate_store () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      let wal = Eio.Path.(dir / "events.v1.wal") in
+      let authority = Eio.Path.(dir / "events.v1.commit") in
+      let wal_before = Eio.Path.load wal in
+      let authority_before = Eio.Path.load authority in
+      let cancelled =
+        match
+          Eio.Cancel.sub (fun cancel_context ->
+            Eio.Cancel.cancel cancel_context Cancel_before_append;
+            ignore (Store.append_batch writer ~expected_next_seq:1 events))
+        with
+        | () -> false
+        | exception Eio.Cancel.Cancelled _ -> true
+      in
+      check bool "append observed pre-existing cancellation" true cancelled;
+      check int "cancelled append did not publish" 0 (Store.last_seq store);
+      check string "cancelled append did not mutate WAL" wal_before (Eio.Path.load wal);
+      check
+        string
+        "cancelled append did not replace authority"
+        authority_before
+        (Eio.Path.load authority);
+      match Store.append_batch writer ~expected_next_seq:1 events with
+      | Ok Store.Stored -> ()
+      | _ -> fail "store did not accept append after cancelled caller detached"))
+;;
+
 let test_journal_persists_before_publish_and_replays () =
   Eio_main.run
   @@ fun env ->
@@ -802,6 +838,10 @@ let () =
             "append failure rolls back before authority"
             `Quick
             test_append_failure_rolls_back_before_authority
+        ; test_case
+            "cancelled append does not mutate store"
+            `Quick
+            test_cancelled_append_does_not_mutate_store
         ; test_case
             "journal persists before publish and replays"
             `Quick
