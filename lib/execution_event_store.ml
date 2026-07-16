@@ -428,7 +428,7 @@ let release_acquired_resources ?file lock_file claim claim_hook =
      the owning scope finishes its remaining cleanup. *)
   match failures with
   | [] ->
-    ignore (Eio.Switch.try_remove_hook claim_hook);
+    let (_ : bool) = Eio.Switch.try_remove_hook claim_hook in
     release_writer_path claim;
     Ok ()
   | [ (_, cause, backtrace) ] when is_reserved_exception cause ->
@@ -513,7 +513,7 @@ let acquire_writer_lock ~sw dir =
          Eio.Path.open_out ~sw ~create:(`If_missing 0o600) (lock_path dir))
      with
      | Error error ->
-       ignore (Eio.Switch.try_remove_hook claim_hook);
+       let (_ : bool) = Eio.Switch.try_remove_hook claim_hook in
        release_writer_path claim;
        Error error
      | Ok file ->
@@ -646,7 +646,7 @@ let release_unpublished store =
     | Error _ as error -> error
     | Ok None -> Ok ()
     | Ok (Some (claim, claim_hook, lifecycle_hook)) ->
-      ignore (Eio.Switch.try_remove_hook lifecycle_hook);
+      let (_ : bool) = Eio.Switch.try_remove_hook lifecycle_hook in
       Fun.protect
         ~finally:(fun () ->
           with_state_write store (fun () -> store.lifecycle <- Released))
