@@ -41,13 +41,19 @@ let cursor_of_yojson json =
   else Ok { scope_id; seq }
 ;;
 
-type recovery =
-  | Clean
-  | Truncated_uncommitted_batch of
-      { batch_offset : int64
+type recovery_action =
+  | Truncated_uncommitted_tail of
+      { committed_offset : int64
       ; removed_bytes : int64
       ; last_committed_seq : int
       }
+  | Discarded_uncommitted_authority
+  | Rebuilt_initial_authority
+[@@deriving show]
+
+type recovery =
+  | Clean
+  | Recovered of recovery_action list
 [@@deriving show]
 
 type initialization =
@@ -92,6 +98,7 @@ type error =
       ; high_watermark : int
       }
   | Store_poisoned of string
+  | Commit_outcome_unknown of string
 [@@deriving show]
 
 let error_to_string = function
@@ -126,6 +133,8 @@ let error_to_string = function
       after_seq
       high_watermark
   | Store_poisoned detail -> "execution store is poisoned: " ^ detail
+  | Commit_outcome_unknown detail ->
+    "execution store commit outcome is unknown: " ^ detail
 ;;
 
 type frame_kind =
@@ -151,12 +160,15 @@ let frame_kind_of_code = function
 
 let wal_name = "events.v1.wal"
 let initializing_name = "events.v1.wal.initializing"
+let authority_name = "events.v1.commit"
+let authority_initializing_name = "events.v1.commit.initializing"
 let lock_name = ".writer.lock"
 let frame_magic = "OASE"
 let frame_version = 1
 let frame_header_size = 48
 
 module Active_path_map = Map.Make (String)
+module Sequence_map = Map.Make (Int)
 
 type writer_claim =
   { path : string
@@ -217,7 +229,25 @@ let get_int64_be value offset =
 ;;
 
 let int64_of_length length = Int64.of_int length
-let sha256_raw value = Sha256.(to_raw_string (digest_string value))
+
+let feed_string_cooperatively context value =
+  let length = String.length value in
+  let rec loop context offset =
+    if offset = length
+    then context
+    else (
+      let chunk_length = min Sys.io_buffer_size (length - offset) in
+      let context = Sha256.feed_string context ~off:offset ~len:chunk_length value in
+      let next_offset = offset + chunk_length in
+      if next_offset < length then Eio.Fiber.yield ();
+      loop context next_offset)
+  in
+  loop context 0
+;;
+
+let sha256_raw value =
+  Sha256.(to_raw_string (get (feed_string_cooperatively empty value)))
+;;
 
 let encode_frame_header kind payload =
   let header = Bytes.make frame_header_size '\000' in
@@ -239,20 +269,21 @@ let length_prefix value =
 ;;
 
 let feed_payload_digest context payload =
-  let context = Sha256.feed_string context (length_prefix payload) in
-  Sha256.feed_string context payload
+  let context = feed_string_cooperatively context (length_prefix payload) in
+  feed_string_cooperatively context payload
 ;;
 
 let finish_payload_digest context = Sha256.(to_hex (get context))
 
 let events_digest events =
-  let context =
-    List.fold_left
-      (fun context event -> feed_payload_digest context (Event.to_json_string event))
-      Sha256.empty
-      events
+  let rec loop context = function
+    | [] -> finish_payload_digest context
+    | event :: rest ->
+      let context = feed_payload_digest context (Event.to_json_string event) in
+      Eio.Fiber.yield ();
+      loop context rest
   in
-  finish_payload_digest context
+  loop Sha256.empty events
 ;;
 
 let io_error operation exn =
@@ -267,6 +298,8 @@ let with_io operation f =
 
 let wal_path dir = Eio.Path.(dir / wal_name)
 let initializing_path dir = Eio.Path.(dir / initializing_name)
+let authority_path dir = Eio.Path.(dir / authority_name)
+let authority_initializing_path dir = Eio.Path.(dir / authority_initializing_name)
 let lock_path dir = Eio.Path.(dir / lock_name)
 
 let fsync_directory dir =
@@ -365,19 +398,6 @@ type event_location =
   ; frame : frame_guard
   }
 
-type batch_guard =
-  { begin_frame : frame_guard
-  ; commit_frame : frame_guard
-  ; first_seq : int
-  ; last_seq : int
-  ; count : int
-  ; events_sha256 : string
-  }
-
-type tail_guard =
-  | Metadata_guard of frame_guard
-  | Batch_guard of batch_guard
-
 type health =
   | Writable
   | Poisoned of string
@@ -385,14 +405,14 @@ type health =
 type t =
   { scope_id : Scope_id.t
   ; correlation_id : Event.Correlation_id.t
+  ; dir : Eio.Fs.dir_ty Eio.Path.t
   ; file : Eio.File.rw_ty Eio.Resource.t
   ; lock_file : Eio.File.rw_ty Eio.Resource.t
   ; writer_gate : Eio.Mutex.t
   ; mu : Eio.Mutex.t
-  ; locations : event_location Dynarray.t
+  ; mutable locations : event_location Sequence_map.t
   ; mutable last_seq : int
   ; mutable committed_offset : int64
-  ; mutable tail_guard : tail_guard
   ; mutable health : health
   ; mutable attached : bool
   }
@@ -402,9 +422,8 @@ type writer = { store : t }
 let scope_id store = store.scope_id
 let correlation_id store = store.correlation_id
 let with_read store f = Eio.Mutex.use_ro store.mu f
-let with_state_write store f = Eio.Mutex.use_rw ~protect:true store.mu f
-let with_reader store f = Eio.Mutex.use_ro store.writer_gate f
-let with_writer store f = Eio.Mutex.use_rw ~protect:true store.writer_gate f
+let with_state_write store f = Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro store.mu f)
+let with_writer store f = Eio.Mutex.use_ro store.writer_gate f
 let last_seq store = with_read store (fun () -> store.last_seq)
 let beginning_cursor store = { scope_id = store.scope_id; seq = 0 }
 let current_cursor store = { scope_id = store.scope_id; seq = last_seq store }
@@ -470,6 +489,7 @@ let sha256_file_slice file ~offset ~length =
           ~file_offset:(Optint.Int63.of_int64 file_offset)
           [ chunk ];
         let context = Sha256.feed_bigstring context (Cstruct.to_bigarray chunk) in
+        if Int64.compare remaining (Int64.of_int chunk_length) > 0 then Eio.Fiber.yield ();
         read
           context
           (Int64.add file_offset (Int64.of_int chunk_length))
@@ -655,6 +675,180 @@ let validate_sha256 ~offset value =
   | None -> Error (Corrupt_store { offset; detail = "invalid SHA-256 digest" })
 ;;
 
+type commit_authority =
+  { scope_id : Scope_id.t
+  ; correlation_id : Event.Correlation_id.t
+  ; committed_offset : int64
+  ; last_seq : int
+  }
+
+let authority_payload_to_yojson authority =
+  `Assoc
+    [ "format_version", `Int 1
+    ; "scope_id", `String (Scope_id.to_string authority.scope_id)
+    ; "correlation_id", `String (Event.Correlation_id.to_string authority.correlation_id)
+    ; "committed_offset", `String (Int64.to_string authority.committed_offset)
+    ; "last_seq", `Int authority.last_seq
+    ]
+;;
+
+let authority_to_string authority =
+  let payload = authority_payload_to_yojson authority in
+  let payload_bytes = Yojson.Safe.to_string payload in
+  let payload_sha256 = Sha256.(to_hex (digest_string payload_bytes)) in
+  Yojson.Safe.to_string
+    (`Assoc [ "authority", payload; "authority_sha256", `String payload_sha256 ])
+;;
+
+let authority_of_string payload =
+  let corrupt detail = Error (Corrupt_store { offset = 0L; detail }) in
+  let* json = json_of_string ~offset:0L "execution commit authority" payload in
+  let* outer =
+    match
+      Execution_json.object_fields
+        ~context:"execution commit authority"
+        ~required:[ "authority"; "authority_sha256" ]
+        ~optional:[]
+        json
+    with
+    | Ok fields -> Ok fields
+    | Error detail -> corrupt detail
+  in
+  let* authority_json =
+    match Execution_json.field "authority" outer with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let* authority_sha256 =
+    match Execution_json.string_field "authority_sha256" outer with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let* authority_sha256 = validate_sha256 ~offset:0L authority_sha256 in
+  let authority_bytes = Yojson.Safe.to_string authority_json in
+  let actual_sha256 = Sha256.(to_hex (digest_string authority_bytes)) in
+  let* () =
+    if String.equal authority_sha256 actual_sha256
+    then Ok ()
+    else corrupt "commit authority checksum mismatch"
+  in
+  let* fields =
+    match
+      Execution_json.object_fields
+        ~context:"execution commit authority payload"
+        ~required:
+          [ "format_version"
+          ; "scope_id"
+          ; "correlation_id"
+          ; "committed_offset"
+          ; "last_seq"
+          ]
+        ~optional:[]
+        authority_json
+    with
+    | Ok fields -> Ok fields
+    | Error detail -> corrupt detail
+  in
+  let int_field name =
+    match Execution_json.int_field name fields with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let string_field name =
+    match Execution_json.string_field name fields with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let* format_version = int_field "format_version" in
+  let* scope_text = string_field "scope_id" in
+  let* correlation_text = string_field "correlation_id" in
+  let* committed_offset_text = string_field "committed_offset" in
+  let* last_seq = int_field "last_seq" in
+  let* scope_id =
+    match Scope_id.of_string scope_text with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let* correlation_id =
+    match Event.Correlation_id.of_string correlation_text with
+    | Ok value -> Ok value
+    | Error detail -> corrupt detail
+  in
+  let* committed_offset =
+    match Int64.of_string_opt committed_offset_text with
+    | Some value
+      when Int64.compare value 0L > 0
+           && String.equal committed_offset_text (Int64.to_string value) -> Ok value
+    | Some _ | None -> corrupt "commit authority offset is not canonical and positive"
+  in
+  let* () =
+    if format_version = 1
+    then Ok ()
+    else corrupt "unsupported commit authority format version"
+  in
+  let* () =
+    if last_seq >= 0 then Ok () else corrupt "commit authority sequence is negative"
+  in
+  let authority = { scope_id; correlation_id; committed_offset; last_seq } in
+  if String.equal payload (authority_to_string authority)
+  then Ok authority
+  else corrupt "commit authority bytes are not canonical"
+;;
+
+type authority_install_error =
+  | Authority_not_installed of error
+  | Authority_outcome_unknown of error
+
+let discard_authority_initializing dir =
+  let* exists =
+    with_io "check initializing commit authority" (fun () ->
+      Eio.Path.is_file (authority_initializing_path dir))
+  in
+  if not exists
+  then Ok false
+  else
+    let* () =
+      with_io "remove initializing commit authority" (fun () ->
+        Eio.Path.unlink (authority_initializing_path dir))
+    in
+    let+ () = fsync_directory dir in
+    true
+;;
+
+let install_authority ~renamed dir authority =
+  renamed := false;
+  let result =
+    let* _discarded = discard_authority_initializing dir in
+    let payload = authority_to_string authority in
+    let* () =
+      with_io "write initializing commit authority" (fun () ->
+        Eio.Path.with_open_out
+          ~create:(`Exclusive 0o600)
+          (authority_initializing_path dir)
+          (fun file ->
+             Eio.Flow.copy_string payload file;
+             Eio.File.sync file))
+    in
+    let* () =
+      with_io "replace commit authority" (fun () ->
+        Eio.Path.rename (authority_initializing_path dir) (authority_path dir);
+        renamed := true)
+    in
+    fsync_directory dir
+  in
+  match result with
+  | Ok () -> Ok ()
+  | Error error when !renamed -> Error (Authority_outcome_unknown error)
+  | Error error -> Error (Authority_not_installed error)
+;;
+
+let load_authority dir =
+  let* payload =
+    with_io "read commit authority" (fun () -> Eio.Path.load (authority_path dir))
+  in
+  authority_of_string payload
+;;
+
 let batch_begin_of_string ~offset payload =
   let* json = json_of_string ~offset "batch begin" payload in
   let* fields =
@@ -764,48 +958,27 @@ let event_of_payload ~offset payload =
     else Error (Corrupt_store { offset; detail = "event bytes are not canonical" })
 ;;
 
-let truncate_uncommitted file ~file_size ~batch_offset ~last_committed_seq =
-  let removed_bytes = Int64.sub file_size batch_offset in
-  let* () =
-    with_io "truncate uncommitted batch" (fun () ->
-      Eio.File.truncate file (Optint.Int63.of_int64 batch_offset);
-      Eio.File.sync file)
-  in
-  Ok (Truncated_uncommitted_batch { batch_offset; removed_bytes; last_committed_seq })
-;;
-
-let scan_store file =
-  let* file_size =
-    with_io "read WAL size" (fun () -> Optint.Int63.to_int64 (Eio.File.size file))
-  in
+let scan_store file ~file_size =
   let* metadata_frame = decode_frame file ~file_size 0L in
-  let* scope_id, correlation_id, first_batch_offset, initial_tail_guard =
+  let* scope_id, correlation_id, first_batch_offset =
     match metadata_frame with
-    | Complete_frame ({ kind = Metadata; payload; next_offset; _ } as frame) ->
+    | Complete_frame { kind = Metadata; payload; next_offset; _ } ->
       let+ scope_id, correlation_id = metadata_of_string ~offset:0L payload in
-      scope_id, correlation_id, next_offset, Metadata_guard (frame_guard 0L frame)
+      scope_id, correlation_id, next_offset
     | Complete_frame _ ->
       Error (Corrupt_store { offset = 0L; detail = "first frame is not metadata" })
     | End_of_store | Incomplete_frame ->
       Error (Corrupt_store { offset = 0L; detail = "metadata frame is incomplete" })
   in
-  let locations = Dynarray.create () in
-  let rec scan_batches offset committed_seq tail_guard =
+  let locations = ref Sequence_map.empty in
+  let rec scan_batches offset committed_seq =
     let* frame = decode_frame file ~file_size offset in
     match frame with
-    | End_of_store ->
-      Ok (scope_id, correlation_id, offset, committed_seq, locations, tail_guard, Clean)
+    | End_of_store -> Ok (scope_id, correlation_id, offset, committed_seq, !locations)
     | Incomplete_frame ->
-      let+ recovery =
-        truncate_uncommitted
-          file
-          ~file_size
-          ~batch_offset:offset
-          ~last_committed_seq:committed_seq
-      in
-      scope_id, correlation_id, offset, committed_seq, locations, tail_guard, recovery
-    | Complete_frame ({ kind = Batch_begin; payload; next_offset; _ } as begin_frame) ->
-      let batch_offset = offset in
+      Error
+        (Corrupt_store { offset; detail = "committed batch begin frame is incomplete" })
+    | Complete_frame { kind = Batch_begin; payload; next_offset; _ } ->
       let* header = batch_begin_of_string ~offset payload in
       if header.expected_next_seq <> committed_seq + 1
       then
@@ -825,16 +998,12 @@ let scan_store file =
             let* commit_frame = decode_frame file ~file_size event_offset in
             match commit_frame with
             | End_of_store | Incomplete_frame ->
-              let+ recovery =
-                truncate_uncommitted
-                  file
-                  ~file_size
-                  ~batch_offset
-                  ~last_committed_seq:committed_seq
-              in
-              `Recovered recovery
-            | Complete_frame
-                ({ kind = Batch_commit; payload; next_offset; _ } as commit_frame) ->
+              Error
+                (Corrupt_store
+                   { offset = event_offset
+                   ; detail = "committed batch commit frame is incomplete"
+                   })
+            | Complete_frame { kind = Batch_commit; payload; next_offset; _ } ->
               let* footer = batch_commit_of_string ~offset:event_offset payload in
               let digest = finish_payload_digest digest_context in
               let expected_last = header.expected_next_seq + header.count - 1 in
@@ -858,20 +1027,7 @@ let scan_store file =
                 Error
                   (Corrupt_store
                      { offset = event_offset; detail = "batch event digest mismatch" })
-              else
-                Ok
-                  (`Committed
-                      ( next_offset
-                      , expected_last
-                      , List.rev locations_rev
-                      , Batch_guard
-                          { begin_frame = frame_guard batch_offset begin_frame
-                          ; commit_frame = frame_guard event_offset commit_frame
-                          ; first_seq = header.expected_next_seq
-                          ; last_seq = expected_last
-                          ; count = header.count
-                          ; events_sha256 = digest
-                          } ))
+              else Ok (next_offset, expected_last, List.rev locations_rev)
             | Complete_frame _ ->
               Error
                 (Corrupt_store
@@ -880,14 +1036,11 @@ let scan_store file =
             let* event_frame = decode_frame file ~file_size event_offset in
             match event_frame with
             | End_of_store | Incomplete_frame ->
-              let+ recovery =
-                truncate_uncommitted
-                  file
-                  ~file_size
-                  ~batch_offset
-                  ~last_committed_seq:committed_seq
-              in
-              `Recovered recovery
+              Error
+                (Corrupt_store
+                   { offset = event_offset
+                   ; detail = "committed event frame is incomplete"
+                   })
             | Complete_frame
                 ({ kind = Event_record; payload; payload_offset; next_offset; _ } as
                  event_frame) ->
@@ -919,6 +1072,7 @@ let scan_store file =
                   ; frame = frame_guard event_offset event_frame
                   }
                 in
+                Eio.Fiber.yield ();
                 scan_events
                   next_offset
                   (ordinal + 1)
@@ -929,38 +1083,36 @@ let scan_store file =
                 (Corrupt_store
                    { offset = event_offset; detail = "batch contains a non-event frame" })
         in
-        let* batch = scan_events next_offset 0 Sha256.empty [] in
-        match batch with
-        | `Recovered recovery ->
-          Ok
-            ( scope_id
-            , correlation_id
-            , batch_offset
-            , committed_seq
-            , locations
-            , tail_guard
-            , recovery )
-        | `Committed (next_offset, last_seq, batch_locations, tail_guard) ->
-          List.iter (Dynarray.add_last locations) batch_locations;
-          scan_batches next_offset last_seq tail_guard)
+        let* next_offset, last_seq, batch_locations =
+          scan_events next_offset 0 Sha256.empty []
+        in
+        locations
+        := List.fold_left
+             (fun locations location ->
+                Eio.Fiber.yield ();
+                Sequence_map.add location.seq location locations)
+             !locations
+             batch_locations;
+        scan_batches next_offset last_seq)
     | Complete_frame _ ->
       Error (Corrupt_store { offset; detail = "expected a batch begin frame" })
   in
-  scan_batches first_batch_offset 0 initial_tail_guard
+  scan_batches first_batch_offset 0
 ;;
 
 let make_store
       ~scope_id
       ~correlation_id
+      ~dir
       ~file
       ~lock_file
       ~locations
       ~last_seq
       ~committed_offset
-      ~tail_guard
   =
   { scope_id
   ; correlation_id
+  ; dir
   ; file
   ; lock_file
   ; writer_gate = Eio.Mutex.create ()
@@ -968,7 +1120,6 @@ let make_store
   ; locations
   ; last_seq
   ; committed_offset
-  ; tail_guard
   ; health = Writable
   ; attached = false
   }
@@ -1001,16 +1152,25 @@ let create ~sw ~dir ?correlation_id () =
     if wal_exists
     then Error Store_already_exists
     else
+      let* authority_exists =
+        with_io "check commit authority existence" (fun () ->
+          Eio.Path.is_file (authority_path dir))
+      in
+      let* () = if authority_exists then Error Store_initialization_conflict else Ok () in
       let* initialization_exists =
         with_io "check initialization WAL existence" (fun () ->
           Eio.Path.is_file (initializing_path dir))
       in
+      let* discarded_authority = discard_authority_initializing dir in
       let* initialization =
-        if initialization_exists
+        if initialization_exists || discarded_authority
         then
           let* () =
-            with_io "remove uncommitted initialization" (fun () ->
-              Eio.Path.unlink (initializing_path dir))
+            if initialization_exists
+            then
+              with_io "remove uncommitted initialization" (fun () ->
+                Eio.Path.unlink (initializing_path dir))
+            else Ok ()
           in
           let+ () = fsync_directory dir in
           Recovered_uncommitted_initialization
@@ -1036,7 +1196,6 @@ let create ~sw ~dir ?correlation_id () =
       opened_file := Some file;
       let metadata_payload = metadata_to_string scope_id correlation_id in
       let metadata = encode_frame Metadata metadata_payload in
-      let metadata_payload_digest = sha256_raw metadata_payload in
       let committed_offset = Int64.of_int (String.length metadata) in
       let* () =
         with_io "write metadata" (fun () ->
@@ -1046,27 +1205,39 @@ let create ~sw ~dir ?correlation_id () =
             [ Cstruct.of_string metadata ];
           Eio.File.sync file)
       in
+      let authority = { scope_id; correlation_id; committed_offset; last_seq = 0 } in
+      Eio.Fiber.check ();
+      let wal_renamed = ref false in
+      let authority_renamed = ref false in
       let* () =
-        with_io "commit initialized WAL" (fun () ->
-          Eio.Path.rename (initializing_path dir) (wal_path dir))
+        Eio.Cancel.protect (fun () ->
+          let result =
+            let* () =
+              with_io "commit initialized WAL" (fun () ->
+                Eio.Path.rename (initializing_path dir) (wal_path dir);
+                wal_renamed := true)
+            in
+            let* () = fsync_directory dir in
+            match install_authority ~renamed:authority_renamed dir authority with
+            | Ok () -> Ok ()
+            | Error (Authority_not_installed error) -> Error error
+            | Error (Authority_outcome_unknown error) -> Error error
+          in
+          match result with
+          | Error error when !wal_renamed ->
+            Error (Commit_outcome_unknown (error_to_string error))
+          | result -> result)
       in
-      let* () = fsync_directory dir in
       Ok
         ( make_store
             ~scope_id
             ~correlation_id
+            ~dir
             ~file
             ~lock_file
-            ~locations:(Dynarray.create ())
+            ~locations:Sequence_map.empty
             ~last_seq:0
             ~committed_offset
-            ~tail_guard:
-              (Metadata_guard
-                 { frame_offset = 0L
-                 ; frame_kind = Metadata
-                 ; frame_next_offset = committed_offset
-                 ; frame_payload_digest = metadata_payload_digest
-                 })
         , initialization ))
 ;;
 
@@ -1087,41 +1258,134 @@ let open_existing ~sw ~dir =
         with_io "check initialization WAL existence" (fun () ->
           Eio.Path.is_file (initializing_path dir))
       in
+      let* authority_exists =
+        with_io "check commit authority existence" (fun () ->
+          Eio.Path.is_file (authority_path dir))
+      in
       let* () =
-        match wal_exists, initialization_exists with
-        | true, false -> Ok ()
-        | false, true -> Error Store_initialization_incomplete
-        | false, false -> Error Store_not_found
-        | true, true -> Error Store_initialization_conflict
+        match wal_exists, initialization_exists, authority_exists with
+        | true, false, _ -> Ok ()
+        | false, true, false -> Error Store_initialization_incomplete
+        | false, false, false -> Error Store_not_found
+        | false, _, true | true, true, _ -> Error Store_initialization_conflict
       in
       let* file =
         with_io "open WAL" (fun () -> Eio.Path.open_out ~sw ~create:`Never (wal_path dir))
       in
       opened_file := Some file;
-      let* ( scope_id
-           , correlation_id
-           , committed_offset
-           , last_seq
-           , locations
-           , tail_guard
-           , recovery )
-        =
-        scan_store file
+      let* actual_size =
+        with_io "read WAL size" (fun () -> Optint.Int63.to_int64 (Eio.File.size file))
+      in
+      let* authority_initializing_exists =
+        with_io "check initializing commit authority" (fun () ->
+          Eio.Path.is_file (authority_initializing_path dir))
+      in
+      let actions_rev = ref [] in
+      let* authority =
+        if authority_exists
+        then load_authority dir
+        else
+          let* metadata_frame = decode_frame file ~file_size:actual_size 0L in
+          let* scope_id, correlation_id =
+            match metadata_frame with
+            | Complete_frame { kind = Metadata; payload; next_offset; _ }
+              when Int64.equal next_offset actual_size ->
+              metadata_of_string ~offset:0L payload
+            | Complete_frame _ | End_of_store | Incomplete_frame ->
+              Error Store_initialization_incomplete
+          in
+          let authority =
+            { scope_id; correlation_id; committed_offset = actual_size; last_seq = 0 }
+          in
+          let renamed = ref false in
+          let* () =
+            match install_authority ~renamed dir authority with
+            | Ok () -> Ok ()
+            | Error (Authority_not_installed error) -> Error error
+            | Error (Authority_outcome_unknown error) ->
+              Error (Commit_outcome_unknown (error_to_string error))
+          in
+          if authority_initializing_exists
+          then actions_rev := Discarded_uncommitted_authority :: !actions_rev;
+          actions_rev := Rebuilt_initial_authority :: !actions_rev;
+          Ok authority
+      in
+      let* () =
+        if Int64.compare actual_size authority.committed_offset >= 0
+        then Ok ()
+        else
+          Error
+            (Corrupt_store
+               { offset = actual_size
+               ; detail =
+                   Printf.sprintf
+                     "WAL size %Ld is below authoritative committed offset %Ld"
+                     actual_size
+                     authority.committed_offset
+               })
+      in
+      let* scope_id, correlation_id, committed_offset, last_seq, locations =
+        scan_store file ~file_size:authority.committed_offset
+      in
+      let* () =
+        if
+          Scope_id.equal scope_id authority.scope_id
+          && Event.Correlation_id.equal correlation_id authority.correlation_id
+          && Int64.equal committed_offset authority.committed_offset
+          && last_seq = authority.last_seq
+        then Ok ()
+        else
+          Error
+            (Corrupt_store
+               { offset = 0L; detail = "commit authority does not match the WAL prefix" })
+      in
+      let* () =
+        if authority_exists && authority_initializing_exists
+        then (
+          let* discarded = discard_authority_initializing dir in
+          if discarded then actions_rev := Discarded_uncommitted_authority :: !actions_rev;
+          Ok ())
+        else Ok ()
+      in
+      let* () =
+        if Int64.equal actual_size authority.committed_offset
+        then Ok ()
+        else (
+          let removed_bytes = Int64.sub actual_size authority.committed_offset in
+          let* () =
+            with_io "truncate non-authoritative WAL tail" (fun () ->
+              Eio.File.truncate file (Optint.Int63.of_int64 authority.committed_offset);
+              Eio.File.sync file)
+          in
+          actions_rev
+          := Truncated_uncommitted_tail
+               { committed_offset = authority.committed_offset
+               ; removed_bytes
+               ; last_committed_seq = authority.last_seq
+               }
+             :: !actions_rev;
+          Ok ())
+      in
+      let* () = fsync_directory dir in
+      let recovery =
+        match List.rev !actions_rev with
+        | [] -> Clean
+        | actions -> Recovered actions
       in
       Ok
         ( make_store
             ~scope_id
             ~correlation_id
+            ~dir
             ~file
             ~lock_file
             ~locations
             ~last_seq
             ~committed_offset
-            ~tail_guard
         , recovery ))
 ;;
 
-let validate_append store ~expected_next_seq events =
+let validate_append (store : t) ~expected_next_seq events =
   if expected_next_seq <= 0
   then Error (Invalid_argument "expected_next_seq must be positive")
   else (
@@ -1161,7 +1425,7 @@ let validate_append store ~expected_next_seq events =
       loop expected_next_seq events)
 ;;
 
-let location_at store seq = Dynarray.get store.locations (seq - 1)
+let location_at locations seq = Sequence_map.find seq locations
 
 let read_location_raw store ~file_size (location : event_location) =
   let* frame = decode_frame store.file ~file_size location.frame.frame_offset in
@@ -1222,51 +1486,65 @@ let corrupt_tail store offset detail =
   Error error
 ;;
 
-let committed_file_size_locked store =
-  let committed_offset = with_read store (fun () -> store.committed_offset) in
-  let* file_size =
-    with_io "verify committed WAL size" (fun () ->
-      Optint.Int63.to_int64 (Eio.File.size store.file))
+let require_writable store =
+  match with_read store (fun () -> store.health) with
+  | Writable -> Ok ()
+  | Poisoned detail -> Error (Store_poisoned detail)
+;;
+
+let read_range store ~committed_offset locations ~first_seq ~count =
+  let* () = require_writable store in
+  let* actual_size =
+    with_io "read WAL size" (fun () -> Optint.Int63.to_int64 (Eio.File.size store.file))
   in
-  if Int64.equal file_size committed_offset
-  then Ok file_size
-  else
-    corrupt_tail
-      store
-      committed_offset
-      (Printf.sprintf
-         "committed offset is %Ld but WAL size is %Ld"
-         committed_offset
-         file_size)
-;;
-
-let read_locations_locked store ~file_size locations =
-  let rec loop events_rev = function
-    | [] -> Ok (List.rev events_rev)
-    | location :: rest ->
-      let* event = read_location_locked store ~file_size location in
-      loop (event :: events_rev) rest
+  let* () =
+    if Int64.compare actual_size committed_offset >= 0
+    then Ok ()
+    else
+      corrupt_tail
+        store
+        committed_offset
+        (Printf.sprintf
+           "snapshotted committed offset is %Ld but WAL size is %Ld"
+           committed_offset
+           actual_size)
   in
-  loop [] locations
+  let rec loop seq remaining events_rev =
+    if remaining = 0
+    then Ok (List.rev events_rev)
+    else (
+      let location = location_at locations seq in
+      let* event = read_location_locked store ~file_size:committed_offset location in
+      Eio.Fiber.yield ();
+      loop (seq + 1) (remaining - 1) (event :: events_rev))
+  in
+  let* events = loop first_seq count [] in
+  let+ () = require_writable store in
+  events
 ;;
 
-let read_locations store locations =
-  with_reader store (fun () ->
-    let* file_size = committed_file_size_locked store in
-    read_locations_locked store ~file_size locations)
-;;
-
-let verify_committed_tail_locked store =
+let verify_write_fence_locked store =
   let verify () =
-    let guard, committed_offset, committed_last =
-      with_read store (fun () -> store.tail_guard, store.committed_offset, store.last_seq)
+    let committed_offset, committed_last =
+      with_read store (fun () -> store.committed_offset, store.last_seq)
+    in
+    let* authority = load_authority store.dir in
+    let* () =
+      if
+        Scope_id.equal authority.scope_id store.scope_id
+        && Event.Correlation_id.equal authority.correlation_id store.correlation_id
+        && Int64.equal authority.committed_offset committed_offset
+        && authority.last_seq = committed_last
+      then Ok ()
+      else corrupt_tail store 0L "commit authority changed behind the live store"
     in
     let* file_size =
       with_io "verify committed WAL size" (fun () ->
         Optint.Int63.to_int64 (Eio.File.size store.file))
     in
-    if not (Int64.equal file_size committed_offset)
-    then
+    if Int64.equal file_size committed_offset
+    then Ok ()
+    else
       corrupt_tail
         store
         committed_offset
@@ -1274,71 +1552,6 @@ let verify_committed_tail_locked store =
            "committed offset is %Ld but WAL size is %Ld"
            committed_offset
            file_size)
-    else (
-      let verify_frame (expected : frame_guard) =
-        let* frame = decode_frame store.file ~file_size expected.frame_offset in
-        match frame with
-        | End_of_store | Incomplete_frame ->
-          corrupt_tail store expected.frame_offset "committed frame is incomplete"
-        | Complete_frame frame
-          when frame.kind = expected.frame_kind
-               && Int64.equal frame.next_offset expected.frame_next_offset
-               && String.equal frame.payload_digest expected.frame_payload_digest ->
-          Ok frame
-        | Complete_frame _ ->
-          corrupt_tail store expected.frame_offset "committed frame identity mismatch"
-      in
-      match guard with
-      | Metadata_guard metadata ->
-        let* _frame = verify_frame metadata in
-        if committed_last = 0
-        then Ok ()
-        else
-          corrupt_tail store metadata.frame_offset "metadata guard has committed events"
-      | Batch_guard batch ->
-        let* begin_frame = verify_frame batch.begin_frame in
-        let* commit_frame = verify_frame batch.commit_frame in
-        let* header =
-          batch_begin_of_string ~offset:batch.begin_frame.frame_offset begin_frame.payload
-        in
-        let* footer =
-          batch_commit_of_string
-            ~offset:batch.commit_frame.frame_offset
-            commit_frame.payload
-        in
-        if
-          batch.last_seq <> committed_last
-          || batch.count <> batch.last_seq - batch.first_seq + 1
-          || header.expected_next_seq <> batch.first_seq
-          || header.count <> batch.count
-          || footer.first_seq <> batch.first_seq
-          || footer.last_seq <> batch.last_seq
-          || footer.count <> batch.count
-          || (not (String.equal header.batch_id footer.batch_id))
-          || (not (String.equal header.events_sha256 batch.events_sha256))
-          || not (String.equal footer.events_sha256 batch.events_sha256)
-        then
-          corrupt_tail
-            store
-            batch.begin_frame.frame_offset
-            "committed batch guard identity mismatch"
-        else (
-          let rec digest_events context seq =
-            let location = with_read store (fun () -> location_at store seq) in
-            let* event = read_location_locked store ~file_size location in
-            let context = feed_payload_digest context (Event.to_json_string event) in
-            if seq = batch.last_seq
-            then Ok (finish_payload_digest context)
-            else digest_events context (seq + 1)
-          in
-          let* digest = digest_events Sha256.empty batch.first_seq in
-          if String.equal digest batch.events_sha256
-          then Ok ()
-          else
-            corrupt_tail
-              store
-              batch.begin_frame.frame_offset
-              "committed batch event digest mismatch"))
   in
   match verify () with
   | Error (Corrupt_store _ as error) ->
@@ -1347,17 +1560,45 @@ let verify_committed_tail_locked store =
   | result -> result
 ;;
 
-let rollback_uncommitted store ~offset primary =
-  match
+let rollback_storage store ~offset =
+  let* () =
     with_io "rollback failed append" (fun () ->
       Eio.File.truncate store.file (Optint.Int63.of_int64 offset);
       Eio.File.sync store.file)
-  with
+  in
+  let+ _discarded = discard_authority_initializing store.dir in
+  ()
+;;
+
+let rollback_uncommitted store ~offset primary =
+  match rollback_storage store ~offset with
   | Ok () -> Error primary
   | Error rollback ->
     let detail = error_to_string primary ^ "; " ^ error_to_string rollback in
     with_state_write store (fun () -> store.health <- Poisoned detail);
     Error (Store_poisoned detail)
+  | exception exn ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    let detail =
+      Printf.sprintf
+        "%s; rollback raised %s"
+        (error_to_string primary)
+        (Printexc.to_string exn)
+    in
+    with_state_write store (fun () -> store.health <- Poisoned detail);
+    Printexc.raise_with_backtrace exn backtrace
+;;
+
+let fence_uncommitted_before_reraise store ~offset exn backtrace =
+  let detail =
+    Printf.sprintf
+      "reserved exception %s escaped append before commit authority replacement; \
+       non-authoritative WAL bytes from offset %Ld require open-time recovery"
+      (Printexc.to_string exn)
+      offset
+  in
+  with_state_write store (fun () -> store.health <- Poisoned detail);
+  Printexc.raise_with_backtrace exn backtrace
 ;;
 
 let append_new_batch store ~expected_next_seq events =
@@ -1389,6 +1630,8 @@ let append_new_batch store ~expected_next_seq events =
     with_state_write store (fun () -> store.health <- Poisoned detail);
     Error (Store_poisoned detail))
   else (
+    Eio.Fiber.check ();
+    let authority_renamed = ref false in
     let write_result =
       try
         let frame_offset = ref offset in
@@ -1401,15 +1644,7 @@ let append_new_batch store ~expected_next_seq events =
             [ Cstruct.of_string header; Cstruct.of_string payload ];
           frame_offset := Int64.add !frame_offset (frame_bytes payload)
         in
-        let begin_frame_offset = !frame_offset in
         write_frame Batch_begin begin_payload;
-        let begin_frame =
-          { frame_offset = begin_frame_offset
-          ; frame_kind = Batch_begin
-          ; frame_next_offset = !frame_offset
-          ; frame_payload_digest = sha256_raw begin_payload
-          }
-        in
         List.iteri
           (fun index event ->
              let payload = Event.to_json_string event in
@@ -1430,42 +1665,78 @@ let append_new_batch store ~expected_next_seq events =
                    }
                }
              in
-             locations_rev := location :: !locations_rev)
+             locations_rev := location :: !locations_rev;
+             Eio.Fiber.yield ())
           events;
-        let commit_frame_offset = !frame_offset in
         write_frame Batch_commit commit_payload;
         Eio.File.sync store.file;
-        Ok
-          ( List.rev !locations_rev
-          , !frame_offset
-          , Batch_guard
-              { begin_frame
-              ; commit_frame =
-                  { frame_offset = commit_frame_offset
-                  ; frame_kind = Batch_commit
-                  ; frame_next_offset = !frame_offset
-                  ; frame_payload_digest = sha256_raw commit_payload
-                  }
-              ; first_seq = expected_next_seq
-              ; last_seq
-              ; count
-              ; events_sha256 = digest
-              } )
+        let committed_offset = !frame_offset in
+        let next_locations =
+          let committed_locations = with_read store (fun () -> store.locations) in
+          List.fold_left
+            (fun locations location ->
+               Eio.Fiber.yield ();
+               Sequence_map.add location.seq location locations)
+            committed_locations
+            (List.rev !locations_rev)
+        in
+        let authority =
+          { scope_id = store.scope_id
+          ; correlation_id = store.correlation_id
+          ; committed_offset
+          ; last_seq
+          }
+        in
+        match with_read store (fun () -> store.health) with
+        | Poisoned detail -> Error (Store_poisoned detail)
+        | Writable ->
+          (match install_authority ~renamed:authority_renamed store.dir authority with
+           | Ok () -> Ok (next_locations, committed_offset)
+           | Error (Authority_not_installed error) -> Error error
+           | Error (Authority_outcome_unknown error) ->
+             Error (Commit_outcome_unknown (error_to_string error)))
       with
-      | exn -> Error (io_error "append and sync batch" exn)
+      | exn ->
+        let backtrace = Printexc.get_raw_backtrace () in
+        (try Error (io_error "append and sync batch" exn) with
+         | reserved ->
+           if !authority_renamed
+           then (
+             let detail =
+               "reserved exception escaped after commit authority replacement: "
+               ^ Printexc.to_string reserved
+             in
+             with_state_write store (fun () -> store.health <- Poisoned detail);
+             Printexc.raise_with_backtrace reserved backtrace)
+           else fence_uncommitted_before_reraise store ~offset reserved backtrace)
     in
     match write_result with
+    | Error (Commit_outcome_unknown detail as error) ->
+      with_state_write store (fun () -> store.health <- Poisoned detail);
+      Error error
     | Error primary -> rollback_uncommitted store ~offset primary
-    | Ok (locations, committed_offset, tail_guard) ->
+    | Ok (next_locations, committed_offset) ->
       (match with_read store (fun () -> store.health) with
-       | Poisoned detail -> rollback_uncommitted store ~offset (Store_poisoned detail)
+       | Poisoned detail ->
+         Error
+           (Commit_outcome_unknown
+              ("store was poisoned after commit authority replacement: " ^ detail))
        | Writable ->
-         with_state_write store (fun () ->
-           List.iter (Dynarray.add_last store.locations) locations;
-           store.last_seq <- last_seq;
-           store.committed_offset <- committed_offset;
-           store.tail_guard <- tail_guard);
-         Ok Stored))
+         (try
+            with_state_write store (fun () ->
+              store.locations <- next_locations;
+              store.committed_offset <- committed_offset;
+              store.last_seq <- last_seq);
+            Ok Stored
+          with
+          | exn ->
+            let backtrace = Printexc.get_raw_backtrace () in
+            let detail =
+              "durable commit could not be published to in-memory store state: "
+              ^ Printexc.to_string exn
+            in
+            with_state_write store (fun () -> store.health <- Poisoned detail);
+            Printexc.raise_with_backtrace exn backtrace)))
 ;;
 
 let compare_committed store ~expected_next_seq events committed_last =
@@ -1474,25 +1745,24 @@ let compare_committed store ~expected_next_seq events committed_last =
   then
     Error (Sequence_conflict { expected_next_seq; actual_next_seq = committed_last + 1 })
   else (
-    let file_size = with_read store (fun () -> store.committed_offset) in
-    let locations =
-      with_read store (fun () ->
-        List.init (List.length events) (fun index ->
-          location_at store (expected_next_seq + index)))
+    let file_size, committed_locations =
+      with_read store (fun () -> store.committed_offset, store.locations)
     in
-    let rec compare locations events =
-      match locations, events with
-      | [], [] -> Ok Already_committed
-      | location :: locations, expected :: events ->
+    let rec compare seq = function
+      | [] -> Ok Already_committed
+      | expected :: events ->
+        let location = location_at committed_locations seq in
         let* committed = read_location_locked store ~file_size location in
         if String.equal (Event.to_json_string committed) (Event.to_json_string expected)
-        then compare locations events
+        then (
+          Eio.Fiber.yield ();
+          compare (seq + 1) events)
         else
           Error (Committed_content_conflict { first_seq = expected_next_seq; last_seq })
-      | [], _ :: _ | _ :: _, [] ->
-        Error (Committed_content_conflict { first_seq = expected_next_seq; last_seq })
     in
-    compare locations events)
+    let* outcome = compare expected_next_seq events in
+    let+ () = require_writable store in
+    outcome)
 ;;
 
 let append_batch writer ~expected_next_seq events =
@@ -1505,7 +1775,7 @@ let append_batch writer ~expected_next_seq events =
     match health with
     | Poisoned detail -> Error (Store_poisoned detail)
     | Writable ->
-      let* () = verify_committed_tail_locked store in
+      let* () = verify_write_fence_locked store in
       if expected_next_seq = committed_last + 1
       then append_new_batch store ~expected_next_seq events
       else if expected_next_seq <= committed_last
@@ -1523,7 +1793,7 @@ type page =
   ; has_more : bool
   }
 
-let read_page store ~(after : cursor) ?through ~limit () =
+let read_page (store : t) ~(after : cursor) ?through ~limit () =
   if limit <= 0
   then Error (Invalid_argument "page limit must be positive")
   else if not (Scope_id.equal after.scope_id store.scope_id)
@@ -1534,24 +1804,31 @@ let read_page store ~(after : cursor) ?through ~limit () =
     | None -> false
   then Error Cursor_scope_mismatch
   else
-    let* high, locations =
+    let* high, committed_offset, committed_locations, count =
       with_read store (fun () ->
-        let current = store.last_seq in
-        let high =
-          Option.fold ~none:current ~some:(fun (cursor : cursor) -> cursor.seq) through
-        in
-        if high > current
-        then Error (Cursor_ahead { after_seq = high; high_watermark = current })
-        else if after.seq > high
-        then Error (Cursor_ahead { after_seq = after.seq; high_watermark = high })
-        else (
-          let count = min limit (high - after.seq) in
-          let locations =
-            List.init count (fun index -> location_at store (after.seq + index + 1))
+        match store.health with
+        | Poisoned detail -> Error (Store_poisoned detail)
+        | Writable ->
+          let current = store.last_seq in
+          let high =
+            Option.fold ~none:current ~some:(fun (cursor : cursor) -> cursor.seq) through
           in
-          Ok (high, locations)))
+          if high > current
+          then Error (Cursor_ahead { after_seq = high; high_watermark = current })
+          else if after.seq > high
+          then Error (Cursor_ahead { after_seq = after.seq; high_watermark = high })
+          else (
+            let count = min limit (high - after.seq) in
+            Ok (high, store.committed_offset, store.locations, count)))
     in
-    let* events = read_locations store locations in
+    let* events =
+      read_range
+        store
+        ~committed_offset
+        committed_locations
+        ~first_seq:(after.seq + 1)
+        ~count
+    in
     let next_seq = after.seq + List.length events in
     Ok
       { events
@@ -1562,10 +1839,12 @@ let read_page store ~(after : cursor) ?through ~limit () =
       }
 ;;
 
-let load_all store =
-  let locations =
+let load_all (store : t) =
+  let* committed_offset, committed_locations, last_seq =
     with_read store (fun () ->
-      List.init store.last_seq (fun index -> Dynarray.get store.locations index))
+      match store.health with
+      | Poisoned detail -> Error (Store_poisoned detail)
+      | Writable -> Ok (store.committed_offset, store.locations, store.last_seq))
   in
-  read_locations store locations
+  read_range store ~committed_offset committed_locations ~first_seq:1 ~count:last_seq
 ;;

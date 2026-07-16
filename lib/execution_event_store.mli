@@ -1,10 +1,14 @@
 (** Crash-durable storage for one recursive execution scope.
 
-    The store is an append-only write-ahead log. A committed batch is framed as
-    [begin; event...; commit] and becomes visible only after the complete frame
-    group has been flushed with {!Eio.File.sync}. The store owns the physical
-    cursor and the execution-scope identity; {!Execution_journal} remains the
-    semantic reducer and topology authority.
+    The store is an append-only write-ahead log. A candidate batch is framed as
+    [begin; event...; commit]; the final frame is a structural footer, not a
+    second commit point. The batch becomes visible only after the complete
+    frame group is flushed and the checksum-verified commit authority is
+    atomically replaced and directory-synced. That authority is the sole
+    visibility SSOT and separates proven committed bytes from an uncommitted
+    tail without guessing from EOF shape. The store owns the physical cursor
+    and execution-scope identity;
+    {!Execution_journal} remains the semantic reducer and topology authority.
 
     The directory is caller-owned and dedicated to one execution scope. The
     implementation acquires an exclusive writer lock for the lifetime of the
@@ -28,13 +32,19 @@ val cursor_seq : cursor -> int
 val cursor_to_yojson : cursor -> Yojson.Safe.t
 val cursor_of_yojson : Yojson.Safe.t -> (cursor, string) result
 
-type recovery =
-  | Clean
-  | Truncated_uncommitted_batch of
-      { batch_offset : int64
+type recovery_action =
+  | Truncated_uncommitted_tail of
+      { committed_offset : int64
       ; removed_bytes : int64
       ; last_committed_seq : int
       }
+  | Discarded_uncommitted_authority
+  | Rebuilt_initial_authority
+[@@deriving show]
+
+type recovery =
+  | Clean
+  | Recovered of recovery_action list
 [@@deriving show]
 
 type initialization =
@@ -79,6 +89,7 @@ type error =
       ; high_watermark : int
       }
   | Store_poisoned of string
+  | Commit_outcome_unknown of string
 [@@deriving show]
 
 val error_to_string : error -> string
@@ -88,8 +99,10 @@ type writer
 
 (** [create ~sw ~dir ()] creates a new store inside an existing caller-owned
     directory. It never creates the directory, opens an existing WAL, or
-    truncates committed data. The initial metadata frame and its rename into
-    the supplied directory are durable before the function returns. *)
+    truncates committed data. The initial metadata frame and matching commit
+    authority are directory-durable before the function returns. A failure
+    after the WAL rename is surfaced as [Commit_outcome_unknown] and is
+    reconciled by [open_existing], never by blind create retry. *)
 val create
   :  sw:Eio.Switch.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t
@@ -97,9 +110,10 @@ val create
   -> unit
   -> (t * initialization, error) result
 
-(** [open_existing ~sw ~dir] validates every committed batch and rebuilds the
-    physical event index. A provably incomplete final batch is truncated back
-    to its begin frame and reported through [recovery]. Corrupt committed data
+(** [open_existing ~sw ~dir] validates the complete authority-bound prefix and
+    rebuilds the immutable physical event index before modifying any bytes.
+    Bytes beyond the validated authority are truncated and reported through
+    [recovery]. An incomplete or corrupt frame inside the authoritative prefix
     is rejected and is never silently truncated. *)
 val open_existing
   :  sw:Eio.Switch.t
@@ -123,7 +137,9 @@ val attach : t -> (writer, error) result
 
     Repeating an already committed, byte-identical batch returns
     [Already_committed]. Any overlap with different canonical event bytes is a
-    typed conflict. *)
+    typed conflict. [Commit_outcome_unknown] forbids blind retry: release this
+    store and call [open_existing] to reconcile the authority before deciding
+    whether an exact retry is already committed. *)
 val append_batch
   :  writer
   -> expected_next_seq:int

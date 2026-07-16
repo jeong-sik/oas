@@ -235,8 +235,10 @@ let test_torn_tail_is_explicitly_truncated () =
     Eio.Switch.run (fun sw ->
       let store, recovery = require_store (open_store ~sw ~dir) in
       (match recovery with
-       | Store.Truncated_uncommitted_batch
-           { removed_bytes = 4L; last_committed_seq = 4; _ } -> ()
+       | Store.Recovered
+           [ Store.Truncated_uncommitted_tail
+               { removed_bytes = 4L; last_committed_seq = 4; _ }
+           ] -> ()
        | _ -> fail "incomplete tail was not reported exactly");
       check_events
         "committed prefix survives"
@@ -257,6 +259,7 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
       let dir = Eio.Path.(root / case_name) in
       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
       let prefix_size = ref 0 in
+      let prefix_authority = ref "" in
       let full_wal = ref "" in
       let expected_prefix = ref [] in
       Eio.Switch.run (fun sw ->
@@ -271,7 +274,9 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
         expected_prefix := [ first ];
         ignore (require_store (Store.append_batch writer ~expected_next_seq:1 [ first ]));
         let wal = Eio.Path.(dir / "events.v1.wal") in
+        let authority = Eio.Path.(dir / "events.v1.commit") in
         prefix_size := String.length (Eio.Path.load wal);
+        prefix_authority := Eio.Path.load authority;
         ignore (require_store (Store.append_batch writer ~expected_next_seq:2 rest));
         full_wal := Eio.Path.load wal);
       let cutoff = cutoff_of_sizes !prefix_size (String.length !full_wal) in
@@ -280,16 +285,22 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string truncated file;
         Eio.File.sync file);
+      let authority = Eio.Path.(dir / "events.v1.commit") in
+      Eio.Path.with_open_out ~create:(`Or_truncate 0o600) authority (fun file ->
+        Eio.Flow.copy_string !prefix_authority file;
+        Eio.File.sync file);
       Eio.Switch.run (fun sw ->
         let store, recovery = require_store (open_store ~sw ~dir) in
         (match recovery with
-         | Store.Truncated_uncommitted_batch
-             { batch_offset; removed_bytes; last_committed_seq = 1 } ->
+         | Store.Recovered
+             [ Store.Truncated_uncommitted_tail
+                 { committed_offset; removed_bytes; last_committed_seq = 1 }
+             ] ->
            check
              int64
              "rollback begins at committed prefix"
              (Int64.of_int !prefix_size)
-             batch_offset;
+             committed_offset;
            check
              int64
              "reported removed partial batch bytes"
@@ -336,6 +347,80 @@ let test_committed_corruption_is_rejected_without_truncation () =
       (Optint.Int63.to_int64 (Eio.Path.stat ~follow:true wal).size))
 ;;
 
+let test_authoritative_incomplete_frame_is_not_truncated () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    let middle_payload = ref "" in
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      middle_payload := Event.to_json_string (List.nth events 1);
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
+    let wal = Eio.Path.(dir / "events.v1.wal") in
+    let bytes = Bytes.of_string (Eio.Path.load wal) in
+    let payload_offset =
+      try
+        Str.search_forward (Str.regexp_string !middle_payload) (Bytes.to_string bytes) 0
+      with
+      | Not_found -> fail "middle event payload was not found in WAL fixture"
+    in
+    let frame_header_bytes = 4 + 2 + 1 + 1 + 8 + 32 in
+    let frame_offset = payload_offset - frame_header_bytes in
+    let declared_length = Bytes.length bytes - payload_offset + 1 in
+    for index = 0 to 7 do
+      let shift = (7 - index) * 8 in
+      Bytes.set
+        bytes
+        (frame_offset + 8 + index)
+        (Char.chr ((declared_length lsr shift) land 0xff))
+    done;
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
+      Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
+      Eio.File.sync file);
+    let corrupted_size = (Eio.Path.stat ~follow:true wal).size in
+    Eio.Switch.run (fun sw ->
+      match open_store ~sw ~dir with
+      | Error (Store.Corrupt_store _) -> ()
+      | _ -> fail "authoritative incomplete frame was treated as an uncommitted tail");
+    check
+      int64
+      "authoritative corruption was not truncated"
+      (Optint.Int63.to_int64 corrupted_size)
+      (Optint.Int63.to_int64 (Eio.Path.stat ~follow:true wal).size))
+;;
+
+let test_foreign_authority_cannot_truncate_wal () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun root ->
+    let target = Eio.Path.(root / "target") in
+    let foreign = Eio.Path.(root / "foreign") in
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir:target in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
+    Eio.Switch.run (fun sw -> ignore (create_store ~sw ~dir:foreign));
+    let target_wal = Eio.Path.(target / "events.v1.wal") in
+    let target_authority = Eio.Path.(target / "events.v1.commit") in
+    let foreign_authority = Eio.Path.(foreign / "events.v1.commit") in
+    let original_size = (Eio.Path.stat ~follow:true target_wal).size in
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o600) target_authority (fun file ->
+      Eio.Flow.copy_string (Eio.Path.load foreign_authority) file;
+      Eio.File.sync file);
+    Eio.Switch.run (fun sw ->
+      match open_store ~sw ~dir:target with
+      | Error (Store.Corrupt_store _) -> ()
+      | _ -> fail "foreign authority was accepted for the target WAL");
+    check
+      int64
+      "foreign authority did not truncate target WAL"
+      (Optint.Int63.to_int64 original_size)
+      (Optint.Int63.to_int64 (Eio.Path.stat ~follow:true target_wal).size))
+;;
+
 let test_detected_committed_corruption_poisons_writer () =
   Eio_main.run
   @@ fun env ->
@@ -365,12 +450,15 @@ let test_detected_committed_corruption_poisons_writer () =
       (match Store.load_all store with
        | Error (Store.Corrupt_store _) -> ()
        | _ -> fail "same-size committed corruption was not detected");
+      (match Store.read_page store ~after:(Store.beginning_cursor store) ~limit:1 () with
+       | Error (Store.Store_poisoned _) -> ()
+       | _ -> fail "projection read ignored the known poisoned store");
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
       | Error (Store.Store_poisoned _) -> ()
       | _ -> fail "writer remained usable after committed corruption was detected"))
 ;;
 
-let test_append_verifies_committed_tail_before_extending () =
+let test_projection_detects_middle_event_corruption () =
   Eio_main.run
   @@ fun env ->
   with_temp_dir env (fun dir ->
@@ -397,15 +485,15 @@ let test_append_verifies_committed_tail_before_extending () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
         Eio.File.sync file);
-      (match Store.append_batch writer ~expected_next_seq:1 [ first ] with
+      (match Store.load_all store with
        | Error (Store.Corrupt_store _) -> ()
-       | _ -> fail "append extended a corrupted committed tail");
+       | _ -> fail "projection ignored corrupted middle event bytes");
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
       | Error (Store.Store_poisoned _) -> ()
-      | _ -> fail "tail verification failure did not fence the writer"))
+      | _ -> fail "projection corruption did not fence the writer"))
 ;;
 
-let test_append_verifies_middle_event_frame_header () =
+let test_projection_verifies_middle_event_frame_header () =
   Eio_main.run
   @@ fun env ->
   with_temp_dir env (fun dir ->
@@ -431,9 +519,9 @@ let test_append_verifies_middle_event_frame_header () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
         Eio.File.sync file);
-      (match Store.append_batch writer ~expected_next_seq:1 [ first ] with
+      (match Store.load_all store with
        | Error (Store.Corrupt_store _) -> ()
-       | _ -> fail "append ignored a corrupted middle event frame header");
+       | _ -> fail "projection ignored a corrupted middle event frame header");
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
       | Error (Store.Store_poisoned _) -> ()
       | _ -> fail "event frame header corruption did not fence the writer"))
@@ -466,6 +554,28 @@ let test_uncommitted_initialization_is_explicitly_recovered () =
       | _ -> fail "recovered initialization did not produce a clean WAL"))
 ;;
 
+let test_initial_commit_authority_is_rebuilt_explicitly () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw -> ignore (create_store ~sw ~dir));
+    let authority = Eio.Path.(dir / "events.v1.commit") in
+    let initializing = Eio.Path.(dir / "events.v1.commit.initializing") in
+    Eio.Path.rename authority initializing;
+    Eio.Switch.run (fun sw ->
+      let store, recovery = require_store (open_store ~sw ~dir) in
+      check int "rebuilt authority keeps the empty store" 0 (Store.last_seq store);
+      match recovery with
+      | Store.Recovered
+          [ Store.Discarded_uncommitted_authority; Store.Rebuilt_initial_authority ] -> ()
+      | _ -> fail "initial authority recovery was not reported exactly");
+    Eio.Switch.run (fun sw ->
+      let _store, recovery = require_store (open_store ~sw ~dir) in
+      match recovery with
+      | Store.Clean -> ()
+      | _ -> fail "rebuilt authority was not clean on the next open"))
+;;
+
 let test_failed_create_releases_writer_immediately () =
   Eio_main.run
   @@ fun env ->
@@ -483,6 +593,53 @@ let test_failed_create_releases_writer_immediately () =
       | Error Store.Writer_already_active ->
         fail "failed create leaked its writer claim until switch release"
       | _ -> fail "create did not recover after its prior explicit failure"))
+;;
+
+let test_create_unknown_outcome_reconciles_through_open () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+    let blocker = Eio.Path.(dir / "events.v1.commit.initializing") in
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
+    Eio.Switch.run (fun sw ->
+      match Store.create ~sw ~dir () with
+      | Error (Store.Commit_outcome_unknown _) -> ()
+      | _ -> fail "post-WAL create failure was not classified as outcome unknown");
+    Eio.Path.rmtree ~missing_ok:false blocker;
+    Eio.Switch.run (fun sw ->
+      let store, recovery = require_store (open_store ~sw ~dir) in
+      check int "reconciled unknown create is empty" 0 (Store.last_seq store);
+      match recovery with
+      | Store.Recovered [ Store.Rebuilt_initial_authority ] -> ()
+      | _ -> fail "unknown create was not reconciled explicitly by open"))
+;;
+
+let test_append_failure_rolls_back_before_authority () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      let blocker = Eio.Path.(dir / "events.v1.commit.initializing") in
+      Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
+      (match Store.append_batch writer ~expected_next_seq:1 events with
+       | Error (Store.Io_failure _) -> ()
+       | _ -> fail "pre-authority append failure did not surface its I/O error");
+      check int "failed append did not advance store" 0 (Store.last_seq store);
+      Eio.Path.rmtree ~missing_ok:false blocker;
+      (match Store.append_batch writer ~expected_next_seq:1 events with
+       | Ok Store.Stored -> ()
+       | _ -> fail "append could not retry after proven rollback");
+      check int "retried append committed" 4 (Store.last_seq store));
+    Eio.Switch.run (fun sw ->
+      let store, recovery = require_store (open_store ~sw ~dir) in
+      check int "retried append reopens" 4 (Store.last_seq store);
+      match recovery with
+      | Store.Clean -> ()
+      | _ -> fail "proven append rollback left recovery residue"))
 ;;
 
 let test_journal_persists_before_publish_and_replays () =
@@ -606,25 +763,45 @@ let () =
             `Quick
             test_committed_corruption_is_rejected_without_truncation
         ; test_case
+            "authoritative incomplete frame is not truncated"
+            `Quick
+            test_authoritative_incomplete_frame_is_not_truncated
+        ; test_case
+            "foreign authority cannot truncate WAL"
+            `Quick
+            test_foreign_authority_cannot_truncate_wal
+        ; test_case
             "detected committed corruption poisons writer"
             `Quick
             test_detected_committed_corruption_poisons_writer
         ; test_case
-            "append verifies committed tail before extending"
+            "projection detects middle event corruption"
             `Quick
-            test_append_verifies_committed_tail_before_extending
+            test_projection_detects_middle_event_corruption
         ; test_case
-            "append verifies middle event frame header"
+            "projection verifies middle event frame header"
             `Quick
-            test_append_verifies_middle_event_frame_header
+            test_projection_verifies_middle_event_frame_header
         ; test_case
             "uncommitted initialization is explicitly recovered"
             `Quick
             test_uncommitted_initialization_is_explicitly_recovered
         ; test_case
+            "initial commit authority is rebuilt explicitly"
+            `Quick
+            test_initial_commit_authority_is_rebuilt_explicitly
+        ; test_case
             "failed create releases writer immediately"
             `Quick
             test_failed_create_releases_writer_immediately
+        ; test_case
+            "create unknown outcome reconciles through open"
+            `Quick
+            test_create_unknown_outcome_reconciles_through_open
+        ; test_case
+            "append failure rolls back before authority"
+            `Quick
+            test_append_failure_rolls_back_before_authority
         ; test_case
             "journal persists before publish and replays"
             `Quick

@@ -807,8 +807,17 @@ type t =
   }
 
 let with_read journal f = Eio.Mutex.use_ro journal.mu (fun () -> f journal.state)
-let with_state_write journal f = Eio.Mutex.use_rw ~protect:true journal.mu f
-let with_writer_gate journal f = Eio.Mutex.use_rw ~protect:true journal.writer_gate f
+
+let with_state_write journal f =
+  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro journal.mu f)
+;;
+
+let with_writer_gate journal f = Eio.Mutex.use_ro journal.writer_gate f
+
+let with_abort_gate journal f =
+  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro journal.writer_gate f)
+;;
+
 let length journal = with_read journal (fun state -> Reducer.last_seq state.reducer)
 let last_seq journal = with_read journal (fun state -> Reducer.last_seq state.reducer)
 
@@ -942,18 +951,25 @@ let append_one
   { next_state; events = [ event ]; value = event }
 ;;
 
+type persistence =
+  | Volatile
+  | Durable
+
 let persist_mutation journal (captured_state : journal_state) events =
   match journal.store_writer with
-  | None -> Ok ()
+  | None -> Ok Volatile
   | Some store_writer ->
     let expected_next_seq = Reducer.last_seq captured_state.reducer + 1 in
     (match Store.append_batch store_writer ~expected_next_seq events with
-     | Ok (Store.Stored | Store.Already_committed) -> Ok ()
+     | Ok (Store.Stored | Store.Already_committed) -> Ok Durable
      | Error error -> Error (Persistence_failure error))
 ;;
 
 let commit_mutation journal (captured_state : journal_state) mutation =
-  let* () = persist_mutation journal captured_state mutation.events in
+  let* persistence = persist_mutation journal captured_state mutation.events in
+  (match persistence with
+   | Volatile -> Eio.Fiber.check ()
+   | Durable -> ());
   with_state_write journal (fun () ->
     if not (journal.state == captured_state)
     then Error (Invalid_event "execution writer gate invariant violated")
@@ -966,7 +982,7 @@ let with_write journal f =
   with_writer_gate journal (fun () ->
     let captured_state = with_read journal Fun.id in
     let* mutation = f captured_state in
-    Eio.Cancel.protect (fun () -> commit_mutation journal captured_state mutation))
+    commit_mutation journal captured_state mutation)
 ;;
 
 let node_record_or_error (state : journal_state) node_id =
@@ -1127,7 +1143,7 @@ let abort_run ?causes journal ~run terminal =
     Error (Invalid_argument "abort_run requires a failed or cancelled terminal")
   | Event.Failed _ | Event.Cancelled _ ->
     let* terminal = payload_result (Event.validate_terminal terminal) in
-    with_writer_gate journal (fun () ->
+    with_abort_gate journal (fun () ->
       let captured_state = with_read journal Fun.id in
       let* () = validate_run_handle captured_state run in
       let* order =
@@ -1173,11 +1189,10 @@ let abort_run ?causes journal ~run terminal =
         apply_closes captured_state [] Node_id_map.empty order
       in
       let events = List.rev events_rev in
-      Eio.Cancel.protect (fun () ->
-        commit_mutation
-          journal
-          captured_state
-          { next_state = final_state; events; value = events }))
+      commit_mutation
+        journal
+        captured_state
+        { next_state = final_state; events; value = events })
 ;;
 
 let replay_events events =
@@ -1189,6 +1204,7 @@ let replay_events events =
         | Ok reducer -> Ok reducer
         | Error violation -> Error (Invariant_violation violation)
       in
+      Eio.Fiber.yield ();
       loop { reducer; events_rev = event :: state.events_rev } rest
   in
   loop ({ reducer = Reducer.empty; events_rev = [] } : journal_state) events
