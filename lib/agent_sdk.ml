@@ -55,6 +55,7 @@ module Provider_intf = Provider_intf
 module Provider_runtime_binding = Provider_runtime_binding
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
+module Image_generation = Llm_provider.Image_generation
 module Retry = Llm_provider.Retry
 module Error = Agent_sdk_base.Error
 module Error_domain = Error_domain

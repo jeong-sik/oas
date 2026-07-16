@@ -80,3 +80,13 @@ val build_request
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> string
+
+(** Build the Anthropic Messages count-tokens request from the same canonical
+    input projection as {!build_request}. Completion-only output and sampling
+    fields are omitted. *)
+val build_count_tokens_request
+  :  config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string
