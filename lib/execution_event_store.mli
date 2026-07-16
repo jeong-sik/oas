@@ -14,7 +14,9 @@
     implementation acquires an exclusive writer lock for the lifetime of the
     supplied {!Eio.Switch.t}. Store and writer capabilities are switch-bound;
     after release, every operation that depends on live resources returns
-    [Store_released] rather than touching a closed descriptor. *)
+    [Store_released] rather than touching a closed descriptor. The injected
+    codec service borrows an {!Execution_runtime.t}; that runtime's
+    application-owned switch must be outside and outlive every store switch. *)
 
 module Scope_id : sig
   type t
@@ -66,6 +68,7 @@ type error =
       { operation : string
       ; detail : string
       }
+  | Codec_failure of Execution_codec_executor.failure
   | Writer_already_active
   | Store_already_attached
   | Store_released
@@ -106,7 +109,13 @@ val error_to_string : error -> string
 type t
 type writer
 
-(** [create ~sw ~dir ()] creates a new store inside an existing caller-owned
+type opened = private
+  { store : t
+  ; recovery : recovery
+  ; replay_events : Execution_event.t list
+  }
+
+(** [create ~sw ~codec ~dir ()] creates a new store inside an existing caller-owned
     directory. It never creates the directory, opens an existing WAL, or
     truncates committed data. The initial metadata frame and matching commit
     authority are directory-durable before the function returns. A failure
@@ -114,20 +123,24 @@ type writer
     reconciled by [open_existing], never by blind create retry. *)
 val create
   :  sw:Eio.Switch.t
+  -> codec:Execution_codec_executor.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t
   -> ?correlation_id:Execution_event.Correlation_id.t
   -> unit
   -> (t * initialization, error) result
 
-(** [open_existing ~sw ~dir] validates the complete authority-bound prefix and
+(** [open_existing ~sw ~codec ~dir] validates the complete authority-bound prefix and
     rebuilds the immutable physical event index before modifying any bytes.
     Bytes beyond the validated authority are truncated and reported through
     [recovery]. An incomplete or corrupt frame inside the authoritative prefix
-    is rejected and is never silently truncated. *)
+    is rejected and is never silently truncated. [replay_events] is the exact
+    immutable decode artifact from that same validation pass; journal recovery
+    consumes it directly rather than decoding the WAL a second time. *)
 val open_existing
   :  sw:Eio.Switch.t
+  -> codec:Execution_codec_executor.t
   -> dir:Eio.Fs.dir_ty Eio.Path.t
-  -> (t * recovery, error) result
+  -> (opened, error) result
 
 val scope_id : t -> Scope_id.t
 val correlation_id : t -> Execution_event.Correlation_id.t
@@ -195,7 +208,3 @@ val read_page
   -> limit:int
   -> unit
   -> (page, error) result
-
-(** Decode every committed event in sequence order. Intended for reducer
-    recovery at journal construction, not dashboard polling. *)
-val load_all : t -> (Execution_event.t list, error) result

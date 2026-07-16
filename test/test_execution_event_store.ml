@@ -1,6 +1,8 @@
 open Alcotest
+module Runtime_internal = Execution_runtime
 open Agent_sdk
 module Event = Execution_event
+module Codec = Execution_codec_executor
 module Journal = Execution_journal
 module Store = Execution_event_store
 
@@ -17,9 +19,14 @@ let require_journal = function
   | Error error -> fail (Journal.error_to_string error)
 ;;
 
-let create_store ~sw ~dir =
+let require_runtime = function
+  | Ok value -> value
+  | Error error -> fail (Runtime_internal.create_error_to_string error)
+;;
+
+let create_store ~codec ~sw ~dir =
   if not (Eio.Path.is_directory dir) then Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
-  let store, initialization = require_store (Store.create ~sw ~dir ()) in
+  let store, initialization = require_store (Store.create ~sw ~codec ~dir ()) in
   (match initialization with
    | Store.Fresh -> ()
    | Store.Recovered_uncommitted_initialization ->
@@ -27,14 +34,43 @@ let create_store ~sw ~dir =
   store
 ;;
 
-let open_store ~sw ~dir = Store.open_existing ~sw ~dir
+let open_store ~codec ~sw ~dir =
+  Store.open_existing ~sw ~codec ~dir
+  |> Result.map (fun (opened : Store.opened) -> opened.store, opened.recovery)
+;;
+
 let attach_store store = require_store (Store.attach store)
 
 let with_temp_dir env f =
-  let native_path = Filename.temp_file "oas-execution-store-" ".dir" in
-  Sys.remove native_path;
-  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir) (fun () -> f dir)
+  Eio.Switch.run (fun codec_sw ->
+    let runtime =
+      require_runtime
+        (Runtime_internal.create
+           ~sw:codec_sw
+           ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+           ~domain_count:1)
+    in
+    let codec = Codec.of_runtime runtime in
+    let native_path = Filename.temp_file "oas-execution-store-" ".dir" in
+    Sys.remove native_path;
+    let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+    Fun.protect
+      ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+      (fun () -> f codec dir))
+;;
+
+let read_all store =
+  match Store.last_seq store with
+  | Error _ as error -> error
+  | Ok last_seq ->
+    Store.read_page store ~after:(Store.beginning_cursor store) ~limit:(last_seq + 1) ()
+    |> Result.map (fun (page : Store.page) -> page.events)
+;;
+
+let directory_snapshot dir =
+  Eio.Path.read_dir dir
+  |> List.sort String.compare
+  |> List.map (fun name -> name, Eio.Path.load Eio.Path.(dir / name))
 ;;
 
 let make_four_events correlation_id =
@@ -112,11 +148,11 @@ let rewrite_event_seq event seq =
 let test_append_reopen_idempotency_and_paging () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let expected = ref [] in
     let first_cursor = ref None in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       expected := events;
@@ -166,12 +202,12 @@ let test_append_reopen_idempotency_and_paging () =
       | Error (Store.Committed_content_conflict { first_seq = 1; last_seq = 1 }) -> ()
       | _ -> fail "different bytes reused a committed sequence");
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       (match recovery with
        | Store.Clean -> ()
        | _ -> fail "clean WAL reported recovery");
       check int "recovered sequence" 4 (require_store (Store.last_seq store));
-      check_events "full replay" !expected (require_store (Store.load_all store));
+      check_events "full replay" !expected (require_store (read_all store));
       let after = Option.get !first_cursor in
       let page = require_store (Store.read_page store ~after ~limit:8 ()) in
       check int "exclusive second page" 3 (List.length page.events);
@@ -182,9 +218,9 @@ let test_append_reopen_idempotency_and_paging () =
 let test_idempotent_retry_requires_exact_canonical_bytes () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let journal =
         require_journal (Journal.create ~correlation_id:(Store.correlation_id store) ())
@@ -237,10 +273,10 @@ let test_idempotent_retry_requires_exact_canonical_bytes () =
 let test_torn_tail_is_explicitly_truncated () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let expected = ref [] in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       expected := events;
@@ -250,19 +286,16 @@ let test_torn_tail_is_explicitly_truncated () =
       Eio.Flow.copy_string "OASE" file;
       Eio.File.sync file);
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       (match recovery with
        | Store.Recovered
            [ Store.Truncated_uncommitted_tail
                { removed_bytes = 4L; last_committed_seq = 4; _ }
            ] -> ()
        | _ -> fail "incomplete tail was not reported exactly");
-      check_events
-        "committed prefix survives"
-        !expected
-        (require_store (Store.load_all store)));
+      check_events "committed prefix survives" !expected (require_store (read_all store)));
     Eio.Switch.run (fun sw ->
-      let _store, recovery = require_store (open_store ~sw ~dir) in
+      let _store, recovery = require_store (open_store ~codec ~sw ~dir) in
       match recovery with
       | Store.Clean -> ()
       | _ -> fail "repaired WAL was not clean on the next open"))
@@ -271,7 +304,7 @@ let test_torn_tail_is_explicitly_truncated () =
 let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun root ->
+  with_temp_dir env (fun codec root ->
     let run_case case_name cutoff_of_sizes =
       let dir = Eio.Path.(root / case_name) in
       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
@@ -280,7 +313,7 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
       let full_wal = ref "" in
       let expected_prefix = ref [] in
       Eio.Switch.run (fun sw ->
-        let store = create_store ~sw ~dir in
+        let store = create_store ~codec ~sw ~dir in
         let writer = attach_store store in
         let events = make_four_events (Store.correlation_id store) in
         let first, rest =
@@ -307,7 +340,7 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
         Eio.Flow.copy_string !prefix_authority file;
         Eio.File.sync file);
       Eio.Switch.run (fun sw ->
-        let store, recovery = require_store (open_store ~sw ~dir) in
+        let store, recovery = require_store (open_store ~codec ~sw ~dir) in
         (match recovery with
          | Store.Recovered
              [ Store.Truncated_uncommitted_tail
@@ -327,7 +360,7 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
         check_events
           "only the committed prefix remains"
           !expected_prefix
-          (require_store (Store.load_all store)))
+          (require_store (read_all store)))
     in
     run_case "mid-batch" (fun prefix full -> prefix + ((full - prefix) / 2));
     run_case "mid-commit" (fun _prefix full -> full - 1))
@@ -336,9 +369,9 @@ let test_partial_final_batch_is_rolled_back_to_committed_prefix () =
 let test_committed_corruption_is_rejected_without_truncation () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
@@ -354,7 +387,7 @@ let test_committed_corruption_is_rejected_without_truncation () =
       Eio.File.sync file);
     let corrupted_size = (Eio.Path.stat ~follow:true wal).size in
     Eio.Switch.run (fun sw ->
-      match open_store ~sw ~dir with
+      match open_store ~codec ~sw ~dir with
       | Error (Store.Corrupt_store _) -> ()
       | _ -> fail "committed checksum corruption was silently accepted");
     check
@@ -367,10 +400,10 @@ let test_committed_corruption_is_rejected_without_truncation () =
 let test_authoritative_incomplete_frame_is_not_truncated () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let middle_payload = ref "" in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       middle_payload := Event.to_json_string (List.nth events 1);
@@ -398,7 +431,7 @@ let test_authoritative_incomplete_frame_is_not_truncated () =
       Eio.File.sync file);
     let corrupted_size = (Eio.Path.stat ~follow:true wal).size in
     Eio.Switch.run (fun sw ->
-      match open_store ~sw ~dir with
+      match open_store ~codec ~sw ~dir with
       | Error (Store.Corrupt_store _) -> ()
       | _ -> fail "authoritative incomplete frame was treated as an uncommitted tail");
     check
@@ -411,15 +444,15 @@ let test_authoritative_incomplete_frame_is_not_truncated () =
 let test_foreign_authority_cannot_truncate_wal () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun root ->
+  with_temp_dir env (fun codec root ->
     let target = Eio.Path.(root / "target") in
     let foreign = Eio.Path.(root / "foreign") in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir:target in
+      let store = create_store ~codec ~sw ~dir:target in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
-    Eio.Switch.run (fun sw -> ignore (create_store ~sw ~dir:foreign));
+    Eio.Switch.run (fun sw -> ignore (create_store ~codec ~sw ~dir:foreign));
     let target_wal = Eio.Path.(target / "events.v1.wal") in
     let target_authority = Eio.Path.(target / "events.v1.commit") in
     let foreign_authority = Eio.Path.(foreign / "events.v1.commit") in
@@ -428,7 +461,7 @@ let test_foreign_authority_cannot_truncate_wal () =
       Eio.Flow.copy_string (Eio.Path.load foreign_authority) file;
       Eio.File.sync file);
     Eio.Switch.run (fun sw ->
-      match open_store ~sw ~dir:target with
+      match open_store ~codec ~sw ~dir:target with
       | Error (Store.Corrupt_store _) -> ()
       | _ -> fail "foreign authority was accepted for the target WAL");
     check
@@ -441,9 +474,9 @@ let test_foreign_authority_cannot_truncate_wal () =
 let test_detected_committed_corruption_poisons_writer () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
@@ -464,7 +497,7 @@ let test_detected_committed_corruption_poisons_writer () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
         Eio.File.sync file);
-      (match Store.load_all store with
+      (match read_all store with
        | Error (Store.Corrupt_store _) -> ()
        | _ -> fail "same-size committed corruption was not detected");
       (match Store.read_page store ~after:(Store.beginning_cursor store) ~limit:1 () with
@@ -478,9 +511,9 @@ let test_detected_committed_corruption_poisons_writer () =
 let test_projection_detects_middle_event_corruption () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
@@ -502,7 +535,7 @@ let test_projection_detects_middle_event_corruption () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
         Eio.File.sync file);
-      (match Store.load_all store with
+      (match read_all store with
        | Error (Store.Corrupt_store _) -> ()
        | _ -> fail "projection ignored corrupted middle event bytes");
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
@@ -510,12 +543,49 @@ let test_projection_detects_middle_event_corruption () =
       | _ -> fail "projection corruption did not fence the writer"))
 ;;
 
+let test_retry_validates_later_frames_after_content_mismatch () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~codec ~sw ~dir in
+      let writer = attach_store store in
+      let events = make_four_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
+      let later_payload = Event.to_json_string (List.nth events 1) in
+      let wal = Eio.Path.(dir / "events.v1.wal") in
+      let bytes = Bytes.of_string (Eio.Path.load wal) in
+      let payload_offset =
+        try
+          Str.search_forward (Str.regexp_string later_payload) (Bytes.to_string bytes) 0
+        with
+        | Not_found -> fail "later event payload was not found in WAL fixture"
+      in
+      Bytes.set
+        bytes
+        payload_offset
+        (Char.chr (Char.code (Bytes.get bytes payload_offset) lxor 1));
+      Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
+        Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
+        Eio.File.sync file);
+      let different_events = make_four_events (Store.correlation_id store) in
+      (match Store.append_batch writer ~expected_next_seq:1 different_events with
+       | Error (Store.Corrupt_store _) -> ()
+       | Error (Store.Committed_content_conflict _) ->
+         fail "retry stopped at the first content mismatch before later corruption"
+       | Error error -> fail ("unexpected retry failure: " ^ Store.error_to_string error)
+       | Ok _ -> fail "corrupt committed range was accepted as an idempotent retry");
+      match Store.append_batch writer ~expected_next_seq:1 different_events with
+      | Error (Store.Store_poisoned _) -> ()
+      | _ -> fail "retry corruption did not fence the writer"))
+;;
+
 let test_projection_verifies_middle_event_frame_header () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events));
@@ -536,7 +606,7 @@ let test_projection_verifies_middle_event_frame_header () =
       Eio.Path.with_open_out ~create:(`Or_truncate 0o600) wal (fun file ->
         Eio.Flow.copy_string (Bytes.unsafe_to_string bytes) file;
         Eio.File.sync file);
-      (match Store.load_all store with
+      (match read_all store with
        | Error (Store.Corrupt_store _) -> ()
        | _ -> fail "projection ignored a corrupted middle event frame header");
       match Store.append_batch writer ~expected_next_seq:1 [ first ] with
@@ -547,24 +617,24 @@ let test_projection_verifies_middle_event_frame_header () =
 let test_uncommitted_initialization_is_explicitly_recovered () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let initializing = Eio.Path.(dir / "events.v1.wal.initializing") in
     Eio.Path.with_open_out ~create:(`Exclusive 0o600) initializing (fun file ->
       Eio.Flow.copy_string "incomplete metadata" file;
       Eio.File.sync file);
     Eio.Switch.run (fun sw ->
-      match open_store ~sw ~dir with
+      match open_store ~codec ~sw ~dir with
       | Error Store.Store_initialization_incomplete -> ()
       | _ -> fail "orphan initialization was not reported");
     Eio.Switch.run (fun sw ->
-      let store, initialization = require_store (Store.create ~sw ~dir ()) in
+      let store, initialization = require_store (Store.create ~sw ~codec ~dir ()) in
       (match initialization with
        | Store.Recovered_uncommitted_initialization -> ()
        | Store.Fresh -> fail "orphan initialization recovery was silent");
       check int "recovered store begins empty" 0 (require_store (Store.last_seq store)));
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       check int "recovered store reopens" 0 (require_store (Store.last_seq store));
       match recovery with
       | Store.Clean -> ()
@@ -574,13 +644,13 @@ let test_uncommitted_initialization_is_explicitly_recovered () =
 let test_initial_commit_authority_is_rebuilt_explicitly () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
-    Eio.Switch.run (fun sw -> ignore (create_store ~sw ~dir));
+  with_temp_dir env (fun codec dir ->
+    Eio.Switch.run (fun sw -> ignore (create_store ~codec ~sw ~dir));
     let authority = Eio.Path.(dir / "events.v1.commit") in
     let initializing = Eio.Path.(dir / "events.v1.commit.initializing") in
     Eio.Path.rename authority initializing;
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       check
         int
         "rebuilt authority keeps the empty store"
@@ -591,7 +661,7 @@ let test_initial_commit_authority_is_rebuilt_explicitly () =
           [ Store.Discarded_uncommitted_authority; Store.Rebuilt_initial_authority ] -> ()
       | _ -> fail "initial authority recovery was not reported exactly");
     Eio.Switch.run (fun sw ->
-      let _store, recovery = require_store (open_store ~sw ~dir) in
+      let _store, recovery = require_store (open_store ~codec ~sw ~dir) in
       match recovery with
       | Store.Clean -> ()
       | _ -> fail "rebuilt authority was not clean on the next open"))
@@ -600,16 +670,16 @@ let test_initial_commit_authority_is_rebuilt_explicitly () =
 let test_failed_create_releases_writer_immediately () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let wal = Eio.Path.(dir / "events.v1.wal") in
     Eio.Path.save ~create:(`Exclusive 0o600) wal "preexisting";
     Eio.Switch.run (fun sw ->
-      (match Store.create ~sw ~dir () with
+      (match Store.create ~sw ~codec ~dir () with
        | Error Store.Store_already_exists -> ()
        | _ -> fail "preexisting WAL was not rejected");
       Eio.Path.unlink wal;
-      match Store.create ~sw ~dir () with
+      match Store.create ~sw ~codec ~dir () with
       | Ok (_store, Store.Fresh) -> ()
       | Error Store.Writer_already_active ->
         fail "failed create leaked its writer claim until switch release"
@@ -619,9 +689,9 @@ let test_failed_create_releases_writer_immediately () =
 let test_failed_journal_replay_releases_store_immediately () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let invalid = List.nth (make_four_events (Store.correlation_id store)) 1 in
       let invalid = rewrite_event_seq invalid 1 in
@@ -631,7 +701,7 @@ let test_failed_journal_replay_releases_store_immediately () =
       | Error error -> fail (Store.error_to_string error));
     Eio.Switch.run (fun sw ->
       let expect_semantic_replay_failure () =
-        match Journal.open_durable_writer ~sw ~dir with
+        match Journal.open_durable_writer ~sw ~codec ~dir with
         | Error
             (Journal.Invariant_violation
                (Journal.Unknown_parent_event _ | Journal.Unknown_parent_node _)) -> ()
@@ -645,17 +715,17 @@ let test_failed_journal_replay_releases_store_immediately () =
 let test_create_unknown_outcome_reconciles_through_open () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let blocker = Eio.Path.(dir / "events.v1.commit.initializing") in
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
     Eio.Switch.run (fun sw ->
-      match Store.create ~sw ~dir () with
+      match Store.create ~sw ~codec ~dir () with
       | Error (Store.Commit_outcome_unknown _) -> ()
       | _ -> fail "post-WAL create failure was not classified as outcome unknown");
     Eio.Path.rmtree ~missing_ok:false blocker;
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       check
         int
         "reconciled unknown create is empty"
@@ -669,9 +739,9 @@ let test_create_unknown_outcome_reconciles_through_open () =
 let test_append_failure_rolls_back_before_authority () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       let blocker = Eio.Path.(dir / "events.v1.commit.initializing") in
@@ -690,7 +760,7 @@ let test_append_failure_rolls_back_before_authority () =
        | _ -> fail "append could not retry after proven rollback");
       check int "retried append committed" 4 (require_store (Store.last_seq store)));
     Eio.Switch.run (fun sw ->
-      let store, recovery = require_store (open_store ~sw ~dir) in
+      let store, recovery = require_store (open_store ~codec ~sw ~dir) in
       check int "retried append reopens" 4 (require_store (Store.last_seq store));
       match recovery with
       | Store.Clean -> ()
@@ -700,9 +770,9 @@ let test_append_failure_rolls_back_before_authority () =
 let test_cancelled_append_does_not_mutate_store () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let events = make_four_events (Store.correlation_id store) in
       let wal = Eio.Path.(dir / "events.v1.wal") in
@@ -738,13 +808,13 @@ let test_cancelled_append_does_not_mutate_store () =
 let test_journal_persists_before_publish_and_replays () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let run_handle = ref None in
     let opened_event = ref None in
     Eio.Switch.run (fun sw ->
       let writer, initialization =
-        require_journal (Journal.create_durable_writer ~sw ~dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir ())
       in
       (match initialization with
        | Store.Fresh -> ()
@@ -765,7 +835,9 @@ let test_journal_persists_before_publish_and_replays () =
         (require_journal (Journal.commit_durable_batch writer batch));
       check int "journal published one event" 1 (Journal.length journal));
     Eio.Switch.run (fun sw ->
-      let writer, recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
+      let writer, recovery =
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir)
+      in
       (match recovery with
        | Store.Clean -> ()
        | _ -> fail "unexpected recovery");
@@ -786,7 +858,9 @@ let test_journal_persists_before_publish_and_replays () =
       ignore (require_journal (Journal.commit_durable_batch writer batch));
       check int "finish durably committed" 2 (Journal.last_seq journal));
     Eio.Switch.run (fun sw ->
-      let writer, _recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
+      let writer, _recovery =
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir)
+      in
       let journal = Journal.durable_writer_journal writer in
       check int "finished scope fully replayed" 2 (Journal.length journal);
       match
@@ -801,12 +875,12 @@ let test_journal_persists_before_publish_and_replays () =
 let test_durable_journal_batch_commits_one_exact_authority_step () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     let exact_events = ref [] in
     Eio.Switch.run (fun sw ->
       let writer, initialization =
-        require_journal (Journal.create_durable_writer ~sw ~dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir ())
       in
       (match initialization with
        | Store.Fresh -> ()
@@ -876,7 +950,9 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
         (Journal.cursor_seq page.next_cursor);
       exact_events := expected);
     Eio.Switch.run (fun sw ->
-      let writer, recovery = require_journal (Journal.open_durable_writer ~sw ~dir) in
+      let writer, recovery =
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir)
+      in
       (match recovery with
        | Store.Clean -> ()
        | Store.Recovered _ -> fail "clean durable batch required recovery");
@@ -891,11 +967,11 @@ let test_durable_journal_batch_commits_one_exact_authority_step () =
 let test_external_wal_mutation_fails_without_journal_publish () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     Eio.Switch.run (fun sw ->
       let writer, _initialization =
-        require_journal (Journal.create_durable_writer ~sw ~dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir ())
       in
       let journal = Journal.durable_writer_journal writer in
       let batch, (run, _opened) =
@@ -928,10 +1004,10 @@ let test_external_wal_mutation_fails_without_journal_publish () =
 let test_cursor_scope_and_writer_exclusivity () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
-      (match open_store ~sw ~dir with
+      let store = create_store ~codec ~sw ~dir in
+      (match open_store ~codec ~sw ~dir with
        | Error Store.Writer_already_active -> ()
        | _ -> fail "a second in-process writer acquired the same scope");
       ignore (attach_store store);
@@ -1001,11 +1077,11 @@ let test_durable_writer_rejects_direct_mutation () =
    | Journal.Final_failure -> ()
    | Journal.Reconcile_required ->
      fail "definite writer conflict requested reconciliation");
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
     Eio.Switch.run (fun sw ->
       let writer, _initialization =
-        require_journal (Journal.create_durable_writer ~sw ~dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir ())
       in
       let journal = Journal.durable_writer_journal writer in
       (match Journal.start_run journal ~agent_name:"bypass" with
@@ -1041,7 +1117,7 @@ let test_durable_writer_rejects_direct_mutation () =
 let test_reopened_writer_reconciles_only_exact_batch () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun root ->
+  with_temp_dir env (fun codec root ->
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 root;
     let applied_dir = Eio.Path.(root / "applied") in
     let sequence_dir = Eio.Path.(root / "sequence") in
@@ -1054,14 +1130,14 @@ let test_reopened_writer_reconciles_only_exact_batch () =
     let applied_events = ref [] in
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.create_durable_writer ~sw ~dir:applied_dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir:applied_dir ())
       in
       let batch, (_run, opened) = stage_started_batch writer "reconcile-applied" in
       applied_batch := Some batch;
       applied_events := [ opened ]);
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.open_durable_writer ~sw ~dir:applied_dir)
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir:applied_dir)
       in
       match
         require_journal
@@ -1072,7 +1148,7 @@ let test_reopened_writer_reconciles_only_exact_batch () =
       | Journal.Already_durable _ -> fail "uncommitted batch was reported durable");
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.open_durable_writer ~sw ~dir:applied_dir)
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir:applied_dir)
       in
       match
         require_journal
@@ -1084,14 +1160,14 @@ let test_reopened_writer_reconciles_only_exact_batch () =
     let sequence_batch = ref None in
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.create_durable_writer ~sw ~dir:sequence_dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir:sequence_dir ())
       in
       sequence_batch := Some (fst (stage_finished_batch writer "four-events"));
       let winner, _ = stage_started_batch writer "one-event" in
       ignore (require_journal (Journal.commit_durable_batch writer winner)));
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.open_durable_writer ~sw ~dir:sequence_dir)
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir:sequence_dir)
       in
       match Journal.reconcile_durable_batch writer (Option.get !sequence_batch) with
       | Error
@@ -1102,14 +1178,14 @@ let test_reopened_writer_reconciles_only_exact_batch () =
     let conflicting_batch = ref None in
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.create_durable_writer ~sw ~dir:content_dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir:content_dir ())
       in
       conflicting_batch := Some (fst (stage_started_batch writer "candidate"));
       let winner, _ = stage_started_batch writer "different-bytes" in
       ignore (require_journal (Journal.commit_durable_batch writer winner)));
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.open_durable_writer ~sw ~dir:content_dir)
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir:content_dir)
       in
       match Journal.reconcile_durable_batch writer (Option.get !conflicting_batch) with
       | Error (Journal.Reconciliation_content_conflict { first_seq = 1; last_seq = 1 }) ->
@@ -1118,7 +1194,7 @@ let test_reopened_writer_reconciles_only_exact_batch () =
       | Ok _ -> fail "reconcile accepted different canonical event bytes");
     Eio.Switch.run (fun sw ->
       let writer, _ =
-        require_journal (Journal.create_durable_writer ~sw ~dir:foreign_dir ())
+        require_journal (Journal.create_durable_writer ~sw ~codec ~dir:foreign_dir ())
       in
       match Journal.reconcile_durable_batch writer (Option.get !applied_batch) with
       | Error Journal.Reconciliation_scope_mismatch -> ()
@@ -1129,16 +1205,16 @@ let test_reopened_writer_reconciles_only_exact_batch () =
 let test_store_lifecycle_transition_matrix () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       ignore (require_store (Store.release_unpublished store));
       ignore (require_store (Store.release_unpublished store));
       (match Store.attach store with
        | Error Store.Store_released -> ()
        | Error error -> fail (Store.error_to_string error)
        | Ok _ -> fail "released unpublished store minted a writer");
-      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let reopened, _recovery = require_store (open_store ~codec ~sw ~dir) in
       let writer = attach_store reopened in
       (match Store.release_unpublished reopened with
        | Error Store.Store_release_forbidden -> ()
@@ -1156,10 +1232,10 @@ let test_store_lifecycle_transition_matrix () =
 let test_explicit_release_removes_long_lived_switch_hooks () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     Eio.Switch.run (fun sw ->
       let release_and_keep_only_weak_reference () =
-        let store = create_store ~sw ~dir in
+        let store = create_store ~codec ~sw ~dir in
         let weak = Weak.create 1 in
         Weak.set weak 0 (Some store);
         ignore (require_store (Store.release_unpublished store));
@@ -1170,16 +1246,16 @@ let test_explicit_release_removes_long_lived_switch_hooks () =
       (match Weak.get released 0 with
        | None -> ()
        | Some _ -> fail "released store remained retained by a long-lived switch hook");
-      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let reopened, _recovery = require_store (open_store ~codec ~sw ~dir) in
       ignore (require_store (Store.release_unpublished reopened))))
 ;;
 
 let test_unpublished_store_is_released_with_switch () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let escaped = ref None in
-    Eio.Switch.run (fun sw -> escaped := Some (create_store ~sw ~dir));
+    Eio.Switch.run (fun sw -> escaped := Some (create_store ~codec ~sw ~dir));
     let store = Option.get !escaped in
     (match Store.attach store with
      | Error Store.Store_released -> ()
@@ -1190,18 +1266,18 @@ let test_unpublished_store_is_released_with_switch () =
      | Error error -> fail (Store.error_to_string error)
      | Ok _ -> fail "switch-released store exposed a stale sequence");
     Eio.Switch.run (fun sw ->
-      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let reopened, _recovery = require_store (open_store ~codec ~sw ~dir) in
       ignore (attach_store reopened)))
 ;;
 
 let test_unpublished_store_is_released_with_failed_switch () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let escaped = ref None in
     (match
        Eio.Switch.run (fun sw ->
-         escaped := Some (create_store ~sw ~dir);
+         escaped := Some (create_store ~codec ~sw ~dir);
          Eio.Switch.fail sw Store_scope_failed)
      with
      | () -> fail "failed switch returned normally"
@@ -1213,19 +1289,19 @@ let test_unpublished_store_is_released_with_failed_switch () =
      | Error error -> fail (Store.error_to_string error)
      | Ok _ -> fail "failed-switch store exposed a stale sequence");
     Eio.Switch.run (fun sw ->
-      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let reopened, _recovery = require_store (open_store ~codec ~sw ~dir) in
       ignore (attach_store reopened)))
 ;;
 
 let test_published_store_rejects_use_after_switch () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     let escaped_store = ref None in
     let escaped_writer = ref None in
     let events = ref [] in
     Eio.Switch.run (fun sw ->
-      let store = create_store ~sw ~dir in
+      let store = create_store ~codec ~sw ~dir in
       let writer = attach_store store in
       let committed = make_four_events (Store.correlation_id store) in
       ignore (require_store (Store.append_batch writer ~expected_next_seq:1 committed));
@@ -1244,12 +1320,12 @@ let test_published_store_rejects_use_after_switch () =
     in
     expect_released (Store.last_seq store);
     expect_released (Store.current_cursor store);
-    expect_released (Store.load_all store);
+    expect_released (read_all store);
     expect_released
       (Store.read_page store ~after:(Store.beginning_cursor store) ~limit:1 ());
     expect_released (Store.append_batch writer ~expected_next_seq:5 next_events);
     Eio.Switch.run (fun sw ->
-      let reopened, _recovery = require_store (Store.open_existing ~sw ~dir) in
+      let reopened, _recovery = require_store (open_store ~codec ~sw ~dir) in
       let current_writer = attach_store reopened in
       check
         int
@@ -1271,6 +1347,130 @@ let test_published_store_rejects_use_after_switch () =
         "new owner commits the valid next batch"
         8
         (require_store (Store.last_seq reopened))))
+;;
+
+let test_shared_codec_executor_routes_store_work () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    let caller = Domain.self () in
+    let events = ref [] in
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~codec ~sw ~dir in
+      events := make_four_events (Store.correlation_id store);
+      let writer = attach_store store in
+      match Store.append_batch writer ~expected_next_seq:1 !events with
+      | Ok Store.Stored -> ()
+      | Ok Store.Already_committed -> fail "new batch was already committed"
+      | Error error -> fail (Store.error_to_string error));
+    let after_append = Codec.stats codec in
+    check int "append submits one encode batch" 1 after_append.encode_events.requested;
+    check int "append does not decode" 0 after_append.decode_canonical_event.requested;
+    Eio.Switch.run (fun sw ->
+      let durable_writer, _recovery =
+        require_journal (Journal.open_durable_writer ~sw ~codec ~dir)
+      in
+      let journal = Journal.durable_writer_journal durable_writer in
+      check_events
+        "journal consumes open replay artifact"
+        !events
+        (Journal.events journal));
+    let after_journal_open = Codec.stats codec in
+    check
+      int
+      "journal open decodes each durable event once"
+      (List.length !events)
+      after_journal_open.decode_canonical_event.requested;
+    Eio.Switch.run (fun sw ->
+      let opened = require_store (Store.open_existing ~sw ~codec ~dir) in
+      check_events "open replay artifact is exact" !events opened.replay_events;
+      let writer = attach_store opened.store in
+      (match Store.append_batch writer ~expected_next_seq:1 !events with
+       | Ok Store.Already_committed -> ()
+       | Ok Store.Stored -> fail "exact retry stored a duplicate batch"
+       | Error error -> fail (Store.error_to_string error));
+      let page =
+        require_store
+          (Store.read_page
+             opened.store
+             ~after:(Store.beginning_cursor opened.store)
+             ~limit:(List.length !events)
+             ())
+      in
+      check_events "page decode remains exact" !events page.events);
+    let stats = Codec.stats codec in
+    check int "retry reuses one encoded expected batch" 2 stats.encode_events.requested;
+    check
+      int
+      "two opens plus one page decode each event without raw batch retention"
+      (3 * List.length !events)
+      stats.decode_canonical_event.requested;
+    check
+      int
+      "exact retry compares each canonical payload without retaining committed batch"
+      (List.length !events)
+      stats.compare_canonical_payload.requested;
+    let worker name (operation : Codec.operation_stats) =
+      match operation.last_worker_domain with
+      | None -> fail (name ^ " did not record a worker domain")
+      | Some worker ->
+        check bool (name ^ " is outside caller domain") true (worker <> caller);
+        worker
+    in
+    let encode_worker = worker "encode" stats.encode_events in
+    let decode_worker = worker "decode" stats.decode_canonical_event in
+    let compare_worker = worker "compare" stats.compare_canonical_payload in
+    check
+      bool
+      "encode/decode share the application worker"
+      true
+      (encode_worker = decode_worker);
+    check
+      bool
+      "decode/compare share the application worker"
+      true
+      (decode_worker = compare_worker))
+;;
+
+let test_released_codec_fails_before_store_mutation () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun recovery_codec dir ->
+    Eio.Switch.run (fun store_sw ->
+      let store =
+        Eio.Switch.run (fun codec_sw ->
+          let runtime =
+            require_runtime
+              (Runtime_internal.create
+                 ~sw:codec_sw
+                 ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+                 ~domain_count:1)
+          in
+          create_store ~codec:(Codec.of_runtime runtime) ~sw:store_sw ~dir)
+      in
+      let events = make_four_events (Store.correlation_id store) in
+      let writer = attach_store store in
+      let before = directory_snapshot dir in
+      (match Store.append_batch writer ~expected_next_seq:1 events with
+       | Error
+           (Store.Codec_failure
+              (Codec.Executor_unavailable { operation = Codec.Encode_events; _ })) -> ()
+       | Error error -> fail ("unexpected append failure: " ^ Store.error_to_string error)
+       | Ok _ -> fail "append used a released codec executor");
+      check
+        (list (pair string string))
+        "failed encode does not alter any store file"
+        before
+        (directory_snapshot dir);
+      check
+        int
+        "failed encode does not advance store"
+        0
+        (require_store (Store.last_seq store)));
+    Eio.Switch.run (fun sw ->
+      let opened = require_store (Store.open_existing ~sw ~codec:recovery_codec ~dir) in
+      check int "reopen remains empty" 0 (require_store (Store.last_seq opened.store));
+      check int "replay remains empty" 0 (List.length opened.replay_events)))
 ;;
 
 let () =
@@ -1313,6 +1513,10 @@ let () =
             "projection detects middle event corruption"
             `Quick
             test_projection_detects_middle_event_corruption
+        ; test_case
+            "retry validates later corruption after an earlier mismatch"
+            `Quick
+            test_retry_validates_later_frames_after_content_mismatch
         ; test_case
             "projection verifies middle event frame header"
             `Quick
@@ -1389,6 +1593,14 @@ let () =
             "published store rejects use after switch"
             `Quick
             test_published_store_rejects_use_after_switch
+        ; test_case
+            "shared codec executor routes store work off-domain"
+            `Quick
+            test_shared_codec_executor_routes_store_work
+        ; test_case
+            "released codec fails before store mutation"
+            `Quick
+            test_released_codec_fails_before_store_mutation
         ] )
     ]
 ;;

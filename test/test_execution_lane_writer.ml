@@ -1,6 +1,8 @@
 open Alcotest
+module Runtime_internal = Execution_runtime
 open Agent_sdk
 module Event = Execution_event
+module Codec = Execution_codec_executor
 module Journal = Execution_journal
 module Store = Execution_event_store
 module Writer = Execution_lane_writer
@@ -30,10 +32,12 @@ let require_scope = function
   | Error error -> fail (Writer.scope_failure_to_string error)
 ;;
 
-let with_fresh dir f = require_scope (Writer.run ~dir (fun ~sw writer -> f sw writer))
+let with_fresh codec dir f =
+  require_scope (Writer.run ~codec ~dir (fun ~sw writer -> f sw writer))
+;;
 
-let with_existing dir f =
-  require_scope (Writer.resume ~dir (fun ~sw writer -> f sw writer))
+let with_existing codec dir f =
+  require_scope (Writer.resume ~codec ~dir (fun ~sw writer -> f sw writer))
 ;;
 
 let require_codec = function
@@ -41,11 +45,27 @@ let require_codec = function
   | Error detail -> fail detail
 ;;
 
+let require_runtime = function
+  | Ok value -> value
+  | Error error -> fail (Runtime_internal.create_error_to_string error)
+;;
+
 let with_temp_dir env f =
-  let native_path = Filename.temp_file "oas-execution-lane-writer-" ".dir" in
-  Sys.remove native_path;
-  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir) (fun () -> f dir)
+  Eio.Switch.run (fun codec_sw ->
+    let runtime =
+      require_runtime
+        (Runtime_internal.create
+           ~sw:codec_sw
+           ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+           ~domain_count:1)
+    in
+    let codec = Codec.of_runtime runtime in
+    let native_path = Filename.temp_file "oas-execution-lane-writer-" ".dir" in
+    Sys.remove native_path;
+    let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+    Fun.protect
+      ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+      (fun () -> f codec dir))
 ;;
 
 let make_dir dir = Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir
@@ -186,9 +206,9 @@ let rec await_reconciliation_wait writer ~outcome_count =
 let test_single_command_commits_and_close_drains () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let ticket =
         require_submit (Writer.submit writer (Tx.start_run ~agent_name:"single" ()))
       in
@@ -216,9 +236,9 @@ let test_single_command_commits_and_close_drains () =
 let test_ready_set_is_one_fifo_durable_group () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let _run, output, setup_through, setup_events = open_output writer in
       check bool "setup values are exact events" true (List.length setup_events = 4);
       let tickets : Event.t Writer.ticket list =
@@ -259,9 +279,9 @@ let test_ready_set_is_one_fifo_durable_group () =
 let test_semantic_rejection_does_not_poison_ready_group () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let run, output, setup_through, _events = open_output writer in
       let first = require_submit (Writer.submit writer (delta_transaction output 0)) in
       let rejected =
@@ -294,9 +314,9 @@ let test_semantic_rejection_does_not_poison_ready_group () =
 let test_concurrent_submit_and_close_linearize_without_loss () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let _run, output, setup_through, setup_events = open_output writer in
       let accepted_before_race =
         require_submit (Writer.submit writer (delta_transaction output (-1)))
@@ -378,9 +398,9 @@ let test_concurrent_submit_and_close_linearize_without_loss () =
 let test_cancelled_waiter_does_not_cancel_ticket () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let ticket =
         require_submit (Writer.submit writer (Tx.start_run ~agent_name:"waiter" ()))
       in
@@ -404,11 +424,11 @@ let test_cancelled_waiter_does_not_cancel_ticket () =
 let test_supervisor_cancellation_settles_accepted_ticket () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let ticket = ref None in
     (match
-       with_fresh dir (fun sw writer ->
+       with_fresh codec dir (fun sw writer ->
          ticket
          := Some
               (require_submit
@@ -427,7 +447,7 @@ let test_supervisor_cancellation_settles_accepted_ticket () =
 let test_initialization_failure_is_scope_local () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun root ->
+  with_temp_dir env (fun codec root ->
     make_dir root;
     let missing = Eio.Path.(root / "missing" / "scope") in
     let healthy = Eio.Path.(root / "healthy") in
@@ -435,13 +455,13 @@ let test_initialization_failure_is_scope_local () =
     let failed, healthy =
       Eio.Fiber.pair
         (fun () ->
-           Writer.run ~dir:missing (fun ~sw:_ failed_writer ->
+           Writer.run ~codec ~dir:missing (fun ~sw:_ failed_writer ->
              match Writer.await_ready failed_writer with
              | Error (Writer.Initialization_failed _) -> ()
              | Error error -> fail (Writer.scope_failure_to_string error)
              | Ok () -> fail "missing durability directory became ready"))
         (fun () ->
-           Writer.run ~dir:healthy (fun ~sw:_ healthy_writer ->
+           Writer.run ~codec ~dir:healthy (fun ~sw:_ healthy_writer ->
              require_scope (Writer.await_ready healthy_writer);
              Writer.submit healthy_writer (Tx.start_run ~agent_name:"healthy-scope" ())
              |> require_submit
@@ -465,10 +485,10 @@ let test_initialization_failure_is_scope_local () =
 let test_clean_reopen_continues_exact_cursor () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let first_receipt = ref None in
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let receipt =
         require_ticket
           (Writer.await
@@ -478,7 +498,7 @@ let test_clean_reopen_continues_exact_cursor () =
       first_receipt := Some receipt;
       require_closed (Writer.close_and_await writer));
     let first = Option.get !first_receipt in
-    with_existing dir (fun _sw writer ->
+    with_existing codec dir (fun _sw writer ->
       let run, _opened = first.value in
       let second =
         require_ticket
@@ -512,9 +532,9 @@ let test_clean_reopen_continues_exact_cursor () =
 let test_abort_transaction_is_one_durable_terminal_group () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let run, output, setup_through, _events = open_output writer in
       let terminal = Event.Cancelled { reason = Some "scope shutdown"; data = None } in
       let aborted =
@@ -544,13 +564,13 @@ let test_abort_transaction_is_one_durable_terminal_group () =
 let test_repeated_unknown_waits_for_typed_external_wake () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let blocker = Eio.Path.(dir / "events.v1.commit") in
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
     let durable_event = ref None in
     let durable_through = ref None in
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let first =
         require_submit
           (Writer.submit writer (Tx.start_run ~agent_name:"unknown-create" ()))
@@ -613,7 +633,7 @@ let test_repeated_unknown_waits_for_typed_external_wake () =
         (Option.is_none observed.current_reconciliation);
       require_closed (Writer.close_and_await writer));
     let through = Option.get !durable_through in
-    with_existing dir (fun _sw writer ->
+    with_existing codec dir (fun _sw writer ->
       require_scope (Writer.await_ready writer);
       let page =
         match
@@ -633,7 +653,7 @@ let test_repeated_unknown_waits_for_typed_external_wake () =
 let test_close_terminates_unresolved_reconciliation () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let blocker = Eio.Path.(dir / "events.v1.commit") in
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
@@ -641,7 +661,7 @@ let test_close_terminates_unresolved_reconciliation () =
     let first_waiter = ref None in
     let second_waiter = ref None in
     let outcome =
-      Writer.run ~dir (fun ~sw writer ->
+      Writer.run ~codec ~dir (fun ~sw writer ->
         writer_ref := Some writer;
         let first =
           require_submit
@@ -681,7 +701,7 @@ let test_close_terminates_unresolved_reconciliation () =
     check int "failed close clears in-flight" 0 observed.in_flight_commands;
     Eio.Path.rmtree ~missing_ok:false blocker;
     require_scope
-      (Writer.resume ~dir (fun ~sw:_ writer ->
+      (Writer.resume ~codec ~dir (fun ~sw:_ writer ->
          require_scope (Writer.await_ready writer);
          match Writer.current_cursor writer with
          | Ok cursor ->
@@ -692,13 +712,13 @@ let test_close_terminates_unresolved_reconciliation () =
 let test_each_external_wake_authorizes_one_reconciliation () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let blocker = Eio.Path.(dir / "events.v1.commit") in
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
     let ticket_ref = ref None in
     let outcome =
-      Writer.run ~dir (fun ~sw:_ writer ->
+      Writer.run ~codec ~dir (fun ~sw:_ writer ->
         let ticket =
           require_submit
             (Writer.submit writer (Tx.start_run ~agent_name:"operator-wake" ()))
@@ -740,13 +760,13 @@ let test_each_external_wake_authorizes_one_reconciliation () =
 let test_owned_supervisor_drains_same_scope_waiter () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let writer = ref None in
     let ticket = ref None in
     let waiter = ref None in
     require_scope
-      (Writer.run ~dir (fun ~sw created ->
+      (Writer.run ~codec ~dir (fun ~sw created ->
          writer := Some created;
          let accepted =
            require_submit
@@ -775,14 +795,14 @@ let test_owned_supervisor_drains_same_scope_waiter () =
 let test_callback_exception_preserves_durable_group_truth () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let writer_ref = ref None in
     let setup_through_ref = ref None in
     let first_receipt = ref None in
     let second_ticket = ref None in
     (match
-       with_fresh dir (fun _sw writer ->
+       with_fresh codec dir (fun _sw writer ->
          writer_ref := Some writer;
          let _run, output, setup_through, _events = open_output writer in
          setup_through_ref := Some setup_through;
@@ -818,7 +838,7 @@ let test_callback_exception_preserves_durable_group_truth () =
       observed.settled;
     check int "callback failure clears queue" 0 observed.queue_depth;
     check int "callback failure clears in-flight" 0 observed.in_flight_commands;
-    with_existing dir (fun _sw writer ->
+    with_existing codec dir (fun _sw writer ->
       require_scope (Writer.await_ready writer);
       let page =
         match
@@ -842,13 +862,13 @@ let test_callback_exception_preserves_durable_group_truth () =
 let test_callback_exception_retains_unresolved_scope_failure () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let blocker = Eio.Path.(dir / "events.v1.commit") in
     Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
     let ticket_ref = ref None in
     (match
-       Writer.run ~dir (fun ~sw:_ writer ->
+       Writer.run ~codec ~dir (fun ~sw:_ writer ->
          let ticket =
            require_submit
              (Writer.submit writer (Tx.start_run ~agent_name:"callback-unknown" ()))
@@ -873,7 +893,7 @@ let test_callback_exception_retains_unresolved_scope_failure () =
 let test_durable_success_settles_group_before_supervisor_cancellation () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
     let writer_ref = ref None in
     let output_ref = ref None in
@@ -882,7 +902,7 @@ let test_durable_success_settles_group_before_supervisor_cancellation () =
     let second_ticket = ref None in
     let first_receipt = ref None in
     (match
-       with_fresh dir (fun sw writer ->
+       with_fresh codec dir (fun sw writer ->
          writer_ref := Some writer;
          let _run, output, setup_through, _events = open_output writer in
          output_ref := Some output;
@@ -924,7 +944,7 @@ let test_durable_success_settles_group_before_supervisor_cancellation () =
       observed.settled;
     check int "cancelled scope clears queue" 0 observed.queue_depth;
     check int "cancelled scope clears in-flight" 0 observed.in_flight_commands;
-    with_existing dir (fun _sw writer ->
+    with_existing codec dir (fun _sw writer ->
       let output = Option.get !output_ref in
       ignore (submit_and_await writer (delta_transaction output 3));
       let page =
@@ -950,9 +970,9 @@ let test_durable_success_settles_group_before_supervisor_cancellation () =
 let test_frozen_pages_remain_lossless_after_close () =
   Eio_main.run
   @@ fun env ->
-  with_temp_dir env (fun dir ->
+  with_temp_dir env (fun codec dir ->
     make_dir dir;
-    with_fresh dir (fun _sw writer ->
+    with_fresh codec dir (fun _sw writer ->
       let _run, output, setup_through, _events = open_output writer in
       let first = require_submit (Writer.submit writer (delta_transaction output 1)) in
       let second = require_submit (Writer.submit writer (delta_transaction output 2)) in

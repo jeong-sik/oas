@@ -1,5 +1,6 @@
 open Result_syntax
 module Event = Execution_event
+module Codec = Execution_codec_executor
 module Sha256 = Digestif.SHA256
 
 let reverse_append_cooperatively values tail =
@@ -95,6 +96,7 @@ type error =
       { operation : string
       ; detail : string
       }
+  | Codec_failure of Codec.failure
   | Writer_already_active
   | Store_already_attached
   | Store_released
@@ -135,6 +137,7 @@ let rec error_to_string = function
   | Identity_failure detail -> "execution store identity failure: " ^ detail
   | Io_failure { operation; detail } ->
     Printf.sprintf "execution store %s failed: %s" operation detail
+  | Codec_failure failure -> Codec.failure_to_string failure
   | Writer_already_active -> "execution store already has an active writer"
   | Store_already_attached -> "execution store is already attached to a journal"
   | Store_released -> "execution store resources have been released"
@@ -322,14 +325,9 @@ let feed_payload_digest context payload =
 
 let finish_payload_digest context = Sha256.(to_hex (get context))
 
-let event_payloads events =
-  List.map
-    (fun event ->
-       Eio.Fiber.check ();
-       let payload = Event.to_json_string event in
-       Eio.Fiber.yield ();
-       payload)
-    events
+let event_payloads codec events =
+  Codec.encode_events codec events
+  |> Result.map_error (fun failure -> Codec_failure failure)
 ;;
 
 let events_digest payloads =
@@ -573,6 +571,7 @@ type lifecycle =
 type t =
   { scope_id : Scope_id.t
   ; correlation_id : Event.Correlation_id.t
+  ; codec : Codec.t
   ; dir : Eio.Fs.dir_ty Eio.Path.t
   ; file : Eio.File.rw_ty Eio.Resource.t
   ; lock_file : Eio.File.rw_ty Eio.Resource.t
@@ -586,6 +585,12 @@ type t =
   }
 
 type writer = { store : t }
+
+type opened =
+  { store : t
+  ; recovery : recovery
+  ; replay_events : Event.t list
+  }
 
 let scope_id store = store.scope_id
 let correlation_id store = store.correlation_id
@@ -1177,16 +1182,46 @@ let batch_commit_of_string ~offset payload =
   else Error (Corrupt_store { offset; detail = "batch commit bytes are not canonical" })
 ;;
 
-let event_of_payload ~offset payload =
-  match Event.of_json_string payload with
-  | Error detail -> Error (Corrupt_store { offset; detail = "invalid event: " ^ detail })
-  | Ok event ->
-    if String.equal payload (Event.to_json_string event)
-    then Ok event
-    else Error (Corrupt_store { offset; detail = "event bytes are not canonical" })
+type located_payload =
+  { offset : int64
+  ; payload : string
+  }
+
+let decode_located_payload codec located =
+  let* decoded =
+    Codec.decode_canonical_event codec located.payload
+    |> Result.map_error (fun failure -> Codec_failure failure)
+  in
+  match decoded with
+  | Ok event -> Ok event
+  | Error (Invalid_event { detail }) ->
+    Error (Corrupt_store { offset = located.offset; detail = "invalid event: " ^ detail })
+  | Error Noncanonical_event ->
+    Error
+      (Corrupt_store { offset = located.offset; detail = "event bytes are not canonical" })
 ;;
 
-let scan_store file ~file_size =
+let validate_scanned_event correlation_id ~expected_seq located event =
+  Eio.Fiber.check ();
+  if Event.seq event <> expected_seq
+  then
+    Error
+      (Corrupt_store
+         { offset = located.offset
+         ; detail =
+             Printf.sprintf
+               "event sequence %d does not match expected sequence %d"
+               (Event.seq event)
+               expected_seq
+         })
+  else if not (Event.Correlation_id.equal (Event.correlation_id event) correlation_id)
+  then
+    Error
+      (Corrupt_store { offset = located.offset; detail = "event correlation mismatch" })
+  else Ok ()
+;;
+
+let scan_store codec file ~file_size =
   let* metadata_frame = decode_frame file ~file_size 0L in
   let* scope_id, correlation_id, first_batch_offset =
     match metadata_frame with
@@ -1199,10 +1234,18 @@ let scan_store file ~file_size =
       Error (Corrupt_store { offset = 0L; detail = "metadata frame is incomplete" })
   in
   let locations = ref Sequence_map.empty in
+  let events_rev = ref [] in
   let rec scan_batches offset committed_seq =
     let* frame = decode_frame file ~file_size offset in
     match frame with
-    | End_of_store -> Ok (scope_id, correlation_id, offset, committed_seq, !locations)
+    | End_of_store ->
+      Ok
+        ( scope_id
+        , correlation_id
+        , offset
+        , committed_seq
+        , !locations
+        , reverse_cooperatively !events_rev )
     | Incomplete_frame ->
       Error
         (Corrupt_store { offset; detail = "committed batch begin frame is incomplete" })
@@ -1220,7 +1263,7 @@ let scan_store file ~file_size =
                    committed_seq
              })
       else (
-        let rec scan_events event_offset ordinal digest_context locations_rev =
+        let rec scan_events event_offset ordinal digest_context locations_rev events_rev =
           if ordinal = header.count
           then
             let* commit_frame = decode_frame file ~file_size event_offset in
@@ -1255,7 +1298,10 @@ let scan_store file ~file_size =
                 Error
                   (Corrupt_store
                      { offset = event_offset; detail = "batch event digest mismatch" })
-              else Ok (next_offset, expected_last, reverse_cooperatively locations_rev)
+              else (
+                let locations = reverse_cooperatively locations_rev in
+                let events = reverse_cooperatively events_rev in
+                Ok (next_offset, expected_last, locations, events))
             | Complete_frame _ ->
               Error
                 (Corrupt_store
@@ -1272,47 +1318,33 @@ let scan_store file ~file_size =
             | Complete_frame
                 ({ kind = Event_record; payload; payload_offset; next_offset; _ } as
                  event_frame) ->
-              let* event = event_of_payload ~offset:event_offset payload in
               let expected_seq = header.expected_next_seq + ordinal in
-              if Event.seq event <> expected_seq
-              then
-                Error
-                  (Corrupt_store
-                     { offset = event_offset
-                     ; detail =
-                         Printf.sprintf
-                           "event sequence %d does not match expected sequence %d"
-                           (Event.seq event)
-                           expected_seq
-                     })
-              else if
-                not
-                  (Event.Correlation_id.equal (Event.correlation_id event) correlation_id)
-              then
-                Error
-                  (Corrupt_store
-                     { offset = event_offset; detail = "event correlation mismatch" })
-              else (
-                let location =
-                  { seq = expected_seq
-                  ; payload_offset
-                  ; payload_length = String.length payload
-                  ; frame = frame_guard event_offset event_frame
-                  }
-                in
-                Eio.Fiber.yield ();
-                scan_events
-                  next_offset
-                  (ordinal + 1)
-                  (feed_payload_digest digest_context payload)
-                  (location :: locations_rev))
+              let location =
+                { seq = expected_seq
+                ; payload_offset
+                ; payload_length = String.length payload
+                ; frame = frame_guard event_offset event_frame
+                }
+              in
+              let located = { offset = event_offset; payload } in
+              let* event = decode_located_payload codec located in
+              let* () =
+                validate_scanned_event correlation_id ~expected_seq located event
+              in
+              Eio.Fiber.yield ();
+              scan_events
+                next_offset
+                (ordinal + 1)
+                (feed_payload_digest digest_context payload)
+                (location :: locations_rev)
+                (event :: events_rev)
             | Complete_frame _ ->
               Error
                 (Corrupt_store
                    { offset = event_offset; detail = "batch contains a non-event frame" })
         in
-        let* next_offset, last_seq, batch_locations =
-          scan_events next_offset 0 Sha256.empty []
+        let* next_offset, last_seq, batch_locations, batch_events =
+          scan_events next_offset 0 Sha256.empty [] []
         in
         locations
         := List.fold_left
@@ -1321,6 +1353,7 @@ let scan_store file ~file_size =
                 Sequence_map.add location.seq location locations)
              !locations
              batch_locations;
+        events_rev := reverse_append_cooperatively batch_events !events_rev;
         scan_batches next_offset last_seq)
     | Complete_frame _ ->
       Error (Corrupt_store { offset; detail = "expected a batch begin frame" })
@@ -1331,6 +1364,7 @@ let scan_store file ~file_size =
 let make_store
       ~scope_id
       ~correlation_id
+      ~codec
       ~dir
       ~file
       ~lock_file
@@ -1342,6 +1376,7 @@ let make_store
   =
   { scope_id
   ; correlation_id
+  ; codec
   ; dir
   ; file
   ; lock_file
@@ -1386,7 +1421,7 @@ let protect_store_resources lock_file claim claim_hook opened_file f =
          backtrace)
 ;;
 
-let create ~sw ~dir ?correlation_id () =
+let create ~sw ~codec ~dir ?correlation_id () =
   let* directory_exists =
     with_io "check store directory" (fun () -> Eio.Path.is_directory dir)
   in
@@ -1488,6 +1523,7 @@ let create ~sw ~dir ?correlation_id () =
             (make_store
                ~scope_id
                ~correlation_id
+               ~codec
                ~dir
                ~file
                ~lock_file
@@ -1499,7 +1535,7 @@ let create ~sw ~dir ?correlation_id () =
         , initialization ))
 ;;
 
-let open_existing ~sw ~dir =
+let open_existing ~sw ~codec ~dir =
   let* directory_exists =
     with_io "check store directory" (fun () -> Eio.Path.is_directory dir)
   in
@@ -1583,8 +1619,8 @@ let open_existing ~sw ~dir =
                      authority.committed_offset
                })
       in
-      let* scope_id, correlation_id, committed_offset, last_seq, locations =
-        scan_store file ~file_size:authority.committed_offset
+      let* scope_id, correlation_id, committed_offset, last_seq, locations, replay_events =
+        scan_store codec file ~file_size:authority.committed_offset
       in
       let* () =
         if
@@ -1631,21 +1667,23 @@ let open_existing ~sw ~dir =
         | [] -> Clean
         | actions -> Recovered actions
       in
-      Ok
-        ( bind_lifecycle_to_switch
-            ~sw
-            (make_store
-               ~scope_id
-               ~correlation_id
-               ~dir
-               ~file
-               ~lock_file
-               ~claim
-               ~claim_hook
-               ~locations
-               ~last_seq
-               ~committed_offset)
-        , recovery ))
+      let store =
+        bind_lifecycle_to_switch
+          ~sw
+          (make_store
+             ~scope_id
+             ~correlation_id
+             ~codec
+             ~dir
+             ~file
+             ~lock_file
+             ~claim
+             ~claim_hook
+             ~locations
+             ~last_seq
+             ~committed_offset)
+      in
+      Ok { store; recovery; replay_events })
 ;;
 
 let validate_append (store : t) ~expected_next_seq events =
@@ -1693,7 +1731,7 @@ let validate_append (store : t) ~expected_next_seq events =
 
 let location_at locations seq = Sequence_map.find seq locations
 
-let read_location_raw store ~file_size (location : event_location) =
+let read_location_payload_raw store ~file_size (location : event_location) =
   let* frame = decode_frame store.file ~file_size location.frame.frame_offset in
   match frame with
   | End_of_store | Incomplete_frame ->
@@ -1709,19 +1747,7 @@ let read_location_raw store ~file_size (location : event_location) =
          && String.length frame.payload = location.payload_length
          && Int64.equal frame.next_offset location.frame.frame_next_offset
          && String.equal frame.payload_digest location.frame.frame_payload_digest ->
-    let* event = event_of_payload ~offset:location.frame.frame_offset frame.payload in
-    if Event.seq event = location.seq
-    then Ok event
-    else
-      Error
-        (Corrupt_store
-           { offset = location.frame.frame_offset
-           ; detail =
-               Printf.sprintf
-                 "indexed sequence %d contains event sequence %d"
-                 location.seq
-                 (Event.seq event)
-           })
+    Ok frame.payload
   | Complete_frame _ ->
     Error
       (Corrupt_store
@@ -1738,12 +1764,32 @@ let poison_after_corrupt_read store error =
   | _ -> ()
 ;;
 
-let read_location_locked store ~file_size location =
-  match read_location_raw store ~file_size location with
-  | Ok event -> Ok event
+let protect_corrupt_read store result =
+  match result with
+  | Ok result -> Ok result
   | Error error ->
     poison_after_corrupt_read store error;
     Error error
+;;
+
+let read_location_payload_locked store ~file_size location =
+  protect_corrupt_read store (read_location_payload_raw store ~file_size location)
+;;
+
+let validate_indexed_event location event =
+  Eio.Fiber.check ();
+  if Event.seq event = location.seq
+  then Ok ()
+  else
+    Error
+      (Corrupt_store
+         { offset = location.frame.frame_offset
+         ; detail =
+             Printf.sprintf
+               "indexed sequence %d contains event sequence %d"
+               location.seq
+               (Event.seq event)
+         })
 ;;
 
 let corrupt_tail store offset detail =
@@ -1775,16 +1821,23 @@ let read_range store ~committed_offset locations ~first_seq ~count =
            committed_offset
            actual_size)
   in
-  let rec loop seq remaining events_rev =
+  let rec gather seq remaining events_rev =
     if remaining = 0
     then Ok (reverse_cooperatively events_rev)
     else (
       let location = location_at locations seq in
-      let* event = read_location_locked store ~file_size:committed_offset location in
+      let* payload =
+        read_location_payload_locked store ~file_size:committed_offset location
+      in
+      let located = { offset = location.frame.frame_offset; payload } in
+      let* event =
+        protect_corrupt_read store (decode_located_payload store.codec located)
+      in
+      let* () = protect_corrupt_read store (validate_indexed_event location event) in
       Eio.Fiber.yield ();
-      loop (seq + 1) (remaining - 1) (event :: events_rev))
+      gather (seq + 1) (remaining - 1) (event :: events_rev))
   in
-  let* events = loop first_seq count [] in
+  let* events = gather first_seq count [] in
   let+ () = require_writable store in
   events
 ;;
@@ -1892,14 +1945,13 @@ let prepare_frame ~file_offset kind payload =
   , payload_digest )
 ;;
 
-let append_new_batch store ~expected_next_seq ~count events =
+let append_new_batch store ~expected_next_seq ~count payloads =
   let* batch_id =
     match Random_id.create () with
     | Ok value -> Ok value
     | Error detail -> Error (Identity_failure detail)
   in
   let last_seq = expected_next_seq + count - 1 in
-  let payloads = event_payloads events in
   let digest = events_digest payloads in
   let begin_payload =
     batch_begin_to_string { batch_id; expected_next_seq; count; events_sha256 = digest }
@@ -2059,7 +2111,7 @@ let append_new_batch store ~expected_next_seq ~count events =
       | Ok outcome -> Ok outcome))
 ;;
 
-let compare_committed store ~expected_next_seq ~count events committed_last =
+let compare_committed store ~expected_next_seq ~count payloads committed_last =
   let last_seq = expected_next_seq + count - 1 in
   if last_seq > committed_last
   then
@@ -2069,28 +2121,33 @@ let compare_committed store ~expected_next_seq ~count events committed_last =
       with_read store (fun () ->
         store.committed.committed_offset, store.committed.locations)
     in
-    let rec compare seq = function
-      | [] -> Ok Already_committed
-      | expected :: events ->
-        let location = location_at committed_locations seq in
-        let* committed = read_location_locked store ~file_size location in
-        if String.equal (Event.to_json_string committed) (Event.to_json_string expected)
-        then (
-          Eio.Fiber.yield ();
-          compare (seq + 1) events)
+    let rec compare all_identical seq = function
+      | [] ->
+        if all_identical
+        then Ok Already_committed
         else
           Error (Committed_content_conflict { first_seq = expected_next_seq; last_seq })
+      | expected :: expected_payloads ->
+        let location = location_at committed_locations seq in
+        let* actual = read_location_payload_locked store ~file_size location in
+        let* identical =
+          Codec.compare_canonical_payload store.codec ~expected ~actual
+          |> Result.map_error (fun failure -> Codec_failure failure)
+        in
+        Eio.Fiber.yield ();
+        compare (all_identical && identical) (seq + 1) expected_payloads
     in
-    let* outcome = compare expected_next_seq events in
+    let* outcome = compare true expected_next_seq payloads in
     let+ () = require_writable store in
     outcome)
 ;;
 
-let append_batch writer ~expected_next_seq events =
+let append_batch (writer : writer) ~expected_next_seq events =
   let store = writer.store in
   Eio.Fiber.check ();
   let* () = require_available store in
   let* count = validate_append store ~expected_next_seq events in
+  let* payloads = event_payloads store.codec events in
   with_writer store (fun () ->
     Eio.Fiber.check ();
     let lifecycle, health, committed_last =
@@ -2102,9 +2159,9 @@ let append_batch writer ~expected_next_seq events =
     | (Unpublished _ | Published), Writable ->
       let* () = verify_write_fence_locked store in
       if expected_next_seq = committed_last + 1
-      then append_new_batch store ~expected_next_seq ~count events
+      then append_new_batch store ~expected_next_seq ~count payloads
       else if expected_next_seq <= committed_last
-      then compare_committed store ~expected_next_seq ~count events committed_last
+      then compare_committed store ~expected_next_seq ~count payloads committed_last
       else
         Error
           (Sequence_conflict { expected_next_seq; actual_next_seq = committed_last + 1 }))
@@ -2165,18 +2222,4 @@ let read_page (store : t) ~(after : cursor) ?through ~limit () =
       ; earliest_available_seq = (if high = 0 then None else Some 1)
       ; has_more = next_seq < high
       }
-;;
-
-let load_all (store : t) =
-  let* () = require_available store in
-  let* committed_offset, committed_locations, last_seq =
-    with_read store (fun () ->
-      match store.lifecycle, store.health with
-      | (Releasing | Released), _ -> Error Store_released
-      | (Unpublished _ | Published), Fenced error -> Error error
-      | (Unpublished _ | Published), Writable ->
-        let committed = store.committed in
-        Ok (committed.committed_offset, committed.locations, committed.last_seq))
-  in
-  read_range store ~committed_offset committed_locations ~first_seq:1 ~count:last_seq
 ;;
