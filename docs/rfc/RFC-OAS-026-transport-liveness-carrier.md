@@ -114,7 +114,7 @@ let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net (
         complete_stream_http ~sw ~net ?clock ?stream_idle_timeout_s ...) }
 ```
 
-masc consumes this: `masc lib/runtime/runtime_agent.ml:218-234` builds the transport with `make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net ()`, so masc's keeper transport *is* armed today via the closed-over capability. masc also sets the SDK side: `runtime_agent_context.ml:176-177` calls `Builder.with_stream_idle_timeout`, populating `agent.options.stream_idle_timeout_s` read at pipeline_stage_route.ml:94.
+At v0.204.5, masc consumed this by building the transport with `make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net ()`, so its keeper transport was armed via the closed-over capability. masc also set the SDK side through `Builder.with_stream_idle_timeout`, populating `agent.options.stream_idle_timeout_s` read by the pipeline.
 
 Two defects remain:
 
@@ -189,17 +189,13 @@ The high-level `complete_stream`'s `?stream_idle_timeout_s` (complete.ml:1639) i
 
 ### 4.4 Transport implementations read the field
 
-`make_http_transport.complete_stream` (complete.ml:1726-1737) — pass `req.stream_idle_timeout_s` into `complete_stream_http` instead of (or in addition to) the closed-over one. Precedence: the request field wins when present; fall back to the construction-time value for callers that have not migrated. The closed-over `?clock` is retained (capability, §4.1):
+`make_http_transport.complete_stream` passes `req.stream_idle_timeout_s` into `complete_stream_http`. The request field is the sole idle-deadline source; the transport constructor has no parallel timeout parameter. The closed-over `?clock` is retained as the capability that arms an explicit request deadline (§4.1):
 
 ```ocaml
 ; complete_stream =
     (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
-      let stream_idle_timeout_s =
-        match req.stream_idle_timeout_s with
-        | Some _ as v -> v
-        | None -> stream_idle_timeout_s   (* construction-time fallback *)
-      in
-      complete_stream_http ~sw ~net ?clock ?stream_idle_timeout_s
+      complete_stream_http ~sw ~net ?clock
+        ?stream_idle_timeout_s:req.stream_idle_timeout_s
         ~config:req.config ~messages:req.messages ~tools:req.tools
         ~on_event ?on_telemetry ())
 ```
@@ -258,7 +254,7 @@ The exact failure form (raise vs `Error` return vs a startup assertion that a cl
 | `lib/llm_provider/llm_transport.ml` | Add `stream_idle_timeout_s : float option` to `completion_request`. |
 | `lib/llm_provider/llm_transport.mli` | Mirror the field + doc comment. |
 | `lib/llm_provider/complete.ml:1671-1690` | `Some t` arm: write `stream_idle_timeout_s` into the request record. |
-| `lib/llm_provider/complete.ml:1726-1737` | `make_http_transport.complete_stream`: read `req.stream_idle_timeout_s`, fall back to construction-time value. |
+| `lib/llm_provider/complete.ml:1726-1737` | `make_http_transport.complete_stream`: read only `req.stream_idle_timeout_s`; no construction-time timeout fallback. |
 | `lib/llm_provider/transport_openai_compat.ml:67-80` | No signature change; forwards `req` (now carrying the field). Verify no `{ config; messages; tools }` literal needs the new field — there is one literal at complete.ml dispatch; the compiler enumerates all. |
 | `lib/sdk_version.ml` | Bumped by release-please (RFC-OAS-010); minor `feat`. |
 
@@ -266,12 +262,12 @@ Compiler enumeration: every `{ Llm_transport.config = …; … }` record literal
 
 ### 5.2 masc (consumer)
 
-masc already populates both the SDK-side idle (`Builder.with_stream_idle_timeout`, runtime_agent_context.ml:177) and the construction-capability (`make_http_transport ?clock ?stream_idle_timeout_s`, runtime_agent.ml:228-234). After the OAS field lands, masc's *idle arming* requires no code change — `patch_request` uses `{ req with config = … }` (runtime_agent.ml:236-240), which carries the new field untouched. But masc does need **one required code change**: the §4.6 clock fail-fast, because the current clock derivation can silently resolve to `None` and disarm the idle deadline.
+masc populates the request-borne idle through `Builder.with_stream_idle_timeout`; `patch_request` uses `{ req with config = … }`, which carries the field untouched. The transport constructor accepts the clock capability but no idle value, so there is one timeout source. masc must also enforce the §4.6 clock fail-fast because a configured deadline without a clock cannot arm.
 
 | File | Change |
 |---|---|
 | `lib/runtime/runtime_agent.ml` ~365 / ~471 (clock derivation in `build` / `resume_from_checkpoint`) | **Required** — §4.6 fail-fast: a configured `stream_idle_timeout_s` with no resolvable clock must error, not silently proceed unarmed. |
-| `lib/runtime/runtime_agent.ml:236-240` (`patch_request`) | Optional — set `{ req with config = …; stream_idle_timeout_s = config.stream_idle_timeout_s }` to make the request-borne deadline authoritative over the closed-over construction value (one source of truth, §10.2). No edit required for back-compat. |
+| `lib/runtime/runtime_agent.ml:236-240` (`patch_request`) | Preserve the request-borne `stream_idle_timeout_s`; it is the only idle-timeout source. |
 | `masc.opam:31`, `dune-project:56` | Bump pin to the OAS release carrying the field (`>= 0.205.0`). |
 
 Back-compat verified: masc constructs `Llm_transport.completion_request` only via `{ req with … }` (the single site `runtime_agent.ml:236`; `rg 'Llm_transport.completion_request' lib/` returns one hit). Adding an `option` field to the OAS record therefore does not break masc compilation. This is what makes the migration ordering (§6) non-breaking on the masc side.
@@ -280,7 +276,7 @@ Back-compat verified: masc constructs `Llm_transport.completion_request` only vi
 
 1. **OAS PR**: add the optional field, fix the dispatch arm and transport readers, add the test (§7.1). The field is `option` and threaded by record literal/functional update; existing OAS callers compile after the compiler-enumerated literals are updated. Back-compatible for downstream: masc's `{ req with … }` carries the new field for free.
 2. **OAS release**: release-please minor bump → `0.205.0`. Release note describes only the `agent_sdk` surface (§9).
-3. **masc pin bump + clock fail-fast**: `masc.opam` / `dune-project` to `>= 0.205.0`. masc's idle arming requires no code change (it is armed via the closed-over clock today), but the §4.6 clock fail-fast **is** a required masc code change in this step — without it a `None`-clock keeper still silently disarms the idle deadline. Optionally also land the §5.2 hardening (make request field authoritative over the construction-time value).
+3. **masc pin bump + clock fail-fast**: `masc.opam` / `dune-project` to `>= 0.205.0`. Remove any constructor-time idle argument, keep the request field authoritative, and reject a configured deadline when no clock is available.
 4. **Verify armed** (§7.2 + §7.4): confirm a stalled stream produces `Cancelled_provider_timeout` at the keeper FSM with the configured idle deadline (120s), not the 1800s watchdog; and that a `None`-clock keeper fails fast rather than hanging.
 5. **Only after step 4**: the F2 follow-up may downgrade/retune the 1800s attempt watchdog and livelock threshold (DIAGNOSIS §5). Doing this before step 4 removes the only backstop while the real idle detector is still proven-or-not — resurrecting I1. This ordering is a hard constraint, not a preference.
 
@@ -293,10 +289,10 @@ The bug lives only in the transport arm. `complete_stream_http` (the `None` arm)
 `test/test_transport_liveness.ml` (new):
 
 1. In-process slow line server (reuse the `line_server` pattern from `test/test_eio_cancellability.ml:31-83`): send `HTTP/1.1 200` SSE headers, emit one `data:` line, then go silent with the socket held open.
-2. Build a transport: `Complete.make_http_transport ~clock ~stream_idle_timeout_s:0.2 ~sw ~net ()`.
+2. Build a transport: `Complete.make_http_transport ~clock ~sw ~net ()`.
 3. Drive `Complete.complete_stream ~sw ~net ~clock ~stream_idle_timeout_s:0.2 ~transport:(Some t) ~config ~messages ~on_event …`.
 4. Assert the result is `Error (Http_client.TimeoutError { phase = Stream_idle _ ; _ })` (the `timeout_phase` constructor at http_client.ml:45 is `Stream_idle of stream_idle_state`) — or `Llm_provider.Error.Timeout` after the retry mapping — within `idle_timeout + tolerance`, **not** a hang and **not** `End_of_file`.
-5. Second case — deadline via the request field, transport with no construction clock for the idle but clock present: build `make_http_transport ~clock ~sw ~net ()` (no `?stream_idle_timeout_s`), then dispatch with high-level `~stream_idle_timeout_s:0.2`; assert the request-borne field still arms the timeout. This is the §4.3 guarantee — the dispatch carries the deadline the construction did not.
+5. Second case — dispatch with high-level `~stream_idle_timeout_s:0.2`; assert the request-borne field arms the timeout through the transport arm. This is the §4.3 guarantee.
 6. Negative case: `stream_idle_timeout_s = None` everywhere → bare read → server then sends `End_of_file`; assert normal completion, no spurious timeout (preserves pre-0.205.0 behaviour).
 
 ### 7.2 masc — typed timeout reaches the keeper FSM
@@ -351,6 +347,8 @@ Rejected. It pulls the clock capability into the pure data record (§8.2) and co
 - Release note (SDK-surface only):
   > Starting `agent_sdk` 0.205.0, `Llm_transport.completion_request` carries an optional `stream_idle_timeout_s`. When set (and a clock is available to the transport), a streaming read that stalls mid-stream beyond the deadline raises `Http_client.TimeoutError` instead of blocking until the provider closes the socket. The built-in HTTP transport and any transport that forwards the request inherit this automatically. Consumers constructing `completion_request` literals must add the field (`None` preserves prior behaviour).
 
+2026-07-14 hard cut: `make_http_transport` no longer accepts a parallel construction-time idle value, and OAS no longer injects provider-kind defaults when the request field is `None`. Callers that relied on the constructor argument must move the value to the request/agent option; there is deliberately no compatibility fallback. `None` now means disabled throughout the transport boundary.
+
 ## 10. Risks
 
 ### 10.0 Does F1 prevent the 2026-06-08 recurrence? (reconciled)
@@ -364,9 +362,9 @@ The DIAGNOSIS forensic measured the incident stall at 1772s ≈ the 1800s watchd
 
 `test/test_eio_cancellability.ml` proves `Eio.Time.with_timeout_exn` interrupts `Buf_read.line` over **raw TCP loopback** (`line_server`, test_eio_cancellability.ml:31-83) — no TLS. Production https providers run the same `Buf_read.line` over a TLS-wrapped flow. The masc owner comment at `keeper_llm_bridge.ml` names TLS as a suspect for an unidentified ≥1170s production hang. After F1 arms the idle deadline, it is still unverified that `with_timeout_exn` cancellation actually interrupts a `single_read` blocked inside a TLS session (the TLS layer may buffer or hold the read in a way that does not propagate cancellation to the socket). Mitigation: extend the regression test with a TLS-wrapped in-process server (self-signed cert) and assert the timeout fires within tolerance. If TLS read cancellation does not propagate, F1 arms the *typed error path* but the *physical interrupt* still depends on the watchdog — which would mean §6 step 5 (downgrading the watchdog) must wait for a TLS-specific fix. This risk does not block F1; it bounds how far the follow-up watchdog removal can go.
 
-### 10.2 Double-arming if both construction clock and request deadline are set with different values
+### 10.2 Idle-deadline SSOT
 
-masc currently sets the deadline both at construction (`make_http_transport ?stream_idle_timeout_s`) and on the SDK side. With §4.4 precedence (request field wins, falls back to construction), if a future caller sets both to different values the request value silently wins. Mitigation: §4.4 documents precedence explicitly; the masc §5.2 hardening makes the request field authoritative so there is one source of truth.
+`completion_request.stream_idle_timeout_s` is the only idle-deadline value. The HTTP transport constructor owns only capabilities (`clock`, `sw`, `net`) and cannot introduce a competing timeout.
 
 ### 10.3 Telemetry volume
 
