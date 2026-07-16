@@ -251,6 +251,14 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.214.1](https://github.com/jeong-sik/oas/compare/v0.214.0...v0.214.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **llm_provider:** surface silent capability drops and prove tools+schema coexistence ([#2636](https://github.com/jeong-sik/oas/issues/2636)) ([00d7bcb](https://github.com/jeong-sik/oas/commit/00d7bcb88c11083e191c753d4fb8afa9cd4b3d8a))
+* **streaming:** total SSE decode boundary + shared Gemini Interactions envelope ([#2634](https://github.com/jeong-sik/oas/issues/2634)) ([1b108fe](https://github.com/jeong-sik/oas/commit/1b108fea6c3cae7d08bc6a1c382f052d279c9a77))
+
 ## [0.214.0](https://github.com/jeong-sik/oas/compare/v0.213.0...v0.214.0) (2026-07-16)
 
 
