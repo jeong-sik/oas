@@ -231,6 +231,7 @@
             "default",
             "no_replay",
             "drop_without_tool",
+            "latest_user_turn_tool_calls",
             "preserve_always"
           ]
         }

@@ -173,11 +173,32 @@ let validate_supported_reasoning ~reasoning_block_supported ~message_index conte
     Error (Unsupported_reasoning_block { message_index; block_index; block_kind })
 ;;
 
-let replay_selected replay_policy ~assistant_had_tool_call =
+let find_latest_user_message_index classified_messages =
+  List.fold_left
+    (fun latest (message_index, (message : Types.message), _) ->
+       match message.role with
+       | User -> Some message_index
+       | System | Assistant | Tool -> latest)
+    None
+    classified_messages
+;;
+
+let replay_selected
+      replay_policy
+      ~assistant_had_tool_call
+      ~message_index
+      ~latest_user_message_index
+  =
   match replay_policy with
   | Reasoning_replay_contract.No_replay | Provider_opaque_state -> false
   | All_assistant_messages -> true
   | Tool_call_assistant_messages_all_history -> assistant_had_tool_call
+  | Tool_call_assistant_messages_latest_user_turn ->
+    assistant_had_tool_call
+    &&
+      (match latest_user_message_index with
+      | Some user_message_index -> message_index > user_message_index
+      | None -> false)
 ;;
 
 let project
@@ -190,6 +211,7 @@ let project
   match validate_and_classify messages with
   | Error _ as error -> error
   | Ok classified_messages ->
+    let latest_user_message_index = find_latest_user_message_index classified_messages in
     let rec loop projected replay_drops removed_empty = function
       | [] ->
         Ok
@@ -237,6 +259,8 @@ let project
                  replay_selected
                    replay_policy
                    ~assistant_had_tool_call:(content_has_tool_use message.content)
+                   ~message_index
+                   ~latest_user_message_index
                then
                  Result.map
                    (fun content -> content, None)

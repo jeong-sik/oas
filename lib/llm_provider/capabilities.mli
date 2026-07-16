@@ -34,6 +34,8 @@ type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
+  | Force_latest_user_turn_tool_calls
+  (** Replay tool-call reasoning only inside the structurally latest user turn. *)
   | Force_preserve_always
 
 type assistant_tool_content_format = Capability_vocab.assistant_tool_content_format =
