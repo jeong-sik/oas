@@ -1462,10 +1462,10 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
   if String.equal data_str openai_done_sentinel
   then [], None
   else (
-    match Yojson.Safe.from_string data_str with
-    | exception Yojson.Json_error msg ->
-      [ SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg } ], None
-    | json ->
+    (* Decode through the shared total boundary (#2620): a valid-JSON
+       non-object frame raises Util.Type_error out of [member], which a
+       Json_error-only guard would let escape the parser (oas#2632). *)
+    let decode json =
       let open Yojson.Safe.Util in
       let evt_type =
         match event_type with
@@ -1589,7 +1589,11 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
        | "response.refusal.done"
        | "response.queued" -> ()
        | other -> emit (SSEUnknownEventType { event_type = other; raw = data_str }));
-      List.rev !events, None)
+      List.rev !events, None
+    in
+    match Json_util.decode_json_with decode data_str with
+    | Ok result -> result
+    | Error reason -> [ SSEParseFailed { raw = data_str; reason } ], None)
 ;;
 
 (** {1 Gemini SSE Streaming}

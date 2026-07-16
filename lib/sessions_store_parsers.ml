@@ -23,8 +23,12 @@ let parse_runtime_json of_yojson raw =
 
 let decode_json_with decoder raw =
   let* json = parse_json_string raw in
+  (* Exception coverage mirrors Llm_provider.Json_util.decode_json_with
+     (Json_error via parse_json_string, Type_error and Undefined here); the
+     error type differs — this boundary reports typed session parse errors. *)
   try Ok (decoder json) with
-  | Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
+  | Yojson.Safe.Util.Type_error (detail, _) | Yojson.Safe.Util.Undefined (detail, _) ->
+    Error (json_parse_error detail)
 ;;
 
 let tool_contract_of_json json =
