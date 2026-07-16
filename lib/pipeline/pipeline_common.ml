@@ -6,7 +6,7 @@ open Agent_trace
 
     Replaces the monolithic run_turn_core with named stages:
     1. Input   — lifecycle, BeforeTurn hook, elicitation
-    2. Parse   — BeforeTurnParams hook, context reduction, tool preparation
+    2. Parse   — BeforeTurnParams hook, tool preparation
     3. Route   — provider selection, API call dispatch (sync/stream)
     4. Collect — usage accumulation, AfterTurn hook, events, message append
     5. Execute — exact-name tool execution on StopToolUse

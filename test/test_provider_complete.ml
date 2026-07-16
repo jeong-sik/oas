@@ -1238,6 +1238,41 @@ let test_complete_rejects_output_schema_for_glm () =
   | Error _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
 ;;
 
+let test_complete_stream_rejects_output_schema_for_glm () =
+  (* The streaming entry must run the same pre-wire validation as sync: a
+     regression that skipped validate_all in complete_stream would turn this
+     red before any transport I/O happens. *)
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let config =
+    PC.make
+      ~kind:Glm
+      ~model_id:"glm-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match
+    Llm_provider.Complete.complete_stream
+      ~sw
+      ~net
+      ~config
+      ~messages:[ user_msg "hi" ]
+      ~on_event:(fun _ -> ())
+      ()
+  with
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+    Alcotest.(check bool)
+      "mentions glm json mode"
+      true
+      (contains_substring ~sub:"json mode" (String.lowercase_ascii reason))
+  | Ok _ -> Alcotest.fail "expected stream AcceptRejected for glm output_schema"
+  | Error _ -> Alcotest.fail "expected stream AcceptRejected for glm output_schema"
+;;
+
 let test_annotate_response_cost () =
   let response : api_response =
     { id = "resp-1"
@@ -1662,6 +1697,10 @@ let () =
             "glm output schema rejected before request"
             `Quick
             test_complete_rejects_output_schema_for_glm
+        ; test_case
+            "glm output schema rejected before stream request"
+            `Quick
+            test_complete_stream_rejects_output_schema_for_glm
         ] )
     ; ( "capability_drift"
       , [ test_case

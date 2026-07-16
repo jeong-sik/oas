@@ -2,7 +2,7 @@
 
     Replaces the monolithic run_turn_core with named stages:
     1. Input   — lifecycle, BeforeTurn hook, elicitation
-    2. Parse   — BeforeTurnParams hook, context reduction, tool preparation
+    2. Parse   — BeforeTurnParams hook, tool preparation
     3. Route   — provider selection, API call dispatch (sync/stream)
     4. Collect — usage accumulation, AfterTurn hook, events, message append
     5. Execute — exact-name tool execution on StopToolUse
@@ -122,8 +122,8 @@ let sdk_error_of_http_error = Pipeline_stage_route.sdk_error_of_http_error
 (** Sync dispatch via {!Llm_provider.Complete.complete}.  Routes all
     provider kinds through the consolidated path so [on_request_end]
     metrics fire and [Llm_transport.t] (set via [agent.options.transport])
-    handles CLI providers.  Legacy {!Api.create_message} remains for
-    Stream fallback pending PR-O2b. *)
+    handles CLI providers.  Streaming dispatch is likewise consolidated on
+    {!Llm_provider.Complete.complete_stream}; no legacy fallback remains. *)
 let dispatch_sync = Pipeline_stage_route.dispatch_sync
 
 let dispatch_stream = Pipeline_stage_route.dispatch_stream

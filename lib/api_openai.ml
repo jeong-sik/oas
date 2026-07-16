@@ -247,6 +247,9 @@ let build_openai_body_unchecked
                 ~is_zai_glm
                 capabilities
                 serialization_config.tool_choice -> Some entries
+    | Some entries when entries <> [] && not capabilities.supports_tools ->
+      warn_capability_drop ~model_id:model_str ~field:"tools";
+      None
     | None | Some _ -> None
   in
   let provider_messages =
@@ -390,7 +393,13 @@ let build_openai_body_unchecked
       (match response_format_to_openai_json serialization_config.response_format with
        | Some response_format -> ("response_format", response_format) :: body_assoc
        | None -> body_assoc)
-    | JsonSchema _ | JsonMode | Off -> body_assoc
+    | JsonMode ->
+      warn_capability_drop ~model_id:model_str ~field:"response_format_json";
+      body_assoc
+    | JsonSchema _ ->
+      warn_capability_drop ~model_id:model_str ~field:"structured_output";
+      body_assoc
+    | Off -> body_assoc
   in
   let body_assoc =
     match slot_id with
