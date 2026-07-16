@@ -1729,6 +1729,82 @@ let test_thinking_disable_satisfiable_with_control_format () =
     (Complete_common.thinking_control_disable_unsatisfiable ~caps config)
 ;;
 
+(* ── Json_util.decode_json_with (provider parse boundary) ────────── *)
+
+let string_contains ~needle haystack =
+  let nl = String.length needle in
+  let hl = String.length haystack in
+  let rec go i = i + nl <= hl && (String.sub haystack i nl = needle || go (i + 1)) in
+  nl = 0 || go 0
+;;
+
+let test_decode_json_with_object () =
+  match
+    Json_util.decode_json_with
+      (fun json -> Yojson.Safe.Util.(json |> member "data" |> to_list |> List.length))
+      {|{"data":[1,2]}|}
+  with
+  | Ok n -> Alcotest.(check int) "decoded list length" 2 n
+  | Error message -> Alcotest.failf "expected Ok, got Error %s" message
+;;
+
+let test_decode_json_with_syntax_error () =
+  match Json_util.decode_json_with (fun json -> json) "{not-json" with
+  | Error message ->
+    Alcotest.(check bool)
+      "syntax failure is labelled"
+      true
+      (string_contains ~needle:"invalid JSON:" message)
+  | Ok _ -> Alcotest.fail "malformed body must not decode"
+;;
+
+let test_decode_json_with_null_body_contained () =
+  (* 2xx + valid JSON that is not an object: [Util.member] raises
+     [Type_error], which a [Json_error]-only guard lets escape the
+     [result] contract. This boundary must contain it. *)
+  match
+    Json_util.decode_json_with (fun json -> Yojson.Safe.Util.member "data" json) "null"
+  with
+  | Error message ->
+    Alcotest.(check bool)
+      "shape failure names the offending type"
+      true
+      (string_contains ~needle:"unexpected JSON shape:" message
+       && string_contains ~needle:"null" message)
+  | Ok _ -> Alcotest.fail "non-object body must not decode through member"
+;;
+
+let test_decode_json_with_array_body_contained () =
+  match
+    Json_util.decode_json_with (fun json -> Yojson.Safe.Util.member "data" json) "[1,2]"
+  with
+  | Error message ->
+    Alcotest.(check bool)
+      "array body reported"
+      true
+      (string_contains ~needle:"array" message)
+  | Ok _ -> Alcotest.fail "array body must not decode through member"
+;;
+
+let test_decode_json_with_undefined_contained () =
+  match
+    Json_util.decode_json_with (fun json -> Yojson.Safe.Util.index 5 json) "[1,2]"
+  with
+  | Error message ->
+    Alcotest.(check bool)
+      "out-of-bounds index reported"
+      true
+      (string_contains ~needle:"unexpected JSON shape:" message)
+  | Ok _ -> Alcotest.fail "out-of-bounds index must not decode"
+;;
+
+let test_decode_json_with_foreign_exception_propagates () =
+  (* Only Yojson boundary exceptions are contained: a decoder bug must
+     surface as an exception, not dissolve into [Error]. *)
+  Alcotest.check_raises "decoder bug propagates" (Failure "decoder bug") (fun () ->
+    ignore (Json_util.decode_json_with (fun _ -> failwith "decoder bug") {|{"ok":true}|}))
+;;
+
 (* ═══════════════════════════════════════════════════
    Test runner
    ═══════════════════════════════════════════════════ *)
@@ -1736,7 +1812,30 @@ let test_thinking_disable_satisfiable_with_control_format () =
 let () =
   Alcotest.run
     "llm_provider_cov"
-    [ ( "complete.gemini_url"
+    [ ( "json_util.decode_json_with"
+      , [ Alcotest.test_case "object decodes" `Quick test_decode_json_with_object
+        ; Alcotest.test_case
+            "syntax error contained"
+            `Quick
+            test_decode_json_with_syntax_error
+        ; Alcotest.test_case
+            "null body contained"
+            `Quick
+            test_decode_json_with_null_body_contained
+        ; Alcotest.test_case
+            "array body contained"
+            `Quick
+            test_decode_json_with_array_body_contained
+        ; Alcotest.test_case
+            "out-of-bounds index contained"
+            `Quick
+            test_decode_json_with_undefined_contained
+        ; Alcotest.test_case
+            "foreign exception propagates"
+            `Quick
+            test_decode_json_with_foreign_exception_propagates
+        ] )
+    ; ( "complete.gemini_url"
       , [ Alcotest.test_case "sync no key" `Quick test_gemini_url_sync_no_key
         ; Alcotest.test_case "sync with key" `Quick test_gemini_url_sync_with_key
         ; Alcotest.test_case "stream with key" `Quick test_gemini_url_stream_with_key
