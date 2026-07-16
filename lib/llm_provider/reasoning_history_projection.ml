@@ -197,8 +197,8 @@ let replay_selected
     assistant_had_tool_call
     &&
       (match latest_user_message_index with
-       | Some user_message_index -> message_index > user_message_index
-       | None -> false)
+      | Some user_message_index -> message_index > user_message_index
+      | None -> false)
 ;;
 
 let project

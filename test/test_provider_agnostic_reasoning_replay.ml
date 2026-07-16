@@ -58,8 +58,14 @@ let content_has_reasoning =
 let content_has_tool_use =
   List.exists (function
     | ToolUse _ -> true
-    | Text _ | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolResult _
-    | Image _ | Document _ | Audio _ -> false)
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> false)
 ;;
 
 let tool_result tool_use_id =
@@ -183,15 +189,26 @@ let test_latest_user_turn_policy_keeps_only_current_tool_reasoning () =
     ; message Tool [ tool_result "current-call" ]
     ]
   in
-  match project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages with
+  match
+    project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages
+  with
   | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
   | Ok projection ->
-    check_int "message and tool-result history is lossless" 6 (List.length projection.messages);
-    check_int "only the older reasoning artifact is dropped" 1 (List.length projection.reasoning_replay_drops);
+    check_int
+      "message and tool-result history is lossless"
+      6
+      (List.length projection.messages);
+    check_int
+      "only the older reasoning artifact is dropped"
+      1
+      (List.length projection.reasoning_replay_drops);
     let old_assistant = List.nth projection.messages 1 in
     let current_assistant = List.nth projection.messages 4 in
     check_bool "old tool call remains" true (content_has_tool_use old_assistant.content);
-    check_bool "old reasoning is removed" false (content_has_reasoning old_assistant.content);
+    check_bool
+      "old reasoning is removed"
+      false
+      (content_has_reasoning old_assistant.content);
     check_bool
       "current tool reasoning remains"
       true
@@ -210,12 +227,17 @@ let test_latest_user_turn_policy_without_user_replays_none () =
     ; message Tool [ tool_result "call" ]
     ]
   in
-  match project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages with
+  match
+    project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages
+  with
   | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
   | Ok projection ->
     let assistant = List.hd projection.messages in
     check_bool "tool call remains" true (content_has_tool_use assistant.content);
-    check_bool "unscoped reasoning is removed" false (content_has_reasoning assistant.content)
+    check_bool
+      "unscoped reasoning is removed"
+      false
+      (content_has_reasoning assistant.content)
 ;;
 
 let test_selected_unsupported_block_fails_closed () =
@@ -298,8 +320,7 @@ let test_explicit_preserve_promotes_latest_user_policy_to_full_history () =
   check_bool
     "explicit preserve selects all assistant messages"
     true
-    ((Reasoning_dialect.replay_contract dialect).replay_policy
-     = All_assistant_messages);
+    ((Reasoning_dialect.replay_contract dialect).replay_policy = All_assistant_messages);
   let messages =
     [ message User [ Text "first request" ]
     ; with_source

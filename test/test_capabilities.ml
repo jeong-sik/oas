@@ -523,8 +523,7 @@ let test_lookup_provider_m_qwen3_mtp_explicit_provider () =
          bool
          "bare runtime row resolves the same latest-user replay policy"
          true
-         (bare.reasoning_replay_override
-          = Capabilities.Force_latest_user_turn_tool_calls)
+         (bare.reasoning_replay_override = Capabilities.Force_latest_user_turn_tool_calls)
      | None -> fail "bare qwen3.6 runtime row should resolve")
   | None -> fail "explicit provider/model lookup should match qwen3.6 model id"
 ;;
