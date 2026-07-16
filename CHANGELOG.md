@@ -251,6 +251,27 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.213.0](https://github.com/jeong-sik/oas/compare/v0.212.1...v0.213.0) (2026-07-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **context:** purge retired reducer contracts ([#2603](https://github.com/jeong-sik/oas/issues/2603))
+
+### Features
+
+* **llm_provider:** add total JSON decode boundary to Json_util ([#2620](https://github.com/jeong-sik/oas/issues/2620)) ([aba2b59](https://github.com/jeong-sik/oas/commit/aba2b59190d8b798bdd2f34ded1c9fd6b90d70be))
+
+
+### Bug Fixes
+
+* **provider:** type empty-completion ContextWindowExceeded as Api ContextOverflow ([#2621](https://github.com/jeong-sik/oas/issues/2621)) ([98b1042](https://github.com/jeong-sik/oas/commit/98b104273524817b4621c8c07a02ffdea9f29172))
+
+
+### Documentation
+
+* **context:** purge retired reducer contracts ([#2603](https://github.com/jeong-sik/oas/issues/2603)) ([fb25e53](https://github.com/jeong-sik/oas/commit/fb25e53cbe6d75c71bfb6e60626cea6b5e542288))
+
 ## [0.212.1](https://github.com/jeong-sik/oas/compare/v0.212.0...v0.212.1) (2026-07-15)
 
 

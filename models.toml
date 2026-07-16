@@ -2080,6 +2080,21 @@ supports_native_streaming = true
 
 # Provider connection and exact endpoint-identity declarations. Provider/model
 # identity is catalog data; runtime code does not branch on vendor host strings.
+[[models]]
+id_prefix = "gpt-image-2"
+provider_name = "openai-image"
+task = "image_generation"
+
+[[models]]
+id_prefix = "glm-image"
+provider_name = "zai-image"
+task = "image_generation"
+
+[[models]]
+id_prefix = "cogview-4-250304"
+provider_name = "zai-image"
+task = "image_generation"
+
 [[providers]]
 id = "nous"
 kind = "openai_compat"
@@ -2190,6 +2205,31 @@ request_path = "/chat/completions"
 api_key_env = "ZAI_API_KEY"
 capabilities_base = "glm"
 identity_hosts = ["api.z.ai"]
+
+# zai-image shares (kind, base_url) with the earlier "glm" entry — the two
+# services sit behind one endpoint prefix and differ only by request_path.
+# provider_label_for_base_url therefore resolves this endpoint to "glm"
+# (declaration order); consumers needing this row's identity must resolve via
+# provider_label_for_endpoint (request_path-qualified) or an explicit
+# provider_id. Capability rows for image models are provider-qualified under
+# "zai-image".
+[[providers]]
+id = "zai-image"
+kind = "glm"
+base_url = "https://api.z.ai/api/paas/v4"
+request_path = "/images/generations"
+api_key_env = "ZAI_API_KEY"
+capabilities_base = "glm"
+default_model = "glm-image"
+
+[[providers]]
+id = "openai-image"
+kind = "openai_compat"
+base_url = "https://api.openai.com/v1"
+request_path = "/images/generations"
+api_key_env = "OPENAI_API_KEY"
+capabilities_base = "openai_chat_extended"
+default_model = "gpt-image-2"
 
 [[providers]]
 id = "xai"
