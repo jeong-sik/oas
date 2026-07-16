@@ -1186,15 +1186,25 @@ let persist_mutation journal (captured_state : journal_state) events =
 
 let commit_mutation journal (captured_state : journal_state) mutation =
   let* persistence = persist_mutation journal captured_state mutation.events in
-  (match persistence with
-   | Volatile -> Eio.Fiber.check ()
-   | Durable -> ());
-  with_state_write journal (fun () ->
-    if not (journal.state == captured_state)
-    then Error (Invalid_event "execution writer gate invariant violated")
-    else (
-      journal.state <- mutation.next_state;
-      Ok mutation.value))
+  let publish () =
+    with_state_write journal (fun () ->
+      if not (journal.state == captured_state)
+      then Error (Invalid_event "execution writer gate invariant violated")
+      else (
+        journal.state <- mutation.next_state;
+        Ok mutation.value))
+  in
+  match persistence with
+  | Volatile ->
+    Eio.Fiber.check ();
+    publish ()
+  | Durable ->
+    (* The batch is already durable, and waiting on journal.mu is itself a
+       cancellation point. A cancellation firing there would leave the handle
+       permanently behind its own store: every later direct write stages the
+       already-committed sequence again and fails compare_committed. Mirror
+       the store's publication region and protect the acquisition too. *)
+    Eio.Cancel.protect publish
 ;;
 
 let with_write journal f =
