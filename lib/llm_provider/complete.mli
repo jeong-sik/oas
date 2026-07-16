@@ -40,10 +40,14 @@ type latency_counter = Complete_common.latency_counter
     latency measurement because [Llm_transport.t.complete_stream]
     does not accept a counter.
 
+    Streaming idle deadlines are request-owned. Configure them through
+    [complete_stream] or the agent option that populates
+    [Llm_transport.completion_request.stream_idle_timeout_s]; the transport
+    constructor does not carry a competing timeout value.
+
     @since 0.78.0 *)
 val make_http_transport
   :  ?clock:_ Eio.Time.clock
-  -> ?stream_idle_timeout_s:float
   -> ?body_timeout_s:float
   -> ?connection_cache:Http_client.cache
   -> ?latency_counter:latency_counter

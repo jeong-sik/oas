@@ -316,7 +316,6 @@ let complete_stream
 
 let make_http_transport
       ?clock
-      ?stream_idle_timeout_s
       ?body_timeout_s
       ?(connection_cache : Http_client.cache option)
       ?latency_counter
@@ -342,19 +341,11 @@ let make_http_transport
         { Llm_transport.response; latency_ms })
   ; complete_stream =
       (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
-        (* RFC-OAS-026: the request-borne idle deadline is authoritative;
-           fall back to the construction-time value for callers that have not
-           migrated to setting it on the request. *)
-        let stream_idle_timeout_s =
-          match req.stream_idle_timeout_s with
-          | Some _ as v -> v
-          | None -> stream_idle_timeout_s
-        in
         complete_stream_http
           ~sw
           ~net
           ?clock
-          ?stream_idle_timeout_s
+          ?stream_idle_timeout_s:req.stream_idle_timeout_s
           ?observe_wire_chunk:req.observe_wire_chunk
           ?connection_cache
           ?latency_counter
