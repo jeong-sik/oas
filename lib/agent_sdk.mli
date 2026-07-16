@@ -28,6 +28,7 @@ module Provider_runtime_binding = Provider_runtime_binding
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
 module Image_generation = Llm_provider.Image_generation
+module Speech_generation = Llm_provider.Speech_generation
 module Retry = Llm_provider.Retry
 module Error = Agent_sdk_base.Error
 module Error_domain = Error_domain
