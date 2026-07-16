@@ -1,8 +1,8 @@
 (** Provider-reported input-token count contract.
 
-    This module owns the typed protocol vocabulary, provider-native input-count
-    dispatch, and response decoding. It does not estimate counts or impose
-    runtime policy.
+    This module owns only the typed protocol vocabulary and response decoding.
+    Endpoint selection, request construction, and transport execution remain
+    outside this boundary.
 
     @stability Internal *)
 
@@ -47,19 +47,4 @@ val decode_transport_result
   :  protocol:protocol
   -> model_id:string
   -> (string, Http_client.http_error) result
-  -> (count, error) result
-
-(** Count one Anthropic Messages input through the provider's native
-    [/v1/messages/count_tokens] endpoint.
-
-    The request reuses {!Backend_anthropic}'s completion input projection.
-    Non-Anthropic configs fail with [Unsupported] before any I/O. *)
-val count_anthropic
-  :  ?connection_cache:Http_client.cache
-  -> sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> config:Provider_config.t
-  -> messages:Types.message list
-  -> ?tools:Yojson.Safe.t list
-  -> unit
   -> (count, error) result

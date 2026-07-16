@@ -1279,6 +1279,46 @@ let start_raw_sse_server ~sw ~net ~clock delayed_frames =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+(* Advance beyond both removed provider-kind defaults (60s cloud, 600s
+   Ollama) while the client is awaiting its first protocol line. [Connected]
+   proves the HTTP body callback has started before the controller jumps the
+   mock clock and releases the server body. *)
+let removed_provider_idle_defaults_upper_bound_s = 601.0
+
+let start_clock_jump_stream_server ~sw ~net ~release_body ~content_type body =
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  in
+  let port =
+    match Eio.Net.listening_addr socket with
+    | `Tcp (_, port) -> port
+    | `Unix _ -> invalid_arg "expected a TCP listening socket"
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork
+      ~sw
+      socket
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         try
+           read_http_request flow;
+           Eio.Flow.copy_string
+             (Printf.sprintf
+                "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n"
+                content_type)
+             flow;
+           Eio.Promise.await release_body;
+           Eio.Flow.copy_string body flow
+         with
+         | _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
 let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
   let port = fresh_port () in
   let handler _conn req body =
@@ -1883,6 +1923,137 @@ let test_complete_stream_long_thinking_is_not_cut_off () =
   | Exit -> ()
 ;;
 
+let omitted_idle_test_case ~transport_arm ~kind ~request_path ~content_type ~body () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let mock_clock = Eio_mock.Clock.make () in
+    let connected, resolve_connected = Eio.Promise.create () in
+    let release_body, resolve_release_body = Eio.Promise.create () in
+    let url =
+      start_clock_jump_stream_server ~sw ~net:env#net ~release_body ~content_type body
+    in
+    let config =
+      Provider_config.make
+        ~kind
+        ~model_id:"test-model"
+        ~base_url:url
+        ~request_path
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    let transport =
+      if transport_arm
+      then Some (Complete.make_http_transport ~clock:mock_clock ~sw ~net:env#net ())
+      else None
+    in
+    Eio.Fiber.fork ~sw (fun () ->
+      Eio.Promise.await connected;
+      Eio.Fiber.yield ();
+      Eio_mock.Clock.set_time mock_clock removed_provider_idle_defaults_upper_bound_s;
+      Eio.Fiber.yield ();
+      Eio.Promise.resolve resolve_release_body ());
+    match
+      Eio.Time.with_timeout_exn env#clock 5.0 (fun () ->
+        Complete.complete_stream
+          ~sw
+          ~net:env#net
+          ~clock:mock_clock
+          ?transport
+          ~config
+          ~messages
+          ~on_event:(function
+            | Types.Connected -> Eio.Promise.resolve resolve_connected ()
+            | _ -> ())
+          ())
+    with
+    | Ok resp ->
+      check string "text" "default-disabled" (text_of_response resp);
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "omitted stream idle timeout must remain disabled"
+    | exception Eio.Time.Timeout -> fail "clock-jump fixture did not terminate"
+  with
+  | Exit -> ()
+;;
+
+let test_anthropic_omitted_idle_has_no_provider_default =
+  omitted_idle_test_case
+    ~transport_arm:false
+    ~kind:Provider_config.Anthropic
+    ~request_path:"/v1/messages"
+    ~content_type:"text/event-stream"
+    ~body:(anthropic_sse_response "default-disabled")
+;;
+
+let test_ollama_omitted_idle_has_no_provider_default =
+  omitted_idle_test_case
+    ~transport_arm:false
+    ~kind:Provider_config.Ollama
+    ~request_path:"/api/chat"
+    ~content_type:"application/x-ndjson"
+    ~body:
+      "{\"model\":\"test-model\",\"message\":{\"role\":\"assistant\",\"content\":\"default-disabled\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":10,\"eval_count\":5}\n"
+;;
+
+let test_transport_anthropic_omitted_idle_has_no_provider_default =
+  omitted_idle_test_case
+    ~transport_arm:true
+    ~kind:Provider_config.Anthropic
+    ~request_path:"/v1/messages"
+    ~content_type:"text/event-stream"
+    ~body:(anthropic_sse_response "default-disabled")
+;;
+
+let test_clock_jump_fixture_fires_explicit_idle_timeout () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let mock_clock = Eio_mock.Clock.make () in
+    let connected, resolve_connected = Eio.Promise.create () in
+    let release_body, resolve_release_body = Eio.Promise.create () in
+    let url =
+      start_clock_jump_stream_server
+        ~sw
+        ~net:env#net
+        ~release_body
+        ~content_type:"text/event-stream"
+        (anthropic_sse_response "too-late")
+    in
+    let config = make_config url in
+    Eio.Fiber.fork ~sw (fun () ->
+      Eio.Promise.await connected;
+      Eio.Fiber.yield ();
+      Eio_mock.Clock.set_time mock_clock removed_provider_idle_defaults_upper_bound_s;
+      Eio.Fiber.yield ();
+      Eio.Promise.resolve resolve_release_body ());
+    match
+      Eio.Time.with_timeout_exn env#clock 5.0 (fun () ->
+        Complete.complete_stream
+          ~sw
+          ~net:env#net
+          ~clock:mock_clock
+          ~stream_idle_timeout_s:600.0
+          ~config
+          ~messages
+          ~on_event:(function
+            | Types.Connected -> Eio.Promise.resolve resolve_connected ()
+            | _ -> ())
+          ())
+    with
+    | Error (Http_client.TimeoutError { phase = Http_client.First_token; _ }) ->
+      Eio.Switch.fail sw Exit
+    | Ok _ -> fail "explicit idle timeout must fire across the clock jump"
+    | Error _ -> fail "expected typed first-token timeout"
+    | exception Eio.Time.Timeout -> fail "clock-jump fixture did not terminate"
+  with
+  | Exit -> ()
+;;
+
 let test_complete_stream_metrics () =
   Eio_main.run
   @@ fun env ->
@@ -2010,9 +2181,8 @@ let test_complete_stream_unknown_latency_stays_unknown () =
   | Exit -> ()
 ;;
 
-(* RFC-OAS-026: drive the [Some t] transport dispatch arm with a transport that
-   has NO construction-time idle deadline. The high-level [stream_idle_timeout_s]
-   must reach [read_sse] via the request-borne carrier field on
+(* RFC-OAS-026: drive the [Some t] transport dispatch arm. The high-level
+   [stream_idle_timeout_s] must reach [read_sse] via the request-borne carrier field on
    [Llm_transport.completion_request]; pre-F1 the dispatch dropped it and a
    first-token stall hung until an external watchdog. The sibling idle-timeout
    tests above call [complete_stream] WITHOUT [~transport] (the [None] arm,
@@ -2036,8 +2206,7 @@ let test_complete_stream_transport_arm_idle_timeout () =
         ]
     in
     let config = make_config url in
-    (* No construction-time idle (omit [?stream_idle_timeout_s]); only the
-       request-borne deadline carried through the dispatch can arm read_sse. *)
+    (* The request-borne deadline is the sole idle-timeout source. *)
     let transport = Complete.make_http_transport ~clock:env#clock ~sw ~net:env#net () in
     match
       Complete.complete_stream
@@ -2804,6 +2973,22 @@ let () =
             "long thinking is not cut off (bug #10 regression)"
             `Quick
             test_complete_stream_long_thinking_is_not_cut_off
+        ; test_case
+            "Anthropic omitted idle has no provider default"
+            `Quick
+            test_anthropic_omitted_idle_has_no_provider_default
+        ; test_case
+            "Ollama omitted idle has no provider default"
+            `Quick
+            test_ollama_omitted_idle_has_no_provider_default
+        ; test_case
+            "transport Anthropic omitted idle has no provider default"
+            `Quick
+            test_transport_anthropic_omitted_idle_has_no_provider_default
+        ; test_case
+            "clock-jump fixture fires explicit idle timeout"
+            `Quick
+            test_clock_jump_fixture_fires_explicit_idle_timeout
         ] )
     ]
 ;;

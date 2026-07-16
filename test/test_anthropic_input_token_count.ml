@@ -50,14 +50,18 @@ let messages =
   ]
 ;;
 
-let config ?(kind = Provider_config.Anthropic) base_url =
+let config
+      ?(kind = Provider_config.Anthropic)
+      ?(request_path = "/proxy/messages")
+      base_url
+  =
   Provider_config.make
     ~kind
     ~model_id:"input-count-fixture"
     ~base_url
     ~api_key:"test-key"
     ~headers:[ "Content-Type", "application/json"; "anthropic-version", "2023-06-01" ]
-    ~request_path:"/proxy/messages"
+    ~request_path
     ~max_tokens:64
     ~temperature:0.2
     ~top_p:0.8
@@ -153,7 +157,13 @@ let test_transport_success () =
   let result, (path, headers, body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
     @@ fun ~sw ~net ~base_url ->
-    Count.count_anthropic ~sw ~net ~config:(config base_url) ~messages ~tools:[ tool ] ()
+    Count_tokens_sync.count_anthropic
+      ~sw
+      ~net
+      ~config:(config base_url)
+      ~messages
+      ~tools:[ tool ]
+      ()
   in
   (match result with
    | Ok count ->
@@ -186,7 +196,7 @@ let test_transport_error () =
   let result, _captured =
     with_mock ~status:`Too_many_requests ~response:"rate limited"
     @@ fun ~sw ~net ~base_url ->
-    Count.count_anthropic ~sw ~net ~config:(config base_url) ~messages ()
+    Count_tokens_sync.count_anthropic ~sw ~net ~config:(config base_url) ~messages ()
   in
   match result with
   | Error (Count.Transport (Http_client.HttpError { code = 429; body })) ->
@@ -200,7 +210,7 @@ let test_unsupported () =
   Eio.Switch.run
   @@ fun sw ->
   match
-    Count.count_anthropic
+    Count_tokens_sync.count_anthropic
       ~sw
       ~net:(Eio.Stdenv.net env)
       ~config:(config ~kind:Provider_config.OpenAI_compat "not a URL")
@@ -213,6 +223,22 @@ let test_unsupported () =
   | Ok _ | Error _ -> fail "expected typed Unsupported before transport"
 ;;
 
+let test_count_tokens_url () =
+  check
+    string
+    "plain path"
+    "https://api.anthropic.com/proxy/messages/count_tokens"
+    (Count_tokens_sync.count_tokens_url (config "https://api.anthropic.com"));
+  check
+    string
+    "query string preserved after inserted segment"
+    "https://proxy.example/proxy/messages/count_tokens?api-version=2024-06"
+    (Count_tokens_sync.count_tokens_url
+       (config
+          ~request_path:"/proxy/messages?api-version=2024-06"
+          "https://proxy.example"))
+;;
+
 let () =
   run
     "anthropic-input-token-count"
@@ -221,6 +247,7 @@ let () =
       , [ test_case "native success" `Quick test_transport_success
         ; test_case "typed HTTP error" `Quick test_transport_error
         ; test_case "non-Anthropic unsupported" `Quick test_unsupported
+        ; test_case "count-tokens URL insertion" `Quick test_count_tokens_url
         ] )
     ]
 ;;

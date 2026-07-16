@@ -37,6 +37,24 @@ let create_message_error_of_http_error = function
       http_error
       (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
   | Llm_provider.Http_client.ProviderFailure
+      { kind =
+          Llm_provider.Http_client.Empty_completion
+            { stop_reason = Llm_provider.Types.ContextWindowExceeded }
+      ; message
+      } as http_error ->
+    (* An empty turn whose typed stop_reason is ContextWindowExceeded is a
+       context-overflow contract, not provider unavailability: retrying or
+       rotating replays the same oversized prompt, so only the consumer's
+       context recovery (compaction) can make progress. The provider does not
+       report its limit on this path, hence [limit = None]. *)
+    attributed_retry_error
+      http_error
+      (Retry.ContextOverflow
+         { message =
+             "empty completion (stop_reason=model_context_window_exceeded): " ^ message
+         ; limit = None
+         })
+  | Llm_provider.Http_client.ProviderFailure
       { kind = Llm_provider.Http_client.Empty_completion _; _ } as http_error ->
     Completion_error http_error
   | Llm_provider.Http_client.ProviderFailure { kind; message } as http_error ->
@@ -440,6 +458,35 @@ let%test "Retry.Timeout classifies as retryable" =
   Retry.is_retryable
     (Retry.Timeout
        { message = "HTTP request exceeded 60.0s wall-clock timeout"; phase = None })
+;;
+
+let%test "empty completion with ContextWindowExceeded types as ContextOverflow" =
+  match
+    create_message_error_of_http_error
+      (Llm_provider.Http_client.ProviderFailure
+         { kind =
+             Llm_provider.Http_client.Empty_completion
+               { stop_reason = Llm_provider.Types.ContextWindowExceeded }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Attributed_retry_error { retry_error = Retry.ContextOverflow { limit = None; _ }; _ }
+    -> true
+  | _ -> false
+;;
+
+let%test "empty completion with other stop_reason stays a completion error" =
+  match
+    create_message_error_of_http_error
+      (Llm_provider.Http_client.ProviderFailure
+         { kind =
+             Llm_provider.Http_client.Empty_completion
+               { stop_reason = Llm_provider.Types.EndTurn }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Completion_error _ -> true
+  | _ -> false
 ;;
 
 let%test "re-exported max_response_body is positive" = max_response_body > 0

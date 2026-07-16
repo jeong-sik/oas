@@ -412,6 +412,31 @@ let test_agent_sync_stream_and_legacy_projection () =
   check_bool "stream exact legacy projection" true (stream_legacy = stream_detailed.error)
 ;;
 
+let test_empty_completion_overflow_types_as_context_overflow () =
+  match
+    Attribution.sdk_error_of_http_error
+      (Http.ProviderFailure
+         { kind = Http.Empty_completion { stop_reason = Types.ContextWindowExceeded }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Error.Api (Llm_provider.Retry.ContextOverflow { limit = None; _ }) -> ()
+  | other -> Alcotest.failf "expected Api ContextOverflow, got %s" (Error.to_string other)
+;;
+
+let test_empty_completion_end_turn_stays_provider_unavailable () =
+  match
+    Attribution.sdk_error_of_http_error
+      (Http.ProviderFailure
+         { kind = Http.Empty_completion { stop_reason = Types.EndTurn }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Error.Provider (Llm_provider.Error.ProviderUnavailable _) -> ()
+  | other ->
+    Alcotest.failf "expected Provider unavailable, got %s" (Error.to_string other)
+;;
+
 let test_stream_finalization_keeps_empty_completion_evidence () =
   Eio_main.run
   @@ fun env ->
@@ -494,6 +519,16 @@ let () =
             "redacted attribution JSON"
             `Quick
             test_attribution_json_omits_diagnostics
+        ] )
+    ; ( "empty completion classification"
+      , [ Alcotest.test_case
+            "ContextWindowExceeded types as Api ContextOverflow"
+            `Quick
+            test_empty_completion_overflow_types_as_context_overflow
+        ; Alcotest.test_case
+            "EndTurn stays provider unavailable"
+            `Quick
+            test_empty_completion_end_turn_stays_provider_unavailable
         ] )
     ; ( "agent detailed API"
       , [ Alcotest.test_case
