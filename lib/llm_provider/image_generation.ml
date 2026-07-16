@@ -8,9 +8,12 @@ type source =
 type image = { source : source }
 
 type usage =
-  { input_tokens : int
-  ; output_tokens : int
-  ; total_tokens : int
+  { input_tokens : int option
+  ; output_tokens : int option
+  ; total_tokens : int option
+  ; cached_tokens : int option
+  ; thought_tokens : int option
+  ; tool_use_tokens : int option
   }
 
 type filter_role =
@@ -26,6 +29,8 @@ type content_filter =
 
 type response =
   { created_at : int option
+  ; created_at_rfc3339 : string option
+  ; provider_response_id : string option
   ; images : image list
   ; usage : usage option
   ; content_filter : content_filter list
@@ -34,6 +39,7 @@ type response =
 type protocol =
   | Openai_image
   | Zai_image
+  | Gemini_interaction
 
 let reject reason = Error (Http_client.AcceptRejected { reason })
 
@@ -49,7 +55,8 @@ let protocol_of_config (config : Provider_config.t) =
   match config.kind with
   | Provider_config.Glm -> Ok Zai_image
   | Provider_config.OpenAI_compat -> Ok Openai_image
-  | Anthropic | Kimi | Ollama | Gemini | DashScope ->
+  | Provider_config.Gemini -> Ok Gemini_interaction
+  | Anthropic | Kimi | Ollama | DashScope ->
     reject
       (Printf.sprintf
          "image generation has no wire implementation for provider kind %s"
@@ -86,13 +93,25 @@ let validate_request config prompt =
 ;;
 
 let request_body ~protocol ~(config : Provider_config.t) ~prompt =
-  let fields = [ "model", `String config.model_id; "prompt", `String prompt ] in
-  let fields =
-    match protocol with
-    | Zai_image -> fields
-    | Openai_image -> fields @ [ "output_format", `String "png" ]
-  in
-  `Assoc fields |> Yojson.Safe.to_string
+  match protocol with
+  | Gemini_interaction ->
+    `Assoc
+      [ "model", `String config.model_id
+      ; "input", `String prompt
+      ; ( "response_format"
+        , `Assoc [ "type", `String "image"; "mime_type", `String "image/png" ] )
+      ]
+    |> Yojson.Safe.to_string
+  | Zai_image ->
+    `Assoc [ "model", `String config.model_id; "prompt", `String prompt ]
+    |> Yojson.Safe.to_string
+  | Openai_image ->
+    `Assoc
+      [ "model", `String config.model_id
+      ; "prompt", `String prompt
+      ; "output_format", `String "png"
+      ]
+    |> Yojson.Safe.to_string
 ;;
 
 let source_of_json json =
@@ -126,6 +145,13 @@ let int_field name json =
   | _ -> parse_failure (Printf.sprintf "image response usage.%s must be an integer" name)
 ;;
 
+let optional_int_field name json =
+  match Yojson.Safe.Util.member name json with
+  | `Null -> Ok None
+  | `Int value -> Ok (Some value)
+  | _ -> parse_failure (Printf.sprintf "image response usage.%s must be an integer" name)
+;;
+
 let usage_of_json json =
   match Yojson.Safe.Util.member "usage" json with
   | `Null -> Ok None
@@ -138,7 +164,16 @@ let usage_of_json json =
         | Ok output_tokens ->
           (match int_field "total_tokens" usage_json with
            | Error _ as error -> error
-           | Ok total_tokens -> Ok (Some { input_tokens; output_tokens; total_tokens }))))
+           | Ok total_tokens ->
+             Ok
+               (Some
+                  { input_tokens = Some input_tokens
+                  ; output_tokens = Some output_tokens
+                  ; total_tokens = Some total_tokens
+                  ; cached_tokens = None
+                  ; thought_tokens = None
+                  ; tool_use_tokens = None
+                  }))))
   | _ -> parse_failure "image response usage must be an object"
 ;;
 
@@ -181,7 +216,7 @@ let content_filter_of_json json =
   | _ -> parse_failure "image response content_filter must be a list"
 ;;
 
-let parse_response body =
+let parse_openai_response body =
   try
     let json = Yojson.Safe.from_string body in
     match created_at_of_json json with
@@ -195,9 +230,141 @@ let parse_response body =
           | Ok usage ->
             (match content_filter_of_json json with
              | Error _ as error -> error
-             | Ok content_filter -> Ok { created_at; images; usage; content_filter })))
+             | Ok content_filter ->
+               Ok
+                 { created_at
+                 ; created_at_rfc3339 = None
+                 ; provider_response_id = None
+                 ; images
+                 ; usage
+                 ; content_filter
+                 })))
   with
   | Yojson.Json_error message -> parse_failure ("invalid image response JSON: " ^ message)
+;;
+
+let required_non_empty_string name json =
+  match Yojson.Safe.Util.member name json with
+  | `String value when String.trim value <> "" -> Ok value
+  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be non-empty" name)
+;;
+
+let optional_non_empty_string name json =
+  match Yojson.Safe.Util.member name json with
+  | `Null -> Ok None
+  | `String value when String.trim value <> "" -> Ok (Some value)
+  | _ -> parse_failure (Printf.sprintf "Gemini interaction %s must be non-empty" name)
+;;
+
+let gemini_source_of_json json =
+  let open Yojson.Safe.Util in
+  match member "data" json, member "uri" json, member "mime_type" json with
+  | `String data, `Null, `String media_type
+    when String.trim data <> "" && String.trim media_type <> "" ->
+    Ok (Inline_base64 { media_type; data })
+  | `Null, `String uri, _ when String.trim uri <> "" -> Ok (Remote_url uri)
+  | `String _, `String _, _ -> parse_failure "Gemini image contains both data and uri"
+  | _ -> parse_failure "Gemini image requires exactly one data+mime_type or uri source"
+;;
+
+let gemini_images_of_json json =
+  let open Yojson.Safe.Util in
+  let add_content acc = function
+    | `Assoc _ as content ->
+      (match member "type" content with
+       | `String "image" ->
+         Result.map (fun source -> { source } :: acc) (gemini_source_of_json content)
+       | `String kind ->
+         parse_failure
+           (Printf.sprintf "unexpected Gemini model_output content type %S" kind)
+       | _ -> parse_failure "Gemini model_output content requires a type")
+    | _ -> parse_failure "Gemini model_output content must be an object"
+  in
+  let add_step acc = function
+    | `Assoc _ as step ->
+      (match member "type" step with
+       | `String "thought" -> Ok acc
+       | `String "model_output" ->
+         (match member "content" step with
+          | `List contents ->
+            List.fold_left
+              (fun result item -> Result.bind result (fun acc -> add_content acc item))
+              (Ok acc)
+              contents
+          | _ -> parse_failure "Gemini model_output content must be a list")
+       | `String kind ->
+         parse_failure (Printf.sprintf "unexpected Gemini interaction step %S" kind)
+       | _ -> parse_failure "Gemini interaction step requires a type")
+    | _ -> parse_failure "Gemini interaction step must be an object"
+  in
+  match member "steps" json with
+  | `List steps ->
+    (match
+       List.fold_left
+         (fun result step -> Result.bind result (fun acc -> add_step acc step))
+         (Ok [])
+         steps
+     with
+     | Ok [] -> parse_failure "Gemini interaction returned no image"
+     | Ok images -> Ok (List.rev images)
+     | Error _ as error -> error)
+  | _ -> parse_failure "Gemini interaction steps must be a list"
+;;
+
+let gemini_usage_of_json json =
+  match Yojson.Safe.Util.member "usage" json with
+  | `Null -> Ok None
+  | `Assoc _ as usage_json ->
+    let ( let* ) = Result.bind in
+    let* input_tokens = optional_int_field "total_input_tokens" usage_json in
+    let* output_tokens = optional_int_field "total_output_tokens" usage_json in
+    let* total_tokens = optional_int_field "total_tokens" usage_json in
+    let* cached_tokens = optional_int_field "total_cached_tokens" usage_json in
+    let* thought_tokens = optional_int_field "total_thought_tokens" usage_json in
+    let* tool_use_tokens = optional_int_field "total_tool_use_tokens" usage_json in
+    Ok
+      (Some
+         { input_tokens
+         ; output_tokens
+         ; total_tokens
+         ; cached_tokens
+         ; thought_tokens
+         ; tool_use_tokens
+         })
+  | _ -> parse_failure "Gemini interaction usage must be an object"
+;;
+
+let parse_gemini_response body =
+  try
+    let json = Yojson.Safe.from_string body in
+    let ( let* ) = Result.bind in
+    let* provider_response_id = required_non_empty_string "id" json in
+    let* status = required_non_empty_string "status" json in
+    let* () =
+      if String.equal status "completed"
+      then Ok ()
+      else parse_failure (Printf.sprintf "Gemini interaction status is %S" status)
+    in
+    let* created_at_rfc3339 = optional_non_empty_string "created" json in
+    let* images = gemini_images_of_json json in
+    let* usage = gemini_usage_of_json json in
+    Ok
+      { created_at = None
+      ; created_at_rfc3339
+      ; provider_response_id = Some provider_response_id
+      ; images
+      ; usage
+      ; content_filter = []
+      }
+  with
+  | Yojson.Json_error message ->
+    parse_failure ("invalid Gemini interaction JSON: " ^ message)
+;;
+
+let parse_response ~protocol body =
+  match protocol with
+  | Openai_image | Zai_image -> parse_openai_response body
+  | Gemini_interaction -> parse_gemini_response body
 ;;
 
 let generate
@@ -230,7 +397,7 @@ let generate
      with
      | Error _ as error -> error
      | Ok (code, response_body) when code >= 200 && code < 300 ->
-       parse_response response_body
+       parse_response ~protocol response_body
      | Ok (code, response_body) ->
        Error (Http_client.HttpError { code; body = response_body }))
 ;;
@@ -262,6 +429,9 @@ let catalog_declares_image_task provider_label model_id =
 let%test "embedded catalog declares exact image providers" =
   catalog_declares_image_task "zai-image" "glm-image"
   && catalog_declares_image_task "openai-image" "gpt-image-2"
+  && catalog_declares_image_task "gemini-image" "gemini-3.1-flash-image"
+  && catalog_declares_image_task "gemini-image" "gemini-3.1-flash-lite-image"
+  && catalog_declares_image_task "gemini-image" "gemini-3-pro-image"
 ;;
 
 let%test "request requires an exact image-generation task" =
@@ -273,10 +443,13 @@ let%test "request requires an exact image-generation task" =
 let%test "Z.AI URL response and safety observation are typed" =
   match
     parse_response
+      ~protocol:Zai_image
       {|{"created":7,"data":[{"url":"https://example.test/a.png"}],"content_filter":[{"level":1},{"role":"assistant","level":2}]}|}
   with
   | Ok
       { created_at = Some 7
+      ; created_at_rfc3339 = None
+      ; provider_response_id = None
       ; images = [ { source = Remote_url url } ]
       ; usage = None
       ; content_filter =
@@ -288,11 +461,20 @@ let%test "Z.AI URL response and safety observation are typed" =
 let%test "OpenAI base64 response preserves usage" =
   match
     parse_response
+      ~protocol:Openai_image
       {|{"created":8,"data":[{"b64_json":"aGVsbG8="}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}|}
   with
   | Ok
       { images = [ { source = Inline_base64 { media_type = "image/png"; data } } ]
-      ; usage = Some { input_tokens = 1; output_tokens = 2; total_tokens = 3 }
+      ; usage =
+          Some
+            { input_tokens = Some 1
+            ; output_tokens = Some 2
+            ; total_tokens = Some 3
+            ; cached_tokens = None
+            ; thought_tokens = None
+            ; tool_use_tokens = None
+            }
       ; content_filter = []
       ; _
       } -> String.equal data "aGVsbG8="
@@ -300,7 +482,68 @@ let%test "OpenAI base64 response preserves usage" =
 ;;
 
 let%test "ambiguous image source fails closed" =
-  match parse_response {|{"data":[{"url":"https://x","b64_json":"eA=="}]}|} with
+  match
+    parse_response
+      ~protocol:Openai_image
+      {|{"data":[{"url":"https://x","b64_json":"eA=="}]}|}
+  with
   | Error (Http_client.ProviderFailure _) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini interaction preserves image, identity, time, and usage" =
+  match
+    parse_response
+      ~protocol:Gemini_interaction
+      {|{"id":"ix-1","status":"completed","created":"2026-07-16T00:00:00Z","steps":[{"type":"thought"},{"type":"model_output","content":[{"type":"image","data":"eA==","mime_type":"image/webp"}]}],"usage":{"total_input_tokens":4,"total_output_tokens":5,"total_tokens":12,"total_cached_tokens":1,"total_thought_tokens":3,"total_tool_use_tokens":0}}|}
+  with
+  | Ok
+      { created_at = None
+      ; created_at_rfc3339 = Some "2026-07-16T00:00:00Z"
+      ; provider_response_id = Some "ix-1"
+      ; images =
+          [ { source = Inline_base64 { media_type = "image/webp"; data = "eA==" } } ]
+      ; usage =
+          Some
+            { input_tokens = Some 4
+            ; output_tokens = Some 5
+            ; total_tokens = Some 12
+            ; cached_tokens = Some 1
+            ; thought_tokens = Some 3
+            ; tool_use_tokens = Some 0
+            }
+      ; content_filter = []
+      } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini image-only response rejects text output" =
+  match
+    parse_response
+      ~protocol:Gemini_interaction
+      {|{"id":"ix-2","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"not an image"}]}]}|}
+  with
+  | Error (Http_client.ProviderFailure _) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "Gemini optional usage fields stay absent rather than becoming zero" =
+  match
+    parse_response
+      ~protocol:Gemini_interaction
+      {|{"id":"ix-3","status":"completed","steps":[{"type":"model_output","content":[{"type":"image","uri":"https://example.test/image.png"}]}],"usage":{}}|}
+  with
+  | Ok
+      { usage =
+          Some
+            { input_tokens = None
+            ; output_tokens = None
+            ; total_tokens = None
+            ; cached_tokens = None
+            ; thought_tokens = None
+            ; tool_use_tokens = None
+            }
+      ; _
+      } -> true
   | Ok _ | Error _ -> false
 ;;
