@@ -121,6 +121,11 @@ let create_message_stream_detailed
       ()
   : (api_response, Provider_failure_attribution.detailed_error) result
   =
+  let ( let* ) = Result.bind in
+  let configuration_error detail =
+    Provider_failure_attribution.of_provider_configuration_error
+      (Error.Config (InvalidConfig { field = "model_id"; detail }))
+  in
   match Provider.resolve provider with
   | Error error ->
     Error (Provider_failure_attribution.of_provider_configuration_error error)
@@ -128,13 +133,14 @@ let create_message_stream_detailed
     let provider_cfg = provider in
     let provider_id = Provider_runtime_binding.provider_id_of_config provider_cfg in
     let model_spec = Provider.model_spec_of_config provider_cfg in
-    let binding =
+    let* binding =
       Binding_identity.of_resolved_provider
         ~transport:Binding_identity.Http
         ~provider:provider_cfg
         ~base_url
         ~request_path:model_spec.request_path
         ~api_key
+      |> Result.map_error configuration_error
     in
     (match
        Provider.provider_config_of_agent ~state:config ~base_url (Some provider_cfg)

@@ -97,6 +97,22 @@ this tier live under internal subdirectories such as `lib/agent/`,
 `lib/protocol/`, and `lib/llm_provider/`, plus parser/transport helpers that
 external consumers should not depend on directly.
 
+#### Execution-journal migration boundary
+
+`Execution_event` and `Execution_journal` are private implementation modules.
+They are not re-exported by `Agent_sdk`, are not an external extension point,
+and have no supported writer API. Their repository-local regression suite uses
+Dune's internal library alias; that alias is not a supported external API
+contract.
+
+This classification does not claim a runtime behavior upgrade. The current
+production durable-journal authority remains `Durable_event`. A future
+production integration must perform one explicit single-writer hard cut: the
+OAS execution path owns occurrence creation, while Event_bus, Raw_trace,
+durable persistence, and downstream dashboard data consume read projections.
+There must be no interval in which two components independently author the
+same execution history.
+
 ## Verification
 
 ```bash

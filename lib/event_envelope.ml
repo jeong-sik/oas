@@ -51,12 +51,20 @@ let make
       ?(source_clock = Wall)
       ()
   =
-  let event_time = Option.value event_time ~default:(Unix.gettimeofday ()) in
-  { event_id = Option.value event_id ~default:(fresh_id ())
-  ; correlation_id = Option.value correlation_id ~default:(fresh_id ())
-  ; run_id = Option.value run_id ~default:(fresh_id ())
+  let time_or_now = function
+    | Some value -> value
+    | None -> Unix.gettimeofday ()
+  in
+  let event_time = time_or_now event_time in
+  let value_or_fresh = function
+    | Some value -> value
+    | None -> fresh_id ()
+  in
+  { event_id = value_or_fresh event_id
+  ; correlation_id = value_or_fresh correlation_id
+  ; run_id = value_or_fresh run_id
   ; event_time
-  ; observed_at = Option.value observed_at ~default:(Unix.gettimeofday ())
+  ; observed_at = time_or_now observed_at
   ; seq
   ; parent_event_id
   ; caused_by
