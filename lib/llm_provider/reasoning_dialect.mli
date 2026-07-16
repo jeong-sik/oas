@@ -40,6 +40,7 @@ type sampling_policy =
 type replay_policy =
   | No_replay
   | Drop_without_tool_preserve_with_tool
+  | Latest_user_turn_tool_calls
   | Preserve_always
   | Provider_hidden_replay
 
@@ -139,9 +140,11 @@ val sampling_field_ignored_when_thinking
   -> bool
 
 (** Whether an assistant reasoning side-channel should be replayed into a
-    subsequent request. [assistant_had_tool_call] is intentionally explicit:
-    DeepSeek-style thinking requires replay after tool calls but can drop
-    reasoning between plain user turns. *)
+    subsequent request based on message shape. [assistant_had_tool_call] is
+    intentionally explicit: DeepSeek-style thinking requires replay after tool
+    calls but can drop reasoning between plain user turns. Position-sensitive
+    policies are finalized by {!Reasoning_history_projection} from the typed
+    {!replay_contract}; this function reports only shape eligibility. *)
 val should_replay_reasoning : t -> assistant_had_tool_call:bool -> bool
 
 val requires_reasoning_replay_on_tool_call : t -> bool

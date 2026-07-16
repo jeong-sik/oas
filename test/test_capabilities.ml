@@ -509,9 +509,23 @@ let test_lookup_provider_m_qwen3_mtp_explicit_provider () =
        fail "vllm-qwen3-mtp should stream reasoning_content as a typed delta field");
     check
       string
-      "vllm-qwen3-mtp replays tool-call reasoning by default"
-      "drop_without_tool_preserve_with_tool"
-      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+      "vllm-qwen3-mtp scopes tool-call reasoning to the latest user turn"
+      "latest_user_turn_tool_calls"
+      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+    check
+      bool
+      "catalog resolves the closed latest-user replay policy"
+      true
+      (c.reasoning_replay_override = Capabilities.Force_latest_user_turn_tool_calls);
+    (match Capabilities.for_model_id "qwen36-35b-a3b-mtp" with
+     | Some bare ->
+       check
+         bool
+         "bare runtime row resolves the same latest-user replay policy"
+         true
+         (bare.reasoning_replay_override
+          = Capabilities.Force_latest_user_turn_tool_calls)
+     | None -> fail "bare qwen3.6 runtime row should resolve")
   | None -> fail "explicit provider/model lookup should match qwen3.6 model id"
 ;;
 
@@ -1082,6 +1096,7 @@ type structured_contract =
 type replay_contract =
   | Replay_not_required
   | Replay_tool_turn_only
+  | Replay_latest_user_tool_turn_only
   | Replay_every_turn
 
 type streaming_contract =
@@ -1217,6 +1232,29 @@ let check_frontier_model
          (label ^ " requires replay only on tool call")
          true
          (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect)
+     | Replay_latest_user_tool_turn_only ->
+       check
+         string
+         (label ^ " replay policy")
+         "latest_user_turn_tool_calls"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+       check
+         bool
+         (label ^ " drops plain-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " preserves a selected tool-call reasoning artifact")
+         true
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+       check
+         bool
+         (label ^ " requires replay only on a selected tool call")
+         true
+         (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect)
      | Replay_every_turn ->
        check
          string
@@ -1344,7 +1382,7 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , "qwen/qwen3.6-35b-a3b"
       , Extended_thinking
       , Response_format_json_schema
-      , Replay_tool_turn_only
+      , Replay_latest_user_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "Ollama Cloud Qwen3.5"
       , Provider_qualified "ollama_cloud"

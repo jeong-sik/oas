@@ -32,6 +32,7 @@ type reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
+  | Force_latest_user_turn_tool_calls
   | Force_preserve_always
 
 type assistant_tool_content_format =
@@ -301,6 +302,7 @@ let reasoning_replay_table =
   ; "no_replay", Force_no_replay
   ; "drop_without_tool", Force_drop_without_tool_preserve_with_tool
   ; "drop_without_tool_preserve_with_tool", Force_drop_without_tool_preserve_with_tool
+  ; "latest_user_turn_tool_calls", Force_latest_user_turn_tool_calls
   ; "preserve_always", Force_preserve_always
   ]
 ;;

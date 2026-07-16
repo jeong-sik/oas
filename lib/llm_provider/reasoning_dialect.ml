@@ -30,6 +30,7 @@ type sampling_policy =
 type replay_policy =
   | No_replay
   | Drop_without_tool_preserve_with_tool
+  | Latest_user_turn_tool_calls
   | Preserve_always
   | Provider_hidden_replay
 
@@ -190,6 +191,8 @@ let apply_replay_override caps dialect =
   | Force_no_replay -> { dialect with replay_policy = No_replay }
   | Force_drop_without_tool_preserve_with_tool ->
     { dialect with replay_policy = Drop_without_tool_preserve_with_tool }
+  | Force_latest_user_turn_tool_calls ->
+    { dialect with replay_policy = Latest_user_turn_tool_calls }
   | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
 ;;
 
@@ -472,6 +475,7 @@ let replay_contract dialect : Reasoning_replay_contract.t =
     match dialect.replay_policy with
     | No_replay -> Reasoning_replay_contract.No_replay
     | Drop_without_tool_preserve_with_tool -> Tool_call_assistant_messages_all_history
+    | Latest_user_turn_tool_calls -> Tool_call_assistant_messages_latest_user_turn
     | Preserve_always -> All_assistant_messages
     | Provider_hidden_replay -> Provider_opaque_state
   in
@@ -561,7 +565,8 @@ let should_replay_reasoning dialect ~assistant_had_tool_call =
   match dialect.replay_policy with
   | No_replay | Provider_hidden_replay -> false
   | Preserve_always -> true
-  | Drop_without_tool_preserve_with_tool -> assistant_had_tool_call
+  | Drop_without_tool_preserve_with_tool | Latest_user_turn_tool_calls ->
+    assistant_had_tool_call
 ;;
 
 let requires_reasoning_replay_on_tool_call dialect =
@@ -587,6 +592,7 @@ let toggle_wire_to_string = function
 let replay_policy_to_string = function
   | No_replay -> "no_replay"
   | Drop_without_tool_preserve_with_tool -> "drop_without_tool_preserve_with_tool"
+  | Latest_user_turn_tool_calls -> "latest_user_turn_tool_calls"
   | Preserve_always -> "preserve_always"
   | Provider_hidden_replay -> "provider_hidden_replay"
 ;;
@@ -619,6 +625,20 @@ let%test "reasoning_replay_override drop_without_tool replays only on tool turns
   let dialect = of_capabilities caps in
   (not (should_replay_reasoning dialect ~assistant_had_tool_call:false))
   && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test "reasoning_replay_override latest_user_turn stays structurally distinct" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Chat_template_kwargs
+    ; reasoning_replay_override = Capabilities.Force_latest_user_turn_tool_calls
+    }
+  in
+  let dialect = of_capabilities caps in
+  replay_policy_to_string dialect.replay_policy = "latest_user_turn_tool_calls"
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
+  && not (should_replay_reasoning dialect ~assistant_had_tool_call:false)
 ;;
 
 let%test

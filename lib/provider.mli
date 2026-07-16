@@ -76,6 +76,7 @@ type reasoning_replay_override = Llm_provider.Capabilities.reasoning_replay_over
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
+  | Force_latest_user_turn_tool_calls
   | Force_preserve_always
 
 type assistant_tool_content_format =
