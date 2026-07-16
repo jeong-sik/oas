@@ -146,7 +146,7 @@ let declared_qwen_openai_compat_capabilities =
   ; thinking_control_format = CAP.Chat_template_kwargs
   ; preserve_thinking_control_format = CAP.Chat_template_kwargs_preserve_thinking
   ; reasoning_streaming_format = CAP.Delta_reasoning_field "reasoning_content"
-  ; reasoning_replay_override = CAP.Force_drop_without_tool_preserve_with_tool
+  ; reasoning_replay_override = CAP.Force_latest_user_turn_tool_calls
   }
 ;;
 
@@ -316,7 +316,7 @@ let test_qwen36_reasoning_dialect_without_preserve_keeps_tool_reasoning () =
   check
     string
     "replay policy"
-    "drop_without_tool_preserve_with_tool"
+    "latest_user_turn_tool_calls"
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     bool

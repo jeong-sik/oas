@@ -52,6 +52,8 @@ type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
+  | Force_latest_user_turn_tool_calls
+  (** Replay tool-call reasoning only inside the structurally latest user turn. *)
   | Force_preserve_always
 
 type assistant_tool_content_format = Capability_vocab.assistant_tool_content_format =
@@ -1080,6 +1082,8 @@ let%test "reasoning_replay_override_of_catalog_string parses vocabulary" =
   = Some Force_preserve_always
   && reasoning_replay_override_of_catalog_string "drop_without_tool"
      = Some Force_drop_without_tool_preserve_with_tool
+  && reasoning_replay_override_of_catalog_string "latest_user_turn_tool_calls"
+     = Some Force_latest_user_turn_tool_calls
   && reasoning_replay_override_of_catalog_string "no_replay" = Some Force_no_replay
   && reasoning_replay_override_of_catalog_string "" = Some Default_reasoning_replay
   && reasoning_replay_override_of_catalog_string "bogus" = None

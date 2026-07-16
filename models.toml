@@ -2011,7 +2011,7 @@ supports_extended_thinking = true
 thinking_control_format = "chat_template_kwargs"
 preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
 reasoning_streaming_format = "delta:reasoning_content"
-reasoning_replay = "drop_without_tool_preserve_with_tool"
+reasoning_replay = "latest_user_turn_tool_calls"
 supports_response_format_json = true
 supports_structured_output = true
 supports_native_streaming = true
@@ -2040,7 +2040,7 @@ supports_reasoning_budget = true
 thinking_control_format = "chat_template_kwargs"
 preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
 reasoning_streaming_format = "delta:reasoning_content"
-reasoning_replay = "drop_without_tool_preserve_with_tool"
+reasoning_replay = "latest_user_turn_tool_calls"
 supports_native_streaming = true
 
 [[models]]
@@ -2056,7 +2056,7 @@ supports_reasoning_budget = true
 thinking_control_format = "chat_template_kwargs"
 preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
 reasoning_streaming_format = "delta:reasoning_content"
-reasoning_replay = "drop_without_tool_preserve_with_tool"
+reasoning_replay = "latest_user_turn_tool_calls"
 supports_native_streaming = true
 
 # Llama Models

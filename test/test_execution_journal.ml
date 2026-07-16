@@ -222,16 +222,18 @@ let test_recursive_tree_and_global_sequence () =
      check bool "fan-in causes are distinct" false (Event.Event_id.equal attempt child)
    | _ -> fail "tool result did not retain attempt plus child-run fan-in");
   let after_fifteen = cursor_at (Journal.current_cursor journal) 15 in
-  let tail, next = require_ok (Journal.events_after journal ~after:after_fifteen) in
+  let page = require_ok (Journal.read_page journal ~after:after_fifteen ~limit:10 ()) in
+  let tail = page.events in
+  let next = page.next_cursor in
   check int "exclusive cursor" 10 (List.length tail);
   check bool "cursor order" true (List.for_all (fun event -> Event.seq event > 15) tail);
   check int "returned cursor watermark" 25 (Journal.cursor_seq next);
   let ahead = cursor_at next 26 in
-  (match Journal.events_after journal ~after:ahead with
+  (match Journal.read_page journal ~after:ahead ~limit:1 () with
    | Error (Journal.Cursor_ahead { after_seq = 26; last_seq = 25 }) -> ()
    | _ -> fail "a cursor ahead of the journal was silently accepted");
   let foreign = Journal.beginning_cursor (require_ok (Journal.create ())) in
-  (match Journal.events_after journal ~after:foreign with
+  (match Journal.read_page journal ~after:foreign ~limit:1 () with
    | Error Journal.Cursor_scope_mismatch -> ()
    | _ -> fail "a cursor from another journal was silently accepted");
   let expected_correlation = Event.correlation_id (List.hd events) in
@@ -1296,15 +1298,18 @@ let test_abort_run_handles_deep_recursive_composition_iteratively () =
     "every deep recursive node closed"
     (1 + (4 * deep_chain_depth))
     (List.length closed);
-  let all_events, cursor = require_ok (Journal.events_after journal ~after:beginning) in
+  let page =
+    require_ok
+      (Journal.read_page journal ~after:beginning ~limit:(Journal.length journal) ())
+  in
   check
     int
     "deep journal cursor is exact"
-    (List.length all_events)
-    (Journal.cursor_seq cursor)
+    (List.length page.events)
+    (Journal.cursor_seq page.next_cursor)
 ;;
 
-let test_abort_is_cancellation_protected_and_serializes_a_writer () =
+let test_cancelled_abort_does_not_publish_a_partial_batch () =
   Eio_main.run
   @@ fun _env ->
   let journal = require_ok (Journal.create ()) in
@@ -1319,41 +1324,28 @@ let test_abort_is_cancellation_protected_and_serializes_a_writer () =
          ~kind:(Event.Output_block { ordinal = 0; block_kind = Event.Thinking_block }))
   in
   let terminal = Event.Cancelled { reason = Some "test cancellation"; data = None } in
-  let start, release_start = Eio.Promise.create () in
-  let abort_result, resolve_abort = Eio.Promise.create () in
-  let writer_result, resolve_writer = Eio.Promise.create () in
-  Eio.Switch.run (fun sw ->
-    Eio.Fiber.fork ~sw (fun () ->
-      Eio.Promise.await start;
-      let result =
-        Eio.Cancel.sub (fun cancellation ->
-          Eio.Cancel.cancel cancellation Exit;
-          Journal.abort_run journal ~run terminal)
-      in
-      Eio.Promise.resolve resolve_abort result);
-    Eio.Fiber.fork ~sw (fun () ->
-      Eio.Promise.await start;
-      Eio.Promise.resolve
-        resolve_writer
-        (Journal.update_node
-           journal
-           ~node:output
-           (Event.Output_delta (`String "concurrent"))));
-    Eio.Promise.resolve release_start ());
-  let closed = require_ok (Eio.Promise.await abort_result) in
-  check int "abort closes one four-node provider path" 4 (List.length closed);
-  let writer_committed =
-    match Eio.Promise.await writer_result with
-    | Ok _ -> true
-    | Error (Journal.Invariant_violation (Journal.Node_already_closed node_id))
-      when Event.Node_id.equal node_id output -> false
-    | Error error -> fail (Journal.error_to_string error)
+  let before = Journal.length journal in
+  let cancelled =
+    match
+      Eio.Cancel.sub (fun cancellation ->
+        Eio.Cancel.cancel cancellation Exit;
+        ignore (Journal.abort_run journal ~run terminal);
+        false)
+    with
+    | value -> value
+    | exception Eio.Cancel.Cancelled Exit -> true
+    | exception exn -> raise exn
   in
-  check
-    int
-    "writer observes only one side of the abort batch"
-    (if writer_committed then 9 else 8)
-    (Journal.length journal);
+  check bool "cancelled abort exits" true cancelled;
+  check int "cancelled abort publishes no prefix" before (Journal.length journal);
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:output
+          (Event.Output_delta (`String "after-cancellation"))));
+  let closed = require_ok (Journal.abort_run journal ~run terminal) in
+  check int "later abort closes one four-node provider path" 4 (List.length closed);
   check_contiguous (Journal.events journal)
 ;;
 
@@ -1384,6 +1376,157 @@ let test_concurrent_updates_keep_one_sequence () =
   let events = Journal.events journal in
   check int "every update retained" 36 (List.length events);
   check_contiguous events
+;;
+
+let test_batch_stages_immutably_and_publishes_once () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let empty = Journal.begin_batch journal in
+  check int "empty batch has no events" 0 (Journal.batch_length empty);
+  (match Journal.commit_batch empty with
+   | Error Journal.Empty_batch -> ()
+   | Error error -> fail (Journal.error_to_string error)
+   | Ok _ -> fail "an empty batch was committed");
+  let batch, (run, opened_run) =
+    require_ok
+      (Journal.stage empty (Journal.Transaction.start_run ~agent_name:"batched-run" ()))
+  in
+  let batch, (turn, opened_turn) =
+    require_ok
+      (Journal.stage
+         batch
+         (Journal.Transaction.open_node
+            ~run
+            ~parent:(Journal.run_root run)
+            ~kind:(Event.Agent_turn { ordinal = 0 })
+            ()))
+  in
+  check int "two semantic mutations are staged" 2 (Journal.batch_length batch);
+  (match Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded) with
+   | Error (Journal.Invariant_violation (Journal.Node_has_open_children node_id)) ->
+     check
+       bool
+       "invalid stage reports the exact run root"
+       true
+       (Event.Node_id.equal node_id (Journal.run_root run))
+   | Error error -> fail (Journal.error_to_string error)
+   | Ok _ -> fail "an invalid finish entered the batch");
+  check int "rejected stage leaves input batch unchanged" 2 (Journal.batch_length batch);
+  check int "staging does not publish a prefix" 0 (Journal.length journal);
+  (match Journal.find_run journal (Journal.run_id run) with
+   | None -> ()
+   | Some _ -> fail "a staged run was visible before the batch commit");
+  let batch, closed_turn =
+    require_ok
+      (Journal.stage batch (Journal.Transaction.close_node ~node:turn Event.Succeeded))
+  in
+  let batch, closed_run =
+    require_ok (Journal.stage batch (Journal.Transaction.finish_run ~run Event.Succeeded))
+  in
+  check int "valid replacement extends original batch" 4 (Journal.batch_length batch);
+  let committed = require_ok (Journal.commit_batch batch) in
+  check int "all staged events committed together" 4 (List.length committed);
+  check int "one final reducer snapshot is visible" 4 (Journal.length journal);
+  check_contiguous committed;
+  check
+    bool
+    "commit retains staged event identities and order"
+    true
+    (List.equal
+       Event.equal
+       [ opened_run; opened_turn; closed_turn; closed_run ]
+       committed);
+  match Journal.find_run journal (Journal.run_id run) with
+  | Some { status = Journal.Finished { value = Event.Succeeded; _ }; through_seq; _ } ->
+    check int "published projection uses final batch watermark" 4 through_seq
+  | _ -> fail "committed batch did not publish its finished run projection"
+;;
+
+let test_batch_rejects_a_stale_base_without_rebuilding_events () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let batch, (_staged_run, staged_event) =
+    require_ok
+      (Journal.stage
+         (Journal.begin_batch journal)
+         (Journal.Transaction.start_run ~agent_name:"staged-before-race" ()))
+  in
+  let _committed_run, committed_event =
+    require_ok (Journal.start_run journal ~agent_name:"concurrent-winner")
+  in
+  let expect_stale () =
+    match Journal.commit_batch batch with
+    | Error (Journal.Stale_batch { expected_last_seq = 0; actual_last_seq = 1 }) -> ()
+    | Error error -> fail (Journal.error_to_string error)
+    | Ok _ -> fail "a batch from a stale reducer snapshot was committed"
+  in
+  expect_stale ();
+  expect_stale ();
+  check int "stale rejection retains the immutable batch" 1 (Journal.batch_length batch);
+  check int "stale commit does not mutate journal" 1 (Journal.length journal);
+  check
+    bool
+    "staged identity was not substituted for committed state"
+    false
+    (Event.Event_id.equal (Event.event_id staged_event) (Event.event_id committed_event))
+;;
+
+let test_closed_abort_transaction_stages_one_batch () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let terminal = Event.Cancelled { reason = Some "composed abort"; data = None } in
+  let batch, (run, opened_run) =
+    require_ok
+      (Journal.stage
+         (Journal.begin_batch journal)
+         (Journal.Transaction.start_run ~agent_name:"closed-abort" ()))
+  in
+  let batch, (_turn, opened_turn) =
+    require_ok
+      (Journal.stage
+         batch
+         (Journal.Transaction.open_node
+            ~run
+            ~parent:(Journal.run_root run)
+            ~kind:(Event.Agent_turn { ordinal = 0 })
+            ()))
+  in
+  let batch, aborted =
+    require_ok (Journal.stage batch (Journal.Transaction.abort_run ~run terminal))
+  in
+  check
+    int
+    "closed transaction set stages open and terminal events"
+    4
+    (Journal.batch_length batch);
+  (match Journal.stage batch (Journal.Transaction.abort_run ~run terminal) with
+   | Error (Journal.Invariant_violation (Journal.Run_already_finished run_id)) ->
+     check
+       bool
+       "second abort identifies the already-finished run"
+       true
+       (Event.Run_id.equal run_id (Journal.run_id run))
+   | Error error -> fail (Journal.error_to_string error)
+   | Ok _ -> fail "closed abort transaction accepted an already-closed run");
+  check
+    int
+    "rejected abort leaves the staged batch unchanged"
+    4
+    (Journal.batch_length batch);
+  check int "closed transaction is invisible before commit" 0 (Journal.length journal);
+  check int "typed abort closes turn and root" 2 (List.length aborted);
+  let committed = require_ok (Journal.commit_batch batch) in
+  check
+    bool
+    "closed transaction retains exact event identities"
+    true
+    (List.equal Event.equal ([ opened_run; opened_turn ] @ aborted) committed);
+  match Journal.find_run journal (Journal.run_id run) with
+  | Some { status = Journal.Finished { value = Event.Cancelled _; _ }; _ } -> ()
+  | _ -> fail "closed abort transaction did not close its run"
 ;;
 
 let () =
@@ -1427,9 +1570,21 @@ let () =
             `Slow
             test_abort_run_handles_deep_recursive_composition_iteratively
         ; test_case
-            "abort is cancellation-protected and serializes writers"
+            "cancelled abort does not publish a partial batch"
             `Quick
-            test_abort_is_cancellation_protected_and_serializes_a_writer
+            test_cancelled_abort_does_not_publish_a_partial_batch
+        ; test_case
+            "immutable batch rejects a stage and publishes once"
+            `Quick
+            test_batch_stages_immutably_and_publishes_once
+        ; test_case
+            "stale batch is rejected without rebuilding events"
+            `Quick
+            test_batch_rejects_a_stale_base_without_rebuilding_events
+        ; test_case
+            "closed abort transaction stages one batch"
+            `Quick
+            test_closed_abort_transaction_stages_one_batch
         ] )
     ; ( "codec"
       , [ test_case

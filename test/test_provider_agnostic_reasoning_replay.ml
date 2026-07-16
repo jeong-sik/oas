@@ -55,6 +55,29 @@ let content_has_reasoning =
     | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false)
 ;;
 
+let content_has_tool_use =
+  List.exists (function
+    | ToolUse _ -> true
+    | Text _
+    | Thinking _
+    | ReasoningDetails _
+    | RedactedThinking _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> false)
+;;
+
+let tool_result tool_use_id =
+  ToolResult
+    { tool_use_id
+    ; content = "ok"
+    ; outcome = Tool_succeeded
+    ; json = None
+    ; content_blocks = None
+    }
+;;
+
 let test_source_exactness_and_classification () =
   let left = source All_assistant_messages in
   let same = source All_assistant_messages in
@@ -145,6 +168,78 @@ let test_tool_call_policy_applies_across_history () =
       (content_has_reasoning last.content)
 ;;
 
+let test_latest_user_turn_policy_keeps_only_current_tool_reasoning () =
+  let target = source Tool_call_assistant_messages_latest_user_turn in
+  let messages =
+    [ message User [ Text "first request" ]
+    ; with_source
+        target
+        Assistant
+        [ Thinking { content = "old tool reasoning"; signature = None }
+        ; ToolUse { id = "old-call"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; message Tool [ tool_result "old-call" ]
+    ; message User [ Text "current request" ]
+    ; with_source
+        target
+        Assistant
+        [ Thinking { content = "current tool reasoning"; signature = None }
+        ; ToolUse { id = "current-call"; name = "inspect"; input = `Assoc [] }
+        ]
+    ; message Tool [ tool_result "current-call" ]
+    ]
+  in
+  match
+    project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages
+  with
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    check_int
+      "message and tool-result history is lossless"
+      6
+      (List.length projection.messages);
+    check_int
+      "only the older reasoning artifact is dropped"
+      1
+      (List.length projection.reasoning_replay_drops);
+    let old_assistant = List.nth projection.messages 1 in
+    let current_assistant = List.nth projection.messages 4 in
+    check_bool "old tool call remains" true (content_has_tool_use old_assistant.content);
+    check_bool
+      "old reasoning is removed"
+      false
+      (content_has_reasoning old_assistant.content);
+    check_bool
+      "current tool reasoning remains"
+      true
+      (content_has_reasoning current_assistant.content)
+;;
+
+let test_latest_user_turn_policy_without_user_replays_none () =
+  let target = source Tool_call_assistant_messages_latest_user_turn in
+  let messages =
+    [ with_source
+        target
+        Assistant
+        [ Thinking { content = "unscoped reasoning"; signature = None }
+        ; ToolUse { id = "call"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; message Tool [ tool_result "call" ]
+    ]
+  in
+  match
+    project ~target ~policy:Tool_call_assistant_messages_latest_user_turn messages
+  with
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    let assistant = List.hd projection.messages in
+    check_bool "tool call remains" true (content_has_tool_use assistant.content);
+    check_bool
+      "unscoped reasoning is removed"
+      false
+      (content_has_reasoning assistant.content)
+;;
+
 let test_selected_unsupported_block_fails_closed () =
   let target = source All_assistant_messages in
   let result =
@@ -195,10 +290,63 @@ let preserving_capabilities =
   }
 ;;
 
+let latest_user_turn_capabilities =
+  { Capabilities.default_capabilities with
+    supports_reasoning = true
+  ; thinking_control_format = Chat_template_kwargs
+  ; preserve_thinking_control_format = Chat_template_kwargs_preserve_thinking
+  ; reasoning_replay_override = Force_latest_user_turn_tool_calls
+  }
+;;
+
 let source_for_config config =
   match Reasoning_dialect.reasoning_source_for_provider_config config with
   | Ok source -> source
   | Error detail -> Alcotest.fail detail
+;;
+
+let test_explicit_preserve_promotes_latest_user_policy_to_full_history () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"model-a"
+      ~base_url:"https://provider.example"
+      ~model_capabilities_override:latest_user_turn_capabilities
+      ~preserve_thinking:true
+      ()
+  in
+  let source = source_for_config config in
+  let dialect = Reasoning_dialect.for_provider_config config in
+  check_bool
+    "explicit preserve selects all assistant messages"
+    true
+    ((Reasoning_dialect.replay_contract dialect).replay_policy = All_assistant_messages);
+  let messages =
+    [ message User [ Text "first request" ]
+    ; with_source
+        source
+        Assistant
+        [ Thinking { content = "old tool reasoning"; signature = None }
+        ; ToolUse { id = "old-call"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; message Tool [ tool_result "old-call" ]
+    ; message User [ Text "current request" ]
+    ]
+  in
+  match
+    Reasoning_history_projection.project_for_provider_config
+      ~assistant_has_payload:(fun content -> content <> [])
+      ~reasoning_block_supported:reasoning_supported
+      config
+      messages
+  with
+  | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+  | Ok projection ->
+    let old_assistant = List.nth projection.messages 1 in
+    check_bool
+      "explicit preserve retains prior-turn reasoning"
+      true
+      (content_has_reasoning old_assistant.content)
 ;;
 
 let test_openai_chat_request_uses_whole_history_projection () =
@@ -310,7 +458,7 @@ let test_openai_responses_replays_only_opaque_item () =
 let () =
   Alcotest.run
     "provider_agnostic_reasoning_replay"
-    [ ( "typed whole-history replay"
+    [ ( "typed replay projection"
       , [ Alcotest.test_case
             "source exactness"
             `Quick
@@ -323,6 +471,18 @@ let () =
             "tool-call policy"
             `Quick
             test_tool_call_policy_applies_across_history
+        ; Alcotest.test_case
+            "latest user turn policy"
+            `Quick
+            test_latest_user_turn_policy_keeps_only_current_tool_reasoning
+        ; Alcotest.test_case
+            "latest user turn policy requires a user boundary"
+            `Quick
+            test_latest_user_turn_policy_without_user_replays_none
+        ; Alcotest.test_case
+            "explicit preserve promotes latest-user policy"
+            `Quick
+            test_explicit_preserve_promotes_latest_user_policy_to_full_history
         ; Alcotest.test_case
             "unsupported codec fails"
             `Quick

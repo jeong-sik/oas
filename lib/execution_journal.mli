@@ -4,9 +4,9 @@
     recursively invoked beneath it. It owns one global logical sequence across
     that tree. Timestamps are observations only; ordering uses [seq].
 
-    Events remain in memory for the lifetime of [t]. Durable storage and
-    transport are outside this API boundary; consumers obtain immutable event
-    snapshots through [events] or [events_after]. *)
+    Events remain in memory for the lifetime of [t]. A claimed durable writer
+    hides the physical store behind this semantic boundary; consumers obtain
+    immutable event snapshots through [events] or bounded [read_page] calls. *)
 
 type run
 
@@ -59,7 +59,7 @@ type run_view = private
 
 (** Journal-scoped event cursor. A cursor from another journal is rejected even
     when its numeric sequence happens to fit this journal. *)
-type cursor
+type cursor = Execution_event_store.cursor
 
 val cursor_seq : cursor -> int
 val cursor_to_yojson : cursor -> Yojson.Safe.t
@@ -136,14 +136,56 @@ type error =
   | Invalid_argument of string
   | Invalid_event of string
   | Identity_failure of string
+  | Empty_batch
+  | Durable_batch_owner_mismatch
+  | Direct_mutation_forbidden
+  | Durable_writer_owner_mismatch
+  | Durable_store_unavailable
+  | Durable_construction_cleanup_failed of
+      { construction_error : error
+      ; cleanup_error : Execution_event_store.error
+      }
+  | Reconciliation_scope_mismatch
+  | Reconciliation_correlation_mismatch
+  | Reconciliation_content_conflict of
+      { first_seq : int
+      ; last_seq : int
+      }
+  | Reconciliation_conflict of
+      { base_seq : int
+      ; final_seq : int
+      ; current_seq : int
+      }
+  | Reconciliation_store_diverged of
+      { first_seq : int
+      ; last_seq : int
+      }
+  | Projection_index_diverged of
+      { expected_seq : int
+      ; high_watermark : int
+      }
+  | Stale_batch of
+      { expected_last_seq : int
+      ; actual_last_seq : int
+      }
   | Cursor_scope_mismatch
   | Cursor_ahead of
       { after_seq : int
       ; last_seq : int
       }
+  | Persistence_failure of Execution_event_store.error
   | Invariant_violation of invariant_violation
 
 val error_to_string : error -> string
+
+type commit_error_disposition =
+  | Reconcile_required
+  | Final_failure
+
+(** Closed classification for writer actors. This is the only API outside this
+    module that needs to distinguish an authority outcome requiring reopen;
+    callers never inspect store errors or error strings. *)
+val commit_error_disposition : error -> commit_error_disposition
 
 (** Pure immutable reducer used to validate and project the event stream. *)
 module Reducer : sig
@@ -157,14 +199,36 @@ module Reducer : sig
 end
 
 type t
+type durable_writer
 
 (** An immutable, O(1)-captured reducer snapshot. Materializing node histories
     from it does not hold the journal mutex, and every projection shares one
     [through_seq] watermark. *)
 type snapshot
 
-(** Create an empty in-memory execution scope. *)
+(** Create an explicitly volatile execution scope. Durable scopes are created
+    only through {!create_durable_writer}; no caller can obtain an unclaimed
+    durable journal or bypass its claimed writer authority. *)
 val create : ?correlation_id:Execution_event.Correlation_id.t -> unit -> (t, error) result
+
+(** Explicit durable construction. The directory is caller-owned and dedicated
+    to one execution scope; no path or runtime mode is inferred. The abstract
+    capability is the proof required by a durability-owning writer actor. *)
+val create_durable_writer
+  :  sw:Eio.Switch.t
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> ?correlation_id:Execution_event.Correlation_id.t
+  -> unit
+  -> (durable_writer * Execution_event_store.initialization, error) result
+
+val open_durable_writer
+  :  sw:Eio.Switch.t
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> (durable_writer * Execution_event_store.recovery, error) result
+
+(** Read/projection access. Direct mutation functions reject this journal with
+    [Direct_mutation_forbidden]; only typed writer transactions can mutate it. *)
+val durable_writer_journal : durable_writer -> t
 
 val length : t -> int
 val last_seq : t -> int
@@ -172,9 +236,24 @@ val events : t -> Execution_event.t list
 val beginning_cursor : t -> cursor
 val current_cursor : t -> cursor
 
-(** Exclusive global cursor query. Returns the immutable event slice and the
-    cursor at the same captured journal state. *)
-val events_after : t -> after:cursor -> (Execution_event.t list * cursor, error) result
+type page = private
+  { events : Execution_event.t list
+  ; next_cursor : cursor
+  ; high_watermark : cursor
+  ; has_more : bool
+  }
+
+(** Read a bounded immutable projection page. Omitting [through] captures the
+    current journal high watermark; passing that cursor on later calls freezes
+    the projection while new events continue to append. [limit] is a transport
+    resource boundary only and never controls execution admission or lifetime. *)
+val read_page
+  :  t
+  -> after:cursor
+  -> ?through:cursor
+  -> limit:int
+  -> unit
+  -> (page, error) result
 
 val snapshot : t -> snapshot
 val snapshot_cursor : snapshot -> cursor
@@ -182,6 +261,109 @@ val snapshot_find_node : snapshot -> Execution_event.Node_id.t -> node_view opti
 val snapshot_find_run : snapshot -> Execution_event.Run_id.t -> run_view option
 val find_node : t -> Execution_event.Node_id.t -> node_view option
 val find_run : t -> Execution_event.Run_id.t -> run_view option
+
+(** An immutable semantic transaction staged from one exact journal snapshot.
+    Callers can construct only the closed journal mutation set below, never raw
+    events or caller-selected sequence and identity fields. A rejected stage
+    leaves the input [batch] unchanged.
+
+    Event and node identities are allocated while staging and retained by the
+    returned batch. Retrying [commit_batch] therefore submits the exact same
+    canonical events; callers must not rebuild a failed batch to retry durable
+    persistence. *)
+type batch
+
+type batch_metadata = private
+  { base_cursor : cursor
+  ; final_cursor : cursor
+  ; correlation_id : Execution_event.Correlation_id.t
+  }
+
+val begin_batch : t -> batch
+
+(** Capture the claimed writer's current reducer snapshot. *)
+val begin_durable_batch : durable_writer -> batch
+
+val batch_length : batch -> int
+val batch_metadata : batch -> batch_metadata
+
+module Transaction : sig
+  type 'a t
+
+  val start_run
+    :  ?parent_invocation:Execution_event.Node_id.t
+    -> ?causes:Execution_event.cause list
+    -> agent_name:string
+    -> unit
+    -> (run * Execution_event.t) t
+
+  val open_node
+    :  ?causes:Execution_event.cause list
+    -> run:run
+    -> parent:Execution_event.Node_id.t
+    -> kind:Execution_event.node_kind
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t) t
+
+  val update_node
+    :  ?causes:Execution_event.cause list
+    -> node:Execution_event.Node_id.t
+    -> Execution_event.node_update
+    -> Execution_event.t t
+
+  val close_node
+    :  ?causes:Execution_event.cause list
+    -> node:Execution_event.Node_id.t
+    -> Execution_event.terminal
+    -> Execution_event.t t
+
+  val finish_run
+    :  ?causes:Execution_event.cause list
+    -> run:run
+    -> Execution_event.terminal
+    -> Execution_event.t t
+
+  val abort_run
+    :  ?causes:Execution_event.cause list
+    -> run:run
+    -> Execution_event.terminal
+    -> Execution_event.t list t
+end
+
+(** Validate and stage one typed semantic transaction against the batch's
+    current immutable reducer state. The result type is carried by
+    [Transaction.t], allowing a writer actor to pair heterogeneous commands
+    with correctly typed completion tickets. *)
+val stage : batch -> 'a Transaction.t -> (batch * 'a, error) result
+
+(** Commit every staged event with one store append and then publish the final
+    immutable reducer state once. [Stale_batch] is returned before persistence
+    if another mutation has advanced the journal since [begin_batch]. An empty
+    batch is rejected explicitly. [Commit_outcome_unknown] remains a typed
+    {!Persistence_failure}; reconciliation requires reopening the owning store,
+    so this API does not pretend that a live journal can resolve it. *)
+val commit_batch : batch -> (Execution_event.t list, error) result
+
+(** Commit through the exclusive durable writer claim. A batch captured from
+    any other live journal is rejected before persistence. *)
+val commit_durable_batch
+  :  durable_writer
+  -> batch
+  -> (Execution_event.t list, error) result
+
+type durable_batch_reconciliation =
+  | Applied of Execution_event.t list
+  | Already_durable of Execution_event.t list
+
+(** Reconcile one immutable pending batch against a newly reopened writer for
+    the same scope and correlation. At the exact base cursor the original
+    events are applied without regenerating identities. At the exact final
+    cursor the committed range is compared byte-for-byte. No other cursor is
+    inferred or retried. *)
+val reconcile_durable_batch
+  :  durable_writer
+  -> batch
+  -> (durable_batch_reconciliation, error) result
 
 (** Start the journal's sole top-level run, or a child run beneath an existing
     open [Tool_invocation]. Once the top-level run has started, the journal can
@@ -231,15 +413,13 @@ val finish_run
 
 (** Atomically close every open descendant of [run] in post-order and then
     close the run root with the same failure or cancellation terminal. The
-    whole cleanup is cancellation-protected. A journal-local writer gate fences
-    concurrent mutations while traversal and validation run outside the state
-    mutex, so readers remain available and abort cannot starve behind a stream
-    of optimistic retries. It yields between semantic nodes without releasing
-    the journal-local writer fence, allowing unrelated fibers and other journal
-    scopes on the same Eio domain to progress. The immutable final state is
-    published only if every terminal event satisfies the reducer. [Succeeded]
-    is rejected: normal completion must use the explicit close/finish
-    lifecycle. *)
+    staging traversal is cancellable and publishes no partial prefix. A
+    journal-local writer gate fences concurrent mutations while traversal and
+    validation run outside the state mutex. It yields between semantic nodes
+    without releasing that fence, allowing unrelated fibers and other journal
+    scopes on the same Eio domain to progress. Once staging completes, the
+    immutable final state is published atomically. [Succeeded] is rejected:
+    normal completion must use the explicit close/finish lifecycle. *)
 val abort_run
   :  ?causes:Execution_event.cause list
   -> t
