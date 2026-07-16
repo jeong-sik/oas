@@ -989,6 +989,11 @@ let of_yojson json =
 let to_json_string event = Yojson.Safe.to_string (to_yojson event)
 
 let of_json_string encoded =
+  (* The Util exceptions are unreachable while the of_yojson path stays
+     assoc-based; catching them keeps the (t, string) result total if a
+     future decoder edit introduces a Yojson.Safe.Util accessor. *)
   try Yojson.Safe.from_string encoded |> of_yojson with
   | Yojson.Json_error detail -> Error ("invalid execution event JSON: " ^ detail)
+  | Yojson.Safe.Util.Type_error (detail, _) | Yojson.Safe.Util.Undefined (detail, _) ->
+    Error ("invalid execution event JSON: " ^ detail)
 ;;

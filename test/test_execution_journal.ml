@@ -457,6 +457,26 @@ let test_reducer_rejects_correlation_drift () =
   | _ -> fail "execution correlation drift was accepted"
 ;;
 
+let test_open_under_closed_parent_is_parent_node_closed () =
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"closed-parent") in
+  let _agent_turn, attempt = open_provider_attempt journal run in
+  ignore (require_ok (Journal.close_node journal ~node:attempt Event.Succeeded));
+  match
+    Journal.open_node
+      journal
+      ~run
+      ~parent:attempt
+      ~kind:(Event.Output_block { ordinal = 0; block_kind = Event.Text_block })
+  with
+  | Error (Journal.Invariant_violation (Journal.Parent_node_closed parent_id))
+    when Event.Node_id.equal parent_id attempt -> ()
+  | Ok _ -> fail "a child was opened under a closed parent"
+  | Error error -> fail (Journal.error_to_string error)
+;;
+
 let test_hierarchy_and_lifecycle_rejections () =
   Eio_main.run
   @@ fun _env ->
@@ -1378,6 +1398,10 @@ let () =
             "hierarchy and lifecycle violations"
             `Quick
             test_hierarchy_and_lifecycle_rejections
+        ; test_case
+            "closed parent rejects new children as Parent_node_closed"
+            `Quick
+            test_open_under_closed_parent_is_parent_node_closed
         ; test_case
             "concurrent updates share one sequence"
             `Quick
