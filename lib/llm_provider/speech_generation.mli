@@ -12,16 +12,42 @@ type voice =
   | Named of string
   | Custom_id of string
 
-type response =
+type source =
+  | Raw_bytes of string
+  | Inline_base64 of
+      { media_type : string
+      ; data : string
+      }
+  | Remote_url of string
+
+type audio =
   { format : output_format
-  ; audio : string
+  ; source : source
+  ; sample_rate : int option
+  ; channels : int option
   }
 
-(** Generate speech through the OpenAI Speech API.
+type usage =
+  { input_tokens : int option
+  ; output_tokens : int option
+  ; total_tokens : int option
+  ; cached_tokens : int option
+  ; thought_tokens : int option
+  ; tool_use_tokens : int option
+  }
 
-    The model must declare [task = "speech"] in the exact provider catalog.
-    The response contains the raw audio bytes in the requested format. Omission
-    of [timeout_s] installs no OAS deadline. *)
+type response =
+  { provider_response_id : string option
+  ; created_at_rfc3339 : string option
+  ; audios : audio list
+  ; usage : usage option
+  }
+
+(** Generate speech through an exact provider config.
+
+    [OpenAI_compat] uses the OpenAI Speech API. [Gemini] uses a stateless
+    Interactions request. Unsupported provider/format/voice combinations fail
+    before I/O. Omission of [timeout_s] installs no OAS deadline. *)
 val generate
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
