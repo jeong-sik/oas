@@ -149,8 +149,9 @@ val attach : t -> (writer, error) result
     a definite [Stored] result or a typed error; parent cancellation cannot
     split WAL durability, authority replacement, and immutable in-memory
     publication. Reserved runtime exceptions still propagate. If one escapes
-    after authority replacement starts, the live store remains fenced for
-    explicit reconciliation. *)
+    after authority replacement starts, the implementation attempts to fence
+    the live store without hiding the exception; callers must release it and
+    reopen for explicit reconciliation regardless. *)
 val append_batch
   :  writer
   -> expected_next_seq:int
