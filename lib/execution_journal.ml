@@ -1370,6 +1370,70 @@ let stage_close_node ?causes journal state ~node terminal =
       payload
 ;;
 
+let stage_open_tool_invocation
+      journal
+      state
+      ~run
+      ~provider_attempt
+      ~invocation
+      ~tool_name
+      ~input
+  =
+  let* provider_record = node_record_or_error state provider_attempt in
+  let* turn_node =
+    match
+      Event.node_kind provider_record.node, Event.parent_node_id provider_record.node
+    with
+    | Event.Provider_attempt _, Some turn_node -> Ok turn_node
+    | Event.Provider_attempt _, None
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Output_block _
+        | Event.Tool_invocation _
+        | Event.Tool_attempt )
+      , _ ) -> Error (Invalid_argument "tool invocation requires a Provider_attempt node")
+  in
+  let* turn_record = node_record_or_error state turn_node in
+  let* () =
+    match Event.node_kind turn_record.node with
+    | Event.Agent_turn { ordinal } when ordinal = Tool.Invocation.turn invocation -> Ok ()
+    | Event.Agent_turn _ ->
+      Error (Invalid_argument "tool invocation turn does not match its Agent_turn")
+    | Event.Agent_run _
+    | Event.Provider_attempt _
+    | Event.Output_block _
+    | Event.Tool_invocation _
+    | Event.Tool_attempt ->
+      Error (Invalid_argument "provider attempt parent is not an Agent_turn")
+  in
+  let provider_tool_use_id = Some (Tool.Invocation.tool_use_id invocation) in
+  let schedule = Tool.Invocation.schedule invocation in
+  let* opened =
+    stage_open_node
+      journal
+      state
+      ~run
+      ~parent:provider_attempt
+      ~kind:(Event.Tool_invocation { provider_tool_use_id; tool_name; schedule })
+  in
+  let invocation_node, opened_event = opened.value in
+  let input_block =
+    Llm_provider.Types.ToolUse
+      { id = Tool.Invocation.tool_use_id invocation; name = tool_name; input }
+  in
+  let+ materialized =
+    stage_update_node
+      journal
+      opened.next_state
+      ~node:invocation_node
+      (Event.Tool_input_snapshot input_block)
+  in
+  { next_state = materialized.next_state
+  ; events = [ opened_event; materialized.value ]
+  ; value = invocation_node, [ opened_event; materialized.value ]
+  }
+;;
+
 let stage_begin_tool_attempt journal state ~run ~invocation =
   let* invocation_record = node_record_or_error state invocation in
   let* () =
@@ -1592,6 +1656,14 @@ module Transaction = struct
         ; terminal : Event.terminal
         }
         -> Event.t t
+    | Open_tool_invocation :
+        { run : run
+        ; provider_attempt : Event.Node_id.t
+        ; invocation : Tool.Invocation.t
+        ; tool_name : string
+        ; input : Yojson.Safe.t
+        }
+        -> (Event.Node_id.t * Event.t list) t
     | Begin_tool_attempt :
         { run : run
         ; invocation : Event.Node_id.t
@@ -1626,6 +1698,11 @@ module Transaction = struct
 
   let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
   let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
+
+  let open_tool_invocation ~run ~provider_attempt ~invocation ~tool_name ~input () =
+    Open_tool_invocation { run; provider_attempt; invocation; tool_name; input }
+  ;;
+
   let begin_tool_attempt ~run ~invocation () = Begin_tool_attempt { run; invocation }
 
   let settle_tool_attempt ~attempt ~invocation ~result () =
@@ -1660,6 +1737,17 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
   | Transaction.Close_node { causes; node; terminal } ->
     stage_mutation
       (stage_close_node ~causes batch.journal batch.staged_state ~node terminal)
+  | Transaction.Open_tool_invocation
+      { run; provider_attempt; invocation; tool_name; input } ->
+    stage_mutation
+      (stage_open_tool_invocation
+         batch.journal
+         batch.staged_state
+         ~run
+         ~provider_attempt
+         ~invocation
+         ~tool_name
+         ~input)
   | Transaction.Begin_tool_attempt { run; invocation } ->
     stage_mutation
       (stage_begin_tool_attempt batch.journal batch.staged_state ~run ~invocation)

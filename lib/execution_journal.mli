@@ -320,6 +320,17 @@ module Transaction : sig
     -> Execution_event.terminal
     -> Execution_event.t t
 
+  (** Atomically open one exact Tool invocation and materialize its canonical
+      ToolUse input. A rejected input leaves no partial invocation node. *)
+  val open_tool_invocation
+    :  run:run
+    -> provider_attempt:Execution_event.Node_id.t
+    -> invocation:Tool.Invocation.t
+    -> tool_name:string
+    -> input:Yojson.Safe.t
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t list) t
+
   val begin_tool_attempt
     :  run:run
     -> invocation:Execution_event.Node_id.t
