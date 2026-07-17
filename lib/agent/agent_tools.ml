@@ -376,8 +376,14 @@ let find_and_execute_tool_with_index
          { result = validation_error_result ~input message; deferred_failure }
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
+         let invocation =
+           Tool.Invocation.create
+             ~tool_use_id:id
+             ~turn:turn_count
+             ~planned_index:schedule.planned_index
+         in
          let result =
-           try Tool.execute ~context tool exact_input with
+           try Tool.execute ~context ~invocation tool exact_input with
            | exn ->
              Llm_provider.Reserved_exn.reraise_if_reserved exn;
              Error

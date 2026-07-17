@@ -6,6 +6,38 @@
 type tool_handler = Yojson.Safe.t -> Types.tool_result
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
+(** Exact occurrence metadata for correlation and observability only.
+    It does not authorize tool execution. [turn] and [planned_index] scope
+    provider [tool_use_id] values that may be blank or repeated. The embedding
+    runtime owns any broader agent/run identity.
+
+    @since 0.215.0 *)
+module Invocation : sig
+  type t
+
+  val create : tool_use_id:string -> turn:int -> planned_index:int -> t
+  val tool_use_id : t -> string
+  val turn : t -> int
+  val planned_index : t -> int
+end
+
+(** Explicit resources available at one tool execution occurrence.
+    Context and invocation are orthogonal optional capabilities, not mutually
+    exclusive handler variants. Future execution metadata belongs in this
+    record-shaped boundary rather than in additional [handler_kind]
+    constructors.
+
+    @since 0.215.0 *)
+module Execution_env : sig
+  type t
+
+  val create : ?context:Context.t -> ?invocation:Invocation.t -> unit -> t
+  val context : t -> Context.t option
+  val invocation : t -> Invocation.t option
+end
+
+type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
+
 type execution_mode =
   | Concurrent
   | Serial
@@ -19,6 +51,7 @@ type descriptor = { execution_mode : execution_mode }
 type handler_kind =
   | Simple of tool_handler
   | WithContext of context_tool_handler
+  | WithExecutionEnv of execution_env_tool_handler
 
 type t =
   { schema : Types.tool_schema
@@ -42,7 +75,26 @@ val create_with_context
   -> context_tool_handler
   -> t
 
-val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
+(** Creates a raw JSON tool whose handler receives the explicit execution
+    environment. The environment can contain both shared {!Context.t} and exact
+    {!Invocation.t} occurrence metadata.
+
+    @since 0.215.0 *)
+val create_with_execution_env
+  :  ?descriptor:descriptor
+  -> name:string
+  -> description:string
+  -> parameters:Types.tool_param list
+  -> execution_env_tool_handler
+  -> t
+
+val execute
+  :  ?context:Context.t
+  -> ?invocation:Invocation.t
+  -> t
+  -> Yojson.Safe.t
+  -> Types.tool_result
+
 val descriptor : t -> descriptor option
 
 (** Exact declared execution mode, or [Serial] when no descriptor exists. *)

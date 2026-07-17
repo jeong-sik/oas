@@ -8,6 +8,32 @@ type tool_handler = Yojson.Safe.t -> Types.tool_result
 (** Context-aware tool handler *)
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
+module Invocation = struct
+  type t =
+    { tool_use_id : string
+    ; turn : int
+    ; planned_index : int
+    }
+
+  let create ~tool_use_id ~turn ~planned_index = { tool_use_id; turn; planned_index }
+  let tool_use_id t = t.tool_use_id
+  let turn t = t.turn
+  let planned_index t = t.planned_index
+end
+
+module Execution_env = struct
+  type t =
+    { context : Context.t option
+    ; invocation : Invocation.t option
+    }
+
+  let create ?context ?invocation () = { context; invocation }
+  let context t = t.context
+  let invocation t = t.invocation
+end
+
+type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
+
 type execution_mode =
   | Concurrent
   | Serial
@@ -34,6 +60,7 @@ type descriptor = { execution_mode : execution_mode }
 type handler_kind =
   | Simple of tool_handler
   | WithContext of context_tool_handler
+  | WithExecutionEnv of execution_env_tool_handler
 
 type t =
   { schema : tool_schema
@@ -53,8 +80,13 @@ let create_with_context ?descriptor ~name ~description ~parameters handler =
   { schema; descriptor; handler = WithContext handler }
 ;;
 
-(** Execute a tool, optionally passing context *)
-let execute ?context tool input =
+let create_with_execution_env ?descriptor ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; strict = None } in
+  { schema; descriptor; handler = WithExecutionEnv handler }
+;;
+
+(** Execute a tool with the explicit resources required by its handler kind. *)
+let execute ?context ?invocation tool input =
   match tool.handler with
   | Simple f -> f input
   | WithContext f ->
@@ -66,6 +98,7 @@ let execute ?context tool input =
          ; recoverable = false
          ; error_class = Some Deterministic
          })
+  | WithExecutionEnv f -> f (Execution_env.create ?context ?invocation ()) input
 ;;
 
 let descriptor tool = tool.descriptor
@@ -108,6 +141,9 @@ let with_defaults (defaults : (string * Yojson.Safe.t) list) (tool : t) : t =
     match tool.handler with
     | Simple f -> Simple (fun input -> f (inject_defaults input))
     | WithContext f -> WithContext (fun ctx input -> f ctx (inject_defaults input))
+    | WithExecutionEnv f ->
+      WithExecutionEnv
+        (fun execution_env input -> f execution_env (inject_defaults input))
   in
   { tool with handler }
 ;;

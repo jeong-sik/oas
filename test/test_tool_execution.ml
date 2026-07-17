@@ -701,6 +701,57 @@ let test_serial_barrier_splits_concurrent_batches () =
   | _ -> fail "serial tool should separate concurrent batches"
 ;;
 
+let test_dispatch_passes_exact_tool_invocation () =
+  let tool =
+    Tool.create_with_execution_env
+      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~name:"observe_invocation"
+      ~description:"Return exact invocation identity"
+      ~parameters:[]
+      (fun execution_env _ ->
+         match Tool.Execution_env.invocation execution_env with
+         | Some invocation ->
+           Eio.Fiber.yield ();
+           Ok
+             { Types.content =
+                 Printf.sprintf
+                   "%s:%d:%d"
+                   (Tool.Invocation.tool_use_id invocation)
+                   (Tool.Invocation.turn invocation)
+                   (Tool.Invocation.planned_index invocation)
+             ; _meta = None
+             }
+         | None ->
+           Error
+             { Types.message = "missing exact invocation"
+             ; recoverable = false
+             ; error_class = Some Types.Deterministic
+             })
+  in
+  match
+    run_execute_with_tools
+      ~tools:[ tool ]
+      ~hooks:Hooks.empty
+      [ ToolUse
+          { id = "provider-call-duplicate"
+          ; name = "observe_invocation"
+          ; input = `Assoc []
+          }
+      ; ToolUse
+          { id = "provider-call-duplicate"
+          ; name = "observe_invocation"
+          ; input = `Assoc []
+          }
+      ]
+  with
+  | [ first; second ] ->
+    check string "first exact occurrence" "provider-call-duplicate:0:0" first.content;
+    check string "second exact occurrence" "provider-call-duplicate:0:1" second.content;
+    check bool "first tool succeeded" false (tool_result_outcome_is_error first.outcome);
+    check bool "second tool succeeded" false (tool_result_outcome_is_error second.outcome)
+  | _ -> fail "expected two invocation-aware results"
+;;
+
 let test_tool_exception_still_publishes_tool_completed () =
   Eio_main.run
   @@ fun env ->
@@ -770,6 +821,10 @@ let () =
             "unknown tools are uniform validation failures with full diagnostics"
             `Quick
             test_unknown_tool_is_uniform_validation_with_full_diagnostics
+        ; test_case
+            "dispatch passes exact tool invocation"
+            `Quick
+            test_dispatch_passes_exact_tool_invocation
         ] )
     ; ( "non_tool_use_filtering"
       , [ test_case
