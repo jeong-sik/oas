@@ -75,18 +75,41 @@ let test_strategy_and_outcome_constructors () =
 ;;
 
 let test_agent_type_checkpoint_stage_labels () =
-  check_string
-    "assistant collected"
-    "after_assistant_collected"
-    (Internal_agent.checkpoint_stage_to_string After_assistant_collected);
-  check_string
-    "tool results appended"
-    "after_tool_results_appended"
-    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended);
-  check_string
-    "context injection"
-    "after_context_injection"
-    (Internal_agent.checkpoint_stage_to_string After_context_injection)
+  let stages =
+    [ Agent.After_assistant_collected, "after_assistant_collected"
+    ; Agent.After_tool_results_appended, "after_tool_results_appended"
+    ; Agent.After_context_injection, "after_context_injection"
+    ]
+  in
+  List.iter
+    (fun (stage, label) ->
+       check_string "stage label" label (Agent.checkpoint_stage_to_string stage);
+       let json = Agent.checkpoint_stage_to_yojson stage in
+       check_bool "stage JSON label" true (json = `String label);
+       match Agent.checkpoint_stage_of_yojson json with
+       | Ok decoded ->
+         check_bool
+           "stage roundtrip"
+           true
+           (Agent.checkpoint_stage_equal stage decoded)
+       | Error error -> Alcotest.fail error)
+    stages;
+  List.iter
+    (fun (left, _) ->
+       List.iter
+         (fun (right, _) ->
+            check_bool
+              "stage equality"
+              (left = right)
+              (Agent.checkpoint_stage_equal left right))
+         stages)
+    stages;
+  (match Agent.checkpoint_stage_of_yojson (`String "after_tool_execution") with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "unknown checkpoint stage was accepted");
+  match Agent.checkpoint_stage_of_yojson (`Int 1) with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "non-string checkpoint stage was accepted"
 ;;
 
 let test_agent_type_accessors_card_and_state_mutators () =

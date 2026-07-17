@@ -185,6 +185,12 @@ original tag dates. `0.100.4` was never tagged or released.
   re-export. Scripted provider responses remain test-only code, not an SDK
   runtime provider.
 
+### Features
+
+* **checkpoint stages:** expose exhaustive equality and a closed JSON codec for
+  the three public mutation-boundary stages. Unknown labels and non-string
+  values are rejected instead of being reinterpreted.
+
 ### Bug Fixes
 
 * **eval collection:** atomically cancel and drain event-bus subscriptions

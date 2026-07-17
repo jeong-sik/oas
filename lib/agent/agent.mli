@@ -20,6 +20,9 @@ type checkpoint_stage = Agent_types.checkpoint_stage =
   | After_context_injection
 
 val checkpoint_stage_to_string : checkpoint_stage -> string
+val checkpoint_stage_equal : checkpoint_stage -> checkpoint_stage -> bool
+val checkpoint_stage_to_yojson : checkpoint_stage -> Yojson.Safe.t
+val checkpoint_stage_of_yojson : Yojson.Safe.t -> (checkpoint_stage, string) result
 
 type checkpoint_snapshot = Agent_types.checkpoint_snapshot =
   { stage : checkpoint_stage

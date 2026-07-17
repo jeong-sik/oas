@@ -18,6 +18,31 @@ let checkpoint_stage_to_string = function
   | After_context_injection -> "after_context_injection"
 ;;
 
+let checkpoint_stage_equal left right =
+  match left, right with
+  | After_assistant_collected, After_assistant_collected
+  | After_tool_results_appended, After_tool_results_appended
+  | After_context_injection, After_context_injection -> true
+  | After_assistant_collected, (After_tool_results_appended | After_context_injection)
+  | After_tool_results_appended, (After_assistant_collected | After_context_injection)
+  | After_context_injection, (After_assistant_collected | After_tool_results_appended) ->
+    false
+;;
+
+let checkpoint_stage_to_yojson stage = `String (checkpoint_stage_to_string stage)
+
+let checkpoint_stage_of_yojson = function
+  | `String "after_assistant_collected" -> Ok After_assistant_collected
+  | `String "after_tool_results_appended" -> Ok After_tool_results_appended
+  | `String "after_context_injection" -> Ok After_context_injection
+  | `String label -> Error (Printf.sprintf "unknown checkpoint stage: %S" label)
+  | json ->
+    Error
+      (Printf.sprintf
+         "checkpoint stage must be a string, got %s"
+         (Yojson.Safe.to_string json))
+;;
+
 type checkpoint_snapshot =
   { stage : checkpoint_stage
   ; turn : int
