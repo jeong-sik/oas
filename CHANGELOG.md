@@ -260,6 +260,19 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.1](https://github.com/jeong-sik/oas/compare/v0.216.0...v0.216.1) (2026-07-17)
+
+
+### Features
+
+* **llm_provider:** measure prepared completion requests ([#2647](https://github.com/jeong-sik/oas/issues/2647)) ([2fab2fa](https://github.com/jeong-sik/oas/commit/2fab2fa220ef6e1b6b172f12b04e341ac73cf2aa))
+
+
+### Bug Fixes
+
+* **execution:** align tool batch schedule semantics ([#2652](https://github.com/jeong-sik/oas/issues/2652)) ([0b21c5e](https://github.com/jeong-sik/oas/commit/0b21c5e141318e9b0f78e3c475b1ac392f8ce1ed))
+* **execution:** preserve opaque provider tool ids ([#2648](https://github.com/jeong-sik/oas/issues/2648)) ([918899b](https://github.com/jeong-sik/oas/commit/918899bd2a0afb91bb9bfd232955035a59be6182))
+
 ## [0.216.0](https://github.com/jeong-sik/oas/compare/v0.215.0...v0.216.0) (2026-07-17)
 
 
