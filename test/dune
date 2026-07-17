@@ -131,6 +131,7 @@
   test_pipeline_metrics
   test_plan
   test_provider
+  test_provider_admission
   test_provider_failure_attribution
   test_provider_catalog_coverage
   test_provider_config
@@ -296,6 +297,7 @@
   test_pipeline_metrics
   test_plan
   test_provider
+  test_provider_admission
   test_provider_failure_attribution
   test_provider_catalog_coverage
   test_provider_config

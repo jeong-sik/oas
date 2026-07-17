@@ -58,6 +58,7 @@ let%test "gemini_url sync no api_key" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -100,6 +101,7 @@ let%test "gemini_url sync with api_key" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -142,6 +144,7 @@ let%test "gemini_url stream with api_key" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let url = gemini_url ~config ~stream:true in
@@ -185,6 +188,7 @@ let%test "gemini_url stream no api_key" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let url = gemini_url ~config ~stream:true in
@@ -228,6 +232,7 @@ let%test "gemini_url never leaks api_key even when set" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let contains_substring haystack needle =
@@ -284,6 +289,7 @@ let%test "gemini_url empty base_url no trailing slash" =
     ; seed = None
     ; previous_response_id = None
     ; connect_timeout_s = None
+    ; max_concurrent_requests = None
     }
   in
   let url = gemini_url ~config ~stream:false in

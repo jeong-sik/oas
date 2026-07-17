@@ -458,6 +458,21 @@ let validate_thinking_control_request (config : Provider_config.t) =
   else Ok ()
 ;;
 
+(* An admission bound of zero or less would mean "no request may ever
+   dispatch" — a config authoring error, not a throttle. Reject it before
+   dispatch instead of letting Slot_scheduler.create raise mid-request. *)
+let validate_admission_declaration (config : Provider_config.t) =
+  match config.max_concurrent_requests with
+  | None -> Ok ()
+  | Some n when n >= 1 -> Ok ()
+  | Some n ->
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             Printf.sprintf "max_concurrent_requests must be >= 1 when declared, got %d" n
+         })
+;;
+
 let validate_all (config : Provider_config.t) =
   match validate_request_path config with
   | Error _ as e -> e
@@ -470,7 +485,10 @@ let validate_all (config : Provider_config.t) =
         | Ok () ->
           (match validate_reasoning_effort_request config with
            | Error _ as e -> e
-           | Ok () -> validate_thinking_control_request config)))
+           | Ok () ->
+             (match validate_thinking_control_request config with
+              | Error _ as e -> e
+              | Ok () -> validate_admission_declaration config))))
 ;;
 
 let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tools =

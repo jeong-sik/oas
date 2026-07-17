@@ -78,6 +78,7 @@ type t =
   ; seed : int option
   ; previous_response_id : string option
   ; connect_timeout_s : float option
+  ; max_concurrent_requests : int option
   }
 
 let make
@@ -116,6 +117,7 @@ let make
       ?seed
       ?previous_response_id
       ?connect_timeout_s
+      ?max_concurrent_requests
       ()
   =
   let response_format =
@@ -180,6 +182,7 @@ let make
   ; seed
   ; previous_response_id
   ; connect_timeout_s
+  ; max_concurrent_requests
   }
 ;;
 
