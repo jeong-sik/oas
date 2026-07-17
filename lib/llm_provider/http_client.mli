@@ -152,6 +152,17 @@ type http_error =
   | HttpError of
       { code : int
       ; body : string
+      ; retry_after_header : float option
+        (** Parsed [Retry-After] response header (RFC 9110 S10.2.3), resolved
+          to a delay in seconds relative to when the response was observed.
+          [None] when the header was absent, malformed, or when the call
+          site producing this error only has [(code, body)] available and
+          never saw response headers (see {!get_sync}/{!post_sync}, whose
+          callers construct [HttpError] themselves without header access).
+          This is diagnostic transport evidence only; provider-specific
+          JSON body fields (e.g. an [error.retry_after] number) remain the
+          more precise signal and take priority over this field wherever
+          both are consulted. *)
       }
   | NetworkError of
       { message : string
@@ -443,6 +454,19 @@ val read_ndjson
     (ephemeral port depletion, FD limit).  Cascading to another
     provider cannot help — the bottleneck is the local machine. *)
 val is_local_resource_exhaustion : http_error -> bool
+
+(** Parse an HTTP [Retry-After] header value (RFC 9110 S10.2.3) into a
+    delay in seconds. Accepts either grammar the spec allows:
+    - [delay-seconds]: a non-negative integer, returned as-is.
+    - [HTTP-date] (IMF-fixdate, e.g. ["Sun, 06 Nov 1994 08:49:37 GMT"]):
+      converted to a delay relative to [now] (a Unix timestamp in
+      seconds); a date at or before [now] yields [0.0] rather than a
+      negative delay.
+
+    Obsolete HTTP-date forms (RFC 850, asctime) and any value that is
+    neither a bare non-negative integer nor IMF-fixdate are malformed and
+    return [None]. Never raises. *)
+val parse_retry_after_seconds : now:float -> string -> float option
 
 (** Inject ["stream": true] into a JSON body string.
     Any caller-supplied [stream] is replaced to avoid duplicate object keys. *)

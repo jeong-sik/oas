@@ -4,7 +4,7 @@ module Retry = Llm_provider.Retry
 module Http_client = Llm_provider.Http_client
 
 type provider_error =
-  [ `Rate_limited of float option
+  [ `Rate_limited of float option * string (** retry_after seconds, message *)
   | `Auth_error of string
   | `Authorization_error of string
   | `Server_error of int * string
@@ -75,7 +75,7 @@ let is_streaming_timeout_phase = function
 
 let of_api_error (err : Retry.api_error) : provider_error =
   match err with
-  | Retry.RateLimited r -> `Rate_limited r.retry_after
+  | Retry.RateLimited r -> `Rate_limited (r.retry_after, r.message)
   | Retry.AuthError r -> `Auth_error r.message
   | Retry.AuthorizationError r -> `Authorization_error r.message
   | Retry.ServerError r -> `Server_error (r.status, r.message)
@@ -94,8 +94,8 @@ let of_api_error (err : Retry.api_error) : provider_error =
 
 let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error =
   match err with
-  | Llm_provider.Error.RateLimit r -> `Rate_limited r.retry_after
-  | Llm_provider.Error.HardQuota r -> `Rate_limited r.retry_after
+  | Llm_provider.Error.RateLimit r -> `Rate_limited (r.retry_after, r.detail)
+  | Llm_provider.Error.HardQuota r -> `Rate_limited (r.retry_after, r.detail)
   | Llm_provider.Error.AuthError r -> `Auth_error r.detail
   | Llm_provider.Error.AuthorizationError r -> `Authorization_error r.detail
   | Llm_provider.Error.ServerError r -> `Server_error (r.code, r.detail)
@@ -147,8 +147,8 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
 (* ── Conversion back to Error.sdk_error ─────────────────── *)
 
 let provider_to_sdk : provider_error -> Error.sdk_error = function
-  | `Rate_limited after ->
-    Error.Api (Retry.RateLimited { retry_after = after; message = "rate limited" })
+  | `Rate_limited (after, message) ->
+    Error.Api (Retry.RateLimited { retry_after = after; message })
   | `Auth_error msg -> Error.Api (Retry.AuthError { message = msg })
   | `Authorization_error msg -> Error.Api (Retry.AuthorizationError { message = msg })
   | `Server_error (status, msg) -> Error.Api (Retry.ServerError { status; message = msg })

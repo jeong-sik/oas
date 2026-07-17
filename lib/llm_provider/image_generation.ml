@@ -342,7 +342,8 @@ let generate
      | Ok (code, response_body) when code >= 200 && code < 300 ->
        parse_response ~protocol response_body
      | Ok (code, response_body) ->
-       Error (Http_client.HttpError { code; body = response_body }))
+       Error
+         (Http_client.HttpError { code; body = response_body; retry_after_header = None }))
 ;;
 
 let test_caps task = { Capabilities.default_capabilities with task }

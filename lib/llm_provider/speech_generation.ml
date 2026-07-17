@@ -299,7 +299,8 @@ let generate
                  ; usage = None
                  }
            | Gemini_interaction -> parse_gemini_response format response_body)
-        | Ok (code, body) -> Error (Http_client.HttpError { code; body })))
+        | Ok (code, body) ->
+          Error (Http_client.HttpError { code; body; retry_after_header = None })))
 ;;
 
 let test_caps task = { Capabilities.default_capabilities with task }

@@ -12,16 +12,32 @@ let test_roundtrip_api_rate_limited () =
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Rate_limited (Some 1.5) -> ()
-   | _ -> Alcotest.fail "expected Rate_limited");
+   | `Rate_limited (Some 1.5, "slow down") -> ()
+   | _ -> Alcotest.fail "expected Rate_limited (Some 1.5, \"slow down\")");
   let back = Error_domain.to_sdk_error poly in
-  (* Message is lost in roundtrip — by design, poly variants are lightweight *)
-  Alcotest.(check bool)
-    "is Api"
-    true
-    (match back with
-     | Error.Api _ -> true
-     | _ -> false)
+  Alcotest.(check bool) "roundtrip is exact" true (orig = back)
+;;
+
+(* oas 429 typed completion (2026-07): incident context — Ollama's actual
+   429 body ("too many concurrent requests") was collapsed into the
+   hardcoded literal "rate limited" by [provider_to_sdk] (the [to_sdk_error]
+   path for provider errors) because the [`Rate_limited] poly variant only
+   carried [float option], discarding the message on the way into
+   [Error_domain]. Counterfactual: reverting the payload back to a bare
+   [float option] makes this test fail to compile (the message field would
+   not exist to check). *)
+let test_provider_to_sdk_preserves_rate_limit_message () =
+  let poly : Error_domain.sdk_error_poly =
+    `Rate_limited (Some 3.0, "too many concurrent requests")
+  in
+  match Error_domain.to_sdk_error poly with
+  | Error.Api (Retry.RateLimited { retry_after; message }) ->
+    Alcotest.(check (option (float 0.001))) "retry_after preserved" (Some 3.0) retry_after;
+    Alcotest.(check string)
+      "provider message preserved (not the hardcoded literal)"
+      "too many concurrent requests"
+      message
+  | _ -> Alcotest.fail "expected Error.Api (Retry.RateLimited _)"
 ;;
 
 let test_roundtrip_config_missing_env () =
@@ -66,7 +82,7 @@ let test_retryable_rate_limited () =
   Alcotest.(check bool)
     "rate_limited retryable"
     true
-    (Error_domain.is_retryable (`Rate_limited (Some 1.0)))
+    (Error_domain.is_retryable (`Rate_limited (Some 1.0, "slow down")))
 ;;
 
 let test_retryable_server_error () =
@@ -111,8 +127,8 @@ let test_to_string_nonempty () =
 let test_to_string_each_variant () =
   (* Verify to_string produces non-empty strings for every variant *)
   let variants : Error_domain.sdk_error_poly list =
-    [ `Rate_limited (Some 2.0)
-    ; `Rate_limited None
+    [ `Rate_limited (Some 2.0, "slow down")
+    ; `Rate_limited (None, "no retry hint")
     ; `Auth_error "forbidden"
     ; `Authorization_error "permission refused"
     ; `Server_error (503, "unavailable")
@@ -150,7 +166,7 @@ let test_to_string_each_variant () =
 
 let test_all_variants_convert () =
   let all_polys : Error_domain.sdk_error_poly list =
-    [ `Rate_limited None
+    [ `Rate_limited (None, "x")
     ; `Auth_error "x"
     ; `Authorization_error "x"
     ; `Server_error (500, "x")
@@ -751,8 +767,8 @@ let test_to_sdk_error_tool_timeout () =
 let test_provider_roundtrip_all_via_to_sdk () =
   (* Test that all provider_error variants roundtrip through to_sdk_error *)
   let variants : Error_domain.provider_error list =
-    [ `Rate_limited (Some 1.0)
-    ; `Rate_limited None
+    [ `Rate_limited (Some 1.0, "slow down")
+    ; `Rate_limited (None, "no retry hint")
     ; `Auth_error "x"
     ; `Authorization_error "x"
     ; `Server_error (500, "x")
@@ -784,6 +800,10 @@ let () =
     "Error_domain"
     [ ( "roundtrip"
       , [ Alcotest.test_case "api rate_limited" `Quick test_roundtrip_api_rate_limited
+        ; Alcotest.test_case
+            "provider_to_sdk preserves rate limit message"
+            `Quick
+            test_provider_to_sdk_preserves_rate_limit_message
         ; Alcotest.test_case "api auth_error" `Quick test_roundtrip_api_auth_error
         ; Alcotest.test_case
             "api authorization_error"

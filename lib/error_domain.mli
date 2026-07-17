@@ -13,7 +13,7 @@
 
       (* Callers only handle relevant variants *)
       match result with
-      | Error (`Rate_limited r) -> retry r
+      | Error (`Rate_limited (retry_after, _message)) -> retry retry_after
       | Error (`Auth_error msg) -> fail msg
       | Ok response -> ...
     ]}
@@ -22,7 +22,7 @@
 (** {1 Provider errors} *)
 
 type provider_error =
-  [ `Rate_limited of float option (** retry_after seconds *)
+  [ `Rate_limited of float option * string (** retry_after seconds, message *)
   | `Auth_error of string
   | `Authorization_error of string
   | `Server_error of int * string (** status, message *)

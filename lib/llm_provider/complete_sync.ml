@@ -130,6 +130,7 @@ let complete_http
                      body_len
                      body_str.[0]
                      body_str.[body_len - 1]
+               ; retry_after_header = None
                })
         , None ))
       else (
@@ -184,16 +185,24 @@ let complete_http
                 | Provider_http_codec.Ollama_chat ->
                   (match Backend_ollama.parse_ollama_response body with
                    | Ok resp -> Ok resp
-                   | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
+                   | Error msg ->
+                     Error
+                       (Http_client.HttpError
+                          { code = 400; body = msg; retry_after_header = None }))
                 | Provider_http_codec.Openai_responses ->
                   (match Backend_openai_responses.parse_response_result body with
                    | Ok resp -> Ok resp
-                   | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
+                   | Error msg ->
+                     Error
+                       (Http_client.HttpError
+                          { code = 400; body = msg; retry_after_header = None }))
                 | Provider_http_codec.Openai_chat ->
                   (match Backend_openai_parse.parse_openai_response_result body with
                    | Ok resp -> Ok resp
                    | Error (Backend_openai_parse.Provider_error msg) ->
-                     Error (Http_client.HttpError { code = 400; body = msg })
+                     Error
+                       (Http_client.HttpError
+                          { code = 400; body = msg; retry_after_header = None })
                    | Error (Backend_openai_parse.Empty_completion e) ->
                      (* oas#2483: fail closed through the same typed transport
                         fact as streaming. Policy remains downstream of the
@@ -221,7 +230,11 @@ let complete_http
               | Backend_gemini.Gemini_api_error msg ->
                 Diag.error "complete" "Gemini API error: %s" msg;
                 Error
-                  (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
+                  (Http_client.HttpError
+                     { code = 400
+                     ; body = "Gemini API error: " ^ msg
+                     ; retry_after_header = None
+                     })
               | Backend_glm.Glm_api_error err ->
                 (match err.origin with
                  | Backend_glm.Response_parse ->
@@ -250,13 +263,18 @@ let complete_http
                         "Glm API error (code absent class=%d): %s"
                         semantic_code
                         err.message);
-                   Error (Http_client.HttpError { code = semantic_code; body }))
+                   Error
+                     (Http_client.HttpError
+                        { code = semantic_code; body; retry_after_header = None }))
               | exn ->
                 let exn_str = Printexc.to_string exn in
                 Diag.error "complete" "Unexpected parsing exception: %s" exn_str;
                 Error
                   (Http_client.HttpError
-                     { code = 500; body = "Unexpected parsing exception: " ^ exn_str }))
+                     { code = 500
+                     ; body = "Unexpected parsing exception: " ^ exn_str
+                     ; retry_after_header = None
+                     }))
             else (
               (* Log request body diagnostics on error responses to help debug
              Ollama "closing '}' symbol" and similar body-rejection errors. *)
@@ -309,7 +327,7 @@ let complete_http
               let body =
                 http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
               in
-              Error (Http_client.HttpError { code; body }))
+              Error (Http_client.HttpError { code; body; retry_after_header = None }))
         in
         let latency_ms = latency_ms_int latency_counter in
         result, latency_ms))

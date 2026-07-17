@@ -561,7 +561,7 @@ let test_error_domain_retryable () =
   Alcotest.(check bool)
     "rate limited retryable"
     true
-    (Error_domain.is_retryable (`Rate_limited (Some 1.0)));
+    (Error_domain.is_retryable (`Rate_limited (Some 1.0, "slow down")));
   Alcotest.(check bool)
     "network retryable"
     true

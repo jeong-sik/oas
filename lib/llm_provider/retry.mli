@@ -45,4 +45,23 @@ type api_error =
 
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
-val classify_error : status:int -> body:string -> api_error
+
+(** Merge a provider's structured [retry_after] evidence: the JSON body's
+    [error.retry_after] field wins when present (provider-specific, more
+    precise); the transport's parsed [Retry-After] response header
+    ({!Http_client.parse_retry_after_seconds}) is the fallback. [None] when
+    neither is present or parseable. *)
+val resolve_retry_after : body:string -> header:float option -> float option
+
+(** [retry_after_header] carries the transport's parsed [Retry-After]
+    response header, if any ({!Http_client.HttpError.retry_after_header}).
+    Required (not optional-with-default) so every call site states
+    explicitly whether header evidence was available, rather than
+    silently defaulting to [None]. On the 429 branch it is merged via
+    {!resolve_retry_after}; on other branches it is unused (those statuses
+    do not carry an HTTP-level retry hint in this classification). *)
+val classify_error
+  :  retry_after_header:float option
+  -> status:int
+  -> body:string
+  -> api_error
