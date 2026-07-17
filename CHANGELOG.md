@@ -260,6 +260,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.2](https://github.com/jeong-sik/oas/compare/v0.216.1...v0.216.2) (2026-07-17)
+
+
+### Bug Fixes
+
+* **llm_provider:** promote empty-completion overflow in of_http_error ([#2659](https://github.com/jeong-sik/oas/issues/2659)) ([ded9bc7](https://github.com/jeong-sik/oas/commit/ded9bc7ec21e69e4627cdeb10cf758b32cefdd25))
+
 ## [0.216.1](https://github.com/jeong-sik/oas/compare/v0.216.0...v0.216.1) (2026-07-17)
 
 
