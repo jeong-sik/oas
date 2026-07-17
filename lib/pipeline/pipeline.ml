@@ -404,14 +404,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty
               ~tool_name:(Some tool_name)
               ~tool_use_id:(Some (Tool.Invocation.tool_use_id invocation))
               ~detail)
-       | Some (Agent_tools.Observer_failure { invocation; exception_; backtrace }) ->
-         Log.error
-           _log
-           "tool observer failed"
-           [ Log.S ("tool_use_id", Tool.Invocation.tool_use_id invocation)
-           ; Log.I ("turn", Tool.Invocation.turn invocation)
-           ; Log.I ("planned_index", Tool.Invocation.planned_index invocation)
-           ];
+       | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
        | None ->
          (match agent.options.context_injector with

@@ -46,6 +46,13 @@ type execution_failure =
 
 let observer_failure ~invocation exception_ backtrace =
   Llm_provider.Reserved_exn.reraise_if_reserved exception_;
+  Log.error
+    _log
+    "tool observer failed"
+    [ Log.S ("tool_use_id", Tool.Invocation.tool_use_id invocation)
+    ; Log.I ("turn", Tool.Invocation.turn invocation)
+    ; Log.I ("planned_index", Tool.Invocation.planned_index invocation)
+    ];
   Observer_failure { invocation; exception_; backtrace }
 ;;
 
@@ -260,8 +267,7 @@ let invoke_post_hook
                    (Hooks.decision_kind_to_string (Hooks.classify_decision decision)))))
   with
   | Hook_observer_raised (exception_, backtrace) ->
-    Llm_provider.Reserved_exn.reraise_if_reserved exception_;
-    Some (Observer_failure { invocation; exception_; backtrace })
+    Some (observer_failure ~invocation exception_ backtrace)
 ;;
 
 let resolve_dispatch dispatch =
