@@ -64,3 +64,71 @@ let count_anthropic
   | Provider_config.DashScope ->
     Error (Input_token_count.Unsupported { protocol; model_id = config.model_id })
 ;;
+
+type completion_request_measurement =
+  { input_count : Input_token_count.count
+  ; output_token_receipt : Types.output_token_receipt
+  }
+
+type completion_request_error =
+  | Input_count_failed of Input_token_count.error
+  | Output_token_resolution_failed of Types.required_output_token_error
+  | Invalid_completion_request of string
+
+let measure_completion_request
+      ?connection_cache
+      ?clock
+      ?timeout_s
+      ~sw
+      ~net
+      (request : Llm_transport.completion_request)
+  =
+  let config = request.config in
+  match config.kind with
+  | Provider_config.Anthropic ->
+    let artifact =
+      try
+        Backend_anthropic.build_request_artifact
+          ~config
+          ~messages:request.messages
+          ~tools:request.tools
+          ()
+        |> Result.map_error (fun error -> Output_token_resolution_failed error)
+      with
+      | Invalid_argument detail -> Error (Invalid_completion_request detail)
+    in
+    (match artifact with
+     | Error _ as error -> error
+     | Ok artifact ->
+       (match
+          count_anthropic
+            ?connection_cache
+            ?clock
+            ?timeout_s
+            ~sw
+            ~net
+            ~config
+            ~messages:request.messages
+            ~tools:request.tools
+            ()
+        with
+        | Error error -> Error (Input_count_failed error)
+        | Ok input_count ->
+          Ok
+            { input_count
+            ; output_token_receipt =
+                Backend_anthropic.request_output_token_receipt artifact
+            }))
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope ->
+    Error
+      (Input_count_failed
+         (Input_token_count.Unsupported
+            { protocol = Input_token_count.Anthropic_messages_count_tokens
+            ; model_id = config.model_id
+            }))
+;;

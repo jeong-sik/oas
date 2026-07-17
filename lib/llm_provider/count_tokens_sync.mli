@@ -30,3 +30,39 @@ val count_anthropic
   -> ?tools:Yojson.Safe.t list
   -> unit
   -> (Input_token_count.count, Input_token_count.error) result
+
+(** Exact provider-owned measurement of one fully prepared completion request.
+
+    The caller supplies the immutable {!Llm_transport.completion_request} that
+    reached its transport boundary, after Agent turn hooks, tool projection,
+    and caller-owned message projection. The input count uses the provider's
+    native count endpoint. The output receipt comes from the opaque completion
+    request artifact built from the same config, messages, and tools.
+
+    This is a lower-level transport-adapter primitive. Application callers
+    must not reconstruct a completion request to call it: final Agent-level
+    fit admission must measure the same opaque prepared request that it later
+    dispatches. This function neither dispatches nor returns that artifact, so
+    its receipt alone does not prove a later dispatch reused the measured
+    request value.
+
+    Unsupported provider protocols fail before I/O. No character estimate,
+    context-window fallback, fit policy, retry, or truncation is performed. *)
+type completion_request_measurement = private
+  { input_count : Input_token_count.count
+  ; output_token_receipt : Types.output_token_receipt
+  }
+
+type completion_request_error =
+  | Input_count_failed of Input_token_count.error
+  | Output_token_resolution_failed of Types.required_output_token_error
+  | Invalid_completion_request of string
+
+val measure_completion_request
+  :  ?connection_cache:Http_client.cache
+  -> ?clock:_ Eio.Time.clock
+  -> ?timeout_s:float
+  -> sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> Llm_transport.completion_request
+  -> (completion_request_measurement, completion_request_error) result
