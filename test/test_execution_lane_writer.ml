@@ -7,11 +7,13 @@ module Codec = Internal.Execution_codec_executor
 module Journal = Internal.Execution_journal
 module Store = Internal.Execution_event_store
 module Writer = Internal.Execution_lane_writer
+module Settlement = Internal.Execution_tool_settlement
 module Tx = Journal.Transaction
 
 exception Cancel_waiter
 exception Cancel_scope
 exception Callback_failed
+exception Effect_raised
 
 let require_submit = function
   | Ok ticket -> ticket
@@ -169,6 +171,104 @@ let open_output writer =
 
 let delta_transaction output index =
   Tx.update_node ~node:output (Event.Output_delta (`Assoc [ "index", `Int index ]))
+;;
+
+let test_effect_attempt_and_settlement_survive_restart () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let restart_pairs = ref None in
+    let result =
+      Types.ToolResult
+        { tool_use_id = "call-0"
+        ; content = "done"
+        ; outcome = Types.Tool_succeeded
+        ; json = None
+        ; content_blocks = None
+        }
+    in
+    with_fresh codec dir (fun _sw writer ->
+      let value transaction = (submit_and_await writer transaction).value in
+      let run, _ = value (Tx.start_run ~agent_name:"effect" ()) in
+      let turn, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 1 })
+             ())
+      in
+      let provider, _ =
+        value (Tx.open_node ~run ~parent:turn ~kind:(provider_attempt 0) ())
+      in
+      let open_invocation planned_index =
+        let schedule : Tool.schedule =
+          { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
+        in
+        let tool_use_id = Printf.sprintf "call-%d" planned_index in
+        let node, _ =
+          value
+            (Tx.open_node
+               ~run
+               ~parent:provider
+               ~kind:
+                 (Event.Tool_invocation
+                    { provider_tool_use_id = Some tool_use_id
+                    ; tool_name = "effect"
+                    ; schedule
+                    })
+               ())
+        in
+        let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+        (match Settlement.create ~writer ~invocation_node:node ~invocation with
+         | Error Settlement.Invocation_identity_mismatch -> ()
+         | Ok _ | Error _ -> fail "unmaterialized invocation gained effect authority");
+        ignore
+          (value
+             (Tx.update_node
+                ~node
+                (Event.Tool_input_snapshot
+                   (Types.ToolUse { id = tool_use_id; name = "effect"; input = `Null }))));
+        node, invocation
+      in
+      let authority (node, invocation) =
+        match Settlement.create ~writer ~invocation_node:node ~invocation with
+        | Ok authority -> authority
+        | Error _ -> fail "durable invocation authority rejected exact identity"
+      in
+      let first_pair = open_invocation 0 in
+      let first = authority first_pair in
+      let seq () = Journal.cursor_seq (Result.get_ok (Writer.current_cursor writer)) in
+      let before_seq = seq () in
+      (match
+         Settlement.execute first ~invoke:(fun () ->
+           check int "attempt durable" (before_seq + 1) (seq ());
+           result)
+       with
+       | Ok (Settlement.Executed (_committed, through, event_count)) ->
+         check int "one settlement batch" 3 event_count;
+         check int "four durable events" (before_seq + 4) (Journal.cursor_seq through)
+       | Ok (Settlement.Replayed _) | Error _ -> fail "fresh effect did not settle");
+      let second_pair = open_invocation 1 in
+      let second = authority second_pair in
+      match Settlement.execute second ~invoke:(fun () -> raise Effect_raised) with
+      | exception Effect_raised -> restart_pairs := Some (first_pair, second_pair)
+      | Ok _ | Error _ -> fail "effect exception did not propagate");
+    let first_pair, second_pair = Option.get !restart_pairs in
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let authority (node, invocation) =
+        Result.get_ok (Settlement.create ~writer ~invocation_node:node ~invocation)
+      in
+      let never () = fail "effect reran" in
+      (match Settlement.execute (authority first_pair) ~invoke:never with
+       | Ok (Settlement.Replayed replayed) when replayed = result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "restart lost settlement");
+      match Settlement.execute (authority second_pair) ~invoke:never with
+      | Error Settlement.Effect_outcome_unknown -> ()
+      | Ok _ | Error _ -> fail "restart did not fence unknown effect"))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -1083,6 +1183,10 @@ let () =
             "semantic rejection does not poison ready group"
             `Quick
             test_semantic_rejection_does_not_poison_ready_group
+        ; test_case
+            "effect attempt and settlement survive restart"
+            `Quick
+            test_effect_attempt_and_settlement_survive_restart
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick

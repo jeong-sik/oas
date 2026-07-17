@@ -1370,6 +1370,73 @@ let stage_close_node ?causes journal state ~node terminal =
       payload
 ;;
 
+let stage_begin_tool_attempt journal state ~invocation =
+  let* invocation_record = node_record_or_error state invocation in
+  let* run =
+    match Event.node_kind invocation_record.node, invocation_record.children_rev with
+    | Event.Tool_invocation _, [] ->
+      let run_id = Event.node_run_id invocation_record.node in
+      (match Reducer.find_run state.reducer run_id with
+       | Some { run; status = Running; _ } -> Ok run
+       | Some { status = Finished _; _ } ->
+         Error (Invariant_violation (Run_already_finished run_id))
+       | None -> Error (Invariant_violation (Unknown_run run_id)))
+    | Event.Tool_invocation _, _ :: _ ->
+      Error (Invalid_argument "tool invocation already has an attempt")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_attempt )
+      , _ ) -> Error (Invalid_argument "tool attempt requires a Tool_invocation node")
+  in
+  stage_open_node journal state ~run ~parent:invocation ~kind:Event.Tool_attempt
+;;
+
+let stage_settle_tool_attempt journal state ~attempt ~invocation ~result =
+  let* attempt_record = node_record_or_error state attempt in
+  let* () =
+    match
+      Event.node_kind attempt_record.node, Event.parent_node_id attempt_record.node
+    with
+    | Event.Tool_attempt, Some parent when Event.Node_id.equal parent invocation -> Ok ()
+    | Event.Tool_attempt, (None | Some _) ->
+      Error (Invalid_argument "tool attempt does not belong to the invocation")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_invocation _ )
+      , _ ) -> Error (Invalid_argument "tool settlement requires a Tool_attempt node")
+  in
+  let* invocation_record = node_record_or_error state invocation in
+  let* () =
+    match Event.node_kind invocation_record.node with
+    | Event.Tool_invocation _ -> Ok ()
+    | Event.Agent_run _
+    | Event.Agent_turn _
+    | Event.Provider_attempt _
+    | Event.Output_block _
+    | Event.Tool_attempt ->
+      Error (Invalid_argument "tool settlement requires a Tool_invocation node")
+  in
+  let* attempt_closed = stage_close_node journal state ~node:attempt Event.Succeeded in
+  let* result_committed =
+    stage_update_node
+      journal
+      attempt_closed.next_state
+      ~node:invocation
+      (Event.Tool_result result)
+  in
+  let+ invocation_closed =
+    stage_close_node journal result_committed.next_state ~node:invocation Event.Succeeded
+  in
+  { next_state = invocation_closed.next_state
+  ; events = [ attempt_closed.value; result_committed.value; invocation_closed.value ]
+  ; value = [ attempt_closed.value; result_committed.value; invocation_closed.value ]
+  }
+;;
+
 let stage_finish_run ?causes journal state ~run terminal =
   let* event_id = identity_result (Event.Event_id.fresh ()) in
   let* terminal = payload_result (Event.validate_terminal terminal) in
@@ -1531,6 +1598,15 @@ module Transaction = struct
         ; terminal : Event.terminal
         }
         -> Event.t t
+    | Begin_tool_attempt :
+        { invocation : Event.Node_id.t }
+        -> (Event.Node_id.t * Event.t) t
+    | Settle_tool_attempt :
+        { attempt : Event.Node_id.t
+        ; invocation : Event.Node_id.t
+        ; result : Llm_provider.Types.content_block
+        }
+        -> Event.t list t
     | Finish_run :
         { causes : Event.cause list
         ; run : run
@@ -1554,6 +1630,12 @@ module Transaction = struct
 
   let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
   let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
+  let begin_tool_attempt ~invocation () = Begin_tool_attempt { invocation }
+
+  let settle_tool_attempt ~attempt ~invocation ~result () =
+    Settle_tool_attempt { attempt; invocation; result }
+  ;;
+
   let finish_run ?(causes = []) ~run terminal = Finish_run { causes; run; terminal }
   let abort_run ?(causes = []) ~run terminal = Abort_run { causes; run; terminal }
 end
@@ -1582,6 +1664,16 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
   | Transaction.Close_node { causes; node; terminal } ->
     stage_mutation
       (stage_close_node ~causes batch.journal batch.staged_state ~node terminal)
+  | Transaction.Begin_tool_attempt { invocation } ->
+    stage_mutation (stage_begin_tool_attempt batch.journal batch.staged_state ~invocation)
+  | Transaction.Settle_tool_attempt { attempt; invocation; result } ->
+    stage_mutation
+      (stage_settle_tool_attempt
+         batch.journal
+         batch.staged_state
+         ~attempt
+         ~invocation
+         ~result)
   | Transaction.Finish_run { causes; run; terminal } ->
     stage_mutation
       (stage_finish_run ~causes batch.journal batch.staged_state ~run terminal)

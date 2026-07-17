@@ -320,6 +320,20 @@ module Transaction : sig
     -> Execution_event.terminal
     -> Execution_event.t t
 
+  (** Open an attempt under a materialized invocation-derived run. *)
+  val begin_tool_attempt
+    :  invocation:Execution_event.Node_id.t
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t) t
+
+  (** Atomically close attempt, materialize ToolResult, and close invocation. *)
+  val settle_tool_attempt
+    :  attempt:Execution_event.Node_id.t
+    -> invocation:Execution_event.Node_id.t
+    -> result:Llm_provider.Types.content_block
+    -> unit
+    -> Execution_event.t list t
+
   val finish_run
     :  ?causes:Execution_event.cause list
     -> run:run
