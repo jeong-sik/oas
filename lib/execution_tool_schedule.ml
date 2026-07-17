@@ -7,8 +7,6 @@ let validate (schedule : Hooks.tool_schedule) =
   then Error "tool schedule batch_index must be non-negative"
   else if schedule.batch_size <= 0
   then Error "tool schedule batch_size must be positive"
-  else if schedule.batch_index >= schedule.batch_size
-  then Error "tool schedule batch_index must be less than batch_size"
   else Ok ()
 ;;
 
