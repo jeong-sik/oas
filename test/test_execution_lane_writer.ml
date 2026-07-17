@@ -104,11 +104,11 @@ let read_complete_page writer ~after ~limit =
     page.events, page.next_cursor
 ;;
 
-let provider_attempt ordinal =
+let provider_attempt_for ~provider_id ordinal =
   let config =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_kind.OpenAI_compat
-      ~provider_id:"lane-writer-test"
+      ~provider_id
       ~model_id:"lane-writer-model"
       ~base_url:"https://provider.test"
       ()
@@ -120,6 +120,10 @@ let provider_attempt ordinal =
     |> require_codec
   in
   require_codec (Event.provider_attempt ~ordinal binding)
+;;
+
+let provider_attempt ordinal =
+  provider_attempt_for ~provider_id:"lane-writer-test" ordinal
 ;;
 
 let submit_and_await writer transaction =
@@ -249,11 +253,8 @@ let test_effect_attempt_and_settlement_survive_restart () =
        with
        | Error
            (Writer.Transaction_rejected
-              (Journal.Invariant_violation
-                 (Journal.Tool_occurrence_already_opened
-                    { provider_attempt; planned_index = 0; existing })))
-         when Event.Node_id.equal provider_attempt provider
-              && Event.Node_id.equal existing first_node -> ()
+              (Journal.Invariant_violation (Journal.Occurrence_already_opened existing)))
+         when Event.Node_id.equal existing first_node -> ()
        | Ok _ | Error _ -> fail "duplicate tool occurrence was accepted");
       check int "duplicate producer is atomic" before_duplicate (seq ());
       let before_rejected_producer = seq () in
@@ -347,6 +348,173 @@ let test_effect_attempt_and_settlement_survive_restart () =
       match Settlement.execute (authority second_pair) ~invoke:never with
       | Error Settlement.Effect_outcome_unknown -> ()
       | Ok _ | Error _ -> fail "restart did not fence unknown effect"))
+;;
+
+let test_structural_occurrence_identity_is_parent_local () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    with_fresh codec dir (fun _sw writer ->
+      let value transaction = (submit_and_await writer transaction).value in
+      let seq () = Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq in
+      let expect_rejected_without_events label transaction matches =
+        let before = seq () in
+        (match Writer.await (require_submit (Writer.submit writer transaction)) with
+         | Error (Writer.Transaction_rejected (Journal.Invariant_violation violation))
+           when matches violation -> ()
+         | Error error -> fail (label ^ ": " ^ Writer.ticket_error_to_string error)
+         | Ok _ -> fail (label ^ ": duplicate occurrence was accepted"));
+        check int (label ^ " is atomic") before (seq ())
+      in
+      let run, _ = value (Tx.start_run ~agent_name:"occurrence" ()) in
+      let turn_0, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 0 })
+             ())
+      in
+      expect_rejected_without_events
+        "duplicate turn"
+        (Tx.open_node
+           ~run
+           ~parent:(Journal.run_root run)
+           ~kind:(Event.Agent_turn { ordinal = 0 })
+           ())
+        (function
+          | Journal.Occurrence_already_opened existing ->
+            Event.Node_id.equal existing turn_0
+          | _ -> false);
+      let turn_1, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 1 })
+             ())
+      in
+      let provider_0, _ =
+        value (Tx.open_node ~run ~parent:turn_0 ~kind:(provider_attempt 0) ())
+      in
+      expect_rejected_without_events
+        "duplicate provider ordinal ignores diagnostic binding"
+        (Tx.open_node
+           ~run
+           ~parent:turn_0
+           ~kind:(provider_attempt_for ~provider_id:"different-binding" 0)
+           ())
+        (function
+          | Journal.Occurrence_already_opened existing ->
+            Event.Node_id.equal existing provider_0
+          | _ -> false);
+      let provider_1, _ =
+        value (Tx.open_node ~run ~parent:turn_1 ~kind:(provider_attempt 0) ())
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let input = `Assoc [ "value", `Int 7 ] in
+      let occurrence_0 = Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule in
+      let tool_0, _ =
+        value
+          (Tx.open_tool_invocation
+             ~run
+             ~provider_attempt:provider_0
+             ~invocation:occurrence_0
+             ~tool_name:"effect"
+             ~input
+             ())
+      in
+      expect_rejected_without_events
+        "exact tool duplicate"
+        (Tx.open_tool_invocation
+           ~run
+           ~provider_attempt:provider_0
+           ~invocation:occurrence_0
+           ~tool_name:"effect"
+           ~input
+           ())
+        (function
+        | Journal.Occurrence_already_opened existing ->
+          Event.Node_id.equal existing tool_0
+        | _ -> false);
+      let changed_schedule : Tool.schedule =
+        { schedule with
+          batch_index = 1
+        ; batch_size = 2
+        ; execution_mode = Tool.Concurrent
+        }
+      in
+      let conflicts =
+        [ ( "tool schedule conflict"
+          , Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule:changed_schedule
+          , "effect"
+          , input )
+        ; ( "tool id conflict"
+          , Tool.Invocation.create ~tool_use_id:"other-call" ~turn:0 ~schedule
+          , "effect"
+          , input )
+        ; "tool name conflict", occurrence_0, "other-effect", input
+        ; "tool input conflict", occurrence_0, "effect", `Assoc [ "value", `Int 8 ]
+        ]
+      in
+      List.iter
+        (fun (label, invocation, tool_name, input) ->
+           expect_rejected_without_events
+             label
+             (Tx.open_tool_invocation
+                ~run
+                ~provider_attempt:provider_0
+                ~invocation
+                ~tool_name
+                ~input
+                ())
+             (function
+             | Journal.Tool_occurrence_conflict { parent; planned_index = 0; existing } ->
+               Event.Node_id.equal parent provider_0
+               && Event.Node_id.equal existing tool_0
+             | _ -> false))
+        conflicts;
+      expect_rejected_without_events
+        "first raw tool open cannot bypass atomic producer"
+        (Tx.open_node
+           ~run
+           ~parent:provider_1
+           ~kind:
+             (Event.Tool_invocation
+                { provider_tool_use_id = Some "raw"; tool_name = "raw"; schedule })
+           ())
+        (function
+          | Journal.Tool_invocation_requires_atomic_open -> true
+          | _ -> false);
+      let occurrence_1 = Tool.Invocation.create ~tool_use_id:"call" ~turn:1 ~schedule in
+      ignore
+        (value
+           (Tx.open_tool_invocation
+              ~run
+              ~provider_attempt:provider_1
+              ~invocation:occurrence_1
+              ~tool_name:"effect"
+              ~input
+              ()));
+      let attempt, _ = value (Tx.begin_tool_attempt ~invocation:tool_0 ()) in
+      let child_run, _ =
+        value (Tx.start_run ~parent_attempt:attempt ~agent_name:"child" ())
+      in
+      ignore
+        (value
+           (Tx.open_node
+              ~run:child_run
+              ~parent:(Journal.run_root child_run)
+              ~kind:(Event.Agent_turn { ordinal = 0 })
+              ()));
+      check int "same ordinal under different parents is allowed" 12 (seq ())))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -1265,6 +1433,10 @@ let () =
             "effect attempt and settlement survive restart"
             `Quick
             test_effect_attempt_and_settlement_survive_restart
+        ; test_case
+            "structural occurrence identity is parent local"
+            `Quick
+            test_structural_occurrence_identity_is_parent_local
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick
