@@ -75,6 +75,16 @@ let config
     ()
 ;;
 
+let completion_request config : Llm_transport.completion_request =
+  { config
+  ; messages
+  ; tools = [ tool ]
+  ; capture_id = Some "request-count-fixture"
+  ; observe_wire_chunk = None
+  ; stream_idle_timeout_s = None
+  }
+;;
+
 let assoc body =
   match Yojson.Safe.from_string body with
   | `Assoc fields -> fields
@@ -157,23 +167,31 @@ let test_transport_success () =
   let result, (path, headers, body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
     @@ fun ~sw ~net ~base_url ->
-    Count_tokens_sync.count_anthropic
+    Count_tokens_sync.measure_completion_request
       ~sw
       ~net
-      ~config:(config base_url)
-      ~messages
-      ~tools:[ tool ]
-      ()
+      (completion_request (config base_url))
   in
   (match result with
-   | Ok count ->
+   | Ok measurement ->
+     let count = measurement.input_count in
      check int "input tokens" 321 count.input_tokens;
      check string "model id" "input-count-fixture" count.model_id;
      check
        bool
        "protocol"
        true
-       (Count.equal_protocol count.protocol Count.Anthropic_messages_count_tokens)
+       (Count.equal_protocol count.protocol Count.Anthropic_messages_count_tokens);
+     check
+       (option int)
+       "exact requested output"
+       (Some 64)
+       (Types.output_token_receipt_requested measurement.output_token_receipt);
+     check
+       (option int)
+       "exact effective output"
+       (Some 64)
+       (Types.output_token_receipt_effective measurement.output_token_receipt)
    | Error _ -> fail "expected native Anthropic count success");
   check string "custom proxy path" "/proxy/messages/count_tokens" path;
   let check_header name value =
@@ -210,17 +228,39 @@ let test_unsupported () =
   Eio.Switch.run
   @@ fun sw ->
   match
-    Count_tokens_sync.count_anthropic
+    Count_tokens_sync.measure_completion_request
       ~sw
       ~net:(Eio.Stdenv.net env)
-      ~config:(config ~kind:Provider_config.OpenAI_compat "not a URL")
-      ~messages
-      ()
+      (completion_request (config ~kind:Provider_config.OpenAI_compat "not a URL"))
   with
   | Error
-      (Count.Unsupported { protocol = Count.Anthropic_messages_count_tokens; model_id })
+      (Count_tokens_sync.Input_count_failed
+         (Count.Unsupported { protocol = Count.Anthropic_messages_count_tokens; model_id }))
     -> check string "model id" "input-count-fixture" model_id
   | Ok _ | Error _ -> fail "expected typed Unsupported before transport"
+;;
+
+let test_missing_output_ceiling_precedes_io () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let cfg =
+    { (config "not a URL") with
+      model_id = "request-measurement-missing-output-ceiling"
+    ; max_tokens = None
+    }
+  in
+  match
+    Count_tokens_sync.measure_completion_request
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      (completion_request cfg)
+  with
+  | Error
+      (Count_tokens_sync.Output_token_resolution_failed
+         Types.Required_output_token_ceiling_missing) -> ()
+  | Ok _ | Error _ -> fail "expected typed output-token failure before count I/O"
 ;;
 
 let test_count_tokens_url () =
@@ -247,6 +287,10 @@ let () =
       , [ test_case "native success" `Quick test_transport_success
         ; test_case "typed HTTP error" `Quick test_transport_error
         ; test_case "non-Anthropic unsupported" `Quick test_unsupported
+        ; test_case
+            "missing output ceiling precedes I/O"
+            `Quick
+            test_missing_output_ceiling_precedes_io
         ; test_case "count-tokens URL insertion" `Quick test_count_tokens_url
         ] )
     ]
