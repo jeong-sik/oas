@@ -883,6 +883,10 @@ let current_cursor writer =
   read_journal writer (fun journal -> Ok (Journal.current_cursor journal))
 ;;
 
+let find_node writer node =
+  read_journal writer (fun journal -> Ok (Journal.find_node journal node))
+;;
+
 let read_page writer ~after ?through ~limit () =
   read_journal writer (fun journal ->
     match Journal.read_page journal ~after ?through ~limit () with

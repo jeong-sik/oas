@@ -7,6 +7,7 @@ module Codec = Internal.Execution_codec_executor
 module Journal = Internal.Execution_journal
 module Store = Internal.Execution_event_store
 module Writer = Internal.Execution_lane_writer
+module Settlement = Internal.Execution_tool_settlement
 module Tx = Journal.Transaction
 
 exception Cancel_waiter
@@ -169,6 +170,101 @@ let open_output writer =
 
 let delta_transaction output index =
   Tx.update_node ~node:output (Event.Output_delta (`Assoc [ "index", `Int index ]))
+;;
+
+let test_exact_tool_settlement_authority () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    with_fresh codec dir (fun _sw writer ->
+      let run, _ =
+        (submit_and_await writer (Tx.start_run ~agent_name:"tools" ())).value
+      in
+      let turn, _ =
+        (submit_and_await
+           writer
+           (Tx.open_node
+              ~run
+              ~parent:(Journal.run_root run)
+              ~kind:(Event.Agent_turn { ordinal = 3 })
+              ()))
+          .value
+      in
+      let provider, _ =
+        (submit_and_await
+           writer
+           (Tx.open_node ~run ~parent:turn ~kind:(provider_attempt 0) ()))
+          .value
+      in
+      let open_invocation planned_index =
+        let schedule : Hooks.tool_schedule =
+          { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
+        in
+        let node, _ =
+          (submit_and_await
+             writer
+             (Tx.open_node
+                ~run
+                ~parent:provider
+                ~kind:
+                  (Event.Tool_invocation
+                     { provider_tool_use_id = Some ""; tool_name = "effect"; schedule })
+                ()))
+            .value
+        in
+        ignore
+          (submit_and_await
+             writer
+             (Tx.update_node
+                ~node
+                (Event.Tool_input_snapshot
+                   (Types.ToolUse { id = ""; name = "effect"; input = `Int planned_index }))));
+        let invocation = Tool.Invocation.create ~tool_use_id:"" ~turn:3 ~schedule in
+        node, invocation
+      in
+      let first_node, first_invocation = open_invocation 0 in
+      let second_node, second_invocation = open_invocation 1 in
+      let authority node invocation =
+        match Settlement.create ~writer ~run ~invocation_node:node ~invocation with
+        | Ok authority -> authority
+        | Error _ -> fail "exact settlement authority rejected its invocation"
+      in
+      let first = authority first_node first_invocation in
+      let second = authority second_node second_invocation in
+      (match Settlement.status first, Settlement.status second with
+       | Ok Settlement.Ready_to_execute, Ok Settlement.Ready_to_execute -> ()
+       | _ -> fail "blank-id occurrences were not independently ready");
+      let attempt =
+        match Settlement.begin_attempt first with
+        | Ok attempt -> attempt
+        | Error _ -> fail "durable attempt admission failed"
+      in
+      (match Settlement.status first with
+       | Ok Settlement.Outcome_unknown -> ()
+       | _ -> fail "open effect attempt was not outcome-unknown");
+      (match Settlement.begin_attempt first with
+       | Error _ -> ()
+       | Ok _ -> fail "a second effect attempt was admitted");
+      let seq = Journal.cursor_seq in
+      let before = Writer.current_cursor writer |> Result.get_ok in
+      let result =
+        Types.ToolResult
+          { tool_use_id = ""
+          ; content = "done"
+          ; outcome = Types.Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      in
+      (match Settlement.settle attempt ~result with
+       | Ok receipt ->
+         check int "three settlement facts" (seq before + 3) (seq receipt.through)
+       | Error _ -> fail "canonical result settlement failed");
+      match Settlement.status first, Settlement.status second with
+      | Ok (Settlement.Settled committed), Ok Settlement.Ready_to_execute ->
+        check bool "exact result retained" true (committed = result)
+      | _ -> fail "settlement crossed repeated blank-id occurrences"))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -1083,6 +1179,10 @@ let () =
             "semantic rejection does not poison ready group"
             `Quick
             test_semantic_rejection_does_not_poison_ready_group
+        ; test_case
+            "exact tool settlement authority"
+            `Quick
+            test_exact_tool_settlement_authority
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick
