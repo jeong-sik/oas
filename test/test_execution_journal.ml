@@ -1000,12 +1000,21 @@ let test_json_terminal_and_id_boundaries () =
   expect_invalid_node_kind
     (Event.Tool_invocation
        { provider_tool_use_id = None; tool_name = " \t"; schedule = serial_schedule });
-  expect_invalid_node_kind
-    (Event.Tool_invocation
-       { provider_tool_use_id = Some " \n"
-       ; tool_name = "valid_tool"
-       ; schedule = serial_schedule
-       });
+  let exact_provider_id = " \n" in
+  let exact_provider_kind =
+    Event.Tool_invocation
+      { provider_tool_use_id = Some exact_provider_id
+      ; tool_name = "valid_tool"
+      ; schedule = serial_schedule
+      }
+  in
+  (match Event.node_kind_to_yojson exact_provider_kind with
+   | Error _ -> fail "opaque provider tool id did not encode"
+   | Ok json ->
+     (match Event.node_kind_of_yojson json with
+      | Ok (Event.Tool_invocation { provider_tool_use_id = Some decoded; _ }) ->
+        check string "provider tool id roundtrip is exact" exact_provider_id decoded
+      | Ok _ | Error _ -> fail "opaque provider tool id did not roundtrip exactly"));
   let before_invalid_response_id = Journal.length journal in
   (match
      Journal.update_node journal ~node:turn (Event.Provider_response_id_snapshot " \t")
