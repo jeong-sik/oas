@@ -222,29 +222,28 @@ let complete
 
 (* ── Streaming ───────────────────────────────────────── *)
 
-let complete_stream
+let complete_prepared_stream
       ~sw
       ~net
       ?clock
-      ?stream_idle_timeout_s
       ?(transport : Llm_transport.t option)
-      ?capture_id
       ?wire_observer
-      ~(config : Provider_config.t)
-      ~(messages : Types.message list)
-      ?(tools = [])
-      ?(trace_context = [])
+      ~(prepared : Prepared_completion_request.t)
       ~(on_event : Types.sse_event -> unit)
       ?metrics
       ?(connection_cache : Http_client.cache option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ()
   =
+  let request = Prepared_completion_request.request prepared in
+  let config = request.Llm_transport.config in
+  let messages = request.messages in
+  let tools = request.tools in
   match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let on_event = emit_stream_event on_event in
-    let request_config = config_with_trace_context config trace_context in
+    let request_config = config in
     let latency_counter = start_latency_counter ?clock () in
     let metrics_opt = metrics in
     let metrics = Option.value metrics ~default:(Metrics.get_global ()) in
@@ -282,38 +281,34 @@ let complete_stream
           (Printexc.to_string exn)
           (Wire_observer.show_failure failure)
     in
-    let observe_wire_chunk =
-      Option.map
-        (fun try_observe ~provider ~model ~chunk ->
-           match
-             Wire_observer.observe try_observe ~capture_id ~provider ~model ~chunk
-           with
-           | Ok () -> ()
-           | Error failure -> emit_wire_observer_failure failure)
-        wire_observer
+    let request =
+      match wire_observer with
+      | None -> request
+      | Some try_observe ->
+        let observe_wire_chunk ~provider ~model ~chunk =
+          match
+            Wire_observer.observe
+              try_observe
+              ~capture_id:request.capture_id
+              ~provider
+              ~model
+              ~chunk
+          with
+          | Ok () -> ()
+          | Error failure -> emit_wire_observer_failure failure
+        in
+        { request with observe_wire_chunk = Some observe_wire_chunk }
     in
     let dispatch () =
       match transport with
-      | Some t ->
-        t.complete_stream
-          ?on_telemetry:transport_on_telemetry
-          ~on_event
-          { Llm_transport.config = request_config
-          ; messages
-          ; tools
-          ; capture_id
-          ; observe_wire_chunk
-          ; stream_idle_timeout_s
-            (* RFC-OAS-026: carry the idle deadline through the transport
-               boundary so the [Some t] dispatch can no longer drop it. *)
-          }
+      | Some t -> t.complete_stream ?on_telemetry:transport_on_telemetry ~on_event request
       | None ->
         complete_stream_http
           ~sw
           ~net
           ?clock
-          ?stream_idle_timeout_s
-          ?observe_wire_chunk
+          ?stream_idle_timeout_s:request.stream_idle_timeout_s
+          ?observe_wire_chunk:request.observe_wire_chunk
           ~latency_counter
           ?on_telemetry
           ~metrics
@@ -345,6 +340,48 @@ let complete_stream
            resp;
          resp)
       (ensure_nonempty_completion result)
+;;
+
+let complete_stream
+      ~sw
+      ~net
+      ?clock
+      ?stream_idle_timeout_s
+      ?transport
+      ?capture_id
+      ?wire_observer
+      ~(config : Provider_config.t)
+      ~(messages : Types.message list)
+      ?(tools = [])
+      ?(trace_context = [])
+      ~on_event
+      ?metrics
+      ?connection_cache
+      ?on_telemetry
+      ()
+  =
+  let prepared =
+    Prepared_completion_request.prepare_stream
+      ~config
+      ~messages
+      ~tools
+      ~trace_context
+      ?capture_id
+      ?stream_idle_timeout_s
+      ()
+  in
+  complete_prepared_stream
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ?wire_observer
+    ~prepared
+    ~on_event
+    ?metrics
+    ?connection_cache
+    ?on_telemetry
+    ()
 ;;
 
 (* ── HTTP Transport constructor ─────────────────────── *)
