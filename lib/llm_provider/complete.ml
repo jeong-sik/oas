@@ -12,21 +12,22 @@ include Complete_common
 include Complete_sync
 include Complete_stream
 
-let complete
+let complete_prepared_sync
       ~sw
       ~net
       ?clock
       ?(transport : Llm_transport.t option)
-      ~(config : Provider_config.t)
-      ~(messages : Types.message list)
-      ?(tools = [])
-      ?(trace_context = [])
+      ~(prepared : Prepared_completion_request.t)
       ?(cache : Cache.t option)
       ?(connection_cache : Http_client.cache option)
       ?(metrics : Metrics.t option)
       ?body_timeout_s
       ()
   =
+  let request = Prepared_completion_request.request prepared in
+  let config = request.Llm_transport.config in
+  let messages = request.messages in
+  let tools = request.tools in
   let preflight =
     match validate_all config with
     | Error err -> Error err
@@ -46,7 +47,7 @@ let complete
       | None -> Metrics.get_global ()
     in
     let model_id = config.model_id in
-    let request_config = config_with_trace_context config trace_context in
+    let request_config = config in
     (* Cache lookup *)
     (* Compute fingerprint once; reuse for both lookup and store *)
     let cache_key =
@@ -78,16 +79,7 @@ let complete
        let dispatch () =
          match transport with
          | Some t ->
-           let run_transport () =
-             t.complete_sync
-               { Llm_transport.config = request_config
-               ; messages
-               ; tools
-               ; capture_id = None
-               ; observe_wire_chunk = None
-               ; stream_idle_timeout_s = None (* sync path: no streaming idle deadline *)
-               }
-           in
+           let run_transport () = t.complete_sync request in
            (match body_deadline with
             | Http_client.Unbounded ->
               Http_client.with_explicit_deadline body_deadline run_transport
@@ -195,6 +187,37 @@ let complete
           in
           m.on_error ~model_id ~error:err_str;
           Error err))
+;;
+
+let complete
+      ~sw
+      ~net
+      ?clock
+      ?transport
+      ~(config : Provider_config.t)
+      ~(messages : Types.message list)
+      ?(tools = [])
+      ?(trace_context = [])
+      ?cache
+      ?connection_cache
+      ?metrics
+      ?body_timeout_s
+      ()
+  =
+  let prepared =
+    Prepared_completion_request.prepare_sync ~config ~messages ~tools ~trace_context ()
+  in
+  complete_prepared_sync
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ~prepared
+    ?cache
+    ?connection_cache
+    ?metrics
+    ?body_timeout_s
+    ()
 ;;
 
 (* ── Streaming ───────────────────────────────────────── *)
