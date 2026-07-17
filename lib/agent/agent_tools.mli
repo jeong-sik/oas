@@ -11,10 +11,15 @@
 (** {1 Hook invocation} *)
 
 (** Invoke a hook, recording the decision via optional [on_hook_invoked] callback
-    and [tracer] span.  Returns the hook's decision. *)
+    and [tracer] span. The callback receives the exact invocation for tool
+    events and [None] for turn-level events. Returns the hook's decision. *)
 val invoke_hook
   :  ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
   -> tracer:Tracing.t
   -> agent_name:string
   -> turn_count:int
@@ -68,11 +73,15 @@ type execution_error =
     Ordinary observer failures are values at this boundary so every sibling
     already running in the same concurrent batch can finish.  The pipeline
     re-raises [Observer_failure] with the captured backtrace only after it has
-    committed [completed_results]. *)
+    committed [completed_results]. If a hook failure happened first, a later
+    observer failure remains the terminal cause so infrastructure faults are
+    never hidden; the hook failure is logged as suppressed. *)
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Observer_failure of
-      { exception_ : exn
+      { invocation : Tool.Invocation.t
+        (** Exact occurrence whose observer failed. *)
+      ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
 
@@ -101,7 +110,11 @@ val find_and_execute_tool
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
   -> invocation:Tool.Invocation.t
   -> string
   -> Yojson.Safe.t
@@ -164,6 +177,10 @@ val execute_tools
         -> is_error:bool
         -> unit)
   -> ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
   -> Types.content_block list
   -> (tool_execution_result list, execution_failure) result

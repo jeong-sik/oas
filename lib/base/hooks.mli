@@ -93,6 +93,9 @@ type hook_event =
       ; error : string
       }
 
+(** Exact tool occurrence associated with a hook event, when any. *)
+val invocation_of_event : hook_event -> Tool.Invocation.t option
+
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request =
   { question : string

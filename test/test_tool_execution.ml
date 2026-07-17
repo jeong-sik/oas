@@ -122,7 +122,7 @@ let execute_with_tools_in_env
       (List.length completed_results)
       failure.detail
   | Error
-      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace }; _ } ->
+      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace; _ }; _ } ->
     Printexc.raise_with_backtrace exception_ backtrace
 ;;
 
@@ -190,7 +190,9 @@ let test_tool_lifecycle_callback_exceptions_propagate () =
 ;;
 
 let test_pre_hook_observer_exception_propagates () =
-  let observer ~hook_name:_ ~decision:_ ~detail:_ = failwith "hook observer boom" in
+  let observer ~invocation:_ ~hook_name:_ ~decision:_ ~detail:_ =
+    failwith "hook observer boom"
+  in
   check_raises
     "hook observer exception propagates"
     (Failure "hook observer boom")
@@ -225,7 +227,7 @@ let test_post_hook_observer_exception_propagates_after_completion () =
       incr executed;
       Ok { Types.content = "done"; _meta = None })
   in
-  let observer ~hook_name ~decision:_ ~detail:_ =
+  let observer ~invocation:_ ~hook_name ~decision:_ ~detail:_ =
     if String.equal hook_name "post_tool_use" then failwith "post observer boom"
   in
   let on_tool_execution_started ~invocation:_ ~tool_name:_ ~input:_ = incr started in
@@ -301,6 +303,66 @@ let test_post_hook_failure_is_typed_agent_error () =
   check int "execution completion observed" 1 !finished
 ;;
 
+let test_error_hooks_run_after_prior_hook_failure () =
+  Eio_main.run
+  @@ fun env ->
+  let observed = ref [] in
+  let record name =
+    observed := name :: !observed;
+    Hooks.Continue
+  in
+  let tool =
+    Tool.create ~name:"fails" ~description:"" ~parameters:[] (fun _ ->
+      Error
+        { Types.message = "tool failed"
+        ; recoverable = false
+        ; error_class = Some Types.Deterministic
+        })
+  in
+  let hooks =
+    { Hooks.empty with
+      post_tool_use =
+        Some (fun _ ->
+          observed := "post_tool_use" :: !observed;
+          failwith "first hook failed")
+    ; post_tool_use_failure = Some (fun _ -> record "post_tool_use_failure")
+    ; on_tool_error = Some (fun _ -> record "on_tool_error")
+    }
+  in
+  let result =
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
+      ~hooks
+      ~on_hook_invoked:(fun ~invocation:_ ~hook_name ~decision:_ ~detail:_ ->
+        if String.equal hook_name "on_tool_error" then failwith "observer failed")
+      [ ToolUse { id = "failure-1"; name = "fails"; input = `Assoc [] } ]
+  in
+  (match result with
+   | Error
+       { Agent_tools.completed_results = [ completed ]
+       ; cause = Agent_tools.Observer_failure { invocation; exception_; _ }
+       } ->
+     check string "tool failure remains visible" "tool failed" completed.content;
+     check
+       string
+       "observer failure occurrence"
+       "failure-1"
+       (Tool.Invocation.tool_use_id invocation);
+     check
+       string
+       "observer failure propagates"
+       "Failure(\"observer failed\")"
+       (Printexc.to_string exception_)
+   | Ok _ -> fail "observer failure must remain terminal"
+   | Error _ -> fail "later observer failure was hidden by the hook failure");
+  check
+    (list string)
+    "later error hooks still run"
+    [ "post_tool_use"; "post_tool_use_failure"; "on_tool_error" ]
+    (List.rev !observed)
+;;
+
 let test_concurrent_journal_failure_retains_sibling_results () =
   Eio_main.run
   @@ fun env ->
@@ -359,12 +421,17 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   (match result with
    | Error
        { Agent_tools.completed_results = [ first; sibling ]
-       ; cause = Agent_tools.Observer_failure { exception_; _ }
+       ; cause = Agent_tools.Observer_failure { invocation; exception_; _ }
        } ->
      check string "first result order" "t1" (result_id first);
      check string "sibling result order" "t2" (result_id sibling);
      check string "first result retained" "first" first.content;
      check string "sibling result retained" "sibling" sibling.content;
+     check
+       string
+       "observer failure exact occurrence"
+       "t1"
+       (Tool.Invocation.tool_use_id invocation);
      check
        string
        "original observer exception retained"
@@ -1023,6 +1090,10 @@ let () =
             "post-hook failure is a typed agent error"
             `Quick
             test_post_hook_failure_is_typed_agent_error
+        ; test_case
+            "error hooks run after prior hook failure"
+            `Quick
+            test_error_hooks_run_after_prior_hook_failure
         ] )
     ; ( "lifecycle_truth"
       , [ test_case

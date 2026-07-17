@@ -14,9 +14,10 @@ original tag dates. `0.100.4` was never tagged or released.
   schedule copies across hooks, events, results, failures, and execution
   callbacks with one run-scoped `Tool.Invocation.t`. The invocation now owns
   its canonical `Tool.schedule`; `Hooks.tool_schedule` remains a type alias,
-  not a second representation. Provider wire messages, raw-trace records, SDK
-  errors, and the compatible durable journal retain their external shapes and
-  are projected from the invocation at those boundaries. See the
+  not a second representation. Provider wire messages, SDK errors, and the
+  compatible durable journal retain their external shapes and are projected
+  from the invocation at those boundaries. Raw-trace tool and hook records add
+  occurrence fields while remaining backward-readable. See the
   [0.216 migration guide](docs/migrations/0.216-tool-invocation-ssot.md).
 * **agent-as-tool inputs:** remove `Agent_tool.config.input_parameters` and
   scalar-string invocation. The advertised and consumed input contract is now

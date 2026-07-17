@@ -14,6 +14,7 @@ open Agent_types
     [active_run] is [None]). *)
 val record_hook_invocation
   :  Raw_trace.active_run option
+  -> ?invocation:Tool.Invocation.t
   -> hook_name:string
   -> decision:Hooks.hook_decision
   -> ?detail:string

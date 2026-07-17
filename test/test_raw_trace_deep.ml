@@ -121,6 +121,7 @@ let mk_record
       ?(tool_input = None)
       ?(tool_result = None)
       ?(tool_error = None)
+      ?(tool_turn = None)
       ?(tool_planned_index = None)
       ?(tool_batch_index = None)
       ?(tool_batch_size = None)
@@ -157,6 +158,7 @@ let mk_record
   ; tool_use_id
   ; tool_name
   ; tool_input
+  ; tool_turn
   ; tool_planned_index
   ; tool_batch_index
   ; tool_batch_size
@@ -297,6 +299,7 @@ let test_record_to_json_all_none_optionals () =
     ; tool_use_id = None
     ; tool_name = None
     ; tool_input = None
+    ; tool_turn = None
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
@@ -427,6 +430,7 @@ let test_record_json_all_fields_populated () =
     ; tool_use_id = Some "tu-999"
     ; tool_name = Some "complex_tool"
     ; tool_input = Some (`Assoc [ "x", `Int 42 ])
+    ; tool_turn = Some 3
     ; tool_planned_index = Some 4
     ; tool_batch_index = Some 2
     ; tool_batch_size = Some 1
@@ -451,6 +455,7 @@ let test_record_json_all_fields_populated () =
     Alcotest.(check (option string)) "tool_use_id" (Some "tu-999") decoded.tool_use_id;
     Alcotest.(check (option string)) "tool_name" (Some "complex_tool") decoded.tool_name;
     Alcotest.(check bool) "tool_input" true (decoded.tool_input <> None);
+    Alcotest.(check (option int)) "tool_turn" (Some 3) decoded.tool_turn;
     Alcotest.(check (option string))
       "tool_result"
       (Some "result text")
@@ -706,44 +711,16 @@ let test_validate_run_unmatched_tool_pairs () =
     Alcotest.fail (Printf.sprintf "validate_run error: %s" (Error.to_string err))
 ;;
 
-let test_validate_run_distinguishes_repeated_blank_ids_by_planned_index () =
+let assert_tool_pairs ~label ~filename ~expected records =
   let dir = tmpdir () in
-  let path = Filename.concat dir "validate_exact_occurrence.jsonl" in
-  let tool_record ~seq ~record_type ~planned_index =
-    mk_record
-      ~seq
-      ~record_type
-      ~prompt:None
-      ~tool_use_id:(Some "")
-      ~tool_name:(Some "repeat")
-      ~tool_planned_index:(Some planned_index)
-      ~tool_execution_mode:
-        (match record_type with
-         | Raw_trace.Tool_execution_started -> Some Tool.Serial
-         | _ -> None)
-      ()
-  in
-  let records =
-    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
-    ; tool_record ~seq:2 ~record_type:Raw_trace.Tool_execution_started ~planned_index:0
-    ; tool_record ~seq:3 ~record_type:Raw_trace.Tool_execution_started ~planned_index:1
-    ; tool_record ~seq:4 ~record_type:Raw_trace.Tool_execution_finished ~planned_index:0
-    ; tool_record ~seq:5 ~record_type:Raw_trace.Tool_execution_finished ~planned_index:0
-    ; mk_record
-        ~seq:6
-        ~record_type:Raw_trace.Run_finished
-        ~prompt:None
-        ~final_text:(Some "done")
-        ~stop_reason:(Some "end_turn")
-        ()
-    ]
-  in
+  let path = Filename.concat dir filename in
   write_jsonl path records;
+  let end_seq = (List.hd (List.rev records) : Raw_trace.record).seq in
   let run_ref : Raw_trace.run_ref =
     { worker_run_id = "wr-test-0001"
     ; path
     ; start_seq = 1
-    ; end_seq = 6
+    ; end_seq
     ; agent_name = "test_agent"
     ; session_id = Some "s-test-001"
     }
@@ -755,11 +732,135 @@ let test_validate_run_distinguishes_repeated_blank_ids_by_planned_index () =
         (fun (check : Raw_trace.validation_check) -> check.name = "tool_pairs")
         validation.checks
     in
-    Alcotest.(check bool)
-      "same id does not hide occurrence mismatch"
-      false
-      tool_pairs.passed
+    Alcotest.(check bool) label expected tool_pairs.passed
   | Error err -> Alcotest.fail (Error.to_string err)
+;;
+
+let test_validate_run_distinguishes_repeated_blank_ids_across_turns () =
+  let tool_record ~seq ~record_type ~turn =
+    mk_record
+      ~seq
+      ~record_type
+      ~prompt:None
+      ~tool_use_id:(Some "")
+      ~tool_name:(Some "repeat")
+      ~tool_turn:(Some turn)
+      ~tool_planned_index:(Some 0)
+      ~tool_execution_mode:
+        (match record_type with
+         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | _ -> None)
+      ()
+  in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; tool_record ~seq:2 ~record_type:Raw_trace.Tool_execution_started ~turn:0
+    ; tool_record ~seq:3 ~record_type:Raw_trace.Tool_execution_started ~turn:1
+    ; tool_record ~seq:4 ~record_type:Raw_trace.Tool_execution_finished ~turn:0
+    ; tool_record ~seq:5 ~record_type:Raw_trace.Tool_execution_finished ~turn:0
+    ; mk_record
+        ~seq:6
+        ~record_type:Raw_trace.Run_finished
+        ~prompt:None
+        ~final_text:(Some "done")
+        ~stop_reason:(Some "end_turn")
+        ()
+    ]
+  in
+  assert_tool_pairs
+    ~label:"same id and planned index do not hide cross-turn mismatch"
+    ~filename:"validate_exact_occurrence.jsonl"
+    ~expected:false
+    records
+;;
+
+let test_validate_run_rejects_finish_before_start () =
+  let tool_record ~seq ~record_type =
+    mk_record
+      ~seq
+      ~record_type
+      ~prompt:None
+      ~tool_use_id:(Some "ordered")
+      ~tool_name:(Some "echo")
+      ~tool_turn:(Some 0)
+      ~tool_planned_index:(Some 0)
+      ~tool_execution_mode:
+        (match record_type with
+         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | _ -> None)
+      ()
+  in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; tool_record ~seq:2 ~record_type:Raw_trace.Tool_execution_finished
+    ; tool_record ~seq:3 ~record_type:Raw_trace.Tool_execution_started
+    ; mk_record ~seq:4 ~record_type:Raw_trace.Run_finished ~prompt:None ()
+    ]
+  in
+  assert_tool_pairs
+    ~label:"finish before start is invalid"
+    ~filename:"validate_lifecycle_order.jsonl"
+    ~expected:false
+    records
+;;
+
+let test_validate_run_does_not_collapse_mixed_legacy_records () =
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; mk_record
+        ~seq:2
+        ~record_type:Raw_trace.Tool_execution_started
+        ~prompt:None
+        ~tool_use_id:(Some "")
+        ~tool_turn:(Some 0)
+        ~tool_planned_index:(Some 0)
+        ~tool_execution_mode:(Some Tool.Serial)
+        ()
+    ; mk_record
+        ~seq:3
+        ~record_type:Raw_trace.Tool_execution_finished
+        ~prompt:None
+        ~tool_use_id:(Some "")
+        ()
+    ; mk_record ~seq:4 ~record_type:Raw_trace.Run_finished ~prompt:None ()
+    ]
+  in
+  assert_tool_pairs
+    ~label:"one legacy record does not collapse exact occurrences"
+    ~filename:"validate_mixed_legacy.jsonl"
+    ~expected:false
+    records
+;;
+
+let test_validate_run_rejects_duplicate_exact_occurrence () =
+  let tool_record ~seq ~record_type =
+    mk_record
+      ~seq
+      ~record_type
+      ~prompt:None
+      ~tool_use_id:(Some "duplicate")
+      ~tool_turn:(Some 0)
+      ~tool_planned_index:(Some 0)
+      ~tool_execution_mode:
+        (match record_type with
+         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | _ -> None)
+      ()
+  in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; tool_record ~seq:2 ~record_type:Raw_trace.Tool_execution_started
+    ; tool_record ~seq:3 ~record_type:Raw_trace.Tool_execution_started
+    ; tool_record ~seq:4 ~record_type:Raw_trace.Tool_execution_finished
+    ; tool_record ~seq:5 ~record_type:Raw_trace.Tool_execution_finished
+    ; mk_record ~seq:6 ~record_type:Raw_trace.Run_finished ~prompt:None ()
+    ]
+  in
+  assert_tool_pairs
+    ~label:"exact occurrence starts once"
+    ~filename:"validate_duplicate_exact.jsonl"
+    ~expected:false
+    records
 ;;
 
 (* ── read_runs ──────────────────────────────────────────────────── *)
@@ -864,9 +965,21 @@ let () =
             `Quick
             test_validate_run_unmatched_tool_pairs
         ; Alcotest.test_case
-            "repeated blank ids use planned index"
+            "repeated blank ids use turn and planned index"
             `Quick
-            test_validate_run_distinguishes_repeated_blank_ids_by_planned_index
+            test_validate_run_distinguishes_repeated_blank_ids_across_turns
+        ; Alcotest.test_case
+            "finish before start is rejected"
+            `Quick
+            test_validate_run_rejects_finish_before_start
+        ; Alcotest.test_case
+            "mixed legacy records stay separate"
+            `Quick
+            test_validate_run_does_not_collapse_mixed_legacy_records
+        ; Alcotest.test_case
+            "duplicate exact occurrences are rejected"
+            `Quick
+            test_validate_run_rejects_duplicate_exact_occurrence
         ] )
     ; "read_runs", [ Alcotest.test_case "multi-run file" `Quick test_read_runs ]
     ]

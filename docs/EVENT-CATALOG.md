@@ -192,6 +192,11 @@ an alternative occurrence history. Any internal execution-topology work is
 outside this public catalog until a production single-writer hard cut is
 implemented.
 
+This journal is the SSOT for committed effects and replay idempotency, not for
+exact model-tool occurrence correlation. Its tool key intentionally remains a
+name-and-input projection. Exact occurrence audit belongs to the canonical
+`Tool.Invocation.t` carried by typed events and projected into raw trace.
+
 ### 4.1 Journal variants
 
 | Variant | Purpose |

@@ -125,6 +125,15 @@ type hook_event =
       ; error : string
       }
 
+let invocation_of_event = function
+  | PreToolUse { invocation; _ }
+  | PostToolUse { invocation; _ }
+  | PostToolUseFailure { invocation; _ }
+  | OnToolError { invocation; _ } -> Some invocation
+  | OnError { invocation; _ } -> invocation
+  | BeforeTurn _ | BeforeTurnParams _ | AfterTurn _ | OnStop _ -> None
+;;
+
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
 type elicitation_request =

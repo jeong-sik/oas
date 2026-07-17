@@ -91,6 +91,7 @@ type record =
   ; tool_use_id : string option
   ; tool_name : string option
   ; tool_input : Yojson.Safe.t option
+  ; tool_turn : int option
   ; tool_planned_index : int option
   ; tool_batch_index : int option
   ; tool_batch_size : int option
@@ -216,6 +217,7 @@ let validate_record_fields json =
     ; "tool_use_id"
     ; "tool_name"
     ; "tool_input"
+    ; "tool_turn"
     ; "tool_planned_index"
     ; "tool_batch_index"
     ; "tool_batch_size"
@@ -273,6 +275,7 @@ let record_to_json (record : record) =
      @ option_string "tool_use_id" record.tool_use_id
      @ option_string "tool_name" record.tool_name
      @ option_json "tool_input" record.tool_input
+     @ option_int "tool_turn" record.tool_turn
      @ option_int "tool_planned_index" record.tool_planned_index
      @ option_int "tool_batch_index" record.tool_batch_index
      @ option_int "tool_batch_size" record.tool_batch_size
@@ -356,6 +359,7 @@ let record_of_json_unchecked json =
         (match json |> member "tool_input" with
          | `Null -> None
          | value -> Some value)
+    ; tool_turn = json |> member "tool_turn" |> to_int_option
     ; tool_planned_index = json |> member "tool_planned_index" |> to_int_option
     ; tool_batch_index = json |> member "tool_batch_index" |> to_int_option
     ; tool_batch_size = json |> member "tool_batch_size" |> to_int_option
@@ -482,6 +486,7 @@ let append_record
       ?tool_use_id
       ?tool_name
       ?tool_input
+      ?tool_turn
       ?tool_planned_index
       ?tool_batch_index
       ?tool_batch_size
@@ -525,6 +530,7 @@ let append_record
       ; tool_use_id
       ; tool_name
       ; tool_input = Option.map maybe_redact_json tool_input
+      ; tool_turn
       ; tool_planned_index
       ; tool_batch_index
       ; tool_batch_size
@@ -613,32 +619,29 @@ let record_assistant_block active ~block_index block =
 
 let record_tool_execution_started
       active
-      ~tool_use_id
+      ~invocation
       ~tool_name
       ~tool_input
-      ~planned_index
-      ~batch_index
-      ~batch_size
-      ~execution_mode
   =
+  let schedule = Tool.Invocation.schedule invocation in
   append_record
     active
     ~record_type:Tool_execution_started
-    ~tool_use_id
+    ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
     ~tool_name
     ~tool_input
-    ~tool_planned_index:planned_index
-    ~tool_batch_index:batch_index
-    ~tool_batch_size:batch_size
-    ~tool_execution_mode:execution_mode
+    ~tool_turn:(Tool.Invocation.turn invocation)
+    ~tool_planned_index:schedule.planned_index
+    ~tool_batch_index:schedule.batch_index
+    ~tool_batch_size:schedule.batch_size
+    ~tool_execution_mode:schedule.execution_mode
     ()
   |> Result.map (fun _ -> ())
 ;;
 
 let record_tool_execution_finished
       active
-      ~tool_use_id
-      ~planned_index
+      ~invocation
       ~tool_name
       ~tool_result
       ~tool_error
@@ -647,8 +650,9 @@ let record_tool_execution_finished
   append_record
     active
     ~record_type:Tool_execution_finished
-    ~tool_use_id
-    ~tool_planned_index:planned_index
+    ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
+    ~tool_turn:(Tool.Invocation.turn invocation)
+    ~tool_planned_index:(Tool.Invocation.planned_index invocation)
     ~tool_name
     ~tool_result
     ~tool_error
@@ -656,8 +660,30 @@ let record_tool_execution_finished
   |> Result.map (fun _ -> ())
 ;;
 
-let record_hook_invoked active ~hook_name ~hook_decision ?hook_detail () =
-  append_record active ~record_type:Hook_invoked ~hook_name ~hook_decision ?hook_detail ()
+let record_hook_invoked active ?invocation ~hook_name ~hook_decision ?hook_detail () =
+  let result =
+    match invocation with
+    | None ->
+      append_record
+        active
+        ~record_type:Hook_invoked
+        ~hook_name
+        ~hook_decision
+        ?hook_detail
+        ()
+    | Some invocation ->
+      append_record
+        active
+        ~record_type:Hook_invoked
+        ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
+        ~tool_turn:(Tool.Invocation.turn invocation)
+        ~tool_planned_index:(Tool.Invocation.planned_index invocation)
+        ~hook_name
+        ~hook_decision
+        ?hook_detail
+        ()
+  in
+  result
   |> Result.map (fun _ -> ())
 ;;
 
