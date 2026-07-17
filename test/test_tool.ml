@@ -142,7 +142,15 @@ let test_execution_env_handler_receives_context_and_invocation () =
   let context = Context.create_sync () in
   Context.set context "key" (`String "ctx");
   let invocation =
-    Tool.Invocation.create ~tool_use_id:"provider-call-17" ~turn:4 ~planned_index:2
+    Tool.Invocation.create
+      ~tool_use_id:"provider-call-17"
+      ~turn:4
+      ~schedule:
+        { planned_index = 2
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
   in
   match Tool.execute ~context ~invocation tool `Null with
   | Ok { content; _meta = _ } ->
@@ -408,7 +416,15 @@ let () =
             in
             let wrapped = Tool.with_defaults [ "name", `String "default" ] tool in
             let invocation =
-              Tool.Invocation.create ~tool_use_id:"call-1" ~turn:3 ~planned_index:1
+              Tool.Invocation.create
+                ~tool_use_id:"call-1"
+                ~turn:3
+                ~schedule:
+                  { planned_index = 1
+                  ; batch_index = 0
+                  ; batch_size = 1
+                  ; execution_mode = Tool.Serial
+                  }
             in
             match Tool.execute ~invocation wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->

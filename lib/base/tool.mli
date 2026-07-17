@@ -6,18 +6,39 @@
 type tool_handler = Yojson.Safe.t -> Types.tool_result
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
-(** Exact occurrence metadata for correlation and observability only.
-    It does not authorize tool execution. [turn] and [planned_index] scope
-    provider [tool_use_id] values that may be blank or repeated. The embedding
-    runtime owns any broader agent/run identity.
+(** Declared execution ordering for a tool. *)
+type execution_mode =
+  | Concurrent
+  | Serial
+[@@deriving show]
 
-    @since 0.215.0 *)
+val execution_mode_to_yojson : execution_mode -> Yojson.Safe.t
+val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
+
+(** Exact scheduler placement for one tool occurrence.
+
+    @since 0.216.0 *)
+type schedule =
+  { planned_index : int
+  ; batch_index : int
+  ; batch_size : int
+  ; execution_mode : execution_mode
+  }
+
+(** Exact occurrence metadata for correlation and observability only.
+    It does not authorize tool execution. [turn] and [schedule.planned_index]
+    scope provider [tool_use_id] values that may be blank or repeated. The
+    embedding runtime owns any broader agent/run identity.
+
+    @since 0.215.0
+    @since 0.216.0 Owns the canonical [schedule]. *)
 module Invocation : sig
   type t
 
-  val create : tool_use_id:string -> turn:int -> planned_index:int -> t
+  val create : tool_use_id:string -> turn:int -> schedule:schedule -> t
   val tool_use_id : t -> string
   val turn : t -> int
+  val schedule : t -> schedule
   val planned_index : t -> int
 end
 
@@ -37,15 +58,6 @@ module Execution_env : sig
 end
 
 type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-
-type execution_mode =
-  | Concurrent
-  | Serial
-[@@deriving show]
-
-val execution_mode_to_yojson : execution_mode -> Yojson.Safe.t
-val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
-
 type descriptor = { execution_mode : execution_mode }
 
 type handler_kind =

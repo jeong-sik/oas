@@ -578,6 +578,7 @@ let test_validate_run_pass () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "read")
         ~tool_input:(Some `Null)
+        ~tool_planned_index:(Some 0)
         ~tool_execution_mode:(Some Tool.Serial)
         ()
     ; mk_record
@@ -588,6 +589,7 @@ let test_validate_run_pass () =
         ~tool_name:(Some "read")
         ~tool_result:(Some "content")
         ~tool_error:(Some false)
+        (* Historical finish records did not persist the planned index. *)
         ()
     ; mk_record
         ~seq:4
@@ -704,6 +706,62 @@ let test_validate_run_unmatched_tool_pairs () =
     Alcotest.fail (Printf.sprintf "validate_run error: %s" (Error.to_string err))
 ;;
 
+let test_validate_run_distinguishes_repeated_blank_ids_by_planned_index () =
+  let dir = tmpdir () in
+  let path = Filename.concat dir "validate_exact_occurrence.jsonl" in
+  let tool_record ~seq ~record_type ~planned_index =
+    mk_record
+      ~seq
+      ~record_type
+      ~prompt:None
+      ~tool_use_id:(Some "")
+      ~tool_name:(Some "repeat")
+      ~tool_planned_index:(Some planned_index)
+      ~tool_execution_mode:
+        (match record_type with
+         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | _ -> None)
+      ()
+  in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; tool_record ~seq:2 ~record_type:Raw_trace.Tool_execution_started ~planned_index:0
+    ; tool_record ~seq:3 ~record_type:Raw_trace.Tool_execution_started ~planned_index:1
+    ; tool_record ~seq:4 ~record_type:Raw_trace.Tool_execution_finished ~planned_index:0
+    ; tool_record ~seq:5 ~record_type:Raw_trace.Tool_execution_finished ~planned_index:0
+    ; mk_record
+        ~seq:6
+        ~record_type:Raw_trace.Run_finished
+        ~prompt:None
+        ~final_text:(Some "done")
+        ~stop_reason:(Some "end_turn")
+        ()
+    ]
+  in
+  write_jsonl path records;
+  let run_ref : Raw_trace.run_ref =
+    { worker_run_id = "wr-test-0001"
+    ; path
+    ; start_seq = 1
+    ; end_seq = 6
+    ; agent_name = "test_agent"
+    ; session_id = Some "s-test-001"
+    }
+  in
+  match Raw_trace_query.validate_run run_ref with
+  | Ok validation ->
+    let tool_pairs =
+      List.find
+        (fun (check : Raw_trace.validation_check) -> check.name = "tool_pairs")
+        validation.checks
+    in
+    Alcotest.(check bool)
+      "same id does not hide occurrence mismatch"
+      false
+      tool_pairs.passed
+  | Error err -> Alcotest.fail (Error.to_string err)
+;;
+
 (* ── read_runs ──────────────────────────────────────────────────── *)
 
 let test_read_runs () =
@@ -805,6 +863,10 @@ let () =
             "unmatched tool pairs"
             `Quick
             test_validate_run_unmatched_tool_pairs
+        ; Alcotest.test_case
+            "repeated blank ids use planned index"
+            `Quick
+            test_validate_run_distinguishes_repeated_blank_ids_by_planned_index
         ] )
     ; "read_runs", [ Alcotest.test_case "multi-run file" `Quick test_read_runs ]
     ]

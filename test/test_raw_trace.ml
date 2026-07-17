@@ -393,6 +393,18 @@ let test_agent_run_stream_append_only_raw_trace () =
       (List.map
          (fun (record : Raw_trace.record) -> record.tool_planned_index)
          started_records);
+    let finished_records =
+      List.filter
+        (fun (record : Raw_trace.record) ->
+           record.record_type = Raw_trace.Tool_execution_finished)
+        run1_records
+    in
+    Alcotest.(check (list (option int)))
+      "finished planned indices"
+      [ Some 0; Some 0; Some 0; Some 0 ]
+      (List.map
+         (fun (record : Raw_trace.record) -> record.tool_planned_index)
+         finished_records);
     Alcotest.(check (list (option int)))
       "batch indices"
       [ Some 0; Some 0; Some 0; Some 0 ]

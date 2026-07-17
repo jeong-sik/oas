@@ -34,14 +34,14 @@ let print_event (event : Event_bus.event) =
     Printf.eprintf "%s %s turn %d started\n%!" (dim t) (cyan agent_name) turn
   | TurnCompleted { agent_name; turn } ->
     Printf.eprintf "%s %s turn %d completed\n%!" (dim t) (cyan agent_name) turn
-  | ToolCalled { agent_name; tool_name; input; turn = _ } ->
+  | ToolCalled { agent_name; tool_name; input; invocation = _ } ->
     Printf.eprintf
       "%s %s %s called: %s\n%!"
       (dim t)
       (cyan agent_name)
       (yellow tool_name)
       (Yojson.Safe.to_string input)
-  | ToolCompleted { agent_name; tool_name; output; turn = _ } ->
+  | ToolCompleted { agent_name; tool_name; output; invocation = _ } ->
     let status =
       match output with
       | Ok { content; _meta = _ } -> green (Printf.sprintf "ok: %s" content)

@@ -10,11 +10,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
-* **tool lifecycle:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
-  `ToolCalled`, and `ToolCompleted` now carry the exact typed
-  `Tool.Invocation.t`. Existing flat tool-call id, turn, and planned-index
-  fields remain compatibility projections; code constructing these public
-  variants must supply the new `invocation` field.
+* **tool lifecycle:** replace independently writable tool-call id, turn, and
+  schedule copies across hooks, events, results, failures, and execution
+  callbacks with one run-scoped `Tool.Invocation.t`. The invocation now owns
+  its canonical `Tool.schedule`; `Hooks.tool_schedule` remains a type alias,
+  not a second representation. Provider wire messages, raw-trace records, SDK
+  errors, and the compatible durable journal retain their external shapes and
+  are projected from the invocation at those boundaries. See the
+  [0.216 migration guide](docs/migrations/0.216-tool-invocation-ssot.md).
 * **agent-as-tool inputs:** remove `Agent_tool.config.input_parameters` and
   scalar-string invocation. The advertised and consumed input contract is now
   exactly one required object field, `prompt`; see the

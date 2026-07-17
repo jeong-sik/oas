@@ -6,6 +6,10 @@ open Types
 
 let descriptor_with execution_mode = { Tool.execution_mode }
 
+let result_id (result : Agent_tools.tool_execution_result) =
+  Tool.Invocation.tool_use_id result.invocation
+;;
+
 let contains_substring ~needle haystack =
   let needle_len = String.length needle in
   let haystack_len = String.length haystack in
@@ -163,12 +167,12 @@ let test_tool_lifecycle_callback_exceptions_propagate () =
          ~on_tool_execution_finished
          [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "x", `Int 1 ] } ])
   in
-  let no_started_failure ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ = () in
-  let no_finished_failure ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ = () in
-  let started_failure ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
+  let no_started_failure ~invocation:_ ~tool_name:_ ~input:_ = () in
+  let no_finished_failure ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ = () in
+  let started_failure ~invocation:_ ~tool_name:_ ~input:_ =
     failwith "started callback boom"
   in
-  let finished_failure ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+  let finished_failure ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ =
     failwith "finished callback boom"
   in
   check_raises
@@ -200,9 +204,7 @@ let test_pre_hook_observer_exception_propagates () =
 ;;
 
 let test_reserved_callback_exception_is_not_tagged () =
-  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
-    raise Sys.Break
-  in
+  let on_tool_execution_started ~invocation:_ ~tool_name:_ ~input:_ = raise Sys.Break in
   match
     run_execute_with_tools
       ~tools:[ make_echo_tool "safe" ]
@@ -226,10 +228,8 @@ let test_post_hook_observer_exception_propagates_after_completion () =
   let observer ~hook_name ~decision:_ ~detail:_ =
     if String.equal hook_name "post_tool_use" then failwith "post observer boom"
   in
-  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
-    incr started
-  in
-  let on_tool_execution_finished ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+  let on_tool_execution_started ~invocation:_ ~tool_name:_ ~input:_ = incr started in
+  let on_tool_execution_finished ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ =
     incr finished
   in
   check_raises
@@ -268,11 +268,10 @@ let test_post_hook_failure_is_typed_agent_error () =
       env
       ~tools:[ tool ]
       ~hooks
-      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
-        incr started)
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ -> incr started)
       ~on_tool_execution_finished:
         (fun
-          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
       [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
   in
   (match result with
@@ -284,10 +283,11 @@ let test_post_hook_failure_is_typed_agent_error () =
                 { hook_name = "post_tool_use"
                 ; stage = Hooks.Post_tool_use
                 ; tool_name = "safe"
-                ; tool_use_id = "t1"
+                ; invocation
                 ; detail
                 })
        } ->
+     check string "hook invocation id" "t1" (Tool.Invocation.tool_use_id invocation);
      check
        bool
        "hook exception detail retained"
@@ -349,8 +349,8 @@ let test_concurrent_journal_failure_retains_sibling_results () =
         ]
       ~hooks:Hooks.empty
       ~journal
-      ~on_tool_execution_finished:(fun ~tool_use_id ~tool_name:_ ~content:_ ~is_error:_ ->
-        finished_ids := tool_use_id :: !finished_ids)
+      ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
+        finished_ids := Tool.Invocation.tool_use_id invocation :: !finished_ids)
       [ ToolUse { id = "t1"; name = "first"; input = `Assoc [] }
       ; ToolUse { id = "t2"; name = "sibling"; input = `Assoc [] }
       ; ToolUse { id = "t3"; name = "later_serial"; input = `Assoc [] }
@@ -361,8 +361,8 @@ let test_concurrent_journal_failure_retains_sibling_results () =
        { Agent_tools.completed_results = [ first; sibling ]
        ; cause = Agent_tools.Observer_failure { exception_; _ }
        } ->
-     check string "first result order" "t1" first.tool_use_id;
-     check string "sibling result order" "t2" sibling.tool_use_id;
+     check string "first result order" "t1" (result_id first);
+     check string "sibling result order" "t2" (result_id sibling);
      check string "first result retained" "first" first.content;
      check string "sibling result retained" "sibling" sibling.content;
      check
@@ -405,11 +405,10 @@ let test_block_emits_no_execution_lifecycle () =
     run_execute_with_tools
       ~tools:[ tool ]
       ~hooks
-      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
-        incr started)
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ -> incr started)
       ~on_tool_execution_finished:
         (fun
-          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
       [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
   in
   (match results with
@@ -442,7 +441,7 @@ let test_block_is_deterministic_failure () =
   in
   match results with
   | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
+    check string "id" "t1" (result_id result);
     check string "reason is verbatim" "caller denied" result.content;
     check bool "is error" true (tool_result_outcome_is_error result.outcome);
     (match result.outcome with
@@ -506,12 +505,12 @@ let test_non_tool_use_blocks_filtered () =
   (* Only the 2 ToolUse blocks should produce results *)
   check int "result count" 2 (List.length results);
   let sorted =
-    List.sort (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id) results
+    List.sort (fun a b -> String.compare (result_id a) (result_id b)) results
   in
   match sorted with
   | [ first; second ] ->
-    check string "first id" "t1" first.tool_use_id;
-    check string "second id" "t2" second.tool_use_id
+    check string "first id" "t1" (result_id first);
+    check string "second id" "t2" (result_id second)
   | _ -> fail "expected exactly two results"
 ;;
 
@@ -753,11 +752,20 @@ let test_dispatch_passes_exact_tool_invocation () =
 ;;
 
 let invocation_key invocation =
+  let schedule = Tool.Invocation.schedule invocation in
+  let execution_mode =
+    match schedule.execution_mode with
+    | Tool.Concurrent -> "concurrent"
+    | Tool.Serial -> "serial"
+  in
   Printf.sprintf
-    "%S:%d:%d"
+    "%S:%d:%d:%d:%d:%s"
     (Tool.Invocation.tool_use_id invocation)
     (Tool.Invocation.turn invocation)
-    (Tool.Invocation.planned_index invocation)
+    schedule.planned_index
+    schedule.batch_index
+    schedule.batch_size
+    execution_mode
 ;;
 
 let test_lifecycle_surfaces_share_exact_tool_invocation () =
@@ -766,6 +774,9 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
   let pre_invocations = ref [] in
   let post_invocations = ref [] in
   let failure_invocations = ref [] in
+  let handler_invocations = ref [] in
+  let started_invocations = ref [] in
+  let finished_invocations = ref [] in
   let capture target invocation = target := invocation_key invocation :: !target in
   let hooks =
     { Hooks.empty with
@@ -799,7 +810,15 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
   in
   let subscription = Event_bus.subscribe ~config event_bus in
   let tool name result =
-    Tool.create ~name ~description:"" ~parameters:[] (fun _ -> result)
+    Tool.create_with_execution_env
+      ~name
+      ~description:""
+      ~parameters:[]
+      (fun execution_env _ ->
+         Option.iter
+           (capture handler_invocations)
+           (Tool.Execution_env.invocation execution_env);
+         result)
   in
   let success = Ok { Types.content = "done"; _meta = None } in
   let failure =
@@ -815,6 +834,10 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
       ~tools:[ tool "exact_occurrence" success; tool "exact_failure" failure ]
       ~hooks
       ~event_bus
+      ~on_tool_execution_started:(fun ~invocation ~tool_name:_ ~input:_ ->
+        capture started_invocations invocation)
+      ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
+        capture finished_invocations invocation)
       [ ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
       ; ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
       ; ToolUse { id = ""; name = "exact_failure"; input = `Assoc [] }
@@ -832,8 +855,16 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
       ([], [])
       (Event_bus.drain subscription)
   in
-  let expected_all = [ "\"\":0:0"; "\"\":0:1"; "\"\":0:2" ] in
-  let expected_failure = [ "\"\":0:2" ] in
+  let expected_all =
+    [ "\"\":0:0:0:1:serial"; "\"\":0:1:1:1:serial"; "\"\":0:2:2:1:serial" ]
+  in
+  let expected_failure = [ "\"\":0:2:2:1:serial" ] in
+  let result_invocations =
+    List.map
+      (fun (result : Agent_tools.tool_execution_result) ->
+         invocation_key result.invocation)
+      results
+  in
   let check_occurrences label expected actual =
     check (list string) label expected (List.rev actual)
   in
@@ -844,7 +875,11 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
     expected_failure
     !failure_invocations;
   check_occurrences "ToolCalled exact occurrences" expected_all called_invocations;
-  check_occurrences "ToolCompleted exact occurrences" expected_all completed_invocations
+  check_occurrences "ToolCompleted exact occurrences" expected_all completed_invocations;
+  check_occurrences "handler exact occurrences" expected_all !handler_invocations;
+  check_occurrences "start callback exact occurrences" expected_all !started_invocations;
+  check_occurrences "finish callback exact occurrences" expected_all !finished_invocations;
+  check (list string) "result exact occurrences" expected_all result_invocations
 ;;
 
 let test_tool_exception_still_publishes_tool_completed () =
@@ -882,10 +917,10 @@ let test_tool_exception_still_publishes_tool_completed () =
       (fun (event : Event_bus.event) -> event.payload)
       (Event_bus.drain subscription)
   with
-  | [ ToolCalled { tool_name = "boom"; tool_use_id = called_id; _ }
+  | [ ToolCalled { tool_name = "boom"; invocation = called; _ }
     ; ToolCompleted
         { tool_name = "boom"
-        ; tool_use_id = completed_id
+        ; invocation = completed
         ; output = Error { message; recoverable = false; error_class = Some Unknown }
         ; _
         }
@@ -895,10 +930,18 @@ let test_tool_exception_still_publishes_tool_completed () =
       "completion event reports exception"
       true
       (contains_substring ~needle:"Tool 'boom' raised" message);
-    (* Both events carry the provider tool_use id, so subscribers can
-       join called/completed pairs (and hook-side records) on it. *)
-    check string "ToolCalled carries the provider id" "t1" called_id;
-    check string "ToolCompleted carries the provider id" "t1" completed_id
+    (* Both events carry the same exact occurrence, while the provider ID
+       remains available as a boundary projection. *)
+    check
+      string
+      "ToolCalled carries the provider id"
+      "t1"
+      (Tool.Invocation.tool_use_id called);
+    check
+      string
+      "ToolCompleted carries the provider id"
+      "t1"
+      (Tool.Invocation.tool_use_id completed)
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
 ;;
 

@@ -39,7 +39,10 @@ let stub_api_response : Types.api_response =
 let stub_tool_result : Types.tool_result = Ok { Types.content = "ok"; _meta = None }
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  Tool.Invocation.create ~tool_use_id ~turn ~planned_index
+  let schedule : Tool.schedule =
+    { planned_index; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn ~schedule
 ;;
 
 (* ── I1/I2: envelope preserved across variants ────────────────── *)
@@ -63,17 +66,13 @@ let test_envelope_preserved_across_variants () =
         { invocation = invocation ()
         ; agent_name = "alpha"
         ; tool_name = "echo"
-        ; tool_use_id = "tu-test"
         ; input = `Null
-        ; turn = 0
         }
     ; ToolCompleted
         { invocation = invocation ()
         ; agent_name = "alpha"
         ; tool_name = "echo"
-        ; tool_use_id = "tu-test"
         ; output = stub_tool_result
-        ; turn = 0
         }
     ; TurnCompleted { agent_name = "alpha"; turn = 0 }
     ; HandoffRequested { from_agent = "alpha"; to_agent = "beta"; reason = "delegate" }
@@ -122,21 +121,13 @@ let test_payload_kind_mapping () =
     ; TurnStarted { agent_name = "a"; turn = 0 }, "turn_started"
     ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
     ; ( ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "a"
-          ; tool_name = "t"
-          ; tool_use_id = "tu-test"
-          ; input = `Null
-          ; turn = 0
-          }
+          { invocation = invocation (); agent_name = "a"; tool_name = "t"; input = `Null }
       , "tool_called" )
     ; ( ToolCompleted
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "t"
-          ; tool_use_id = "tu-test"
           ; output = stub_tool_result
-          ; turn = 0
           }
       , "tool_completed" )
     ; ( HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "r" }
@@ -232,9 +223,7 @@ let test_golden_lifecycle_transcript () =
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "echo"
-          ; tool_use_id = "tu-test"
           ; input = `Null
-          ; turn = 0
           }));
   Event_bus.publish
     bus
@@ -243,9 +232,7 @@ let test_golden_lifecycle_transcript () =
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "echo"
-          ; tool_use_id = "tu-test"
           ; output = stub_tool_result
-          ; turn = 0
           }));
   Event_bus.publish bus (mk (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish

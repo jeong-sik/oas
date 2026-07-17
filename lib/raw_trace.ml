@@ -638,6 +638,7 @@ let record_tool_execution_started
 let record_tool_execution_finished
       active
       ~tool_use_id
+      ~planned_index
       ~tool_name
       ~tool_result
       ~tool_error
@@ -647,6 +648,7 @@ let record_tool_execution_finished
     active
     ~record_type:Tool_execution_finished
     ~tool_use_id
+    ~tool_planned_index:planned_index
     ~tool_name
     ~tool_result
     ~tool_error
