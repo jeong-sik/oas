@@ -75,7 +75,7 @@ let complete
      | Some result -> ensure_nonempty_completion result
      | None ->
        m.on_request_start ~model_id;
-       let { Llm_transport.response = result; latency_ms } =
+       let dispatch () =
          match transport with
          | Some t ->
            let run_transport () =
@@ -124,6 +124,12 @@ let complete
                ()
            in
            { Llm_transport.response = resp; latency_ms = lat }
+       in
+       let { Llm_transport.response = result; latency_ms } =
+         (* The permit spans the full provider round-trip; cache hits above
+            never take one. Waiting for a permit is queueing, not part of the
+            provider interaction, so body_timeout_s does not cover it. *)
+         Provider_admission.with_admission ~config:request_config dispatch
        in
        (* HTTP-backed transports bypass complete_http, so emit the status
          here using the transport result. Non-HTTP CLI transports must
@@ -263,7 +269,7 @@ let complete_stream
            | Error failure -> emit_wire_observer_failure failure)
         wire_observer
     in
-    let result =
+    let dispatch () =
       match transport with
       | Some t ->
         t.complete_stream
@@ -294,6 +300,12 @@ let complete_stream
           ~tools
           ~on_event
           ()
+    in
+    let result =
+      (* The permit spans the entire stream: the provider holds the
+         connection open until the final SSE event, so concurrency
+         accounting must too. *)
+      Provider_admission.with_admission ~config:request_config dispatch
     in
     Result.map
       (fun resp ->

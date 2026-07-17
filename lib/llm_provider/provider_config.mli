@@ -193,6 +193,18 @@ type t =
       The consumer declares any deadline; OAS never selects one from provider
       kind, URL, model, or process environment.
       @since 0.207.9 *)
+  ; max_concurrent_requests : int option
+    (** Per-endpoint bound on concurrent in-flight completion dispatches.
+      [None] applies no bound. [Some n] admits at most [n] concurrent
+      dispatches process-wide for this endpoint identity
+      [(kind, base_url, api-key identity)]; excess dispatches wait in FIFO
+      order (see {!Provider_admission}). Must be [>= 1] when declared;
+      {!Complete.complete} rejects the request otherwise.
+
+      The consumer declares the allowance its provider account grants; OAS
+      never selects one from provider kind, URL, model, or process
+      environment.
+      @since 0.216.0 *)
   }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -233,6 +245,7 @@ val make
   -> ?seed:int
   -> ?previous_response_id:string
   -> ?connect_timeout_s:float
+  -> ?max_concurrent_requests:int
   -> unit
   -> t
 
