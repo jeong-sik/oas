@@ -360,9 +360,9 @@
  (name test_execution_journal)
  (modules test_execution_journal)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
- (deps ../models.toml)
  (flags
-  (:standard -open Agent_sdk__))
+  (:standard -alias-deps))
+ (deps ../models.toml)
  (action
   (run %{test})))
 
@@ -370,19 +370,19 @@
  (name test_execution_codec_executor)
  (modules test_execution_codec_executor)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
- (deps ../models.toml)
  (flags
-  (:standard -open Agent_sdk__))
+  (:standard -alias-deps))
+ (deps ../models.toml)
  (action
   (run %{test})))
 
 (test
  (name test_execution_event_store)
  (modules test_execution_event_store)
- (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
- (deps ../models.toml)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest digestif eio_main)
  (flags
-  (:standard -open Agent_sdk__))
+  (:standard -alias-deps))
+ (deps ../models.toml)
  (action
   (run %{test})))
 
@@ -390,9 +390,9 @@
  (name test_execution_lane_writer)
  (modules test_execution_lane_writer)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
- (deps ../models.toml)
  (flags
-  (:standard -open Agent_sdk__))
+  (:standard -alias-deps))
+ (deps ../models.toml)
  (action
   (run %{test})))
 

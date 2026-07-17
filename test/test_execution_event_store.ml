@@ -1,10 +1,11 @@
 open Alcotest
-module Runtime_internal = Execution_runtime
 open Agent_sdk
-module Event = Execution_event
-module Codec = Execution_codec_executor
-module Journal = Execution_journal
-module Store = Execution_event_store
+module Internal = Agent_sdk__
+module Runtime_internal = Internal.Execution_runtime
+module Event = Internal.Execution_event
+module Codec = Internal.Execution_codec_executor
+module Journal = Internal.Execution_journal
+module Store = Internal.Execution_event_store
 
 exception Cancel_before_append
 exception Store_scope_failed
@@ -73,6 +74,27 @@ let directory_snapshot dir =
   |> List.map (fun name -> name, Eio.Path.load Eio.Path.(dir / name))
 ;;
 
+let authority_with_format_version ~version payload =
+  let authority =
+    match Yojson.Safe.from_string payload with
+    | `Assoc fields ->
+      (match List.assoc_opt "authority" fields with
+       | Some (`Assoc authority_fields) ->
+         `Assoc
+           (List.map
+              (function
+                | "format_version", _ -> "format_version", `Int version
+                | field -> field)
+              authority_fields)
+       | Some _ | None -> fail "authority fixture has no object payload")
+    | _ -> fail "authority fixture is not an object"
+  in
+  let authority_bytes = Yojson.Safe.to_string authority in
+  let authority_sha256 = Digestif.SHA256.(to_hex (digest_string authority_bytes)) in
+  Yojson.Safe.to_string
+    (`Assoc [ "authority", authority; "authority_sha256", `String authority_sha256 ])
+;;
+
 let make_four_events correlation_id =
   let journal = require_journal (Journal.create ~correlation_id ()) in
   let run, _opened =
@@ -98,6 +120,102 @@ let check_events message expected actual =
 let require_event = function
   | Ok event -> event
   | Error detail -> fail detail
+;;
+
+let fresh identity = require_event (identity ())
+
+let manual_event ~correlation_id ~run_id ~seq ?parent_event_id payload =
+  let event_id = fresh Event.Event_id.fresh in
+  let envelope =
+    Event_envelope.make
+      ~event_id:(Event.Event_id.to_string event_id)
+      ~correlation_id:(Event.Correlation_id.to_string correlation_id)
+      ~run_id:(Event.Run_id.to_string run_id)
+      ~seq
+      ?parent_event_id
+      ()
+  in
+  require_event (Event.make ~envelope payload)
+;;
+
+let legacy_recursive_events correlation_id =
+  let journal = require_journal (Journal.create ~correlation_id ()) in
+  let parent_run, _ =
+    require_journal (Journal.start_run journal ~agent_name:"legacy-parent")
+  in
+  let turn, _ =
+    require_journal
+      (Journal.open_node
+         journal
+         ~run:parent_run
+         ~parent:(Journal.run_root parent_run)
+         ~kind:(Event.Agent_turn { ordinal = 0 }))
+  in
+  let config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_kind.OpenAI_compat
+      ~provider_id:"legacy-provider"
+      ~model_id:"legacy-model"
+      ~base_url:"https://provider.test"
+      ()
+  in
+  let binding =
+    Binding_identity.of_provider_config
+      ~transport:(Binding_identity.transport_for_call ~injected:false)
+      config
+    |> require_event
+  in
+  let provider_kind = require_event (Event.provider_attempt ~ordinal:0 binding) in
+  let provider, _ =
+    require_journal
+      (Journal.open_node journal ~run:parent_run ~parent:turn ~kind:provider_kind)
+  in
+  let invocation, _ =
+    require_journal
+      (Journal.open_node
+         journal
+         ~run:parent_run
+         ~parent:provider
+         ~kind:
+           (Event.Tool_invocation
+              { provider_tool_use_id = Some "legacy-tool-use"
+              ; tool_name = "legacy-tool"
+              ; schedule =
+                  { planned_index = 0
+                  ; batch_index = 0
+                  ; batch_size = 1
+                  ; execution_mode = Tool.Serial
+                  }
+              }))
+  in
+  let input_materialized =
+    require_journal
+      (Journal.update_node
+         journal
+         ~node:invocation
+         (Event.Tool_input_snapshot
+            (Llm_provider.Types.ToolUse
+               { id = "legacy-tool-use"; name = "legacy-tool"; input = `Assoc [] })))
+  in
+  let child_run_id = fresh Event.Run_id.fresh in
+  let child_root_id = fresh Event.Node_id.fresh in
+  let child_root =
+    require_event
+      (Event.make_node
+         ~node_id:child_root_id
+         ~run_id:child_run_id
+         ~parent_node_id:(Some invocation)
+         ~kind:(Event.Agent_run { agent_name = "legacy-child" }))
+  in
+  let child_opened =
+    manual_event
+      ~correlation_id
+      ~run_id:child_run_id
+      ~seq:(Journal.last_seq journal + 1)
+      ~parent_event_id:(Event.Event_id.to_string (Event.event_id input_materialized))
+      (Event.Node_opened child_root)
+  in
+  Journal.events journal @ [ child_opened ]
 ;;
 
 let rec reverse_failure_data = function
@@ -268,6 +386,43 @@ let test_idempotent_retry_requires_exact_canonical_bytes () =
       with
       | Error (Store.Committed_content_conflict { first_seq = 2; last_seq = 2 }) -> ()
       | _ -> fail "semantic-only equality admitted a non-byte-identical retry"))
+;;
+
+let test_old_store_format_is_explicitly_rejected () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    Eio.Switch.run (fun sw ->
+      let store = create_store ~codec ~sw ~dir in
+      let writer = attach_store store in
+      let events = legacy_recursive_events (Store.correlation_id store) in
+      ignore (require_store (Store.append_batch writer ~expected_next_seq:1 events)));
+    Eio.Switch.run (fun sw ->
+      match Journal.open_durable_writer ~sw ~codec ~dir with
+      | Error (Journal.Invariant_violation (Journal.Child_run_parent_not_tool_attempt _))
+        -> ()
+      | Error error ->
+        fail ("legacy fixture failed elsewhere: " ^ Journal.error_to_string error)
+      | Ok _ ->
+        fail "legacy recursive fixture did not reach the changed reducer invariant");
+    let wal = Eio.Path.(dir / "events.v1.wal") in
+    let authority = Eio.Path.(dir / "events.v1.commit") in
+    let wal_before = Eio.Path.load wal in
+    let old_authority =
+      Eio.Path.load authority |> authority_with_format_version ~version:1
+    in
+    Eio.Path.with_open_out ~create:(`Or_truncate 0o600) authority (fun file ->
+      Eio.Flow.copy_string old_authority file;
+      Eio.File.sync file);
+    Eio.Switch.run (fun sw ->
+      match Journal.open_durable_writer ~sw ~codec ~dir with
+      | Error
+          (Journal.Persistence_failure
+             (Store.Unsupported_store_version { expected = 2; actual = 1 })) -> ()
+      | Error error ->
+        fail ("unexpected journal failure: " ^ Journal.error_to_string error)
+      | Ok _ -> fail "old recursive execution store was reopened");
+    check string "rejected store remains untouched" wal_before (Eio.Path.load wal))
 ;;
 
 let test_torn_tail_is_explicitly_truncated () =
@@ -1485,6 +1640,10 @@ let () =
             "idempotent retry requires exact canonical bytes"
             `Quick
             test_idempotent_retry_requires_exact_canonical_bytes
+        ; test_case
+            "old store format is explicitly rejected"
+            `Quick
+            test_old_store_format_is_explicitly_rejected
         ; test_case
             "torn tail is explicitly truncated"
             `Quick

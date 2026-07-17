@@ -82,6 +82,10 @@ type error =
   | Store_not_found
   | Store_initialization_incomplete
   | Store_initialization_conflict
+  | Unsupported_store_version of
+      { expected : int
+      ; actual : int
+      }
   | Corrupt_store of
       { offset : int64
       ; detail : string

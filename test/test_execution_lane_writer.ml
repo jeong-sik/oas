@@ -1,11 +1,12 @@
 open Alcotest
-module Runtime_internal = Execution_runtime
 open Agent_sdk
-module Event = Execution_event
-module Codec = Execution_codec_executor
-module Journal = Execution_journal
-module Store = Execution_event_store
-module Writer = Execution_lane_writer
+module Internal = Agent_sdk__
+module Runtime_internal = Internal.Execution_runtime
+module Event = Internal.Execution_event
+module Codec = Internal.Execution_codec_executor
+module Journal = Internal.Execution_journal
+module Store = Internal.Execution_event_store
+module Writer = Internal.Execution_lane_writer
 module Tx = Journal.Transaction
 
 exception Cancel_waiter
