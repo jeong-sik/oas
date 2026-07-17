@@ -752,6 +752,101 @@ let test_dispatch_passes_exact_tool_invocation () =
   | _ -> fail "expected two invocation-aware results"
 ;;
 
+let invocation_key invocation =
+  Printf.sprintf
+    "%S:%d:%d"
+    (Tool.Invocation.tool_use_id invocation)
+    (Tool.Invocation.turn invocation)
+    (Tool.Invocation.planned_index invocation)
+;;
+
+let test_lifecycle_surfaces_share_exact_tool_invocation () =
+  Eio_main.run
+  @@ fun env ->
+  let pre_invocations = ref [] in
+  let post_invocations = ref [] in
+  let failure_invocations = ref [] in
+  let capture target invocation = target := invocation_key invocation :: !target in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use =
+        Some
+          (function
+            | Hooks.PreToolUse { invocation; _ } ->
+              capture pre_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PreToolUse")
+    ; post_tool_use =
+        Some
+          (function
+            | Hooks.PostToolUse { invocation; _ } ->
+              capture post_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PostToolUse")
+    ; post_tool_use_failure =
+        Some
+          (function
+            | Hooks.PostToolUseFailure { invocation; _ } ->
+              capture failure_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PostToolUseFailure")
+    }
+  in
+  let event_bus = Event_bus.create () in
+  let config =
+    Event_bus.subscription_config ~capacity:6 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config event_bus in
+  let tool name result =
+    Tool.create ~name ~description:"" ~parameters:[] (fun _ -> result)
+  in
+  let success = Ok { Types.content = "done"; _meta = None } in
+  let failure =
+    Error
+      { Types.message = "expected failure"
+      ; recoverable = false
+      ; error_class = Some Types.Deterministic
+      }
+  in
+  let results =
+    execute_with_tools_in_env
+      env
+      ~tools:[ tool "exact_occurrence" success; tool "exact_failure" failure ]
+      ~hooks
+      ~event_bus
+      [ ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
+      ; ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
+      ; ToolUse { id = ""; name = "exact_failure"; input = `Assoc [] }
+      ]
+  in
+  check int "all blank-id calls completed" 3 (List.length results);
+  let called_invocations, completed_invocations =
+    List.fold_left
+      (fun (called, completed) (event : Event_bus.event) ->
+         match event.payload with
+         | ToolCalled { invocation; _ } -> invocation_key invocation :: called, completed
+         | ToolCompleted { invocation; _ } ->
+           called, invocation_key invocation :: completed
+         | _ -> called, completed)
+      ([], [])
+      (Event_bus.drain subscription)
+  in
+  let expected_all = [ "\"\":0:0"; "\"\":0:1"; "\"\":0:2" ] in
+  let expected_failure = [ "\"\":0:2" ] in
+  let check_occurrences label expected actual =
+    check (list string) label expected (List.rev actual)
+  in
+  check_occurrences "PreToolUse exact occurrences" expected_all !pre_invocations;
+  check_occurrences "PostToolUse exact occurrences" expected_all !post_invocations;
+  check_occurrences
+    "PostToolUseFailure exact occurrences"
+    expected_failure
+    !failure_invocations;
+  check_occurrences "ToolCalled exact occurrences" expected_all called_invocations;
+  check_occurrences "ToolCompleted exact occurrences" expected_all completed_invocations
+;;
+
 let test_tool_exception_still_publishes_tool_completed () =
   Eio_main.run
   @@ fun env ->
@@ -825,6 +920,10 @@ let () =
             "dispatch passes exact tool invocation"
             `Quick
             test_dispatch_passes_exact_tool_invocation
+        ; test_case
+            "lifecycle surfaces share exact tool invocation"
+            `Quick
+            test_lifecycle_surfaces_share_exact_tool_invocation
         ] )
     ; ( "non_tool_use_filtering"
       , [ test_case

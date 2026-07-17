@@ -38,6 +38,10 @@ let stub_api_response : Types.api_response =
 
 let stub_tool_result : Types.tool_result = Ok { Types.content = "ok"; _meta = None }
 
+let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
+  Tool.Invocation.create ~tool_use_id ~turn ~planned_index
+;;
+
 (* ── I1/I2: envelope preserved across variants ────────────────── *)
 
 let test_envelope_preserved_across_variants () =
@@ -56,14 +60,16 @@ let test_envelope_preserved_across_variants () =
     [ AgentStarted { agent_name = "alpha"; task_id = "t1" }
     ; TurnStarted { agent_name = "alpha"; turn = 0 }
     ; ToolCalled
-        { agent_name = "alpha"
+        { invocation = invocation ()
+        ; agent_name = "alpha"
         ; tool_name = "echo"
         ; tool_use_id = "tu-test"
         ; input = `Null
         ; turn = 0
         }
     ; ToolCompleted
-        { agent_name = "alpha"
+        { invocation = invocation ()
+        ; agent_name = "alpha"
         ; tool_name = "echo"
         ; tool_use_id = "tu-test"
         ; output = stub_tool_result
@@ -116,7 +122,8 @@ let test_payload_kind_mapping () =
     ; TurnStarted { agent_name = "a"; turn = 0 }, "turn_started"
     ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
     ; ( ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "t"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -124,7 +131,8 @@ let test_payload_kind_mapping () =
           }
       , "tool_called" )
     ; ( ToolCompleted
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "t"
           ; tool_use_id = "tu-test"
           ; output = stub_tool_result
@@ -221,7 +229,8 @@ let test_golden_lifecycle_transcript () =
     bus
     (mk
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "echo"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -231,7 +240,8 @@ let test_golden_lifecycle_transcript () =
     bus
     (mk
        (ToolCompleted
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "echo"
           ; tool_use_id = "tu-test"
           ; output = stub_tool_result

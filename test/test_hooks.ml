@@ -13,6 +13,10 @@ let default_schedule
   Hooks.{ planned_index; batch_index; batch_size; execution_mode }
 ;;
 
+let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
+  Tool.Invocation.create ~tool_use_id ~turn ~planned_index
+;;
+
 let test_empty_hooks () =
   let hooks = Hooks.empty in
   check bool "before_turn is None" true (hooks.before_turn = None);
@@ -50,7 +54,8 @@ let test_hook_receives_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
-         { tool_use_id = "tu-test"
+         { invocation = invocation ()
+         ; tool_use_id = "tu-test"
          ; tool_name = "test_tool"
          ; input = `Null
          ; accumulated_cost_usd = 0.0
@@ -73,7 +78,8 @@ let test_post_tool_use_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUse
-         { tool_use_id = "tu-echo"
+         { invocation = invocation ~tool_use_id:"tu-echo" ()
+         ; tool_use_id = "tu-echo"
          ; tool_name = "echo"
          ; input = `Null
          ; output = Ok { Types.content = "hello"; _meta = None }
@@ -97,7 +103,8 @@ let test_post_tool_use_failure_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUseFailure
-         { tool_use_id = "tu-echo"
+         { invocation = invocation ~tool_use_id:"tu-echo" ()
+         ; tool_use_id = "tu-echo"
          ; tool_name = "echo"
          ; input = `Null
          ; error = "boom"
@@ -113,7 +120,8 @@ let test_invoke_block () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
-         { tool_use_id = "tu-danger"
+         { invocation = invocation ~tool_use_id:"tu-danger" ()
+         ; tool_use_id = "tu-danger"
          ; tool_name = "dangerous"
          ; input = `Null
          ; accumulated_cost_usd = 0.0
@@ -128,7 +136,8 @@ let test_invoke_block () =
 
 let dummy_pre_tool_use =
   Hooks.PreToolUse
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
+    ; tool_use_id = "tu-1"
     ; tool_name = "t"
     ; input = `Null
     ; accumulated_cost_usd = 0.0
@@ -165,7 +174,8 @@ let dummy_after_turn =
 
 let dummy_post_tool_use =
   Hooks.PostToolUse
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
+    ; tool_use_id = "tu-1"
     ; tool_name = "t"
     ; input = `Null
     ; output = Ok { Types.content = "ok"; _meta = None }
@@ -177,7 +187,8 @@ let dummy_post_tool_use =
 
 let dummy_post_tool_use_failure =
   Hooks.PostToolUseFailure
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
+    ; tool_use_id = "tu-1"
     ; tool_name = "t"
     ; input = `Null
     ; error = "err"
