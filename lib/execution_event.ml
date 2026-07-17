@@ -120,11 +120,6 @@ let validate_non_blank field value =
   else Ok ()
 ;;
 
-let validate_optional_non_blank field = function
-  | None -> Ok ()
-  | Some value -> validate_non_blank field value
-;;
-
 let validate_json = Execution_json.validate
 
 let validate_node_kind = function
@@ -135,8 +130,7 @@ let validate_node_kind = function
     if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
-  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
-    let* () = validate_optional_non_blank "provider_tool_use_id" provider_tool_use_id in
+  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule } ->
     let* () = validate_non_blank "tool_name" tool_name in
     Execution_tool_schedule.validate schedule
   | Tool_attempt -> Ok ()
@@ -305,11 +299,8 @@ let validate_content_block block =
   if block = decoded
   then (
     match block with
-    | ToolUse { id; name; _ } ->
-      let* () = validate_non_blank "tool-use identifier" id in
-      validate_non_blank "tool-use name" name
-    | ToolResult { tool_use_id; _ } ->
-      validate_non_blank "tool-result tool-use identifier" tool_use_id
+    | ToolUse { id = _; name; _ } -> validate_non_blank "tool-use name" name
+    | ToolResult { tool_use_id = _; _ } -> Ok ()
     | Text _
     | Thinking _
     | ReasoningDetails _

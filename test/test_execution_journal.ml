@@ -1000,12 +1000,42 @@ let test_json_terminal_and_id_boundaries () =
   expect_invalid_node_kind
     (Event.Tool_invocation
        { provider_tool_use_id = None; tool_name = " \t"; schedule = serial_schedule });
-  expect_invalid_node_kind
-    (Event.Tool_invocation
-       { provider_tool_use_id = Some " \n"
-       ; tool_name = "valid_tool"
-       ; schedule = serial_schedule
-       });
+  let exact_provider_id = " \n" in
+  let exact_provider_kind =
+    Event.Tool_invocation
+      { provider_tool_use_id = Some exact_provider_id
+      ; tool_name = "valid_tool"
+      ; schedule = serial_schedule
+      }
+  in
+  (match Event.node_kind_to_yojson exact_provider_kind with
+   | Error _ -> fail "opaque provider tool id did not encode"
+   | Ok json ->
+     (match Event.node_kind_of_yojson json with
+      | Ok (Event.Tool_invocation { provider_tool_use_id = Some decoded; _ }) ->
+        check string "provider tool id roundtrip is exact" exact_provider_id decoded
+      | Ok _ | Error _ -> fail "opaque provider tool id did not roundtrip exactly"));
+  let opaque_tool_use =
+    Llm_provider.Types.ToolUse { id = " \t"; name = "valid_tool"; input = `Assoc [] }
+  in
+  let opaque_tool_result =
+    Llm_provider.Types.ToolResult
+      { tool_use_id = "\n "
+      ; content = "ok"
+      ; outcome = Llm_provider.Types.Tool_succeeded
+      ; json = None
+      ; content_blocks = None
+      }
+  in
+  List.iter
+    (fun update ->
+       match Event.node_update_to_yojson update with
+       | Error _ -> fail "opaque content-block provider id did not encode"
+       | Ok json ->
+         (match Event.node_update_of_yojson json with
+          | Ok decoded when decoded = update -> ()
+          | Ok _ | Error _ -> fail "opaque content-block provider id changed"))
+    [ Event.Tool_input_snapshot opaque_tool_use; Event.Tool_result opaque_tool_result ];
   let before_invalid_response_id = Journal.length journal in
   (match
      Journal.update_node journal ~node:turn (Event.Provider_response_id_snapshot " \t")
