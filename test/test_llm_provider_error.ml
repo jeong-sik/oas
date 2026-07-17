@@ -611,8 +611,7 @@ let test_empty_completion_overflow_maps_to_invalid_request () =
       ~provider:"anthropic"
       (Http_client.ProviderFailure
          { kind =
-             Http_client.Empty_completion
-               { stop_reason = Types.ContextWindowExceeded }
+             Http_client.Empty_completion { stop_reason = Types.ContextWindowExceeded }
          ; message = "no content blocks"
          })
   in
@@ -623,8 +622,8 @@ let test_empty_completion_overflow_maps_to_invalid_request () =
       Retry.error_message
         (Retry.ContextOverflow
            { message =
-               "empty completion (stop_reason=model_context_window_exceeded): \
-                no content blocks"
+               "empty completion (stop_reason=model_context_window_exceeded): no content \
+                blocks"
            ; limit = None
            })
     in
