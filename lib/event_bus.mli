@@ -59,7 +59,11 @@ type payload =
           [Result.is_error] check.
           @since 0.154.0 *)
   | ToolCalled of
-      { agent_name : string
+      { invocation : Tool.Invocation.t
+        (** Exact model-tool occurrence. [tool_use_id] and [turn] below remain
+            compatibility projections of this typed value.
+            @since 0.216.0 *)
+      ; agent_name : string
       ; tool_name : string
       ; tool_use_id : string
         (** Provider tool-call id (e.g. Anthropic [tool_use.id], OpenAI
@@ -78,7 +82,10 @@ type payload =
             @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
   | ToolCompleted of
-      { agent_name : string
+      { invocation : Tool.Invocation.t
+        (** Same exact occurrence as the matching [ToolCalled].
+            @since 0.216.0 *)
+      ; agent_name : string
       ; tool_name : string
       ; tool_use_id : string
         (** Same id as the matching [ToolCalled]; see its doc.

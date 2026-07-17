@@ -283,7 +283,8 @@ let find_and_execute_tool_with_index
       ?correlation_id
       ?run_id
       ?on_hook_invoked
-      ~schedule
+      ~(schedule : Hooks.tool_schedule)
+      ~invocation
       name
       input
       id
@@ -321,7 +322,13 @@ let find_and_execute_tool_with_index
           ?correlation_id
           ?run_id
           (ToolCalled
-             { agent_name; tool_name = name; tool_use_id = id; input; turn = turn_count })
+             { invocation
+             ; agent_name
+             ; tool_name = name
+             ; tool_use_id = Tool.Invocation.tool_use_id invocation
+             ; input
+             ; turn = Tool.Invocation.turn invocation
+             })
       in
       (try
          Event_bus.publish bus ev;
@@ -357,7 +364,13 @@ let find_and_execute_tool_with_index
           ~tool_use_id:id
           hooks.post_tool_use_failure
           (Hooks.PostToolUseFailure
-             { tool_use_id = id; tool_name = name; input; error = message; schedule })
+             { invocation
+             ; tool_use_id = Tool.Invocation.tool_use_id invocation
+             ; tool_name = name
+             ; input
+             ; error = message
+             ; schedule
+             })
       in
       (* Tool inputs cross this boundary unchanged. The schema either accepts
            the exact JSON value or produces a typed validation failure for the
@@ -376,12 +389,6 @@ let find_and_execute_tool_with_index
          { result = validation_error_result ~input message; deferred_failure }
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
-         let invocation =
-           Tool.Invocation.create
-             ~tool_use_id:id
-             ~turn:turn_count
-             ~planned_index:schedule.planned_index
-         in
          let result =
            try Tool.execute ~context ~invocation tool exact_input with
            | exn ->
@@ -410,7 +417,8 @@ let find_and_execute_tool_with_index
              ~tool_use_id:id
              hooks.post_tool_use
              (Hooks.PostToolUse
-                { tool_use_id = id
+                { invocation
+                ; tool_use_id = Tool.Invocation.tool_use_id invocation
                 ; tool_name = name
                 ; input = exact_input
                 ; output = result
@@ -434,7 +442,8 @@ let find_and_execute_tool_with_index
                ~tool_use_id:id
                hooks.post_tool_use_failure
                (Hooks.PostToolUseFailure
-                  { tool_use_id = id
+                  { invocation
+                  ; tool_use_id = Tool.Invocation.tool_use_id invocation
                   ; tool_name = name
                   ; input = exact_input
                   ; error = message
@@ -530,11 +539,12 @@ let find_and_execute_tool_with_index
              ?run_id
              ?caused_by:tool_called_run_id
              (ToolCompleted
-                { agent_name
+                { invocation
+                ; agent_name
                 ; tool_name = name
-                ; tool_use_id = id
+                ; tool_use_id = Tool.Invocation.tool_use_id invocation
                 ; output
-                ; turn = turn_count
+                ; turn = Tool.Invocation.turn invocation
                 }))
       with
       | exception_ ->
@@ -555,12 +565,18 @@ let find_and_execute_tool
       ?correlation_id
       ?run_id
       ?on_hook_invoked
-      ~schedule
+      ~(schedule : Hooks.tool_schedule)
       name
       input
       id
   =
   let tool_index = build_index tools in
+  let invocation =
+    Tool.Invocation.create
+      ~tool_use_id:id
+      ~turn:turn_count
+      ~planned_index:schedule.planned_index
+  in
   try
     find_and_execute_tool_with_index
       ~context
@@ -574,6 +590,7 @@ let find_and_execute_tool
       ?run_id
       ?on_hook_invoked
       ~schedule
+      ~invocation
       name
       input
       id
@@ -612,10 +629,16 @@ let execute_scheduled_tool
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
-      ~schedule
+      ~(schedule : Hooks.tool_schedule)
       (tool_use : scheduled_tool_use)
   =
   let { index; id; name; input; _ } = tool_use in
+  let invocation =
+    Tool.Invocation.create
+      ~tool_use_id:id
+      ~turn:turn_count
+      ~planned_index:schedule.planned_index
+  in
   let completed_dispatch = ref None in
   let first_failure = ref None in
   let record_failure failure =
@@ -668,11 +691,12 @@ let execute_scheduled_tool
         ~hook_name:"pre_tool_use"
         hooks.pre_tool_use
         (Hooks.PreToolUse
-           { tool_use_id = id
+           { invocation
+           ; tool_use_id = Tool.Invocation.tool_use_id invocation
            ; tool_name = name
            ; input
            ; accumulated_cost_usd = usage.Types.estimated_cost_usd
-           ; turn = turn_count
+           ; turn = Tool.Invocation.turn invocation
            ; schedule
            })
     in
@@ -760,6 +784,7 @@ let execute_scheduled_tool
                     ?run_id
                     ?on_hook_invoked
                     ~schedule
+                    ~invocation
                     name
                     input
                     id

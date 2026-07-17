@@ -10,6 +10,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+* **tool lifecycle:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
+  `ToolCalled`, and `ToolCompleted` now carry the exact typed
+  `Tool.Invocation.t`. Existing flat tool-call id, turn, and planned-index
+  fields remain compatibility projections; code constructing these public
+  variants must supply the new `invocation` field.
 * **agent-as-tool inputs:** remove `Agent_tool.config.input_parameters` and
   scalar-string invocation. The advertised and consumed input contract is now
   exactly one required object field, `prompt`; see the

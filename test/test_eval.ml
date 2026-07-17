@@ -191,6 +191,8 @@ let test_run_metrics_yojson () =
 
 (* ── eval_collector tests ─────────────────────────────────────── *)
 
+let invocation () = Tool.Invocation.create ~tool_use_id:"tu-test" ~turn:0 ~planned_index:0
+
 let test_eval_collector_basic () =
   Eio_main.run
   @@ fun _env ->
@@ -212,7 +214,8 @@ let test_eval_collector_basic () =
     bus
     (Event_bus.mk_event
        (ToolCalled
-          { agent_name = "test"
+          { invocation = invocation ()
+          ; agent_name = "test"
           ; tool_name = "t1"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -222,7 +225,8 @@ let test_eval_collector_basic () =
     bus
     (Event_bus.mk_event
        (ToolCompleted
-          { agent_name = "test"
+          { invocation = invocation ()
+          ; agent_name = "test"
           ; tool_name = "t1"
           ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "done"; _meta = None }

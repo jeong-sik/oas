@@ -56,7 +56,11 @@ type hook_event =
       ; response : Types.api_response
       }
   | PreToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Exact model-tool occurrence. [tool_use_id], [turn], and
+            [schedule.planned_index] below are compatibility projections of
+            this typed value. @since 0.216.0 *)
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
@@ -64,7 +68,10 @@ type hook_event =
       ; schedule : tool_schedule
       }
   | PostToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Same exact occurrence as the matching [PreToolUse].
+            @since 0.216.0 *)
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; output : Types.tool_result
@@ -73,7 +80,10 @@ type hook_event =
       ; schedule : tool_schedule
       }
   | PostToolUseFailure of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Same exact occurrence as the matching [PreToolUse].
+            @since 0.216.0 *)
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; error : string

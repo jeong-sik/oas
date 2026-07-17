@@ -96,7 +96,8 @@ type hook_event =
       ; response : api_response
       }
   | PreToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
@@ -104,7 +105,8 @@ type hook_event =
       ; schedule : tool_schedule
       }
   | PostToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; output : Types.tool_result
@@ -113,7 +115,8 @@ type hook_event =
       ; schedule : tool_schedule
       }
   | PostToolUseFailure of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; error : string

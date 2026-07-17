@@ -26,6 +26,10 @@ let mock_response text =
 (** Shorthand: wrap a payload into an event with a fresh envelope. *)
 let ev payload = Event_bus.mk_event payload
 
+let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
+  Tool.Invocation.create ~tool_use_id ~turn ~planned_index
+;;
+
 let subscription_config_exn ~capacity ~overflow =
   match Event_bus.subscription_config ~capacity ~overflow with
   | Ok config -> config
@@ -185,7 +189,8 @@ let test_accept_all_subscriber_gets_all_events () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ~tool_use_id:"1" ()
+          ; agent_name = "a"
           ; tool_name = "t"
           ; tool_use_id = "1"
           ; input = `Null
@@ -251,7 +256,8 @@ let test_filter_tools_only () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "calc"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -261,7 +267,8 @@ let test_filter_tools_only () =
     bus
     (ev
        (ToolCompleted
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "calc"
           ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "42"; _meta = None }
@@ -292,7 +299,8 @@ let test_accept_all () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "x"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -328,7 +336,8 @@ let test_payload_kind_canonical_labels () =
     ; Event_bus.TurnReady { agent_name = "a"; turn = 0; tool_names = [] }, "turn_ready"
     ; Event_bus.TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
     ; ( Event_bus.ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "f"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -395,7 +404,8 @@ let test_multiple_event_types () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "f"
           ; tool_use_id = "tu-test"
           ; input = `Null
@@ -405,7 +415,8 @@ let test_multiple_event_types () =
     bus
     (ev
        (ToolCompleted
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "f"
           ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "ok"; _meta = None }
@@ -450,7 +461,8 @@ let test_tool_called_fields () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"
+          { invocation = invocation ()
+          ; agent_name = "a"
           ; tool_name = "calc"
           ; tool_use_id = "tu-test"
           ; input
