@@ -8,6 +8,7 @@ module Journal = Internal.Execution_journal
 module Store = Internal.Execution_event_store
 module Writer = Internal.Execution_lane_writer
 module Settlement = Internal.Execution_tool_settlement
+module Agent_scope = Internal.Execution_agent_scope
 module Tx = Journal.Transaction
 
 exception Cancel_waiter
@@ -33,6 +34,11 @@ let require_closed = function
 let require_scope = function
   | Ok value -> value
   | Error error -> fail (Writer.scope_failure_to_string error)
+;;
+
+let require_agent_scope = function
+  | Ok value -> value
+  | Error error -> fail (Agent_scope.error_to_string error)
 ;;
 
 let with_fresh codec dir f =
@@ -515,6 +521,153 @@ let test_structural_occurrence_identity_is_parent_local () =
               ~kind:(Event.Agent_turn { ordinal = 0 })
               ()));
       check int "same ordinal under different parents is allowed" 12 (seq ())))
+;;
+
+let test_agent_scope_owns_effect_topology () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let locator = ref None in
+    let calls = ref 0 in
+    let result =
+      Types.ToolResult
+        { tool_use_id = ""
+        ; content = "done"
+        ; outcome = Types.Tool_succeeded
+        ; json = None
+        ; content_blocks = None
+        }
+    in
+    with_fresh codec dir (fun _sw writer ->
+      let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
+      let before_cancelled =
+        Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           Eio.Cancel.cancel cancellation Cancel_scope;
+           ignore (Agent_scope.open_turn scope ~ordinal:99))
+       with
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | () -> fail "pre-cancelled topology mutation returned"
+       | exception exn -> raise exn);
+      check
+        int
+        "pre-cancelled topology mutation admitted no event"
+        before_cancelled
+        (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
+      let before = cursor_at (Result.get_ok (Writer.current_cursor writer)) 0 in
+      let turn = require_agent_scope (Agent_scope.open_turn scope ~ordinal:3) in
+      let config =
+        Llm_provider.Provider_config.make
+          ~kind:Llm_provider.Provider_kind.OpenAI_compat
+          ~provider_id:"scope-provider"
+          ~model_id:"scope-model"
+          ~base_url:"https://provider.test"
+          ()
+      in
+      let binding =
+        Binding_identity.of_provider_config
+          ~transport:(Binding_identity.transport_for_call ~injected:false)
+          config
+        |> require_codec
+      in
+      let provider =
+        require_agent_scope (Agent_scope.open_provider_attempt turn ~ordinal:0 binding)
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let wrong_turn = Tool.Invocation.create ~tool_use_id:"" ~turn:4 ~schedule in
+      (match
+         Agent_scope.open_invocation
+           provider
+           ~invocation:wrong_turn
+           ~tool_name:"effect"
+           ~input:`Null
+       with
+       | Error _ -> ()
+       | Ok _ -> fail "mismatched invocation turn entered the scope");
+      check
+        int
+        "rejected invocation left no partial node"
+        3
+        (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
+      let exact_invocation = Tool.Invocation.create ~tool_use_id:"" ~turn:3 ~schedule in
+      let invocation =
+        require_agent_scope
+          (Agent_scope.open_invocation
+             provider
+             ~invocation:exact_invocation
+             ~tool_name:"effect"
+             ~input:(`Assoc [ "value", `Int 7 ]))
+      in
+      locator := Some (Agent_scope.invocation_locator invocation);
+      (match
+         Agent_scope.execute invocation ~invoke:(fun () ->
+           incr calls;
+           result)
+       with
+       | Ok (Settlement.Executed _) -> ()
+       | Ok (Settlement.Replayed _) -> fail "fresh scoped effect was replayed"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      check int "scoped effect call count" 1 !calls;
+      let abort_result =
+        match
+          Eio.Cancel.sub (fun cancellation ->
+            Eio.Cancel.cancel cancellation Cancel_scope;
+            Agent_scope.abort
+              scope
+              (Agent_scope.Cancelled { reason = Some "scope test complete"; data = None }))
+        with
+        | result -> result
+        | exception Eio.Cancel.Cancelled Cancel_scope ->
+          fail "cancelled cleanup context lost the durable abort receipt"
+        | exception exn -> raise exn
+      in
+      require_agent_scope abort_result;
+      let events, through = read_complete_page writer ~after:before ~limit:12 in
+      check int "closed scope event count" 12 (List.length events);
+      check int "closed scope cursor" 12 (Journal.cursor_seq through);
+      match List.map Event.payload events with
+      | Event.Node_opened root
+        :: Event.Node_opened turn_node
+        :: Event.Node_opened provider_node
+        :: Event.Node_opened invocation_node
+        :: Event.Node_updated { update = Event.Tool_input_snapshot input; _ }
+        :: _ ->
+        (match
+           ( Event.node_kind root
+           , Event.node_kind turn_node
+           , Event.node_kind provider_node
+           , Event.node_kind invocation_node
+           , input )
+         with
+         | ( Event.Agent_run { agent_name = "agent" }
+           , Event.Agent_turn { ordinal = 3 }
+           , Event.Provider_attempt { ordinal = 0; _ }
+           , Event.Tool_invocation
+               { provider_tool_use_id = Some ""; tool_name = "effect"; _ }
+           , Types.ToolUse
+               { id = ""; name = "effect"; input = `Assoc [ ("value", `Int 7) ] } ) -> ()
+         | _ -> fail "scope did not retain exact typed topology")
+      | _ -> fail "scope did not write its topology before the effect");
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let invocation =
+        require_agent_scope (Agent_scope.rebind_invocation ~writer (Option.get !locator))
+      in
+      (match Agent_scope.execute invocation ~invoke:(fun () -> fail "effect reran") with
+       | Ok (Settlement.Replayed replayed) ->
+         check bool "reopened scope replays exact result" true (replayed = result)
+       | Ok (Settlement.Executed _) -> fail "reopened scope executed effect twice"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      check int "reopened scope preserves call count" 1 !calls))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -1437,6 +1590,10 @@ let () =
             "structural occurrence identity is parent local"
             `Quick
             test_structural_occurrence_identity_is_parent_local
+        ; test_case
+            "Agent scope owns effect topology"
+            `Quick
+            test_agent_scope_owns_effect_topology
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick
