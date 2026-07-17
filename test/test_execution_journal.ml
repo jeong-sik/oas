@@ -460,6 +460,58 @@ let test_reducer_rejects_correlation_drift () =
   | _ -> fail "execution correlation drift was accepted"
 ;;
 
+let test_recursion_rejections_are_pinned () =
+  (* Negative pins for the #2637 attempt-owned recursion topology: the
+     admission matrix must keep rejecting flattened nesting, and the
+     open-child fence must cover child RUNS, not only nested invocations.
+     A wrong [true] in parent_accepts_child or a lost cross-run child
+     registration would otherwise go green through the whole suite. *)
+  Eio_main.run
+  @@ fun _env ->
+  let journal = require_ok (Journal.create ()) in
+  let run = require_started_run (Journal.start_run journal ~agent_name:"neg-pins") in
+  let _turn, provider_attempt = open_provider_attempt journal run in
+  let invocation =
+    require_opened_node
+      (Journal.open_node
+         journal
+         ~run
+         ~parent:provider_attempt
+         ~kind:(tool_invocation "outer"))
+  in
+  ignore
+    (require_ok
+       (Journal.update_node
+          journal
+          ~node:invocation
+          (Event.Tool_input_snapshot (tool_use "outer" (`Assoc [])))));
+  (match
+     Journal.open_node journal ~run ~parent:invocation ~kind:(tool_invocation "flat")
+   with
+   | Error (Journal.Invariant_violation (Journal.Invalid_parent_kind _)) -> ()
+   | Ok _ -> fail "nested invocation was admitted directly under an invocation"
+   | Error error -> fail (Journal.error_to_string error));
+  let attempt =
+    require_opened_node
+      (Journal.open_node journal ~run ~parent:invocation ~kind:Event.Tool_attempt)
+  in
+  (match Journal.open_node journal ~run ~parent:attempt ~kind:Event.Tool_attempt with
+   | Error (Journal.Invariant_violation (Journal.Invalid_parent_kind _)) -> ()
+   | Ok _ -> fail "attempt was admitted directly under an attempt"
+   | Error error -> fail (Journal.error_to_string error));
+  let child_run =
+    require_started_run
+      (Journal.start_run ~parent_attempt:attempt journal ~agent_name:"child")
+  in
+  (match Journal.close_node journal ~node:attempt Event.Succeeded with
+   | Error (Journal.Invariant_violation (Journal.Node_has_open_children _)) -> ()
+   | Ok _ -> fail "attempt closed while its child run was still open"
+   | Error error -> fail (Journal.error_to_string error));
+  ignore (require_ok (Journal.finish_run journal ~run:child_run Event.Succeeded));
+  ignore (require_ok (Journal.close_node journal ~node:attempt Event.Succeeded));
+  check_contiguous (Journal.events journal)
+;;
+
 let test_open_under_closed_parent_is_parent_node_closed () =
   Eio_main.run
   @@ fun _env ->
@@ -1575,6 +1627,10 @@ let () =
             "closed parent rejects new children as Parent_node_closed"
             `Quick
             test_open_under_closed_parent_is_parent_node_closed
+        ; test_case
+            "flattened recursion rejected and child-run fence holds"
+            `Quick
+            test_recursion_rejections_are_pinned
         ; test_case
             "concurrent updates share one sequence"
             `Quick
