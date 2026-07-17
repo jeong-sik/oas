@@ -171,6 +171,11 @@ type invariant_violation =
   | Tool_input_snapshot_identity_mismatch of Event.Node_id.t
   | Tool_input_delta_after_snapshot of Event.Node_id.t
   | Tool_input_not_materialized of Event.Node_id.t
+  | Tool_occurrence_already_opened of
+      { provider_attempt : Event.Node_id.t
+      ; planned_index : int
+      ; existing : Event.Node_id.t
+      }
   | Tool_result_already_materialized of Event.Node_id.t
   | Tool_result_snapshot_not_tool_result of Event.Node_id.t
   | Tool_result_snapshot_identity_mismatch of Event.Node_id.t
@@ -1393,6 +1398,101 @@ let stage_begin_tool_attempt journal state ~invocation =
   stage_open_node journal state ~run ~parent:invocation ~kind:Event.Tool_attempt
 ;;
 
+let stage_open_tool_invocation
+      journal
+      state
+      ~run
+      ~provider_attempt
+      ~invocation
+      ~tool_name
+      ~input
+  =
+  let* provider_record = node_record_or_error state provider_attempt in
+  let* () =
+    match
+      Event.node_kind provider_record.node, Event.parent_node_id provider_record.node
+    with
+    | Event.Provider_attempt _, Some turn_node ->
+      let* turn_record = node_record_or_error state turn_node in
+      (match Event.node_kind turn_record.node with
+       | Event.Agent_turn { ordinal } when ordinal = Tool.Invocation.turn invocation ->
+         Ok ()
+       | Event.Agent_turn _ ->
+         Error
+           (Invalid_argument "tool invocation turn does not match its provider attempt")
+       | Event.Agent_run _
+       | Event.Provider_attempt _
+       | Event.Output_block _
+       | Event.Tool_invocation _
+       | Event.Tool_attempt ->
+         Error
+           (Invalid_argument
+              "tool invocation requires a provider attempt under an agent turn"))
+    | Event.Provider_attempt _, None ->
+      Error
+        (Invalid_argument
+           "tool invocation requires a provider attempt under an agent turn")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Output_block _
+        | Event.Tool_invocation _
+        | Event.Tool_attempt )
+      , _ ) -> Error (Invalid_argument "tool invocation requires a provider attempt")
+  in
+  let tool_use_id = Tool.Invocation.tool_use_id invocation in
+  let planned_index = Tool.Invocation.planned_index invocation in
+  let* () =
+    match
+      List.find_map
+        (fun (child : Event.node event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation { schedule; _ }
+             when schedule.planned_index = planned_index ->
+             Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        provider_record.children_rev
+    with
+    | None -> Ok ()
+    | Some existing ->
+      Error
+        (Invariant_violation
+           (Tool_occurrence_already_opened { provider_attempt; planned_index; existing }))
+  in
+  let* opened =
+    stage_open_node
+      journal
+      state
+      ~run
+      ~parent:provider_attempt
+      ~kind:
+        (Event.Tool_invocation
+           { provider_tool_use_id = Some tool_use_id
+           ; tool_name
+           ; schedule = Tool.Invocation.schedule invocation
+           })
+  in
+  let tool_use =
+    Llm_provider.Types.ToolUse { id = tool_use_id; name = tool_name; input }
+  in
+  let+ materialized =
+    stage_update_node
+      journal
+      opened.next_state
+      ~node:(fst opened.value)
+      (Event.Tool_input_snapshot tool_use)
+  in
+  let node, opened_event = opened.value in
+  { next_state = materialized.next_state
+  ; events = [ opened_event; materialized.value ]
+  ; value = node, [ opened_event; materialized.value ]
+  }
+;;
+
 let stage_settle_tool_attempt journal state ~attempt ~invocation ~result =
   let* attempt_record = node_record_or_error state attempt in
   let* () =
@@ -1601,6 +1701,14 @@ module Transaction = struct
     | Begin_tool_attempt :
         { invocation : Event.Node_id.t }
         -> (Event.Node_id.t * Event.t) t
+    | Open_tool_invocation :
+        { run : run
+        ; provider_attempt : Event.Node_id.t
+        ; invocation : Tool.Invocation.t
+        ; tool_name : string
+        ; input : Yojson.Safe.t
+        }
+        -> (Event.Node_id.t * Event.t list) t
     | Settle_tool_attempt :
         { attempt : Event.Node_id.t
         ; invocation : Event.Node_id.t
@@ -1631,6 +1739,10 @@ module Transaction = struct
   let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
   let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
   let begin_tool_attempt ~invocation () = Begin_tool_attempt { invocation }
+
+  let open_tool_invocation ~run ~provider_attempt ~invocation ~tool_name ~input () =
+    Open_tool_invocation { run; provider_attempt; invocation; tool_name; input }
+  ;;
 
   let settle_tool_attempt ~attempt ~invocation ~result () =
     Settle_tool_attempt { attempt; invocation; result }
@@ -1666,6 +1778,17 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
       (stage_close_node ~causes batch.journal batch.staged_state ~node terminal)
   | Transaction.Begin_tool_attempt { invocation } ->
     stage_mutation (stage_begin_tool_attempt batch.journal batch.staged_state ~invocation)
+  | Transaction.Open_tool_invocation
+      { run; provider_attempt; invocation; tool_name; input } ->
+    stage_mutation
+      (stage_open_tool_invocation
+         batch.journal
+         batch.staged_state
+         ~run
+         ~provider_attempt
+         ~invocation
+         ~tool_name
+         ~input)
   | Transaction.Settle_tool_attempt { attempt; invocation; result } ->
     stage_mutation
       (stage_settle_tool_attempt
