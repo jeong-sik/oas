@@ -171,8 +171,10 @@ type invariant_violation =
   | Tool_input_snapshot_identity_mismatch of Event.Node_id.t
   | Tool_input_delta_after_snapshot of Event.Node_id.t
   | Tool_input_not_materialized of Event.Node_id.t
-  | Tool_occurrence_already_opened of
-      { provider_attempt : Event.Node_id.t
+  | Tool_invocation_requires_atomic_open
+  | Occurrence_already_opened of Event.Node_id.t
+  | Tool_occurrence_conflict of
+      { parent : Event.Node_id.t
       ; planned_index : int
       ; existing : Event.Node_id.t
       }
@@ -523,6 +525,60 @@ module Reducer = struct
       , _ ) -> false
   ;;
 
+  let find_child parent_record matches =
+    List.find_map
+      (fun (child : Event.node event_record) ->
+         if matches (Event.node_kind child.value)
+         then Some (Event.node_id child.value)
+         else None)
+      parent_record.children_rev
+  ;;
+
+  let ensure_occurrence_available parent_id parent_record child_kind =
+    let existing =
+      match Event.node_kind parent_record.node, child_kind with
+      | Event.Agent_run _, Event.Agent_turn { ordinal } ->
+        find_child parent_record (function
+          | Event.Agent_turn child -> child.ordinal = ordinal
+          | Event.Agent_run _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt -> false)
+      | Event.Agent_turn _, Event.Provider_attempt { ordinal; target = _ } ->
+        find_child parent_record (function
+          | Event.Provider_attempt child -> child.ordinal = ordinal
+          | Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt -> false)
+      | (Event.Provider_attempt _ | Event.Tool_attempt), Event.Tool_invocation tool ->
+        find_child parent_record (function
+          | Event.Tool_invocation child ->
+            child.schedule.planned_index = tool.schedule.planned_index
+          | Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_attempt -> false)
+      | ( ( Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt )
+        , _ ) -> None
+    in
+    match existing, child_kind with
+    | None, _ -> Ok ()
+    | Some existing, Event.Tool_invocation { schedule; _ } ->
+      Error
+        (Tool_occurrence_conflict
+           { parent = parent_id; planned_index = schedule.planned_index; existing })
+    | Some existing, _ -> Error (Occurrence_already_opened existing)
+  ;;
+
   let validate_update (record : node_record) node_id update =
     match Event.node_kind record.node, update with
     | Event.Provider_attempt _, Event.Provider_event _ -> Ok ()
@@ -715,6 +771,9 @@ module Reducer = struct
       if parent_accepts_child (Event.node_kind parent_record.node) (Event.node_kind node)
       then Ok ()
       else Error (Invalid_parent_kind { parent = parent_id; child = node_id })
+    in
+    let* () =
+      ensure_occurrence_available parent_id parent_record (Event.node_kind node)
     in
     let* () =
       (* Ordering fences per parent kind. The match is exhaustive on parent
@@ -1459,9 +1518,35 @@ let stage_open_tool_invocation
     with
     | None -> Ok ()
     | Some existing ->
-      Error
-        (Invariant_violation
-           (Tool_occurrence_already_opened { provider_attempt; planned_index; existing }))
+      let* existing_record = node_record_or_error state existing in
+      let exact_duplicate =
+        match Event.node_kind existing_record.node, existing_record.tool_input with
+        | ( Event.Tool_invocation
+              { provider_tool_use_id; tool_name = existing_name; schedule }
+          , Some
+              (Llm_provider.Types.ToolUse
+                 { id = existing_id; name = input_name; input = existing_input }) ) ->
+          Option.equal String.equal provider_tool_use_id (Some tool_use_id)
+          && String.equal existing_name tool_name
+          && Execution_tool_schedule.equal schedule (Tool.Invocation.schedule invocation)
+          && String.equal existing_id tool_use_id
+          && String.equal input_name tool_name
+          && Yojson.Safe.equal existing_input input
+        | ( ( Event.Agent_run _
+            | Event.Agent_turn _
+            | Event.Provider_attempt _
+            | Event.Output_block _
+            | Event.Tool_attempt )
+          , _ )
+        | Event.Tool_invocation _, (None | Some _) -> false
+      in
+      if exact_duplicate
+      then Error (Invariant_violation (Occurrence_already_opened existing))
+      else
+        Error
+          (Invariant_violation
+             (Tool_occurrence_conflict
+                { parent = provider_attempt; planned_index; existing }))
   in
   let* opened =
     stage_open_node
@@ -1767,6 +1852,8 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
          batch.journal
          batch.staged_state
          ~agent_name)
+  | Transaction.Open_node { kind = Event.Tool_invocation _; _ } ->
+    Error (Invariant_violation Tool_invocation_requires_atomic_open)
   | Transaction.Open_node { causes; run; parent; kind } ->
     stage_mutation
       (stage_open_node ~causes batch.journal batch.staged_state ~run ~parent ~kind)

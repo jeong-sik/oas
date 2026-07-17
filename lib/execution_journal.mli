@@ -120,8 +120,10 @@ type invariant_violation =
   | Tool_input_snapshot_identity_mismatch of Execution_event.Node_id.t
   | Tool_input_delta_after_snapshot of Execution_event.Node_id.t
   | Tool_input_not_materialized of Execution_event.Node_id.t
-  | Tool_occurrence_already_opened of
-      { provider_attempt : Execution_event.Node_id.t
+  | Tool_invocation_requires_atomic_open
+  | Occurrence_already_opened of Execution_event.Node_id.t
+  | Tool_occurrence_conflict of
+      { parent : Execution_event.Node_id.t
       ; planned_index : int
       ; existing : Execution_event.Node_id.t
       }
