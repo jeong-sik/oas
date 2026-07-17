@@ -207,29 +207,21 @@ let test_effect_attempt_and_settlement_survive_restart () =
           { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
         in
         let tool_use_id = Printf.sprintf "call-%d" planned_index in
-        let node, _ =
-          value
-            (Tx.open_node
+        let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+        let receipt =
+          submit_and_await
+            writer
+            (Tx.open_tool_invocation
                ~run
-               ~parent:provider
-               ~kind:
-                 (Event.Tool_invocation
-                    { provider_tool_use_id = Some tool_use_id
-                    ; tool_name = "effect"
-                    ; schedule
-                    })
+               ~provider_attempt:provider
+               ~invocation
+               ~tool_name:"effect"
+               ~input:`Null
                ())
         in
-        let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
-        (match Settlement.create ~writer ~invocation_node:node ~invocation with
-         | Error Settlement.Invocation_identity_mismatch -> ()
-         | Ok _ | Error _ -> fail "unmaterialized invocation gained effect authority");
-        ignore
-          (value
-             (Tx.update_node
-                ~node
-                (Event.Tool_input_snapshot
-                   (Types.ToolUse { id = tool_use_id; name = "effect"; input = `Null }))));
+        let node, events = receipt.value in
+        check int "open and materialize in one group" 2 (List.length events);
+        check int "one durable producer group" 2 receipt.group_event_count;
         node, invocation
       in
       let authority (node, invocation) =
@@ -240,6 +232,60 @@ let test_effect_attempt_and_settlement_survive_restart () =
       let first_pair = open_invocation 0 in
       let first = authority first_pair in
       let seq () = Journal.cursor_seq (Result.get_ok (Writer.current_cursor writer)) in
+      let before_duplicate = seq () in
+      let first_node, first_invocation = first_pair in
+      (match
+         Writer.await
+           (require_submit
+              (Writer.submit
+                 writer
+                 (Tx.open_tool_invocation
+                    ~run
+                    ~provider_attempt:provider
+                    ~invocation:first_invocation
+                    ~tool_name:"effect"
+                    ~input:`Null
+                    ())))
+       with
+       | Error
+           (Writer.Transaction_rejected
+              (Journal.Invariant_violation
+                 (Journal.Tool_occurrence_already_opened
+                    { provider_attempt; planned_index = 0; existing })))
+         when Event.Node_id.equal provider_attempt provider
+              && Event.Node_id.equal existing first_node -> ()
+       | Ok _ | Error _ -> fail "duplicate tool occurrence was accepted");
+      check int "duplicate producer is atomic" before_duplicate (seq ());
+      let before_rejected_producer = seq () in
+      let wrong_schedule : Tool.schedule =
+        { planned_index = 99
+        ; batch_index = 1
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let wrong_invocation =
+        Tool.Invocation.create ~tool_use_id:"wrong-turn" ~turn:2 ~schedule:wrong_schedule
+      in
+      (match
+         Writer.await
+           (require_submit
+              (Writer.submit
+                 writer
+                 (Tx.open_tool_invocation
+                    ~run
+                    ~provider_attempt:provider
+                    ~invocation:wrong_invocation
+                    ~tool_name:"effect"
+                    ~input:`Null
+                    ())))
+       with
+       | Error
+           (Writer.Transaction_rejected
+              (Journal.Invalid_argument
+                 "tool invocation turn does not match its provider attempt")) -> ()
+       | Ok _ | Error _ -> fail "mismatched invocation turn was accepted");
+      check int "rejected producer is atomic" before_rejected_producer (seq ());
       let before_seq = seq () in
       (match
          Settlement.execute first ~invoke:(fun () ->
@@ -250,12 +296,40 @@ let test_effect_attempt_and_settlement_survive_restart () =
          check int "one settlement batch" 3 event_count;
          check int "four durable events" (before_seq + 4) (Journal.cursor_seq through)
        | Ok (Settlement.Replayed _) | Error _ -> fail "fresh effect did not settle");
+      let cancelled_pair = open_invocation 2 in
+      let cancelled = authority cancelled_pair in
+      let cancelled_result =
+        Types.ToolResult
+          { tool_use_id = "call-2"
+          ; content = "settled after cancellation"
+          ; outcome = Types.Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           match
+             Settlement.execute cancelled ~invoke:(fun () ->
+               Eio.Cancel.cancel cancellation Cancel_scope;
+               cancelled_result)
+           with
+           | Ok (Settlement.Executed _) -> ()
+           | Ok (Settlement.Replayed _) | Error _ ->
+             fail "post-effect cancellation lost settlement")
+       with
+       | () -> ()
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | exception exn -> raise exn);
       let second_pair = open_invocation 1 in
       let second = authority second_pair in
       match Settlement.execute second ~invoke:(fun () -> raise Effect_raised) with
-      | exception Effect_raised -> restart_pairs := Some (first_pair, second_pair)
+      | exception Effect_raised ->
+        restart_pairs := Some (first_pair, second_pair, cancelled_pair, cancelled_result)
       | Ok _ | Error _ -> fail "effect exception did not propagate");
-    let first_pair, second_pair = Option.get !restart_pairs in
+    let first_pair, second_pair, cancelled_pair, cancelled_result =
+      Option.get !restart_pairs
+    in
     with_existing codec dir (fun _sw writer ->
       ignore (require_scope (Writer.await_ready writer));
       let authority (node, invocation) =
@@ -266,6 +340,10 @@ let test_effect_attempt_and_settlement_survive_restart () =
        | Ok (Settlement.Replayed replayed) when replayed = result -> ()
        | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
          fail "restart lost settlement");
+      (match Settlement.execute (authority cancelled_pair) ~invoke:never with
+       | Ok (Settlement.Replayed settled) when settled = cancelled_result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "post-effect cancellation left no durable receipt");
       match Settlement.execute (authority second_pair) ~invoke:never with
       | Error Settlement.Effect_outcome_unknown -> ()
       | Ok _ | Error _ -> fail "restart did not fence unknown effect"))

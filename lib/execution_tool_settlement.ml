@@ -105,7 +105,10 @@ let status authority =
        , _ ) -> Error Invocation_identity_mismatch)
 ;;
 
+let await_accepted ticket = Eio.Cancel.protect (fun () -> Writer.await ticket)
+
 let begin_attempt authority =
+  Eio.Fiber.check ();
   match
     Writer.submit
       authority.writer
@@ -113,7 +116,7 @@ let begin_attempt authority =
   with
   | Error error -> Error (Attempt_admission_failed error)
   | Ok ticket ->
-    (match Writer.await ticket with
+    (match await_accepted ticket with
      | Error error -> Error (Attempt_commit_failed error)
      | Ok committed ->
        let node, _event = committed.value in
@@ -128,12 +131,13 @@ let settle authority attempt result =
       ~result
       ()
   in
-  match Writer.submit authority.writer transaction with
-  | Error error -> Error (Receipt_admission_outcome_unknown error)
-  | Ok ticket ->
-    (match Writer.await ticket with
-     | Error error -> Error (Receipt_settlement_outcome_unknown error)
-     | Ok committed -> Ok (result, committed.through, committed.group_event_count))
+  Eio.Cancel.protect (fun () ->
+    match Writer.submit authority.writer transaction with
+    | Error error -> Error (Receipt_admission_outcome_unknown error)
+    | Ok ticket ->
+      (match Writer.await ticket with
+       | Error error -> Error (Receipt_settlement_outcome_unknown error)
+       | Ok committed -> Ok (result, committed.through, committed.group_event_count)))
 ;;
 
 let execute authority ~invoke =
@@ -144,6 +148,7 @@ let execute authority ~invoke =
   | Outcome_unknown -> Error Effect_outcome_unknown
   | Ready_to_execute ->
     let* attempt = begin_attempt authority in
+    Eio.Fiber.check ();
     let result = invoke () in
     let+ committed, through, event_count = settle authority attempt result in
     Executed (committed, through, event_count)
