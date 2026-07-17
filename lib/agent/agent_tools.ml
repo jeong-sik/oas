@@ -570,12 +570,6 @@ type scheduled_tool_outcome =
 
 exception Abort_tool_dispatch
 
-let append_journal journal event =
-  match Durable_event.append journal event with
-  | Ok () -> ()
-  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
-;;
-
 let execute_scheduled_tool
       ~context
       ~tools:_
@@ -720,7 +714,7 @@ let execute_scheduled_tool
                 observe_before_completion (fun () ->
                   match journal with
                   | Some j ->
-                    append_journal
+                    Agent_execution_event_writer.append
                       j
                       (Tool_called
                          { turn = Tool.Invocation.turn invocation
@@ -756,7 +750,7 @@ let execute_scheduled_tool
                 observe_after_completion (fun () ->
                   match journal with
                   | Some j ->
-                    append_journal
+                    Agent_execution_event_writer.append
                       j
                       (Tool_completed
                          { turn = Tool.Invocation.turn invocation
