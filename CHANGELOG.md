@@ -260,6 +260,23 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.0](https://github.com/jeong-sik/oas/compare/v0.215.0...v0.216.0) (2026-07-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tool:** make invocation the lifecycle SSOT ([#2642](https://github.com/jeong-sik/oas/issues/2642))
+
+### Features
+
+* **llm_provider:** admit concurrent dispatches per endpoint identity ([#2641](https://github.com/jeong-sik/oas/issues/2641)) ([1bcc238](https://github.com/jeong-sik/oas/commit/1bcc2380f4877e70f0dd975f6a826f66efd6d68f))
+* **tool:** make invocation the lifecycle SSOT ([#2642](https://github.com/jeong-sik/oas/issues/2642)) ([12d7366](https://github.com/jeong-sik/oas/commit/12d7366333574679f36418678e8e910cf185b255))
+
+
+### Bug Fixes
+
+* **llm_provider:** carry Retry-After and rate-limit prose through typed errors ([#2644](https://github.com/jeong-sik/oas/issues/2644)) ([f887c20](https://github.com/jeong-sik/oas/commit/f887c20f86ca0b3db40e09d7244169d0b8978336))
+
 ## [0.215.0](https://github.com/jeong-sik/oas/compare/v0.214.1...v0.215.0) (2026-07-17)
 
 
