@@ -45,12 +45,7 @@ let empty_reasoning_summary =
   { thinking_blocks = []; has_uncertainty = false; tool_rationale = None }
 ;;
 
-type tool_schedule =
-  { planned_index : int
-  ; batch_index : int
-  ; batch_size : int
-  ; execution_mode : Tool.execution_mode
-  }
+type tool_schedule = Tool.schedule
 
 (** Extract structured reasoning summary from message list.
     This only preserves provider-emitted Thinking blocks; it does not infer
@@ -97,41 +92,36 @@ type hook_event =
       }
   | PreToolUse of
       { invocation : Tool.Invocation.t
-      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
-      ; turn : int
-      ; schedule : tool_schedule
       }
   | PostToolUse of
       { invocation : Tool.Invocation.t
-      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; output : Types.tool_result
       ; result_bytes : int
       ; duration_ms : float
-      ; schedule : tool_schedule
       }
   | PostToolUseFailure of
       { invocation : Tool.Invocation.t
-      ; tool_use_id : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; error : string
-      ; schedule : tool_schedule
       }
   | OnStop of
       { reason : stop_reason
       ; response : api_response
       }
   | OnError of
-      { detail : string
+      { invocation : Tool.Invocation.t option
+      ; detail : string
       ; context : string
       }
   | OnToolError of
-      { tool_name : string
+      { invocation : Tool.Invocation.t
+      ; tool_name : string
       ; error : string
       }
 

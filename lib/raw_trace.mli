@@ -176,6 +176,7 @@ val record_tool_execution_started
 val record_tool_execution_finished
   :  active_run
   -> tool_use_id:string
+  -> planned_index:int
   -> tool_name:string
   -> tool_result:string
   -> tool_error:bool

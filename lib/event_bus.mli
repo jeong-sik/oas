@@ -60,26 +60,10 @@ type payload =
           @since 0.154.0 *)
   | ToolCalled of
       { invocation : Tool.Invocation.t
-        (** Exact model-tool occurrence. [tool_use_id] and [turn] below remain
-            compatibility projections of this typed value.
-            @since 0.216.0 *)
+        (** Exact run-scoped model-tool occurrence. @since 0.216.0 *)
       ; agent_name : string
       ; tool_name : string
-      ; tool_use_id : string
-        (** Provider tool-call id (e.g. Anthropic [tool_use.id], OpenAI
-            [tool_call.id]) for the invocation this event describes. The
-            same value reaches {!Hooks.PreToolUse}/{!Hooks.PostToolUse},
-            so subscribers can join bus events with hook-side records
-            deterministically instead of guessing by tool name and
-            timestamp. Empty string when the provider supplied no id.
-            @since 0.206.2 *)
       ; input : Yojson.Safe.t
-      ; turn : int
-        (** Zero-based turn index within the current agent run. Lets
-            downstream FSM observers correlate a tool event
-            with the turn that emitted it without reaching into OAS
-            internals. OAS does not interpret this field.
-            @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
   | ToolCompleted of
       { invocation : Tool.Invocation.t
@@ -87,13 +71,7 @@ type payload =
             @since 0.216.0 *)
       ; agent_name : string
       ; tool_name : string
-      ; tool_use_id : string
-        (** Same id as the matching [ToolCalled]; see its doc.
-            @since 0.206.2 *)
       ; output : Types.tool_result
-      ; turn : int
-        (** Same turn index as the matching [ToolCalled]. See its doc.
-            @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
   | TurnStarted of
       { agent_name : string

@@ -27,7 +27,10 @@ let mock_response text =
 let ev payload = Event_bus.mk_event payload
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  Tool.Invocation.create ~tool_use_id ~turn ~planned_index
+  let schedule : Tool.schedule =
+    { planned_index; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn ~schedule
 ;;
 
 let subscription_config_exn ~capacity ~overflow =
@@ -192,9 +195,7 @@ let test_accept_all_subscriber_gets_all_events () =
           { invocation = invocation ~tool_use_id:"1" ()
           ; agent_name = "a"
           ; tool_name = "t"
-          ; tool_use_id = "1"
           ; input = `Null
-          ; turn = 0
           }));
   let all_events = Event_bus.drain all_sub in
   let tool_events = Event_bus.drain tool_sub in
@@ -259,9 +260,7 @@ let test_filter_tools_only () =
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "calc"
-          ; tool_use_id = "tu-test"
           ; input = `Null
-          ; turn = 0
           }));
   Event_bus.publish
     bus
@@ -270,9 +269,7 @@ let test_filter_tools_only () =
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "calc"
-          ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "42"; _meta = None }
-          ; turn = 0
           }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
@@ -299,13 +296,7 @@ let test_accept_all () =
     bus
     (ev
        (ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "a"
-          ; tool_name = "x"
-          ; tool_use_id = "tu-test"
-          ; input = `Null
-          ; turn = 0
-          }));
+          { invocation = invocation (); agent_name = "a"; tool_name = "x"; input = `Null }));
   Event_bus.publish bus (ev (Custom ("test", `Null)));
   let events = Event_bus.drain sub in
   check int "all three events" 3 (List.length events)
@@ -336,13 +327,7 @@ let test_payload_kind_canonical_labels () =
     ; Event_bus.TurnReady { agent_name = "a"; turn = 0; tool_names = [] }, "turn_ready"
     ; Event_bus.TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
     ; ( Event_bus.ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "a"
-          ; tool_name = "f"
-          ; tool_use_id = "tu-test"
-          ; input = `Null
-          ; turn = 0
-          }
+          { invocation = invocation (); agent_name = "a"; tool_name = "f"; input = `Null }
       , "tool_called" )
     ; ( Event_bus.HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "" }
       , "handoff_requested" )
@@ -404,13 +389,7 @@ let test_multiple_event_types () =
     bus
     (ev
        (ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "a"
-          ; tool_name = "f"
-          ; tool_use_id = "tu-test"
-          ; input = `Null
-          ; turn = 0
-          }));
+          { invocation = invocation (); agent_name = "a"; tool_name = "f"; input = `Null }));
   Event_bus.publish
     bus
     (ev
@@ -418,9 +397,7 @@ let test_multiple_event_types () =
           { invocation = invocation ()
           ; agent_name = "a"
           ; tool_name = "f"
-          ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "ok"; _meta = None }
-          ; turn = 0
           }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
@@ -461,19 +438,13 @@ let test_tool_called_fields () =
     bus
     (ev
        (ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "a"
-          ; tool_name = "calc"
-          ; tool_use_id = "tu-test"
-          ; input
-          ; turn = 0
-          }));
+          { invocation = invocation (); agent_name = "a"; tool_name = "calc"; input }));
   match Event_bus.drain sub with
   | [ { payload = ToolCalled r; _ } ] ->
     check string "agent_name" "a" r.agent_name;
     check string "tool_name" "calc" r.tool_name;
     check string "input json" {|{"x":1}|} (Yojson.Safe.to_string r.input);
-    check int "turn" 0 r.turn
+    check int "turn" 0 (Tool.Invocation.turn r.invocation)
   | _ -> fail "expected ToolCalled"
 ;;
 
@@ -511,13 +482,11 @@ let test_tool_completed_preserves_non_retryable_flag () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"sess-event"
       ~run_id:"run-event"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
       "fail"
       (`Assoc [])
-      "tool-1"
     |> require_tool_execution
   in
   match Event_bus.drain sub with
@@ -572,7 +541,8 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
     Some
       (fun event ->
         (match event with
-         | Hooks.OnToolError { tool_name; error } -> fired := (tool_name, error) :: !fired
+         | Hooks.OnToolError { tool_name; error; invocation = _ } ->
+           fired := (tool_name, error) :: !fired
          | _ -> ());
         Hooks.Continue)
   in
@@ -585,13 +555,11 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"c"
       ~run_id:"r"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
       "fail"
       (`Assoc [])
-      "tool-1"
     |> require_tool_execution
   in
   match List.rev !fired with
@@ -630,13 +598,11 @@ let test_on_tool_error_hook_silent_on_success () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"c"
       ~run_id:"r"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-2" ~turn:0 ~schedule)
       "ok"
       (`Assoc [])
-      "tool-2"
     |> require_tool_execution
   in
   check int "hook not fired on Ok result" 0 !fired
@@ -657,7 +623,8 @@ let test_on_error_fires_on_tool_not_found () =
     Some
       (fun event ->
         (match event with
-         | Hooks.OnError { detail; context } -> fired := (detail, context) :: !fired
+         | Hooks.OnError { detail; context; invocation } ->
+           fired := (detail, context, invocation) :: !fired
          | _ -> ());
         Hooks.Continue)
   in
@@ -671,17 +638,15 @@ let test_on_error_fires_on_tool_not_found () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"c"
       ~run_id:"r"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
       "ghost_tool"
       (`Assoc [])
-      "tool-1"
     |> require_tool_execution
   in
   match List.rev !fired with
-  | [ (detail, ctx) ] ->
+  | [ (detail, ctx, Some error_invocation) ] ->
     check
       bool
       "detail mentions tool name"
@@ -694,7 +659,13 @@ let test_on_error_fires_on_tool_not_found () =
          true
        with
        | Not_found -> false);
-    check string "context labels dispatch site" "agent_tools.find_and_execute_tool" ctx
+    check string "context labels dispatch site" "agent_tools.find_and_execute_tool" ctx;
+    check
+      string
+      "error retains exact tool occurrence"
+      "tool-1"
+      (Tool.Invocation.tool_use_id error_invocation)
+  | [ (_, _, None) ] -> fail "tool-attributed on_error lost its invocation"
   | [] -> fail "on_error hook not fired"
   | _ -> fail "on_error fired more than once"
 ;;
@@ -716,7 +687,8 @@ let test_unknown_tool_reports_available_tools_and_retries () =
     Some
       (fun event ->
         (match event with
-         | Hooks.OnError { detail; context } -> fired := (detail, context) :: !fired
+         | Hooks.OnError { detail; context; invocation = _ } ->
+           fired := (detail, context) :: !fired
          | _ -> ());
         Hooks.Continue)
   in
@@ -729,13 +701,11 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"c"
       ~run_id:"r"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-unknown" ~turn:0 ~schedule)
       "MissingRead"
       (`Assoc [])
-      "tool-unknown"
     |> require_tool_execution
   in
   check
@@ -817,11 +787,10 @@ let test_execution_rejects_invalid_input_unchanged () =
       ~event_bus:None
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
-      ~schedule
+      ~invocation:
+        (Tool.Invocation.create ~tool_use_id:"tool-invalid-input" ~turn:0 ~schedule)
       "Count"
       (`Assoc [ "count", `String "42" ])
-      "tool-invalid-input"
     |> require_tool_execution
   in
   check bool "handler not called" true (Yojson.Safe.equal `Null !handler_input);
@@ -863,13 +832,11 @@ let test_on_error_silent_on_successful_dispatch () =
       ~event_bus:(Some bus)
       ~tracer:Tracing.null
       ~agent_name:"agent"
-      ~turn_count:0
       ~correlation_id:"c"
       ~run_id:"r"
-      ~schedule
+      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-2" ~turn:0 ~schedule)
       "ok"
       (`Assoc [])
-      "tool-2"
     |> require_tool_execution
   in
   check int "on_error not fired on success" 0 !fired

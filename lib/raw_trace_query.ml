@@ -196,24 +196,39 @@ let validate_run run_ref =
       (fun (record : Raw_trace.record) -> record.record_type = Run_finished)
       records
   in
-  let pair_table : (string, int * int) Hashtbl.t = Hashtbl.create 8 in
+  let legacy_tool_ids : (string, unit) Hashtbl.t = Hashtbl.create 8 in
+  List.iter
+    (fun (record : Raw_trace.record) ->
+       match record.record_type, record.tool_use_id, record.tool_planned_index with
+       | (Tool_execution_started | Tool_execution_finished), Some tool_use_id, None ->
+         Hashtbl.replace legacy_tool_ids tool_use_id ()
+       | _ -> ())
+    records;
+  let pair_key (record : Raw_trace.record) tool_use_id =
+    if Hashtbl.mem legacy_tool_ids tool_use_id
+    then tool_use_id, None
+    else tool_use_id, record.tool_planned_index
+  in
+  let pair_table : (string * int option, int * int) Hashtbl.t = Hashtbl.create 8 in
   List.iter
     (fun (record : Raw_trace.record) ->
        match record.record_type, record.tool_use_id with
        | Tool_execution_started, Some tool_use_id ->
+         let key = pair_key record tool_use_id in
          let started, finished =
-           match Hashtbl.find_opt pair_table tool_use_id with
+           match Hashtbl.find_opt pair_table key with
            | Some counts -> counts
            | None -> 0, 0
          in
-         Hashtbl.replace pair_table tool_use_id (started + 1, finished)
+         Hashtbl.replace pair_table key (started + 1, finished)
        | Tool_execution_finished, Some tool_use_id ->
+         let key = pair_key record tool_use_id in
          let started, finished =
-           match Hashtbl.find_opt pair_table tool_use_id with
+           match Hashtbl.find_opt pair_table key with
            | Some counts -> counts
            | None -> 0, 0
          in
-         Hashtbl.replace pair_table tool_use_id (started, finished + 1)
+         Hashtbl.replace pair_table key (started, finished + 1)
        | _ -> ())
     records;
   let tool_pairs_ok =

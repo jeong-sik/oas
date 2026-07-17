@@ -42,7 +42,8 @@ let execute_tools_with_trace agent active_run tool_uses =
     | None -> None
     | Some active ->
       Some
-        (fun ~tool_use_id ~tool_name ~input ~schedule ->
+        (fun ~invocation ~tool_name ~input ->
+          let schedule = Tool.Invocation.schedule invocation in
           let ts = Unix.gettimeofday () in
           set_lifecycle
             agent
@@ -53,10 +54,10 @@ let execute_tools_with_trace agent active_run tool_uses =
           Raw_trace.raise_if_error
             (Raw_trace.record_tool_execution_started
                active
-               ~tool_use_id
+               ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
                ~tool_name
                ~tool_input:input
-               ~planned_index:schedule.Hooks.planned_index
+               ~planned_index:schedule.planned_index
                ~batch_index:schedule.batch_index
                ~batch_size:schedule.batch_size
                ~execution_mode:schedule.execution_mode))
@@ -66,7 +67,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     | None -> None
     | Some active ->
       Some
-        (fun ~tool_use_id ~tool_name ~content ~is_error ->
+        (fun ~invocation ~tool_name ~content ~is_error ->
           let ts = Unix.gettimeofday () in
           set_lifecycle
             agent
@@ -77,7 +78,8 @@ let execute_tools_with_trace agent active_run tool_uses =
           Raw_trace.raise_if_error
             (Raw_trace.record_tool_execution_finished
                active
-               ~tool_use_id
+               ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
+               ~planned_index:(Tool.Invocation.planned_index invocation)
                ~tool_name
                ~tool_result:content
                ~tool_error:is_error

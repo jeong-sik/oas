@@ -45,17 +45,13 @@ type payload =
       { invocation : Tool.Invocation.t
       ; agent_name : string
       ; tool_name : string
-      ; tool_use_id : string
       ; input : Yojson.Safe.t
-      ; turn : int
       }
   | ToolCompleted of
       { invocation : Tool.Invocation.t
       ; agent_name : string
       ; tool_name : string
-      ; tool_use_id : string
       ; output : Types.tool_result
-      ; turn : int
       }
   | TurnStarted of
       { agent_name : string

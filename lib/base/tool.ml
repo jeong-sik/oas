@@ -8,32 +8,7 @@ type tool_handler = Yojson.Safe.t -> Types.tool_result
 (** Context-aware tool handler *)
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
-module Invocation = struct
-  type t =
-    { tool_use_id : string
-    ; turn : int
-    ; planned_index : int
-    }
-
-  let create ~tool_use_id ~turn ~planned_index = { tool_use_id; turn; planned_index }
-  let tool_use_id t = t.tool_use_id
-  let turn t = t.turn
-  let planned_index t = t.planned_index
-end
-
-module Execution_env = struct
-  type t =
-    { context : Context.t option
-    ; invocation : Invocation.t option
-    }
-
-  let create ?context ?invocation () = { context; invocation }
-  let context t = t.context
-  let invocation t = t.invocation
-end
-
-type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-
+(** Tool execution ordering *)
 type execution_mode =
   | Concurrent
   | Serial
@@ -54,6 +29,39 @@ let execution_mode_of_yojson = function
          (Yojson.Safe.to_string value))
 ;;
 
+type schedule =
+  { planned_index : int
+  ; batch_index : int
+  ; batch_size : int
+  ; execution_mode : execution_mode
+  }
+
+module Invocation = struct
+  type t =
+    { tool_use_id : string
+    ; turn : int
+    ; schedule : schedule
+    }
+
+  let create ~tool_use_id ~turn ~schedule = { tool_use_id; turn; schedule }
+  let tool_use_id t = t.tool_use_id
+  let turn t = t.turn
+  let schedule t = t.schedule
+  let planned_index t = t.schedule.planned_index
+end
+
+module Execution_env = struct
+  type t =
+    { context : Context.t option
+    ; invocation : Invocation.t option
+    }
+
+  let create ?context ?invocation () = { context; invocation }
+  let context t = t.context
+  let invocation t = t.invocation
+end
+
+type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
 type descriptor = { execution_mode : execution_mode }
 
 (** Handler kind: preserves backward compatibility via Simple variant *)
