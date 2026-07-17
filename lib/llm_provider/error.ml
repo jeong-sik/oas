@@ -276,6 +276,23 @@ let of_provider_failure ?provider kind message =
       { detail =
           Printf.sprintf "provider response exceeded %d bytes: %s" limit_bytes message
       }
+  | Http_client.Empty_completion { stop_reason = Types.ContextWindowExceeded } ->
+    (* Third promotion site of the #2621 misclassification fix: an empty
+       completion whose typed stop_reason is ContextWindowExceeded is a
+       caller-fixable context overflow, not provider unavailability.  Retrying
+       or rotating replays the same oversized prompt, so render it through the
+       same [Retry.ContextOverflow] path as the Api branch above. *)
+    InvalidRequest
+      { provider
+      ; reason =
+          Retry.error_message
+            (Retry.ContextOverflow
+               { message =
+                   "empty completion (stop_reason=model_context_window_exceeded): "
+                   ^ message
+               ; limit = None
+               })
+      }
   | Http_client.Empty_completion { stop_reason } ->
     (* [stop_reason] stays typed until this deliberate SDK boundary.  The public
        error surface remains source-compatible: callers already handle an empty

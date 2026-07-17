@@ -605,6 +605,47 @@ let test_is_retryable_matrix () =
   not_retryable (Error.NotFound { provider = "p"; detail = "model" })
 ;;
 
+let test_empty_completion_overflow_maps_to_invalid_request () =
+  let err =
+    Error.of_http_error
+      ~provider:"anthropic"
+      (Http_client.ProviderFailure
+         { kind =
+             Http_client.Empty_completion { stop_reason = Types.ContextWindowExceeded }
+         ; message = "no content blocks"
+         })
+  in
+  match err with
+  | Error.InvalidRequest { provider; reason } ->
+    check string "overflow provider" "anthropic" provider;
+    let expected =
+      Retry.error_message
+        (Retry.ContextOverflow
+           { message =
+               "empty completion (stop_reason=model_context_window_exceeded): no content \
+                blocks"
+           ; limit = None
+           })
+    in
+    check string "overflow reason" expected reason
+  | _ -> fail "expected InvalidRequest for empty completion context overflow"
+;;
+
+let test_empty_completion_other_stop_reason_stays_unavailable () =
+  let err =
+    Error.of_http_error
+      ~provider:"anthropic"
+      (Http_client.ProviderFailure
+         { kind = Http_client.Empty_completion { stop_reason = Types.MaxTokens }
+         ; message = "no content blocks"
+         })
+  in
+  match err with
+  | Error.ProviderUnavailable { provider; detail = _ } ->
+    check string "unavailable provider" "anthropic" provider
+  | _ -> fail "expected ProviderUnavailable for non-overflow empty completion"
+;;
+
 let () =
   run
     "llm_provider_error"
@@ -635,6 +676,14 @@ let () =
             "Retry overloaded unknown provider"
             `Quick
             test_retry_overloaded_unknown_provider_mapping
+        ; test_case
+            "Empty completion overflow -> InvalidRequest"
+            `Quick
+            test_empty_completion_overflow_maps_to_invalid_request
+        ; test_case
+            "Empty completion non-overflow stays ProviderUnavailable"
+            `Quick
+            test_empty_completion_other_stop_reason_stays_unavailable
         ; test_case "HTTP capacity failure" `Quick test_http_capacity_failure_mapping
         ; test_case "HTTP server error" `Quick test_http_server_error_mapping
         ; test_case "HTTP terminal" `Quick test_http_terminal_mapping
