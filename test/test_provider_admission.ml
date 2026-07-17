@@ -20,7 +20,11 @@ let contains_substring ~sub text =
   sub_len = 0 || loop 0
 ;;
 
-let make_config ?(base_url = "http://admission.test:1") ?(api_key = "test-key") ?max_concurrent_requests ()
+let make_config
+      ?(base_url = "http://admission.test:1")
+      ?(api_key = "test-key")
+      ?max_concurrent_requests
+      ()
   =
   Provider_config.make
     ~kind:Provider_config.OpenAI_compat
@@ -124,7 +128,8 @@ let test_conflicting_declaration_first_wins () =
 let reject_dispatch_transport : Llm_transport.t =
   { complete_sync = (fun _ -> fail "invalid declaration must never dispatch")
   ; complete_stream =
-      (fun ?on_telemetry:_ ~on_event:_ _ -> fail "invalid declaration must never dispatch")
+      (fun ?on_telemetry:_ ~on_event:_ _ ->
+        fail "invalid declaration must never dispatch")
   }
 ;;
 
@@ -133,7 +138,9 @@ let test_zero_declaration_rejected_before_dispatch () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let config = make_config ~base_url:"http://invalid.test:1" ~max_concurrent_requests:0 () in
+  let config =
+    make_config ~base_url:"http://invalid.test:1" ~max_concurrent_requests:0 ()
+  in
   match
     Complete.complete
       ~sw
@@ -196,14 +203,21 @@ let test_complete_dispatch_is_admitted () =
   Eio.Fiber.all (List.init 6 (fun _ -> job));
   check int "every dispatch completed" 0 (Atomic.get in_flight);
   check bool "bound was contended" true (Atomic.get max_seen >= 2);
-  check bool "Complete.complete respects the declared bound" true (Atomic.get max_seen <= 2)
+  check
+    bool
+    "Complete.complete respects the declared bound"
+    true
+    (Atomic.get max_seen <= 2)
 ;;
 
 let () =
   run
     "provider_admission"
     [ ( "admission"
-      , [ test_case "no declaration runs directly" `Quick test_no_declaration_runs_directly
+      , [ test_case
+            "no declaration runs directly"
+            `Quick
+            test_no_declaration_runs_directly
         ; test_case "bounded concurrency" `Quick test_bounded_concurrency
         ; test_case "api keys admit independently" `Quick test_identity_separates_api_keys
         ; test_case
