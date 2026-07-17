@@ -251,6 +251,22 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.215.0](https://github.com/jeong-sik/oas/compare/v0.214.1...v0.215.0) (2026-07-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tool:** Tool.handler_kind gains WithInvocation and invocation-aware handlers receive exact turn/index-scoped call metadata.
+
+### Features
+
+* **tool:** expose exact invocation occurrence ([#2631](https://github.com/jeong-sik/oas/issues/2631)) ([e67f550](https://github.com/jeong-sik/oas/commit/e67f550752b74ee04515a6f7e2329ec0688d4dfe))
+
+
+### Bug Fixes
+
+* **execution:** bind recursive work to exact tool attempts ([#2637](https://github.com/jeong-sik/oas/issues/2637)) ([ea70f5d](https://github.com/jeong-sik/oas/commit/ea70f5ded957fb3d5499a26f978b134b9a74c7ff))
+
 ## [0.214.1](https://github.com/jeong-sik/oas/compare/v0.214.0...v0.214.1) (2026-07-16)
 
 
