@@ -18,8 +18,10 @@ let attributed_retry_error http_error retry_error =
 ;;
 
 let create_message_error_of_http_error = function
-  | Llm_provider.Http_client.HttpError { code; body } as http_error ->
-    attributed_retry_error http_error (Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.HttpError { code; body; retry_after_header } as http_error ->
+    attributed_retry_error
+      http_error
+      (Retry.classify_error ~retry_after_header ~status:code ~body)
   | Llm_provider.Http_client.NetworkError
       { message; kind = Llm_provider.Http_client.Timeout } as http_error ->
     attributed_retry_error http_error (Retry.Timeout { message; phase = None })
@@ -373,7 +375,8 @@ let create_message_detailed
                  | `HttpError (code, body_str) ->
                    Error
                      (create_message_error_of_http_error
-                        (Llm_provider.Http_client.HttpError { code; body = body_str }))
+                        (Llm_provider.Http_client.HttpError
+                           { code; body = body_str; retry_after_header = None }))
                  | `TransportError err -> Error err
                with
                | Eio.Io _ as exn ->

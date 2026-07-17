@@ -21,7 +21,7 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
         (if String.length resp_body > 200 then String.sub resp_body 0 200 else resp_body)
     in
     Error msg
-  | Error (Http_client.HttpError { code; body }) ->
+  | Error (Http_client.HttpError { code; body; _ }) ->
     Error (Printf.sprintf "slot %s HTTP error %d: %s" action code body)
   | Error (Http_client.AcceptRejected { reason }) ->
     Error (Printf.sprintf "slot %s rejected: %s" action reason)

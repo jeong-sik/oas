@@ -117,8 +117,28 @@ let extract_error_message (body : string) : string =
     body
 ;;
 
+(** Parse the provider-specific [error.retry_after] JSON body field, if
+    present and well-formed. This is provider prose, not transport
+    evidence, but it is the more precise of the two retry_after signals
+    when a provider bothers to emit it. *)
+let parse_body_retry_after (body : string) : float option =
+  try
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    Some (json |> member "error" |> member "retry_after" |> to_float)
+  with
+  | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
+    None
+;;
+
+let resolve_retry_after ~body ~header : float option =
+  match parse_body_retry_after body with
+  | Some _ as from_body -> from_body
+  | None -> header
+;;
+
 (** Classify HTTP status + body into structured api_error *)
-let classify_error ~status ~body : api_error =
+let classify_error ~retry_after_header ~status ~body : api_error =
   let message = extract_error_message body in
   match status with
   | 401 -> AuthError { message }
@@ -133,16 +153,8 @@ let classify_error ~status ~body : api_error =
     AuthorizationError { message }
   | 400 | 422 -> InvalidRequest { message; reason = Unknown_invalid_request }
   | 429 ->
-    let parsed_retry_after =
-      try
-        let json = Yojson.Safe.from_string body in
-        let open Yojson.Safe.Util in
-        Some (json |> member "error" |> member "retry_after" |> to_float)
-      with
-      | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _
-        -> None
-    in
-    RateLimited { retry_after = parsed_retry_after; message }
+    let retry_after = resolve_retry_after ~body ~header:retry_after_header in
+    RateLimited { retry_after; message }
   | 404 -> NotFound { message }
   | 529 -> Overloaded { message }
   | s when s >= 500 -> ServerError { status = s; message }
@@ -181,7 +193,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
      is still provider prose, so raw HTTP classification must not infer a typed
      parser-boundary reason from it. *)
   let body = {|{"error":"Value looks like object, but can't find closing '}' symbol"}|} in
-  match classify_error ~status:400 ~body with
+  match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
     not (is_retryable err)
   | InvalidRequest { reason = Json_parse_error; _ } -> false
@@ -201,7 +213,7 @@ let%test "HTTP 400 prose does not synthesize ContextOverflow" =
   let body =
     {|{"error":{"message":"request exceeds the available context size (8192)"}}|}
   in
-  match classify_error ~status:400 ~body with
+  match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
   | InvalidRequest { reason = Json_parse_error; _ }
   | ContextOverflow _
@@ -218,7 +230,7 @@ let%test "HTTP 400 prose does not synthesize ContextOverflow" =
 
 let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   let body = {|{"error":{"message":"bad tool schema"}}|} in
-  match classify_error ~status:400 ~body with
+  match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
   | InvalidRequest { reason = Json_parse_error; _ } -> false
   | RateLimited _
@@ -328,7 +340,7 @@ let%test "classify_error 429 preserves structured retry_after regardless of pros
   let body =
     {|{"error":{"retry_after":5.0,"message":"Insufficient balance or no resource package"}}|}
   in
-  match classify_error ~status:429 ~body with
+  match classify_error ~retry_after_header:None ~status:429 ~body with
   | RateLimited { retry_after = Some value; _ } -> Float.equal value 5.0
   | RateLimited { retry_after = None; _ }
   | Overloaded _
@@ -347,9 +359,70 @@ let%test "classify_error 429 transient preserves retry_after" =
   let body =
     {|{"error":{"retry_after":3.0,"message":"Too many requests, please slow down"}}|}
   in
-  match classify_error ~status:429 ~body with
+  match classify_error ~retry_after_header:None ~status:429 ~body with
   | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
   | RateLimited { retry_after = None; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | AuthorizationError _
+  | PaymentRequired _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
+;;
+
+(* oas 429 typed completion (2026-07): incident context — ollama.com
+   returned HTTP 429 with a flat-string body (no [error.retry_after]
+   field) while carrying a standard [Retry-After] response header. The
+   classifier must fall back to the header when the body has nothing, and
+   must prefer the body when both are present (provider prose is more
+   precise than a generic transport header). *)
+
+let%test "classify_error 429: body retry_after wins over header" =
+  let body = {|{"error":{"retry_after":5.0,"message":"slow down"}}|} in
+  match classify_error ~status:429 ~body ~retry_after_header:(Some 30.0) with
+  | RateLimited { retry_after = Some ra; message } ->
+    Float.equal ra 5.0 && String.equal message "slow down"
+  | RateLimited { retry_after = None; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | AuthorizationError _
+  | PaymentRequired _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
+;;
+
+let%test "classify_error 429: header-only (flat provider body) works" =
+  let body = {|{"error":"too many concurrent requests"}|} in
+  match classify_error ~status:429 ~body ~retry_after_header:(Some 12.0) with
+  | RateLimited { retry_after = Some ra; message } ->
+    Float.equal ra 12.0 && String.equal message "too many concurrent requests"
+  | RateLimited { retry_after = None; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | AuthorizationError _
+  | PaymentRequired _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
+;;
+
+let%test "classify_error 429: neither body nor header yields None, message preserved" =
+  let body = {|{"error":"too many concurrent requests"}|} in
+  match classify_error ~retry_after_header:None ~status:429 ~body with
+  | RateLimited { retry_after = None; message } ->
+    String.equal message "too many concurrent requests"
+  | RateLimited { retry_after = Some _; _ }
   | Overloaded _
   | ServerError _
   | AuthError _
@@ -366,7 +439,7 @@ let%test "classify_error 429 transient preserves retry_after" =
    Unknown_invalid_request catch-all (see PaymentRequired variant doc). *)
 let%test "classify_error 402 maps to PaymentRequired" =
   let body = {|{"error":{"message":"Insufficient Balance"}}|} in
-  match classify_error ~status:402 ~body with
+  match classify_error ~retry_after_header:None ~status:402 ~body with
   | PaymentRequired { message } -> String.equal message "Insufficient Balance"
   | RateLimited _
   | Overloaded _
@@ -384,7 +457,7 @@ let%test "classify_error 402 is not retryable" =
   let body =
     {|{"error":{"message":"Insufficient Balance","type":"insufficient_balance_error"}}|}
   in
-  match classify_error ~status:402 ~body with
+  match classify_error ~retry_after_header:None ~status:402 ~body with
   | PaymentRequired _ as err -> not (is_retryable err)
   | RateLimited _
   | Overloaded _

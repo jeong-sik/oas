@@ -231,42 +231,46 @@ let test_closed_ownership_matrix () =
     "401 with identity is credential pool"
     Attribution.Credential_pool
     with_credential
-    (Http.HttpError { code = 401; body = "auth" });
+    (Http.HttpError { code = 401; body = "auth"; retry_after_header = None });
   check_ownership
     "401 without identity fails local"
     Attribution.Unclassified
     without_credential
-    (Http.HttpError { code = 401; body = "auth" });
+    (Http.HttpError { code = 401; body = "auth"; retry_after_header = None });
   check_ownership
     "402 with identity is credential pool"
     Attribution.Credential_pool
     with_credential
-    (Http.HttpError { code = 402; body = "payment" });
+    (Http.HttpError { code = 402; body = "payment"; retry_after_header = None });
   check_ownership
     "402 without identity fails local"
     Attribution.Unclassified
     without_credential
-    (Http.HttpError { code = 402; body = "payment" });
+    (Http.HttpError { code = 402; body = "payment"; retry_after_header = None });
+  (* 429 is handled by its own dedicated test below (test_429_capacity_evidence):
+     it is no longer part of the generic "ambiguous" catch-all — it now routes
+     through the typed capacity vocabulary instead of [Http_status]. *)
   List.iter
     (fun code ->
        check_ownership
          (Printf.sprintf "ambiguous HTTP %d" code)
          Attribution.Unclassified
          with_credential
-         (Http.HttpError { code; body = "ambiguous" }))
-    [ 403; 429 ];
+         (Http.HttpError { code; body = "ambiguous"; retry_after_header = None }))
+    [ 403 ];
   check_ownership
     "binding HTTP 404"
     Attribution.Runtime_binding
     with_credential
-    (Http.HttpError { code = 404; body = "binding" });
+    (Http.HttpError { code = 404; body = "binding"; retry_after_header = None });
   List.iter
     (fun code ->
        check_ownership
          (Printf.sprintf "ambiguous server HTTP %d" code)
          Attribution.Unclassified
          with_credential
-         (Http.HttpError { code; body = "ambiguous server failure" }))
+         (Http.HttpError
+            { code; body = "ambiguous server failure"; retry_after_header = None }))
     [ 500; 503 ];
   List.iter
     (fun kind ->
@@ -366,6 +370,68 @@ let test_closed_ownership_matrix () =
        { kind = Http.Cli_startup_failed { reason = Http.Authentication_unavailable }
        ; message = "startup detail"
        })
+;;
+
+(* oas 429 typed completion (2026-07): a raw HTTP 429 used to fall into the
+   generic [Http_status] evidence via [ownership_of_http_status]'s [_ ->
+   Unclassified] catch-all, discarding any retry_after evidence. It must
+   now route through the typed capacity vocabulary — [Provider_failure
+   (Capacity_exhausted { scope = Failure_scope_unknown; retry_after; _ })]
+   — carrying retry_after and staying distinguishable from the [Http_status]
+   evidence produced for genuinely unclassifiable statuses (e.g. 403). The
+   ownership is still [Unclassified] (honest: a raw 429 carries no
+   provider-specific evidence of which lane is exhausted), but it is now
+   reached deliberately through [ownership_of_capacity ~scope:Failure_scope_unknown]
+   instead of the blind catch-all. *)
+let test_429_capacity_evidence () =
+  let with_credential = identity ~api_key:"credential-a" () in
+  let body_only =
+    Http.HttpError
+      { code = 429
+      ; body = {|{"error":{"retry_after":7.0,"message":"slow down"}}|}
+      ; retry_after_header = None
+      }
+  in
+  (match Attribution.of_http_error ~binding:with_credential body_only with
+   | { provider_failure =
+         Some
+           { ownership = Attribution.Unclassified
+           ; evidence =
+               Attribution.Provider_failure
+                 (Http.Capacity_exhausted
+                    { scope = Http.Failure_scope_unknown
+                    ; retry_after = Some ra
+                    ; model = None
+                    })
+           ; _
+           }
+     ; _
+     } -> check_bool "body retry_after carried" true (Float.equal ra 7.0)
+   | _ -> Alcotest.fail "expected typed capacity evidence with body retry_after");
+  let header_fallback =
+    Http.HttpError
+      { code = 429
+      ; body = {|{"error":"too many concurrent requests"}|}
+      ; retry_after_header = Some 15.0
+      }
+  in
+  match Attribution.of_http_error ~binding:with_credential header_fallback with
+  | { provider_failure =
+        Some
+          { ownership = Attribution.Unclassified
+          ; evidence =
+              Attribution.Provider_failure
+                (Http.Capacity_exhausted
+                   { scope = Http.Failure_scope_unknown
+                   ; retry_after = Some ra
+                   ; model = None
+                   })
+          ; _
+          }
+    ; _
+    } ->
+    check_bool "header retry_after carried when body has none" true (Float.equal ra 15.0)
+  | _ -> Alcotest.fail "expected typed capacity evidence with header retry_after"
 ;;
 
 let test_coarse_sdk_provider_errors_fail_closed () =
@@ -614,6 +680,10 @@ let () =
         ] )
     ; ( "ownership"
       , [ Alcotest.test_case "closed matrix" `Quick test_closed_ownership_matrix
+        ; Alcotest.test_case
+            "429 typed capacity evidence"
+            `Quick
+            test_429_capacity_evidence
         ; Alcotest.test_case
             "coarse provider fail-closed"
             `Quick

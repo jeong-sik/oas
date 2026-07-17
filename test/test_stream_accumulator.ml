@@ -443,7 +443,8 @@ let test_finalize_unknown_block_type_fails_closed () =
 let test_map_http_error_http () =
   let err =
     Streaming.map_http_error
-      (Llm_provider.Http_client.HttpError { code = 429; body = "rate limited" })
+      (Llm_provider.Http_client.HttpError
+         { code = 429; body = "rate limited"; retry_after_header = None })
   in
   match err with
   | Error.Api (Retry.RateLimited _) -> ()

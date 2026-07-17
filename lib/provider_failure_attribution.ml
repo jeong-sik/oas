@@ -48,7 +48,8 @@ let invalid_request reason =
 
 let sdk_error_of_http_error ?(accept_rejected = Api_invalid_request) err =
   match err with
-  | Http.HttpError { code; body } -> Error.Api (Retry.classify_error ~status:code ~body)
+  | Http.HttpError { code; body; retry_after_header } ->
+    Error.Api (Retry.classify_error ~retry_after_header ~status:code ~body)
   | Http.NetworkError { message; kind } ->
     Error.Api (Retry.NetworkError { message; kind })
   | Http.TimeoutError _ -> Error.Provider (Llm_provider.Error.of_http_error err)
@@ -194,6 +195,24 @@ let ownership_of_provider_failure ~binding = function
 ;;
 
 let attribution_of_http_error ~binding = function
+  | Http.HttpError { code = 429; body; retry_after_header } ->
+    (* HTTP 429 alone carries no provider-specific evidence of which lane
+       is exhausted (model/account/region/provider) — that finer signal
+       only exists in [Http.Capacity_exhausted] from transports that parse
+       it out of provider-specific payloads. A raw 429 is honestly
+       [Failure_scope_unknown] rather than a guess, but it is still routed
+       through the typed capacity vocabulary (not the generic [Http_status]
+       catch-all) so the retry_after evidence survives into attribution
+       instead of being visible only in the classified [Retry.api_error]. *)
+    let retry_after = Retry.resolve_retry_after ~body ~header:retry_after_header in
+    let kind =
+      Http.Capacity_exhausted
+        { scope = Http.Failure_scope_unknown; retry_after; model = None }
+    in
+    { ownership = ownership_of_provider_failure ~binding kind
+    ; binding = Some binding
+    ; evidence = Provider_failure kind
+    }
   | Http.HttpError { code; _ } ->
     { ownership = ownership_of_http_status ~binding code
     ; binding = Some binding

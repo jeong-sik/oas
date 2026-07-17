@@ -222,7 +222,10 @@ let test_sdk_error_of_http_error_classifies () =
   (* Pure smoke test for the conversion helper introduced in pipeline.ml *)
   let _ : Error.sdk_error =
     Error.Api
-      (Retry.classify_error ~status:429 ~body:{|{"error":{"message":"rate limit"}}|})
+      (Retry.classify_error
+         ~retry_after_header:None
+         ~status:429
+         ~body:{|{"error":{"message":"rate limit"}}|})
   in
   ()
 ;;

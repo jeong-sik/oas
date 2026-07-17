@@ -28,18 +28,27 @@ let expect_overloaded err =
 ;;
 
 let test_classify_error () =
-  Retry.classify_error ~status:429 ~body:{|{"error":{"message":"rate limited"}}|}
+  Retry.classify_error
+    ~retry_after_header:None
+    ~status:429
+    ~body:{|{"error":{"message":"rate limited"}}|}
   |> expect_rate_limited;
-  Retry.classify_error ~status:401 ~body:{|{"error":{"message":"invalid key"}}|}
+  Retry.classify_error
+    ~retry_after_header:None
+    ~status:401
+    ~body:{|{"error":{"message":"invalid key"}}|}
   |> expect_auth_error;
-  Retry.classify_error ~status:500 ~body:"internal error" |> expect_server_error;
-  Retry.classify_error ~status:529 ~body:"overloaded" |> expect_overloaded
+  Retry.classify_error ~retry_after_header:None ~status:500 ~body:"internal error"
+  |> expect_server_error;
+  Retry.classify_error ~retry_after_header:None ~status:529 ~body:"overloaded"
+  |> expect_overloaded
 ;;
 
 let test_classify_error_edge_cases () =
   (* 429 with retry_after field *)
   (match
      Retry.classify_error
+       ~retry_after_header:None
        ~status:429
        ~body:{|{"error":{"message":"slow down","retry_after":2.5}}|}
    with
@@ -48,28 +57,34 @@ let test_classify_error_edge_cases () =
    | Retry.RateLimited { retry_after = None; _ } -> fail "expected retry_after to be Some"
    | _ -> fail "expected RateLimited");
   (* 422 -> InvalidRequest *)
-  (match Retry.classify_error ~status:422 ~body:"validation error" with
+  (match
+     Retry.classify_error ~retry_after_header:None ~status:422 ~body:"validation error"
+   with
    | Retry.InvalidRequest { message } ->
      check string "422 message" "validation error" message
    | _ -> fail "expected InvalidRequest for 422");
   (* 502 -> ServerError *)
-  (match Retry.classify_error ~status:502 ~body:"bad gateway" with
+  (match
+     Retry.classify_error ~retry_after_header:None ~status:502 ~body:"bad gateway"
+   with
    | Retry.ServerError { status; _ } -> check int "502 status" 502 status
    | _ -> fail "expected ServerError for 502");
   (* malformed JSON body -> falls back to raw body *)
-  (match Retry.classify_error ~status:500 ~body:"not json at all" with
+  (match
+     Retry.classify_error ~retry_after_header:None ~status:500 ~body:"not json at all"
+   with
    | Retry.ServerError { message; _ } ->
      check string "raw body fallback" "not json at all" message
    | _ -> fail "expected ServerError with raw body");
   (* 404 -> NotFound *)
-  match Retry.classify_error ~status:404 ~body:"not found" with
+  match Retry.classify_error ~retry_after_header:None ~status:404 ~body:"not found" with
   | Retry.NotFound { message } -> check string "404 not found" "not found" message
   | _ -> fail "expected NotFound for 404"
 ;;
 
 let test_classify_error_402_payment_required () =
   let body = {|{"error":{"message":"Insufficient Balance"}}|} in
-  let err = Retry.classify_error ~status:402 ~body in
+  let err = Retry.classify_error ~retry_after_header:None ~status:402 ~body in
   (match err with
    | Retry.PaymentRequired { message } ->
      check string "402 message" "Insufficient Balance" message
@@ -86,7 +101,7 @@ let test_classify_error_403_authorization_denied () =
   let body =
     {|{"error":{"message":"You've reached your usage limit for this billing cycle"}}|}
   in
-  let err = Retry.classify_error ~status:403 ~body in
+  let err = Retry.classify_error ~retry_after_header:None ~status:403 ~body in
   (match err with
    | Retry.AuthorizationError { message } ->
      check
@@ -149,7 +164,7 @@ let test_is_retryable () =
 
 let test_invalid_request_reason_boundary () =
   let expect_unknown body =
-    match Retry.classify_error ~status:400 ~body with
+    match Retry.classify_error ~retry_after_header:None ~status:400 ~body with
     | Retry.InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
       check bool "generic invalid request is not retryable" false (Retry.is_retryable err)
     | _ -> fail "expected Unknown_invalid_request"

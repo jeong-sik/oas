@@ -286,7 +286,7 @@ let test_http_server_error_mapping () =
   let err =
     Error.of_http_error
       ~provider:"openai"
-      (Http_client.HttpError { code = 503; body = "down" })
+      (Http_client.HttpError { code = 503; body = "down"; retry_after_header = None })
   in
   match err with
   | Error.ServerError { provider; code; transient; detail } ->

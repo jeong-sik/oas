@@ -50,7 +50,8 @@ let count_anthropic
          with
          | Error _ as error -> error
          | Ok (code, response) when code >= 200 && code < 300 -> Ok response
-         | Ok (code, body) -> Error (Http_client.HttpError { code; body }))
+         | Ok (code, body) ->
+           Error (Http_client.HttpError { code; body; retry_after_header = None }))
     in
     Input_token_count.decode_transport_result
       ~protocol

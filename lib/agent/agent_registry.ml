@@ -114,7 +114,7 @@ let list_by_tool t tool_name =
 let fetch_remote_card ~sw ~net url =
   let card_url = url ^ "/.well-known/agent.json" in
   let error_detail = function
-    | Llm_provider.Http_client.HttpError { code; body } ->
+    | Llm_provider.Http_client.HttpError { code; body; _ } ->
       Printf.sprintf "HTTP %d: %s" code body
     | NetworkError { message; _ } -> message
     | TimeoutError { message; _ } -> message

@@ -338,7 +338,7 @@ let test_complete_http_empty_error_body_has_context () =
     in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok _ -> fail "expected Error"
-    | Error (Http_client.HttpError { code; body }) ->
+    | Error (Http_client.HttpError { code; body; _ }) ->
       check int "status 404" 404 code;
       check
         string
@@ -944,7 +944,10 @@ let test_complete_transport_http_metrics_error () =
       }
     in
     let transport =
-      make_transport (Error (Http_client.HttpError { code = 429; body = "rate limited" }))
+      make_transport
+        (Error
+           (Http_client.HttpError
+              { code = 429; body = "rate limited"; retry_after_header = None }))
     in
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ -> fail "expected Error"
