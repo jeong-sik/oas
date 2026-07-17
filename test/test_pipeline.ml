@@ -211,8 +211,7 @@ let transport_returning response =
   }
 ;;
 
-let make_pipeline_test_agent ~net ~response =
-  let transport = transport_returning response in
+let make_pipeline_test_agent_with_transport ~net ~transport =
   let options =
     { Internal_agent.default_options with
       transport = Some transport
@@ -233,6 +232,10 @@ let make_pipeline_test_agent ~net ~response =
     agent
     { (Internal_agent.state agent) with messages = [ Types.user_msg "hello" ] };
   agent
+;;
+
+let make_pipeline_test_agent ~net ~response =
+  make_pipeline_test_agent_with_transport ~net ~transport:(transport_returning response)
 ;;
 
 let test_pipeline_sends_exact_supplied_tools () =
@@ -282,6 +285,100 @@ let test_pipeline_sends_exact_supplied_tools () =
     "provider receives exact caller tool schemas"
     true
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
+;;
+
+let test_provider_attempt_boundary_precedes_dispatch () =
+  Eio_main.run
+  @@ fun env ->
+  List.iter
+    (fun (label, strategy) ->
+       Eio.Switch.run
+       @@ fun sw ->
+       let admitted = ref None in
+       let transport_calls = ref 0 in
+       let response = pipeline_response EndTurn in
+       let verify_request request =
+         incr transport_calls;
+         let expected =
+           Binding_identity.of_provider_config
+             ~transport:(Binding_identity.transport_for_call ~injected:true)
+             request.Llm_provider.Llm_transport.config
+         in
+         match expected, !admitted with
+         | Ok expected, Some observed ->
+           Alcotest.(check bool)
+             (label ^ " exact binding admitted before I/O")
+             true
+             (Binding_identity.equal expected observed)
+         | Error detail, _ -> Alcotest.fail detail
+         | Ok _, None -> Alcotest.fail (label ^ " provider I/O preceded admission")
+       in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun request ->
+               verify_request request;
+               { response = Ok response; latency_ms = Some 0 })
+         ; complete_stream =
+             (fun ?on_telemetry:_ ~on_event:_ request ->
+               verify_request request;
+               Ok response)
+         }
+       in
+       let agent =
+         make_pipeline_test_agent_with_transport ~net:(Eio.Stdenv.net env) ~transport
+       in
+       let before_provider_attempt binding =
+         admitted := Some binding;
+         Ok ()
+       in
+       (match
+          Internal_pipeline.run_turn
+            ~sw
+            ~api_strategy:strategy
+            ~before_provider_attempt
+            agent
+        with
+        | Ok (Internal_pipeline.Complete _) -> ()
+        | Ok (Internal_pipeline.ToolsExecuted _) ->
+          Alcotest.fail (label ^ " expected terminal response")
+        | Error error -> Alcotest.fail (Error.to_string error));
+       Alcotest.(check int) (label ^ " one admission") 1 !transport_calls)
+    [ "sync", Internal_pipeline.Sync
+    ; "stream", Internal_pipeline.Stream { on_event = ignore; on_telemetry = None }
+    ]
+;;
+
+let test_provider_attempt_rejection_prevents_dispatch () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let transport_calls = ref 0 in
+  let response = pipeline_response EndTurn in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          incr transport_calls;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let agent =
+    make_pipeline_test_agent_with_transport ~net:(Eio.Stdenv.net env) ~transport
+  in
+  let rejection = Error.Internal "provider attempt journal rejected" in
+  (match
+     Internal_pipeline.run_turn
+       ~sw
+       ~api_strategy:Internal_pipeline.Sync
+       ~before_provider_attempt:(fun _binding -> Error rejection)
+       agent
+   with
+   | Error (Error.Internal detail) ->
+     Alcotest.(check string) "exact rejection" "provider attempt journal rejected" detail
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok _ -> Alcotest.fail "provider attempt rejection was ignored");
+  Alcotest.(check int) "provider I/O prevented" 0 !transport_calls
 ;;
 
 let unwrap_raw_trace = function
@@ -1099,6 +1196,14 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "provider attempt boundary precedes dispatch"
+            `Quick
+            test_provider_attempt_boundary_precedes_dispatch
+        ; Alcotest.test_case
+            "provider attempt rejection prevents dispatch"
+            `Quick
+            test_provider_attempt_rejection_prevents_dispatch
         ; Alcotest.test_case
             "output rejects unknown terminal"
             `Quick

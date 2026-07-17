@@ -35,13 +35,18 @@ val persist_turn_checkpoint_for_state
     [before_tool_execution], when present, runs exactly once for a non-empty
     tool batch after assistant collection has committed successfully and before
     the first tool hook or implementation starts.  Exceptions propagate and
-    prevent tool execution. *)
+    prevent tool execution.
+
+    [before_provider_attempt], when present, receives the exact immutable
+    binding selected for dispatch after configuration resolution and before
+    provider I/O. A typed rejection prevents that provider attempt. *)
 val run_turn
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
   -> api_strategy:api_strategy
   -> ?raw_trace_run:Raw_trace.active_run
   -> ?on_provider_failure:(Provider_failure_attribution.t option -> unit)
+  -> ?before_provider_attempt:(Binding_identity.t -> (unit, Error.sdk_error) result)
   -> ?before_tool_execution:(unit -> unit)
   -> Agent_types.t
   -> (turn_outcome, Error.sdk_error) result

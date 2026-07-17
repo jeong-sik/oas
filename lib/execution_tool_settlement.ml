@@ -23,6 +23,7 @@ type error =
   | Authority_unavailable of Writer.read_error
   | Invocation_not_found
   | Invocation_identity_mismatch
+  | Effect_outcome_unknown
   | Attempt_admission_failed of Writer.submit_error
   | Attempt_commit_failed of Writer.ticket_error
   | Receipt_admission_outcome_unknown of Writer.submit_error
@@ -33,6 +34,10 @@ type receipt =
   ; result : Llm_provider.Types.content_block
   ; through : Journal.cursor
   }
+
+type execution =
+  | Executed of receipt
+  | Replayed of Llm_provider.Types.content_block
 
 let read_node writer node =
   match Writer.find_node writer node with
@@ -143,4 +148,17 @@ let settle attempt ~result =
      | Error error -> Error (Receipt_settlement_outcome_unknown error)
      | Ok committed ->
        Ok { invocation = authority.invocation; result; through = committed.through })
+;;
+
+let execute authority ~invoke =
+  let open Result_syntax in
+  let* current = status authority in
+  match current with
+  | Settled result -> Ok (Replayed result)
+  | Outcome_unknown -> Error Effect_outcome_unknown
+  | Ready_to_execute ->
+    let* attempt = begin_attempt authority in
+    let result = invoke () in
+    let+ receipt = settle attempt ~result in
+    Executed receipt
 ;;

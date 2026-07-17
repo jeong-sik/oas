@@ -13,6 +13,7 @@ module Tx = Journal.Transaction
 exception Cancel_waiter
 exception Cancel_scope
 exception Callback_failed
+exception Effect_raised
 
 let require_submit = function
   | Ok ticket -> ticket
@@ -199,7 +200,7 @@ let test_exact_tool_settlement_authority () =
       in
       let open_invocation planned_index =
         let schedule : Hooks.tool_schedule =
-          { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
+          { planned_index; batch_index = 0; batch_size = 3; execution_mode = Tool.Serial }
         in
         let node, _ =
           (submit_and_await
@@ -225,6 +226,7 @@ let test_exact_tool_settlement_authority () =
       in
       let first_node, first_invocation = open_invocation 0 in
       let second_node, second_invocation = open_invocation 1 in
+      let third_node, third_invocation = open_invocation 2 in
       let authority node invocation =
         match Settlement.create ~writer ~run ~invocation_node:node ~invocation with
         | Ok authority -> authority
@@ -232,20 +234,14 @@ let test_exact_tool_settlement_authority () =
       in
       let first = authority first_node first_invocation in
       let second = authority second_node second_invocation in
-      (match Settlement.status first, Settlement.status second with
-       | Ok Settlement.Ready_to_execute, Ok Settlement.Ready_to_execute -> ()
+      let third = authority third_node third_invocation in
+      (match
+         Settlement.status first, Settlement.status second, Settlement.status third
+       with
+       | ( Ok Settlement.Ready_to_execute
+         , Ok Settlement.Ready_to_execute
+         , Ok Settlement.Ready_to_execute ) -> ()
        | _ -> fail "blank-id occurrences were not independently ready");
-      let attempt =
-        match Settlement.begin_attempt first with
-        | Ok attempt -> attempt
-        | Error _ -> fail "durable attempt admission failed"
-      in
-      (match Settlement.status first with
-       | Ok Settlement.Outcome_unknown -> ()
-       | _ -> fail "open effect attempt was not outcome-unknown");
-      (match Settlement.begin_attempt first with
-       | Error _ -> ()
-       | Ok _ -> fail "a second effect attempt was admitted");
       let seq = Journal.cursor_seq in
       let before = Writer.current_cursor writer |> Result.get_ok in
       let result =
@@ -257,12 +253,43 @@ let test_exact_tool_settlement_authority () =
           ; content_blocks = None
           }
       in
-      (match Settlement.settle attempt ~result with
-       | Ok receipt ->
-         check int "three settlement facts" (seq before + 3) (seq receipt.through)
+      let effect_calls = ref 0 in
+      (match
+         Settlement.execute first ~invoke:(fun () ->
+           incr effect_calls;
+           (match Settlement.status first with
+            | Ok Settlement.Outcome_unknown -> ()
+            | _ -> fail "effect ran before its attempt became durable");
+           result)
+       with
+       | Ok (Settlement.Executed receipt) ->
+         check
+           int
+           "attempt plus three settlement facts"
+           (seq before + 4)
+           (seq receipt.through)
+       | Ok (Settlement.Replayed _) -> fail "fresh effect was reported as replayed"
        | Error _ -> fail "canonical result settlement failed");
-      match Settlement.status first, Settlement.status second with
-      | Ok (Settlement.Settled committed), Ok Settlement.Ready_to_execute ->
+      (match Settlement.execute first ~invoke:(fun () -> fail "replay reran effect") with
+       | Ok (Settlement.Replayed committed) ->
+         check bool "exact replay retained" true (committed = result)
+       | Ok (Settlement.Executed _) -> fail "settled effect executed twice"
+       | Error _ -> fail "settled effect did not replay");
+      check int "effect ran once" 1 !effect_calls;
+      (match Settlement.execute third ~invoke:(fun () -> raise Effect_raised) with
+       | exception Effect_raised -> ()
+       | Ok _ | Error _ -> fail "effect exception did not propagate");
+      (match
+         Settlement.execute third ~invoke:(fun () -> fail "unknown effect retried")
+       with
+       | Error Settlement.Effect_outcome_unknown -> ()
+       | Ok _ | Error _ -> fail "unknown effect outcome was not fenced");
+      match
+        Settlement.status first, Settlement.status second, Settlement.status third
+      with
+      | ( Ok (Settlement.Settled committed)
+        , Ok Settlement.Ready_to_execute
+        , Ok Settlement.Outcome_unknown ) ->
         check bool "exact result retained" true (committed = result)
       | _ -> fail "settlement crossed repeated blank-id occurrences"))
 ;;

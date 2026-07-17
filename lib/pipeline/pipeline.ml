@@ -135,6 +135,7 @@ let stage_route
       ~api_strategy
       ?raw_trace_run
       ?on_provider_failure
+      ?before_provider_attempt
       ~turn_config
       agent
       prep
@@ -157,6 +158,7 @@ let stage_route
            ?clock
            ~trace_context
            ?on_provider_failure
+           ?before_provider_attempt
            ~turn_config
            agent
            prep)
@@ -184,6 +186,7 @@ let stage_route
            ?capture_id
            ?on_telemetry
            ?on_provider_failure
+           ?before_provider_attempt
            ())
 ;;
 
@@ -550,6 +553,7 @@ let run_turn
       ~api_strategy
       ?raw_trace_run
       ?on_provider_failure
+      ?before_provider_attempt
       ?before_tool_execution
       agent
   =
@@ -609,6 +613,7 @@ let run_turn
         ~api_strategy
         ?raw_trace_run
         ?on_provider_failure
+        ?before_provider_attempt
         ~turn_config
         agent
         prep

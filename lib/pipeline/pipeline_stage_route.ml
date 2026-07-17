@@ -20,6 +20,12 @@ let binding_identity_for_call agent provider_config =
   Binding_identity.of_provider_config ~transport provider_config
 ;;
 
+let admit_provider_attempt callback binding =
+  match callback with
+  | None -> Ok ()
+  | Some callback -> callback binding
+;;
+
 let provider_config_for_turn ~turn_config agent =
   match agent.provider_config with
   | Some provider_config ->
@@ -36,6 +42,7 @@ let dispatch_sync
       ?clock
       ?(trace_context = [])
       ?on_provider_failure
+      ?before_provider_attempt
       ~turn_config
       agent
       (prep : Agent_turn.turn_preparation)
@@ -52,6 +59,7 @@ let dispatch_sync
       binding_identity_for_call agent pc
       |> Result.map_error (binding_identity_error ?on_provider_failure)
     in
+    let* () = admit_provider_attempt before_provider_attempt binding in
     let call () =
       Llm_provider.Complete.complete
         ~sw
@@ -86,6 +94,7 @@ let dispatch_stream
       ?(trace_context = [])
       ?on_telemetry
       ?on_provider_failure
+      ?before_provider_attempt
       ()
   =
   let ( let* ) = Result.bind in
@@ -100,6 +109,7 @@ let dispatch_stream
       binding_identity_for_call agent pc
       |> Result.map_error (binding_identity_error ?on_provider_failure)
     in
+    let* () = admit_provider_attempt before_provider_attempt binding in
     let call () =
       Llm_provider.Complete.complete_stream
         ~sw
