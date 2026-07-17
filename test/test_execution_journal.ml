@@ -991,6 +991,24 @@ let test_json_terminal_and_id_boundaries () =
   check int "invalid agent name did not advance journal" 0 (Journal.length journal);
   let run = require_started_run (Journal.start_run journal ~agent_name:"validation") in
   let agent_turn, turn = open_provider_attempt journal run in
+  let later_batch : Tool.schedule =
+    { planned_index = 0; batch_index = 2; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  let later_batch_kind =
+    Event.Tool_invocation
+      { provider_tool_use_id = Some "provider-later-batch"
+      ; tool_name = "valid_tool"
+      ; schedule = later_batch
+      }
+  in
+  (match Event.node_kind_to_yojson later_batch_kind with
+   | Error message -> fail ("valid later batch was rejected: " ^ message)
+   | Ok json ->
+     (match Event.node_kind_of_yojson json with
+      | Ok (Event.Tool_invocation { schedule; _ }) ->
+        check int "later batch ordinal roundtrip" 2 schedule.batch_index;
+        check int "batch size roundtrip" 1 schedule.batch_size
+      | Ok _ | Error _ -> fail "valid later batch did not roundtrip"));
   let expect_invalid_node_kind kind =
     match Event.node_kind_to_yojson kind with
     | Error _ -> ()

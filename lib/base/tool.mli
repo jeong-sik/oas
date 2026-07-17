@@ -20,8 +20,8 @@ val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
     @since 0.216.0 *)
 type schedule =
   { planned_index : int
-  ; batch_index : int
-  ; batch_size : int
+  ; batch_index : int (** Zero-based execution-batch ordinal within the turn. *)
+  ; batch_size : int (** Number of invocations in that execution batch. *)
   ; execution_mode : execution_mode
   }
 
