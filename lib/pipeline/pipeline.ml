@@ -396,15 +396,15 @@ let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty
        | Some
            (Agent_tools.Hook_failure
               (Agent_tools.Hook_execution_failed
-                 { hook_name; stage; tool_name; tool_use_id; detail })) ->
+                 { hook_name; stage; tool_name; invocation; detail })) ->
          Error
            (Pipeline_common.hook_failed_sdk_error
               ~hook_name
               ~stage
               ~tool_name:(Some tool_name)
-              ~tool_use_id:(Some tool_use_id)
+              ~tool_use_id:(Some (Tool.Invocation.tool_use_id invocation))
               ~detail)
-       | Some (Agent_tools.Observer_failure { exception_; backtrace }) ->
+       | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
        | None ->
          (match agent.options.context_injector with

@@ -196,38 +196,47 @@ let validate_run run_ref =
       (fun (record : Raw_trace.record) -> record.record_type = Run_finished)
       records
   in
-  let pair_table : (string, int * int) Hashtbl.t = Hashtbl.create 8 in
+  let exact_key (record : Raw_trace.record) tool_use_id =
+    match record.tool_turn, record.tool_planned_index with
+    | Some turn, Some planned_index -> Some (tool_use_id, turn, planned_index)
+    | _ -> None
+  in
+  let pair_key record tool_use_id =
+    match exact_key record tool_use_id with
+    | Some (id, turn, planned_index) -> id, Some turn, Some planned_index
+    | None -> tool_use_id, None, None
+  in
+  let outstanding : (string * int option * int option, int) Hashtbl.t =
+    Hashtbl.create 8
+  in
+  let seen_exact_starts : (string * int * int, unit) Hashtbl.t = Hashtbl.create 8 in
+  let ordering_ok = ref true in
+  let paired_tool_result_count = ref 0 in
   List.iter
     (fun (record : Raw_trace.record) ->
        match record.record_type, record.tool_use_id with
        | Tool_execution_started, Some tool_use_id ->
-         let started, finished =
-           match Hashtbl.find_opt pair_table tool_use_id with
-           | Some counts -> counts
-           | None -> 0, 0
-         in
-         Hashtbl.replace pair_table tool_use_id (started + 1, finished)
+         let key = pair_key record tool_use_id in
+         let count = Option.value ~default:0 (Hashtbl.find_opt outstanding key) in
+         (match exact_key record tool_use_id with
+          | Some exact when Hashtbl.mem seen_exact_starts exact -> ordering_ok := false
+          | Some exact ->
+            Hashtbl.replace seen_exact_starts exact ();
+            Hashtbl.replace outstanding key 1
+          | None -> Hashtbl.replace outstanding key (count + 1))
        | Tool_execution_finished, Some tool_use_id ->
-         let started, finished =
-           match Hashtbl.find_opt pair_table tool_use_id with
-           | Some counts -> counts
-           | None -> 0, 0
-         in
-         Hashtbl.replace pair_table tool_use_id (started, finished + 1)
+         let key = pair_key record tool_use_id in
+         let count = Option.value ~default:0 (Hashtbl.find_opt outstanding key) in
+         if count = 0
+         then ordering_ok := false
+         else (
+           Hashtbl.replace outstanding key (count - 1);
+           incr paired_tool_result_count)
+       | (Tool_execution_started | Tool_execution_finished), None -> ordering_ok := false
        | _ -> ())
     records;
   let tool_pairs_ok =
-    pair_table
-    |> Hashtbl.to_seq_values
-    |> Seq.for_all (fun (started, finished) -> started = finished)
-  in
-  let paired_tool_result_count =
-    pair_table
-    |> Hashtbl.to_seq_values
-    |> Seq.fold_left
-         (fun acc (started, finished) ->
-            if started = finished && started > 0 then acc + started else acc)
-         0
+    !ordering_ok && outstanding |> Hashtbl.to_seq_values |> Seq.for_all (Int.equal 0)
   in
   let checks =
     [ { Raw_trace.name = "seq_monotonic"; passed = seq_monotonic }
@@ -295,7 +304,7 @@ let validate_run run_ref =
     ; Printf.sprintf "final_text=%s" (Option.value summary.final_text ~default:"")
     ; Printf.sprintf "stop_reason=%s" (Option.value summary.stop_reason ~default:"")
     ; Printf.sprintf "error=%s" (Option.value summary.error ~default:"")
-    ; Printf.sprintf "paired_tool_result_count=%d" paired_tool_result_count
+    ; Printf.sprintf "paired_tool_result_count=%d" !paired_tool_result_count
     ]
   in
   Ok
@@ -303,7 +312,7 @@ let validate_run run_ref =
     ; ok
     ; checks
     ; evidence
-    ; paired_tool_result_count
+    ; paired_tool_result_count = !paired_tool_result_count
     ; final_text = summary.final_text
     ; tool_names = summary.tool_names
     ; stop_reason = summary.stop_reason

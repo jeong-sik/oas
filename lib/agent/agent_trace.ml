@@ -4,13 +4,14 @@ open Result_syntax
 
 let _log = Log.create ~module_name:"agent_trace" ()
 
-let record_hook_invocation active_run ~hook_name ~decision ?detail () =
+let record_hook_invocation active_run ?invocation ~hook_name ~decision ?detail () =
   match active_run with
   | None -> ()
   | Some active ->
     Raw_trace.raise_if_error
       (Raw_trace.record_hook_invoked
          active
+         ?invocation
          ~hook_name
          ~hook_decision:(Agent_lifecycle.hook_decision_to_string decision)
          ?hook_detail:detail
@@ -29,7 +30,12 @@ let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
     }
     (fun _ ->
        let decision = Hooks.invoke_validated ~hook_name hook_opt event in
-       record_hook_invocation raw_trace_run ~hook_name ~decision ();
+       record_hook_invocation
+         raw_trace_run
+         ?invocation:(Hooks.invocation_of_event event)
+         ~hook_name
+         ~decision
+         ();
        decision)
 ;;
 
@@ -42,7 +48,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     | None -> None
     | Some active ->
       Some
-        (fun ~tool_use_id ~tool_name ~input ~schedule ->
+        (fun ~invocation ~tool_name ~input ->
           let ts = Unix.gettimeofday () in
           set_lifecycle
             agent
@@ -53,20 +59,16 @@ let execute_tools_with_trace agent active_run tool_uses =
           Raw_trace.raise_if_error
             (Raw_trace.record_tool_execution_started
                active
-               ~tool_use_id
+               ~invocation
                ~tool_name
-               ~tool_input:input
-               ~planned_index:schedule.Hooks.planned_index
-               ~batch_index:schedule.batch_index
-               ~batch_size:schedule.batch_size
-               ~execution_mode:schedule.execution_mode))
+               ~tool_input:input))
   in
   let on_tool_execution_finished =
     match active_run with
     | None -> None
     | Some active ->
       Some
-        (fun ~tool_use_id ~tool_name ~content ~is_error ->
+        (fun ~invocation ~tool_name ~content ~is_error ->
           let ts = Unix.gettimeofday () in
           set_lifecycle
             agent
@@ -77,14 +79,14 @@ let execute_tools_with_trace agent active_run tool_uses =
           Raw_trace.raise_if_error
             (Raw_trace.record_tool_execution_finished
                active
-               ~tool_use_id
+               ~invocation
                ~tool_name
                ~tool_result:content
                ~tool_error:is_error
                ()))
   in
-  let on_hook_invoked ~hook_name ~decision ~detail =
-    record_hook_invocation active_run ~hook_name ~decision ?detail ()
+  let on_hook_invoked ~invocation ~hook_name ~decision ~detail =
+    record_hook_invocation active_run ?invocation ~hook_name ~decision ?detail ()
   in
   Agent_tools.execute_tools
     ~context:agent.context

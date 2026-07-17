@@ -10,6 +10,13 @@
 
 open Agent_sdk
 
+let invocation tool_use_id =
+  let schedule : Tool.schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
+;;
+
 let context_messages = function
   | Ok messages -> messages
   | Error error -> Alcotest.fail error.Agent_turn.detail
@@ -465,7 +472,7 @@ let test_context_injection_sets_values () =
   in
   let tool_uses = [ Types.ToolUse { id = "tu_1"; name = "search"; input = `Assoc [] } ] in
   let results =
-    [ { Agent_tools.tool_use_id = "tu_1"
+    [ { Agent_tools.invocation = invocation "tu_1"
       ; tool_name = "search"
       ; input = `Assoc []
       ; content = "result text"
@@ -506,7 +513,7 @@ let test_context_injection_none () =
   let injector ~tool_name:_ ~input:_ ~output:_ = None in
   let tool_uses = [ Types.ToolUse { id = "tu_n"; name = "tool"; input = `Assoc [] } ] in
   let results =
-    [ { Agent_tools.tool_use_id = "tu_n"
+    [ { Agent_tools.invocation = invocation "tu_n"
       ; tool_name = "tool"
       ; input = `Assoc []
       ; content = "ok"
@@ -555,7 +562,7 @@ let test_context_injection_extra_messages () =
   in
   let tool_uses = [ Types.ToolUse { id = "tu_m"; name = "tool"; input = `Assoc [] } ] in
   let results =
-    [ { Agent_tools.tool_use_id = "tu_m"
+    [ { Agent_tools.invocation = invocation "tu_m"
       ; tool_name = "tool"
       ; input = `Assoc []
       ; content = "ok"
@@ -590,7 +597,7 @@ let test_context_injection_error_result () =
   in
   let tool_uses = [ Types.ToolUse { id = "tu_err"; name = "tool"; input = `Assoc [] } ] in
   let results =
-    [ { Agent_tools.tool_use_id = "tu_err"
+    [ { Agent_tools.invocation = invocation "tu_err"
       ; tool_name = "tool"
       ; input = `Assoc []
       ; content = "something went wrong"
@@ -627,7 +634,7 @@ let test_context_injection_raises () =
   let injector ~tool_name:_ ~input:_ ~output:_ = failwith "injector crash" in
   let tool_uses = [ Types.ToolUse { id = "tu_ex"; name = "tool"; input = `Assoc [] } ] in
   let results =
-    [ { Agent_tools.tool_use_id = "tu_ex"
+    [ { Agent_tools.invocation = invocation "tu_ex"
       ; tool_name = "tool"
       ; input = `Assoc []
       ; content = "ok"

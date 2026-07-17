@@ -7,6 +7,13 @@ open Agent_sdk
 module Internal_agent = Agent_sdk__Agent_types
 module Internal_pipeline = Agent_sdk__Pipeline
 
+let invocation tool_use_id =
+  let schedule : Tool.schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
+;;
+
 (* ── Provider mock: verify pipeline stages via mock responses ── *)
 
 let test_mock_text_response () =
@@ -781,13 +788,13 @@ let test_prepare_turn_preserves_messages () =
 
 let test_make_tool_results_ok () =
   let results =
-    [ { Agent_tools.tool_use_id = "tu1"
+    [ { Agent_tools.invocation = invocation "tu1"
       ; tool_name = "tool-1"
       ; input = `Null
       ; content = "result1"
       ; outcome = Tool_succeeded
       }
-    ; { tool_use_id = "tu2"
+    ; { invocation = invocation "tu2"
       ; tool_name = "tool-2"
       ; input = `Null
       ; content = "result2"
@@ -811,7 +818,7 @@ let test_make_tool_results_ok () =
 
 let test_make_tool_results_error () =
   let results =
-    [ { Agent_tools.tool_use_id = "tu1"
+    [ { Agent_tools.invocation = invocation "tu1"
       ; tool_name = "tool-1"
       ; input = `Null
       ; content = "failed"
@@ -831,13 +838,13 @@ let test_make_tool_results_error () =
 
 let test_make_tool_results_mixed () =
   let results =
-    [ { Agent_tools.tool_use_id = "tu1"
+    [ { Agent_tools.invocation = invocation "tu1"
       ; tool_name = "tool-1"
       ; input = `Null
       ; content = "good"
       ; outcome = Tool_succeeded
       }
-    ; { tool_use_id = "tu2"
+    ; { invocation = invocation "tu2"
       ; tool_name = "tool-2"
       ; input = `Null
       ; content = "bad"

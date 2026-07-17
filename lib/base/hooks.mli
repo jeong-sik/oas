@@ -30,13 +30,9 @@ type reasoning_summary =
 val empty_reasoning_summary : reasoning_summary
 val extract_reasoning : Types.message list -> reasoning_summary
 
-(** Deterministic scheduling metadata attached to a tool execution plan. *)
-type tool_schedule =
-  { planned_index : int
-  ; batch_index : int
-  ; batch_size : int
-  ; execution_mode : Tool.execution_mode
-  }
+(** Compatibility name for the canonical tool schedule type. This alias owns
+    no second representation; new code should use {!Tool.schedule}. *)
+type tool_schedule = Tool.schedule
 
 (** Events emitted during agent execution *)
 type hook_event =
@@ -56,41 +52,49 @@ type hook_event =
       ; response : Types.api_response
       }
   | PreToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Exact run-scoped model-tool occurrence. @since 0.216.0 *)
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
-      ; turn : int
-      ; schedule : tool_schedule
       }
   | PostToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Same exact occurrence as the matching [PreToolUse].
+            @since 0.216.0 *)
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; output : Types.tool_result
       ; result_bytes : int
       ; duration_ms : float
-      ; schedule : tool_schedule
       }
   | PostToolUseFailure of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
+        (** Same exact occurrence as the matching [PreToolUse].
+            @since 0.216.0 *)
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; error : string
-      ; schedule : tool_schedule
       }
   | OnStop of
       { reason : Types.stop_reason
       ; response : Types.api_response
       }
   | OnError of
-      { detail : string
+      { invocation : Tool.Invocation.t option
+        (** [Some] for an error attributable to one exact tool occurrence;
+            [None] for non-tool errors. *)
+      ; detail : string
       ; context : string
       }
   | OnToolError of
-      { tool_name : string
+      { invocation : Tool.Invocation.t
+      ; tool_name : string
       ; error : string
       }
+
+(** Exact tool occurrence associated with a hook event, when any. *)
+val invocation_of_event : hook_event -> Tool.Invocation.t option
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request =

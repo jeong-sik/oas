@@ -10,7 +10,14 @@ let default_schedule
       ?(execution_mode = Tool.Serial)
       ()
   =
-  Hooks.{ planned_index; batch_index; batch_size; execution_mode }
+  let schedule : Tool.schedule =
+    { planned_index; batch_index; batch_size; execution_mode }
+  in
+  schedule
+;;
+
+let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
+  Tool.Invocation.create ~tool_use_id ~turn ~schedule:(default_schedule ~planned_index ())
 ;;
 
 let test_empty_hooks () =
@@ -50,12 +57,10 @@ let test_hook_receives_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
-         { tool_use_id = "tu-test"
+         { invocation = invocation ()
          ; tool_name = "test_tool"
          ; input = `Null
          ; accumulated_cost_usd = 0.0
-         ; turn = 0
-         ; schedule = default_schedule ()
          })
   in
   check string "hook received tool_name" "test_tool" !received
@@ -73,13 +78,12 @@ let test_post_tool_use_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUse
-         { tool_use_id = "tu-echo"
+         { invocation = invocation ~tool_use_id:"tu-echo" ()
          ; tool_name = "echo"
          ; input = `Null
          ; output = Ok { Types.content = "hello"; _meta = None }
          ; result_bytes = 5
          ; duration_ms = 1.0
-         ; schedule = default_schedule ()
          })
   in
   check string "hook received output" "hello" !received_output
@@ -97,11 +101,10 @@ let test_post_tool_use_failure_event () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PostToolUseFailure
-         { tool_use_id = "tu-echo"
+         { invocation = invocation ~tool_use_id:"tu-echo" ()
          ; tool_name = "echo"
          ; input = `Null
          ; error = "boom"
-         ; schedule = default_schedule ()
          })
   in
   check string "hook received error" "boom" !received_error
@@ -113,12 +116,10 @@ let test_invoke_block () =
     Hooks.invoke_validated
       (Some hook)
       (Hooks.PreToolUse
-         { tool_use_id = "tu-danger"
+         { invocation = invocation ~tool_use_id:"tu-danger" ()
          ; tool_name = "dangerous"
          ; input = `Null
          ; accumulated_cost_usd = 0.0
-         ; turn = 0
-         ; schedule = default_schedule ()
          })
   in
   check bool "hook returns Block" true (result = Hooks.Block "blocked")
@@ -128,12 +129,10 @@ let test_invoke_block () =
 
 let dummy_pre_tool_use =
   Hooks.PreToolUse
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
     ; tool_name = "t"
     ; input = `Null
     ; accumulated_cost_usd = 0.0
-    ; turn = 1
-    ; schedule = default_schedule ()
     }
 ;;
 
@@ -165,23 +164,21 @@ let dummy_after_turn =
 
 let dummy_post_tool_use =
   Hooks.PostToolUse
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
     ; tool_name = "t"
     ; input = `Null
     ; output = Ok { Types.content = "ok"; _meta = None }
     ; result_bytes = 2
     ; duration_ms = 1.0
-    ; schedule = default_schedule ()
     }
 ;;
 
 let dummy_post_tool_use_failure =
   Hooks.PostToolUseFailure
-    { tool_use_id = "tu-1"
+    { invocation = invocation ~tool_use_id:"tu-1" ~turn:1 ()
     ; tool_name = "t"
     ; input = `Null
     ; error = "err"
-    ; schedule = default_schedule ()
     }
 ;;
 
@@ -199,8 +196,11 @@ let dummy_on_stop =
     }
 ;;
 
-let dummy_on_error = Hooks.OnError { detail = "d"; context = "c" }
-let dummy_on_tool_error = Hooks.OnToolError { tool_name = "t"; error = "e" }
+let dummy_on_error = Hooks.OnError { invocation = None; detail = "d"; context = "c" }
+
+let dummy_on_tool_error =
+  Hooks.OnToolError { invocation = invocation (); tool_name = "t"; error = "e" }
+;;
 
 (** Test that each (stage, decision) pair in the matrix is accepted. *)
 let test_validate_legal_before_turn () =

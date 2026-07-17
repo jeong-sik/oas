@@ -15,7 +15,7 @@ type tool_failure_kind = Types.tool_failure_kind =
   | Unattributed_tool_error
 
 type tool_execution_result =
-  { tool_use_id : string
+  { invocation : Tool.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -27,14 +27,15 @@ type execution_error =
       { hook_name : string
       ; stage : Hooks.hook_stage
       ; tool_name : string
-      ; tool_use_id : string
+      ; invocation : Tool.Invocation.t
       ; detail : string
       }
 
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Observer_failure of
-      { exception_ : exn
+      { invocation : Tool.Invocation.t
+      ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
 
@@ -43,9 +44,16 @@ type execution_failure =
   ; cause : execution_failure_cause
   }
 
-let observer_failure exception_ backtrace =
+let observer_failure ~invocation exception_ backtrace =
   Llm_provider.Reserved_exn.reraise_if_reserved exception_;
-  Observer_failure { exception_; backtrace }
+  Log.error
+    _log
+    "tool observer failed"
+    [ Log.S ("tool_use_id", Tool.Invocation.tool_use_id invocation)
+    ; Log.I ("turn", Tool.Invocation.turn invocation)
+    ; Log.I ("planned_index", Tool.Invocation.planned_index invocation)
+    ];
+  Observer_failure { invocation; exception_; backtrace }
 ;;
 
 let failure_summary = function
@@ -100,8 +108,8 @@ let unknown_tool_failure ~requested ~available =
 
 let resolve_tool_call tool_index name input = name, input, find_in_index tool_index name
 
-let tool_failure_result ~id ~name ~input ~content ~error_class =
-  { tool_use_id = id
+let tool_failure_result ~invocation ~name ~input ~content ~error_class =
+  { invocation
   ; tool_name = name
   ; input
   ; content
@@ -111,8 +119,8 @@ let tool_failure_result ~id ~name ~input ~content ~error_class =
   }
 ;;
 
-let blocked_tool_result ~id ~name ~input ~content =
-  tool_failure_result ~id ~name ~input ~content ~error_class:Types.Deterministic
+let blocked_tool_result ~invocation ~name ~input ~content =
+  tool_failure_result ~invocation ~name ~input ~content ~error_class:Types.Deterministic
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
@@ -142,7 +150,7 @@ let execution_batches tool_uses =
 ;;
 
 let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
-  : Hooks.tool_schedule
+  : Tool.schedule
   =
   { planned_index = tool_use.index
   ; batch_index
@@ -178,6 +186,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
           | Some callback ->
             (try
                callback
+                 ~invocation:(Hooks.invocation_of_event event)
                  ~hook_name
                  ~decision
                  ~detail:
@@ -212,21 +221,21 @@ type tool_dispatch =
   ; deferred_failure : deferred_failure option
   }
 
-let hook_execution_error ~hook_name ~stage ~tool_name ~tool_use_id ~detail =
-  Hook_execution_failed { hook_name; stage; tool_name; tool_use_id; detail }
+let hook_execution_error ~hook_name ~stage ~tool_name ~invocation ~detail =
+  Hook_execution_failed { hook_name; stage; tool_name; invocation; detail }
 ;;
 
 let invoke_post_hook
       ?on_hook_invoked
       ~tracer
       ~agent_name
-      ~turn_count
+      ~invocation
       ~hook_name
       ~tool_name
-      ~tool_use_id
       hook_opt
       event
   =
+  let turn_count = Tool.Invocation.turn invocation in
   try
     match
       invoke_hook
@@ -242,7 +251,7 @@ let invoke_post_hook
     | Hooks.HookFailed { stage; detail } ->
       Some
         (Hook_failure
-           (hook_execution_error ~hook_name ~stage ~tool_name ~tool_use_id ~detail))
+           (hook_execution_error ~hook_name ~stage ~tool_name ~invocation ~detail))
     | decision ->
       let stage = Hooks.stage_of_event event in
       Some
@@ -251,22 +260,21 @@ let invoke_post_hook
               ~hook_name
               ~stage
               ~tool_name
-              ~tool_use_id
+              ~invocation
               ~detail:
                 (Printf.sprintf
                    "illegal decision %s escaped hook validation"
                    (Hooks.decision_kind_to_string (Hooks.classify_decision decision)))))
   with
   | Hook_observer_raised (exception_, backtrace) ->
-    Llm_provider.Reserved_exn.reraise_if_reserved exception_;
-    Some (Observer_failure { exception_; backtrace })
+    Some (observer_failure ~invocation exception_ backtrace)
 ;;
 
 let resolve_dispatch dispatch =
   match dispatch.deferred_failure with
   | None -> Ok dispatch.result
   | Some (Hook_failure error) -> Error error
-  | Some (Observer_failure { exception_; backtrace }) ->
+  | Some (Observer_failure { exception_; backtrace; _ }) ->
     reraise_hook_observer exception_ backtrace
 ;;
 
@@ -279,15 +287,14 @@ let find_and_execute_tool_with_index
       ~event_bus
       ~tracer
       ~agent_name
-      ~turn_count
       ?correlation_id
       ?run_id
       ?on_hook_invoked
-      ~schedule
+      ~invocation
       name
       input
-      id
   =
+  let id = Tool.Invocation.tool_use_id invocation in
   let requested_name = name in
   let name, input, tool_opt = resolve_tool_call tool_index name input in
   let first_deferred_failure = ref None in
@@ -295,17 +302,24 @@ let find_and_execute_tool_with_index
     match !first_deferred_failure with
     | None -> first_deferred_failure := Some failure
     | Some primary ->
+      let retained, suppressed =
+        match primary, failure with
+        | Hook_failure _, Observer_failure _ ->
+          first_deferred_failure := Some failure;
+          failure, primary
+        | _ -> primary, failure
+      in
       Log.error
         _log
-        "additional tool dispatch observer failure"
+        "additional tool dispatch failure"
         [ Log.S ("tool", name)
         ; Log.S ("tool_use_id", id)
-        ; Log.S ("primary", failure_summary primary)
-        ; Log.S ("secondary", failure_summary failure)
+        ; Log.S ("retained", failure_summary retained)
+        ; Log.S ("suppressed", failure_summary suppressed)
         ]
   in
   let record_deferred_exception exception_ backtrace =
-    record_deferred_failure (observer_failure exception_ backtrace)
+    record_deferred_failure (observer_failure ~invocation exception_ backtrace)
   in
   (* ToolCalled event — capture the published envelope's run_id so the
      matching ToolCompleted records it as caused_by, preserving the
@@ -320,8 +334,7 @@ let find_and_execute_tool_with_index
         Event_bus.mk_event
           ?correlation_id
           ?run_id
-          (ToolCalled
-             { agent_name; tool_name = name; tool_use_id = id; input; turn = turn_count })
+          (ToolCalled { invocation; agent_name; tool_name = name; input })
       in
       (try
          Event_bus.publish bus ev;
@@ -337,7 +350,7 @@ let find_and_execute_tool_with_index
     match tool_opt with
     | Some tool ->
       let validation_error_result ~input message =
-        { tool_use_id = id
+        { invocation
         ; tool_name = name
         ; input
         ; content = message
@@ -351,13 +364,12 @@ let find_and_execute_tool_with_index
           ?on_hook_invoked
           ~tracer
           ~agent_name
-          ~turn_count
+          ~invocation
           ~hook_name:"post_tool_use_failure"
           ~tool_name:name
-          ~tool_use_id:id
           hooks.post_tool_use_failure
           (Hooks.PostToolUseFailure
-             { tool_use_id = id; tool_name = name; input; error = message; schedule })
+             { invocation; tool_name = name; input; error = message })
       in
       (* Tool inputs cross this boundary unchanged. The schema either accepts
            the exact JSON value or produces a typed validation failure for the
@@ -373,15 +385,10 @@ let find_and_execute_tool_with_index
       in
       (match validated_input with
        | Error (message, deferred_failure) ->
-         { result = validation_error_result ~input message; deferred_failure }
+         Option.iter record_deferred_failure deferred_failure;
+         { result = validation_error_result ~input message; deferred_failure = None }
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
-         let invocation =
-           Tool.Invocation.create
-             ~tool_use_id:id
-             ~turn:turn_count
-             ~planned_index:schedule.planned_index
-         in
          let result =
            try Tool.execute ~context ~invocation tool exact_input with
            | exn ->
@@ -399,68 +406,49 @@ let find_and_execute_tool_with_index
            | Ok { content; _meta = _ } -> String.length content
            | Error { message; _ } -> String.length message
          in
-         let deferred_failure =
-           invoke_post_hook
-             ?on_hook_invoked
-             ~tracer
-             ~agent_name
-             ~turn_count
-             ~hook_name:"post_tool_use"
-             ~tool_name:name
-             ~tool_use_id:id
-             hooks.post_tool_use
-             (Hooks.PostToolUse
-                { tool_use_id = id
-                ; tool_name = name
-                ; input = exact_input
-                ; output = result
-                ; result_bytes
-                ; duration_ms
-                ; schedule
-                })
-         in
-         let deferred_failure =
-           match deferred_failure, result with
-           | (Some _ as failure), _ -> failure
-           | None, Ok _ -> None
-           | None, Error { message; _ } ->
-             invoke_post_hook
-               ?on_hook_invoked
-               ~tracer
-               ~agent_name
-               ~turn_count
-               ~hook_name:"post_tool_use_failure"
-               ~tool_name:name
-               ~tool_use_id:id
-               hooks.post_tool_use_failure
-               (Hooks.PostToolUseFailure
-                  { tool_use_id = id
-                  ; tool_name = name
-                  ; input = exact_input
-                  ; error = message
-                  ; schedule
-                  })
-         in
-         let deferred_failure =
-           match deferred_failure, result with
-           | (Some _ as failure), _ -> failure
-           | None, Ok _ -> None
-           | None, Error { message; _ } ->
-             (* OnToolError: minimal tool-name/error event for consumers that
-            don't need the PostToolUseFailure context (tool_use_id,
-            schedule). Previously the hook type existed but had no emit
-            site — registering [on_tool_error] was a silent no-op (#1029). *)
-             invoke_post_hook
-               ?on_hook_invoked
-               ~tracer
-               ~agent_name
-               ~turn_count
-               ~hook_name:"on_tool_error"
-               ~tool_name:name
-               ~tool_use_id:id
-               hooks.on_tool_error
-               (Hooks.OnToolError { tool_name = name; error = message })
-         in
+         invoke_post_hook
+           ?on_hook_invoked
+           ~tracer
+           ~agent_name
+           ~invocation
+           ~hook_name:"post_tool_use"
+           ~tool_name:name
+           hooks.post_tool_use
+           (Hooks.PostToolUse
+              { invocation
+              ; tool_name = name
+              ; input = exact_input
+              ; output = result
+              ; result_bytes
+              ; duration_ms
+              })
+         |> Option.iter record_deferred_failure;
+         (match result with
+          | Ok _ -> ()
+          | Error { message; _ } ->
+            invoke_post_hook
+              ?on_hook_invoked
+              ~tracer
+              ~agent_name
+              ~invocation
+              ~hook_name:"post_tool_use_failure"
+              ~tool_name:name
+              hooks.post_tool_use_failure
+              (Hooks.PostToolUseFailure
+                 { invocation; tool_name = name; input = exact_input; error = message })
+            |> Option.iter record_deferred_failure;
+            (* [OnToolError] is the compact error projection. The exact
+               invocation remains shared with the richer failure hook. *)
+            invoke_post_hook
+              ?on_hook_invoked
+              ~tracer
+              ~agent_name
+              ~invocation
+              ~hook_name:"on_tool_error"
+              ~tool_name:name
+              hooks.on_tool_error
+              (Hooks.OnToolError { invocation; tool_name = name; error = message })
+            |> Option.iter record_deferred_failure);
          let content, outcome =
            match result with
            | Ok { content; _meta = _ } -> content, Tool_succeeded
@@ -471,8 +459,8 @@ let find_and_execute_tool_with_index
              message, Tool_failed { failure_kind; error_class }
          in
          { result =
-             { tool_use_id = id; tool_name = name; input = exact_input; content; outcome }
-         ; deferred_failure
+             { invocation; tool_name = name; input = exact_input; content; outcome }
+         ; deferred_failure = None
          })
     | None ->
       (* Tool dispatch failure (the LLM asked for a tool that isn't
@@ -496,25 +484,27 @@ let find_and_execute_tool_with_index
           ?on_hook_invoked
           ~tracer
           ~agent_name
-          ~turn_count
+          ~invocation
           ~hook_name:"on_error"
           ~tool_name:requested_name
-          ~tool_use_id:id
           hooks.on_error
           (Hooks.OnError
-             { detail = message; context = "agent_tools.find_and_execute_tool" })
+             { invocation = Some invocation
+             ; detail = message
+             ; context = "agent_tools.find_and_execute_tool"
+             })
       in
+      Option.iter record_deferred_failure deferred_failure;
       { result =
-          { tool_use_id = id
+          { invocation
           ; tool_name = requested_name
           ; input
           ; content = message
           ; outcome = Tool_failed { failure_kind; error_class = Some Types.Deterministic }
           }
-      ; deferred_failure
+      ; deferred_failure = None
       }
   in
-  Option.iter record_deferred_failure dispatch.deferred_failure;
   (* ToolCompleted event *)
   (match event_bus with
    | Some bus ->
@@ -529,13 +519,7 @@ let find_and_execute_tool_with_index
              ?correlation_id
              ?run_id
              ?caused_by:tool_called_run_id
-             (ToolCompleted
-                { agent_name
-                ; tool_name = name
-                ; tool_use_id = id
-                ; output
-                ; turn = turn_count
-                }))
+             (ToolCompleted { invocation; agent_name; tool_name = name; output }))
       with
       | exception_ ->
         let backtrace = Printexc.get_raw_backtrace () in
@@ -551,14 +535,12 @@ let find_and_execute_tool
       ~event_bus
       ~tracer
       ~agent_name
-      ~turn_count
       ?correlation_id
       ?run_id
       ?on_hook_invoked
-      ~schedule
+      ~invocation
       name
       input
-      id
   =
   let tool_index = build_index tools in
   try
@@ -569,14 +551,12 @@ let find_and_execute_tool
       ~event_bus
       ~tracer
       ~agent_name
-      ~turn_count
       ?correlation_id
       ?run_id
       ?on_hook_invoked
-      ~schedule
+      ~invocation
       name
       input
-      id
     |> resolve_dispatch
   with
   | Hook_observer_raised (exn, backtrace) -> reraise_hook_observer exn backtrace
@@ -612,27 +592,37 @@ let execute_scheduled_tool
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
-      ~schedule
+      ~(schedule : Tool.schedule)
       (tool_use : scheduled_tool_use)
   =
   let { index; id; name; input; _ } = tool_use in
+  let invocation = Tool.Invocation.create ~tool_use_id:id ~turn:turn_count ~schedule in
+  let id = Tool.Invocation.tool_use_id invocation in
+  let turn_count = Tool.Invocation.turn invocation in
   let completed_dispatch = ref None in
   let first_failure = ref None in
   let record_failure failure =
     match !first_failure with
     | None -> first_failure := Some failure
     | Some primary ->
+      let retained, suppressed =
+        match primary, failure with
+        | Hook_failure _, Observer_failure _ ->
+          first_failure := Some failure;
+          failure, primary
+        | _ -> primary, failure
+      in
       Log.error
         _log
-        "additional tool execution observer failure"
+        "additional tool execution failure"
         [ Log.S ("tool", name)
         ; Log.S ("tool_use_id", id)
-        ; Log.S ("primary", failure_summary primary)
-        ; Log.S ("secondary", failure_summary failure)
+        ; Log.S ("retained", failure_summary retained)
+        ; Log.S ("suppressed", failure_summary suppressed)
         ]
   in
   let record_caught_exception exception_ backtrace =
-    record_failure (observer_failure exception_ backtrace)
+    record_failure (observer_failure ~invocation exception_ backtrace)
   in
   let observe_before_completion callback =
     try callback () with
@@ -668,12 +658,10 @@ let execute_scheduled_tool
         ~hook_name:"pre_tool_use"
         hooks.pre_tool_use
         (Hooks.PreToolUse
-           { tool_use_id = id
+           { invocation
            ; tool_name = name
            ; input
            ; accumulated_cost_usd = usage.Types.estimated_cost_usd
-           ; turn = turn_count
-           ; schedule
            })
     in
     match decision with
@@ -682,7 +670,8 @@ let execute_scheduled_tool
          not a tool execution. No Tool_called/Tool_completed lifecycle evidence
          is emitted for a call that never crossed the caller's gate. *)
       { index
-      ; completed_result = Some (blocked_tool_result ~id ~name ~input ~content:reason)
+      ; completed_result =
+          Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
       ; failure = None
       }
     | Hooks.HookFailed { stage; detail } ->
@@ -695,7 +684,7 @@ let execute_scheduled_tool
                   ~hook_name:"pre_tool_use"
                   ~stage
                   ~tool_name:name
-                  ~tool_use_id:id
+                  ~invocation
                   ~detail))
       }
     | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
@@ -708,7 +697,7 @@ let execute_scheduled_tool
                   ~hook_name:"pre_tool_use"
                   ~stage:Hooks.Pre_tool_use
                   ~tool_name:name
-                  ~tool_use_id:id
+                  ~invocation
                   ~detail:
                     (Printf.sprintf
                        "illegal decision %s escaped hook validation"
@@ -734,7 +723,7 @@ let execute_scheduled_tool
                     append_journal
                       j
                       (Tool_called
-                         { turn = turn_count
+                         { turn = Tool.Invocation.turn invocation
                          ; tool_name = name
                          ; idempotency_key = idem_key
                          ; input_hash = Digest.string (Yojson.Safe.to_string input)
@@ -743,8 +732,7 @@ let execute_scheduled_tool
                   | None -> ());
                 observe_before_completion (fun () ->
                   match on_tool_execution_started with
-                  | Some callback ->
-                    callback ~tool_use_id:id ~tool_name:name ~input ~schedule
+                  | Some callback -> callback ~invocation ~tool_name:name ~input
                   | None -> ());
                 let t0_tool = Unix.gettimeofday () in
                 let dispatch =
@@ -755,14 +743,12 @@ let execute_scheduled_tool
                     ~event_bus
                     ~tracer
                     ~agent_name
-                    ~turn_count
                     ?correlation_id
                     ?run_id
                     ?on_hook_invoked
-                    ~schedule
+                    ~invocation
                     name
                     input
-                    id
                 in
                 completed_dispatch := Some dispatch;
                 Option.iter record_failure dispatch.deferred_failure;
@@ -773,7 +759,7 @@ let execute_scheduled_tool
                     append_journal
                       j
                       (Tool_completed
-                         { turn = turn_count
+                         { turn = Tool.Invocation.turn invocation
                          ; tool_name = name
                          ; idempotency_key = idem_key
                          ; output_json = `String dispatch.result.content
@@ -787,7 +773,7 @@ let execute_scheduled_tool
                   match on_tool_execution_finished with
                   | Some callback ->
                     callback
-                      ~tool_use_id:id
+                      ~invocation
                       ~tool_name:name
                       ~content:dispatch.result.content
                       ~is_error:

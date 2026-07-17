@@ -393,6 +393,50 @@ let test_agent_run_stream_append_only_raw_trace () =
       (List.map
          (fun (record : Raw_trace.record) -> record.tool_planned_index)
          started_records);
+    let finished_records =
+      List.filter
+        (fun (record : Raw_trace.record) ->
+           record.record_type = Raw_trace.Tool_execution_finished)
+        run1_records
+    in
+    let occurrence_key (record : Raw_trace.record) =
+      match record.tool_use_id, record.tool_turn, record.tool_planned_index with
+      | Some id, Some turn, Some planned_index ->
+        Some (Printf.sprintf "%s:%d:%d" id turn planned_index)
+      | _ -> None
+    in
+    let started_occurrences = List.filter_map occurrence_key started_records in
+    let finished_occurrences = List.filter_map occurrence_key finished_records in
+    Alcotest.(check (list string))
+      "finished occurrences match starts"
+      started_occurrences
+      finished_occurrences;
+    Alcotest.(check int)
+      "every start has exact occurrence fields"
+      (List.length started_records)
+      (List.length started_occurrences);
+    let hook_occurrences =
+      run1_records
+      |> List.filter (fun (record : Raw_trace.record) ->
+        record.record_type = Raw_trace.Hook_invoked)
+      |> List.filter_map occurrence_key
+      |> List.sort String.compare
+    in
+    let expected_hook_occurrences =
+      started_occurrences
+      |> List.concat_map (fun occurrence -> [ occurrence; occurrence ])
+      |> List.sort String.compare
+    in
+    Alcotest.(check (list string))
+      "tool hook records retain exact occurrence"
+      expected_hook_occurrences
+      hook_occurrences;
+    Alcotest.(check (list (option int)))
+      "finished planned indices"
+      [ Some 0; Some 0; Some 0; Some 0 ]
+      (List.map
+         (fun (record : Raw_trace.record) -> record.tool_planned_index)
+         finished_records);
     Alcotest.(check (list (option int)))
       "batch indices"
       [ Some 0; Some 0; Some 0; Some 0 ]
@@ -558,6 +602,7 @@ let test_record_to_json_roundtrip () =
     ; tool_use_id = None
     ; tool_name = None
     ; tool_input = None
+    ; tool_turn = None
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None
@@ -720,6 +765,7 @@ let test_record_to_json_full () =
     ; tool_use_id = Some "tu-1"
     ; tool_name = Some "file_write"
     ; tool_input = Some (`Assoc [ "path", `String "/tmp/x" ])
+    ; tool_turn = Some 2
     ; tool_planned_index = Some 0
     ; tool_batch_index = Some 1
     ; tool_batch_size = Some 1
@@ -739,6 +785,7 @@ let test_record_to_json_full () =
   | Ok decoded ->
     Alcotest.(check (option string)) "tool_name" (Some "file_write") decoded.tool_name;
     Alcotest.(check (option int)) "block_index" (Some 2) decoded.block_index;
+    Alcotest.(check (option int)) "tool_turn" (Some 2) decoded.tool_turn;
     Alcotest.(check (option int)) "planned_index" (Some 0) decoded.tool_planned_index;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error;
     Alcotest.(check (option string)) "hook_name" (Some "pre_tool") decoded.hook_name

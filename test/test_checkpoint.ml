@@ -1,5 +1,12 @@
 open Agent_sdk
 
+let invocation tool_use_id =
+  let schedule : Tool.schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
+;;
+
 let check_context_backend label expected ctx =
   Alcotest.(check bool) label true (Context.concurrency_backend ctx = expected)
 ;;
@@ -406,7 +413,7 @@ let () =
             `Quick
             (fun () ->
                let execution_result : Agent_tools.tool_execution_result =
-                 { tool_use_id = "failed-1"
+                 { invocation = invocation "failed-1"
                  ; tool_name = "Execute"
                  ; input = `Assoc [ "cwd", `String "/missing" ]
                  ; content = "working directory is unavailable"

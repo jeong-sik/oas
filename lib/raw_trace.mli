@@ -93,6 +93,7 @@ type record =
   ; tool_use_id : string option
   ; tool_name : string option
   ; tool_input : Yojson.Safe.t option
+  ; tool_turn : int option
   ; tool_planned_index : int option
   ; tool_batch_index : int option
   ; tool_batch_size : int option
@@ -164,18 +165,14 @@ val record_assistant_block
 
 val record_tool_execution_started
   :  active_run
-  -> tool_use_id:string
+  -> invocation:Tool.Invocation.t
   -> tool_name:string
   -> tool_input:Yojson.Safe.t
-  -> planned_index:int
-  -> batch_index:int
-  -> batch_size:int
-  -> execution_mode:Tool.execution_mode
   -> (unit, Error.sdk_error) result
 
 val record_tool_execution_finished
   :  active_run
-  -> tool_use_id:string
+  -> invocation:Tool.Invocation.t
   -> tool_name:string
   -> tool_result:string
   -> tool_error:bool
@@ -184,6 +181,7 @@ val record_tool_execution_finished
 
 val record_hook_invoked
   :  active_run
+  -> ?invocation:Tool.Invocation.t
   -> hook_name:string
   -> hook_decision:string
   -> ?hook_detail:string

@@ -2,6 +2,13 @@
 
 open Agent_sdk
 
+let invocation tool_use_id =
+  let schedule : Tool.schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  in
+  Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
+;;
+
 let context_messages = function
   | Ok messages -> messages
   | Error error -> Alcotest.fail error.Agent_turn.detail
@@ -382,13 +389,13 @@ let test_accumulate_usage_records_incomplete_cache_pricing () =
 
 let test_make_tool_results () =
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "tool-1"
       ; input = `Null
       ; content = "success output"
       ; outcome = Tool_succeeded
       }
-    ; { tool_use_id = "t2"
+    ; { invocation = invocation "t2"
       ; tool_name = "tool-2"
       ; input = `Null
       ; content = "error msg"
@@ -497,7 +504,7 @@ let test_apply_context_injection_no_injector () =
     ]
   in
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "search"
       ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
@@ -526,7 +533,7 @@ let test_apply_context_injection_with_context_update () =
   in
   let tool_uses = [ make_tool_use "search" {|{"q":"test"}|} ] in
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "search"
       ; input = `Assoc [ "q", `String "test" ]
       ; content = "found it"
@@ -563,7 +570,7 @@ let test_apply_context_injection_with_extra_messages () =
   in
   let tool_uses = [ make_tool_use "search" {|{"q":"test"}|} ] in
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "search"
       ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
@@ -604,7 +611,7 @@ let test_apply_context_injection_exception_is_error () =
   in
   let tool_uses = [ make_tool_use "search" {|{"q":"test"}|} ] in
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "search"
       ; input = `Assoc [ "q", `String "test" ]
       ; content = "result"
@@ -639,7 +646,7 @@ let test_apply_context_injection_preserves_non_retryable_error () =
   let tool_uses = [ make_tool_use "search" {|{"q":"test"}|} ] in
   let received_output = ref None in
   let results =
-    [ { Agent_tools.tool_use_id = "t1"
+    [ { Agent_tools.invocation = invocation "t1"
       ; tool_name = "search"
       ; input = `Assoc [ "q", `String "test" ]
       ; content = "fatal"

@@ -47,6 +47,7 @@ let make_record
   ; tool_use_id
   ; tool_name
   ; tool_input
+  ; tool_turn = None
   ; tool_planned_index = None
   ; tool_batch_index = None
   ; tool_batch_size = None

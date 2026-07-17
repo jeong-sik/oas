@@ -7,7 +7,7 @@ relate, and the contracts downstream consumers can rely on.
 **Scope**: `agent_sdk` library (`lib/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
-**Last updated**: v0.211.3.
+**Last updated**: v0.216.0.
 
 ---
 
@@ -70,8 +70,8 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `TurnStarted` | `pipeline/pipeline_stage_prepare.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_stage_prepare.ml` | Exact caller-supplied tool surface serialized for this turn |
 | `TurnCompleted` | `pipeline/pipeline.ml` | End of a single agent turn |
-| `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM; carries `tool_use_id` and `turn` |
-| `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available; carries matching `tool_use_id` and `turn` |
+| `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM; carries the exact run-scoped `Tool.Invocation.t` |
+| `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available; carries the same exact typed invocation |
 | `HandoffRequested` | `agent/agent.ml` | Agent delegates control to another agent |
 | `HandoffCompleted` | `agent/agent.ml` | Handoff target finished |
 | `ElicitationCompleted` | `pipeline/pipeline_stage_prepare.ml` | User elicitation round completed |
@@ -191,6 +191,11 @@ no second public execution journal and external consumers must not dual-write
 an alternative occurrence history. Any internal execution-topology work is
 outside this public catalog until a production single-writer hard cut is
 implemented.
+
+This journal is the SSOT for committed effects and replay idempotency, not for
+exact model-tool occurrence correlation. Its tool key intentionally remains a
+name-and-input projection. Exact occurrence audit belongs to the canonical
+`Tool.Invocation.t` carried by typed events and projected into raw trace.
 
 ### 4.1 Journal variants
 

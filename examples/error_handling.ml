@@ -43,7 +43,7 @@ let error_hooks : Hooks.hooks =
     on_tool_error =
       Some
         (function
-          | OnToolError { tool_name; error } ->
+          | OnToolError { tool_name; error; invocation = _ } ->
             Printf.eprintf "[error-hook] Tool %s failed: %s\n%!" tool_name error;
             Continue
           | _ -> Continue)

@@ -508,6 +508,7 @@ let test_sessions_store_raw_trace_files_and_hooks () =
     ; tool_use_id = None
     ; tool_name = None
     ; tool_input = None
+    ; tool_turn = None
     ; tool_planned_index = None
     ; tool_batch_index = None
     ; tool_batch_size = None

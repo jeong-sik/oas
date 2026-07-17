@@ -11,10 +11,15 @@
 (** {1 Hook invocation} *)
 
 (** Invoke a hook, recording the decision via optional [on_hook_invoked] callback
-    and [tracer] span.  Returns the hook's decision. *)
+    and [tracer] span. The callback receives the exact invocation for tool
+    events and [None] for turn-level events. Returns the hook's decision. *)
 val invoke_hook
   :  ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
   -> tracer:Tracing.t
   -> agent_name:string
   -> turn_count:int
@@ -45,7 +50,7 @@ type tool_failure_kind = Types.tool_failure_kind =
   | Unattributed_tool_error
 
 type tool_execution_result =
-  { tool_use_id : string
+  { invocation : Tool.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
     (** Exact input received from the typed [ToolUse] block. Validation never
@@ -59,7 +64,7 @@ type execution_error =
       { hook_name : string
       ; stage : Hooks.hook_stage
       ; tool_name : string
-      ; tool_use_id : string
+      ; invocation : Tool.Invocation.t
       ; detail : string
       }
 
@@ -68,11 +73,14 @@ type execution_error =
     Ordinary observer failures are values at this boundary so every sibling
     already running in the same concurrent batch can finish.  The pipeline
     re-raises [Observer_failure] with the captured backtrace only after it has
-    committed [completed_results]. *)
+    committed [completed_results]. If a hook failure happened first, a later
+    observer failure remains the terminal cause so infrastructure faults are
+    never hidden; the hook failure is logged as suppressed. *)
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Observer_failure of
-      { exception_ : exn
+      { invocation : Tool.Invocation.t (** Exact occurrence whose observer failed. *)
+      ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
 
@@ -98,15 +106,17 @@ val find_and_execute_tool
   -> event_bus:Event_bus.t option
   -> tracer:Tracing.t
   -> agent_name:string
-  -> turn_count:int
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
-  -> schedule:Hooks.tool_schedule
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
+  -> invocation:Tool.Invocation.t
   -> string
   -> Yojson.Safe.t
-  -> string
   -> (tool_execution_result, execution_error) result
 
 (** {1 Tool scheduling and execution} *)
@@ -158,14 +168,18 @@ val execute_tools
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_tool_execution_started:
-       (tool_use_id:string
-        -> tool_name:string
-        -> input:Yojson.Safe.t
-        -> schedule:Hooks.tool_schedule
-        -> unit)
+       (invocation:Tool.Invocation.t -> tool_name:string -> input:Yojson.Safe.t -> unit)
   -> ?on_tool_execution_finished:
-       (tool_use_id:string -> tool_name:string -> content:string -> is_error:bool -> unit)
+       (invocation:Tool.Invocation.t
+        -> tool_name:string
+        -> content:string
+        -> is_error:bool
+        -> unit)
   -> ?on_hook_invoked:
-       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+       (invocation:Tool.Invocation.t option
+        -> hook_name:string
+        -> decision:Hooks.hook_decision
+        -> detail:string option
+        -> unit)
   -> Types.content_block list
   -> (tool_execution_result list, execution_failure) result

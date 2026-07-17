@@ -6,6 +6,10 @@ open Types
 
 let descriptor_with execution_mode = { Tool.execution_mode }
 
+let result_id (result : Agent_tools.tool_execution_result) =
+  Tool.Invocation.tool_use_id result.invocation
+;;
+
 let contains_substring ~needle haystack =
   let needle_len = String.length needle in
   let haystack_len = String.length haystack in
@@ -118,8 +122,8 @@ let execute_with_tools_in_env
       (List.length completed_results)
       failure.detail
   | Error
-      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace }; _ } ->
-    Printexc.raise_with_backtrace exception_ backtrace
+      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace; _ }; _ }
+    -> Printexc.raise_with_backtrace exception_ backtrace
 ;;
 
 (** Helper: create a minimal agent inside Eio with given hooks.
@@ -163,12 +167,12 @@ let test_tool_lifecycle_callback_exceptions_propagate () =
          ~on_tool_execution_finished
          [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "x", `Int 1 ] } ])
   in
-  let no_started_failure ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ = () in
-  let no_finished_failure ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ = () in
-  let started_failure ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
+  let no_started_failure ~invocation:_ ~tool_name:_ ~input:_ = () in
+  let no_finished_failure ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ = () in
+  let started_failure ~invocation:_ ~tool_name:_ ~input:_ =
     failwith "started callback boom"
   in
-  let finished_failure ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+  let finished_failure ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ =
     failwith "finished callback boom"
   in
   check_raises
@@ -186,7 +190,9 @@ let test_tool_lifecycle_callback_exceptions_propagate () =
 ;;
 
 let test_pre_hook_observer_exception_propagates () =
-  let observer ~hook_name:_ ~decision:_ ~detail:_ = failwith "hook observer boom" in
+  let observer ~invocation:_ ~hook_name:_ ~decision:_ ~detail:_ =
+    failwith "hook observer boom"
+  in
   check_raises
     "hook observer exception propagates"
     (Failure "hook observer boom")
@@ -200,9 +206,7 @@ let test_pre_hook_observer_exception_propagates () =
 ;;
 
 let test_reserved_callback_exception_is_not_tagged () =
-  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
-    raise Sys.Break
-  in
+  let on_tool_execution_started ~invocation:_ ~tool_name:_ ~input:_ = raise Sys.Break in
   match
     run_execute_with_tools
       ~tools:[ make_echo_tool "safe" ]
@@ -223,13 +227,11 @@ let test_post_hook_observer_exception_propagates_after_completion () =
       incr executed;
       Ok { Types.content = "done"; _meta = None })
   in
-  let observer ~hook_name ~decision:_ ~detail:_ =
+  let observer ~invocation:_ ~hook_name ~decision:_ ~detail:_ =
     if String.equal hook_name "post_tool_use" then failwith "post observer boom"
   in
-  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
-    incr started
-  in
-  let on_tool_execution_finished ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+  let on_tool_execution_started ~invocation:_ ~tool_name:_ ~input:_ = incr started in
+  let on_tool_execution_finished ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ =
     incr finished
   in
   check_raises
@@ -268,11 +270,10 @@ let test_post_hook_failure_is_typed_agent_error () =
       env
       ~tools:[ tool ]
       ~hooks
-      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
-        incr started)
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ -> incr started)
       ~on_tool_execution_finished:
         (fun
-          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
       [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
   in
   (match result with
@@ -284,10 +285,11 @@ let test_post_hook_failure_is_typed_agent_error () =
                 { hook_name = "post_tool_use"
                 ; stage = Hooks.Post_tool_use
                 ; tool_name = "safe"
-                ; tool_use_id = "t1"
+                ; invocation
                 ; detail
                 })
        } ->
+     check string "hook invocation id" "t1" (Tool.Invocation.tool_use_id invocation);
      check
        bool
        "hook exception detail retained"
@@ -299,6 +301,67 @@ let test_post_hook_failure_is_typed_agent_error () =
   check int "tool effect happened once" 1 !executed;
   check int "execution start observed" 1 !started;
   check int "execution completion observed" 1 !finished
+;;
+
+let test_error_hooks_run_after_prior_hook_failure () =
+  Eio_main.run
+  @@ fun env ->
+  let observed = ref [] in
+  let record name =
+    observed := name :: !observed;
+    Hooks.Continue
+  in
+  let tool =
+    Tool.create ~name:"fails" ~description:"" ~parameters:[] (fun _ ->
+      Error
+        { Types.message = "tool failed"
+        ; recoverable = false
+        ; error_class = Some Types.Deterministic
+        })
+  in
+  let hooks =
+    { Hooks.empty with
+      post_tool_use =
+        Some
+          (fun _ ->
+            observed := "post_tool_use" :: !observed;
+            failwith "first hook failed")
+    ; post_tool_use_failure = Some (fun _ -> record "post_tool_use_failure")
+    ; on_tool_error = Some (fun _ -> record "on_tool_error")
+    }
+  in
+  let result =
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
+      ~hooks
+      ~on_hook_invoked:(fun ~invocation:_ ~hook_name ~decision:_ ~detail:_ ->
+        if String.equal hook_name "on_tool_error" then failwith "observer failed")
+      [ ToolUse { id = "failure-1"; name = "fails"; input = `Assoc [] } ]
+  in
+  (match result with
+   | Error
+       { Agent_tools.completed_results = [ completed ]
+       ; cause = Agent_tools.Observer_failure { invocation; exception_; _ }
+       } ->
+     check string "tool failure remains visible" "tool failed" completed.content;
+     check
+       string
+       "observer failure occurrence"
+       "failure-1"
+       (Tool.Invocation.tool_use_id invocation);
+     check
+       string
+       "observer failure propagates"
+       "Failure(\"observer failed\")"
+       (Printexc.to_string exception_)
+   | Ok _ -> fail "observer failure must remain terminal"
+   | Error _ -> fail "later observer failure was hidden by the hook failure");
+  check
+    (list string)
+    "later error hooks still run"
+    [ "post_tool_use"; "post_tool_use_failure"; "on_tool_error" ]
+    (List.rev !observed)
 ;;
 
 let test_concurrent_journal_failure_retains_sibling_results () =
@@ -349,8 +412,8 @@ let test_concurrent_journal_failure_retains_sibling_results () =
         ]
       ~hooks:Hooks.empty
       ~journal
-      ~on_tool_execution_finished:(fun ~tool_use_id ~tool_name:_ ~content:_ ~is_error:_ ->
-        finished_ids := tool_use_id :: !finished_ids)
+      ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
+        finished_ids := Tool.Invocation.tool_use_id invocation :: !finished_ids)
       [ ToolUse { id = "t1"; name = "first"; input = `Assoc [] }
       ; ToolUse { id = "t2"; name = "sibling"; input = `Assoc [] }
       ; ToolUse { id = "t3"; name = "later_serial"; input = `Assoc [] }
@@ -359,12 +422,17 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   (match result with
    | Error
        { Agent_tools.completed_results = [ first; sibling ]
-       ; cause = Agent_tools.Observer_failure { exception_; _ }
+       ; cause = Agent_tools.Observer_failure { invocation; exception_; _ }
        } ->
-     check string "first result order" "t1" first.tool_use_id;
-     check string "sibling result order" "t2" sibling.tool_use_id;
+     check string "first result order" "t1" (result_id first);
+     check string "sibling result order" "t2" (result_id sibling);
      check string "first result retained" "first" first.content;
      check string "sibling result retained" "sibling" sibling.content;
+     check
+       string
+       "observer failure exact occurrence"
+       "t1"
+       (Tool.Invocation.tool_use_id invocation);
      check
        string
        "original observer exception retained"
@@ -405,11 +473,10 @@ let test_block_emits_no_execution_lifecycle () =
     run_execute_with_tools
       ~tools:[ tool ]
       ~hooks
-      ~on_tool_execution_started:(fun ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ ->
-        incr started)
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ -> incr started)
       ~on_tool_execution_finished:
         (fun
-          ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished)
       [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [] } ]
   in
   (match results with
@@ -442,7 +509,7 @@ let test_block_is_deterministic_failure () =
   in
   match results with
   | [ result ] ->
-    check string "id" "t1" result.tool_use_id;
+    check string "id" "t1" (result_id result);
     check string "reason is verbatim" "caller denied" result.content;
     check bool "is error" true (tool_result_outcome_is_error result.outcome);
     (match result.outcome with
@@ -506,12 +573,12 @@ let test_non_tool_use_blocks_filtered () =
   (* Only the 2 ToolUse blocks should produce results *)
   check int "result count" 2 (List.length results);
   let sorted =
-    List.sort (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id) results
+    List.sort (fun a b -> String.compare (result_id a) (result_id b)) results
   in
   match sorted with
   | [ first; second ] ->
-    check string "first id" "t1" first.tool_use_id;
-    check string "second id" "t2" second.tool_use_id
+    check string "first id" "t1" (result_id first);
+    check string "second id" "t2" (result_id second)
   | _ -> fail "expected exactly two results"
 ;;
 
@@ -752,6 +819,137 @@ let test_dispatch_passes_exact_tool_invocation () =
   | _ -> fail "expected two invocation-aware results"
 ;;
 
+let invocation_key invocation =
+  let schedule = Tool.Invocation.schedule invocation in
+  let execution_mode =
+    match schedule.execution_mode with
+    | Tool.Concurrent -> "concurrent"
+    | Tool.Serial -> "serial"
+  in
+  Printf.sprintf
+    "%S:%d:%d:%d:%d:%s"
+    (Tool.Invocation.tool_use_id invocation)
+    (Tool.Invocation.turn invocation)
+    schedule.planned_index
+    schedule.batch_index
+    schedule.batch_size
+    execution_mode
+;;
+
+let test_lifecycle_surfaces_share_exact_tool_invocation () =
+  Eio_main.run
+  @@ fun env ->
+  let pre_invocations = ref [] in
+  let post_invocations = ref [] in
+  let failure_invocations = ref [] in
+  let handler_invocations = ref [] in
+  let started_invocations = ref [] in
+  let finished_invocations = ref [] in
+  let capture target invocation = target := invocation_key invocation :: !target in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use =
+        Some
+          (function
+            | Hooks.PreToolUse { invocation; _ } ->
+              capture pre_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PreToolUse")
+    ; post_tool_use =
+        Some
+          (function
+            | Hooks.PostToolUse { invocation; _ } ->
+              capture post_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PostToolUse")
+    ; post_tool_use_failure =
+        Some
+          (function
+            | Hooks.PostToolUseFailure { invocation; _ } ->
+              capture failure_invocations invocation;
+              Hooks.Continue
+            | _ -> fail "expected PostToolUseFailure")
+    }
+  in
+  let event_bus = Event_bus.create () in
+  let config =
+    Event_bus.subscription_config ~capacity:6 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config event_bus in
+  let tool name result =
+    Tool.create_with_execution_env
+      ~name
+      ~description:""
+      ~parameters:[]
+      (fun execution_env _ ->
+         Option.iter
+           (capture handler_invocations)
+           (Tool.Execution_env.invocation execution_env);
+         result)
+  in
+  let success = Ok { Types.content = "done"; _meta = None } in
+  let failure =
+    Error
+      { Types.message = "expected failure"
+      ; recoverable = false
+      ; error_class = Some Types.Deterministic
+      }
+  in
+  let results =
+    execute_with_tools_in_env
+      env
+      ~tools:[ tool "exact_occurrence" success; tool "exact_failure" failure ]
+      ~hooks
+      ~event_bus
+      ~on_tool_execution_started:(fun ~invocation ~tool_name:_ ~input:_ ->
+        capture started_invocations invocation)
+      ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
+        capture finished_invocations invocation)
+      [ ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
+      ; ToolUse { id = ""; name = "exact_occurrence"; input = `Assoc [] }
+      ; ToolUse { id = ""; name = "exact_failure"; input = `Assoc [] }
+      ]
+  in
+  check int "all blank-id calls completed" 3 (List.length results);
+  let called_invocations, completed_invocations =
+    List.fold_left
+      (fun (called, completed) (event : Event_bus.event) ->
+         match event.payload with
+         | ToolCalled { invocation; _ } -> invocation_key invocation :: called, completed
+         | ToolCompleted { invocation; _ } ->
+           called, invocation_key invocation :: completed
+         | _ -> called, completed)
+      ([], [])
+      (Event_bus.drain subscription)
+  in
+  let expected_all =
+    [ "\"\":0:0:0:1:serial"; "\"\":0:1:1:1:serial"; "\"\":0:2:2:1:serial" ]
+  in
+  let expected_failure = [ "\"\":0:2:2:1:serial" ] in
+  let result_invocations =
+    List.map
+      (fun (result : Agent_tools.tool_execution_result) ->
+         invocation_key result.invocation)
+      results
+  in
+  let check_occurrences label expected actual =
+    check (list string) label expected (List.rev actual)
+  in
+  check_occurrences "PreToolUse exact occurrences" expected_all !pre_invocations;
+  check_occurrences "PostToolUse exact occurrences" expected_all !post_invocations;
+  check_occurrences
+    "PostToolUseFailure exact occurrences"
+    expected_failure
+    !failure_invocations;
+  check_occurrences "ToolCalled exact occurrences" expected_all called_invocations;
+  check_occurrences "ToolCompleted exact occurrences" expected_all completed_invocations;
+  check_occurrences "handler exact occurrences" expected_all !handler_invocations;
+  check_occurrences "start callback exact occurrences" expected_all !started_invocations;
+  check_occurrences "finish callback exact occurrences" expected_all !finished_invocations;
+  check (list string) "result exact occurrences" expected_all result_invocations
+;;
+
 let test_tool_exception_still_publishes_tool_completed () =
   Eio_main.run
   @@ fun env ->
@@ -787,10 +985,10 @@ let test_tool_exception_still_publishes_tool_completed () =
       (fun (event : Event_bus.event) -> event.payload)
       (Event_bus.drain subscription)
   with
-  | [ ToolCalled { tool_name = "boom"; tool_use_id = called_id; _ }
+  | [ ToolCalled { tool_name = "boom"; invocation = called; _ }
     ; ToolCompleted
         { tool_name = "boom"
-        ; tool_use_id = completed_id
+        ; invocation = completed
         ; output = Error { message; recoverable = false; error_class = Some Unknown }
         ; _
         }
@@ -800,10 +998,18 @@ let test_tool_exception_still_publishes_tool_completed () =
       "completion event reports exception"
       true
       (contains_substring ~needle:"Tool 'boom' raised" message);
-    (* Both events carry the provider tool_use id, so subscribers can
-       join called/completed pairs (and hook-side records) on it. *)
-    check string "ToolCalled carries the provider id" "t1" called_id;
-    check string "ToolCompleted carries the provider id" "t1" completed_id
+    (* Both events carry the same exact occurrence, while the provider ID
+       remains available as a boundary projection. *)
+    check
+      string
+      "ToolCalled carries the provider id"
+      "t1"
+      (Tool.Invocation.tool_use_id called);
+    check
+      string
+      "ToolCompleted carries the provider id"
+      "t1"
+      (Tool.Invocation.tool_use_id completed)
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
 ;;
 
@@ -825,6 +1031,10 @@ let () =
             "dispatch passes exact tool invocation"
             `Quick
             test_dispatch_passes_exact_tool_invocation
+        ; test_case
+            "lifecycle surfaces share exact tool invocation"
+            `Quick
+            test_lifecycle_surfaces_share_exact_tool_invocation
         ] )
     ; ( "non_tool_use_filtering"
       , [ test_case
@@ -881,6 +1091,10 @@ let () =
             "post-hook failure is a typed agent error"
             `Quick
             test_post_hook_failure_is_typed_agent_error
+        ; test_case
+            "error hooks run after prior hook failure"
+            `Quick
+            test_error_hooks_run_after_prior_hook_failure
         ] )
     ; ( "lifecycle_truth"
       , [ test_case

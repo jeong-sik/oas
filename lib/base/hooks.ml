@@ -45,12 +45,7 @@ let empty_reasoning_summary =
   { thinking_blocks = []; has_uncertainty = false; tool_rationale = None }
 ;;
 
-type tool_schedule =
-  { planned_index : int
-  ; batch_index : int
-  ; batch_size : int
-  ; execution_mode : Tool.execution_mode
-  }
+type tool_schedule = Tool.schedule
 
 (** Extract structured reasoning summary from message list.
     This only preserves provider-emitted Thinking blocks; it does not infer
@@ -96,41 +91,48 @@ type hook_event =
       ; response : api_response
       }
   | PreToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
-      ; turn : int
-      ; schedule : tool_schedule
       }
   | PostToolUse of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; output : Types.tool_result
       ; result_bytes : int
       ; duration_ms : float
-      ; schedule : tool_schedule
       }
   | PostToolUseFailure of
-      { tool_use_id : string
+      { invocation : Tool.Invocation.t
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; error : string
-      ; schedule : tool_schedule
       }
   | OnStop of
       { reason : stop_reason
       ; response : api_response
       }
   | OnError of
-      { detail : string
+      { invocation : Tool.Invocation.t option
+      ; detail : string
       ; context : string
       }
   | OnToolError of
-      { tool_name : string
+      { invocation : Tool.Invocation.t
+      ; tool_name : string
       ; error : string
       }
+
+let invocation_of_event = function
+  | PreToolUse { invocation; _ }
+  | PostToolUse { invocation; _ }
+  | PostToolUseFailure { invocation; _ }
+  | OnToolError { invocation; _ } -> Some invocation
+  | OnError { invocation; _ } -> invocation
+  | BeforeTurn _ | BeforeTurnParams _ | AfterTurn _ | OnStop _ -> None
+;;
 
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
