@@ -88,10 +88,7 @@ let test_agent_type_checkpoint_stage_labels () =
        check_bool "stage JSON label" true (json = `String label);
        match Agent.checkpoint_stage_of_yojson json with
        | Ok decoded ->
-         check_bool
-           "stage roundtrip"
-           true
-           (Agent.checkpoint_stage_equal stage decoded)
+         check_bool "stage roundtrip" true (Agent.checkpoint_stage_equal stage decoded)
        | Error error -> Alcotest.fail error)
     stages;
   List.iter

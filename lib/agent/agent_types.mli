@@ -25,6 +25,7 @@ val checkpoint_stage_equal : checkpoint_stage -> checkpoint_stage -> bool
 (** Closed durable codec. Only the exact labels produced by
     {!checkpoint_stage_to_string} are accepted. *)
 val checkpoint_stage_to_yojson : checkpoint_stage -> Yojson.Safe.t
+
 val checkpoint_stage_of_yojson : Yojson.Safe.t -> (checkpoint_stage, string) result
 
 type checkpoint_snapshot =
