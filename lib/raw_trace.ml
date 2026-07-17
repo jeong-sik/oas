@@ -617,12 +617,7 @@ let record_assistant_block active ~block_index block =
   |> Result.map (fun _ -> ())
 ;;
 
-let record_tool_execution_started
-      active
-      ~invocation
-      ~tool_name
-      ~tool_input
-  =
+let record_tool_execution_started active ~invocation ~tool_name ~tool_input =
   let schedule = Tool.Invocation.schedule invocation in
   append_record
     active
@@ -683,8 +678,7 @@ let record_hook_invoked active ?invocation ~hook_name ~hook_decision ?hook_detai
         ?hook_detail
         ()
   in
-  result
-  |> Result.map (fun _ -> ())
+  result |> Result.map (fun _ -> ())
 ;;
 
 let finish_run

@@ -232,13 +232,11 @@ let validate_run run_ref =
          else (
            Hashtbl.replace outstanding key (count - 1);
            incr paired_tool_result_count)
-       | (Tool_execution_started | Tool_execution_finished), None ->
-         ordering_ok := false
+       | (Tool_execution_started | Tool_execution_finished), None -> ordering_ok := false
        | _ -> ())
     records;
   let tool_pairs_ok =
-    !ordering_ok
-    && (outstanding |> Hashtbl.to_seq_values |> Seq.for_all (Int.equal 0))
+    !ordering_ok && outstanding |> Hashtbl.to_seq_values |> Seq.for_all (Int.equal 0)
   in
   let checks =
     [ { Raw_trace.name = "seq_monotonic"; passed = seq_monotonic }

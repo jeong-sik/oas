@@ -79,8 +79,7 @@ type execution_error =
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Observer_failure of
-      { invocation : Tool.Invocation.t
-        (** Exact occurrence whose observer failed. *)
+      { invocation : Tool.Invocation.t (** Exact occurrence whose observer failed. *)
       ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }

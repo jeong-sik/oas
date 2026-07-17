@@ -122,8 +122,8 @@ let execute_with_tools_in_env
       (List.length completed_results)
       failure.detail
   | Error
-      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace; _ }; _ } ->
-    Printexc.raise_with_backtrace exception_ backtrace
+      { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace; _ }; _ }
+    -> Printexc.raise_with_backtrace exception_ backtrace
 ;;
 
 (** Helper: create a minimal agent inside Eio with given hooks.
@@ -322,9 +322,10 @@ let test_error_hooks_run_after_prior_hook_failure () =
   let hooks =
     { Hooks.empty with
       post_tool_use =
-        Some (fun _ ->
-          observed := "post_tool_use" :: !observed;
-          failwith "first hook failed")
+        Some
+          (fun _ ->
+            observed := "post_tool_use" :: !observed;
+            failwith "first hook failed")
     ; post_tool_use_failure = Some (fun _ -> record "post_tool_use_failure")
     ; on_tool_error = Some (fun _ -> record "on_tool_error")
     }
