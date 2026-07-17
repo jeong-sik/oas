@@ -15,6 +15,7 @@
   execution_event_store
   execution_journal
   execution_lane_writer
+  execution_agent_scope
   execution_tool_settlement
   agent_execution_event_writer)
  (libraries
