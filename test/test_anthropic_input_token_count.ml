@@ -210,6 +210,53 @@ let test_transport_success () =
     body
 ;;
 
+let test_prepared_request_identity_and_use () =
+  let raw_request = completion_request (config "unused") in
+  let prepared = Prepared_completion_request.prepare raw_request in
+  let separately_prepared = Prepared_completion_request.prepare raw_request in
+  check
+    bool
+    "separate preparation has a distinct identity"
+    false
+    (Prepared_completion_request.same_identity
+       (Prepared_completion_request.identity prepared)
+       (Prepared_completion_request.identity separately_prepared));
+  let (measured, prepared, exact_request), _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let request = completion_request (config base_url) in
+    let prepared = Prepared_completion_request.prepare request in
+    match Prepared_completion_request.measure ~sw ~net prepared with
+    | Error _ -> fail "expected prepared request measurement"
+    | Ok measured -> measured, prepared, request
+  in
+  let measurement_evidence = Prepared_completion_request.measurement_evidence measured in
+  check
+    bool
+    "measurement identity is the prepared identity"
+    true
+    (Prepared_completion_request.same_identity
+       (Prepared_completion_request.identity prepared)
+       measurement_evidence.request_identity);
+  check
+    int
+    "measurement remains available"
+    321
+    measurement_evidence.measurement.input_count.input_tokens;
+  let request_use =
+    Prepared_completion_request.with_request measured ~f:(fun retained ->
+      retained == exact_request)
+  in
+  check bool "continuation receives exact request value" true request_use.value;
+  check
+    bool
+    "request use retains measurement identity"
+    true
+    (Prepared_completion_request.same_identity
+       measurement_evidence.request_identity
+       request_use.measurement_evidence.request_identity)
+;;
+
 let test_transport_error () =
   let result, _captured =
     with_mock ~status:`Too_many_requests ~response:"rate limited"
@@ -285,6 +332,10 @@ let () =
     [ "request", [ test_case "shared canonical projection" `Quick test_shared_projection ]
     ; ( "transport"
       , [ test_case "native success" `Quick test_transport_success
+        ; test_case
+            "prepared identity binds measurement and use"
+            `Quick
+            test_prepared_request_identity_and_use
         ; test_case "typed HTTP error" `Quick test_transport_error
         ; test_case "non-Anthropic unsupported" `Quick test_unsupported
         ; test_case
