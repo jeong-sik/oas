@@ -76,6 +76,17 @@ type completion_request_error =
   | Output_token_resolution_failed of Types.required_output_token_error
   | Invalid_completion_request of string
 
+let supports_completion_request_measurement (config : Provider_config.t) =
+  match config.kind with
+  | Provider_config.Anthropic -> true
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope -> false
+;;
+
 let measure_completion_request
       ?connection_cache
       ?clock
@@ -85,8 +96,8 @@ let measure_completion_request
       (request : Llm_transport.completion_request)
   =
   let config = request.config in
-  match config.kind with
-  | Provider_config.Anthropic ->
+  if supports_completion_request_measurement config
+  then (
     let artifact =
       try
         Backend_anthropic.build_request_artifact
@@ -98,34 +109,29 @@ let measure_completion_request
       with
       | Invalid_argument detail -> Error (Invalid_completion_request detail)
     in
-    (match artifact with
-     | Error _ as error -> error
-     | Ok artifact ->
-       (match
-          count_anthropic
-            ?connection_cache
-            ?clock
-            ?timeout_s
-            ~sw
-            ~net
-            ~config
-            ~messages:request.messages
-            ~tools:request.tools
-            ()
-        with
-        | Error error -> Error (Input_count_failed error)
-        | Ok input_count ->
-          Ok
-            { input_count
-            ; output_token_receipt =
-                Backend_anthropic.request_output_token_receipt artifact
-            }))
-  | Provider_config.Kimi
-  | Provider_config.OpenAI_compat
-  | Provider_config.Ollama
-  | Provider_config.Gemini
-  | Provider_config.Glm
-  | Provider_config.DashScope ->
+    match artifact with
+    | Error _ as error -> error
+    | Ok artifact ->
+      (match
+         count_anthropic
+           ?connection_cache
+           ?clock
+           ?timeout_s
+           ~sw
+           ~net
+           ~config
+           ~messages:request.messages
+           ~tools:request.tools
+           ()
+       with
+       | Error error -> Error (Input_count_failed error)
+       | Ok input_count ->
+         Ok
+           { input_count
+           ; output_token_receipt =
+               Backend_anthropic.request_output_token_receipt artifact
+           }))
+  else
     Error
       (Input_count_failed
          (Input_token_count.Unsupported

@@ -103,20 +103,11 @@ let fit_error ~binding = function
             }))
 ;;
 
-let supports_native_request_measurement = function
-  | Llm_provider.Provider_config.Anthropic -> true
-  | Llm_provider.Provider_config.Kimi
-  | Llm_provider.Provider_config.OpenAI_compat
-  | Llm_provider.Provider_config.Ollama
-  | Llm_provider.Provider_config.Gemini
-  | Llm_provider.Provider_config.Glm
-  | Llm_provider.Provider_config.DashScope -> false
-;;
-
 let enforce_context_fit agent (provider_config : Llm_provider.Provider_config.t) =
   match agent.context_fit_admission with
   | Disabled -> false
-  | Enforce_when_supported -> supports_native_request_measurement provider_config.kind
+  | Enforce_when_supported ->
+    Llm_provider.Count_tokens_sync.supports_completion_request_measurement provider_config
 ;;
 
 let finish_call ?on_provider_failure = function
