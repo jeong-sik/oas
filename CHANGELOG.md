@@ -260,6 +260,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.3](https://github.com/jeong-sik/oas/compare/v0.216.2...v0.216.3) (2026-07-18)
+
+
+### Bug Fixes
+
+* **ci:** run full CI matrix on stacked PRs ([#2656](https://github.com/jeong-sik/oas/issues/2656)) ([8410b87](https://github.com/jeong-sik/oas/commit/8410b87f66711a5586006f74185cebd610cb64fd))
+
 ## [0.216.2](https://github.com/jeong-sik/oas/compare/v0.216.1...v0.216.2) (2026-07-17)
 
 
