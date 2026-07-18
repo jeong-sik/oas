@@ -1062,6 +1062,153 @@ let test_mock_multi_tool_response () =
   | Error _ -> Alcotest.fail "expected ok"
 ;;
 
+let test_agent_run_uses_durable_tool_authority () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let runtime =
+    match
+      Agent.create_execution_runtime
+        ~sw:runtime_sw
+        ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+        ~domain_count:1
+    with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let native_path = Filename.temp_file "oas-agent-execution-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let locator_persisted = ref false in
+       let effect_after_locator = ref false in
+       let effect_count = ref 0 in
+       let completion_cursor = ref None in
+       let committed_cursor () =
+         let authority =
+           Eio.Path.load Eio.Path.(dir / "events.v1.commit") |> Yojson.Safe.from_string
+         in
+         match authority with
+         | `Assoc outer ->
+           (match List.assoc_opt "authority" outer with
+            | Some (`Assoc fields) ->
+              (match List.assoc_opt "last_seq" fields with
+               | Some (`Int value) -> value
+               | _ -> Alcotest.fail "execution authority has no integer last_seq")
+            | _ -> Alcotest.fail "execution commit has no authority object")
+         | _ -> Alcotest.fail "execution commit authority is not an object"
+       in
+       let responses =
+         ref
+           (Provider_mock.tool_then_text
+              ~tool_name:"durable_tool"
+              ~tool_input:(`Assoc [ "value", `Int 7 ])
+              ~final_text:"done"
+              ()
+            |> List.map (fun response -> response []))
+       in
+       let next_response () =
+         match !responses with
+         | response :: rest ->
+           responses := rest;
+           Ok response
+         | [] ->
+           Error
+             (Llm_provider.Http_client.AcceptRejected
+                { reason = "durable execution test exhausted responses" })
+       in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _request ->
+               { Llm_provider.Llm_transport.response = next_response ()
+               ; latency_ms = Some 0
+               })
+         ; complete_stream =
+             (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+         }
+       in
+       let journal = Durable_event.create () in
+       let tool =
+         Tool.create
+           ~name:"durable_tool"
+           ~description:"durable execution test"
+           ~parameters:[]
+           (fun _input ->
+              incr effect_count;
+              effect_after_locator := !locator_persisted;
+              Ok { Types.content = "tool-result"; _meta = None })
+       in
+       let options =
+         { Agent.default_options with
+           transport = Some transport
+         ; provider = Some (Provider_mock.to_provider_config ())
+         ; journal = Some journal
+         ; on_run_complete =
+             Some
+               (fun succeeded ->
+                 Alcotest.(check bool) "completion reports success" true succeeded;
+                 completion_cursor := Some (committed_cursor ()))
+         }
+       in
+       let agent =
+         Agent.create
+           ~net:(Eio.Stdenv.net env)
+           ~config:
+             { (Types.default_config ~model:"test-model") with
+               name = "durable-agent-run-test"
+             }
+           ~tools:[ tool ]
+           ~options
+           ()
+       in
+       let execution_store =
+         Agent.execution_store
+           ~runtime
+           ~dir
+           ~on_scope_ready:(fun locator ->
+             (match Agent.execution_locator_to_yojson locator with
+              | `Assoc fields ->
+                Alcotest.(check bool)
+                  "locator contains durable run identity"
+                  true
+                  (List.mem_assoc "run_id" fields)
+              | _ -> Alcotest.fail "execution locator is not an object");
+             locator_persisted := true;
+             Ok ())
+           ()
+       in
+       (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | Ok response ->
+          Alcotest.(check string)
+            "terminal response"
+            "done"
+            (Types.text_of_response response)
+        | Error error -> Alcotest.fail (Error.to_string error));
+       Alcotest.(check int) "tool effect executes once" 1 !effect_count;
+       Alcotest.(check bool)
+         "locator is durable before tool effect"
+         true
+         !effect_after_locator;
+       Alcotest.(check (option int))
+         "completion observes the final durable cursor"
+         (Some (committed_cursor ()))
+         !completion_cursor;
+       let legacy_tool_events =
+         Durable_event.events journal
+         |> List.filter (function
+           | Durable_event.Tool_called _ | Durable_event.Tool_completed _ -> true
+           | _ -> false)
+       in
+       Alcotest.(check int)
+         "legacy journal does not duplicate tool authority"
+         0
+         (List.length legacy_tool_events))
+;;
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -1143,7 +1290,11 @@ let () =
         ; Alcotest.test_case "provider errors" `Quick test_error_domain_provider_errors
         ] )
     ; ( "provider_mock_extra"
-      , [ Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response ]
-      )
+      , [ Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response
+        ; Alcotest.test_case
+            "Agent.run uses durable tool authority"
+            `Quick
+            test_agent_run_uses_durable_tool_authority
+        ] )
     ]
 ;;

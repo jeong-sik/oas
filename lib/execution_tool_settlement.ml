@@ -157,7 +157,7 @@ let settle authority attempt result =
        | Ok committed -> Ok (result, committed.through, committed.group_event_count)))
 ;;
 
-let execute authority ~invoke =
+let execute_with_attempt authority ~invoke =
   let open Result_syntax in
   let* current = status authority in
   match current with
@@ -166,7 +166,11 @@ let execute authority ~invoke =
   | Ready_to_execute ->
     let* attempt = begin_attempt authority in
     Eio.Fiber.check ();
-    let result = invoke () in
+    let result = invoke attempt in
     let+ committed, through, event_count = settle authority attempt result in
     Executed (committed, through, event_count)
+;;
+
+let execute authority ~invoke =
+  execute_with_attempt authority ~invoke:(fun _ -> invoke ())
 ;;

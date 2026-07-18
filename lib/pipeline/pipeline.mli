@@ -35,7 +35,12 @@ val persist_turn_checkpoint_for_state
     [before_tool_execution], when present, runs exactly once for a non-empty
     tool batch after assistant collection has committed successfully and before
     the first tool hook or implementation starts.  Exceptions propagate and
-    prevent tool execution. *)
+    prevent tool execution.
+
+    [execution_scope], when present, owns the turn and exact selected provider
+    attempt before provider I/O and is threaded into Tool execution. The caller
+    owns root settlement; this function closes its successful turn descendants,
+    while an error leaves them open for the caller's atomic abort. *)
 val run_turn
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
@@ -43,5 +48,6 @@ val run_turn
   -> ?raw_trace_run:Raw_trace.active_run
   -> ?on_provider_failure:(Provider_failure_attribution.t option -> unit)
   -> ?before_tool_execution:(unit -> unit)
+  -> ?execution_scope:Execution_agent_scope.t
   -> Agent_types.t
   -> (turn_outcome, Error.sdk_error) result

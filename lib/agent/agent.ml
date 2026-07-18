@@ -29,6 +29,14 @@ type detailed_error = Provider_failure_attribution.detailed_error =
 
 let detailed_error_of_sdk_error = Provider_failure_attribution.of_sdk_error
 
+type execution_runtime = Agent_execution_runner.runtime
+type execution_store = Agent_execution_runner.store
+type execution_locator = Agent_execution_runner.locator
+
+let create_execution_runtime = Agent_execution_runner.create_runtime
+let execution_store = Agent_execution_runner.store
+let execution_locator_to_yojson = Agent_execution_runner.locator_to_yojson
+
 let replace_projected_error error detailed =
   { detailed with Provider_failure_attribution.error }
 ;;
@@ -46,6 +54,7 @@ let run_turn_core_detailed
       ~api_strategy
       ?raw_trace_run
       ?before_tool_execution
+      ?execution_scope
       agent
   =
   let provider_failure = ref None in
@@ -74,6 +83,7 @@ let run_turn_core_detailed
            ~api_strategy:api_strat
            ?raw_trace_run
            ?before_tool_execution
+           ?execution_scope
            ~on_provider_failure:(fun attribution -> provider_failure := attribution)
            agent
        with
@@ -102,79 +112,10 @@ let provide_input agent request response =
 
 (* ── Unified run loop ────────────────────────────────────────── *)
 
-(** Prepend initial_messages on first run (when messages are empty). *)
-let base_messages agent =
-  match agent.state.messages with
-  | [] -> agent.state.config.initial_messages
-  | msgs -> msgs
-;;
-
-let sanitize_user_input_blocks =
-  List.map (function
-    | Text s -> Text (Llm_provider.Utf8_sanitize.sanitize s)
-    | block -> block)
-;;
-
-let trace_prompt_of_blocks blocks =
-  let parts =
-    blocks
-    |> List.filter_map (function
-      | Text s -> Some (Llm_provider.Utf8_sanitize.sanitize s)
-      | Image { media_type; data; _ } ->
-        Some (Printf.sprintf "[image:%s data_chars=%d]" media_type (String.length data))
-      | Document { media_type; data; _ } ->
-        Some
-          (Printf.sprintf "[document:%s data_chars=%d]" media_type (String.length data))
-      | Audio { media_type; data; _ } ->
-        Some (Printf.sprintf "[audio:%s data_chars=%d]" media_type (String.length data))
-      | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _ ->
-        None)
-  in
-  match String.concat "\n" parts with
-  | "" -> "[multimodal input]"
-  | text -> text
-;;
-
-let validate_user_input_blocks blocks =
-  let unsupported =
-    List.find_map
-      (function
-        | Text _ | Image _ | Document _ | Audio _ -> None
-        | Thinking _ -> Some "Thinking"
-        | ReasoningDetails _ -> Some "ReasoningDetails"
-        | RedactedThinking _ -> Some "RedactedThinking"
-        | ToolUse _ -> Some "ToolUse"
-        | ToolResult _ -> Some "ToolResult")
-      blocks
-  in
-  match unsupported with
-  | None -> Ok ()
-  | Some kind ->
-    Error
-      (Error.Config
-         (Error.InvalidConfig
-            { field = "user_blocks"
-            ; detail =
-                Printf.sprintf
-                  "user input blocks may contain only Text, Image, Document, or Audio; \
-                   got %s"
-                  kind
-            }))
-;;
-
-let append_user_input agent user_blocks =
-  let user_msg =
-    { role = User
-    ; content = sanitize_user_input_blocks user_blocks
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  update_state agent (fun s ->
-    { s with messages = Util.snoc (base_messages agent) user_msg });
-  user_msg.content
-;;
+let base_messages = Agent_input.base_messages
+let trace_prompt_of_blocks = Agent_input.trace_prompt_of_blocks
+let validate_user_input_blocks = Agent_input.validate_user_input_blocks
+let append_user_input = Agent_input.append_user_input
 
 (** Per-turn timing observability helper. Emits one structured record
     per turn so operators diagnosing wall-clock timeouts can see
@@ -239,15 +180,16 @@ let acquire_provider_lease ~yield_enabled ~on_resume = function
   | Released -> Held
 ;;
 
-let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_blocks =
-  let user_blocks = append_user_input agent user_blocks in
-  let trace_prompt = trace_prompt_of_blocks user_blocks in
-  with_raw_trace_run_result
-    ~of_sdk_error:detailed_error_of_sdk_error
-    ~error_to_string:(fun detailed -> Error.to_string detailed.error)
-    agent
-    trace_prompt
-  @@ fun raw_trace_run ->
+let run_loop_turns_detailed
+      ~sw
+      ?clock
+      ~api_strategy
+      ?on_yield
+      ?on_resume
+      ?raw_trace_run
+      ?execution_scope
+      agent
+  =
   let yield_enabled = agent.state.config.yield_on_tool in
   let run_start = Unix.gettimeofday () in
   let rec loop lease =
@@ -262,6 +204,7 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
         ~api_strategy
         ?raw_trace_run
         ?before_tool_execution:release.before_tool_execution
+        ?execution_scope
         agent
     in
     match result with
@@ -293,8 +236,76 @@ let run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_b
   loop Held
 ;;
 
-let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_blocks =
-  run_loop_detailed ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_blocks
+let run_loop_detailed
+      ~sw
+      ?clock
+      ~api_strategy
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      ?execution_scope_factory
+      agent
+      user_blocks
+  =
+  let user_blocks = append_user_input agent user_blocks in
+  let trace_prompt = trace_prompt_of_blocks user_blocks in
+  with_raw_trace_run_result
+    ~of_sdk_error:detailed_error_of_sdk_error
+    ~error_to_string:(fun detailed -> Error.to_string detailed.error)
+    agent
+    trace_prompt
+  @@ fun raw_trace_run ->
+  let run ~sw execution_scope =
+    run_loop_turns_detailed
+      ~sw
+      ?clock
+      ~api_strategy
+      ?on_yield
+      ?on_resume
+      ?raw_trace_run
+      ?execution_scope
+      agent
+  in
+  match execution_store, execution_scope_factory with
+  | None, None -> run ~sw None
+  | Some store, None ->
+    Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
+      run ~sw (Some execution_scope))
+  | None, Some start_scope ->
+    (match start_scope () with
+     | Error error ->
+       Error
+         (detailed_error_of_sdk_error
+            (Error.Internal
+               ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
+     | Ok execution_scope ->
+       Agent_execution_runner.with_scope execution_scope (fun () ->
+         run ~sw (Some execution_scope)))
+  | Some _, Some _ ->
+    Error
+      (detailed_error_of_sdk_error
+         (Error.Internal "execution store and child scope factory are mutually exclusive"))
+;;
+
+let run_loop
+      ~sw
+      ?clock
+      ~api_strategy
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      agent
+      user_blocks
+  =
+  run_loop_detailed
+    ~sw
+    ?clock
+    ~api_strategy
+    ?on_yield
+    ?on_resume
+    ?execution_store
+    agent
+    user_blocks
   |> project_detailed_error
 ;;
 
@@ -371,7 +382,8 @@ let validate_run_callbacks ~on_yield ~on_resume =
   | Some _, Some _ | None, None -> Ok ()
 ;;
 
-let run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent user_blocks =
+let run_blocks_detailed ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_blocks
+  =
   match validate_user_input_blocks user_blocks with
   | Error error -> Error (detailed_error_of_sdk_error error)
   | Ok () ->
@@ -385,24 +397,41 @@ let run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent user_blocks =
            ~api_strategy:Sync
            ?on_yield
            ?on_resume
+           ?execution_store
            agent
            user_blocks))
 ;;
 
-let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
-  run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent user_blocks
+let run_blocks ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_blocks =
+  run_blocks_detailed ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_blocks
   |> project_detailed_error
 ;;
 
-let run_detailed ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  run_blocks_detailed ~sw ?clock ?on_yield ?on_resume agent [ Text user_prompt ]
+let run_detailed ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_prompt =
+  run_blocks_detailed
+    ~sw
+    ?clock
+    ?on_yield
+    ?on_resume
+    ?execution_store
+    agent
+    [ Text user_prompt ]
 ;;
 
-let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  run_detailed ~sw ?clock ?on_yield ?on_resume agent user_prompt |> project_detailed_error
+let run ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_prompt =
+  run_detailed ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_prompt
+  |> project_detailed_error
 ;;
 
-let run_stream_blocks_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks
+let run_stream_blocks_detailed
+      ~sw
+      ?clock
+      ~on_event
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      agent
+      user_blocks
   =
   match validate_user_input_blocks user_blocks with
   | Error error -> Error (detailed_error_of_sdk_error error)
@@ -422,28 +451,73 @@ let run_stream_blocks_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent u
            ~api_strategy:(Stream { on_event; on_telemetry })
            ?on_yield
            ?on_resume
+           ?execution_store
            agent
            user_blocks))
 ;;
 
-let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks =
-  run_stream_blocks_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks
-  |> project_detailed_error
-;;
-
-let run_stream_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
+let run_stream_blocks
+      ~sw
+      ?clock
+      ~on_event
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      agent
+      user_blocks
+  =
   run_stream_blocks_detailed
     ~sw
     ?clock
     ~on_event
     ?on_yield
     ?on_resume
+    ?execution_store
+    agent
+    user_blocks
+  |> project_detailed_error
+;;
+
+let run_stream_detailed
+      ~sw
+      ?clock
+      ~on_event
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      agent
+      user_prompt
+  =
+  run_stream_blocks_detailed
+    ~sw
+    ?clock
+    ~on_event
+    ?on_yield
+    ?on_resume
+    ?execution_store
     agent
     [ Text user_prompt ]
 ;;
 
-let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
-  run_stream_detailed ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt
+let run_stream
+      ~sw
+      ?clock
+      ~on_event
+      ?on_yield
+      ?on_resume
+      ?execution_store
+      agent
+      user_prompt
+  =
+  run_stream_detailed
+    ~sw
+    ?clock
+    ~on_event
+    ?on_yield
+    ?on_resume
+    ?execution_store
+    agent
+    user_prompt
   |> project_detailed_error
 ;;
 
@@ -547,7 +621,19 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ?provider_config:agent.provider_config
       ()
   in
-  let result = run ~sw ?clock sub prompt in
+  let result =
+    match Execution_context.child_scope_factory () with
+    | None -> run ~sw ?clock sub prompt
+    | Some start_child ->
+      run_loop_detailed
+        ~sw
+        ?clock
+        ~api_strategy:Sync
+        ~execution_scope_factory:(fun () -> start_child ~agent_name:target.config.name)
+        sub
+        [ Text prompt ]
+      |> project_detailed_error
+  in
   publish_handoff_completed
     agent
     target
@@ -565,7 +651,14 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       }
 ;;
 
-let run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks =
+let run_with_handoffs_blocks_detailed
+      ~sw
+      ?clock
+      ?execution_store
+      agent
+      ~targets
+      user_blocks
+  =
   match validate_user_input_blocks user_blocks with
   | Error error -> Error (detailed_error_of_sdk_error error)
   | Ok () ->
@@ -582,20 +675,26 @@ let run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks =
        in
        let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
        let agent_with_handoffs = { agent with tools = all_tools } in
-       run_blocks_detailed ~sw ?clock agent_with_handoffs user_blocks)
+       run_blocks_detailed ~sw ?clock ?execution_store agent_with_handoffs user_blocks)
 ;;
 
-let run_with_handoffs_detailed ~sw ?clock agent ~targets user_prompt =
-  run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets [ Text user_prompt ]
+let run_with_handoffs_detailed ~sw ?clock ?execution_store agent ~targets user_prompt =
+  run_with_handoffs_blocks_detailed
+    ~sw
+    ?clock
+    ?execution_store
+    agent
+    ~targets
+    [ Text user_prompt ]
 ;;
 
-let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
-  run_with_handoffs_detailed ~sw ?clock agent ~targets user_prompt
+let run_with_handoffs ~sw ?clock ?execution_store agent ~targets user_prompt =
+  run_with_handoffs_detailed ~sw ?clock ?execution_store agent ~targets user_prompt
   |> project_detailed_error
 ;;
 
-let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
-  run_with_handoffs_blocks_detailed ~sw ?clock agent ~targets user_blocks
+let run_with_handoffs_blocks ~sw ?clock ?execution_store agent ~targets user_blocks =
+  run_with_handoffs_blocks_detailed ~sw ?clock ?execution_store agent ~targets user_blocks
   |> project_detailed_error
 ;;
 
@@ -680,25 +779,17 @@ module Advanced = struct
     | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
   ;;
 
-  let run_loop_detailed
+  let run_loop_turns_detailed
         ~sw
         ?clock
         ~api_strategy
         ?on_yield
         ?on_resume
+        ?raw_trace_run
+        ?execution_scope
         ~on_tool_boundary
         agent
-        user_blocks
     =
-    let user_blocks = append_user_input agent user_blocks in
-    let trace_prompt = trace_prompt_of_blocks user_blocks in
-    with_raw_trace_run_classified_result
-      ~of_sdk_error:detailed_error_of_sdk_error
-      ~error_to_string:(fun detailed -> Error.to_string detailed.error)
-      ~classify_success:classify_trace_success
-      agent
-      trace_prompt
-    @@ fun raw_trace_run ->
     let yield_enabled = agent.state.config.yield_on_tool in
     let run_start = Unix.gettimeofday () in
     let rec loop lease =
@@ -713,6 +804,7 @@ module Advanced = struct
           ~api_strategy
           ?raw_trace_run
           ?before_tool_execution:release.before_tool_execution
+          ?execution_scope
           agent
       with
       | Error error ->
@@ -753,11 +845,51 @@ module Advanced = struct
     loop Held
   ;;
 
+  let run_loop_detailed
+        ~sw
+        ?clock
+        ~api_strategy
+        ?on_yield
+        ?on_resume
+        ?execution_store
+        ~on_tool_boundary
+        agent
+        user_blocks
+    =
+    let user_blocks = append_user_input agent user_blocks in
+    let trace_prompt = trace_prompt_of_blocks user_blocks in
+    with_raw_trace_run_classified_result
+      ~of_sdk_error:detailed_error_of_sdk_error
+      ~error_to_string:(fun detailed -> Error.to_string detailed.error)
+      ~classify_success:classify_trace_success
+      agent
+      trace_prompt
+    @@ fun raw_trace_run ->
+    let run ~sw execution_scope =
+      run_loop_turns_detailed
+        ~sw
+        ?clock
+        ~api_strategy
+        ?on_yield
+        ?on_resume
+        ?raw_trace_run
+        ?execution_scope
+        ~on_tool_boundary
+        agent
+    in
+    match execution_store with
+    | None -> run ~sw None
+    | Some store ->
+      Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
+        run ~sw (Some execution_scope))
+  ;;
+
   let run_blocks_detailed
         ~sw
         ?clock
         ?on_yield
         ?on_resume
+        ?execution_store
         ~api_strategy
         ~on_tool_boundary
         agent
@@ -776,6 +908,7 @@ module Advanced = struct
              ~api_strategy
              ?on_yield
              ?on_resume
+             ?execution_store
              ~on_tool_boundary
              agent
              user_blocks))
@@ -786,6 +919,7 @@ module Advanced = struct
         ?clock
         ?on_yield
         ?on_resume
+        ?execution_store
         ~api_strategy
         ~on_tool_boundary
         agent
@@ -796,6 +930,7 @@ module Advanced = struct
       ?clock
       ?on_yield
       ?on_resume
+      ?execution_store
       ~api_strategy
       ~on_tool_boundary
       agent
@@ -804,19 +939,27 @@ module Advanced = struct
   ;;
 end
 
-let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent =
-  run_turn_core_detailed
-    ~sw
-    ?clock
-    ~api_strategy:(Stream { on_event; on_telemetry })
-    agent
+let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =
+  let run ~sw ?execution_scope () =
+    run_turn_core_detailed
+      ~sw
+      ?clock
+      ~api_strategy:(Stream { on_event; on_telemetry })
+      ?execution_scope
+      agent
+  in
+  (match execution_store with
+   | None -> run ~sw ()
+   | Some store ->
+     Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
+       run ~sw ~execution_scope ()))
   |> Result.map (function
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted)
 ;;
 
-let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
-  run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry agent
+let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =
+  run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store agent
   |> project_detailed_error
 ;;
 

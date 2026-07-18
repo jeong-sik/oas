@@ -34,6 +34,10 @@ type error =
   | Invalid_provider_attempt of string
   | Scope_unavailable of Execution_lane_writer.read_error
   | Run_not_found
+  | Agent_identity_mismatch of
+      { expected : string
+      ; actual : string
+      }
   | Invocation_locator_mismatch
   | Invalid_tool_result
   | Settlement_failed of Execution_tool_settlement.error
@@ -43,7 +47,13 @@ val start : writer:Execution_lane_writer.t -> agent_name:string -> (t, error) re
 val scope_locator : t -> scope_locator
 val scope_locator_to_yojson : scope_locator -> Yojson.Safe.t
 val scope_locator_of_yojson : Yojson.Safe.t -> (scope_locator, string) result
-val resume : writer:Execution_lane_writer.t -> scope_locator -> (t, error) result
+
+val resume
+  :  writer:Execution_lane_writer.t
+  -> agent_name:string
+  -> scope_locator
+  -> (t, error) result
+
 val open_turn : t -> ordinal:int -> (turn, error) result
 
 (** Materialize the exact binding selected for provider dispatch. *)
@@ -74,7 +84,8 @@ val rebind_invocation : t -> invocation_locator -> (invocation, error) result
 val execute
   :  invocation
   -> invoke:
-       (tool_name:string
+       (start_child:(agent_name:string -> (t, error) result)
+        -> tool_name:string
         -> input:Yojson.Safe.t
         -> string * Llm_provider.Types.tool_result_outcome)
   -> (execution, error) result

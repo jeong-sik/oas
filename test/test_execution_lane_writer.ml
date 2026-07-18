@@ -546,7 +546,7 @@ let test_structural_occurrence_identity_is_parent_local () =
           ]
         |> Agent_scope.scope_locator_of_yojson
         |> require_codec
-        |> Agent_scope.resume ~writer
+        |> Agent_scope.resume ~writer ~agent_name:"occurrence"
         |> require_agent_scope
       in
       let foreign =
@@ -635,8 +635,10 @@ let test_agent_scope_owns_effect_topology () =
            (Agent_scope.invocation_locator_to_yojson
               (Agent_scope.invocation_locator invocation));
       (match
-         Agent_scope.execute invocation ~invoke:(fun ~tool_name:_ ~input:_ ->
+         Agent_scope.execute invocation ~invoke:(fun ~start_child ~tool_name:_ ~input:_ ->
            incr calls;
+           let child = require_agent_scope (start_child ~agent_name:"child-agent") in
+           require_agent_scope (Agent_scope.finish child Event.Succeeded);
            "done", Types.Tool_succeeded)
        with
        | Ok (Agent_scope.Executed _) -> ()
@@ -657,9 +659,39 @@ let test_agent_scope_owns_effect_topology () =
         | exception exn -> raise exn
       in
       require_agent_scope abort_result;
-      let events, through = read_complete_page writer ~after:before ~limit:12 in
-      check int "closed scope event count" 12 (List.length events);
-      check int "closed scope cursor" 12 (Journal.cursor_seq through);
+      let events, through = read_complete_page writer ~after:before ~limit:14 in
+      check int "closed scope event count" 14 (List.length events);
+      check int "closed scope cursor" 14 (Journal.cursor_seq through);
+      let tool_attempt =
+        List.find_map
+          (fun event ->
+             match Event.payload event with
+             | Event.Node_opened node when Event.node_kind node = Event.Tool_attempt ->
+               Some node
+             | _ -> None)
+          events
+        |> Option.get
+      in
+      let child_root =
+        List.find_map
+          (fun event ->
+             match Event.payload event with
+             | Event.Node_opened node ->
+               (match Event.node_kind node with
+                | Event.Agent_run { agent_name = "child-agent" } -> Some node
+                | _ -> None)
+             | _ -> None)
+          events
+        |> Option.get
+      in
+      check
+        bool
+        "child run is rooted beneath exact tool attempt"
+        true
+        (Option.equal
+           Event.Node_id.equal
+           (Event.parent_node_id child_root)
+           (Some (Event.node_id tool_attempt)));
       match List.map Event.payload events with
       | Event.Node_opened root
         :: Event.Node_opened turn_node
@@ -685,12 +717,19 @@ let test_agent_scope_owns_effect_topology () =
       | _ -> fail "scope did not write its topology before the effect");
     with_existing codec dir (fun _sw writer ->
       ignore (require_scope (Writer.await_ready writer));
+      let locator =
+        Option.get !scope_locator_json
+        |> Agent_scope.scope_locator_of_yojson
+        |> require_codec
+      in
+      (match Agent_scope.resume ~writer ~agent_name:"other-agent" locator with
+       | Error
+           (Agent_scope.Agent_identity_mismatch
+              { expected = "agent"; actual = "other-agent" }) -> ()
+       | Error error -> fail (Agent_scope.error_to_string error)
+       | Ok _ -> fail "scope resumed under the wrong Agent identity");
       let scope =
-        require_agent_scope
-          (Agent_scope.resume
-             ~writer
-             (require_codec
-                (Agent_scope.scope_locator_of_yojson (Option.get !scope_locator_json))))
+        require_agent_scope (Agent_scope.resume ~writer ~agent_name:"agent" locator)
       in
       let invocation =
         Option.get !invocation_locator_json
@@ -700,8 +739,9 @@ let test_agent_scope_owns_effect_topology () =
         |> require_agent_scope
       in
       (match
-         Agent_scope.execute invocation ~invoke:(fun ~tool_name:_ ~input:_ ->
-           fail "effect reran")
+         Agent_scope.execute
+           invocation
+           ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ -> fail "effect reran")
        with
        | Ok (Agent_scope.Replayed replayed) ->
          check string "reopened result content" "done" replayed.content;
@@ -759,7 +799,7 @@ let test_agent_scope_executes_pending_after_restart () =
         Option.get !scope_json
         |> Agent_scope.scope_locator_of_yojson
         |> require_codec
-        |> Agent_scope.resume ~writer
+        |> Agent_scope.resume ~writer ~agent_name:"agent"
         |> require_agent_scope
       in
       let invocation =
@@ -770,7 +810,7 @@ let test_agent_scope_executes_pending_after_restart () =
         |> require_agent_scope
       in
       (match
-         Agent_scope.execute invocation ~invoke:(fun ~tool_name ~input ->
+         Agent_scope.execute invocation ~invoke:(fun ~start_child:_ ~tool_name ~input ->
            check string "rebound tool name" "durable-tool" tool_name;
            check bool "rebound tool input" true (Yojson.Safe.equal input expected_input);
            "done", Types.Tool_succeeded)

@@ -32,3 +32,8 @@ val execute
   :  t
   -> invoke:(unit -> Llm_provider.Types.content_block)
   -> (execution, error) result
+
+val execute_with_attempt
+  :  t
+  -> invoke:(Execution_event.Node_id.t -> Llm_provider.Types.content_block)
+  -> (execution, error) result

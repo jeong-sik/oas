@@ -30,6 +30,7 @@ type invocation_locator =
 type invocation =
   { durable : Settlement.durable_invocation
   ; locator : invocation_locator
+  ; scope : t
   }
 
 type tool_result =
@@ -57,6 +58,10 @@ type error =
   | Invalid_provider_attempt of string
   | Scope_unavailable of Writer.read_error
   | Run_not_found
+  | Agent_identity_mismatch of
+      { expected : string
+      ; actual : string
+      }
   | Invocation_locator_mismatch
   | Invalid_tool_result
   | Settlement_failed of Settlement.error
@@ -81,6 +86,11 @@ let error_to_string = function
   | Invalid_provider_attempt detail -> "invalid provider attempt: " ^ detail
   | Scope_unavailable error -> Writer.read_error_to_string error
   | Run_not_found -> "execution run was not found"
+  | Agent_identity_mismatch { expected; actual } ->
+    Printf.sprintf
+      "execution run belongs to agent %S but caller supplied %S"
+      expected
+      actual
   | Invocation_locator_mismatch ->
     "execution invocation locator does not match durable topology"
   | Invalid_tool_result -> "execution settlement returned an invalid ToolResult"
@@ -171,11 +181,23 @@ let start ~writer ~agent_name =
   |> Result.map (fun (run, _event) -> { writer; run })
 ;;
 
-let resume ~writer (locator : scope_locator) =
+let resume ~writer ~agent_name (locator : scope_locator) =
   match Writer.find_run writer locator.run_id with
   | Error error -> Error (Scope_unavailable error)
   | Ok None -> Error Run_not_found
-  | Ok (Some view) -> Ok { writer; run = view.Journal.run }
+  | Ok (Some view) ->
+    (match Event.node_kind view.Journal.opened.value with
+     | Event.Agent_run { agent_name = durable_agent_name }
+       when String.equal agent_name durable_agent_name ->
+       Ok { writer; run = view.Journal.run }
+     | Event.Agent_run { agent_name = durable_agent_name } ->
+       Error
+         (Agent_identity_mismatch { expected = durable_agent_name; actual = agent_name })
+     | Event.Agent_turn _
+     | Event.Provider_attempt _
+     | Event.Output_block _
+     | Event.Tool_invocation _
+     | Event.Tool_attempt -> Error Run_not_found)
 ;;
 
 let open_turn scope ~ordinal =
@@ -216,7 +238,7 @@ let open_invocation provider ~invocation ~tool_name ~input =
   | Ok (node, _events) ->
     let locator = { run_id = Journal.run_id scope.run; node } in
     Settlement.rebind ~writer:scope.writer ~invocation_node:node
-    |> Result.map (fun durable -> { durable; locator })
+    |> Result.map (fun durable -> { durable; locator; scope })
     |> Result.map_error (fun error -> Settlement_failed error)
 ;;
 
@@ -230,7 +252,7 @@ let rebind_invocation scope locator =
     | Error error -> Error (Settlement_failed error)
     | Ok durable ->
       if Event.Run_id.equal durable.run_id locator.run_id
-      then Ok { durable; locator }
+      then Ok { durable; locator; scope }
       else Error Invocation_locator_mismatch)
 ;;
 
@@ -260,8 +282,14 @@ let tool_result_of_block durable = function
 let execute invocation ~invoke =
   let durable = invocation.durable in
   let settled =
-    Settlement.execute durable.authority ~invoke:(fun () ->
-      let content, outcome = invoke ~tool_name:durable.tool_name ~input:durable.input in
+    Settlement.execute_with_attempt durable.authority ~invoke:(fun parent_attempt ->
+      let start_child ~agent_name =
+        transact invocation.scope.writer (Tx.start_run ~parent_attempt ~agent_name ())
+        |> Result.map (fun (run, _event) -> { writer = invocation.scope.writer; run })
+      in
+      let content, outcome =
+        invoke ~start_child ~tool_name:durable.tool_name ~input:durable.input
+      in
       Llm_provider.Types.ToolResult
         { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
         ; content
@@ -288,7 +316,7 @@ let close_provider_attempt provider terminal =
   close_node provider.turn.scope.writer provider.node terminal
 ;;
 
-let close_turn turn terminal = close_node turn.scope.writer turn.node terminal
+let close_turn (turn : turn) terminal = close_node turn.scope.writer turn.node terminal
 
 let finish scope terminal =
   transact scope.writer (Tx.finish_run ~run:scope.run terminal) |> Result.map ignore
