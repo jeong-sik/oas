@@ -5,9 +5,10 @@
 | Status | Implemented |
 | Author | jeong-sik (audit: provider SSOT sweep, 2026-06-30) |
 | Created | 2026-06-30 |
+| Amended | 2026-07-18 — exact lossless thinking-control codec contract |
 | Target | `lib/llm_provider/capability_vocab.ml`, `capabilities.ml`(+`.mli`), `provider_catalog.ml`, `capability_manifest.ml`, `model_catalog.ml`, `reasoning_dialect.ml` |
 | Supplements | RFC-OAS-023 (capability axis reshape), RFC-OAS-029 §1.2 (string classifier bypassing typed kind) |
-| Boundary | OAS internal refactor — no wire/contract change. Deriving/show/equality surface preserved via alias. |
+| Boundary | OAS capability vocabulary and catalog-input contract. Variant ownership remains internal; the public codec rejects non-canonical labels and invalid token combinations. |
 
 ## 0. Summary
 
@@ -21,15 +22,23 @@ vocabulary. Because `capability_vocab` is a leaf module with no dependency on
 needed `variant <-> wire-string` reimplemented literal matches. That was the
 cycle-break bug: the leaf owned the vocabulary intent, but not the variant.
 
-Current `main` has adopted Option A from this RFC:
+The implemented design adopts Option A from this RFC:
 
 - `capability_vocab.ml` owns the `thinking_control_format` and
   `preserve_thinking_control_format` variants.
-- It owns one canonical table per vocabulary and derives `values` and
-  `*_of_string` from that table.
+- It owns one exhaustive canonical-label projection for
+  `thinking_control_format`, exact typed encode/decode functions, and one
+  canonical table for `preserve_thinking_control_format`.
 - `capabilities.ml` re-exports the variants via type/constructor aliases, so
   existing `Capabilities.*` call sites compile unchanged.
-- `provider_catalog.ml` delegates parsing to `Capability_vocab`.
+- capability manifests, model catalogs, and provider catalogs delegate the
+  complete `{ label; token }` declaration to `Capability_vocab`.
+
+The thinking-control declaration is an exact contract. Labels are compared
+with `String.equal`; they are never trimmed, case-folded, or aliased. A
+`Chat_template_token` preserves its token byte-for-byte, but empty,
+whitespace-only, or padded tokens are rejected. Declaration absence remains
+`None` and never defaults to `No_thinking_control`.
 
 This document is therefore a design record and verification contract for the
 landed implementation, not a request to perform a future relocation.
@@ -64,15 +73,27 @@ cycle break.
 ### 2.1 Option A — variants owned by `capability_vocab` (ADOPTED)
 
 The variant definitions live in `capability_vocab.ml`, alongside the existing
-`reasoning_replay_override` / `assistant_tool_content_format`. Each vocabulary
-has a single canonical table, and every public parser/value surface is derived
-from that table:
+`reasoning_replay_override` / `assistant_tool_content_format`.
 
-- `values = List.map fst table`
-- `of_string = List.assoc_opt normalized table`
-- `to_string` is intentionally absent unless a real serializer consumer is
-  introduced; if added later, it must be reverse-derived from the same table,
-  not a third hand-written match.
+`thinking_control_format` cannot use a flat `string * variant` table because
+`Chat_template_token` carries caller-owned data. Its single vocabulary owner is
+therefore:
+
+- an exhaustive `canonical_label_of_thinking_control_format` projection;
+- `tokenless_thinking_control_formats`, whose labels derive from that
+  projection;
+- `encode_thinking_control_format`, which validates the public token-bearing
+  constructor and returns a typed result;
+- `decode_thinking_control_format`, which accepts only an exact canonical
+  `{ label; token }` pair;
+- `decode_optional_thinking_control_format`, which preserves absent
+  declarations and rejects orphan tokens.
+
+The codec error family is closed: `Unknown_label`, `Token_required`,
+`Token_forbidden`, and raw-preserving `Invalid_token`. Token trimming is used
+only to detect invalid empty or padded input; no trimmed value is accepted or
+emitted. `preserve_thinking_control_format` remains a data-less vocabulary
+derived from its canonical table.
 
 `capabilities.ml` is a consumer with a type alias and constructor re-export:
 
@@ -86,8 +107,8 @@ type thinking_control_format = Capability_vocab.thinking_control_format =
 The OCaml constructor alias keeps `Capabilities.No_thinking_control` valid at
 existing call sites, including `reasoning_dialect.ml` and the matches across
 `backend_openai_request`, `backend_anthropic`, `api_openai`, and related files.
-Duplicated parsers are replaced by `Capability_vocab.*_of_string`
-delegation.
+Duplicated parsers are replaced by delegation to the exact codec for thinking
+control and the canonical table parser for preserve-thinking control.
 
 **Dependency direction:** `capability_vocab` (leaf) ← `capabilities` ← everyone else. No cycle: `capability_vocab` still depends on nothing. `capabilities` already depends on `capability_vocab` (it aliases `reasoning_replay_override` today), so the new edge is not even new.
 
@@ -105,11 +126,12 @@ Over-engineered for a flat 8-constructor enum. Rejected.
 
 | step | change | blast radius |
 |---|---|---|
-| 1 | `capability_vocab`: add `type thinking_control_format` + `preserve_thinking_control_format` + one canonical table per vocabulary; derive `values` and `of_string` from that table. | leaf only |
+| 1 | `capability_vocab`: own both variants; derive thinking-control labels from one exhaustive projection and preserve-thinking values from one canonical table. | leaf only |
 | 2 | `capabilities.ml` (+`.mli`): replace owned type defs with aliases `= Capability_vocab.*`; re-export constructors | type-only, call sites unchanged |
-| 3 | `provider_catalog.ml`: `parse_thinking_control_format` / `parse_preserve_thinking_control_format` delegate to `Capability_vocab` | parser collapse |
-| 4 | manifest/catalog unknown values remain fail-closed with observable diagnostics at their call sites | silent-failure guard |
-| 5 | tests: exported values parse through the canonical table; future additions must update the table and aliases together | drift guard |
+| 3 | capability manifest, model catalog, and provider catalog pass the raw optional label/token pair to `decode_optional_thinking_control_format`; preserve-thinking parsing still delegates to `Capability_vocab`. | parser collapse |
+| 4 | exact decode rejects unknown/non-canonical labels, missing/orphan tokens, and empty or padded tokens with a typed raw-preserving error. | fail-closed contract |
+| 5 | exact encode validates token-bearing public constructors instead of emitting an invalid declaration. | serializer guard |
+| 6 | tests cover every format round-trip, canonical-label uniqueness, exact rejection, token preservation, absence, and all three loader boundaries. | drift guard |
 
 The migration is complete for the thinking-control vocabularies. This RFC no
 longer asks maintainers to perform these steps.
@@ -118,23 +140,28 @@ longer asks maintainers to perform these steps.
 
 - **Compiler**: aliases keep existing constructors visible while preserving
   exhaustiveness checks at match sites.
-- **Single-table proof**: exported `values` must be derived from the same table
-  used by `of_string`; a round-trip test alone is not enough because independent
-  encodings can round-trip accidentally.
-- **Property test**: `List.for_all (fun s -> Capability_vocab.thinking_control_format_of_string s <> None) Capability_vocab.thinking_control_format_values` plus equivalent preserve-thinking coverage.
-- **Delegation test**: provider/catalog parsing must delegate to
-  `Capability_vocab` instead of reintroducing local literal matches.
-- **Warning preservation**: manifest/catalog unknown-value call sites must keep
-  observable warning/error behavior after delegating to `Capability_vocab`;
-  `None` without a warning is a silent failure regression.
+- **Single-owner proof**: every thinking-control label derives from the
+  exhaustive canonical projection; no independent label table or normalizing
+  parser exists.
+- **Exact codec proof**: every valid format round-trips, canonical labels are
+  unique, and rejected labels/tokens retain the original bytes in the typed
+  error.
+- **Absence proof**: a missing declaration decodes to `Ok None`; it never
+  selects a default. An orphan token fails typed.
+- **Delegation proof**: manifest, model-catalog, and provider-catalog loaders
+  invoke the same optional codec and fail closed; they do not reproduce label
+  or cross-field logic.
+- **Preserve-thinking proof**: its exported values and parser remain derived
+  from one canonical table.
 
 ## 5. Why not bundle into the SSOT-audit subset PRs
 
 The 2026-06-30 audit produced three surgical PRs (#2333 provider-kind
 round-trip, #2334 stop_reason wire SSOT, #2335 catch-all exhaustiveness) that
-were zero-runtime-change. This RFC's move was also zero runtime change, but it
-touched broader type ownership and parser delegation. Keeping it separate made
-the review boundary explicit.
+were zero-runtime-change. The original variant relocation preserved runtime
+behavior. The later exact codec amendment intentionally tightens catalog-input
+and public-encode behavior, so it remains isolated here rather than being
+hidden inside an unrelated SSOT cleanup.
 
 ## 6. Non-goals
 
@@ -148,5 +175,6 @@ the review boundary explicit.
 - `Modality.t` priority still follows a similar vocabulary pattern. It can be
   evaluated separately; it is not a blocker for the implemented
   `thinking_control_format` relocation.
-- Any future `to_string` surface for these vocabularies must be introduced only
-  with a real serializer consumer and must be derived from the canonical table.
+- Any future thinking-control serializer must consume
+  `encode_thinking_control_format`; it must not add a second label projection or
+  bypass typed token validation.

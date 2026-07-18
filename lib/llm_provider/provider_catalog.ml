@@ -633,8 +633,9 @@ let parse_capabilities provider_json =
        [thinking_control_token] key pair; join them so a chat_template_token
        preset without a token — or a token without that format — fails closed. *)
     let* raw = member_string "thinking_control_format" cap_json in
-    let* token = member_exact_non_empty_string_strict "thinking_control_token" cap_json in
-    Capability_vocab.thinking_control_format_of_label_and_token ~format:raw ~token
+    let* token = member_string "thinking_control_token" cap_json in
+    Capability_vocab.decode_optional_thinking_control_format ~label:raw ~token
+    |> Result.map_error Capability_vocab.thinking_control_format_codec_error_to_string
   in
   let* preserve_thinking_control_format =
     let* raw = member_string "preserve_thinking_control_format" cap_json in

@@ -110,24 +110,6 @@ let non_empty_string_field ~entry_id key toml =
     else Ok (Some (String.lowercase_ascii raw))
 ;;
 
-let exact_non_empty_string_field ~entry_id key toml =
-  match find_string_field ~entry_id key toml with
-  | Error _ as e -> e
-  | Ok None -> Ok None
-  | Ok (Some raw) ->
-    let trimmed = String.trim raw in
-    if trimmed = ""
-    then Error (Printf.sprintf "model entry %S field %S must not be empty" entry_id key)
-    else if raw <> trimmed
-    then
-      Error
-        (Printf.sprintf
-           "model entry %S field %S must not have leading or trailing whitespace"
-           entry_id
-           key)
-    else Ok (Some raw)
-;;
-
 let canonical_string_opt ~entry_id key ~allowed toml =
   match find_string_field ~entry_id key toml with
   | Error _ as e -> e
@@ -458,13 +440,17 @@ let parse_entry entry_toml =
     find_string_field ~entry_id:id_prefix "thinking_control_format" entry_toml
   in
   let* thinking_control_token =
-    exact_non_empty_string_field ~entry_id:id_prefix "thinking_control_token" entry_toml
+    find_string_field ~entry_id:id_prefix "thinking_control_token" entry_toml
   in
   let* thinking_control_format =
-    Capability_vocab.thinking_control_format_of_label_and_token
-      ~format:thinking_control_format_raw
+    Capability_vocab.decode_optional_thinking_control_format
+      ~label:thinking_control_format_raw
       ~token:thinking_control_token
-    |> Result.map_error (Printf.sprintf "model entry %S %s" id_prefix)
+    |> Result.map_error (fun error ->
+      Printf.sprintf
+        "model entry %S %s"
+        id_prefix
+        (Capability_vocab.thinking_control_format_codec_error_to_string error))
   in
   let* anthropic_thinking_control =
     anthropic_thinking_control_opt
