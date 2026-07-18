@@ -1,4 +1,8 @@
 (** Minimal LLM call test — no tools, just one API round-trip *)
+
+(* These tests intentionally exercise the deprecated legacy dispatch path. *)
+[@@@alert "-deprecated"]
+
 open Agent_sdk
 
 let run_live_test () =
