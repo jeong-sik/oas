@@ -260,6 +260,15 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.4](https://github.com/jeong-sik/oas/compare/v0.216.3...v0.216.4) (2026-07-18)
+
+
+### Features
+
+* **agent:** enforce prepared-request fit admission ([#2678](https://github.com/jeong-sik/oas/issues/2678)) ([9b7132f](https://github.com/jeong-sik/oas/commit/9b7132f055ccac4c0d5166ae58e63f61f800d46a))
+* **error:** expose canonical SDK categories ([#2674](https://github.com/jeong-sik/oas/issues/2674)) ([6928060](https://github.com/jeong-sik/oas/commit/6928060de7567be9f1c690fd7cadb132dbf64a72))
+* **execution:** hard-cut Agent tool authority ([#2683](https://github.com/jeong-sik/oas/issues/2683)) ([fe027bb](https://github.com/jeong-sik/oas/commit/fe027bbe3ed500bc4e67d2599e1017a642e08942))
+
 ## [0.216.3](https://github.com/jeong-sik/oas/compare/v0.216.2...v0.216.3) (2026-07-18)
 
 
