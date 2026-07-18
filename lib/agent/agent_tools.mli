@@ -154,7 +154,7 @@ val find_and_execute_tool
     [Block] produces a model-visible deterministic result without emitting
     tool-execution lifecycle callbacks or durable events, because no tool ran.
 
-    When [execution_provider] is supplied, its recursive execution journal is
+    When an Agent-owned execution provider is bound internally, its recursive execution journal is
     the sole tool-effect authority: OAS durably opens the exact invocation and
     commits an attempt before the handler, atomically settles the exact result,
     and replays a settled result without rerunning observers or the handler.
@@ -173,7 +173,6 @@ val execute_tools
   -> hooks:Hooks.hooks
   -> event_bus:Event_bus.t option
   -> ?journal:Durable_event.journal
-  -> ?execution_provider:Execution_agent_scope.provider_attempt
   -> tracer:Tracing.t
   -> agent_name:string
   -> turn_count:int

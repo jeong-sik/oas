@@ -11,3 +11,8 @@ val append_user_input
   :  Agent_types.t
   -> Types.content_block list
   -> Types.content_block list
+
+val resume_user_input
+  :  Agent_types.t
+  -> Types.content_block list
+  -> (Types.content_block list, Error.sdk_error) result

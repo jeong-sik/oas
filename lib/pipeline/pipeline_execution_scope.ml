@@ -11,9 +11,28 @@ let open_turn scope ~ordinal =
   match scope with
   | None -> Ok { turn = None; provider = None }
   | Some scope ->
-    Execution_agent_scope.open_turn scope ~ordinal
-    |> Result.map (fun turn -> { turn = Some turn; provider = None })
-    |> Result.map_error sdk_error
+    (match Execution_agent_scope.resume_turn scope ~ordinal with
+     | Error error -> Error (sdk_error error)
+     | Ok (Some turn) -> Ok { turn = Some turn; provider = None }
+     | Ok None ->
+       Execution_agent_scope.open_turn scope ~ordinal
+       |> Result.map (fun turn -> { turn = Some turn; provider = None })
+       |> Result.map_error sdk_error)
+;;
+
+let resume_current scope ~ordinal =
+  match scope with
+  | None -> Ok None
+  | Some scope ->
+    (match Execution_agent_scope.resume_turn scope ~ordinal with
+     | Error error -> Error (sdk_error error)
+     | Ok None -> Ok None
+     | Ok (Some turn) ->
+       Execution_agent_scope.resume_provider_attempt turn
+       |> Result.map (function
+         | None -> None
+         | Some provider -> Some { turn = Some turn; provider = Some provider })
+       |> Result.map_error sdk_error)
 ;;
 
 let before_provider_attempt t binding =
@@ -26,6 +45,14 @@ let before_provider_attempt t binding =
 ;;
 
 let provider t = t.provider
+
+let invocations_settled t =
+  match t.provider with
+  | None -> Ok false
+  | Some provider ->
+    Execution_agent_scope.provider_invocations_settled provider
+    |> Result.map_error sdk_error
+;;
 
 let close_success t =
   match t.provider, t.turn with

@@ -1595,7 +1595,7 @@ let test_callback_exception_retains_unresolved_scope_failure () =
              (Writer.submit writer (Tx.start_run ~agent_name:"callback-unknown" ()))
          in
          ticket_ref := Some ticket;
-         ignore (await_reconciliation_wait writer ~outcome_count:2);
+         let _observed = await_reconciliation_wait writer ~outcome_count:2 in
          raise Callback_failed)
      with
      | exception
@@ -1609,6 +1609,30 @@ let test_callback_exception_retains_unresolved_scope_failure () =
       -> check int "ticket retains the same close evidence" 3 evidence.outcome_count
     | Error error -> fail (Writer.ticket_error_to_string error)
     | Ok _ -> fail "ambiguous ticket reported durable success")
+;;
+
+let test_reserved_callback_exception_survives_unresolved_scope_failure () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let blocker = Eio.Path.(dir / "events.v1.commit") in
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
+    match
+      Writer.run ~codec ~dir (fun ~sw:_ writer ->
+        let ticket =
+          require_submit
+            (Writer.submit writer (Tx.start_run ~agent_name:"reserved-callback" ()))
+        in
+        ignore ticket;
+        ignore (await_reconciliation_wait writer ~outcome_count:2);
+        raise (Eio.Cancel.Cancelled Exit))
+    with
+    | exception Eio.Cancel.Cancelled Exit -> ()
+    | exception Writer.Callback_failed_after_scope_failure _ ->
+      fail "scope shutdown failure masked the reserved callback exception"
+    | exception exn -> raise exn
+    | Ok _ | Error _ -> fail "reserved callback exception returned normally")
 ;;
 
 let test_durable_success_settles_group_before_supervisor_cancellation () =
@@ -1867,6 +1891,10 @@ let () =
             "callback exception retains unresolved scope failure"
             `Quick
             test_callback_exception_retains_unresolved_scope_failure
+        ; test_case
+            "reserved callback survives unresolved scope failure"
+            `Quick
+            test_reserved_callback_exception_survives_unresolved_scope_failure
         ; test_case
             "durable success settles group before supervisor cancellation"
             `Quick

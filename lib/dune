@@ -23,6 +23,7 @@
   agent_execution_runner
   pipeline_checkpoint
   pipeline_execution_scope
+  pipeline_execution_resume
   agent_execution_event_writer)
  (libraries
   llm_provider

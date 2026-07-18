@@ -73,3 +73,33 @@ let append_user_input agent user_blocks =
     { state with messages = Util.snoc (base_messages agent) user_msg });
   user_msg.content
 ;;
+
+let resume_user_input agent user_blocks =
+  let exact_input = sanitize_user_input_blocks user_blocks in
+  let existing =
+    List.find_map
+      (fun message ->
+         match message.role with
+         | User -> Some message.content
+         | System | Assistant | Tool -> None)
+      (List.rev agent.state.messages)
+  in
+  match existing with
+  | Some content when content = exact_input -> Ok exact_input
+  | Some _ ->
+    Error
+      (Error.Config
+         (Error.InvalidConfig
+            { field = "execution_store.resume"
+            ; detail =
+                "resume input differs from the latest User message in the restored Agent \
+                 checkpoint"
+            }))
+  | None ->
+    Error
+      (Error.Config
+         (Error.InvalidConfig
+            { field = "execution_store.resume"
+            ; detail = "restored Agent checkpoint contains no User message to resume"
+            }))
+;;

@@ -1,10 +1,15 @@
 type runtime = { codec : Execution_codec_executor.t }
 type locator = Execution_agent_scope.scope_locator
 
+type store_mode =
+  | Fresh
+  | Resume of locator
+
 type store =
   { codec : Execution_codec_executor.t
   ; dir : Eio.Fs.dir_ty Eio.Path.t
   ; on_scope_ready : (locator -> (unit, string) result) option
+  ; mode : store_mode
   }
 
 exception Abort_failed_after_exception of exn * Printexc.raw_backtrace * string
@@ -20,11 +25,17 @@ let create_runtime ~sw ~domain_mgr ~domain_count =
          }))
 ;;
 
-let store ~(runtime : runtime) ~dir ?on_scope_ready () =
-  { codec = runtime.codec; dir; on_scope_ready }
+let store ~(runtime : runtime) ~dir ?on_scope_ready ?resume () =
+  let mode =
+    match resume with
+    | None -> Fresh
+    | Some locator -> Resume locator
+  in
+  { codec = runtime.codec; dir; on_scope_ready; mode }
 ;;
 
 let locator_to_yojson = Execution_agent_scope.scope_locator_to_yojson
+let locator_of_yojson = Execution_agent_scope.scope_locator_of_yojson
 
 let execution_failure detail =
   Provider_failure_attribution.of_sdk_error
@@ -140,12 +151,25 @@ let settle_success_after_run scope value =
 ;;
 
 let with_scope scope run =
-  match run () with
-  | Ok value -> settle_success_after_run scope value
-  | Error detailed -> abort_error scope detailed
-  | exception exn ->
-    let backtrace = Printexc.get_raw_backtrace () in
-    abort_after_exception scope exn backtrace
+  Execution_context.with_agent_scope scope (fun () ->
+    match run () with
+    | Ok value -> settle_success_after_run scope value
+    | Error detailed -> abort_error scope detailed
+    | exception exn ->
+      let backtrace = Printexc.get_raw_backtrace () in
+      abort_after_exception scope exn backtrace)
+;;
+
+let prepare_scope store scope =
+  let locator = Execution_agent_scope.scope_locator scope in
+  match store.on_scope_ready with
+  | None -> Ok ()
+  | Some persist ->
+    (match persist locator with
+     | result -> result
+     | exception exn ->
+       let backtrace = Printexc.get_raw_backtrace () in
+       abort_after_exception scope exn backtrace)
 ;;
 
 let with_fresh store agent run =
@@ -158,17 +182,7 @@ let with_fresh store agent run =
     | Error error ->
       Error (execution_failure (Execution_agent_scope.error_to_string error))
     | Ok scope ->
-      let locator = Execution_agent_scope.scope_locator scope in
-      let ready =
-        match store.on_scope_ready with
-        | None -> Ok ()
-        | Some persist ->
-          (match persist locator with
-           | result -> result
-           | exception exn ->
-             let backtrace = Printexc.get_raw_backtrace () in
-             abort_after_exception scope exn backtrace)
-      in
+      let ready = prepare_scope store scope in
       (match ready with
        | Error detail ->
          abort_error scope (execution_failure ("scope locator sink failed: " ^ detail))
@@ -177,4 +191,39 @@ let with_fresh store agent run =
   | Ok result -> result
   | Error failure ->
     Error (execution_failure (Execution_lane_writer.scope_failure_to_string failure))
+;;
+
+let with_resumed store locator agent run =
+  match
+    Execution_lane_writer.resume ~codec:store.codec ~dir:store.dir
+    @@ fun ~sw writer ->
+    match
+      Execution_agent_scope.resume
+        ~writer
+        ~agent_name:agent.Agent_types.state.config.name
+        locator
+    with
+    | Error error ->
+      Error (execution_failure (Execution_agent_scope.error_to_string error))
+    | Ok scope ->
+      (match prepare_scope store scope with
+       | Error detail ->
+         abort_error scope (execution_failure ("scope locator sink failed: " ^ detail))
+       | Ok () -> with_scope scope (fun () -> run ~sw scope))
+  with
+  | Ok result -> result
+  | Error failure ->
+    Error (execution_failure (Execution_lane_writer.scope_failure_to_string failure))
+;;
+
+let with_store store agent run =
+  match store.mode with
+  | Fresh -> with_fresh store agent run
+  | Resume locator -> with_resumed store locator agent run
+;;
+
+let is_resume store =
+  match store.mode with
+  | Fresh -> false
+  | Resume _ -> true
 ;;

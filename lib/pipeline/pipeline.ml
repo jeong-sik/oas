@@ -1,12 +1,4 @@
-(** Turn pipeline: 6-stage decomposition of agent turn execution.
-
-    Replaces the monolithic run_turn_core with named stages:
-    1. Input   — lifecycle, BeforeTurn hook, elicitation
-    2. Parse   — BeforeTurnParams hook, tool preparation
-    3. Route   — provider selection, API call dispatch (sync/stream)
-    4. Collect — usage accumulation, AfterTurn hook, events, message append
-    5. Execute — exact-name tool execution on StopToolUse
-    6. Output  — stop reason → turn_outcome
+(** Six-stage Agent turn pipeline: Input, Parse, Route, Collect, Execute, Output.
 
     [Output] ([stage_output]) dispatches [Execute] ([stage_execute]) internally
     on StopToolUse, so Execute is a sub-step of Output, not a stage that runs
@@ -308,13 +300,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution and context injection. *)
-let stage_execute
-      ?raw_trace_run
-      ?before_tool_execution
-      ?execution_provider
-      agent
-      tool_uses_nonempty
-  =
+let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -333,9 +319,7 @@ let stage_execute
     (fun _tracer ->
        Option.iter (fun callback -> callback ()) before_tool_execution;
        let results, failure =
-         match
-           execute_tools_with_trace ?execution_provider agent raw_trace_run tool_uses
-         with
+         match execute_tools_with_trace agent raw_trace_run tool_uses with
          | Ok results -> results, None
          | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
            completed_results, Some cause
@@ -406,7 +390,7 @@ let stage_execute
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
-let stage_output ?raw_trace_run ?before_tool_execution ?execution_provider agent response =
+let stage_output ?raw_trace_run ?before_tool_execution agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -447,12 +431,7 @@ let stage_output ?raw_trace_run ?before_tool_execution ?execution_provider agent
                  (UnrecognizedStopReason
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
-            stage_execute
-              ?raw_trace_run
-              ?before_tool_execution
-              ?execution_provider
-              agent
-              tool_uses_nonempty)
+            stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty)
        | UnmatchedToolCalls ->
          (* The wire boundary has already classified this response shape as
             malformed. Keep rejecting it; arbitrary provider terminal reasons
@@ -515,14 +494,13 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn
+let run_new_turn
       ~sw
       ?clock
       ~api_strategy
       ?raw_trace_run
       ?on_provider_failure
       ?before_tool_execution
-      ?execution_scope
       agent
   =
   (* Stage 1: Input *)
@@ -563,7 +541,7 @@ let run_turn
   | Guardrails_async.Pass ->
     let* execution =
       Pipeline_execution_scope.open_turn
-        execution_scope
+        (Execution_context.agent_scope ())
         ~ordinal:(agent.state.turn_count + 1)
     in
     (* Stage 3: Route exactly once. Provider [ContextOverflow] remains a typed
@@ -640,18 +618,49 @@ let run_turn
            let* () =
              stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
            in
-           stage_output
-             ?raw_trace_run
-             ?before_tool_execution
-             ?execution_provider:(Pipeline_execution_scope.provider execution)
-             agent
-             response
+           (match Pipeline_execution_scope.provider execution with
+            | None -> stage_output ?raw_trace_run ?before_tool_execution agent response
+            | Some provider ->
+              Execution_context.with_provider_attempt provider (fun () ->
+                stage_output ?raw_trace_run ?before_tool_execution agent response))
            |> tag_error "output")
     in
     (match outcome with
      | Error _ as error -> error
      | Ok value ->
        Pipeline_execution_scope.close_success execution |> Result.map (fun () -> value))
+;;
+
+let run_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ?before_tool_execution
+      agent
+  =
+  let* resumed =
+    Pipeline_execution_scope.resume_current
+      (Execution_context.agent_scope ())
+      ~ordinal:agent.state.turn_count
+  in
+  match resumed with
+  | Some execution ->
+    Pipeline_execution_resume.run
+      agent
+      execution
+      ~execute:(stage_execute ?raw_trace_run agent)
+      ~already_settled:(ToolsExecuted After_tool_results_appended)
+  | None ->
+    run_new_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ?before_tool_execution
+      agent
 ;;
 
 [@@@coverage off]

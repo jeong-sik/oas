@@ -39,6 +39,7 @@ type error =
       ; actual : string
       }
   | Invocation_locator_mismatch
+  | Resume_topology_mismatch of string
   | Invalid_tool_result
   | Settlement_failed of Execution_tool_settlement.error
 
@@ -55,6 +56,7 @@ val resume
   -> (t, error) result
 
 val open_turn : t -> ordinal:int -> (turn, error) result
+val resume_turn : t -> ordinal:int -> (turn option, error) result
 
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt
@@ -63,6 +65,8 @@ val open_provider_attempt
   -> Binding_identity.t
   -> (provider_attempt, error) result
 
+val resume_provider_attempt : turn -> (provider_attempt option, error) result
+
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation
   :  provider_attempt
@@ -70,6 +74,15 @@ val open_invocation
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation, error) result
+
+val find_invocation
+  :  provider_attempt
+  -> invocation:Tool.Invocation.t
+  -> tool_name:string
+  -> input:Yojson.Safe.t
+  -> (invocation option, error) result
+
+val provider_invocations_settled : provider_attempt -> (bool, error) result
 
 (** Stable opaque coordinates for rebinding after the writer is reopened.
     The locator contains no copied Tool name, input, turn, or schedule; those

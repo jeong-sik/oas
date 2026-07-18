@@ -63,6 +63,7 @@ type error =
       ; actual : string
       }
   | Invocation_locator_mismatch
+  | Resume_topology_mismatch of string
   | Invalid_tool_result
   | Settlement_failed of Settlement.error
 
@@ -93,6 +94,7 @@ let error_to_string = function
       actual
   | Invocation_locator_mismatch ->
     "execution invocation locator does not match durable topology"
+  | Resume_topology_mismatch detail -> "execution resume topology mismatch: " ^ detail
   | Invalid_tool_result -> "execution settlement returned an invalid ToolResult"
   | Settlement_failed error -> settlement_error_to_string error
 ;;
@@ -186,18 +188,21 @@ let resume ~writer ~agent_name (locator : scope_locator) =
   | Error error -> Error (Scope_unavailable error)
   | Ok None -> Error Run_not_found
   | Ok (Some view) ->
-    (match Event.node_kind view.Journal.opened.value with
-     | Event.Agent_run { agent_name = durable_agent_name }
+    (match Event.node_kind view.Journal.opened.value, view.status with
+     | Event.Agent_run { agent_name = durable_agent_name }, Journal.Running
        when String.equal agent_name durable_agent_name ->
        Ok { writer; run = view.Journal.run }
-     | Event.Agent_run { agent_name = durable_agent_name } ->
+     | Event.Agent_run { agent_name = durable_agent_name }, Journal.Running ->
        Error
          (Agent_identity_mismatch { expected = durable_agent_name; actual = agent_name })
-     | Event.Agent_turn _
-     | Event.Provider_attempt _
-     | Event.Output_block _
-     | Event.Tool_invocation _
-     | Event.Tool_attempt -> Error Run_not_found)
+     | Event.Agent_run _, Journal.Finished _ ->
+       Error (Resume_topology_mismatch "execution run is already terminal")
+     | ( ( Event.Agent_turn _
+         | Event.Provider_attempt _
+         | Event.Output_block _
+         | Event.Tool_invocation _
+         | Event.Tool_attempt )
+       , (Journal.Running | Journal.Finished _) ) -> Error Run_not_found)
 ;;
 
 let open_turn scope ~ordinal =
@@ -211,6 +216,37 @@ let open_turn scope ~ordinal =
   |> Result.map (fun (node, _event) -> { scope; node })
 ;;
 
+let resume_turn scope ~ordinal =
+  match Writer.find_node scope.writer (Journal.run_root scope.run) with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error Run_not_found
+  | Ok (Some root) ->
+    let matching =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Agent_turn { ordinal = existing } when existing = ordinal ->
+             Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        root.children
+    in
+    (match matching with
+     | [] -> Ok None
+     | [ node ] ->
+       (match Writer.find_node scope.writer node with
+        | Error error -> Error (Scope_unavailable error)
+        | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
+        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { scope; node })
+        | Ok (Some { status = Journal.Closed _; _ }) ->
+          Error (Resume_topology_mismatch "requested turn is already closed"))
+     | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate turn ordinal"))
+;;
+
 let open_provider_attempt turn ~ordinal binding =
   match Event.provider_attempt ~ordinal binding with
   | Error detail -> Error (Invalid_provider_attempt detail)
@@ -219,6 +255,36 @@ let open_provider_attempt turn ~ordinal binding =
       turn.scope.writer
       (Tx.open_node ~run:turn.scope.run ~parent:turn.node ~kind ())
     |> Result.map (fun (node, _event) -> { turn; node })
+;;
+
+let resume_provider_attempt (turn : turn) =
+  match Writer.find_node turn.scope.writer turn.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "turn node disappeared")
+  | Ok (Some view) ->
+    let providers =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Provider_attempt _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    (match providers with
+     | [] -> Ok None
+     | [ node ] ->
+       (match Writer.find_node turn.scope.writer node with
+        | Error error -> Error (Scope_unavailable error)
+        | Ok None -> Error (Resume_topology_mismatch "provider child disappeared")
+        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { turn; node })
+        | Ok (Some { status = Journal.Closed _; _ }) ->
+          Error (Resume_topology_mismatch "requested provider attempt is already closed"))
+     | _ :: _ :: _ ->
+       Error (Resume_topology_mismatch "multiple provider attempts remain open"))
 ;;
 
 let open_invocation provider ~invocation ~tool_name ~input =
@@ -254,6 +320,92 @@ let rebind_invocation scope locator =
       if Event.Run_id.equal durable.run_id locator.run_id
       then Ok { durable; locator; scope }
       else Error Invocation_locator_mismatch)
+;;
+
+let invocation_equal left right =
+  String.equal (Tool.Invocation.tool_use_id left) (Tool.Invocation.tool_use_id right)
+  && Tool.Invocation.turn left = Tool.Invocation.turn right
+  && Execution_tool_schedule.equal
+       (Tool.Invocation.schedule left)
+       (Tool.Invocation.schedule right)
+;;
+
+let find_invocation provider ~invocation ~tool_name ~input =
+  let scope = provider.turn.scope in
+  match Writer.find_node scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let planned_index = Tool.Invocation.planned_index invocation in
+    let matching =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation { schedule; _ }
+             when schedule.planned_index = planned_index ->
+             Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    (match matching with
+     | [] -> Ok None
+     | [ node ] ->
+       let locator = { run_id = Journal.run_id scope.run; node } in
+       (match rebind_invocation scope locator with
+        | Error _ as error -> error
+        | Ok rebound
+          when invocation_equal rebound.durable.invocation invocation
+               && String.equal rebound.durable.tool_name tool_name
+               && Yojson.Safe.equal rebound.durable.input input -> Ok (Some rebound)
+        | Ok _ ->
+          Error
+            (Resume_topology_mismatch
+               "tool occurrence identity differs from the restored Agent checkpoint"))
+     | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate tool occurrence"))
+;;
+
+let provider_invocations_settled provider =
+  match Writer.find_node provider.turn.scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let invocation_nodes =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    let rec all_settled = function
+      | [] -> Ok true
+      | node :: rest ->
+        (match Writer.find_node provider.turn.scope.writer node with
+         | Error error -> Error (Scope_unavailable error)
+         | Ok None -> Error (Resume_topology_mismatch "tool invocation disappeared")
+         | Ok
+             (Some
+                { materialized = Journal.Tool_invocation_state { result = Some _; _ }; _ })
+           -> all_settled rest
+         | Ok
+             (Some
+                { materialized = Journal.Tool_invocation_state { result = None; _ }; _ })
+           -> Ok false
+         | Ok (Some _) ->
+           Error (Resume_topology_mismatch "provider child changed node kind"))
+    in
+    (match invocation_nodes with
+     | [] -> Ok false
+     | nodes -> all_settled nodes)
 ;;
 
 let tool_result_of_block durable = function

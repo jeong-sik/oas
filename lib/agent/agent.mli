@@ -152,25 +152,38 @@ type execution_locator
 
 val execution_locator_to_yojson : execution_locator -> Yojson.Safe.t
 
+(** Decode the exact versioned locator emitted by
+    {!execution_locator_to_yojson}. Unknown versions or fields are rejected. *)
+val execution_locator_of_yojson : Yojson.Safe.t -> (execution_locator, string) result
+
 val create_execution_runtime
   :  sw:Eio.Switch.t
   -> domain_mgr:_ Eio.Domain_manager.t
   -> domain_count:int
   -> (execution_runtime, Error.sdk_error) result
 
-(** Configure one fresh durable execution scope. The same optional value is
-    accepted by regular, streaming, handoff, single-turn, and [Advanced] run
-    entry points; no parallel durable run surface is introduced. One store and
-    directory must be used for exactly one API call. A cooperative [Yielded]
-    return is a successful terminal boundary for that call.
+(** Configure one durable execution scope. Without [resume], the directory must
+    be new and the call starts a fresh scope. With [resume], the same Agent API
+    reopens that scope in the same directory, validates Agent identity and the
+    restored user input, and replays settled ToolResults without rerunning tool
+    gates, handlers, or completion observers. An admitted Tool attempt without
+    a settled result fails closed because its external outcome is unknown.
+
+    The same optional value is accepted by regular, streaming, handoff,
+    single-turn, and [Advanced] run entry points; no parallel durable run
+    surface is introduced. One store and directory must be used for exactly one
+    API call. A cooperative [Yielded] return is a successful terminal boundary
+    for that call.
 
     [on_scope_ready], when supplied, must persist the opaque locator before
-    provider or Tool effects begin; failure aborts the scope and the Agent
-    call. *)
+    provider or Tool effects begin. It is invoked for both fresh and resumed
+    scopes, so the sink should be idempotent. Failure aborts the scope and the
+    Agent call. *)
 val execution_store
   :  runtime:execution_runtime
   -> dir:Eio.Fs.dir_ty Eio.Path.t
   -> ?on_scope_ready:(execution_locator -> (unit, string) result)
+  -> ?resume:execution_locator
   -> unit
   -> execution_store
 

@@ -36,8 +36,7 @@ val invoke_hook_with_trace
     events, lifecycle updates). Delegates to [Agent_tools.execute_tools],
     retaining completed results when a trace observer fails. *)
 val execute_tools_with_trace
-  :  ?execution_provider:Execution_agent_scope.provider_attempt
-  -> t
+  :  t
   -> Raw_trace.active_run option
   -> Types.content_block list
   -> (Agent_tools.tool_execution_result list, Agent_tools.execution_failure) result

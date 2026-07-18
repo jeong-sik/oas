@@ -36,6 +36,7 @@ type execution_locator = Agent_execution_runner.locator
 let create_execution_runtime = Agent_execution_runner.create_runtime
 let execution_store = Agent_execution_runner.store
 let execution_locator_to_yojson = Agent_execution_runner.locator_to_yojson
+let execution_locator_of_yojson = Agent_execution_runner.locator_of_yojson
 
 let replace_projected_error error detailed =
   { detailed with Provider_failure_attribution.error }
@@ -54,7 +55,6 @@ let run_turn_core_detailed
       ~api_strategy
       ?raw_trace_run
       ?before_tool_execution
-      ?execution_scope
       agent
   =
   let provider_failure = ref None in
@@ -83,7 +83,6 @@ let run_turn_core_detailed
            ~api_strategy:api_strat
            ?raw_trace_run
            ?before_tool_execution
-           ?execution_scope
            ~on_provider_failure:(fun attribution -> provider_failure := attribution)
            agent
        with
@@ -116,6 +115,7 @@ let base_messages = Agent_input.base_messages
 let trace_prompt_of_blocks = Agent_input.trace_prompt_of_blocks
 let validate_user_input_blocks = Agent_input.validate_user_input_blocks
 let append_user_input = Agent_input.append_user_input
+let resume_user_input = Agent_input.resume_user_input
 
 (** Per-turn timing observability helper. Emits one structured record
     per turn so operators diagnosing wall-clock timeouts can see
@@ -187,7 +187,6 @@ let run_loop_turns_detailed
       ?on_yield
       ?on_resume
       ?raw_trace_run
-      ?execution_scope
       agent
   =
   let yield_enabled = agent.state.config.yield_on_tool in
@@ -204,7 +203,6 @@ let run_loop_turns_detailed
         ~api_strategy
         ?raw_trace_run
         ?before_tool_execution:release.before_tool_execution
-        ?execution_scope
         agent
     in
     match result with
@@ -247,7 +245,18 @@ let run_loop_detailed
       agent
       user_blocks
   =
-  let user_blocks = append_user_input agent user_blocks in
+  let open Result_syntax in
+  let resuming =
+    match execution_store with
+    | Some store -> Agent_execution_runner.is_resume store
+    | None -> false
+  in
+  let* user_blocks =
+    if resuming
+    then
+      resume_user_input agent user_blocks |> Result.map_error detailed_error_of_sdk_error
+    else Ok (append_user_input agent user_blocks)
+  in
   let trace_prompt = trace_prompt_of_blocks user_blocks in
   with_raw_trace_run_result
     ~of_sdk_error:detailed_error_of_sdk_error
@@ -255,7 +264,7 @@ let run_loop_detailed
     agent
     trace_prompt
   @@ fun raw_trace_run ->
-  let run ~sw execution_scope =
+  let run ~sw =
     run_loop_turns_detailed
       ~sw
       ?clock
@@ -263,14 +272,12 @@ let run_loop_detailed
       ?on_yield
       ?on_resume
       ?raw_trace_run
-      ?execution_scope
       agent
   in
   match execution_store, execution_scope_factory with
-  | None, None -> run ~sw None
+  | None, None -> run ~sw
   | Some store, None ->
-    Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
-      run ~sw (Some execution_scope))
+    Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
   | None, Some start_scope ->
     (match start_scope () with
      | Error error ->
@@ -279,8 +286,7 @@ let run_loop_detailed
             (Error.Internal
                ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
      | Ok execution_scope ->
-       Agent_execution_runner.with_scope execution_scope (fun () ->
-         run ~sw (Some execution_scope)))
+       Agent_execution_runner.with_scope execution_scope (fun () -> run ~sw))
   | Some _, Some _ ->
     Error
       (detailed_error_of_sdk_error
@@ -786,7 +792,6 @@ module Advanced = struct
         ?on_yield
         ?on_resume
         ?raw_trace_run
-        ?execution_scope
         ~on_tool_boundary
         agent
     =
@@ -804,7 +809,6 @@ module Advanced = struct
           ~api_strategy
           ?raw_trace_run
           ?before_tool_execution:release.before_tool_execution
-          ?execution_scope
           agent
       with
       | Error error ->
@@ -856,7 +860,19 @@ module Advanced = struct
         agent
         user_blocks
     =
-    let user_blocks = append_user_input agent user_blocks in
+    let open Result_syntax in
+    let resuming =
+      match execution_store with
+      | Some store -> Agent_execution_runner.is_resume store
+      | None -> false
+    in
+    let* user_blocks =
+      if resuming
+      then
+        resume_user_input agent user_blocks
+        |> Result.map_error detailed_error_of_sdk_error
+      else Ok (append_user_input agent user_blocks)
+    in
     let trace_prompt = trace_prompt_of_blocks user_blocks in
     with_raw_trace_run_classified_result
       ~of_sdk_error:detailed_error_of_sdk_error
@@ -865,7 +881,7 @@ module Advanced = struct
       agent
       trace_prompt
     @@ fun raw_trace_run ->
-    let run ~sw execution_scope =
+    let run ~sw =
       run_loop_turns_detailed
         ~sw
         ?clock
@@ -873,15 +889,13 @@ module Advanced = struct
         ?on_yield
         ?on_resume
         ?raw_trace_run
-        ?execution_scope
         ~on_tool_boundary
         agent
     in
     match execution_store with
-    | None -> run ~sw None
+    | None -> run ~sw
     | Some store ->
-      Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
-        run ~sw (Some execution_scope))
+      Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
   ;;
 
   let run_blocks_detailed
@@ -940,19 +954,18 @@ module Advanced = struct
 end
 
 let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =
-  let run ~sw ?execution_scope () =
+  let run ~sw () =
     run_turn_core_detailed
       ~sw
       ?clock
       ~api_strategy:(Stream { on_event; on_telemetry })
-      ?execution_scope
       agent
   in
   (match execution_store with
    | None -> run ~sw ()
    | Some store ->
-     Agent_execution_runner.with_fresh store agent (fun ~sw execution_scope ->
-       run ~sw ~execution_scope ()))
+     Agent_execution_runner.with_store store agent (fun ~sw _execution_scope ->
+       run ~sw ()))
   |> Result.map (function
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted)
