@@ -115,6 +115,41 @@ type sdk_error =
   | Orchestration of orchestration_error
   | Internal of string
 
+type category =
+  | Api_category
+  | Provider_category
+  | Agent_category
+  | Mcp_category
+  | Config_category
+  | Serialization_category
+  | Io_category
+  | Orchestration_category
+  | Internal_category
+
+let category : sdk_error -> category = function
+  | Api _ -> Api_category
+  | Provider _ -> Provider_category
+  | Agent _ -> Agent_category
+  | Mcp _ -> Mcp_category
+  | Config _ -> Config_category
+  | Serialization _ -> Serialization_category
+  | Io _ -> Io_category
+  | Orchestration _ -> Orchestration_category
+  | Internal _ -> Internal_category
+;;
+
+let category_label : category -> string = function
+  | Api_category -> "api"
+  | Provider_category -> "provider"
+  | Agent_category -> "agent"
+  | Mcp_category -> "mcp"
+  | Config_category -> "config"
+  | Serialization_category -> "serialization"
+  | Io_category -> "io"
+  | Orchestration_category -> "orchestration"
+  | Internal_category -> "internal"
+;;
+
 (* ── Human-readable messages ──────────────────────────────────────── *)
 
 let agent_error_to_string = function

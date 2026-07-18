@@ -110,7 +110,27 @@ type sdk_error =
   | Orchestration of orchestration_error
   | Internal of string
 
+(** Non-identifying top-level category derived from an [sdk_error].
+    This projection is for observation only; it does not define retry,
+    fallback, or scheduling policy. *)
+type category =
+  | Api_category
+  | Provider_category
+  | Agent_category
+  | Mcp_category
+  | Config_category
+  | Serialization_category
+  | Io_category
+  | Orchestration_category
+  | Internal_category
+
 (** {1 Operations} *)
+
+(** Project an SDK error to its top-level category. *)
+val category : sdk_error -> category
+
+(** Canonical observation label for a top-level category. *)
+val category_label : category -> string
 
 (** Human-readable error message. *)
 val to_string : sdk_error -> string
