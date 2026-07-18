@@ -700,7 +700,7 @@ let provider_config_with_agent_config
     else Llm_provider.Provider_config.output_schema_of_response_format response_format
   in
   let max_context, model_capabilities_override, supports_structured_output_override =
-    if String.equal model_id provider_config.model_id
+    if model_id = provider_config.model_id
     then
       ( provider_config.max_context
       , provider_config.model_capabilities_override
