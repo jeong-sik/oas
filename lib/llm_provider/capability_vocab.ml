@@ -94,31 +94,66 @@ let anthropic_thinking_control_of_string raw =
   List.assoc_opt (normalize raw) anthropic_thinking_control_table
 ;;
 
-(* The chat-template-token label needs a companion token, so unlike the data-less
-   variants it cannot live in a plain [string -> t] table. The label is still
-   listed in [thinking_control_format_values] for vocab-membership validation;
-   build the full value with [thinking_control_format_of_label_and_token]. *)
-let chat_template_token_label = "chat_template_token"
+(** The one canonical label projection for thinking-control formats. This match
+    is deliberately exhaustive: the encoder, exact decoder lookup, and
+    advertised vocabulary below derive their labels from it. *)
+let canonical_label_of_thinking_control_format = function
+  | No_thinking_control -> "none"
+  | Thinking_object -> "thinking_object"
+  | Thinking_object_adaptive -> "thinking_object_adaptive"
+  | Thinking_object_only -> "thinking_object_only"
+  | Chat_template_kwargs -> "chat_template_kwargs"
+  | Chat_template_token _ -> "chat_template_token"
+  | Ollama_think -> "ollama_think"
+  | Reasoning_effort -> "reasoning_effort"
+  | Enable_thinking -> "enable_thinking"
+;;
 
-let thinking_control_format_tokenless_table =
-  [ "none", No_thinking_control
-  ; "thinking_object", Thinking_object
-  ; "thinking_object_adaptive", Thinking_object_adaptive
-  ; "thinking_object_only", Thinking_object_only
-  ; "chat_template_kwargs", Chat_template_kwargs
-  ; "ollama_think", Ollama_think
-  ; "reasoning_effort", Reasoning_effort
-  ; "enable_thinking", Enable_thinking
+(* These formats carry no companion token and can therefore serve directly as
+   exact decoder results. Their labels are always obtained from the exhaustive
+   canonical projection above; this list contains no second wire vocabulary. *)
+let tokenless_thinking_control_formats =
+  [ No_thinking_control
+  ; Thinking_object
+  ; Thinking_object_adaptive
+  ; Thinking_object_only
+  ; Chat_template_kwargs
+  ; Ollama_think
+  ; Reasoning_effort
+  ; Enable_thinking
   ]
 ;;
 
-let thinking_control_format_values =
-  List.map fst thinking_control_format_tokenless_table @ [ chat_template_token_label ]
+let chat_template_token_label =
+  canonical_label_of_thinking_control_format (Chat_template_token "")
 ;;
 
+let thinking_control_format_values =
+  List.map canonical_label_of_thinking_control_format tokenless_thinking_control_formats
+  @ [ chat_template_token_label ]
+;;
+
+type thinking_control_format_fields =
+  { label : string
+  ; token : string option
+  }
+
+type thinking_control_token_invalidity =
+  | Empty_token
+  | Leading_or_trailing_whitespace
+
+type thinking_control_format_codec_error =
+  | Unknown_label of string
+  | Token_required
+  | Token_forbidden
+  | Invalid_token of
+      { token : string
+      ; invalidity : thinking_control_token_invalidity
+      }
+
 (* The chat-template thinking token carried by [Chat_template_token], or [None]
-   for every other wire format. Exhaustive so a new [thinking_control_format]
-   variant is compiler-checked here. *)
+   for every other wire format. Exhaustive so adding a format requires an
+   explicit token-policy decision. *)
 let token_of_thinking_control_format = function
   | Chat_template_token token -> Some token
   | No_thinking_control
@@ -131,58 +166,90 @@ let token_of_thinking_control_format = function
   | Enable_thinking -> None
 ;;
 
-(* Join a [thinking_control_format] wire label with its companion
-   [thinking_control_token]. The two are one concept: [chat_template_token]
-   carries its token in the constructor, so a chat_template_token label REQUIRES a
-   token, and a token REQUIRES the chat_template_token label. Every crossed
-   combination fails closed here rather than parsing into a value a request
-   builder would reject later.
+let validate_thinking_control_token token =
+  let trimmed = String.trim token in
+  if String.equal trimmed ""
+  then Error (Invalid_token { token; invalidity = Empty_token })
+  else if not (String.equal token trimmed)
+  then Error (Invalid_token { token; invalidity = Leading_or_trailing_whitespace })
+  else Ok token
+;;
 
-   Callers validate [format] against [thinking_control_format_values] and [token]
-   for exactness before calling; this function enforces only the cross-field
-   invariant and returns a message the caller prefixes with the offending entry
-   id. *)
-let thinking_control_format_of_label_and_token ~format ~token
-  : (thinking_control_format option, string) result
+let validate_optional_thinking_control_token = function
+  | None -> Ok None
+  | Some token -> Result.map Option.some (validate_thinking_control_token token)
+;;
+
+(** The canonical, lossless operator representation of a thinking-control
+    format. Both fields derive from exhaustive projections rather than carrying
+    their own wire-label table. The public constructor can carry any string, so
+    encoding validates its token and returns a typed error instead of emitting
+    an invalid declaration. *)
+let encode_thinking_control_format format
+  : (thinking_control_format_fields, thinking_control_format_codec_error) result
   =
-  let token_present =
-    match token with
-    | Some t when String.trim t <> "" -> Some t
-    | Some _ | None -> None
-  in
-  let orphan_token_error =
+  Result.map
+    (fun token -> { label = canonical_label_of_thinking_control_format format; token })
+    (validate_optional_thinking_control_token (token_of_thinking_control_format format))
+;;
+
+(** Decode only exact canonical labels. No trimming, case folding, aliasing, or
+    default selection occurs here. [thinking_control_token] is part of the same
+    declaration: it is required by [chat_template_token], forbidden elsewhere,
+    and retained byte-for-byte when valid. *)
+let decode_thinking_control_format ({ label; token } : thinking_control_format_fields)
+  : (thinking_control_format, thinking_control_format_codec_error) result
+  =
+  Result.bind (validate_optional_thinking_control_token token) (fun token ->
+    if String.equal label chat_template_token_label
+    then (
+      match token with
+      | None -> Error Token_required
+      | Some token -> Ok (Chat_template_token token))
+    else (
+      match
+        List.find_opt
+          (fun format ->
+             String.equal label (canonical_label_of_thinking_control_format format))
+          tokenless_thinking_control_formats
+      with
+      | None -> Error (Unknown_label label)
+      | Some _ when Option.is_some token -> Error Token_forbidden
+      | Some format -> Ok format))
+;;
+
+(** Optional catalog/manifest declaration wrapper. Absence is preserved as
+    absence; it never selects [No_thinking_control]. An orphan token is rejected
+    by the same typed error as a token attached to a tokenless format. *)
+let decode_optional_thinking_control_format ~label ~token
+  : (thinking_control_format option, thinking_control_format_codec_error) result
+  =
+  match label with
+  | None ->
+    Result.bind (validate_optional_thinking_control_token token) (function
+      | None -> Ok None
+      | Some _ -> Error Token_forbidden)
+  | Some label -> Result.map Option.some (decode_thinking_control_format { label; token })
+;;
+
+let thinking_control_format_codec_error_to_string = function
+  | Unknown_label label ->
+    Printf.sprintf
+      "unknown thinking_control_format %S (canonical: %s)"
+      label
+      (String.concat ", " thinking_control_format_values)
+  | Token_required ->
+    Printf.sprintf
+      "thinking_control_format %S requires a non-empty thinking_control_token"
+      chat_template_token_label
+  | Token_forbidden ->
     Printf.sprintf
       "thinking_control_token is only valid with thinking_control_format = %S"
       chat_template_token_label
-  in
-  match format with
-  | None ->
-    (match token_present with
-     | None -> Ok None
-     | Some _ -> Error orphan_token_error)
-  | Some raw ->
-    let normalized = normalize raw in
-    if String.equal normalized chat_template_token_label
-    then (
-      match token_present with
-      | Some token -> Ok (Some (Chat_template_token token))
-      | None ->
-        Error
-          (Printf.sprintf
-             "thinking_control_format %S requires a non-empty thinking_control_token"
-             chat_template_token_label))
-    else (
-      match token_present with
-      | Some _ -> Error orphan_token_error
-      | None ->
-        (match List.assoc_opt normalized thinking_control_format_tokenless_table with
-         | Some fmt -> Ok (Some fmt)
-         | None ->
-           Error
-             (Printf.sprintf
-                "unknown thinking_control_format %S (canonical: %s)"
-                normalized
-                (String.concat ", " thinking_control_format_values))))
+  | Invalid_token { invalidity = Empty_token; _ } ->
+    "thinking_control_token must not be empty"
+  | Invalid_token { invalidity = Leading_or_trailing_whitespace; _ } ->
+    "thinking_control_token must not have leading or trailing whitespace"
 ;;
 
 let preserve_thinking_control_format_table =
@@ -204,48 +271,111 @@ let preserve_thinking_control_format_of_string raw =
   | normalized -> List.assoc_opt normalized preserve_thinking_control_format_table
 ;;
 
-let%test "thinking_control_format labels resolve through the canonical vocab" =
+let%test "thinking_control_format exact codec round-trips every format" =
   List.for_all
-    (fun raw ->
-       let token =
-         if String.equal (normalize raw) chat_template_token_label
-         then Some "<|think|>"
-         else None
-       in
-       match thinking_control_format_of_label_and_token ~format:(Some raw) ~token with
-       | Ok (Some _) -> true
-       | Ok None | Error _ -> false)
-    thinking_control_format_values
+    (fun format ->
+       match encode_thinking_control_format format with
+       | Error _ -> false
+       | Ok encoded ->
+         (match decode_thinking_control_format encoded with
+          | Ok decoded -> decoded = format
+          | Error _ -> false))
+    (Chat_template_token "<|think|>" :: tokenless_thinking_control_formats)
 ;;
 
-let%test "chat_template_token label without a token fails closed" =
-  match
-    thinking_control_format_of_label_and_token
-      ~format:(Some chat_template_token_label)
-      ~token:None
-  with
-  | Error _ -> true
-  | Ok _ -> false
+let%test "thinking_control_format encoder preserves the exact template token" =
+  encode_thinking_control_format (Chat_template_token "<|exact token|>")
+  = Ok { label = chat_template_token_label; token = Some "<|exact token|>" }
 ;;
 
-let%test "chat_template_token label carries its token into the constructor" =
-  match
-    thinking_control_format_of_label_and_token
-      ~format:(Some chat_template_token_label)
-      ~token:(Some "<|think|>")
-  with
-  | Ok (Some (Chat_template_token "<|think|>")) -> true
+let%test "thinking_control_format encoder rejects an empty public token" =
+  match encode_thinking_control_format (Chat_template_token "") with
+  | Error (Invalid_token { token = ""; invalidity = Empty_token }) -> true
   | Ok _ | Error _ -> false
 ;;
 
-let%test "a token declared without the chat_template_token label fails closed" =
+let%test "thinking_control_format encoder rejects a whitespace-only public token" =
+  match encode_thinking_control_format (Chat_template_token " \t ") with
+  | Error (Invalid_token { token = " \t "; invalidity = Empty_token }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "thinking_control_format encoder rejects a padded public token" =
+  match encode_thinking_control_format (Chat_template_token " <|think|> ") with
+  | Error
+      (Invalid_token
+         { token = " <|think|> "; invalidity = Leading_or_trailing_whitespace }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "thinking_control_format canonical labels are unique" =
+  List.length (List.sort_uniq String.compare thinking_control_format_values)
+  = List.length thinking_control_format_values
+;;
+
+let%test "thinking_control_format decoder rejects noncanonical labels exactly" =
+  List.for_all
+    (fun label ->
+       match decode_thinking_control_format { label; token = None } with
+       | Error (Unknown_label rejected) -> String.equal rejected label
+       | Ok _ | Error _ -> false)
+    [ " thinking_object"
+    ; "thinking_object "
+    ; "Thinking_object"
+    ; "thinking-object"
+    ; "no_thinking_control"
+    ; ""
+    ]
+;;
+
+let%test "chat_template_token requires a token" =
+  decode_thinking_control_format { label = chat_template_token_label; token = None }
+  = Error Token_required
+;;
+
+let%test "tokenless thinking_control_format forbids a token" =
+  decode_thinking_control_format
+    { label = canonical_label_of_thinking_control_format Thinking_object
+    ; token = Some "<|think|>"
+    }
+  = Error Token_forbidden
+;;
+
+let%test "chat_template_token rejects an empty token" =
   match
-    thinking_control_format_of_label_and_token
-      ~format:(Some "thinking_object")
-      ~token:(Some "<|think|>")
+    decode_thinking_control_format { label = chat_template_token_label; token = Some "" }
   with
-  | Error _ -> true
-  | Ok _ -> false
+  | Error (Invalid_token { invalidity = Empty_token; _ }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "chat_template_token rejects a whitespace-only token as empty" =
+  match
+    decode_thinking_control_format
+      { label = chat_template_token_label; token = Some " \t " }
+  with
+  | Error (Invalid_token { token = " \t "; invalidity = Empty_token }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "chat_template_token rejects a padded token without normalizing it" =
+  match
+    decode_thinking_control_format
+      { label = chat_template_token_label; token = Some " <|think|> " }
+  with
+  | Error
+      (Invalid_token
+         { token = " <|think|> "; invalidity = Leading_or_trailing_whitespace }) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "optional thinking_control_format preserves absence without a default" =
+  decode_optional_thinking_control_format ~label:None ~token:None = Ok None
+;;
+
+let%test "optional thinking_control_format rejects an orphan token" =
+  decode_optional_thinking_control_format ~label:None ~token:(Some "<|think|>")
+  = Error Token_forbidden
 ;;
 
 let%test "preserve_thinking_control_format values parse through the canonical table" =
