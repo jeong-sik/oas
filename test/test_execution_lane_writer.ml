@@ -760,6 +760,109 @@ let test_agent_scope_executes_pending_after_restart () =
       require_agent_scope (Agent_scope.abort scope cancelled)))
 ;;
 
+let test_agent_scope_rejects_recursive_child_invocation () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    with_fresh codec dir (fun _sw writer ->
+      let value transaction = (submit_and_await writer transaction).value in
+      let root_run, _ = value (Tx.start_run ~agent_name:"root" ()) in
+      let root_turn, _ =
+        value
+          (Tx.open_node
+             ~run:root_run
+             ~parent:(Journal.run_root root_run)
+             ~kind:(Event.Agent_turn { ordinal = 0 })
+             ())
+      in
+      let root_provider, _ =
+        value
+          (Tx.open_node
+             ~run:root_run
+             ~parent:root_turn
+             ~kind:(provider_attempt_for ~provider_id:"root-provider" 0)
+             ())
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let root_invocation, _ =
+        value
+          (Tx.open_tool_invocation
+             ~run:root_run
+             ~provider_attempt:root_provider
+             ~invocation:
+               (Tool.Invocation.create ~tool_use_id:"delegate" ~turn:0 ~schedule)
+             ~tool_name:"delegate"
+             ~input:`Null
+             ())
+      in
+      let root_attempt, _ =
+        value (Tx.begin_tool_attempt ~invocation:root_invocation ())
+      in
+      let child_run, _ =
+        value (Tx.start_run ~parent_attempt:root_attempt ~agent_name:"child" ())
+      in
+      let child_turn, _ =
+        value
+          (Tx.open_node
+             ~run:child_run
+             ~parent:(Journal.run_root child_run)
+             ~kind:(Event.Agent_turn { ordinal = 0 })
+             ())
+      in
+      let child_provider, _ =
+        value
+          (Tx.open_node
+             ~run:child_run
+             ~parent:child_turn
+             ~kind:(provider_attempt_for ~provider_id:"child-provider" 0)
+             ())
+      in
+      let child_invocation, _ =
+        value
+          (Tx.open_tool_invocation
+             ~run:child_run
+             ~provider_attempt:child_provider
+             ~invocation:
+               (Tool.Invocation.create ~tool_use_id:"child-call" ~turn:0 ~schedule)
+             ~tool_name:"child-tool"
+             ~input:(`Assoc [ "origin", `String "child" ])
+             ())
+      in
+      let scope_for run =
+        Agent_scope.scope_locator_of_yojson
+          (`Assoc
+              [ "version", `Int 1
+              ; "run_id", `String (Event.Run_id.to_string (Journal.run_id run))
+              ])
+        |> require_codec
+        |> Agent_scope.resume ~writer
+        |> require_agent_scope
+      in
+      let child_locator =
+        Agent_scope.invocation_locator_of_yojson
+          (`Assoc
+              [ "version", `Int 1
+              ; "run_id", `String (Event.Run_id.to_string (Journal.run_id child_run))
+              ; "node_id", `String (Event.Node_id.to_string child_invocation)
+              ])
+        |> require_codec
+      in
+      ignore
+        (require_agent_scope
+           (Agent_scope.rebind_invocation (scope_for child_run) child_locator));
+      match Agent_scope.rebind_invocation (scope_for root_run) child_locator with
+      | Error Agent_scope.Invocation_locator_mismatch -> ()
+      | Error error -> fail (Agent_scope.error_to_string error)
+      | Ok _ -> fail "recursive child invocation rebound into root Agent scope"))
+;;
+
 let rec await_reconciliation_phase writer =
   let observed = Writer.stats writer in
   match observed.admission, observed.worker_phase with
@@ -1688,6 +1791,10 @@ let () =
             "pending Agent scope resumes exact command"
             `Quick
             test_agent_scope_executes_pending_after_restart
+        ; test_case
+            "recursive child invocation stays in child Agent scope"
+            `Quick
+            test_agent_scope_rejects_recursive_child_invocation
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick
