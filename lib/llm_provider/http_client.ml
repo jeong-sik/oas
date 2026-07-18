@@ -382,6 +382,164 @@ let profile_headers_on_client_error ~url ~code ~resp_headers request_headers =
     Diag.warn "http_client" "%s" (Yojson.Safe.to_string json))
 ;;
 
+(* On a 4xx, the response body from a provider edge is frequently an opaque
+   "Bad Request" with no field-level cause (observed 2026-07-18 against
+   ollama.com/v1 deepseek-v4-flash: ~78% of turns rejected, empty-detail body).
+   The request that provoked it is then lost, because [HttpError] only carries
+   the RESPONSE body. This logs a STRUCTURAL profile of the REQUEST body so a
+   recurring provider 4xx can be attributed to a request shape without a repro
+   harness or a full-body dump.
+
+   Only structural facts are emitted — field presence, counts, message role
+   sequence, and enumerable option values (response_format type, reasoning
+   effort). Prompt/message TEXT and tool argument values are never logged: they
+   may carry user content and do not distinguish an accepted shape from a
+   rejected one. A body that is not JSON is reported as such rather than
+   parsed. *)
+(* Exhaustive over the closed [Yojson.Safe.t] variant — no catch-all, so a
+   future Yojson constructor forces a compile update rather than silently
+   mislabelling. Non-string JSON collapses to a sentinel that is
+   distinguishable from an absent field ([`Null]). *)
+let json_as_string_label : Yojson.Safe.t -> Yojson.Safe.t = function
+  | `String s -> `String s
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ ->
+    `String "<non-string>"
+;;
+
+let json_list_len_label : Yojson.Safe.t -> Yojson.Safe.t = function
+  | `List xs -> `Int (List.length xs)
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ ->
+    `String "<non-list>"
+;;
+
+let json_is_present : Yojson.Safe.t -> bool = function
+  | `Null -> false
+  | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ -> true
+;;
+
+let request_body_shape_profile (body : string) : Yojson.Safe.t =
+  match Yojson.Safe.from_string body with
+  | exception (Yojson.Json_error _ | Yojson.Safe.Util.Type_error _) ->
+    `Assoc [ "parseable", `Bool false; "body_bytes", `Int (String.length body) ]
+  | `Assoc fields ->
+    let has key = List.mem_assoc key fields in
+    (* [absent] ([`Null]) is reserved for a missing field; a present-but-wrong
+       shape gets a distinct sentinel from the label helpers above. *)
+    let field key = if has key then List.assoc key fields else `Null in
+    let string_field key = json_as_string_label (field key) in
+    let messages =
+      match field "messages" with
+      | `List ms -> ms
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+    in
+    let role_of_message : Yojson.Safe.t -> Yojson.Safe.t = function
+      | `Assoc mfields ->
+        (match List.assoc_opt "role" mfields with
+         | Some (`String r) -> `String r
+         | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _) ->
+           `String "<non-string-role>"
+         | None -> `String "<no-role>")
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+        `String "<non-object>"
+    in
+    let roles = List.map role_of_message messages in
+    let response_format_type =
+      match field "response_format" with
+      | `Assoc rf ->
+        (match List.assoc_opt "type" rf with
+         | Some (`String t) -> `String t
+         | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _) ->
+           `String "<non-string-type>"
+         | None -> `String "<no-type>")
+      | `Null -> `Null
+      | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+        `String "<non-object>"
+    in
+    let stream =
+      match field "stream" with
+      | `Bool b -> `Bool b
+      | `Null | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ -> `Null
+    in
+    `Assoc
+      [ "parseable", `Bool true
+      ; "body_bytes", `Int (String.length body)
+      ; "model", string_field "model"
+      ; "message_count", `Int (List.length messages)
+      ; "message_roles", `List roles
+      ; "tool_count", json_list_len_label (field "tools")
+      ; "response_format_type", response_format_type
+      ; "reasoning_effort", string_field "reasoning_effort"
+      ; "thinking_present", `Bool (json_is_present (field "thinking"))
+      ; "max_tokens_present", `Bool (has "max_tokens")
+      ; "stream", stream
+      ]
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+    `Assoc
+      [ "parseable", `Bool true
+      ; "body_bytes", `Int (String.length body)
+      ; "top_level", `String "<non-object>"
+      ]
+;;
+
+(* Companion to [profile_headers_on_client_error]: names the request SHAPE on a
+   4xx so an opaque provider "Bad Request" can be diagnosed from the always-on
+   log, without enabling body-level debug or reproducing the exact turn. *)
+let profile_request_on_client_error ~url ~code ~request_body =
+  if code >= 400 && code < 500
+  then (
+    let json =
+      `Assoc
+        [ "event", `String "http_client_4xx_request_shape"
+        ; "url", `String url
+        ; "status", `Int code
+        ; "request_shape", request_body_shape_profile request_body
+        ; ( "note"
+          , `String
+              "4xx from an LLM endpoint. Structural request facts only; message and \
+               tool-argument TEXT omitted (may carry user content and does not \
+               distinguish accepted from rejected shapes)." )
+        ]
+    in
+    Diag.warn "http_client" "%s" (Yojson.Safe.to_string json))
+;;
+
+let%test "request_body_shape_profile reports non-json bodies without raising" =
+  (* Result is always an [`Assoc]; [member] yields [`Null] for a missing key,
+     so no catch-all is needed to read a field. *)
+  Yojson.Safe.Util.member "parseable" (request_body_shape_profile "Bad Request")
+  = `Bool false
+;;
+
+let%test "request_body_shape_profile extracts shape without message text" =
+  let body =
+    {|{"model":"deepseek-v4-flash","messages":[{"role":"system","content":"secret prompt"},{"role":"user","content":"private"}],"tools":[{"type":"function"}],"response_format":{"type":"json_schema"},"reasoning_effort":"high","thinking":{"type":"enabled"}}|}
+  in
+  let profile = request_body_shape_profile body in
+  let s = Yojson.Safe.to_string profile in
+  let contains ~needle haystack =
+    let nl = String.length needle
+    and hl = String.length haystack in
+    let rec loop i =
+      if i + nl > hl
+      then false
+      else if String.sub haystack i nl = needle
+      then true
+      else loop (i + 1)
+    in
+    nl = 0 || loop 0
+  in
+  let field key = Yojson.Safe.Util.member key profile in
+  (* structural facts present, message content absent *)
+  field "model" = `String "deepseek-v4-flash"
+  && field "message_count" = `Int 2
+  && field "response_format_type" = `String "json_schema"
+  && field "reasoning_effort" = `String "high"
+  && field "thinking_present" = `Bool true
+  && field "max_tokens_present" = `Bool false
+  && (not (contains ~needle:"secret prompt" s))
+  && not (contains ~needle:"private" s)
+;;
+
 let%test "header_line_bytes = key + value + 4 (\": \" + CRLF)" =
   (* "x-runtime-mcp" = 13, "abc" = 3, + 4 = 20 *)
   header_line_bytes ("x-runtime-mcp", "abc") = 20
@@ -1171,6 +1329,7 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
+        profile_request_on_client_error ~url ~code ~request_body:body;
         let* body_str = read_response_body resp_body in
         Ok (code, body_str))))
 ;;
@@ -1215,6 +1374,7 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       let code = Cohttp.Code.code_of_status status in
       let resp_headers = Cohttp.Response.headers resp in
       profile_headers_on_client_error ~url ~code ~resp_headers headers_with_length;
+      profile_request_on_client_error ~url ~code ~request_body:body;
       let retry_after_header = retry_after_header_of_response_headers resp_headers in
       let* body_str = read_response_body resp_body in
       Error (HttpError { code; body = body_str; retry_after_header }))
@@ -1290,6 +1450,7 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
           let code = Cohttp.Code.code_of_status status in
           let resp_headers = Cohttp.Response.headers resp in
           profile_headers_on_client_error ~url ~code ~resp_headers headers_with_length;
+          profile_request_on_client_error ~url ~code ~request_body:body;
           let retry_after_header = retry_after_header_of_response_headers resp_headers in
           (match read_response_body resp_body with
            | Ok body_str ->
