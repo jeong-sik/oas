@@ -285,52 +285,13 @@ let test_agent_run_stream_append_only_raw_trace () =
     let run2_records = unwrap (Raw_trace_query.read_run run2) in
     let all_records = unwrap (Raw_trace.read_all ~path:trace_path ()) in
     let discovered_runs = unwrap (Raw_trace_query.read_runs ~path:trace_path ()) in
-    let session_runs =
-      unwrap (Sessions.get_raw_trace_runs ~session_root:root ~session_id:"sess-raw" ())
-    in
-    let run1_from_session =
-      unwrap
-        (Sessions.get_raw_trace_run
-           ~session_root:root
-           ~session_id:"sess-raw"
-           ~worker_run_id:run1.worker_run_id
-           ())
-    in
-    let run1_records_from_session =
-      unwrap
-        (Sessions.get_raw_trace_records
-           ~session_root:root
-           ~session_id:"sess-raw"
-           ~worker_run_id:run1.worker_run_id
-           ())
-    in
-    let run1_summary =
-      unwrap
-        (Sessions.get_raw_trace_summary
-           ~session_root:root
-           ~session_id:"sess-raw"
-           ~worker_run_id:run1.worker_run_id
-           ())
-    in
-    let run1_validation =
-      unwrap
-        (Sessions.validate_raw_trace_run
-           ~session_root:root
-           ~session_id:"sess-raw"
-           ~worker_run_id:run1.worker_run_id
-           ())
-    in
-    let latest_run =
-      unwrap
-        (Sessions.get_latest_raw_trace_run ~session_root:root ~session_id:"sess-raw" ())
-    in
+    let run1_summary = unwrap (Raw_trace_query.summarize_run run1) in
+    let run1_validation = unwrap (Raw_trace_query.validate_run run1) in
     let summaries =
-      unwrap
-        (Sessions.get_raw_trace_summaries ~session_root:root ~session_id:"sess-raw" ())
+      List.map (fun run -> unwrap (Raw_trace_query.summarize_run run)) discovered_runs
     in
     let validations =
-      unwrap
-        (Sessions.get_raw_trace_validations ~session_root:root ~session_id:"sess-raw" ())
+      List.map (fun run -> unwrap (Raw_trace_query.validate_run run)) discovered_runs
     in
     Alcotest.(check string) "trace path preserved" trace_path run1.path;
     Alcotest.(check bool)
@@ -338,20 +299,10 @@ let test_agent_run_stream_append_only_raw_trace () =
       true
       (run2.start_seq > run1.end_seq);
     Alcotest.(check int) "two discovered runs" 2 (List.length discovered_runs);
-    Alcotest.(check int) "two session runs" 2 (List.length session_runs);
-    Alcotest.(check bool) "latest run present" true (Option.is_some latest_run);
-    Alcotest.(check string)
-      "session getter worker run id"
-      run1.worker_run_id
-      run1_from_session.worker_run_id;
     Alcotest.(check int)
       "append only all records"
       (List.length run1_records + List.length run2_records)
       (List.length all_records);
-    Alcotest.(check int)
-      "session records match direct records"
-      (List.length run1_records)
-      (List.length run1_records_from_session);
     assert_monotonic_seq all_records;
     Alcotest.(check int)
       "run_started count"

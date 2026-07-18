@@ -30,30 +30,6 @@ type run_listing =
   ; failures : run_load_failure list
   }
 
-(** Runtime replay window selector.
-
-    [Last_n_runs n] selects the newest [n] valid runs by the stable ordering,
-    then returns them in chronological order. [Rolling_seconds s] uses the
-    newest valid run's [updated_at] as the anchor and selects runs with
-    [updated_at >= anchor - s]. This makes replay deterministic and avoids
-    wall-clock-dependent tests. *)
-type run_window =
-  | Last_n_runs of int
-  | Session of string
-  | Rolling_seconds of float
-
-type run_event_record =
-  { event_id : string
-  ; session_id : string
-  ; event : Runtime.event
-  }
-
-type run_window_events =
-  { runs : run_record list
-  ; events : run_event_record list
-  ; failures : run_load_failure list
-  }
-
 (** {1 Store creation} *)
 
 val create : ?root:string -> unit -> (t, Error.sdk_error) result
@@ -84,12 +60,6 @@ val load_text : string -> (string, Error.sdk_error) result
 val save_session : t -> Runtime.session -> (unit, Error.sdk_error) result
 val load_session : t -> string -> (Runtime.session, Error.sdk_error) result
 val list_runs : t -> (run_listing, Error.sdk_error) result
-val select_run_windows : t -> run_window list -> (run_listing, Error.sdk_error) result
-
-val read_window_events
-  :  t
-  -> run_window list
-  -> (run_window_events, Error.sdk_error) result
 
 (** {1 Event I/O} *)
 

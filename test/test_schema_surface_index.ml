@@ -107,14 +107,7 @@ let test_required_surfaces_present () =
   List.iter
     (fun id -> check bool ("required surface: " ^ id) true (List.mem id ids))
     [ "oas.event_bus.v1"
-    ; "oas.runtime_protocol.v2"
-    ; "oas.runtime_sync_window.v1"
-    ; "oas.runtime_report.v1"
-    ; "oas.runtime_proof.v1"
-    ; "oas.runtime_telemetry_report.v1"
-    ; "oas.runtime_evidence_bundle.v1"
     ; "oas.raw_trace_record.v1"
-    ; "oas.raw_trace_manifest.v1"
     ; "oas.harness_report.v1"
     ; "oas.eval_report.v1"
     ; "oas.structured_schema.v1"

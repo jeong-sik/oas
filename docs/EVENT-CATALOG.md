@@ -11,9 +11,9 @@ deprecation notice.
 
 ---
 
-## 1. Six event surfaces at a glance
+## 1. Four event surfaces at a glance
 
-OAS carries six independent event surfaces. They are listed here in order
+OAS carries four independent event surfaces. They are listed here in order
 of external relevance.
 
 | # | Surface | Module | Transport | Audience |
@@ -21,16 +21,11 @@ of external relevance.
 | 1 | **Event_bus** | `Event_bus` | In-process pub/sub | Library consumers (subscribers) |
 | 2 | **Hooks** | `Hooks` | Synchronous callback | Library consumers (interception/audit) |
 | 3 | **Durable journal** | `Durable_event` | In-memory append-only + JSONL | Crash recovery + event-sourced replay |
-| 4 | **Runtime protocol** | `Runtime` + `Runtime_server_*` | stdout JSON-RPC-ish protocol | `oas_runtime` subprocess consumers |
-| 5 | **LLM wire stream** | `Types.sse_event` | Provider-specific SSE → normalized | Internal (streaming accumulation) |
-| 6 | **Runtime resume replay** | `Runtime_sync.window` | JSON replay window | External resume/A2A adapters |
+| 4 | **LLM wire stream** | `Types.sse_event` | Provider-specific SSE → normalized | Internal (streaming accumulation) |
 
-Surfaces 3 and 4 **bridge into** Surface 1 via `Journal_bridge` and
-`Runtime_server_types.emit_event` respectively (see §4.2 and §5.1).
+Surface 3 **bridges into** Surface 1 via `Journal_bridge` (see §4.2).
 
-Surface 5 is independent and does not flow to Event_bus. Surface 6 replays
-Surface 4 events for cursor-based resume; it does not publish additional
-Event_bus payloads.
+Surface 4 is independent and does not flow to Event_bus.
 
 ---
 
@@ -91,7 +86,7 @@ identifier.** The following prefixes are reserved:
 
 | Prefix | Owner | Purpose |
 |--------|-------|---------|
-| `runtime.*` | OAS | Events from `Runtime` session protocol (§5) |
+| `runtime.*` | OAS | Reserved; no OAS core producer after runtime server removal |
 | `durable.*` | OAS | Events from `Durable_event` journal (§4) |
 | `provider.*` | OAS | Provider-specific escape hatch — e.g. `provider.anthropic.cache_hit`, `provider.openai.reasoning_tokens`, `provider.gemini.safety_rating` |
 | `oas.*` | OAS | Reserved for future OAS use |
@@ -248,84 +243,7 @@ tool calls from Event_bus should filter on one or the other.
 
 ---
 
-## 5. Surface 4: Runtime protocol
-
-**Header**: `lib/runtime.ml`. Stability: Evolving.
-
-Session-level runtime for `oas_runtime` subprocess usage. Runtime emits
-on **two channels simultaneously**:
-
-1. **Primary**: JSON-RPC-ish protocol message `Event_message { session_id; event }` written to stdout.
-2. **Secondary**: Event_bus publish as `Custom("runtime.<kind>", json)`.
-
-### 5.1 Runtime event variants
-
-| Variant | Custom name |
-|---------|-------------|
-| `Session_started` | `runtime.session_started` |
-| `Session_settings_updated` | `runtime.session_settings_updated` |
-| `Turn_recorded` | `runtime.turn_recorded` |
-| `Input_required` | `runtime.input_required` |
-| `Input_provided` | `runtime.input_provided` |
-| `Pending_input_updated` | `runtime.pending_input_updated` |
-| `Agent_spawn_requested` | `runtime.agent_spawn_requested` |
-| `Agent_became_live` | `runtime.agent_became_live` |
-| `Agent_output_delta` | `runtime.agent_output_delta` |
-| `Agent_completed` | `runtime.agent_completed` |
-| `Agent_failed` | `runtime.agent_failed` |
-| `Artifact_attached` | `runtime.artifact_attached` |
-| `Checkpoint_saved` | `runtime.checkpoint_saved` |
-| `Finalize_requested` | `runtime.finalize_requested` |
-| `Session_completed` | `runtime.session_completed` |
-| `Session_failed` | `runtime.session_failed` |
-
-**Name collision note**: `Runtime.Agent_completed` (session-level
-participant lifecycle) is distinct from the reserved native
-`Event_bus.AgentCompleted` payload. They live in different modules with
-different payload shapes. Disambiguate by Custom name prefix:
-`runtime.agent_completed` vs native `AgentCompleted`.
-
-**Structured completion/failure metadata**:
-- All three participant lifecycle payloads nest the shared identity and trace
-  fields in one `Runtime.participant_event_common` record under `participant`.
-  `participant_live_event` contains only that common record,
-  `participant_completed_event` adds optional `stop_reason` and
-  `completion_anomaly`, and `participant_failed_event` requires one typed
-  `failure_cause`. Completed-with-failure and failed-without-cause states are
-  not representable and their old flat JSON shapes are rejected.
-- `Runtime.output_delta_event` carries optional `raw_trace_run_id` so streamed
-  child-agent text can be joined to the same EventBus `run_id` and telemetry
-  row as its final completion event.
-- A non-fatal failure in the EventBus projection, participant terminal-event
-  persistence, or the outer participant lane is emitted on the runtime
-  protocol as an error `System_message`. Such an observation does not invent a
-  durable lifecycle event, roll back an event that already committed, or
-  cancel another participant lane.
-- `Runtime.session.pending_input` carries the resumable `input_request`
-  while phase is `Input_required`; `Provide_input` emits
-  `Input_provided`, clears the payload, and returns the session to
-  `Running`.
-- `Runtime.Pending_input_updated` reports ordinary input that arrived while a
-  turn was busy. Status values are `queued`, `applied`, `interrupted`, or
-  `ignored`. The event is intentionally not a lifecycle phase: ordinary queued
-  input must not imply keeper pause/stop.
-- Runtime finalization persists the operator-facing evidence set:
-  `report.json`, `proof.json`, `runtime-telemetry-json`,
-  `runtime-telemetry`, `runtime-raw-trace-json`, and `runtime-evidence`.
-- `runtime-telemetry-json` carries structured event counts and per-step
-  fields such as provider/model, raw-trace run id, stop reason, dropped
-  output deltas, and persistence-failure phase.
-- `runtime-raw-trace-json` publishes the latest raw-trace run refs,
-  summaries, and validations so external consumers can correlate live
-  runtime events with persisted raw traces without reconstructing the
-  proof bundle first.
-- `runtime-evidence` records present/missing files for the session,
-  events, report, proof, telemetry, and raw-trace manifest artifacts.
-- The complete output surface map is maintained in
-  `docs/RUNTIME-OUTPUT-SCHEMA-INDEX.md` and
-  `docs/schema-surfaces/runtime-output-surfaces.v1.json`.
-
-## 6. Surface 5: LLM wire stream (`Types.sse_event`)
+## 5. Surface 4: LLM wire stream (`Types.sse_event`)
 
 **Header**: `lib/llm_provider/types.ml`. Stability: Internal.
 
@@ -344,7 +262,7 @@ values; `streaming.ml` accumulates them into a final `Types.api_response`.
 | `Ping` | Keepalive |
 | `SSEError` | Stream-level error |
 
-### 6.1 Provider mapping
+### 5.1 Provider mapping
 
 | Provider wire event | `sse_event` |
 |---------------------|-------------|
@@ -363,32 +281,7 @@ around that) become observable.
 
 ---
 
-## 7. Surface 6: Runtime resume replay
-
-**Header**: `lib/runtime_sync.mli`; event truth:
-`lib/runtime.mli`. Stability: Evolving.
-
-Current OAS core does not expose a `lib/protocol/a2a_server.ml` HTTP task
-stream. External A2A or resume-capable adapters should bridge protocol
-messages onto Runtime commands and consume `Runtime_sync.window` for replay.
-
-| Runtime surface | Adapter purpose |
-|-----------------|-----------------|
-| `Runtime.Request_input` / `Runtime.Input_required` | Pause a runtime session with a durable `pending_input` payload |
-| `Runtime.Provide_input` / `Runtime.Input_provided` | Resume the matching input request and clear `pending_input` |
-| `Runtime_sync.window` | Return cursor-based replay rows for events after `after_seq` |
-
-**Contract**:
-- The replay stream is keyed by `stream_id`; adapters may use their own
-  external task/message identifier as long as cursors remain stream-local.
-- Resume fixtures must assert both pause and resume events:
-  `Input_required` followed by matching `Input_provided`.
-- This surface derives from Runtime events. It does not reintroduce the legacy
-  `TaskStateChanged` / `TaskCompleted` task stream.
-
----
-
-## 8. Multi-vendor compatibility matrix
+## 6. Multi-vendor compatibility matrix
 
 Every OAS-supported LLM vendor produces the **same native Event_bus
 payload variants** when running via OAS. Provider-specific signals go
@@ -414,7 +307,7 @@ provider. Missing credentials / endpoints skip gracefully.
 
 ---
 
-## 9. How to add a new event
+## 7. How to add a new event
 
 1. **Decide the surface**. Is this:
    - A general agent lifecycle signal (≥2 providers)? → `Event_bus` native variant.
@@ -439,25 +332,25 @@ provider. Missing credentials / endpoints skip gracefully.
    sites on `Event_bus.payload` cover the new variant (they use explicit
    arms, not `_`, so the compiler will flag omissions).
 
-## 10. How to add a new provider
+## 8. How to add a new provider
 
 1. **Hosted API**: create `lib/api_<name>.ml` implementing the same
    normalized streaming interface (`Types.sse_event` output).
    OpenAI-compatible endpoints don't need a new module — add an entry to
    the routing table in `api_openai.ml` or via `custom:model@url`.
 2. **SSE normalization**: map the provider's wire events to
-   `Types.sse_event` constructors. Document the mapping in §6.1.
+   `Types.sse_event` constructors. Document the mapping in §5.1.
 3. **Provider-specific extensions**: if the provider exposes unique
    signals (caching, reasoning summaries, safety ratings) that users want
    to observe, publish them as `Custom("provider.<name>.<event>", json)`.
-4. **Verification**: add a row to the multi-vendor matrix (§8) and,
+4. **Verification**: add a row to the multi-vendor matrix (§6) and,
    if desired, a live-mode assertion in `test_multivendor_events.ml`.
 5. **No Event_bus taxonomy change**. Adding a provider must not add a
    native variant — if it seems to, revisit I6.
 
 ---
 
-## 11. Industry comparison
+## 9. Industry comparison
 
 | Concept | OAS | OpenAI Agents SDK | Claude Agent SDK | LangGraph |
 |---------|-----|-------------------|------------------|-----------|
@@ -470,7 +363,7 @@ provider. Missing credentials / endpoints skip gracefully.
 
 ---
 
-## 12. Stability
+## 10. Stability
 
 Entries in this catalog carry the stability tier of their module (see
 `docs/api-stability.md`). Breaking changes are tracked in `CHANGELOG.md`

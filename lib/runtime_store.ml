@@ -19,23 +19,6 @@ type run_listing =
   ; failures : run_load_failure list
   }
 
-type run_window =
-  | Last_n_runs of int
-  | Session of string
-  | Rolling_seconds of float
-
-type run_event_record =
-  { event_id : string
-  ; session_id : string
-  ; event : event
-  }
-
-type run_window_events =
-  { runs : run_record list
-  ; events : run_event_record list
-  ; failures : run_load_failure list
-  }
-
 let sessions_dir store = Filename.concat store.root "sessions"
 let session_dir store session_id = Filename.concat (sessions_dir store) session_id
 
@@ -225,98 +208,6 @@ let list_runs store =
        : run_listing)
 ;;
 
-let take n xs =
-  if n <= 0
-  then []
-  else (
-    let rec loop remaining acc = function
-      | [] -> List.rev acc
-      | _ when remaining <= 0 -> List.rev acc
-      | x :: rest -> loop (remaining - 1) (x :: acc) rest
-    in
-    loop n [] xs)
-;;
-
-let select_from_listing store (listing : run_listing) = function
-  | Last_n_runs n -> listing.runs |> List.rev |> take n |> sort_runs, []
-  | Session session_id ->
-    (match
-       List.find_opt
-         (fun run -> String.equal run.session.session_id session_id)
-         listing.runs
-     with
-     | Some run -> [ run ], []
-     | None ->
-       if
-         List.exists
-           (fun (failure : run_load_failure) ->
-              String.equal failure.session_id session_id)
-           listing.failures
-       then [], []
-       else
-         ( []
-         , [ run_failure
-               store
-               session_id
-               (Printf.sprintf "session %S not found in runtime store" session_id)
-           ] ))
-  | Rolling_seconds seconds ->
-    if seconds <= 0.0
-    then [], []
-    else (
-      match List.rev listing.runs with
-      | [] -> [], []
-      | newest :: _ ->
-        let lower_bound = newest.session.updated_at -. seconds in
-        List.filter (fun run -> run.session.updated_at >= lower_bound) listing.runs, [])
-;;
-
-let dedupe_runs runs =
-  let seen = Hashtbl.create (List.length runs) in
-  runs
-  |> List.filter (fun run ->
-    let session_id = run.session.session_id in
-    if Hashtbl.mem seen session_id
-    then false
-    else (
-      Hashtbl.replace seen session_id ();
-      true))
-  |> sort_runs
-;;
-
-let dedupe_failures failures =
-  let seen = Hashtbl.create (List.length failures) in
-  failures
-  |> List.filter (fun (failure : run_load_failure) ->
-    let key = failure.session_id ^ "\x00" ^ failure.path ^ "\x00" ^ failure.detail in
-    if Hashtbl.mem seen key
-    then false
-    else (
-      Hashtbl.replace seen key ();
-      true))
-  |> List.sort (fun (left : run_load_failure) (right : run_load_failure) ->
-    match String.compare left.session_id right.session_id with
-    | 0 -> String.compare left.detail right.detail
-    | order -> order)
-;;
-
-let select_run_windows store windows =
-  let* listing = list_runs store in
-  let selected, window_failures =
-    List.fold_left
-      (fun (runs, failures) window ->
-         let window_runs, new_failures = select_from_listing store listing window in
-         window_runs @ runs, new_failures @ failures)
-      ([], [])
-      windows
-  in
-  Ok
-    ({ runs = dedupe_runs selected
-     ; failures = dedupe_failures (listing.failures @ window_failures)
-     }
-     : run_listing)
-;;
-
 let append_event store session_id (event : event) =
   let* () = ensure_tree store session_id in
   let path = events_path store session_id in
@@ -355,59 +246,6 @@ let read_events store session_id ?after_seq () =
             Ok (if should_include then event :: rev else rev))
          (Ok [])
     |> Result.map List.rev)
-;;
-
-let run_event_id session_id (event : event) = Printf.sprintf "%s#%d" session_id event.seq
-
-let read_window_events store windows =
-  let* listing = select_run_windows store windows in
-  let event_seen = Hashtbl.create 64 in
-  let run_order = Hashtbl.create (List.length listing.runs) in
-  List.iteri
-    (fun index run -> Hashtbl.replace run_order run.session.session_id index)
-    listing.runs;
-  let events, event_failures =
-    List.fold_left
-      (fun (events, failures) run ->
-         let session_id = run.session.session_id in
-         match read_events store session_id () with
-         | Error err ->
-           events, run_failure store session_id (Error.to_string err) :: failures
-         | Ok loaded ->
-           let new_events =
-             loaded
-             |> List.filter_map (fun event ->
-               let event_id = run_event_id session_id event in
-               if Hashtbl.mem event_seen event_id
-               then None
-               else (
-                 Hashtbl.replace event_seen event_id ();
-                 Some { event_id; session_id; event }))
-           in
-           new_events @ events, failures)
-      ([], [])
-      listing.runs
-  in
-  Ok
-    ({ runs = listing.runs
-     ; events =
-         List.sort
-           (fun left right ->
-              match
-                Int.compare
-                  (Option.value
-                     (Hashtbl.find_opt run_order left.session_id)
-                     ~default:max_int)
-                  (Option.value
-                     (Hashtbl.find_opt run_order right.session_id)
-                     ~default:max_int)
-              with
-              | 0 -> Int.compare left.event.seq right.event.seq
-              | order -> order)
-           events
-     ; failures = dedupe_failures (listing.failures @ event_failures)
-     }
-     : run_window_events)
 ;;
 
 let snapshot_path store session_id ~seq ~label =

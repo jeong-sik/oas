@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-14",
+  "updated_at": "2026-07-18",
   "description": "Operator-facing index of OAS runtime output and schema surfaces.",
   "surfaces": [
     {
@@ -18,90 +18,6 @@
       "notes": "Native payloads stay provider-agnostic; downstream domain events should use Custom or a downstream bus."
     },
     {
-      "id": "oas.runtime_protocol.v2",
-      "kind": "runtime_protocol",
-      "owner": "OAS",
-      "producer": "Runtime server",
-      "consumer": ["oas_runtime subprocess clients"],
-      "wire_or_artifact": "Runtime.protocol_message over NDJSON stdio",
-      "schema_source": ["lib/runtime.mli", "lib/runtime_server.mli"],
-      "validator": "protocol_message JSON roundtrip tests",
-      "tests": ["test/test_runtime_types.ml", "test/test_runtime_server_types.ml"],
-      "stability": "evolving",
-      "version_field": "Runtime.protocol_version",
-      "notes": "Runtime protocol owns canonical request, response, event, report, proof, and system envelopes. Version 2 removes the implicit permission and hook control channel. Participant lifecycle events use one nested common participant record with disjoint live, completed, and failed payloads; legacy flat payloads are rejected."
-    },
-    {
-      "id": "oas.runtime_sync_window.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_sync",
-      "consumer": ["offline/runtime sync clients", "downstream replay tooling", "external resume/A2A adapters"],
-      "wire_or_artifact": "Runtime sync window JSON",
-      "schema_source": ["lib/runtime_sync.mli", "docs/schemas/runtime-sync-window-v1.json"],
-      "validator": "Runtime_sync.of_json plus schema_version gate",
-      "tests": ["test/test_runtime_sync.ml"],
-      "stability": "evolving",
-      "version_field": "schema_version",
-      "notes": "Replay window over Runtime.event rows and Event_envelope metadata, including the Runtime input pause/resume fixture used by external resume/A2A adapters."
-    },
-    {
-      "id": "oas.runtime_report.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_projection / Runtime_store",
-      "consumer": ["runtime protocol clients", "session evidence readers"],
-      "wire_or_artifact": "Runtime.report JSON artifact and Report_response payload",
-      "schema_source": ["lib/runtime.mli", "lib/runtime_projection.mli"],
-      "validator": "Runtime.report_of_yojson plus projection tests",
-      "tests": ["test/test_runtime_types.ml", "test/test_runtime_projection_cov2.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Saved as report.json and returned through the runtime protocol Report request."
-    },
-    {
-      "id": "oas.runtime_proof.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_projection / Runtime_store",
-      "consumer": ["runtime protocol clients", "session evidence readers"],
-      "wire_or_artifact": "Runtime.proof JSON artifact and Prove_response payload",
-      "schema_source": ["lib/runtime.mli", "lib/runtime_projection.mli"],
-      "validator": "Runtime.proof_of_yojson plus proof projection tests",
-      "tests": ["test/test_runtime_types.ml", "test/test_runtime_projection_cov2.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Saved as proof.json and included in the evidence bundle."
-    },
-    {
-      "id": "oas.runtime_telemetry_report.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_evidence",
-      "consumer": ["session evidence readers", "downstream telemetry projections"],
-      "wire_or_artifact": "runtime-telemetry-json artifact and structured telemetry reader payload",
-      "schema_source": ["lib/runtime_evidence.mli", "lib/sessions_types.mli"],
-      "validator": "Runtime_evidence.telemetry_report_to_json plus Sessions structured telemetry decoders",
-      "tests": ["test/test_runtime_evidence.ml", "test/test_sessions_types.ml", "test/test_sessions_cov2.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Carries event counts, structured per-step fields, raw trace run ids, stop reasons, and anomaly counters."
-    },
-    {
-      "id": "oas.runtime_evidence_bundle.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_evidence",
-      "consumer": ["session evidence readers", "downstream proof consumers"],
-      "wire_or_artifact": "runtime-evidence JSON artifact",
-      "schema_source": ["lib/runtime_evidence.mli", "lib/sessions_types.mli"],
-      "validator": "Runtime_evidence.evidence_bundle_to_json plus Sessions evidence decoder",
-      "tests": ["test/test_runtime_evidence.ml", "test/test_sessions_types.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Records present/missing session, events, report, proof, telemetry, and raw trace manifest artifact files."
-    },
-    {
       "id": "oas.raw_trace_record.v1",
       "kind": "jsonl_artifact",
       "owner": "OAS",
@@ -114,20 +30,6 @@
       "stability": "stable",
       "version_field": "trace_version",
       "notes": "Records run, assistant block, tool execution, hook, and terminal trace events."
-    },
-    {
-      "id": "oas.raw_trace_manifest.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Runtime_evidence / Sessions_store",
-      "consumer": ["session evidence readers", "downstream raw trace tooling"],
-      "wire_or_artifact": "runtime-raw-trace-json artifact",
-      "schema_source": ["lib/runtime_evidence.mli", "lib/sessions_types.mli"],
-      "validator": "Sessions.raw_trace_manifest_of_yojson plus raw trace run validation",
-      "tests": ["test/test_runtime_evidence.ml", "test/test_sessions_types.ml", "test/test_raw_trace.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Indexes latest run, run refs, summaries, and validations for a runtime session."
     },
     {
       "id": "oas.harness_report.v1",

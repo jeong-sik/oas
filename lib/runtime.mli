@@ -209,8 +209,6 @@ type pending_input_update_event =
   { input_id : string option
   ; participant_name : string option
   ; source : string option
-  ; boundary : Runtime_continuation.continuation_boundary
-  ; policy : Runtime_continuation.pending_input_policy
   ; status : string
   ; message : string option
   ; created_at : float

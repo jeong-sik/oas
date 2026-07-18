@@ -172,7 +172,13 @@ jobs:
           # 77.55% (21220/27362). Reset the ratchet floor to
           # floor(77.55 - 1) = 76 until the removed binary/CLI-era
           # coverage surface is replaced by in-process runtime coverage.
-          THRESHOLD=76
+          #
+          # 2026-07-18: runtime server cluster removal (this PR) deleted
+          # ~14.4k lines including 13 test files; CI measured 75.84%
+          # (run 29661959599). Lower the floor to floor(75.84 - 0) = 75
+          # per the ratchet policy; the deleted cluster's coverage
+          # contribution is gone with it.
+          THRESHOLD=75
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1

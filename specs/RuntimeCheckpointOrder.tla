@@ -2,7 +2,6 @@
 \* Models runtime checkpoint ordering.
 \*
 \* Concrete code:
-\*   - Runtime_server.apply_command Checkpoint
 \*   - Runtime_store.save_snapshot
 \*   - Runtime_store.append_event Checkpoint_saved
 \*

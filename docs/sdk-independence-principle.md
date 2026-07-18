@@ -47,8 +47,8 @@ coordinator wraps these in is intentionally outside this document.
 |--------|-------|
 | `Contract`, `Completion_contract` | OAS |
 | `Guardrails_async`, `Guardrail_*` | OAS |
-| `Runtime`, `Runtime_evidence` | OAS |
-| `Raw_trace`, `Sessions` | OAS |
+| `Runtime` | OAS |
+| `Raw_trace` | OAS |
 
 Product-specific governance, adjudication, and proof modules belong to the
 calling product's repository. OAS does not model or track those concepts.
