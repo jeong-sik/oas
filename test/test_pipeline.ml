@@ -4,13 +4,14 @@
     Provider_mock.next_response and agent state inspection. *)
 
 open Agent_sdk
+module Internal = Agent_sdk__
 module Internal_agent = Agent_sdk__Agent_types
 module Internal_pipeline = Agent_sdk__Pipeline
-module Internal_runtime = Agent_sdk__Execution_runtime
-module Internal_codec = Agent_sdk__Execution_codec_executor
-module Internal_writer = Agent_sdk__Execution_lane_writer
-module Internal_scope = Agent_sdk__Execution_agent_scope
-module Internal_binding = Agent_sdk__Binding_identity
+module Internal_runtime = Internal.Execution_runtime
+module Internal_codec = Internal.Execution_codec_executor
+module Internal_writer = Internal.Execution_lane_writer
+module Internal_scope = Internal.Execution_agent_scope
+module Internal_binding = Binding_identity
 
 let invocation tool_use_id =
   let schedule : Tool.schedule =

@@ -197,19 +197,25 @@ let with_resumed store locator agent run =
   match
     Execution_lane_writer.resume ~codec:store.codec ~dir:store.dir
     @@ fun ~sw writer ->
-    match
-      Execution_agent_scope.resume
-        ~writer
-        ~agent_name:agent.Agent_types.state.config.name
-        locator
-    with
-    | Error error ->
-      Error (execution_failure (Execution_agent_scope.error_to_string error))
-    | Ok scope ->
-      (match prepare_scope store scope with
-       | Error detail ->
-         abort_error scope (execution_failure ("scope locator sink failed: " ^ detail))
-       | Ok () -> with_scope scope (fun () -> run ~sw scope))
+    match Execution_lane_writer.await_ready writer with
+    | Error failure ->
+      Error (execution_failure (Execution_lane_writer.scope_failure_to_string failure))
+    | Ok () ->
+      (match
+         Execution_agent_scope.resume_running
+           ~writer
+           ~agent_name:agent.Agent_types.state.config.name
+           locator
+       with
+       | Error error ->
+         Error (execution_failure (Execution_agent_scope.error_to_string error))
+       | Ok scope ->
+         (match prepare_scope store scope with
+          | Error detail ->
+            abort_error scope (execution_failure ("scope locator sink failed: " ^ detail))
+          | Ok () ->
+            Execution_context.with_resume_once (fun () ->
+              with_scope scope (fun () -> run ~sw scope))))
   with
   | Ok result -> result
   | Error failure ->

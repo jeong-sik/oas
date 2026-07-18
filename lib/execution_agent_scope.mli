@@ -55,6 +55,14 @@ val resume
   -> scope_locator
   -> (t, error) result
 
+(** Resume only a still-running root for public Agent execution. Terminal roots
+    remain readable through {!resume} for audit/replay inspection. *)
+val resume_running
+  :  writer:Execution_lane_writer.t
+  -> agent_name:string
+  -> scope_locator
+  -> (t, error) result
+
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn option, error) result
 

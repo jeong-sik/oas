@@ -188,21 +188,30 @@ let resume ~writer ~agent_name (locator : scope_locator) =
   | Error error -> Error (Scope_unavailable error)
   | Ok None -> Error Run_not_found
   | Ok (Some view) ->
-    (match Event.node_kind view.Journal.opened.value, view.status with
-     | Event.Agent_run { agent_name = durable_agent_name }, Journal.Running
+    (match Event.node_kind view.Journal.opened.value with
+     | Event.Agent_run { agent_name = durable_agent_name }
        when String.equal agent_name durable_agent_name ->
        Ok { writer; run = view.Journal.run }
-     | Event.Agent_run { agent_name = durable_agent_name }, Journal.Running ->
+     | Event.Agent_run { agent_name = durable_agent_name } ->
        Error
          (Agent_identity_mismatch { expected = durable_agent_name; actual = agent_name })
-     | Event.Agent_run _, Journal.Finished _ ->
+     | Event.Agent_turn _
+     | Event.Provider_attempt _
+     | Event.Output_block _
+     | Event.Tool_invocation _
+     | Event.Tool_attempt -> Error Run_not_found)
+;;
+
+let resume_running ~writer ~agent_name locator =
+  match resume ~writer ~agent_name locator with
+  | Error _ as error -> error
+  | Ok scope ->
+    (match Writer.find_run writer locator.run_id with
+     | Error error -> Error (Scope_unavailable error)
+     | Ok (Some { status = Journal.Running; _ }) -> Ok scope
+     | Ok (Some { status = Journal.Finished _; _ }) ->
        Error (Resume_topology_mismatch "execution run is already terminal")
-     | ( ( Event.Agent_turn _
-         | Event.Provider_attempt _
-         | Event.Output_block _
-         | Event.Tool_invocation _
-         | Event.Tool_attempt )
-       , (Journal.Running | Journal.Finished _) ) -> Error Run_not_found)
+     | Ok None -> Error Run_not_found)
 ;;
 
 let open_turn scope ~ordinal =

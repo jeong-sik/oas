@@ -641,9 +641,12 @@ let run_turn
       agent
   =
   let* resumed =
-    Pipeline_execution_scope.resume_current
-      (Execution_context.agent_scope ())
-      ~ordinal:agent.state.turn_count
+    if Execution_context.take_resume_once ()
+    then
+      Pipeline_execution_scope.resume_current
+        (Execution_context.agent_scope ())
+        ~ordinal:agent.state.turn_count
+    else Ok None
   in
   match resumed with
   | Some execution ->
