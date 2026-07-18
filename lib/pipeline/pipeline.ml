@@ -1,12 +1,4 @@
-(** Turn pipeline: 6-stage decomposition of agent turn execution.
-
-    Replaces the monolithic run_turn_core with named stages:
-    1. Input   — lifecycle, BeforeTurn hook, elicitation
-    2. Parse   — BeforeTurnParams hook, tool preparation
-    3. Route   — provider selection, API call dispatch (sync/stream)
-    4. Collect — usage accumulation, AfterTurn hook, events, message append
-    5. Execute — exact-name tool execution on StopToolUse
-    6. Output  — stop reason → turn_outcome
+(** Six-stage Agent turn pipeline: Input, Parse, Route, Collect, Execute, Output.
 
     [Output] ([stage_output]) dispatches [Execute] ([stage_execute]) internally
     on StopToolUse, so Execute is a sub-step of Output, not a stage that runs
@@ -36,48 +28,7 @@ type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of checkpoint_stage
 
-let persist_turn_checkpoint_for_state agent stage state =
-  match agent.checkpoint_sink with
-  | None -> Ok ()
-  | Some sink ->
-    let checkpoint =
-      Agent_checkpoint.build_checkpoint
-        ~state
-        ~tools:agent.tools
-        ~context:agent.context
-        ~mcp_clients:agent.options.mcp_clients
-        ()
-    in
-    let timestamp = checkpoint.created_at in
-    let turn = state.turn_count in
-    let stage_label = checkpoint_stage_to_string stage in
-    let snapshot = { stage; turn; checkpoint; timestamp } in
-    (match sink snapshot with
-     | Ok () ->
-       (match agent.options.journal with
-        | Some journal ->
-          Agent_execution_event_writer.append
-            journal
-            (Checkpoint_saved
-               { checkpoint_id = Printf.sprintf "%s-%d" stage_label turn; timestamp })
-        | None -> ());
-       Log.info
-         _log
-         "turn checkpoint persisted"
-         [ S ("stage", stage_label)
-         ; I ("turn", turn)
-         ; I ("messages", List.length checkpoint.messages)
-         ];
-       Ok ()
-     | Error detail ->
-       Log.error
-         _log
-         "turn checkpoint sink failed"
-         [ S ("stage", stage_label); I ("turn", turn); S ("detail", detail) ];
-       Error
-         (Error.Internal
-            (Printf.sprintf "checkpoint sink failed at %s: %s" stage_label detail)))
-;;
+let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
 
 let persist_turn_checkpoint agent stage =
   persist_turn_checkpoint_for_state agent stage agent.state
@@ -129,6 +80,7 @@ let stage_route
       ~api_strategy
       ?raw_trace_run
       ?on_provider_failure
+      ?before_provider_attempt
       ~turn_config
       agent
       prep
@@ -151,6 +103,7 @@ let stage_route
            ?clock
            ~trace_context
            ?on_provider_failure
+           ?before_provider_attempt
            ~turn_config
            agent
            prep)
@@ -178,6 +131,7 @@ let stage_route
            ?capture_id
            ?on_telemetry
            ?on_provider_failure
+           ?before_provider_attempt
            ())
 ;;
 
@@ -400,6 +354,8 @@ let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty
               ~detail)
        | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
+       | Some (Agent_tools.Durability_failure { detail; _ }) ->
+         Error (Error.Internal detail)
        | None ->
          (match agent.options.context_injector with
           | None -> Ok (ToolsExecuted After_tool_results_appended)
@@ -538,7 +494,7 @@ let tag_error stage result =
     Error e
 ;;
 
-let run_turn
+let run_new_turn
       ~sw
       ?clock
       ~api_strategy
@@ -583,6 +539,11 @@ let run_turn
   | Guardrails_async.Fail { validator_name; reason } ->
     Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
   | Guardrails_async.Pass ->
+    let* execution =
+      Pipeline_execution_scope.open_turn
+        (Execution_context.agent_scope ())
+        ~ordinal:(agent.state.turn_count + 1)
+    in
     (* Stage 3: Route exactly once. Provider [ContextOverflow] remains a typed
        error; OAS does not mutate the transcript or retry implicitly. *)
     (match agent.options.journal with
@@ -603,6 +564,8 @@ let run_turn
         ~api_strategy
         ?raw_trace_run
         ?on_provider_failure
+        ~before_provider_attempt:
+          (Pipeline_execution_scope.before_provider_attempt execution)
         ~turn_config
         agent
         prep
@@ -637,25 +600,70 @@ let run_turn
             })
      | None, _ -> ());
     (* Stage 4+5+6: Collect, Execute/Output *)
-    (match api_result with
-     | Error e -> Error e
-     | Ok response ->
-       (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
+    let outcome =
+      match api_result with
+      | Error e -> Error e
+      | Ok response ->
+        (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
           [tool_choice] is enforced server-side by the provider, so the SDK no
           longer validates the response against a completion contract nor retries
           to coerce a tool call (the former
           [handle_missing_required_tool_use]/[validate_completion_contract]
           pass). *)
-       (* Stage 3.5: Async output validation *)
-       (match Guardrails_async.run_output async_guard.output_validators response with
-        | Guardrails_async.Fail { validator_name; reason } ->
-          Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
-        | Guardrails_async.Pass ->
-          let* () =
-            stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
-          in
-          stage_output ?raw_trace_run ?before_tool_execution agent response
-          |> tag_error "output"))
+        (* Stage 3.5: Async output validation *)
+        (match Guardrails_async.run_output async_guard.output_validators response with
+         | Guardrails_async.Fail { validator_name; reason } ->
+           Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
+         | Guardrails_async.Pass ->
+           let* () =
+             stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
+           in
+           (match Pipeline_execution_scope.provider execution with
+            | None -> stage_output ?raw_trace_run ?before_tool_execution agent response
+            | Some provider ->
+              Execution_context.with_provider_attempt provider (fun () ->
+                stage_output ?raw_trace_run ?before_tool_execution agent response))
+           |> tag_error "output")
+    in
+    (match outcome with
+     | Error _ as error -> error
+     | Ok value ->
+       Pipeline_execution_scope.close_success execution |> Result.map (fun () -> value))
+;;
+
+let run_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ?before_tool_execution
+      agent
+  =
+  let* resumed =
+    if Execution_context.take_resume_once ()
+    then
+      Pipeline_execution_scope.resume_current
+        (Execution_context.agent_scope ())
+        ~ordinal:agent.state.turn_count
+    else Ok None
+  in
+  match resumed with
+  | Some execution ->
+    Pipeline_execution_resume.run
+      agent
+      execution
+      ~execute:(stage_execute ?raw_trace_run agent)
+      ~already_settled:(ToolsExecuted After_tool_results_appended)
+  | None ->
+    run_new_turn
+      ~sw
+      ?clock
+      ~api_strategy
+      ?raw_trace_run
+      ?on_provider_failure
+      ?before_tool_execution
+      agent
 ;;
 
 [@@@coverage off]

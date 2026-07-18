@@ -1,6 +1,8 @@
 module Event = Execution_event
 module Journal = Execution_journal
 
+let _log = Log.create ~module_name:"execution_lane_writer" ()
+
 type reconciliation_evidence =
   { first_outcome_unknown : Journal.error
   ; latest_outcome_unknown : Journal.error
@@ -851,17 +853,33 @@ let run_with_mode ~codec ~dir mode f =
         | result -> result
         | exception shutdown_exn ->
           let shutdown_backtrace = Printexc.get_raw_backtrace () in
-          let combined, combined_backtrace =
-            Eio.Exn.combine (exn, backtrace) (shutdown_exn, shutdown_backtrace)
-          in
-          Printexc.raise_with_backtrace combined combined_backtrace
+          (match Llm_provider.Reserved_exn.reraise_if_reserved exn with
+           | () ->
+             let combined, combined_backtrace =
+               Eio.Exn.combine (exn, backtrace) (shutdown_exn, shutdown_backtrace)
+             in
+             Printexc.raise_with_backtrace combined combined_backtrace
+           | exception reserved ->
+             Log.error
+               _log
+               "writer shutdown raised after reserved callback exception"
+               [ Log.S ("shutdown_exception", Printexc.to_string shutdown_exn) ];
+             Printexc.raise_with_backtrace reserved backtrace)
       in
       (match shutdown with
        | Ok () -> Printexc.raise_with_backtrace exn backtrace
        | Error failure ->
-         Printexc.raise_with_backtrace
-           (Callback_failed_after_scope_failure (exn, failure))
-           backtrace))
+         (match Llm_provider.Reserved_exn.reraise_if_reserved exn with
+          | () ->
+            Printexc.raise_with_backtrace
+              (Callback_failed_after_scope_failure (exn, failure))
+              backtrace
+          | exception reserved ->
+            Log.error
+              _log
+              "writer shutdown failed after reserved callback exception"
+              [ Log.S ("scope_failure", scope_failure_to_string failure) ];
+            Printexc.raise_with_backtrace reserved backtrace)))
 ;;
 
 let run ~codec ~dir ?correlation_id f =
@@ -881,6 +899,14 @@ let read_journal writer f =
 
 let current_cursor writer =
   read_journal writer (fun journal -> Ok (Journal.current_cursor journal))
+;;
+
+let find_node writer node =
+  read_journal writer (fun journal -> Ok (Journal.find_node journal node))
+;;
+
+let find_run writer run_id =
+  read_journal writer (fun journal -> Ok (Journal.find_run journal run_id))
 ;;
 
 let read_page writer ~after ?through ~limit () =

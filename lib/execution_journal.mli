@@ -120,6 +120,13 @@ type invariant_violation =
   | Tool_input_snapshot_identity_mismatch of Execution_event.Node_id.t
   | Tool_input_delta_after_snapshot of Execution_event.Node_id.t
   | Tool_input_not_materialized of Execution_event.Node_id.t
+  | Tool_invocation_requires_atomic_open
+  | Occurrence_already_opened of Execution_event.Node_id.t
+  | Tool_occurrence_conflict of
+      { parent : Execution_event.Node_id.t
+      ; planned_index : int
+      ; existing : Execution_event.Node_id.t
+      }
   | Tool_result_already_materialized of Execution_event.Node_id.t
   | Tool_result_snapshot_not_tool_result of Execution_event.Node_id.t
   | Tool_result_snapshot_identity_mismatch of Execution_event.Node_id.t
@@ -319,6 +326,31 @@ module Transaction : sig
     -> node:Execution_event.Node_id.t
     -> Execution_event.terminal
     -> Execution_event.t t
+
+  (** Open an attempt under a materialized invocation-derived run. *)
+  val begin_tool_attempt
+    :  invocation:Execution_event.Node_id.t
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t) t
+
+  (** Atomically open and materialize one exact provider ToolUse occurrence.
+      The invocation turn must match the parent provider attempt's turn. *)
+  val open_tool_invocation
+    :  run:run
+    -> provider_attempt:Execution_event.Node_id.t
+    -> invocation:Tool.Invocation.t
+    -> tool_name:string
+    -> input:Yojson.Safe.t
+    -> unit
+    -> (Execution_event.Node_id.t * Execution_event.t list) t
+
+  (** Atomically close attempt, materialize ToolResult, and close invocation. *)
+  val settle_tool_attempt
+    :  attempt:Execution_event.Node_id.t
+    -> invocation:Execution_event.Node_id.t
+    -> result:Llm_provider.Types.content_block
+    -> unit
+    -> Execution_event.t list t
 
   val finish_run
     :  ?causes:Execution_event.cause list

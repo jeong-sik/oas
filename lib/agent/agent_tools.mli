@@ -73,11 +73,15 @@ type execution_error =
     Ordinary observer failures are values at this boundary so every sibling
     already running in the same concurrent batch can finish.  The pipeline
     re-raises [Observer_failure] with the captured backtrace only after it has
-    committed [completed_results]. If a hook failure happened first, a later
-    observer failure remains the terminal cause so infrastructure faults are
-    never hidden; the hook failure is logged as suppressed. *)
+    committed [completed_results]. Failures are selected across the whole batch:
+    durability dominates observer failure, which dominates hook failure. Equal
+    priorities preserve original [ToolUse] order. *)
 type execution_failure_cause =
   | Hook_failure of execution_error
+  | Durability_failure of
+      { invocation : Tool.Invocation.t
+      ; detail : string
+      }
   | Observer_failure of
       { invocation : Tool.Invocation.t (** Exact occurrence whose observer failed. *)
       ; exception_ : exn
@@ -149,6 +153,14 @@ val find_and_execute_tool
 
     [Block] produces a model-visible deterministic result without emitting
     tool-execution lifecycle callbacks or durable events, because no tool ran.
+
+    When an Agent-owned execution provider is bound internally, its recursive execution journal is
+    the sole tool-effect authority: OAS durably opens the exact invocation and
+    commits an attempt before the handler, atomically settles the exact result,
+    and replays a settled result without rerunning observers or the handler.
+    Legacy [journal] Tool_called/Tool_completed projections are suppressed on
+    this path. A durability failure dominates hook and observer failures because
+    effect-outcome truth must not be hidden.
 
     On success, returns one [tool_execution_result] per [ToolUse] block in the
     same relative order as the input. On failure, [completed_results] retains

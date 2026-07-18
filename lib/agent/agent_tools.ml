@@ -14,35 +14,7 @@ type tool_failure_kind = Types.tool_failure_kind =
   | Reported_tool_error
   | Unattributed_tool_error
 
-type tool_execution_result =
-  { invocation : Tool.Invocation.t
-  ; tool_name : string
-  ; input : Yojson.Safe.t
-  ; content : string
-  ; outcome : Types.tool_result_outcome
-  }
-
-type execution_error =
-  | Hook_execution_failed of
-      { hook_name : string
-      ; stage : Hooks.hook_stage
-      ; tool_name : string
-      ; invocation : Tool.Invocation.t
-      ; detail : string
-      }
-
-type execution_failure_cause =
-  | Hook_failure of execution_error
-  | Observer_failure of
-      { invocation : Tool.Invocation.t
-      ; exception_ : exn
-      ; backtrace : Printexc.raw_backtrace
-      }
-
-type execution_failure =
-  { completed_results : tool_execution_result list
-  ; cause : execution_failure_cause
-  }
+include Agent_tool_execution_types
 
 let observer_failure ~invocation exception_ backtrace =
   Llm_provider.Reserved_exn.reraise_if_reserved exception_;
@@ -59,6 +31,7 @@ let observer_failure ~invocation exception_ backtrace =
 let failure_summary = function
   | Hook_failure (Hook_execution_failed { hook_name; detail; _ }) ->
     Printf.sprintf "hook %s failed: %s" hook_name detail
+  | Durability_failure { detail; _ } -> "durable execution failed: " ^ detail
   | Observer_failure { exception_; _ } -> Printexc.to_string exception_
 ;;
 
@@ -214,12 +187,15 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
     raise_hook_observer exn
 ;;
 
-type deferred_failure = execution_failure_cause
+let execution_failure_of_deferred = function
+  | Deferred_hook_failure error -> Hook_failure error
+  | Deferred_observer_failure { invocation; exception_; backtrace } ->
+    Observer_failure { invocation; exception_; backtrace }
+;;
 
-type tool_dispatch =
-  { result : tool_execution_result
-  ; deferred_failure : deferred_failure option
-  }
+let deferred_failure_summary deferred =
+  failure_summary (execution_failure_of_deferred deferred)
+;;
 
 let hook_execution_error ~hook_name ~stage ~tool_name ~invocation ~detail =
   Hook_execution_failed { hook_name; stage; tool_name; invocation; detail }
@@ -250,12 +226,12 @@ let invoke_post_hook
     | Hooks.Continue -> None
     | Hooks.HookFailed { stage; detail } ->
       Some
-        (Hook_failure
+        (Deferred_hook_failure
            (hook_execution_error ~hook_name ~stage ~tool_name ~invocation ~detail))
     | decision ->
       let stage = Hooks.stage_of_event event in
       Some
-        (Hook_failure
+        (Deferred_hook_failure
            (hook_execution_error
               ~hook_name
               ~stage
@@ -267,14 +243,15 @@ let invoke_post_hook
                    (Hooks.decision_kind_to_string (Hooks.classify_decision decision)))))
   with
   | Hook_observer_raised (exception_, backtrace) ->
-    Some (observer_failure ~invocation exception_ backtrace)
+    Llm_provider.Reserved_exn.reraise_if_reserved exception_;
+    Some (Deferred_observer_failure { invocation; exception_; backtrace })
 ;;
 
 let resolve_dispatch dispatch =
   match dispatch.deferred_failure with
   | None -> Ok dispatch.result
-  | Some (Hook_failure error) -> Error error
-  | Some (Observer_failure { exception_; backtrace; _ }) ->
+  | Some (Deferred_hook_failure error) -> Error error
+  | Some (Deferred_observer_failure { exception_; backtrace; _ }) ->
     reraise_hook_observer exception_ backtrace
 ;;
 
@@ -290,6 +267,7 @@ let find_and_execute_tool_with_index
       ?correlation_id
       ?run_id
       ?on_hook_invoked
+      ~publish_event_bus
       ~invocation
       name
       input
@@ -298,13 +276,17 @@ let find_and_execute_tool_with_index
   let requested_name = name in
   let name, input, tool_opt = resolve_tool_call tool_index name input in
   let first_deferred_failure = ref None in
+  let post_effect_observers = ref [] in
+  let defer_observer observer =
+    post_effect_observers := observer :: !post_effect_observers
+  in
   let record_deferred_failure failure =
     match !first_deferred_failure with
     | None -> first_deferred_failure := Some failure
     | Some primary ->
       let retained, suppressed =
         match primary, failure with
-        | Hook_failure _, Observer_failure _ ->
+        | Deferred_hook_failure _, Deferred_observer_failure _ ->
           first_deferred_failure := Some failure;
           failure, primary
         | _ -> primary, failure
@@ -314,12 +296,14 @@ let find_and_execute_tool_with_index
         "additional tool dispatch failure"
         [ Log.S ("tool", name)
         ; Log.S ("tool_use_id", id)
-        ; Log.S ("retained", failure_summary retained)
-        ; Log.S ("suppressed", failure_summary suppressed)
+        ; Log.S ("retained", deferred_failure_summary retained)
+        ; Log.S ("suppressed", deferred_failure_summary suppressed)
         ]
   in
   let record_deferred_exception exception_ backtrace =
-    record_deferred_failure (observer_failure ~invocation exception_ backtrace)
+    Llm_provider.Reserved_exn.reraise_if_reserved exception_;
+    record_deferred_failure
+      (Deferred_observer_failure { invocation; exception_; backtrace })
   in
   (* ToolCalled event — capture the published envelope's run_id so the
      matching ToolCompleted records it as caused_by, preserving the
@@ -328,8 +312,9 @@ let find_and_execute_tool_with_index
      [~run_id] explicitly or we fall back to the fresh id minted by
      [mk_event]. *)
   let tool_called_run_id =
-    match event_bus with
-    | Some bus ->
+    match publish_event_bus, event_bus with
+    | false, _ -> None
+    | true, Some bus ->
       let ev =
         Event_bus.mk_event
           ?correlation_id
@@ -344,7 +329,7 @@ let find_and_execute_tool_with_index
          let backtrace = Printexc.get_raw_backtrace () in
          record_deferred_exception exception_ backtrace;
          None)
-    | None -> None
+    | true, None -> None
   in
   let dispatch =
     match tool_opt with
@@ -381,11 +366,13 @@ let find_and_execute_tool_with_index
           let message =
             Tool_input_validation.format_errors_inline ~tool_name:name ~args:input errors
           in
-          Error (message, emit_post_tool_use_failure ~input message)
+          defer_observer (fun () ->
+            emit_post_tool_use_failure ~input message
+            |> Option.iter record_deferred_failure);
+          Error message
       in
       (match validated_input with
-       | Error (message, deferred_failure) ->
-         Option.iter record_deferred_failure deferred_failure;
+       | Error message ->
          { result = validation_error_result ~input message; deferred_failure = None }
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
@@ -406,49 +393,52 @@ let find_and_execute_tool_with_index
            | Ok { content; _meta = _ } -> String.length content
            | Error { message; _ } -> String.length message
          in
-         invoke_post_hook
-           ?on_hook_invoked
-           ~tracer
-           ~agent_name
-           ~invocation
-           ~hook_name:"post_tool_use"
-           ~tool_name:name
-           hooks.post_tool_use
-           (Hooks.PostToolUse
-              { invocation
-              ; tool_name = name
-              ; input = exact_input
-              ; output = result
-              ; result_bytes
-              ; duration_ms
-              })
-         |> Option.iter record_deferred_failure;
+         defer_observer (fun () ->
+           invoke_post_hook
+             ?on_hook_invoked
+             ~tracer
+             ~agent_name
+             ~invocation
+             ~hook_name:"post_tool_use"
+             ~tool_name:name
+             hooks.post_tool_use
+             (Hooks.PostToolUse
+                { invocation
+                ; tool_name = name
+                ; input = exact_input
+                ; output = result
+                ; result_bytes
+                ; duration_ms
+                })
+           |> Option.iter record_deferred_failure);
          (match result with
           | Ok _ -> ()
           | Error { message; _ } ->
-            invoke_post_hook
-              ?on_hook_invoked
-              ~tracer
-              ~agent_name
-              ~invocation
-              ~hook_name:"post_tool_use_failure"
-              ~tool_name:name
-              hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure
-                 { invocation; tool_name = name; input = exact_input; error = message })
-            |> Option.iter record_deferred_failure;
+            defer_observer (fun () ->
+              invoke_post_hook
+                ?on_hook_invoked
+                ~tracer
+                ~agent_name
+                ~invocation
+                ~hook_name:"post_tool_use_failure"
+                ~tool_name:name
+                hooks.post_tool_use_failure
+                (Hooks.PostToolUseFailure
+                   { invocation; tool_name = name; input = exact_input; error = message })
+              |> Option.iter record_deferred_failure);
             (* [OnToolError] is the compact error projection. The exact
                invocation remains shared with the richer failure hook. *)
-            invoke_post_hook
-              ?on_hook_invoked
-              ~tracer
-              ~agent_name
-              ~invocation
-              ~hook_name:"on_tool_error"
-              ~tool_name:name
-              hooks.on_tool_error
-              (Hooks.OnToolError { invocation; tool_name = name; error = message })
-            |> Option.iter record_deferred_failure);
+            defer_observer (fun () ->
+              invoke_post_hook
+                ?on_hook_invoked
+                ~tracer
+                ~agent_name
+                ~invocation
+                ~hook_name:"on_tool_error"
+                ~tool_name:name
+                hooks.on_tool_error
+                (Hooks.OnToolError { invocation; tool_name = name; error = message })
+              |> Option.iter record_deferred_failure));
          let content, outcome =
            match result with
            | Ok { content; _meta = _ } -> content, Tool_succeeded
@@ -479,7 +469,7 @@ let find_and_execute_tool_with_index
         [ Log.S ("tool", requested_name)
         ; Log.S ("available_tools", render_tool_names available)
         ];
-      let deferred_failure =
+      defer_observer (fun () ->
         invoke_post_hook
           ?on_hook_invoked
           ~tracer
@@ -493,8 +483,7 @@ let find_and_execute_tool_with_index
              ; detail = message
              ; context = "agent_tools.find_and_execute_tool"
              })
-      in
-      Option.iter record_deferred_failure deferred_failure;
+        |> Option.iter record_deferred_failure);
       { result =
           { invocation
           ; tool_name = requested_name
@@ -506,26 +495,33 @@ let find_and_execute_tool_with_index
       }
   in
   (* ToolCompleted event *)
-  (match event_bus with
-   | Some bus ->
-     let output_content = dispatch.result.content in
-     let output =
-       Types.tool_result_of_outcome ~content:output_content dispatch.result.outcome
-     in
-     (try
-        Event_bus.publish
-          bus
-          (Event_bus.mk_event
-             ?correlation_id
-             ?run_id
-             ?caused_by:tool_called_run_id
-             (ToolCompleted { invocation; agent_name; tool_name = name; output }))
-      with
-      | exception_ ->
-        let backtrace = Printexc.get_raw_backtrace () in
-        record_deferred_exception exception_ backtrace)
-   | None -> ());
-  { dispatch with deferred_failure = !first_deferred_failure }
+  defer_observer (fun () ->
+    match publish_event_bus, event_bus with
+    | false, _ -> ()
+    | true, Some bus ->
+      let output_content = dispatch.result.content in
+      let output =
+        Types.tool_result_of_outcome ~content:output_content dispatch.result.outcome
+      in
+      (try
+         Event_bus.publish
+           bus
+           (Event_bus.mk_event
+              ?correlation_id
+              ?run_id
+              ?caused_by:tool_called_run_id
+              (ToolCompleted { invocation; agent_name; tool_name = name; output }))
+       with
+       | exception_ ->
+         let backtrace = Printexc.get_raw_backtrace () in
+         record_deferred_exception exception_ backtrace)
+    | true, None -> ());
+  { result = dispatch.result
+  ; finish_observers =
+      (fun () ->
+        List.rev !post_effect_observers |> List.iter (fun observe -> observe ());
+        { dispatch with deferred_failure = !first_deferred_failure })
+  }
 ;;
 
 let find_and_execute_tool
@@ -544,20 +540,23 @@ let find_and_execute_tool
   =
   let tool_index = build_index tools in
   try
-    find_and_execute_tool_with_index
-      ~context
-      ~tool_index
-      ~hooks
-      ~event_bus
-      ~tracer
-      ~agent_name
-      ?correlation_id
-      ?run_id
-      ?on_hook_invoked
-      ~invocation
-      name
-      input
-    |> resolve_dispatch
+    let pending =
+      find_and_execute_tool_with_index
+        ~context
+        ~tool_index
+        ~hooks
+        ~event_bus
+        ~tracer
+        ~agent_name
+        ?correlation_id
+        ?run_id
+        ?on_hook_invoked
+        ~publish_event_bus:true
+        ~invocation
+        name
+        input
+    in
+    pending.finish_observers () |> resolve_dispatch
   with
   | Hook_observer_raised (exn, backtrace) -> reraise_hook_observer exn backtrace
 ;;
@@ -593,18 +592,18 @@ let execute_scheduled_tool
   let invocation = Tool.Invocation.create ~tool_use_id:id ~turn:turn_count ~schedule in
   let id = Tool.Invocation.tool_use_id invocation in
   let turn_count = Tool.Invocation.turn invocation in
-  let completed_dispatch = ref None in
+  let completed_dispatch : tool_dispatch option ref = ref None in
   let first_failure = ref None in
   let record_failure failure =
     match !first_failure with
     | None -> first_failure := Some failure
     | Some primary ->
       let retained, suppressed =
-        match primary, failure with
-        | Hook_failure _, Observer_failure _ ->
+        if failure_priority failure > failure_priority primary
+        then (
           first_failure := Some failure;
-          failure, primary
-        | _ -> primary, failure
+          failure, primary)
+        else primary, failure
       in
       Log.error
         _log
@@ -616,6 +615,7 @@ let execute_scheduled_tool
         ]
   in
   let record_caught_exception exception_ backtrace =
+    Llm_provider.Reserved_exn.reraise_if_reserved exception_;
     record_failure (observer_failure ~invocation exception_ backtrace)
   in
   let observe_before_completion callback =
@@ -638,154 +638,244 @@ let execute_scheduled_tool
   in
   let outcome () =
     { index
-    ; completed_result = Option.map (fun dispatch -> dispatch.result) !completed_dispatch
+    ; completed_result =
+        Option.map (fun (dispatch : tool_dispatch) -> dispatch.result) !completed_dispatch
     ; failure = !first_failure
     }
   in
-  try
-    let decision =
-      invoke_hook
-        ?on_hook_invoked
+  let observe_started ~tool_name ~input =
+    match on_tool_execution_started with
+    | Some callback -> callback ~invocation ~tool_name ~input
+    | None -> ()
+  in
+  let begin_effect ~tool_name ~input =
+    let t0_tool = Unix.gettimeofday () in
+    let pending =
+      find_and_execute_tool_with_index
+        ~context
+        ~tool_index
+        ~hooks
+        ~event_bus
         ~tracer
         ~agent_name
-        ~turn_count
-        ~hook_name:"pre_tool_use"
-        hooks.pre_tool_use
-        (Hooks.PreToolUse
-           { invocation
-           ; tool_name = name
-           ; input
-           ; accumulated_cost_usd = usage.Types.estimated_cost_usd
-           })
+        ?correlation_id
+        ?run_id
+        ?on_hook_invoked
+        ~publish_event_bus:true
+        ~invocation
+        tool_name
+        input
     in
-    match decision with
-    | Hooks.Block reason ->
-      (* Intentional caller rejection is a model-visible tool result, but it is
+    completed_dispatch
+    := Some ({ result = pending.result; deferred_failure = None } : tool_dispatch);
+    pending, (Unix.gettimeofday () -. t0_tool) *. 1000.0
+  in
+  let finish_effect pending ~tool_name =
+    let dispatch = pending.finish_observers () in
+    completed_dispatch := Some dispatch;
+    Option.iter
+      (fun deferred -> record_failure (execution_failure_of_deferred deferred))
+      dispatch.deferred_failure;
+    observe_after_completion (fun () ->
+      match on_tool_execution_finished with
+      | Some callback ->
+        callback
+          ~invocation
+          ~tool_name
+          ~content:dispatch.result.content
+          ~is_error:(Types.tool_result_outcome_is_error dispatch.result.outcome)
+      | None -> ());
+    dispatch
+  in
+  let execute_durable durable_invocation =
+    match
+      Execution_agent_scope.execute_phased
+        durable_invocation
+        ~invoke:(fun ~start_child ~tool_name ~input ->
+          observe_before_completion (fun () -> observe_started ~tool_name ~input);
+          Execution_context.with_child_scope_factory start_child (fun () ->
+            let pending, _duration_ms = begin_effect ~tool_name ~input in
+            ( (pending.result.content, pending.result.outcome)
+            , fun () ->
+                let (_ : tool_dispatch) = finish_effect pending ~tool_name in
+                () )))
+    with
+    | Error error ->
+      (* The effect may already have returned, but without an atomic settlement
+         there is no result authority to expose to the transcript. *)
+      completed_dispatch := None;
+      record_failure
+        (Durability_failure
+           { invocation; detail = Execution_agent_scope.error_to_string error });
+      raise Abort_tool_dispatch
+    | Ok (Execution_agent_scope.Executed (result, _, _))
+    | Ok (Execution_agent_scope.Replayed result) ->
+      let dispatch =
+        match !completed_dispatch with
+        | Some dispatch -> dispatch
+        | None ->
+          { result =
+              { invocation = result.invocation
+              ; tool_name = result.tool_name
+              ; input = result.input
+              ; content = result.content
+              ; outcome = result.outcome
+              }
+          ; deferred_failure = None
+          }
+      in
+      completed_dispatch := Some dispatch;
+      dispatch
+  in
+  let with_tool_span run =
+    Tracing.with_span
+      tracer
+      { kind = Tool_exec; name; agent_name; turn = turn_count; extra = []; links = [] }
+      (fun _tracer -> run ())
+  in
+  let durability_failure error =
+    record_failure
+      (Durability_failure
+         { invocation; detail = Execution_agent_scope.error_to_string error });
+    raise Abort_tool_dispatch
+  in
+  try
+    let execution_provider = Execution_context.provider_attempt () in
+    let existing =
+      match execution_provider with
+      | None -> Ok None
+      | Some provider ->
+        Execution_agent_scope.find_invocation provider ~invocation ~tool_name:name ~input
+    in
+    match existing with
+    | Error error -> durability_failure error
+    | Ok (Some durable_invocation) ->
+      (* An existing durable occurrence proves the pre-tool gate already
+         admitted this exact call. Replaying it must not invoke the gate or any
+         lifecycle observer again. If no attempt was committed, [execute_phased]
+         starts the effect once; an in-flight attempt fails closed. *)
+      let (_ : tool_dispatch) =
+        with_tool_span (fun () -> execute_durable durable_invocation)
+      in
+      outcome ()
+    | Ok None ->
+      let decision =
+        invoke_hook
+          ?on_hook_invoked
+          ~tracer
+          ~agent_name
+          ~turn_count
+          ~hook_name:"pre_tool_use"
+          hooks.pre_tool_use
+          (Hooks.PreToolUse
+             { invocation
+             ; tool_name = name
+             ; input
+             ; accumulated_cost_usd = usage.Types.estimated_cost_usd
+             })
+      in
+      (match decision with
+       | Hooks.Block reason ->
+         (* Intentional caller rejection is a model-visible tool result, but it is
          not a tool execution. No Tool_called/Tool_completed lifecycle evidence
          is emitted for a call that never crossed the caller's gate. *)
-      { index
-      ; completed_result =
-          Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
-      ; failure = None
-      }
-    | Hooks.HookFailed { stage; detail } ->
-      { index
-      ; completed_result = None
-      ; failure =
-          Some
-            (Hook_failure
-               (hook_execution_error
-                  ~hook_name:"pre_tool_use"
-                  ~stage
-                  ~tool_name:name
-                  ~invocation
-                  ~detail))
-      }
-    | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
-      { index
-      ; completed_result = None
-      ; failure =
-          Some
-            (Hook_failure
-               (hook_execution_error
-                  ~hook_name:"pre_tool_use"
-                  ~stage:Hooks.Pre_tool_use
-                  ~tool_name:name
-                  ~invocation
-                  ~detail:
-                    (Printf.sprintf
-                       "illegal decision %s escaped hook validation"
-                       (Hooks.decision_kind_to_string (Hooks.classify_decision decision)))))
-      }
-    | Hooks.Continue ->
-      let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
-      (try
-         let dispatch =
-           Tracing.with_span
-             tracer
-             { kind = Tool_exec
-             ; name
-             ; agent_name
-             ; turn = turn_count
-             ; extra = []
-             ; links = []
-             }
-             (fun _tracer ->
-                observe_before_completion (fun () ->
-                  match journal with
-                  | Some j ->
-                    Agent_execution_event_writer.append
-                      j
-                      (Tool_called
-                         { turn = Tool.Invocation.turn invocation
-                         ; tool_name = name
-                         ; idempotency_key = idem_key
-                         ; input_hash = Digest.string (Yojson.Safe.to_string input)
-                         ; timestamp = Unix.gettimeofday ()
-                         })
-                  | None -> ());
-                observe_before_completion (fun () ->
-                  match on_tool_execution_started with
-                  | Some callback -> callback ~invocation ~tool_name:name ~input
-                  | None -> ());
-                let t0_tool = Unix.gettimeofday () in
-                let dispatch =
-                  find_and_execute_tool_with_index
-                    ~context
-                    ~tool_index
-                    ~hooks
-                    ~event_bus
-                    ~tracer
-                    ~agent_name
-                    ?correlation_id
-                    ?run_id
-                    ?on_hook_invoked
-                    ~invocation
-                    name
-                    input
-                in
-                completed_dispatch := Some dispatch;
-                Option.iter record_failure dispatch.deferred_failure;
-                let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
-                observe_after_completion (fun () ->
-                  match journal with
-                  | Some j ->
-                    Agent_execution_event_writer.append
-                      j
-                      (Tool_completed
-                         { turn = Tool.Invocation.turn invocation
-                         ; tool_name = name
-                         ; idempotency_key = idem_key
-                         ; output_json = `String dispatch.result.content
-                         ; is_error =
-                             Types.tool_result_outcome_is_error dispatch.result.outcome
-                         ; duration_ms = duration_ms_tool
-                         ; timestamp = Unix.gettimeofday ()
-                         })
-                  | None -> ());
-                observe_after_completion (fun () ->
-                  match on_tool_execution_finished with
-                  | Some callback ->
-                    callback
-                      ~invocation
-                      ~tool_name:name
-                      ~content:dispatch.result.content
-                      ~is_error:
-                        (Types.tool_result_outcome_is_error dispatch.result.outcome)
-                  | None -> ());
-                dispatch)
-         in
-         completed_dispatch := Some dispatch;
-         outcome ()
-       with
-       | Abort_tool_dispatch -> outcome ()
-       | Hook_observer_raised (exception_, backtrace) ->
-         record_caught_exception exception_ backtrace;
-         outcome ()
-       | exception_ ->
-         let backtrace = Printexc.get_raw_backtrace () in
-         record_caught_exception exception_ backtrace;
-         outcome ())
+         { index
+         ; completed_result =
+             Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
+         ; failure = None
+         }
+       | Hooks.HookFailed { stage; detail } ->
+         { index
+         ; completed_result = None
+         ; failure =
+             Some
+               (Hook_failure
+                  (hook_execution_error
+                     ~hook_name:"pre_tool_use"
+                     ~stage
+                     ~tool_name:name
+                     ~invocation
+                     ~detail))
+         }
+       | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
+         { index
+         ; completed_result = None
+         ; failure =
+             Some
+               (Hook_failure
+                  (hook_execution_error
+                     ~hook_name:"pre_tool_use"
+                     ~stage:Hooks.Pre_tool_use
+                     ~tool_name:name
+                     ~invocation
+                     ~detail:
+                       (Printf.sprintf
+                          "illegal decision %s escaped hook validation"
+                          (Hooks.decision_kind_to_string
+                             (Hooks.classify_decision decision)))))
+         }
+       | Hooks.Continue ->
+         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
+         (try
+            let dispatch =
+              with_tool_span (fun () ->
+                match execution_provider with
+                | Some provider ->
+                  (match
+                     Execution_agent_scope.open_invocation
+                       provider
+                       ~invocation
+                       ~tool_name:name
+                       ~input
+                   with
+                   | Error error -> durability_failure error
+                   | Ok durable_invocation -> execute_durable durable_invocation)
+                | None ->
+                  observe_before_completion (fun () ->
+                    observe_started ~tool_name:name ~input;
+                    match journal with
+                    | Some j ->
+                      Agent_execution_event_writer.append
+                        j
+                        (Tool_called
+                           { turn = Tool.Invocation.turn invocation
+                           ; tool_name = name
+                           ; idempotency_key = idem_key
+                           ; input_hash = Digest.string (Yojson.Safe.to_string input)
+                           ; timestamp = Unix.gettimeofday ()
+                           })
+                    | None -> ());
+                  let pending, duration_ms_tool = begin_effect ~tool_name:name ~input in
+                  let dispatch = finish_effect pending ~tool_name:name in
+                  observe_after_completion (fun () ->
+                    match journal with
+                    | Some j ->
+                      Agent_execution_event_writer.append
+                        j
+                        (Tool_completed
+                           { turn = Tool.Invocation.turn invocation
+                           ; tool_name = name
+                           ; idempotency_key = idem_key
+                           ; output_json = `String dispatch.result.content
+                           ; is_error =
+                               Types.tool_result_outcome_is_error dispatch.result.outcome
+                           ; duration_ms = duration_ms_tool
+                           ; timestamp = Unix.gettimeofday ()
+                           })
+                    | None -> ());
+                  dispatch)
+            in
+            completed_dispatch := Some dispatch;
+            outcome ()
+          with
+          | Abort_tool_dispatch -> outcome ()
+          | Hook_observer_raised (exception_, backtrace) ->
+            record_caught_exception exception_ backtrace;
+            outcome ()
+          | exception_ ->
+            let backtrace = Printexc.get_raw_backtrace () in
+            record_caught_exception exception_ backtrace;
+            outcome ()))
   with
   | Hook_observer_raised (exception_, backtrace) ->
     record_caught_exception exception_ backtrace;
@@ -859,7 +949,15 @@ let execute_tools
            Option.map (fun result -> outcome.index, result) outcome.completed_result)
         outcomes
     in
-    let failure = List.find_map (fun outcome -> outcome.failure) outcomes in
+    let failure =
+      List.fold_left
+        (fun selected outcome ->
+           match outcome.failure with
+           | None -> selected
+           | Some candidate -> prefer_failure selected candidate)
+        None
+        outcomes
+    in
     completed, failure
   in
   let ordered_results completed =

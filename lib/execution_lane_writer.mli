@@ -168,6 +168,16 @@ val wake_reconciliation : t -> source:reconciliation_wake_source -> bool
     may retain its last acknowledged cursor and replay after any wake hint. *)
 val current_cursor : t -> (Execution_journal.cursor, read_error) result
 
+val find_node
+  :  t
+  -> Execution_event.Node_id.t
+  -> (Execution_journal.node_view option, read_error) result
+
+val find_run
+  :  t
+  -> Execution_event.Run_id.t
+  -> (Execution_journal.run_view option, read_error) result
+
 val read_page
   :  t
   -> after:Execution_journal.cursor

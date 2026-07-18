@@ -39,11 +39,11 @@ let provider_attempt ?(model_id = "test-model") ordinal =
   require_codec_ok (Event.provider_attempt ~ordinal binding)
 ;;
 
-let tool_invocation name =
+let tool_invocation ?(planned_index = 0) name =
   Event.Tool_invocation
     { provider_tool_use_id = Some ("provider-" ^ name)
     ; tool_name = name
-    ; schedule = serial_schedule
+    ; schedule = { serial_schedule with planned_index; batch_index = planned_index }
     }
 ;;
 
@@ -734,7 +734,7 @@ let test_hierarchy_and_lifecycle_rejections () =
          journal
          ~run
          ~parent:turn
-         ~kind:(tool_invocation "parse_failure"))
+         ~kind:(tool_invocation ~planned_index:1 "parse_failure"))
   in
   ignore
     (require_ok
@@ -756,7 +756,7 @@ let test_hierarchy_and_lifecycle_rejections () =
            (Event.Tool_invocation
               { provider_tool_use_id = None
               ; tool_name = "late_identity"
-              ; schedule = serial_schedule
+              ; schedule = { serial_schedule with planned_index = 2; batch_index = 2 }
               }))
   in
   let canonical_tool_use =

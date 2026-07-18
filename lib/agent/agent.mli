@@ -141,6 +141,52 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
+(** Application-lifetime CPU capability shared by execution journals. *)
+type execution_runtime
+
+(** One caller-owned directory for one fresh Agent API-call execution scope. *)
+type execution_store
+
+(** Opaque durable identity for one Agent API-call execution scope. *)
+type execution_locator
+
+val execution_locator_to_yojson : execution_locator -> Yojson.Safe.t
+
+(** Decode the exact versioned locator emitted by
+    {!execution_locator_to_yojson}. Unknown versions or fields are rejected. *)
+val execution_locator_of_yojson : Yojson.Safe.t -> (execution_locator, string) result
+
+val create_execution_runtime
+  :  sw:Eio.Switch.t
+  -> domain_mgr:_ Eio.Domain_manager.t
+  -> domain_count:int
+  -> (execution_runtime, Error.sdk_error) result
+
+(** Configure one durable execution scope. Without [resume], the directory must
+    be new and the call starts a fresh scope. With [resume], the same Agent API
+    reopens that scope in the same directory, validates Agent identity and the
+    restored user input, and replays settled ToolResults without rerunning tool
+    gates, handlers, or completion observers. An admitted Tool attempt without
+    a settled result fails closed because its external outcome is unknown.
+
+    The same optional value is accepted by regular, streaming, handoff,
+    single-turn, and [Advanced] run entry points; no parallel durable run
+    surface is introduced. One store and directory must be used for exactly one
+    API call. A cooperative [Yielded] return is a successful terminal boundary
+    for that call.
+
+    [on_scope_ready], when supplied, must persist the opaque locator before
+    provider or Tool effects begin. It is invoked for both fresh and resumed
+    scopes, so the sink should be idempotent. Failure aborts the scope and the
+    Agent call. *)
+val execution_store
+  :  runtime:execution_runtime
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> ?on_scope_ready:(execution_locator -> (unit, string) result)
+  -> ?resume:execution_locator
+  -> unit
+  -> execution_store
+
 (** Advanced host-driven execution.  The regular {!run}, {!run_blocks}, and
     streaming entry points remain the simple run-to-completion API. *)
 module Advanced : sig
@@ -194,6 +240,7 @@ module Advanced : sig
     -> ?clock:_ Eio.Time.clock
     -> ?on_yield:(unit -> unit)
     -> ?on_resume:(unit -> unit)
+    -> ?execution_store:execution_store
     -> api_strategy:api_strategy
     -> on_tool_boundary:(tool_boundary -> boundary_decision)
     -> t
@@ -206,6 +253,7 @@ module Advanced : sig
     -> ?clock:_ Eio.Time.clock
     -> ?on_yield:(unit -> unit)
     -> ?on_resume:(unit -> unit)
+    -> ?execution_store:execution_store
     -> api_strategy:api_strategy
     -> on_tool_boundary:(tool_boundary -> boundary_decision)
     -> t
@@ -219,6 +267,7 @@ val run_detailed
   -> ?clock:_ Eio.Time.clock
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> string
   -> (Types.api_response, detailed_error) result
@@ -249,6 +298,7 @@ val run
   -> ?clock:_ Eio.Time.clock
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> string
   -> (Types.api_response, Error.sdk_error) result
@@ -262,6 +312,7 @@ val run_blocks
   -> ?clock:_ Eio.Time.clock
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
@@ -272,6 +323,7 @@ val run_blocks_detailed
   -> ?clock:_ Eio.Time.clock
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> Types.content_block list
   -> (Types.api_response, detailed_error) result
@@ -284,6 +336,7 @@ val run_stream
   -> on_event:(Types.sse_event -> unit)
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> string
   -> (Types.api_response, Error.sdk_error) result
@@ -295,6 +348,7 @@ val run_stream_detailed
   -> on_event:(Types.sse_event -> unit)
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> string
   -> (Types.api_response, detailed_error) result
@@ -307,6 +361,7 @@ val run_stream_blocks
   -> on_event:(Types.sse_event -> unit)
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
@@ -318,6 +373,7 @@ val run_stream_blocks_detailed
   -> on_event:(Types.sse_event -> unit)
   -> ?on_yield:(unit -> unit)
   -> ?on_resume:(unit -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> Types.content_block list
   -> (Types.api_response, detailed_error) result
@@ -329,6 +385,7 @@ val run_turn_stream
   -> ?clock:_ Eio.Time.clock
   -> on_event:(Types.sse_event -> unit)
   -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
 
@@ -338,6 +395,7 @@ val run_turn_stream_detailed
   -> ?clock:_ Eio.Time.clock
   -> on_event:(Types.sse_event -> unit)
   -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
+  -> ?execution_store:execution_store
   -> t
   -> ([ `Complete of Types.api_response | `ToolsExecuted ], detailed_error) result
 
@@ -352,6 +410,7 @@ val provide_input : t -> Error.input_required -> Hooks.elicitation_response -> u
 val run_with_handoffs
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
+  -> ?execution_store:execution_store
   -> t
   -> targets:Handoff.handoff_target list
   -> string
@@ -361,6 +420,7 @@ val run_with_handoffs
 val run_with_handoffs_detailed
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
+  -> ?execution_store:execution_store
   -> t
   -> targets:Handoff.handoff_target list
   -> string
@@ -369,6 +429,7 @@ val run_with_handoffs_detailed
 val run_with_handoffs_blocks
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
+  -> ?execution_store:execution_store
   -> t
   -> targets:Handoff.handoff_target list
   -> Types.content_block list
@@ -378,6 +439,7 @@ val run_with_handoffs_blocks
 val run_with_handoffs_blocks_detailed
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
+  -> ?execution_store:execution_store
   -> t
   -> targets:Handoff.handoff_target list
   -> Types.content_block list

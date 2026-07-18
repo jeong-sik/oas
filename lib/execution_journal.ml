@@ -171,6 +171,13 @@ type invariant_violation =
   | Tool_input_snapshot_identity_mismatch of Event.Node_id.t
   | Tool_input_delta_after_snapshot of Event.Node_id.t
   | Tool_input_not_materialized of Event.Node_id.t
+  | Tool_invocation_requires_atomic_open
+  | Occurrence_already_opened of Event.Node_id.t
+  | Tool_occurrence_conflict of
+      { parent : Event.Node_id.t
+      ; planned_index : int
+      ; existing : Event.Node_id.t
+      }
   | Tool_result_already_materialized of Event.Node_id.t
   | Tool_result_snapshot_not_tool_result of Event.Node_id.t
   | Tool_result_snapshot_identity_mismatch of Event.Node_id.t
@@ -518,6 +525,60 @@ module Reducer = struct
       , _ ) -> false
   ;;
 
+  let find_child parent_record matches =
+    List.find_map
+      (fun (child : Event.node event_record) ->
+         if matches (Event.node_kind child.value)
+         then Some (Event.node_id child.value)
+         else None)
+      parent_record.children_rev
+  ;;
+
+  let ensure_occurrence_available parent_id parent_record child_kind =
+    let existing =
+      match Event.node_kind parent_record.node, child_kind with
+      | Event.Agent_run _, Event.Agent_turn { ordinal } ->
+        find_child parent_record (function
+          | Event.Agent_turn child -> child.ordinal = ordinal
+          | Event.Agent_run _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt -> false)
+      | Event.Agent_turn _, Event.Provider_attempt { ordinal; target = _ } ->
+        find_child parent_record (function
+          | Event.Provider_attempt child -> child.ordinal = ordinal
+          | Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt -> false)
+      | (Event.Provider_attempt _ | Event.Tool_attempt), Event.Tool_invocation tool ->
+        find_child parent_record (function
+          | Event.Tool_invocation child ->
+            child.schedule.planned_index = tool.schedule.planned_index
+          | Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_attempt -> false)
+      | ( ( Event.Agent_run _
+          | Event.Agent_turn _
+          | Event.Provider_attempt _
+          | Event.Output_block _
+          | Event.Tool_invocation _
+          | Event.Tool_attempt )
+        , _ ) -> None
+    in
+    match existing, child_kind with
+    | None, _ -> Ok ()
+    | Some existing, Event.Tool_invocation { schedule; _ } ->
+      Error
+        (Tool_occurrence_conflict
+           { parent = parent_id; planned_index = schedule.planned_index; existing })
+    | Some existing, _ -> Error (Occurrence_already_opened existing)
+  ;;
+
   let validate_update (record : node_record) node_id update =
     match Event.node_kind record.node, update with
     | Event.Provider_attempt _, Event.Provider_event _ -> Ok ()
@@ -710,6 +771,9 @@ module Reducer = struct
       if parent_accepts_child (Event.node_kind parent_record.node) (Event.node_kind node)
       then Ok ()
       else Error (Invalid_parent_kind { parent = parent_id; child = node_id })
+    in
+    let* () =
+      ensure_occurrence_available parent_id parent_record (Event.node_kind node)
     in
     let* () =
       (* Ordering fences per parent kind. The match is exhaustive on parent
@@ -1370,6 +1434,194 @@ let stage_close_node ?causes journal state ~node terminal =
       payload
 ;;
 
+let stage_begin_tool_attempt journal state ~invocation =
+  let* invocation_record = node_record_or_error state invocation in
+  let* run =
+    match Event.node_kind invocation_record.node, invocation_record.children_rev with
+    | Event.Tool_invocation _, [] ->
+      let run_id = Event.node_run_id invocation_record.node in
+      (match Reducer.find_run state.reducer run_id with
+       | Some { run; status = Running; _ } -> Ok run
+       | Some { status = Finished _; _ } ->
+         Error (Invariant_violation (Run_already_finished run_id))
+       | None -> Error (Invariant_violation (Unknown_run run_id)))
+    | Event.Tool_invocation _, _ :: _ ->
+      Error (Invalid_argument "tool invocation already has an attempt")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_attempt )
+      , _ ) -> Error (Invalid_argument "tool attempt requires a Tool_invocation node")
+  in
+  stage_open_node journal state ~run ~parent:invocation ~kind:Event.Tool_attempt
+;;
+
+let stage_open_tool_invocation
+      journal
+      state
+      ~run
+      ~provider_attempt
+      ~invocation
+      ~tool_name
+      ~input
+  =
+  let* provider_record = node_record_or_error state provider_attempt in
+  let* () =
+    match
+      Event.node_kind provider_record.node, Event.parent_node_id provider_record.node
+    with
+    | Event.Provider_attempt _, Some turn_node ->
+      let* turn_record = node_record_or_error state turn_node in
+      (match Event.node_kind turn_record.node with
+       | Event.Agent_turn { ordinal } when ordinal = Tool.Invocation.turn invocation ->
+         Ok ()
+       | Event.Agent_turn _ ->
+         Error
+           (Invalid_argument "tool invocation turn does not match its provider attempt")
+       | Event.Agent_run _
+       | Event.Provider_attempt _
+       | Event.Output_block _
+       | Event.Tool_invocation _
+       | Event.Tool_attempt ->
+         Error
+           (Invalid_argument
+              "tool invocation requires a provider attempt under an agent turn"))
+    | Event.Provider_attempt _, None ->
+      Error
+        (Invalid_argument
+           "tool invocation requires a provider attempt under an agent turn")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Output_block _
+        | Event.Tool_invocation _
+        | Event.Tool_attempt )
+      , _ ) -> Error (Invalid_argument "tool invocation requires a provider attempt")
+  in
+  let tool_use_id = Tool.Invocation.tool_use_id invocation in
+  let planned_index = Tool.Invocation.planned_index invocation in
+  let* () =
+    match
+      List.find_map
+        (fun (child : Event.node event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation { schedule; _ }
+             when schedule.planned_index = planned_index ->
+             Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        provider_record.children_rev
+    with
+    | None -> Ok ()
+    | Some existing ->
+      let* existing_record = node_record_or_error state existing in
+      let exact_duplicate =
+        match Event.node_kind existing_record.node, existing_record.tool_input with
+        | ( Event.Tool_invocation
+              { provider_tool_use_id; tool_name = existing_name; schedule }
+          , Some
+              (Llm_provider.Types.ToolUse
+                 { id = existing_id; name = input_name; input = existing_input }) ) ->
+          Option.equal String.equal provider_tool_use_id (Some tool_use_id)
+          && String.equal existing_name tool_name
+          && Execution_tool_schedule.equal schedule (Tool.Invocation.schedule invocation)
+          && String.equal existing_id tool_use_id
+          && String.equal input_name tool_name
+          && Yojson.Safe.equal existing_input input
+        | ( ( Event.Agent_run _
+            | Event.Agent_turn _
+            | Event.Provider_attempt _
+            | Event.Output_block _
+            | Event.Tool_attempt )
+          , _ )
+        | Event.Tool_invocation _, (None | Some _) -> false
+      in
+      if exact_duplicate
+      then Error (Invariant_violation (Occurrence_already_opened existing))
+      else
+        Error
+          (Invariant_violation
+             (Tool_occurrence_conflict
+                { parent = provider_attempt; planned_index; existing }))
+  in
+  let* opened =
+    stage_open_node
+      journal
+      state
+      ~run
+      ~parent:provider_attempt
+      ~kind:
+        (Event.Tool_invocation
+           { provider_tool_use_id = Some tool_use_id
+           ; tool_name
+           ; schedule = Tool.Invocation.schedule invocation
+           })
+  in
+  let tool_use =
+    Llm_provider.Types.ToolUse { id = tool_use_id; name = tool_name; input }
+  in
+  let+ materialized =
+    stage_update_node
+      journal
+      opened.next_state
+      ~node:(fst opened.value)
+      (Event.Tool_input_snapshot tool_use)
+  in
+  let node, opened_event = opened.value in
+  { next_state = materialized.next_state
+  ; events = [ opened_event; materialized.value ]
+  ; value = node, [ opened_event; materialized.value ]
+  }
+;;
+
+let stage_settle_tool_attempt journal state ~attempt ~invocation ~result =
+  let* attempt_record = node_record_or_error state attempt in
+  let* () =
+    match
+      Event.node_kind attempt_record.node, Event.parent_node_id attempt_record.node
+    with
+    | Event.Tool_attempt, Some parent when Event.Node_id.equal parent invocation -> Ok ()
+    | Event.Tool_attempt, (None | Some _) ->
+      Error (Invalid_argument "tool attempt does not belong to the invocation")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_invocation _ )
+      , _ ) -> Error (Invalid_argument "tool settlement requires a Tool_attempt node")
+  in
+  let* invocation_record = node_record_or_error state invocation in
+  let* () =
+    match Event.node_kind invocation_record.node with
+    | Event.Tool_invocation _ -> Ok ()
+    | Event.Agent_run _
+    | Event.Agent_turn _
+    | Event.Provider_attempt _
+    | Event.Output_block _
+    | Event.Tool_attempt ->
+      Error (Invalid_argument "tool settlement requires a Tool_invocation node")
+  in
+  let* attempt_closed = stage_close_node journal state ~node:attempt Event.Succeeded in
+  let* result_committed =
+    stage_update_node
+      journal
+      attempt_closed.next_state
+      ~node:invocation
+      (Event.Tool_result result)
+  in
+  let+ invocation_closed =
+    stage_close_node journal result_committed.next_state ~node:invocation Event.Succeeded
+  in
+  { next_state = invocation_closed.next_state
+  ; events = [ attempt_closed.value; result_committed.value; invocation_closed.value ]
+  ; value = [ attempt_closed.value; result_committed.value; invocation_closed.value ]
+  }
+;;
+
 let stage_finish_run ?causes journal state ~run terminal =
   let* event_id = identity_result (Event.Event_id.fresh ()) in
   let* terminal = payload_result (Event.validate_terminal terminal) in
@@ -1531,6 +1783,23 @@ module Transaction = struct
         ; terminal : Event.terminal
         }
         -> Event.t t
+    | Begin_tool_attempt :
+        { invocation : Event.Node_id.t }
+        -> (Event.Node_id.t * Event.t) t
+    | Open_tool_invocation :
+        { run : run
+        ; provider_attempt : Event.Node_id.t
+        ; invocation : Tool.Invocation.t
+        ; tool_name : string
+        ; input : Yojson.Safe.t
+        }
+        -> (Event.Node_id.t * Event.t list) t
+    | Settle_tool_attempt :
+        { attempt : Event.Node_id.t
+        ; invocation : Event.Node_id.t
+        ; result : Llm_provider.Types.content_block
+        }
+        -> Event.t list t
     | Finish_run :
         { causes : Event.cause list
         ; run : run
@@ -1554,6 +1823,16 @@ module Transaction = struct
 
   let update_node ?(causes = []) ~node update = Update_node { causes; node; update }
   let close_node ?(causes = []) ~node terminal = Close_node { causes; node; terminal }
+  let begin_tool_attempt ~invocation () = Begin_tool_attempt { invocation }
+
+  let open_tool_invocation ~run ~provider_attempt ~invocation ~tool_name ~input () =
+    Open_tool_invocation { run; provider_attempt; invocation; tool_name; input }
+  ;;
+
+  let settle_tool_attempt ~attempt ~invocation ~result () =
+    Settle_tool_attempt { attempt; invocation; result }
+  ;;
+
   let finish_run ?(causes = []) ~run terminal = Finish_run { causes; run; terminal }
   let abort_run ?(causes = []) ~run terminal = Abort_run { causes; run; terminal }
 end
@@ -1573,6 +1852,8 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
          batch.journal
          batch.staged_state
          ~agent_name)
+  | Transaction.Open_node { kind = Event.Tool_invocation _; _ } ->
+    Error (Invariant_violation Tool_invocation_requires_atomic_open)
   | Transaction.Open_node { causes; run; parent; kind } ->
     stage_mutation
       (stage_open_node ~causes batch.journal batch.staged_state ~run ~parent ~kind)
@@ -1582,6 +1863,27 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
   | Transaction.Close_node { causes; node; terminal } ->
     stage_mutation
       (stage_close_node ~causes batch.journal batch.staged_state ~node terminal)
+  | Transaction.Begin_tool_attempt { invocation } ->
+    stage_mutation (stage_begin_tool_attempt batch.journal batch.staged_state ~invocation)
+  | Transaction.Open_tool_invocation
+      { run; provider_attempt; invocation; tool_name; input } ->
+    stage_mutation
+      (stage_open_tool_invocation
+         batch.journal
+         batch.staged_state
+         ~run
+         ~provider_attempt
+         ~invocation
+         ~tool_name
+         ~input)
+  | Transaction.Settle_tool_attempt { attempt; invocation; result } ->
+    stage_mutation
+      (stage_settle_tool_attempt
+         batch.journal
+         batch.staged_state
+         ~attempt
+         ~invocation
+         ~result)
   | Transaction.Finish_run { causes; run; terminal } ->
     stage_mutation
       (stage_finish_run ~causes batch.journal batch.staged_state ~run terminal)

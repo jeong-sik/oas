@@ -124,6 +124,8 @@ let execute_with_tools_in_env
   | Error
       { Agent_tools.cause = Agent_tools.Observer_failure { exception_; backtrace; _ }; _ }
     -> Printexc.raise_with_backtrace exception_ backtrace
+  | Error { Agent_tools.cause = Agent_tools.Durability_failure { detail; _ }; _ } ->
+    failf "unexpected durable execution failure: %s" detail
 ;;
 
 (** Helper: create a minimal agent inside Eio with given hooks.

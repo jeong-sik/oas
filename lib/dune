@@ -15,6 +15,15 @@
   execution_event_store
   execution_journal
   execution_lane_writer
+  execution_agent_scope
+  execution_tool_settlement
+  execution_context
+  agent_input
+  agent_tool_execution_types
+  agent_execution_runner
+  pipeline_checkpoint
+  pipeline_execution_scope
+  pipeline_execution_resume
   agent_execution_event_writer)
  (libraries
   llm_provider

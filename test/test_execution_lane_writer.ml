@@ -7,11 +7,14 @@ module Codec = Internal.Execution_codec_executor
 module Journal = Internal.Execution_journal
 module Store = Internal.Execution_event_store
 module Writer = Internal.Execution_lane_writer
+module Settlement = Internal.Execution_tool_settlement
+module Agent_scope = Internal.Execution_agent_scope
 module Tx = Journal.Transaction
 
 exception Cancel_waiter
 exception Cancel_scope
 exception Callback_failed
+exception Effect_raised
 
 let require_submit = function
   | Ok ticket -> ticket
@@ -31,6 +34,11 @@ let require_closed = function
 let require_scope = function
   | Ok value -> value
   | Error error -> fail (Writer.scope_failure_to_string error)
+;;
+
+let require_agent_scope = function
+  | Ok value -> value
+  | Error error -> fail (Agent_scope.error_to_string error)
 ;;
 
 let with_fresh codec dir f =
@@ -102,22 +110,27 @@ let read_complete_page writer ~after ~limit =
     page.events, page.next_cursor
 ;;
 
-let provider_attempt ordinal =
+let binding_for ~provider_id =
   let config =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_kind.OpenAI_compat
-      ~provider_id:"lane-writer-test"
+      ~provider_id
       ~model_id:"lane-writer-model"
       ~base_url:"https://provider.test"
       ()
   in
-  let binding =
-    Binding_identity.of_provider_config
-      ~transport:(Binding_identity.transport_for_call ~injected:false)
-      config
-    |> require_codec
-  in
-  require_codec (Event.provider_attempt ~ordinal binding)
+  Binding_identity.of_provider_config
+    ~transport:(Binding_identity.transport_for_call ~injected:false)
+    config
+  |> require_codec
+;;
+
+let provider_attempt_for ~provider_id ordinal =
+  require_codec (Event.provider_attempt ~ordinal (binding_for ~provider_id))
+;;
+
+let provider_attempt ordinal =
+  provider_attempt_for ~provider_id:"lane-writer-test" ordinal
 ;;
 
 let submit_and_await writer transaction =
@@ -169,6 +182,713 @@ let open_output writer =
 
 let delta_transaction output index =
   Tx.update_node ~node:output (Event.Output_delta (`Assoc [ "index", `Int index ]))
+;;
+
+let test_effect_attempt_and_settlement_survive_restart () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let restart_pairs = ref None in
+    let result =
+      Types.ToolResult
+        { tool_use_id = "call-0"
+        ; content = "done"
+        ; outcome = Types.Tool_succeeded
+        ; json = None
+        ; content_blocks = None
+        }
+    in
+    with_fresh codec dir (fun _sw writer ->
+      let value transaction = (submit_and_await writer transaction).value in
+      let run, _ = value (Tx.start_run ~agent_name:"effect" ()) in
+      let turn, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 1 })
+             ())
+      in
+      let provider, _ =
+        value (Tx.open_node ~run ~parent:turn ~kind:(provider_attempt 0) ())
+      in
+      let open_invocation planned_index =
+        let schedule : Tool.schedule =
+          { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
+        in
+        let tool_use_id = Printf.sprintf "call-%d" planned_index in
+        let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+        let receipt =
+          submit_and_await
+            writer
+            (Tx.open_tool_invocation
+               ~run
+               ~provider_attempt:provider
+               ~invocation
+               ~tool_name:"effect"
+               ~input:`Null
+               ())
+        in
+        let node, events = receipt.value in
+        check int "open and materialize in one group" 2 (List.length events);
+        check int "one durable producer group" 2 receipt.group_event_count;
+        node, invocation
+      in
+      let authority (node, _invocation) =
+        match Settlement.rebind ~writer ~invocation_node:node with
+        | Ok durable -> durable.authority
+        | Error _ -> fail "durable invocation authority rejected exact identity"
+      in
+      let first_pair = open_invocation 0 in
+      let first = authority first_pair in
+      let seq () = Journal.cursor_seq (Result.get_ok (Writer.current_cursor writer)) in
+      let before_duplicate = seq () in
+      let first_node, first_invocation = first_pair in
+      (match
+         Writer.await
+           (require_submit
+              (Writer.submit
+                 writer
+                 (Tx.open_tool_invocation
+                    ~run
+                    ~provider_attempt:provider
+                    ~invocation:first_invocation
+                    ~tool_name:"effect"
+                    ~input:`Null
+                    ())))
+       with
+       | Error
+           (Writer.Transaction_rejected
+              (Journal.Invariant_violation (Journal.Occurrence_already_opened existing)))
+         when Event.Node_id.equal existing first_node -> ()
+       | Ok _ | Error _ -> fail "duplicate tool occurrence was accepted");
+      check int "duplicate producer is atomic" before_duplicate (seq ());
+      let before_rejected_producer = seq () in
+      let wrong_schedule : Tool.schedule =
+        { planned_index = 99
+        ; batch_index = 1
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let wrong_invocation =
+        Tool.Invocation.create ~tool_use_id:"wrong-turn" ~turn:2 ~schedule:wrong_schedule
+      in
+      (match
+         Writer.await
+           (require_submit
+              (Writer.submit
+                 writer
+                 (Tx.open_tool_invocation
+                    ~run
+                    ~provider_attempt:provider
+                    ~invocation:wrong_invocation
+                    ~tool_name:"effect"
+                    ~input:`Null
+                    ())))
+       with
+       | Error
+           (Writer.Transaction_rejected
+              (Journal.Invalid_argument
+                 "tool invocation turn does not match its provider attempt")) -> ()
+       | Ok _ | Error _ -> fail "mismatched invocation turn was accepted");
+      check int "rejected producer is atomic" before_rejected_producer (seq ());
+      let before_seq = seq () in
+      (match
+         Settlement.execute first ~invoke:(fun () ->
+           check int "attempt durable" (before_seq + 1) (seq ());
+           result)
+       with
+       | Ok (Settlement.Executed (_committed, through, event_count)) ->
+         check int "one settlement batch" 3 event_count;
+         check int "four durable events" (before_seq + 4) (Journal.cursor_seq through)
+       | Ok (Settlement.Replayed _) | Error _ -> fail "fresh effect did not settle");
+      let cancelled_pair = open_invocation 2 in
+      let cancelled = authority cancelled_pair in
+      let cancelled_result =
+        Types.ToolResult
+          { tool_use_id = "call-2"
+          ; content = "settled after cancellation"
+          ; outcome = Types.Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           match
+             Settlement.execute cancelled ~invoke:(fun () ->
+               Eio.Cancel.cancel cancellation Cancel_scope;
+               cancelled_result)
+           with
+           | Ok (Settlement.Executed _) -> ()
+           | Ok (Settlement.Replayed _) | Error _ ->
+             fail "post-effect cancellation lost settlement")
+       with
+       | () -> ()
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | exception exn -> raise exn);
+      let pre_effect_cancel_pair = open_invocation 3 in
+      let pre_effect_cancel = authority pre_effect_cancel_pair in
+      let pre_effect_cancel_invoked = ref false in
+      let pre_effect_cancel_result =
+        Types.ToolResult
+          { tool_use_id = "call-3"
+          ; content = "effect ran after committed-attempt cancellation"
+          ; outcome = Types.Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           match
+             Settlement.For_testing.execute_with_attempt_after_attempt_committed
+               pre_effect_cancel
+               ~after_attempt_committed:(fun () ->
+                 Eio.Cancel.cancel cancellation Cancel_scope)
+               ~invoke:(fun _attempt ->
+                 pre_effect_cancel_invoked := true;
+                 pre_effect_cancel_result)
+           with
+           | Ok (Settlement.Executed _) -> ()
+           | Ok (Settlement.Replayed _) | Error _ ->
+             fail "pre-effect cancellation lost settlement")
+       with
+       | () -> ()
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | exception exn -> raise exn);
+      check
+        bool
+        "committed attempt enters effect without a cancellation gap"
+        true
+        !pre_effect_cancel_invoked;
+      let second_pair = open_invocation 1 in
+      let second = authority second_pair in
+      match Settlement.execute second ~invoke:(fun () -> raise Effect_raised) with
+      | exception Effect_raised ->
+        restart_pairs
+        := Some
+             ( first_pair
+             , second_pair
+             , cancelled_pair
+             , cancelled_result
+             , pre_effect_cancel_pair
+             , pre_effect_cancel_result )
+      | Ok _ | Error _ -> fail "effect exception did not propagate");
+    let ( first_pair
+        , second_pair
+        , cancelled_pair
+        , cancelled_result
+        , pre_effect_cancel_pair
+        , pre_effect_cancel_result )
+      =
+      Option.get !restart_pairs
+    in
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let authority (node, _invocation) =
+        (Result.get_ok (Settlement.rebind ~writer ~invocation_node:node)).authority
+      in
+      let never () = fail "effect reran" in
+      (match Settlement.execute (authority first_pair) ~invoke:never with
+       | Ok (Settlement.Replayed replayed) when replayed = result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "restart lost settlement");
+      (match Settlement.execute (authority cancelled_pair) ~invoke:never with
+       | Ok (Settlement.Replayed settled) when settled = cancelled_result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "post-effect cancellation left no durable receipt");
+      (match Settlement.execute (authority pre_effect_cancel_pair) ~invoke:never with
+       | Ok (Settlement.Replayed settled) when settled = pre_effect_cancel_result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "committed-attempt cancellation poisoned an effect that ran");
+      match Settlement.execute (authority second_pair) ~invoke:never with
+      | Error Settlement.Effect_outcome_unknown -> ()
+      | Ok _ | Error _ -> fail "restart did not fence unknown effect"))
+;;
+
+let test_structural_occurrence_identity_is_parent_local () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    with_fresh codec dir (fun _sw writer ->
+      let value transaction = (submit_and_await writer transaction).value in
+      let seq () = Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq in
+      let expect_rejected_without_events label transaction matches =
+        let before = seq () in
+        (match Writer.await (require_submit (Writer.submit writer transaction)) with
+         | Error (Writer.Transaction_rejected (Journal.Invariant_violation violation))
+           when matches violation -> ()
+         | Error error -> fail (label ^ ": " ^ Writer.ticket_error_to_string error)
+         | Ok _ -> fail (label ^ ": duplicate occurrence was accepted"));
+        check int (label ^ " is atomic") before (seq ())
+      in
+      let run, _ = value (Tx.start_run ~agent_name:"occurrence" ()) in
+      let turn_0, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 0 })
+             ())
+      in
+      expect_rejected_without_events
+        "duplicate turn"
+        (Tx.open_node
+           ~run
+           ~parent:(Journal.run_root run)
+           ~kind:(Event.Agent_turn { ordinal = 0 })
+           ())
+        (function
+          | Journal.Occurrence_already_opened existing ->
+            Event.Node_id.equal existing turn_0
+          | _ -> false);
+      let turn_1, _ =
+        value
+          (Tx.open_node
+             ~run
+             ~parent:(Journal.run_root run)
+             ~kind:(Event.Agent_turn { ordinal = 1 })
+             ())
+      in
+      let provider_0, _ =
+        value (Tx.open_node ~run ~parent:turn_0 ~kind:(provider_attempt 0) ())
+      in
+      expect_rejected_without_events
+        "duplicate provider ordinal ignores diagnostic binding"
+        (Tx.open_node
+           ~run
+           ~parent:turn_0
+           ~kind:(provider_attempt_for ~provider_id:"different-binding" 0)
+           ())
+        (function
+          | Journal.Occurrence_already_opened existing ->
+            Event.Node_id.equal existing provider_0
+          | _ -> false);
+      let provider_1, _ =
+        value (Tx.open_node ~run ~parent:turn_1 ~kind:(provider_attempt 0) ())
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let input = `Assoc [ "value", `Int 7 ] in
+      let occurrence_0 = Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule in
+      let tool_0, _ =
+        value
+          (Tx.open_tool_invocation
+             ~run
+             ~provider_attempt:provider_0
+             ~invocation:occurrence_0
+             ~tool_name:"effect"
+             ~input
+             ())
+      in
+      expect_rejected_without_events
+        "exact tool duplicate"
+        (Tx.open_tool_invocation
+           ~run
+           ~provider_attempt:provider_0
+           ~invocation:occurrence_0
+           ~tool_name:"effect"
+           ~input
+           ())
+        (function
+        | Journal.Occurrence_already_opened existing ->
+          Event.Node_id.equal existing tool_0
+        | _ -> false);
+      let changed_schedule : Tool.schedule =
+        { schedule with
+          batch_index = 1
+        ; batch_size = 2
+        ; execution_mode = Tool.Concurrent
+        }
+      in
+      let conflicts =
+        [ ( "tool schedule conflict"
+          , Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule:changed_schedule
+          , "effect"
+          , input )
+        ; ( "tool id conflict"
+          , Tool.Invocation.create ~tool_use_id:"other-call" ~turn:0 ~schedule
+          , "effect"
+          , input )
+        ; "tool name conflict", occurrence_0, "other-effect", input
+        ; "tool input conflict", occurrence_0, "effect", `Assoc [ "value", `Int 8 ]
+        ]
+      in
+      List.iter
+        (fun (label, invocation, tool_name, input) ->
+           expect_rejected_without_events
+             label
+             (Tx.open_tool_invocation
+                ~run
+                ~provider_attempt:provider_0
+                ~invocation
+                ~tool_name
+                ~input
+                ())
+             (function
+             | Journal.Tool_occurrence_conflict { parent; planned_index = 0; existing } ->
+               Event.Node_id.equal parent provider_0
+               && Event.Node_id.equal existing tool_0
+             | _ -> false))
+        conflicts;
+      expect_rejected_without_events
+        "first raw tool open cannot bypass atomic producer"
+        (Tx.open_node
+           ~run
+           ~parent:provider_1
+           ~kind:
+             (Event.Tool_invocation
+                { provider_tool_use_id = Some "raw"; tool_name = "raw"; schedule })
+           ())
+        (function
+          | Journal.Tool_invocation_requires_atomic_open -> true
+          | _ -> false);
+      let occurrence_1 = Tool.Invocation.create ~tool_use_id:"call" ~turn:1 ~schedule in
+      ignore
+        (value
+           (Tx.open_tool_invocation
+              ~run
+              ~provider_attempt:provider_1
+              ~invocation:occurrence_1
+              ~tool_name:"effect"
+              ~input
+              ()));
+      let attempt, _ = value (Tx.begin_tool_attempt ~invocation:tool_0 ()) in
+      let child_run, _ =
+        value (Tx.start_run ~parent_attempt:attempt ~agent_name:"child" ())
+      in
+      let child_turn, _ =
+        value
+          (Tx.open_node
+             ~run:child_run
+             ~parent:(Journal.run_root child_run)
+             ~kind:(Event.Agent_turn { ordinal = 0 })
+             ())
+      in
+      let child_provider, _ =
+        value
+          (Tx.open_node ~run:child_run ~parent:child_turn ~kind:(provider_attempt 0) ())
+      in
+      let child_invocation, _ =
+        value
+          (Tx.open_tool_invocation
+             ~run:child_run
+             ~provider_attempt:child_provider
+             ~invocation:(Tool.Invocation.create ~tool_use_id:"child" ~turn:0 ~schedule)
+             ~tool_name:"child-effect"
+             ~input:`Null
+             ())
+      in
+      let locator run_id node_id =
+        `Assoc [ "version", `Int 1; "run_id", `String run_id; "node_id", `String node_id ]
+      in
+      let root_scope =
+        `Assoc
+          [ "version", `Int 1
+          ; "run_id", `String (Event.Run_id.to_string (Journal.run_id run))
+          ]
+        |> Agent_scope.scope_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.resume ~writer ~agent_name:"occurrence"
+        |> require_agent_scope
+      in
+      let foreign =
+        locator
+          (Event.Run_id.to_string (Journal.run_id child_run))
+          (Event.Node_id.to_string child_invocation)
+        |> Agent_scope.invocation_locator_of_yojson
+        |> require_codec
+      in
+      match Agent_scope.rebind_invocation root_scope foreign with
+      | Error Agent_scope.Invocation_locator_mismatch -> ()
+      | Error error -> fail (Agent_scope.error_to_string error)
+      | Ok _ -> fail "foreign run invocation rebound into root scope"))
+;;
+
+let test_agent_scope_owns_effect_topology () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let scope_locator_json = ref None in
+    let invocation_locator_json = ref None in
+    let calls = ref 0 in
+    let settled_before_observer = ref false in
+    with_fresh codec dir (fun _sw writer ->
+      let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
+      scope_locator_json
+      := Some (Agent_scope.scope_locator_to_yojson (Agent_scope.scope_locator scope));
+      let before_cancelled =
+        Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           Eio.Cancel.cancel cancellation Cancel_scope;
+           ignore (Agent_scope.open_turn scope ~ordinal:99))
+       with
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | () -> fail "pre-cancelled topology mutation returned"
+       | exception exn -> raise exn);
+      check
+        int
+        "pre-cancelled topology mutation admitted no event"
+        before_cancelled
+        (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
+      let before = cursor_at (Result.get_ok (Writer.current_cursor writer)) 0 in
+      let turn = require_agent_scope (Agent_scope.open_turn scope ~ordinal:3) in
+      let provider =
+        require_agent_scope
+          (Agent_scope.open_provider_attempt
+             turn
+             ~ordinal:0
+             (binding_for ~provider_id:"scope-provider"))
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let wrong_turn = Tool.Invocation.create ~tool_use_id:"" ~turn:4 ~schedule in
+      (match
+         Agent_scope.open_invocation
+           provider
+           ~invocation:wrong_turn
+           ~tool_name:"effect"
+           ~input:`Null
+       with
+       | Error _ -> ()
+       | Ok _ -> fail "mismatched invocation turn entered the scope");
+      check
+        int
+        "rejected invocation left no partial node"
+        3
+        (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
+      let exact_invocation = Tool.Invocation.create ~tool_use_id:"" ~turn:3 ~schedule in
+      let invocation =
+        require_agent_scope
+          (Agent_scope.open_invocation
+             provider
+             ~invocation:exact_invocation
+             ~tool_name:"effect"
+             ~input:(`Assoc [ "value", `Int 7 ]))
+      in
+      invocation_locator_json
+      := Some
+           (Agent_scope.invocation_locator_to_yojson
+              (Agent_scope.invocation_locator invocation));
+      let before_effect =
+        Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+      in
+      (match
+         Agent_scope.execute_phased
+           invocation
+           ~invoke:(fun ~start_child ~tool_name:_ ~input:_ ->
+             incr calls;
+             let child = require_agent_scope (start_child ~agent_name:"child-agent") in
+             require_agent_scope (Agent_scope.finish child Event.Succeeded);
+             ( ("done", Types.Tool_succeeded)
+             , fun () ->
+                 let observed =
+                   Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+                 in
+                 check int "observer sees durable ToolResult" (before_effect + 6) observed;
+                 settled_before_observer := true ))
+       with
+       | Ok (Agent_scope.Executed _) -> ()
+       | Ok (Agent_scope.Replayed _) -> fail "fresh scoped effect was replayed"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      check int "scoped effect call count" 1 !calls;
+      check bool "post-effect observer ran after settlement" true !settled_before_observer;
+      let abort_result =
+        match
+          Eio.Cancel.sub (fun cancellation ->
+            Eio.Cancel.cancel cancellation Cancel_scope;
+            Agent_scope.abort
+              scope
+              (Agent_scope.Cancelled { reason = Some "scope test complete"; data = None }))
+        with
+        | result -> result
+        | exception Eio.Cancel.Cancelled Cancel_scope ->
+          fail "cancelled cleanup context lost the durable abort receipt"
+        | exception exn -> raise exn
+      in
+      require_agent_scope abort_result;
+      let events, through = read_complete_page writer ~after:before ~limit:14 in
+      check int "closed scope event count" 14 (List.length events);
+      check int "closed scope cursor" 14 (Journal.cursor_seq through);
+      let tool_attempt =
+        List.find_map
+          (fun event ->
+             match Event.payload event with
+             | Event.Node_opened node when Event.node_kind node = Event.Tool_attempt ->
+               Some node
+             | _ -> None)
+          events
+        |> Option.get
+      in
+      let child_root =
+        List.find_map
+          (fun event ->
+             match Event.payload event with
+             | Event.Node_opened node ->
+               (match Event.node_kind node with
+                | Event.Agent_run { agent_name = "child-agent" } -> Some node
+                | _ -> None)
+             | _ -> None)
+          events
+        |> Option.get
+      in
+      check
+        bool
+        "child run is rooted beneath exact tool attempt"
+        true
+        (Option.equal
+           Event.Node_id.equal
+           (Event.parent_node_id child_root)
+           (Some (Event.node_id tool_attempt)));
+      match List.map Event.payload events with
+      | Event.Node_opened root
+        :: Event.Node_opened turn_node
+        :: Event.Node_opened provider_node
+        :: Event.Node_opened invocation_node
+        :: Event.Node_updated { update = Event.Tool_input_snapshot input; _ }
+        :: _ ->
+        (match
+           ( Event.node_kind root
+           , Event.node_kind turn_node
+           , Event.node_kind provider_node
+           , Event.node_kind invocation_node
+           , input )
+         with
+         | ( Event.Agent_run { agent_name = "agent" }
+           , Event.Agent_turn { ordinal = 3 }
+           , Event.Provider_attempt { ordinal = 0; _ }
+           , Event.Tool_invocation
+               { provider_tool_use_id = Some ""; tool_name = "effect"; _ }
+           , Types.ToolUse
+               { id = ""; name = "effect"; input = `Assoc [ ("value", `Int 7) ] } ) -> ()
+         | _ -> fail "scope did not retain exact typed topology")
+      | _ -> fail "scope did not write its topology before the effect");
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let locator =
+        Option.get !scope_locator_json
+        |> Agent_scope.scope_locator_of_yojson
+        |> require_codec
+      in
+      (match Agent_scope.resume ~writer ~agent_name:"other-agent" locator with
+       | Error
+           (Agent_scope.Agent_identity_mismatch
+              { expected = "agent"; actual = "other-agent" }) -> ()
+       | Error error -> fail (Agent_scope.error_to_string error)
+       | Ok _ -> fail "scope resumed under the wrong Agent identity");
+      let scope =
+        require_agent_scope (Agent_scope.resume ~writer ~agent_name:"agent" locator)
+      in
+      let invocation =
+        Option.get !invocation_locator_json
+        |> Agent_scope.invocation_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.rebind_invocation scope
+        |> require_agent_scope
+      in
+      (match
+         Agent_scope.execute
+           invocation
+           ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ -> fail "effect reran")
+       with
+       | Ok (Agent_scope.Replayed replayed) ->
+         check string "reopened result content" "done" replayed.content;
+         check
+           bool
+           "reopened result outcome"
+           true
+           (replayed.outcome = Types.Tool_succeeded)
+       | Ok (Agent_scope.Executed _) -> fail "reopened scope executed effect twice"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      check int "reopened scope preserves call count" 1 !calls))
+;;
+
+let test_agent_scope_executes_pending_after_restart () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let scope_json, invocation_json = ref None, ref None in
+    let expected_input = `Assoc [ "path", `String "durable" ] in
+    with_fresh codec dir (fun _sw writer ->
+      let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
+      scope_json
+      := Some (Agent_scope.scope_locator_to_yojson (Agent_scope.scope_locator scope));
+      let turn = require_agent_scope (Agent_scope.open_turn scope ~ordinal:0) in
+      let provider =
+        require_agent_scope
+          (Agent_scope.open_provider_attempt
+             turn
+             ~ordinal:0
+             (binding_for ~provider_id:"pending-provider"))
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let invocation =
+        require_agent_scope
+          (Agent_scope.open_invocation
+             provider
+             ~invocation:(Tool.Invocation.create ~tool_use_id:"pending" ~turn:0 ~schedule)
+             ~tool_name:"durable-tool"
+             ~input:expected_input)
+      in
+      invocation_json
+      := Some
+           (Agent_scope.invocation_locator_to_yojson
+              (Agent_scope.invocation_locator invocation)));
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let scope =
+        Option.get !scope_json
+        |> Agent_scope.scope_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.resume ~writer ~agent_name:"agent"
+        |> require_agent_scope
+      in
+      let invocation =
+        Option.get !invocation_json
+        |> Agent_scope.invocation_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.rebind_invocation scope
+        |> require_agent_scope
+      in
+      (match
+         Agent_scope.execute invocation ~invoke:(fun ~start_child:_ ~tool_name ~input ->
+           check string "rebound tool name" "durable-tool" tool_name;
+           check bool "rebound tool input" true (Yojson.Safe.equal input expected_input);
+           "done", Types.Tool_succeeded)
+       with
+       | Ok (Agent_scope.Executed ({ content = "done"; _ }, _, _)) -> ()
+       | Ok (Agent_scope.Executed _ | Agent_scope.Replayed _) ->
+         fail "pending command mismatch"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      require_agent_scope
+        (Agent_scope.abort
+           scope
+           (Agent_scope.Cancelled
+              { reason = Some "pending command test complete"; data = None }))))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -875,7 +1595,7 @@ let test_callback_exception_retains_unresolved_scope_failure () =
              (Writer.submit writer (Tx.start_run ~agent_name:"callback-unknown" ()))
          in
          ticket_ref := Some ticket;
-         ignore (await_reconciliation_wait writer ~outcome_count:2);
+         let _observed = await_reconciliation_wait writer ~outcome_count:2 in
          raise Callback_failed)
      with
      | exception
@@ -889,6 +1609,30 @@ let test_callback_exception_retains_unresolved_scope_failure () =
       -> check int "ticket retains the same close evidence" 3 evidence.outcome_count
     | Error error -> fail (Writer.ticket_error_to_string error)
     | Ok _ -> fail "ambiguous ticket reported durable success")
+;;
+
+let test_reserved_callback_exception_survives_unresolved_scope_failure () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let blocker = Eio.Path.(dir / "events.v1.commit") in
+    Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 blocker;
+    match
+      Writer.run ~codec ~dir (fun ~sw:_ writer ->
+        let ticket =
+          require_submit
+            (Writer.submit writer (Tx.start_run ~agent_name:"reserved-callback" ()))
+        in
+        ignore ticket;
+        ignore (await_reconciliation_wait writer ~outcome_count:2);
+        raise (Eio.Cancel.Cancelled Exit))
+    with
+    | exception Eio.Cancel.Cancelled Exit -> ()
+    | exception Writer.Callback_failed_after_scope_failure _ ->
+      fail "scope shutdown failure masked the reserved callback exception"
+    | exception exn -> raise exn
+    | Ok _ | Error _ -> fail "reserved callback exception returned normally")
 ;;
 
 let test_durable_success_settles_group_before_supervisor_cancellation () =
@@ -1084,6 +1828,22 @@ let () =
             `Quick
             test_semantic_rejection_does_not_poison_ready_group
         ; test_case
+            "effect attempt and settlement survive restart"
+            `Quick
+            test_effect_attempt_and_settlement_survive_restart
+        ; test_case
+            "structural occurrence identity is parent local"
+            `Quick
+            test_structural_occurrence_identity_is_parent_local
+        ; test_case
+            "Agent scope owns effect topology"
+            `Quick
+            test_agent_scope_owns_effect_topology
+        ; test_case
+            "Agent scope executes pending command after restart"
+            `Quick
+            test_agent_scope_executes_pending_after_restart
+        ; test_case
             "concurrent submit and close linearize without loss"
             `Quick
             test_concurrent_submit_and_close_linearize_without_loss
@@ -1131,6 +1891,10 @@ let () =
             "callback exception retains unresolved scope failure"
             `Quick
             test_callback_exception_retains_unresolved_scope_failure
+        ; test_case
+            "reserved callback survives unresolved scope failure"
+            `Quick
+            test_reserved_callback_exception_survives_unresolved_scope_failure
         ; test_case
             "durable success settles group before supervisor cancellation"
             `Quick
