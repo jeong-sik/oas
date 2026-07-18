@@ -9,6 +9,18 @@ type scope_locator
 type invocation_locator
 type invocation
 
+type tool_result = private
+  { invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  ; content : string
+  ; outcome : Llm_provider.Types.tool_result_outcome
+  }
+
+type execution =
+  | Executed of tool_result * Execution_journal.cursor * int
+  | Replayed of tool_result
+
 type abort_reason =
   | Failed of Execution_event.failure
   | Cancelled of
@@ -23,6 +35,7 @@ type error =
   | Scope_unavailable of Execution_lane_writer.read_error
   | Run_not_found
   | Invocation_locator_mismatch
+  | Invalid_tool_result
   | Settlement_failed of Execution_tool_settlement.error
 
 val error_to_string : error -> string
@@ -60,8 +73,11 @@ val rebind_invocation : t -> invocation_locator -> (invocation, error) result
 (** Commit the attempt before the effect and atomically settle its result. *)
 val execute
   :  invocation
-  -> invoke:(tool_name:string -> input:Yojson.Safe.t -> Llm_provider.Types.content_block)
-  -> (Execution_tool_settlement.execution, error) result
+  -> invoke:
+       (tool_name:string
+        -> input:Yojson.Safe.t
+        -> string * Llm_provider.Types.tool_result_outcome)
+  -> (execution, error) result
 
 val close_provider_attempt
   :  provider_attempt

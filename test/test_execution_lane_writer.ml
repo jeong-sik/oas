@@ -570,15 +570,6 @@ let test_agent_scope_owns_effect_topology () =
     let scope_locator_json = ref None in
     let invocation_locator_json = ref None in
     let calls = ref 0 in
-    let result =
-      Types.ToolResult
-        { tool_use_id = ""
-        ; content = "done"
-        ; outcome = Types.Tool_succeeded
-        ; json = None
-        ; content_blocks = None
-        }
-    in
     with_fresh codec dir (fun _sw writer ->
       let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
       scope_locator_json
@@ -646,10 +637,10 @@ let test_agent_scope_owns_effect_topology () =
       (match
          Agent_scope.execute invocation ~invoke:(fun ~tool_name:_ ~input:_ ->
            incr calls;
-           result)
+           "done", Types.Tool_succeeded)
        with
-       | Ok (Settlement.Executed _) -> ()
-       | Ok (Settlement.Replayed _) -> fail "fresh scoped effect was replayed"
+       | Ok (Agent_scope.Executed _) -> ()
+       | Ok (Agent_scope.Replayed _) -> fail "fresh scoped effect was replayed"
        | Error error -> fail (Agent_scope.error_to_string error));
       check int "scoped effect call count" 1 !calls;
       let abort_result =
@@ -712,9 +703,14 @@ let test_agent_scope_owns_effect_topology () =
          Agent_scope.execute invocation ~invoke:(fun ~tool_name:_ ~input:_ ->
            fail "effect reran")
        with
-       | Ok (Settlement.Replayed replayed) ->
-         check bool "reopened scope replays exact result" true (replayed = result)
-       | Ok (Settlement.Executed _) -> fail "reopened scope executed effect twice"
+       | Ok (Agent_scope.Replayed replayed) ->
+         check string "reopened result content" "done" replayed.content;
+         check
+           bool
+           "reopened result outcome"
+           true
+           (replayed.outcome = Types.Tool_succeeded)
+       | Ok (Agent_scope.Executed _) -> fail "reopened scope executed effect twice"
        | Error error -> fail (Agent_scope.error_to_string error));
       check int "reopened scope preserves call count" 1 !calls))
 ;;
@@ -777,14 +773,17 @@ let test_agent_scope_executes_pending_after_restart () =
          Agent_scope.execute invocation ~invoke:(fun ~tool_name ~input ->
            check string "rebound tool name" "durable-tool" tool_name;
            check bool "rebound tool input" true (Yojson.Safe.equal input expected_input);
-           Types.Text "done")
+           "done", Types.Tool_succeeded)
        with
-       | Ok (Settlement.Executed (Types.Text "done", _, _)) -> ()
-       | Ok (Settlement.Executed _ | Settlement.Replayed _) ->
+       | Ok (Agent_scope.Executed ({ content = "done"; _ }, _, _)) -> ()
+       | Ok (Agent_scope.Executed _ | Agent_scope.Replayed _) ->
          fail "pending command mismatch"
        | Error error -> fail (Agent_scope.error_to_string error));
       require_agent_scope
-        (Agent_scope.abort scope (Agent_scope.Cancelled { reason = None; data = None }))))
+        (Agent_scope.abort
+           scope
+           (Agent_scope.Cancelled
+              { reason = Some "pending command test complete"; data = None }))))
 ;;
 
 let rec await_reconciliation_phase writer =

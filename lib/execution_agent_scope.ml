@@ -32,6 +32,18 @@ type invocation =
   ; locator : invocation_locator
   }
 
+type tool_result =
+  { invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  ; content : string
+  ; outcome : Llm_provider.Types.tool_result_outcome
+  }
+
+type execution =
+  | Executed of tool_result * Journal.cursor * int
+  | Replayed of tool_result
+
 type abort_reason =
   | Failed of Event.failure
   | Cancelled of
@@ -46,6 +58,7 @@ type error =
   | Scope_unavailable of Writer.read_error
   | Run_not_found
   | Invocation_locator_mismatch
+  | Invalid_tool_result
   | Settlement_failed of Settlement.error
 
 let settlement_error_to_string = function
@@ -70,6 +83,7 @@ let error_to_string = function
   | Run_not_found -> "execution run was not found"
   | Invocation_locator_mismatch ->
     "execution invocation locator does not match durable topology"
+  | Invalid_tool_result -> "execution settlement returned an invalid ToolResult"
   | Settlement_failed error -> settlement_error_to_string error
 ;;
 
@@ -220,10 +234,50 @@ let rebind_invocation scope locator =
       else Error Invocation_locator_mismatch)
 ;;
 
+let tool_result_of_block durable = function
+  | Llm_provider.Types.ToolResult { tool_use_id; content; outcome; _ }
+    when String.equal
+           tool_use_id
+           (Tool.Invocation.tool_use_id durable.Settlement.invocation) ->
+    Ok
+      { invocation = durable.invocation
+      ; tool_name = durable.tool_name
+      ; input = durable.input
+      ; content
+      ; outcome
+      }
+  | Llm_provider.Types.Text _
+  | Llm_provider.Types.Thinking _
+  | Llm_provider.Types.ReasoningDetails _
+  | Llm_provider.Types.RedactedThinking _
+  | Llm_provider.Types.ToolUse _
+  | Llm_provider.Types.ToolResult _
+  | Llm_provider.Types.Image _
+  | Llm_provider.Types.Document _
+  | Llm_provider.Types.Audio _ -> Error Invalid_tool_result
+;;
+
 let execute invocation ~invoke =
-  Settlement.execute invocation.durable.authority ~invoke:(fun () ->
-    invoke ~tool_name:invocation.durable.tool_name ~input:invocation.durable.input)
-  |> Result.map_error (fun error -> Settlement_failed error)
+  let durable = invocation.durable in
+  let settled =
+    Settlement.execute durable.authority ~invoke:(fun () ->
+      let content, outcome = invoke ~tool_name:durable.tool_name ~input:durable.input in
+      Llm_provider.Types.ToolResult
+        { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
+        ; content
+        ; outcome
+        ; json = None
+        ; content_blocks = None
+        })
+    |> Result.map_error (fun error -> Settlement_failed error)
+  in
+  match settled with
+  | Error _ as error -> error
+  | Ok (Settlement.Executed (block, through, event_count)) ->
+    tool_result_of_block durable block
+    |> Result.map (fun result -> Executed (result, through, event_count))
+  | Ok (Settlement.Replayed block) ->
+    tool_result_of_block durable block |> Result.map (fun result -> Replayed result)
 ;;
 
 let close_node writer node terminal =
