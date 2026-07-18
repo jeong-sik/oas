@@ -1,5 +1,13 @@
 type t
 
+type durable_invocation = private
+  { authority : t
+  ; run_id : Execution_event.Run_id.t
+  ; invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
 type error =
   | Authority_unavailable of Execution_lane_writer.read_error
   | Invocation_not_found
@@ -14,11 +22,11 @@ type execution =
   | Executed of Llm_provider.Types.content_block * Execution_journal.cursor * int
   | Replayed of Llm_provider.Types.content_block
 
-val create
+(** Reconstruct one executable command from the journal's exact topology. *)
+val rebind
   :  writer:Execution_lane_writer.t
   -> invocation_node:Execution_event.Node_id.t
-  -> invocation:Tool.Invocation.t
-  -> (t, error) result
+  -> (durable_invocation, error) result
 
 val execute
   :  t

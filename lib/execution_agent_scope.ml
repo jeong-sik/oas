@@ -3,6 +3,7 @@ module Journal = Execution_journal
 module Settlement = Execution_tool_settlement
 module Writer = Execution_lane_writer
 module Tx = Journal.Transaction
+module Json = Execution_json
 
 type t =
   { writer : Writer.t
@@ -19,13 +20,15 @@ type provider_attempt =
   ; node : Event.Node_id.t
   }
 
+type scope_locator = { run_id : Event.Run_id.t }
+
 type invocation_locator =
-  { node : Event.Node_id.t
-  ; occurrence : Tool.Invocation.t
+  { run_id : Event.Run_id.t
+  ; node : Event.Node_id.t
   }
 
 type invocation =
-  { authority : Settlement.t
+  { durable : Settlement.durable_invocation
   ; locator : invocation_locator
   }
 
@@ -40,6 +43,9 @@ type error =
   | Admission_failed of Writer.submit_error
   | Mutation_failed of Writer.ticket_error
   | Invalid_provider_attempt of string
+  | Scope_unavailable of Writer.read_error
+  | Run_not_found
+  | Invocation_locator_mismatch
   | Settlement_failed of Settlement.error
 
 let settlement_error_to_string = function
@@ -60,7 +66,70 @@ let error_to_string = function
   | Admission_failed error -> Writer.submit_error_to_string error
   | Mutation_failed error -> Writer.ticket_error_to_string error
   | Invalid_provider_attempt detail -> "invalid provider attempt: " ^ detail
+  | Scope_unavailable error -> Writer.read_error_to_string error
+  | Run_not_found -> "execution run was not found"
+  | Invocation_locator_mismatch ->
+    "execution invocation locator does not match durable topology"
   | Settlement_failed error -> settlement_error_to_string error
+;;
+
+let locator_version = 1
+
+let require_locator_version fields =
+  match Json.int_field "version" fields with
+  | Ok version when version = locator_version -> Ok ()
+  | Ok version ->
+    Error (Printf.sprintf "unsupported execution locator version %d" version)
+  | Error _ as error -> error
+;;
+
+let scope_locator scope = { run_id = Journal.run_id scope.run }
+
+let scope_locator_to_yojson (locator : scope_locator) =
+  `Assoc
+    [ "version", `Int locator_version
+    ; "run_id", `String (Event.Run_id.to_string locator.run_id)
+    ]
+;;
+
+let scope_locator_of_yojson json =
+  let open Result_syntax in
+  let* fields =
+    Json.object_fields
+      ~context:"execution scope locator"
+      ~required:[ "version"; "run_id" ]
+      ~optional:[]
+      json
+  in
+  let* () = require_locator_version fields in
+  let* run_id = Json.string_field "run_id" fields in
+  let+ run_id = Event.Run_id.of_string run_id in
+  { run_id }
+;;
+
+let invocation_locator_to_yojson (locator : invocation_locator) =
+  `Assoc
+    [ "version", `Int locator_version
+    ; "run_id", `String (Event.Run_id.to_string locator.run_id)
+    ; "node_id", `String (Event.Node_id.to_string locator.node)
+    ]
+;;
+
+let invocation_locator_of_yojson json =
+  let open Result_syntax in
+  let* fields =
+    Json.object_fields
+      ~context:"execution invocation locator"
+      ~required:[ "version"; "run_id"; "node_id" ]
+      ~optional:[]
+      json
+  in
+  let* () = require_locator_version fields in
+  let* run_id_text = Json.string_field "run_id" fields in
+  let* run_id = Event.Run_id.of_string run_id_text in
+  let* node_text = Json.string_field "node_id" fields in
+  let+ node = Event.Node_id.of_string node_text in
+  { run_id; node }
 ;;
 
 let transact writer transaction =
@@ -86,6 +155,13 @@ let transact_cleanup writer transaction =
 let start ~writer ~agent_name =
   transact writer (Tx.start_run ~agent_name ())
   |> Result.map (fun (run, _event) -> { writer; run })
+;;
+
+let resume ~writer (locator : scope_locator) =
+  match Writer.find_run writer locator.run_id with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error Run_not_found
+  | Ok (Some view) -> Ok { writer; run = view.Journal.run }
 ;;
 
 let open_turn scope ~ordinal =
@@ -124,22 +200,29 @@ let open_invocation provider ~invocation ~tool_name ~input =
   with
   | Error _ as error -> error
   | Ok (node, _events) ->
-    let locator = { node; occurrence = invocation } in
-    Settlement.create ~writer:scope.writer ~invocation_node:node ~invocation
-    |> Result.map (fun authority -> { authority; locator })
+    let locator = { run_id = Journal.run_id scope.run; node } in
+    Settlement.rebind ~writer:scope.writer ~invocation_node:node
+    |> Result.map (fun durable -> { durable; locator })
     |> Result.map_error (fun error -> Settlement_failed error)
 ;;
 
 let invocation_locator invocation = invocation.locator
 
-let rebind_invocation ~writer locator =
-  Settlement.create ~writer ~invocation_node:locator.node ~invocation:locator.occurrence
-  |> Result.map (fun authority -> { authority; locator })
-  |> Result.map_error (fun error -> Settlement_failed error)
+let rebind_invocation scope locator =
+  if not (Event.Run_id.equal locator.run_id (Journal.run_id scope.run))
+  then Error Invocation_locator_mismatch
+  else (
+    match Settlement.rebind ~writer:scope.writer ~invocation_node:locator.node with
+    | Error error -> Error (Settlement_failed error)
+    | Ok durable ->
+      if Event.Run_id.equal durable.run_id locator.run_id
+      then Ok { durable; locator }
+      else Error Invocation_locator_mismatch)
 ;;
 
 let execute invocation ~invoke =
-  Settlement.execute invocation.authority ~invoke
+  Settlement.execute invocation.durable.authority ~invoke:(fun () ->
+    invoke ~tool_name:invocation.durable.tool_name ~input:invocation.durable.input)
   |> Result.map_error (fun error -> Settlement_failed error)
 ;;
 

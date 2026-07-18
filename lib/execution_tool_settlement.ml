@@ -7,6 +7,14 @@ type t =
   ; invocation_node : Event.Node_id.t
   }
 
+type durable_invocation =
+  { authority : t
+  ; run_id : Event.Run_id.t
+  ; invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
 type status =
   | Ready_to_execute
   | Outcome_unknown
@@ -35,22 +43,22 @@ let read_node writer node =
 
 let parent_node view = Event.parent_node_id view.Journal.node
 
-let create ~writer ~invocation_node ~invocation =
+let rebind ~writer ~invocation_node =
   let open Result_syntax in
   let* invocation_view = read_node writer invocation_node in
-  let* provider_attempt =
+  let* provider_attempt, run_id, tool_use_id, schedule, tool_name, input =
     match
       ( Event.node_kind invocation_view.node
       , parent_node invocation_view
       , invocation_view.materialized )
     with
-    | ( Event.Tool_invocation { schedule; _ }
+    | ( Event.Tool_invocation { provider_tool_use_id; tool_name; schedule }
       , Some parent
       , Journal.Tool_invocation_state
-          { input = Some (Llm_provider.Types.ToolUse { id; _ }); _ } )
-      when String.equal id (Tool.Invocation.tool_use_id invocation)
-           && Execution_tool_schedule.equal schedule (Tool.Invocation.schedule invocation)
-      -> Ok parent
+          { input = Some (Llm_provider.Types.ToolUse { id; name; input }); _ } )
+      when Option.equal String.equal provider_tool_use_id (Some id)
+           && String.equal tool_name name ->
+      Ok (parent, Event.node_run_id invocation_view.node, id, schedule, tool_name, input)
     | ( ( Event.Agent_run _
         | Event.Agent_turn _
         | Event.Provider_attempt _
@@ -63,8 +71,10 @@ let create ~writer ~invocation_node ~invocation =
   let* provider_view = read_node writer provider_attempt in
   let* turn_node =
     match Event.node_kind provider_view.node, parent_node provider_view with
-    | Event.Provider_attempt _, Some parent -> Ok parent
+    | Event.Provider_attempt _, Some parent
+      when Event.Run_id.equal run_id (Event.node_run_id provider_view.node) -> Ok parent
     | Event.Provider_attempt _, None
+    | Event.Provider_attempt _, Some _
     | ( ( Event.Agent_run _
         | Event.Agent_turn _
         | Event.Output_block _
@@ -74,8 +84,15 @@ let create ~writer ~invocation_node ~invocation =
   in
   let* turn_view = read_node writer turn_node in
   match Event.node_kind turn_view.node with
-  | Event.Agent_turn { ordinal } when ordinal = Tool.Invocation.turn invocation ->
-    Ok { writer; invocation_node }
+  | Event.Agent_turn { ordinal }
+    when Event.Run_id.equal run_id (Event.node_run_id turn_view.node) ->
+    Ok
+      { authority = { writer; invocation_node }
+      ; run_id
+      ; invocation = Tool.Invocation.create ~tool_use_id ~turn:ordinal ~schedule
+      ; tool_name
+      ; input
+      }
   | Event.Agent_turn _
   | Event.Agent_run _
   | Event.Provider_attempt _
