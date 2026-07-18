@@ -53,6 +53,8 @@ let messages =
 let config
       ?(kind = Provider_config.Anthropic)
       ?(request_path = "/proxy/messages")
+      ?max_context
+      ?max_concurrent_requests
       base_url
   =
   Provider_config.make
@@ -63,6 +65,7 @@ let config
     ~headers:[ "Content-Type", "application/json"; "anthropic-version", "2023-06-01" ]
     ~request_path
     ~max_tokens:64
+    ?max_context
     ~temperature:0.2
     ~top_p:0.8
     ~top_k:40
@@ -72,7 +75,30 @@ let config
     ~disable_parallel_tool_use:true
     ~supports_tool_choice_override:true
     ~output_schema:(`Assoc [ "type", `String "object" ])
+    ?max_concurrent_requests
     ()
+;;
+
+let response =
+  { id = "prepared-response"
+  ; model = "input-count-fixture"
+  ; stop_reason = EndTurn
+  ; content = [ Text "accepted" ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let build_admission_agent ~net ~provider_config ~transport =
+  Agent_sdk.Builder.create ~net ~model:provider_config.Provider_config.model_id
+  |> Agent_sdk.Builder.with_provider_config provider_config
+  |> Agent_sdk.Builder.with_context_fit_admission Agent_sdk.Agent.Enforce_when_supported
+  |> Agent_sdk.Builder.with_transport transport
+  |> Agent_sdk.Builder.without_event_bus
+  |> Agent_sdk.Builder.build_safe
+  |> function
+  | Ok agent -> agent
+  | Error error -> fail (Agent_sdk.Error.to_string error)
 ;;
 
 let completion_request config : Llm_transport.completion_request =
@@ -210,6 +236,288 @@ let test_transport_success () =
     body
 ;;
 
+let test_prepared_measure_admit_dispatch () =
+  let (result, fit, dispatched), _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = config ~max_context:512 base_url in
+    let prepared =
+      Complete.prepare_request
+        ~config:cfg
+        ~messages
+        ~tools:[ tool ]
+        ~trace_context:[ "x-oas-trace", "prepared-ssot" ]
+        ()
+    in
+    let measured =
+      match Complete.measure_request ~sw ~net prepared with
+      | Ok measured -> measured
+      | Error _ -> fail "expected prepared request measurement"
+    in
+    let admitted =
+      match Complete.admit_request measured with
+      | Ok admitted -> admitted
+      | Error _ -> fail "expected prepared request admission"
+    in
+    let fit = Complete.admitted_fit admitted in
+    let dispatched = ref None in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun request ->
+            dispatched := Some request;
+            { Llm_transport.response = Ok response; latency_ms = Some 1 })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+      }
+    in
+    let result = Complete.complete_admitted ~sw ~net ~transport admitted () in
+    result, fit, !dispatched
+  in
+  (match result with
+   | Ok actual ->
+     check string "response" "accepted" (Types.visible_text_of_response actual)
+   | Error _ -> fail "expected admitted dispatch success");
+  check int "measured input" 321 fit.Complete.input_tokens;
+  check int "reserved output" 64 fit.reserved_output_tokens;
+  check int "declared context" 512 fit.max_context_tokens;
+  match dispatched with
+  | None -> fail "admitted request was not dispatched"
+  | Some request ->
+    check string "same model" "input-count-fixture" request.config.model_id;
+    check int "same messages" (List.length messages) (List.length request.messages);
+    check int "same tools" 1 (List.length request.tools);
+    check
+      (option string)
+      "same trace projection"
+      (Some "prepared-ssot")
+      (List.assoc_opt "x-oas-trace" request.config.headers)
+;;
+
+let test_prepared_context_overflow_is_typed () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":500}|}
+    @@ fun ~sw ~net ~base_url ->
+    let prepared =
+      Complete.prepare_request
+        ~config:(config ~max_context:512 base_url)
+        ~messages
+        ~tools:[ tool ]
+        ()
+    in
+    match Complete.measure_request ~sw ~net prepared with
+    | Error _ -> fail "expected prepared request measurement"
+    | Ok measured -> Complete.admit_request measured
+  in
+  match result with
+  | Error
+      (Complete.Context_window_exceeded
+         { input_tokens = 500; reserved_output_tokens = 64; max_context_tokens = 512 }) ->
+    ()
+  | Ok _ | Error _ -> fail "expected typed prepared context overflow"
+;;
+
+let test_prepared_admission_resolves_catalog_context_limit () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = { (config base_url) with model_id = "claude-sonnet-4-5" } in
+    let expected =
+      Option.bind (Provider_config.capabilities_for_config_model cfg) (fun capabilities ->
+        capabilities.Capabilities.max_context_tokens)
+      |> Option.get
+    in
+    let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+    let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
+    Complete.admit_request measured, expected
+  in
+  match result with
+  | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"
+  | Ok admitted, expected ->
+    check
+      int
+      "catalog context is the admission limit"
+      expected
+      (Complete.admitted_fit admitted).max_context_tokens
+;;
+
+let test_measurement_validates_before_io () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let cfg =
+    config ~request_path:"/v1/responses" ~max_concurrent_requests:0 "http://127.0.0.1:1"
+  in
+  let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+  match Complete.measure_request ~sw ~net:(Eio.Stdenv.net env) prepared with
+  | Error (Count_tokens_sync.Invalid_completion_request detail) ->
+    check bool "validation identifies local config" true (String.length detail > 0);
+    check
+      bool
+      "invalid request never creates an admission lane"
+      true
+      (Option.is_none (Provider_admission.snapshot_for ~config:cfg))
+  | Ok _ | Error _ -> fail "invalid prepared request must fail before provider I/O"
+;;
+
+let test_measurement_uses_provider_admission () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = config ~max_context:512 ~max_concurrent_requests:1 base_url in
+    let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+    let result = Complete.measure_request ~sw ~net prepared in
+    result, Provider_admission.snapshot_for ~config:cfg
+  in
+  match result with
+  | Error _, _ -> fail "admitted measurement unexpectedly failed"
+  | Ok _, None -> fail "measurement bypassed provider admission"
+  | Ok _, Some snapshot ->
+    check int "declared measurement bound" 1 snapshot.Slot_scheduler.max_slots;
+    check int "measurement permit returned" 0 snapshot.active
+;;
+
+let test_agent_route_uses_prepared_admission () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let dispatched = ref None in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun request ->
+            dispatched := Some request;
+            { Llm_transport.response = Ok response; latency_ms = Some 1 })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ request ->
+            dispatched := Some request;
+            Ok response)
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let result = Agent_sdk.Agent.run ~sw agent "measure this exact turn" in
+    result, !dispatched
+  in
+  match result with
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok actual, None ->
+    check string "response" "accepted" (Types.visible_text_of_response actual);
+    fail "Agent route did not dispatch the admitted request"
+  | Ok actual, Some request ->
+    check string "response" "accepted" (Types.visible_text_of_response actual);
+    check string "agent dispatch model" "input-count-fixture" request.config.model_id;
+    check int "agent dispatch messages" 1 (List.length request.messages)
+;;
+
+let test_agent_stream_route_uses_prepared_admission () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let dispatched = ref None in
+    let transport =
+      { Llm_transport.complete_sync = (fun _ -> fail "unexpected sync dispatch")
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ request ->
+            dispatched := Some request;
+            Ok response)
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let result = Agent_sdk.Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "stream" in
+    result, !dispatched
+  in
+  match result with
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok _, None -> fail "Agent stream route did not dispatch the admitted request"
+  | Ok actual, Some request ->
+    check string "stream response" "accepted" (Types.visible_text_of_response actual);
+    check string "stream dispatch model" "input-count-fixture" request.config.model_id;
+    check int "stream dispatch messages" 1 (List.length request.messages)
+;;
+
+let test_agent_overflow_blocks_dispatch () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":500}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let dispatched = ref false in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun _ ->
+            dispatched := true;
+            { Llm_transport.response = Ok response; latency_ms = None })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let result = Agent_sdk.Agent.run ~sw agent "overflow" in
+    result, !dispatched
+  in
+  match result with
+  | Error (Agent_sdk.Error.Api (Retry.ContextOverflow { limit = Some 512; _ })), false ->
+    ()
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok _, _ -> fail "overflowed prepared request must not dispatch"
+;;
+
+let test_invalid_count_response_is_provider_parse_failure () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"unexpected":true}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun _ -> fail "malformed count response must block completion dispatch")
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ ->
+            fail "malformed count response must block streaming dispatch")
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    Agent_sdk.Agent.run_detailed ~sw agent "malformed count response"
+  in
+  match result with
+  | Error
+      { Agent_sdk.Agent.error =
+          Agent_sdk.Error.Api
+            (Retry.InvalidRequest { reason = Retry.Json_parse_error; _ })
+      ; provider_failure =
+          Some { Agent_sdk.Provider_failure_attribution.evidence = Response_parse; _ }
+      } -> ()
+  | Error detailed -> fail (Agent_sdk.Error.to_string detailed.error)
+  | Ok _ -> fail "malformed provider count response must fail"
+;;
+
+let test_unsupported_provider_preserves_compatibility () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let provider_config =
+    { (config ~kind:Provider_config.OpenAI_compat ~max_context:512 "not-used") with
+      output_schema = None
+    ; response_format = Types.Off
+    }
+  in
+  let dispatched = ref false in
+  let transport =
+    { Llm_transport.complete_sync =
+        (fun _ ->
+          dispatched := true;
+          { Llm_transport.response = Ok response; latency_ms = None })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
+    }
+  in
+  let agent = build_admission_agent ~net ~provider_config ~transport in
+  match Agent_sdk.Agent.run ~sw agent "compatibility" with
+  | Error error -> fail (Agent_sdk.Error.to_string error)
+  | Ok _ -> check bool "compatibility dispatch" true !dispatched
+;;
+
 let test_transport_error () =
   let result, _captured =
     with_mock ~status:`Too_many_requests ~response:"rate limited"
@@ -285,6 +593,46 @@ let () =
     [ "request", [ test_case "shared canonical projection" `Quick test_shared_projection ]
     ; ( "transport"
       , [ test_case "native success" `Quick test_transport_success
+        ; test_case
+            "prepared measure admit dispatch"
+            `Quick
+            test_prepared_measure_admit_dispatch
+        ; test_case
+            "prepared context overflow is typed"
+            `Quick
+            test_prepared_context_overflow_is_typed
+        ; test_case
+            "prepared admission resolves catalog context limit"
+            `Quick
+            test_prepared_admission_resolves_catalog_context_limit
+        ; test_case
+            "measurement validates before I/O"
+            `Quick
+            test_measurement_validates_before_io
+        ; test_case
+            "measurement uses provider admission"
+            `Quick
+            test_measurement_uses_provider_admission
+        ; test_case
+            "Agent route uses prepared admission"
+            `Quick
+            test_agent_route_uses_prepared_admission
+        ; test_case
+            "Agent stream route uses prepared admission"
+            `Quick
+            test_agent_stream_route_uses_prepared_admission
+        ; test_case
+            "Agent overflow blocks dispatch"
+            `Quick
+            test_agent_overflow_blocks_dispatch
+        ; test_case
+            "invalid count response is provider parse failure"
+            `Quick
+            test_invalid_count_response_is_provider_parse_failure
+        ; test_case
+            "unsupported provider preserves compatibility"
+            `Quick
+            test_unsupported_provider_preserves_compatibility
         ; test_case "typed HTTP error" `Quick test_transport_error
         ; test_case "non-Anthropic unsupported" `Quick test_unsupported
         ; test_case

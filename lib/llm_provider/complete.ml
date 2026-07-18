@@ -12,21 +12,47 @@ include Complete_common
 include Complete_sync
 include Complete_stream
 
-let complete
+type prepared_request = Prepared_completion_request.t
+type measured_request = Prepared_completion_request.measured
+type admitted_request = Prepared_completion_request.admitted
+
+type context_fit = Prepared_completion_request.context_fit =
+  { input_tokens : int
+  ; reserved_output_tokens : int
+  ; max_context_tokens : int
+  }
+
+type fit_error = Prepared_completion_request.fit_error =
+  | Context_limit_unknown of { model_id : string }
+  | Invalid_context_limit of
+      { model_id : string
+      ; max_context_tokens : int
+      }
+  | Output_reservation_unknown of { model_id : string }
+  | Context_window_exceeded of context_fit
+
+let prepare_request = Prepared_completion_request.prepare
+let measure_request = Prepared_completion_request.measure
+let request_measurement = Prepared_completion_request.measurement
+let admit_request = Prepared_completion_request.admit
+let admitted_fit = Prepared_completion_request.admitted_fit
+
+let complete_prepared_sync
       ~sw
       ~net
       ?clock
       ?(transport : Llm_transport.t option)
-      ~(config : Provider_config.t)
-      ~(messages : Types.message list)
-      ?(tools = [])
-      ?(trace_context = [])
+      ~(prepared : Prepared_completion_request.t)
       ?(cache : Cache.t option)
       ?(connection_cache : Http_client.cache option)
       ?(metrics : Metrics.t option)
       ?body_timeout_s
       ()
   =
+  let request = Prepared_completion_request.request prepared in
+  let config = request.Llm_transport.config in
+  let messages = request.messages in
+  let tools = request.tools in
   let preflight =
     match validate_all config with
     | Error err -> Error err
@@ -46,7 +72,7 @@ let complete
       | None -> Metrics.get_global ()
     in
     let model_id = config.model_id in
-    let request_config = config_with_trace_context config trace_context in
+    let request_config = config in
     (* Cache lookup *)
     (* Compute fingerprint once; reuse for both lookup and store *)
     let cache_key =
@@ -78,16 +104,7 @@ let complete
        let dispatch () =
          match transport with
          | Some t ->
-           let run_transport () =
-             t.complete_sync
-               { Llm_transport.config = request_config
-               ; messages
-               ; tools
-               ; capture_id = None
-               ; observe_wire_chunk = None
-               ; stream_idle_timeout_s = None (* sync path: no streaming idle deadline *)
-               }
-           in
+           let run_transport () = t.complete_sync request in
            (match body_deadline with
             | Http_client.Unbounded ->
               Http_client.with_explicit_deadline body_deadline run_transport
@@ -197,31 +214,84 @@ let complete
           Error err))
 ;;
 
-(* ── Streaming ───────────────────────────────────────── *)
-
-let complete_stream
+let complete
       ~sw
       ~net
       ?clock
-      ?stream_idle_timeout_s
-      ?(transport : Llm_transport.t option)
-      ?capture_id
-      ?wire_observer
+      ?transport
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ?(tools = [])
       ?(trace_context = [])
+      ?cache
+      ?connection_cache
+      ?metrics
+      ?body_timeout_s
+      ()
+  =
+  let prepared = prepare_request ~config ~messages ~tools ~trace_context () in
+  complete_prepared_sync
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ~prepared
+    ?cache
+    ?connection_cache
+    ?metrics
+    ?body_timeout_s
+    ()
+;;
+
+let complete_admitted
+      ~sw
+      ~net
+      ?clock
+      ?transport
+      admitted
+      ?cache
+      ?connection_cache
+      ?metrics
+      ?body_timeout_s
+      ()
+  =
+  complete_prepared_sync
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ~prepared:(Prepared_completion_request.admitted_request admitted)
+    ?cache
+    ?connection_cache
+    ?metrics
+    ?body_timeout_s
+    ()
+;;
+
+(* ── Streaming ───────────────────────────────────────── *)
+
+let complete_prepared_stream
+      ~sw
+      ~net
+      ?clock
+      ?(transport : Llm_transport.t option)
+      ?wire_observer
+      ~(prepared : Prepared_completion_request.t)
       ~(on_event : Types.sse_event -> unit)
       ?metrics
       ?(connection_cache : Http_client.cache option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ()
   =
+  let request = Prepared_completion_request.request prepared in
+  let config = request.Llm_transport.config in
+  let messages = request.messages in
+  let tools = request.tools in
   match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let on_event = emit_stream_event on_event in
-    let request_config = config_with_trace_context config trace_context in
+    let request_config = config in
     let latency_counter = start_latency_counter ?clock () in
     let metrics_opt = metrics in
     let metrics = Option.value metrics ~default:(Metrics.get_global ()) in
@@ -259,38 +329,34 @@ let complete_stream
           (Printexc.to_string exn)
           (Wire_observer.show_failure failure)
     in
-    let observe_wire_chunk =
-      Option.map
-        (fun try_observe ~provider ~model ~chunk ->
-           match
-             Wire_observer.observe try_observe ~capture_id ~provider ~model ~chunk
-           with
-           | Ok () -> ()
-           | Error failure -> emit_wire_observer_failure failure)
-        wire_observer
+    let request =
+      match wire_observer with
+      | None -> request
+      | Some try_observe ->
+        let observe_wire_chunk ~provider ~model ~chunk =
+          match
+            Wire_observer.observe
+              try_observe
+              ~capture_id:request.capture_id
+              ~provider
+              ~model
+              ~chunk
+          with
+          | Ok () -> ()
+          | Error failure -> emit_wire_observer_failure failure
+        in
+        { request with observe_wire_chunk = Some observe_wire_chunk }
     in
     let dispatch () =
       match transport with
-      | Some t ->
-        t.complete_stream
-          ?on_telemetry:transport_on_telemetry
-          ~on_event
-          { Llm_transport.config = request_config
-          ; messages
-          ; tools
-          ; capture_id
-          ; observe_wire_chunk
-          ; stream_idle_timeout_s
-            (* RFC-OAS-026: carry the idle deadline through the transport
-               boundary so the [Some t] dispatch can no longer drop it. *)
-          }
+      | Some t -> t.complete_stream ?on_telemetry:transport_on_telemetry ~on_event request
       | None ->
         complete_stream_http
           ~sw
           ~net
           ?clock
-          ?stream_idle_timeout_s
-          ?observe_wire_chunk
+          ?stream_idle_timeout_s:request.stream_idle_timeout_s
+          ?observe_wire_chunk:request.observe_wire_chunk
           ~latency_counter
           ?on_telemetry
           ~metrics
@@ -322,6 +388,75 @@ let complete_stream
            resp;
          resp)
       (ensure_nonempty_completion result)
+;;
+
+let complete_stream
+      ~sw
+      ~net
+      ?clock
+      ?stream_idle_timeout_s
+      ?transport
+      ?capture_id
+      ?wire_observer
+      ~(config : Provider_config.t)
+      ~(messages : Types.message list)
+      ?(tools = [])
+      ?(trace_context = [])
+      ~on_event
+      ?metrics
+      ?connection_cache
+      ?on_telemetry
+      ()
+  =
+  let prepared =
+    prepare_request
+      ~config
+      ~messages
+      ~tools
+      ~trace_context
+      ?capture_id
+      ?stream_idle_timeout_s
+      ()
+  in
+  complete_prepared_stream
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ?wire_observer
+    ~prepared
+    ~on_event
+    ?metrics
+    ?connection_cache
+    ?on_telemetry
+    ()
+;;
+
+let complete_stream_admitted
+      ~sw
+      ~net
+      ?clock
+      ?transport
+      ?wire_observer
+      admitted
+      ~on_event
+      ?metrics
+      ?connection_cache
+      ?on_telemetry
+      ()
+  =
+  complete_prepared_stream
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ?wire_observer
+    ~prepared:(Prepared_completion_request.admitted_request admitted)
+    ~on_event
+    ?metrics
+    ?connection_cache
+    ?on_telemetry
+    ()
 ;;
 
 (* ── HTTP Transport constructor ─────────────────────── *)

@@ -447,7 +447,7 @@
 (test
  (name test_anthropic_input_token_count)
  (modules test_anthropic_input_token_count)
- (libraries llm_provider alcotest eio_main))
+ (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
  (name test_complete_http)

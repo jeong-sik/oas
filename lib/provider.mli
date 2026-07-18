@@ -315,11 +315,11 @@ val provider_config_of_agent
 
 (** Project the caller-owned agent turn controls onto an exact provider
     configuration. Provider identity, wire kind, endpoint, credential, headers,
-    request path, and capability overrides remain unchanged. Fields that only
-    exist on {!Llm_provider.Provider_config.t} also remain unchanged.
-
-    This is the typed Builder/Agent path; it never consults a provider catalog,
-    endpoint URL, model syntax, or process environment. *)
+    and request path remain unchanged. For the same model, explicit limits and
+    capability overrides remain unchanged. When the turn selects another
+    model, parent-model overrides are cleared and the target model's context
+    limit is resolved through {!Llm_provider.Provider_config}'s capability
+    SSOT, so handoffs cannot inherit the parent's model window. *)
 val provider_config_with_agent_config
   :  config:Types.agent_config
   -> Llm_provider.Provider_config.t

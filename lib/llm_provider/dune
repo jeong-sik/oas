@@ -7,7 +7,8 @@
   model_catalog_embedded
   provider_http_codec
   output_token_wire_internal
-  request_artifact_internal)
+  request_artifact_internal
+  prepared_completion_request)
  (libraries
   yojson
   otoml

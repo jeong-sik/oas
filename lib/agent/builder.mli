@@ -111,6 +111,10 @@ val with_provider : Provider.config -> t -> t
     {!with_provider} replaces the legacy selection. *)
 val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 
+(** Select Agent-level provider-fit admission without changing standalone
+    [Complete] compatibility behavior. *)
+val with_context_fit_admission : Agent.context_fit_admission -> t -> t
+
 val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.

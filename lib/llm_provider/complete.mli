@@ -11,6 +11,71 @@
     @stability Internal
     @since 0.93.1 *)
 
+(** {1 Canonical Prepared Request} *)
+
+(** One opaque completion request after all caller-owned projection. *)
+type prepared_request
+
+(** The same request paired with provider-native measurement evidence. *)
+type measured_request
+
+(** The measured request after its declared context window admits it. *)
+type admitted_request
+
+type context_fit =
+  { input_tokens : int
+  ; reserved_output_tokens : int
+  ; max_context_tokens : int
+  }
+
+type fit_error =
+  | Context_limit_unknown of { model_id : string }
+  | Invalid_context_limit of
+      { model_id : string
+      ; max_context_tokens : int
+      }
+  | Output_reservation_unknown of { model_id : string }
+  | Context_window_exceeded of context_fit
+
+(** Build the single request value used by measurement and dispatch. Existing
+    [complete] and [complete_stream] calls are compatibility wrappers over this
+    constructor; they no longer own a separate request projection. *)
+val prepare_request
+  :  config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?trace_context:(string * string) list
+  -> ?capture_id:string
+  -> ?stream_idle_timeout_s:float
+  -> unit
+  -> prepared_request
+
+(** Validate and measure the exact prepared request through the provider-native
+    count protocol. Invalid local configuration fails before admission or I/O;
+    the count round-trip uses the same provider admission authority as
+    completion dispatch. Unsupported protocols return the existing typed
+    [Unsupported] measurement error; no estimate is used. *)
+val measure_request
+  :  ?connection_cache:Http_client.cache
+  -> ?clock:_ Eio.Time.clock
+  -> ?timeout_s:float
+  -> sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> prepared_request
+  -> (measured_request, Count_tokens_sync.completion_request_error) result
+
+val request_measurement
+  :  measured_request
+  -> Count_tokens_sync.completion_request_measurement
+
+(** Admit the measured request against an explicit [max_context], or the exact
+    model capability when no explicit limit was supplied. The output-token
+    reservation is the effective value carried by the same provider request
+    artifact. Unknown limits and overflow are explicit. *)
+val admit_request : measured_request -> (admitted_request, fit_error) result
+
+val admitted_fit : admitted_request -> context_fit
+
 (** {1 Gemini URL Construction} *)
 
 (** Construct Gemini API URL with model_id in path and optional key param.
@@ -81,6 +146,22 @@ val complete
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?trace_context:(string * string) list
+  -> ?cache:Cache.t
+  -> ?connection_cache:Http_client.cache
+  -> ?metrics:Metrics.t
+  -> ?body_timeout_s:float
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result
+
+(** Dispatch an already measured and admitted request. The transport receives
+    the request owned by [admitted_request]; callers cannot substitute config,
+    messages, tools, or trace context after measurement. *)
+val complete_admitted
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?transport:Llm_transport.t
+  -> admitted_request
   -> ?cache:Cache.t
   -> ?connection_cache:Http_client.cache
   -> ?metrics:Metrics.t
@@ -177,6 +258,23 @@ val complete_stream
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?trace_context:(string * string) list
+  -> on_event:(Types.sse_event -> unit)
+  -> ?metrics:Metrics.t
+  -> ?connection_cache:Http_client.cache
+  -> ?on_telemetry:(Telemetry_event.t -> unit)
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result
+
+(** Streaming counterpart of {!complete_admitted}. Capture identity and idle
+    deadline are fixed when the request is prepared. Wire observation remains
+    an OAS-owned operational sink and cannot alter provider payload fields. *)
+val complete_stream_admitted
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?transport:Llm_transport.t
+  -> ?wire_observer:Wire_observer.try_observe
+  -> admitted_request
   -> on_event:(Types.sse_event -> unit)
   -> ?metrics:Metrics.t
   -> ?connection_cache:Http_client.cache
