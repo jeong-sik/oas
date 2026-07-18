@@ -47,11 +47,13 @@ let reraise_after_abort_failure exn backtrace abort_detail =
 
 let%test "abort failure preserves cancellation class" =
   try
-    reraise_after_abort_failure
-      (Eio.Cancel.Cancelled Exit)
-      (Printexc.get_callstack 8)
-      "injected abort failure";
-    false
+    match
+      reraise_after_abort_failure
+        (Eio.Cancel.Cancelled Exit)
+        (Printexc.get_callstack 8)
+        "injected abort failure"
+    with
+    | () -> false
   with
   | Eio.Cancel.Cancelled Exit -> true
   | Eio.Cancel.Cancelled _ | Abort_failed_after_exception _ -> false
@@ -59,11 +61,13 @@ let%test "abort failure preserves cancellation class" =
 
 let%test "abort failure preserves reserved runtime exception" =
   try
-    reraise_after_abort_failure
-      Sys.Break
-      (Printexc.get_callstack 8)
-      "injected abort failure";
-    false
+    match
+      reraise_after_abort_failure
+        Sys.Break
+        (Printexc.get_callstack 8)
+        "injected abort failure"
+    with
+    | () -> false
   with
   | Sys.Break -> true
   | Abort_failed_after_exception _ -> false
