@@ -31,7 +31,3 @@ val with_scope
   :  Execution_agent_scope.t
   -> (unit -> ('a, Provider_failure_attribution.detailed_error) result)
   -> ('a, Provider_failure_attribution.detailed_error) result
-
-module For_testing : sig
-  val reraise_after_abort_failure : exn -> 'a
-end

@@ -1062,25 +1062,6 @@ let test_mock_multi_tool_response () =
   | Error _ -> Alcotest.fail "expected ok"
 ;;
 
-let test_abort_failure_preserves_cancellation_class () =
-  match
-    Agent_execution_runner.For_testing.reraise_after_abort_failure
-      (Eio.Cancel.Cancelled Exit)
-  with
-  | _ -> Alcotest.fail "abort failure returned instead of preserving cancellation"
-  | exception Eio.Cancel.Cancelled Exit -> ()
-  | exception exn ->
-    Alcotest.failf "abort failure changed cancellation class: %s" (Printexc.to_string exn)
-;;
-
-let test_abort_failure_preserves_reserved_runtime_exception () =
-  match Agent_execution_runner.For_testing.reraise_after_abort_failure Sys.Break with
-  | _ -> Alcotest.fail "abort failure returned instead of preserving Sys.Break"
-  | exception Sys.Break -> ()
-  | exception exn ->
-    Alcotest.failf "abort failure changed Sys.Break class: %s" (Printexc.to_string exn)
-;;
-
 let test_agent_run_uses_durable_tool_authority () =
   Eio_main.run
   @@ fun env ->
@@ -1310,14 +1291,6 @@ let () =
         ] )
     ; ( "provider_mock_extra"
       , [ Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response
-        ; Alcotest.test_case
-            "abort failure preserves cancellation"
-            `Quick
-            test_abort_failure_preserves_cancellation_class
-        ; Alcotest.test_case
-            "abort failure preserves reserved runtime exception"
-            `Quick
-            test_abort_failure_preserves_reserved_runtime_exception
         ; Alcotest.test_case
             "Agent.run uses durable tool authority"
             `Quick

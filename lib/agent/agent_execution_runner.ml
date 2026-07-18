@@ -45,6 +45,30 @@ let reraise_after_abort_failure exn backtrace abort_detail =
   | exception reserved -> Printexc.raise_with_backtrace reserved backtrace
 ;;
 
+let%test "abort failure preserves cancellation class" =
+  match
+    reraise_after_abort_failure
+      (Eio.Cancel.Cancelled Exit)
+      (Printexc.get_callstack 8)
+      "injected abort failure"
+  with
+  | _ -> false
+  | exception Eio.Cancel.Cancelled Exit -> true
+  | exception _ -> false
+;;
+
+let%test "abort failure preserves reserved runtime exception" =
+  match
+    reraise_after_abort_failure
+      Sys.Break
+      (Printexc.get_callstack 8)
+      "injected abort failure"
+  with
+  | _ -> false
+  | exception Sys.Break -> true
+  | exception _ -> false
+;;
+
 let abort_after_exception scope exn backtrace =
   let reason =
     match exn with
@@ -150,9 +174,3 @@ let with_fresh store agent run =
   | Error failure ->
     Error (execution_failure (Execution_lane_writer.scope_failure_to_string failure))
 ;;
-
-module For_testing = struct
-  let reraise_after_abort_failure exn =
-    reraise_after_abort_failure exn (Printexc.get_callstack 8) "injected abort failure"
-  ;;
-end
