@@ -49,21 +49,38 @@ let prepare
 let request prepared = prepared.request
 
 let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
-  Count_tokens_sync.measure_completion_request
-    ?connection_cache
-    ?clock
-    ?timeout_s
-    ~sw
-    ~net
-    prepared.request
-  |> Result.map (fun measurement -> { prepared; measurement })
+  let config = prepared.request.Llm_transport.config in
+  let measured () =
+    Count_tokens_sync.measure_completion_request
+      ?connection_cache
+      ?clock
+      ?timeout_s
+      ~sw
+      ~net
+      prepared.request
+    |> Result.map (fun measurement -> { prepared; measurement })
+  in
+  match Complete_common.validate_all config with
+  | Error (Http_client.AcceptRejected { reason }) ->
+    Error (Count_tokens_sync.Invalid_completion_request reason)
+  | Error error ->
+    Error (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error))
+  | Ok () -> Provider_admission.with_admission ~config measured
 ;;
 
 let measurement measured = measured.measurement
 
 let admit measured =
   let request = measured.prepared.request in
-  match request.config.max_context with
+  let max_context =
+    match request.config.max_context with
+    | Some _ as explicit -> explicit
+    | None ->
+      Option.bind
+        (Provider_config.capabilities_for_config_model request.config)
+        (fun capabilities -> capabilities.Capabilities.max_context_tokens)
+  in
+  match max_context with
   | None -> Error (Context_limit_unknown { model_id = request.config.model_id })
   | Some max_context_tokens when max_context_tokens <= 0 ->
     Error

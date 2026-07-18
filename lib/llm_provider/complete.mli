@@ -50,9 +50,11 @@ val prepare_request
   -> unit
   -> prepared_request
 
-(** Measure the exact prepared request through the provider-native count
-    protocol. Unsupported protocols return the existing typed [Unsupported]
-    measurement error; no estimate or model-name inference is used. *)
+(** Validate and measure the exact prepared request through the provider-native
+    count protocol. Invalid local configuration fails before admission or I/O;
+    the count round-trip uses the same provider admission authority as
+    completion dispatch. Unsupported protocols return the existing typed
+    [Unsupported] measurement error; no estimate is used. *)
 val measure_request
   :  ?connection_cache:Http_client.cache
   -> ?clock:_ Eio.Time.clock
@@ -66,9 +68,10 @@ val request_measurement
   :  measured_request
   -> Count_tokens_sync.completion_request_measurement
 
-(** Admit the measured request against its exact declared [max_context]. The
-    output-token reservation is the effective value carried by the same
-    provider request artifact. Unknown limits and overflow are explicit. *)
+(** Admit the measured request against an explicit [max_context], or the exact
+    model capability when no explicit limit was supplied. The output-token
+    reservation is the effective value carried by the same provider request
+    artifact. Unknown limits and overflow are explicit. *)
 val admit_request : measured_request -> (admitted_request, fit_error) result
 
 val admitted_fit : admitted_request -> context_fit

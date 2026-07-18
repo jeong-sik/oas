@@ -1432,6 +1432,44 @@ let test_provider_config_of_agent_custom_registered_unknown_name () =
   | Ok _ -> Alcotest.fail "should error on unregistered name"
 ;;
 
+let test_provider_config_rebinds_model_specific_context () =
+  let parent_capabilities =
+    { Llm_provider.Capabilities.anthropic_capabilities with
+      max_context_tokens = Some 12_345
+    }
+  in
+  let parent =
+    Llm_provider.Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-opus-4-1"
+      ~base_url:"https://api.anthropic.com"
+      ~max_context:12_345
+      ~model_capabilities_override:parent_capabilities
+      ()
+  in
+  let target_config = Types.default_config ~model:"claude-sonnet-4-5" in
+  let target = Provider.provider_config_with_agent_config ~config:target_config parent in
+  let expected =
+    let clean_target =
+      { parent with
+        model_id = "claude-sonnet-4-5"
+      ; max_context = None
+      ; model_capabilities_override = None
+      ; supports_structured_output_override = None
+      }
+    in
+    Option.bind
+      (Llm_provider.Provider_config.capabilities_for_config_model clean_target)
+      (fun capabilities -> capabilities.max_context_tokens)
+  in
+  Alcotest.(check string) "target model" "claude-sonnet-4-5" target.model_id;
+  Alcotest.(check (option int)) "target context SSOT" expected target.max_context;
+  Alcotest.(check bool)
+    "parent model capability override is not inherited"
+    true
+    (Option.is_none target.model_capabilities_override)
+;;
+
 let () =
   install_embedded_model_catalog ();
   Alcotest.run
@@ -1594,6 +1632,10 @@ let () =
             "custom registered unknown name errors"
             `Quick
             test_provider_config_of_agent_custom_registered_unknown_name
+        ; Alcotest.test_case
+            "model rebind clears parent context"
+            `Quick
+            test_provider_config_rebinds_model_specific_context
         ] )
     ]
 ;;

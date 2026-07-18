@@ -54,6 +54,7 @@ let config
       ?(kind = Provider_config.Anthropic)
       ?(request_path = "/proxy/messages")
       ?max_context
+      ?max_concurrent_requests
       base_url
   =
   Provider_config.make
@@ -74,6 +75,7 @@ let config
     ~disable_parallel_tool_use:true
     ~supports_tool_choice_override:true
     ~output_schema:(`Assoc [ "type", `String "object" ])
+    ?max_concurrent_requests
     ()
 ;;
 
@@ -314,6 +316,67 @@ let test_prepared_context_overflow_is_typed () =
   | Ok _ | Error _ -> fail "expected typed prepared context overflow"
 ;;
 
+let test_prepared_admission_resolves_catalog_context_limit () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = { (config base_url) with model_id = "claude-sonnet-4-5" } in
+    let expected =
+      Option.bind (Provider_config.capabilities_for_config_model cfg) (fun capabilities ->
+        capabilities.Capabilities.max_context_tokens)
+      |> Option.get
+    in
+    let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+    let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
+    Complete.admit_request measured, expected
+  in
+  match result with
+  | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"
+  | Ok admitted, expected ->
+    check
+      int
+      "catalog context is the admission limit"
+      expected
+      (Complete.admitted_fit admitted).max_context_tokens
+;;
+
+let test_measurement_validates_before_io () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let cfg =
+    config ~request_path:"/v1/responses" ~max_concurrent_requests:0 "http://127.0.0.1:1"
+  in
+  let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+  match Complete.measure_request ~sw ~net:(Eio.Stdenv.net env) prepared with
+  | Error (Count_tokens_sync.Invalid_completion_request detail) ->
+    check bool "validation identifies local config" true (String.length detail > 0);
+    check
+      bool
+      "invalid request never creates an admission lane"
+      true
+      (Option.is_none (Provider_admission.snapshot_for ~config:cfg))
+  | Ok _ | Error _ -> fail "invalid prepared request must fail before provider I/O"
+;;
+
+let test_measurement_uses_provider_admission () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = config ~max_context:512 ~max_concurrent_requests:1 base_url in
+    let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
+    let result = Complete.measure_request ~sw ~net prepared in
+    result, Provider_admission.snapshot_for ~config:cfg
+  in
+  match result with
+  | Error _, _ -> fail "admitted measurement unexpectedly failed"
+  | Ok _, None -> fail "measurement bypassed provider admission"
+  | Ok _, Some snapshot ->
+    check int "declared measurement bound" 1 snapshot.Slot_scheduler.max_slots;
+    check int "measurement permit returned" 0 snapshot.active
+;;
+
 let test_agent_route_uses_prepared_admission () =
   let result, _captured =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
@@ -397,6 +460,34 @@ let test_agent_overflow_blocks_dispatch () =
     ()
   | Error error, _ -> fail (Agent_sdk.Error.to_string error)
   | Ok _, _ -> fail "overflowed prepared request must not dispatch"
+;;
+
+let test_invalid_count_response_is_provider_parse_failure () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"unexpected":true}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun _ -> fail "malformed count response must block completion dispatch")
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ ->
+            fail "malformed count response must block streaming dispatch")
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    Agent_sdk.Agent.run_detailed ~sw agent "malformed count response"
+  in
+  match result with
+  | Error
+      { Agent_sdk.Agent.error =
+          Agent_sdk.Error.Api
+            (Retry.InvalidRequest { reason = Retry.Json_parse_error; _ })
+      ; provider_failure =
+          Some { Agent_sdk.Provider_failure_attribution.evidence = Response_parse; _ }
+      } -> ()
+  | Error detailed -> fail (Agent_sdk.Error.to_string detailed.error)
+  | Ok _ -> fail "malformed provider count response must fail"
 ;;
 
 let test_unsupported_provider_preserves_compatibility () =
@@ -511,6 +602,18 @@ let () =
             `Quick
             test_prepared_context_overflow_is_typed
         ; test_case
+            "prepared admission resolves catalog context limit"
+            `Quick
+            test_prepared_admission_resolves_catalog_context_limit
+        ; test_case
+            "measurement validates before I/O"
+            `Quick
+            test_measurement_validates_before_io
+        ; test_case
+            "measurement uses provider admission"
+            `Quick
+            test_measurement_uses_provider_admission
+        ; test_case
             "Agent route uses prepared admission"
             `Quick
             test_agent_route_uses_prepared_admission
@@ -522,6 +625,10 @@ let () =
             "Agent overflow blocks dispatch"
             `Quick
             test_agent_overflow_blocks_dispatch
+        ; test_case
+            "invalid count response is provider parse failure"
+            `Quick
+            test_invalid_count_response_is_provider_parse_failure
         ; test_case
             "unsupported provider preserves compatibility"
             `Quick

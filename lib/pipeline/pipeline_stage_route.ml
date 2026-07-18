@@ -41,14 +41,18 @@ let measurement_error ~binding = function
             model_id))
   | Llm_provider.Count_tokens_sync.Input_count_failed
       (Llm_provider.Input_token_count.Invalid_response { protocol; model_id; detail }) ->
-    Provider_failure_attribution.of_request_validation_error
+    Provider_failure_attribution.of_response_parse_error
       ~binding
-      (invalid_request
-         (Printf.sprintf
-            "invalid %s input measurement for model %s: %s"
-            (Llm_provider.Input_token_count.show_protocol protocol)
-            model_id
-            detail))
+      (Error.Api
+         (Llm_provider.Retry.InvalidRequest
+            { message =
+                Printf.sprintf
+                  "invalid %s input measurement for model %s: %s"
+                  (Llm_provider.Input_token_count.show_protocol protocol)
+                  model_id
+                  detail
+            ; reason = Llm_provider.Retry.Json_parse_error
+            }))
   | Llm_provider.Count_tokens_sync.Output_token_resolution_failed
       Llm_provider.Types.Required_output_token_ceiling_missing ->
     Provider_failure_attribution.of_request_validation_error
