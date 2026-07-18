@@ -8,6 +8,64 @@ let sdk_error_testable =
   Alcotest.testable (fun fmt e -> Format.pp_print_string fmt (Error.to_string e)) ( = )
 ;;
 
+let category_testable =
+  Alcotest.testable
+    (fun fmt category -> Format.pp_print_string fmt (Error.category_label category))
+    ( = )
+;;
+
+let category_cases : (string * Error.sdk_error * Error.category * string) list =
+  [ "Api", Error.Api (Retry.AuthError { message = "bad key" }), Error.Api_category, "api"
+  ; ( "Provider"
+    , Error.Provider
+        (Llm_provider.Error.InvalidConfig { field = "model"; detail = "invalid" })
+    , Error.Provider_category
+    , "provider" )
+  ; ( "Agent"
+    , Error.Agent (Error.UnrecognizedStopReason { reason = "unknown" })
+    , Error.Agent_category
+    , "agent" )
+  ; ( "Mcp"
+    , Error.Mcp (Error.InitializeFailed { detail = "handshake failed" })
+    , Error.Mcp_category
+    , "mcp" )
+  ; ( "Config"
+    , Error.Config (Error.MissingEnvVar { var_name = "API_KEY" })
+    , Error.Config_category
+    , "config" )
+  ; ( "Serialization"
+    , Error.Serialization (Error.JsonParseError { detail = "invalid JSON" })
+    , Error.Serialization_category
+    , "serialization" )
+  ; ( "Io"
+    , Error.Io (Error.ValidationFailed { detail = "invalid path" })
+    , Error.Io_category
+    , "io" )
+  ; ( "Orchestration"
+    , Error.Orchestration (Error.UnknownAgent { name = "missing" })
+    , Error.Orchestration_category
+    , "orchestration" )
+  ; "Internal", Error.Internal "invariant failed", Error.Internal_category, "internal"
+  ]
+;;
+
+let category_tests =
+  List.map
+    (fun (name, error, expected_category, expected_label) ->
+       test_case name `Quick (fun () ->
+         check
+           category_testable
+           (name ^ " category")
+           expected_category
+           (Error.category error);
+         check
+           string
+           (name ^ " label")
+           expected_label
+           (Error.category_label expected_category)))
+    category_cases
+;;
+
 (* ── to_string tests ──────────────────────────────────────────────── *)
 
 let test_api_rate_limited () =
@@ -246,7 +304,8 @@ let test_inequality () =
 let () =
   run
     "Error"
-    [ ( "to_string"
+    [ "category", category_tests
+    ; ( "to_string"
       , [ test_case "Api RateLimited" `Quick test_api_rate_limited
         ; test_case "Api AuthError" `Quick test_api_auth_error
         ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
