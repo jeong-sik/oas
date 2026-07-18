@@ -110,7 +110,7 @@ let read_complete_page writer ~after ~limit =
     page.events, page.next_cursor
 ;;
 
-let provider_attempt_for ~provider_id ordinal =
+let binding_for ~provider_id =
   let config =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_kind.OpenAI_compat
@@ -119,13 +119,14 @@ let provider_attempt_for ~provider_id ordinal =
       ~base_url:"https://provider.test"
       ()
   in
-  let binding =
-    Binding_identity.of_provider_config
-      ~transport:(Binding_identity.transport_for_call ~injected:false)
-      config
-    |> require_codec
-  in
-  require_codec (Event.provider_attempt ~ordinal binding)
+  Binding_identity.of_provider_config
+    ~transport:(Binding_identity.transport_for_call ~injected:false)
+    config
+  |> require_codec
+;;
+
+let provider_attempt_for ~provider_id ordinal =
+  require_codec (Event.provider_attempt ~ordinal (binding_for ~provider_id))
 ;;
 
 let provider_attempt ordinal =
@@ -234,9 +235,9 @@ let test_effect_attempt_and_settlement_survive_restart () =
         check int "one durable producer group" 2 receipt.group_event_count;
         node, invocation
       in
-      let authority (node, invocation) =
-        match Settlement.create ~writer ~invocation_node:node ~invocation with
-        | Ok authority -> authority
+      let authority (node, _invocation) =
+        match Settlement.rebind ~writer ~invocation_node:node with
+        | Ok durable -> durable.authority
         | Error _ -> fail "durable invocation authority rejected exact identity"
       in
       let first_pair = open_invocation 0 in
@@ -339,8 +340,8 @@ let test_effect_attempt_and_settlement_survive_restart () =
     in
     with_existing codec dir (fun _sw writer ->
       ignore (require_scope (Writer.await_ready writer));
-      let authority (node, invocation) =
-        Result.get_ok (Settlement.create ~writer ~invocation_node:node ~invocation)
+      let authority (node, _invocation) =
+        (Result.get_ok (Settlement.rebind ~writer ~invocation_node:node)).authority
       in
       let never () = fail "effect reran" in
       (match Settlement.execute (authority first_pair) ~invoke:never with
@@ -528,7 +529,8 @@ let test_agent_scope_owns_effect_topology () =
   @@ fun env ->
   with_temp_dir env (fun codec dir ->
     make_dir dir;
-    let locator = ref None in
+    let scope_locator_json = ref None in
+    let invocation_locator_json = ref None in
     let calls = ref 0 in
     let result =
       Types.ToolResult
@@ -541,6 +543,8 @@ let test_agent_scope_owns_effect_topology () =
     in
     with_fresh codec dir (fun _sw writer ->
       let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
+      scope_locator_json
+      := Some (Agent_scope.scope_locator_to_yojson (Agent_scope.scope_locator scope));
       let before_cancelled =
         Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
       in
@@ -559,22 +563,12 @@ let test_agent_scope_owns_effect_topology () =
         (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
       let before = cursor_at (Result.get_ok (Writer.current_cursor writer)) 0 in
       let turn = require_agent_scope (Agent_scope.open_turn scope ~ordinal:3) in
-      let config =
-        Llm_provider.Provider_config.make
-          ~kind:Llm_provider.Provider_kind.OpenAI_compat
-          ~provider_id:"scope-provider"
-          ~model_id:"scope-model"
-          ~base_url:"https://provider.test"
-          ()
-      in
-      let binding =
-        Binding_identity.of_provider_config
-          ~transport:(Binding_identity.transport_for_call ~injected:false)
-          config
-        |> require_codec
-      in
       let provider =
-        require_agent_scope (Agent_scope.open_provider_attempt turn ~ordinal:0 binding)
+        require_agent_scope
+          (Agent_scope.open_provider_attempt
+             turn
+             ~ordinal:0
+             (binding_for ~provider_id:"scope-provider"))
       in
       let schedule : Tool.schedule =
         { planned_index = 0
@@ -607,11 +601,16 @@ let test_agent_scope_owns_effect_topology () =
              ~tool_name:"effect"
              ~input:(`Assoc [ "value", `Int 7 ]))
       in
-      locator := Some (Agent_scope.invocation_locator invocation);
+      invocation_locator_json
+      := Some
+           (Agent_scope.invocation_locator_to_yojson
+              (Agent_scope.invocation_locator invocation));
       (match
-         Agent_scope.execute invocation ~invoke:(fun () ->
-           incr calls;
-           result)
+         Agent_scope.execute
+           invocation
+           ~invoke:(fun ~invocation:_ ~tool_name:_ ~input:_ ->
+             incr calls;
+             result)
        with
        | Ok (Settlement.Executed _) -> ()
        | Ok (Settlement.Replayed _) -> fail "fresh scoped effect was replayed"
@@ -659,15 +658,106 @@ let test_agent_scope_owns_effect_topology () =
       | _ -> fail "scope did not write its topology before the effect");
     with_existing codec dir (fun _sw writer ->
       ignore (require_scope (Writer.await_ready writer));
-      let invocation =
-        require_agent_scope (Agent_scope.rebind_invocation ~writer (Option.get !locator))
+      let scope =
+        require_agent_scope
+          (Agent_scope.resume
+             ~writer
+             (require_codec
+                (Agent_scope.scope_locator_of_yojson (Option.get !scope_locator_json))))
       in
-      (match Agent_scope.execute invocation ~invoke:(fun () -> fail "effect reran") with
+      let invocation =
+        Option.get !invocation_locator_json
+        |> Agent_scope.invocation_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.rebind_invocation scope
+        |> require_agent_scope
+      in
+      (match
+         Agent_scope.execute
+           invocation
+           ~invoke:(fun ~invocation:_ ~tool_name:_ ~input:_ -> fail "effect reran")
+       with
        | Ok (Settlement.Replayed replayed) ->
          check bool "reopened scope replays exact result" true (replayed = result)
        | Ok (Settlement.Executed _) -> fail "reopened scope executed effect twice"
        | Error error -> fail (Agent_scope.error_to_string error));
       check int "reopened scope preserves call count" 1 !calls))
+;;
+
+let test_agent_scope_executes_pending_after_restart () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir env (fun codec dir ->
+    make_dir dir;
+    let scope_json, invocation_json = ref None, ref None in
+    let expected_input = `Assoc [ "path", `String "durable" ] in
+    with_fresh codec dir (fun _sw writer ->
+      let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
+      scope_json
+      := Some (Agent_scope.scope_locator_to_yojson (Agent_scope.scope_locator scope));
+      let turn = require_agent_scope (Agent_scope.open_turn scope ~ordinal:0) in
+      let provider =
+        require_agent_scope
+          (Agent_scope.open_provider_attempt
+             turn
+             ~ordinal:0
+             (binding_for ~provider_id:"pending-provider"))
+      in
+      let schedule : Tool.schedule =
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool.Serial
+        }
+      in
+      let invocation =
+        require_agent_scope
+          (Agent_scope.open_invocation
+             provider
+             ~invocation:(Tool.Invocation.create ~tool_use_id:"pending" ~turn:0 ~schedule)
+             ~tool_name:"durable-tool"
+             ~input:expected_input)
+      in
+      invocation_json
+      := Some
+           (Agent_scope.invocation_locator_to_yojson
+              (Agent_scope.invocation_locator invocation)));
+    with_existing codec dir (fun _sw writer ->
+      ignore (require_scope (Writer.await_ready writer));
+      let scope =
+        Option.get !scope_json
+        |> Agent_scope.scope_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.resume ~writer
+        |> require_agent_scope
+      in
+      let invocation =
+        Option.get !invocation_json
+        |> Agent_scope.invocation_locator_of_yojson
+        |> require_codec
+        |> Agent_scope.rebind_invocation scope
+        |> require_agent_scope
+      in
+      (match
+         Agent_scope.execute invocation ~invoke:(fun ~invocation ~tool_name ~input ->
+           check string "rebound tool name" "durable-tool" tool_name;
+           check bool "rebound tool input" true (Yojson.Safe.equal input expected_input);
+           let tool_use_id = Tool.Invocation.tool_use_id invocation in
+           check string "rebound Tool invocation" "pending" tool_use_id;
+           Types.ToolResult
+             { tool_use_id
+             ; content = "done"
+             ; outcome = Types.Tool_succeeded
+             ; json = None
+             ; content_blocks = None
+             })
+       with
+       | Ok (Settlement.Executed (Types.ToolResult _, _, _)) -> ()
+       | Ok (Settlement.Executed _ | Settlement.Replayed _) ->
+         fail "pending command mismatch"
+       | Error error -> fail (Agent_scope.error_to_string error));
+      let cancelled = Agent_scope.Cancelled { reason = Some "done"; data = None } in
+      require_agent_scope (Agent_scope.abort scope cancelled)))
 ;;
 
 let rec await_reconciliation_phase writer =
@@ -1594,6 +1684,10 @@ let () =
             "Agent scope owns effect topology"
             `Quick
             test_agent_scope_owns_effect_topology
+        ; test_case
+            "pending Agent scope resumes exact command"
+            `Quick
+            test_agent_scope_executes_pending_after_restart
         ; test_case
             "concurrent submit and close linearize without loss"
             `Quick

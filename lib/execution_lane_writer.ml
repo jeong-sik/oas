@@ -887,6 +887,10 @@ let find_node writer node =
   read_journal writer (fun journal -> Ok (Journal.find_node journal node))
 ;;
 
+let find_run writer run_id =
+  read_journal writer (fun journal -> Ok (Journal.find_run journal run_id))
+;;
+
 let read_page writer ~after ?through ~limit () =
   read_journal writer (fun journal ->
     match Journal.read_page journal ~after ?through ~limit () with
