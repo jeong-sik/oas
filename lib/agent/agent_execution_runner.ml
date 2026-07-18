@@ -36,6 +36,15 @@ let abort_failure_of_error (detailed : Provider_failure_attribution.detailed_err
     { kind = Internal_failure; detail = Error.to_string detailed.error; data = None }
 ;;
 
+let reraise_after_abort_failure exn backtrace abort_detail =
+  match Llm_provider.Reserved_exn.reraise_if_reserved exn with
+  | () ->
+    Printexc.raise_with_backtrace
+      (Abort_failed_after_exception (exn, backtrace, abort_detail))
+      backtrace
+  | exception reserved -> Printexc.raise_with_backtrace reserved backtrace
+;;
+
 let abort_after_exception scope exn backtrace =
   let reason =
     match exn with
@@ -50,10 +59,10 @@ let abort_after_exception scope exn backtrace =
   match Execution_agent_scope.abort scope reason with
   | Ok () -> Printexc.raise_with_backtrace exn backtrace
   | Error abort_error ->
-    Printexc.raise_with_backtrace
-      (Abort_failed_after_exception
-         (exn, backtrace, Execution_agent_scope.error_to_string abort_error))
+    reraise_after_abort_failure
+      exn
       backtrace
+      (Execution_agent_scope.error_to_string abort_error)
 ;;
 
 let abort_error scope detailed =
@@ -94,9 +103,17 @@ let settle_success scope value =
                (Execution_agent_scope.error_to_string abort_error))))
 ;;
 
+let settle_success_after_run scope value =
+  match Eio.Cancel.protect (fun () -> settle_success scope value) with
+  | result -> result
+  | exception exn ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    abort_after_exception scope exn backtrace
+;;
+
 let with_scope scope run =
   match run () with
-  | Ok value -> settle_success scope value
+  | Ok value -> settle_success_after_run scope value
   | Error detailed -> abort_error scope detailed
   | exception exn ->
     let backtrace = Printexc.get_raw_backtrace () in
@@ -133,3 +150,9 @@ let with_fresh store agent run =
   | Error failure ->
     Error (execution_failure (Execution_lane_writer.scope_failure_to_string failure))
 ;;
+
+module For_testing = struct
+  let reraise_after_abort_failure exn =
+    reraise_after_abort_failure exn (Printexc.get_callstack 8) "injected abort failure"
+  ;;
+end

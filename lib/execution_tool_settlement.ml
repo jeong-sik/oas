@@ -34,6 +34,13 @@ type execution =
   | Executed of Llm_provider.Types.content_block * Journal.cursor * int
   | Replayed of Llm_provider.Types.content_block
 
+type phased_effect =
+  { result : Llm_provider.Types.content_block
+  ; after_settle : unit -> unit
+  }
+
+let phased_effect ~result ~after_settle = { result; after_settle }
+
 let read_node writer node =
   match Writer.find_node writer node with
   | Error error -> Error (Authority_unavailable error)
@@ -157,7 +164,7 @@ let settle authority attempt result =
        | Ok committed -> Ok (result, committed.through, committed.group_event_count)))
 ;;
 
-let execute_with_attempt authority ~invoke =
+let execute_with_attempt_phased_internal authority ~after_attempt_committed ~invoke =
   let open Result_syntax in
   let* current = status authority in
   match current with
@@ -165,12 +172,35 @@ let execute_with_attempt authority ~invoke =
   | Outcome_unknown -> Error Effect_outcome_unknown
   | Ready_to_execute ->
     let* attempt = begin_attempt authority in
-    Eio.Fiber.check ();
-    let result = invoke attempt in
-    let+ committed, through, event_count = settle authority attempt result in
+    after_attempt_committed ();
+    let phase = invoke attempt in
+    let+ committed, through, event_count = settle authority attempt phase.result in
+    phase.after_settle ();
     Executed (committed, through, event_count)
+;;
+
+let execute_with_attempt_phased authority ~invoke =
+  execute_with_attempt_phased_internal authority ~after_attempt_committed:Fun.id ~invoke
+;;
+
+let execute_with_attempt authority ~invoke =
+  execute_with_attempt_phased authority ~invoke:(fun attempt ->
+    { result = invoke attempt; after_settle = Fun.id })
 ;;
 
 let execute authority ~invoke =
   execute_with_attempt authority ~invoke:(fun _ -> invoke ())
 ;;
+
+module For_testing = struct
+  let execute_with_attempt_after_attempt_committed
+        authority
+        ~after_attempt_committed
+        ~invoke
+    =
+    execute_with_attempt_phased_internal
+      authority
+      ~after_attempt_committed
+      ~invoke:(fun attempt -> phased_effect ~result:(invoke attempt) ~after_settle:Fun.id)
+  ;;
+end

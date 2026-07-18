@@ -329,13 +329,61 @@ let test_effect_attempt_and_settlement_survive_restart () =
        | () -> ()
        | exception Eio.Cancel.Cancelled Cancel_scope -> ()
        | exception exn -> raise exn);
+      let pre_effect_cancel_pair = open_invocation 3 in
+      let pre_effect_cancel = authority pre_effect_cancel_pair in
+      let pre_effect_cancel_invoked = ref false in
+      let pre_effect_cancel_result =
+        Types.ToolResult
+          { tool_use_id = "call-3"
+          ; content = "effect ran after committed-attempt cancellation"
+          ; outcome = Types.Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      in
+      (match
+         Eio.Cancel.sub (fun cancellation ->
+           match
+             Settlement.For_testing.execute_with_attempt_after_attempt_committed
+               pre_effect_cancel
+               ~after_attempt_committed:(fun () ->
+                 Eio.Cancel.cancel cancellation Cancel_scope)
+               ~invoke:(fun _attempt ->
+                 pre_effect_cancel_invoked := true;
+                 pre_effect_cancel_result)
+           with
+           | Ok (Settlement.Executed _) -> ()
+           | Ok (Settlement.Replayed _) | Error _ ->
+             fail "pre-effect cancellation lost settlement")
+       with
+       | () -> ()
+       | exception Eio.Cancel.Cancelled Cancel_scope -> ()
+       | exception exn -> raise exn);
+      check
+        bool
+        "committed attempt enters effect without a cancellation gap"
+        true
+        !pre_effect_cancel_invoked;
       let second_pair = open_invocation 1 in
       let second = authority second_pair in
       match Settlement.execute second ~invoke:(fun () -> raise Effect_raised) with
       | exception Effect_raised ->
-        restart_pairs := Some (first_pair, second_pair, cancelled_pair, cancelled_result)
+        restart_pairs
+        := Some
+             ( first_pair
+             , second_pair
+             , cancelled_pair
+             , cancelled_result
+             , pre_effect_cancel_pair
+             , pre_effect_cancel_result )
       | Ok _ | Error _ -> fail "effect exception did not propagate");
-    let first_pair, second_pair, cancelled_pair, cancelled_result =
+    let ( first_pair
+        , second_pair
+        , cancelled_pair
+        , cancelled_result
+        , pre_effect_cancel_pair
+        , pre_effect_cancel_result )
+      =
       Option.get !restart_pairs
     in
     with_existing codec dir (fun _sw writer ->
@@ -352,6 +400,10 @@ let test_effect_attempt_and_settlement_survive_restart () =
        | Ok (Settlement.Replayed settled) when settled = cancelled_result -> ()
        | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
          fail "post-effect cancellation left no durable receipt");
+      (match Settlement.execute (authority pre_effect_cancel_pair) ~invoke:never with
+       | Ok (Settlement.Replayed settled) when settled = pre_effect_cancel_result -> ()
+       | Ok (Settlement.Replayed _ | Settlement.Executed _) | Error _ ->
+         fail "committed-attempt cancellation poisoned an effect that ran");
       match Settlement.execute (authority second_pair) ~invoke:never with
       | Error Settlement.Effect_outcome_unknown -> ()
       | Ok _ | Error _ -> fail "restart did not fence unknown effect"))
@@ -570,6 +622,7 @@ let test_agent_scope_owns_effect_topology () =
     let scope_locator_json = ref None in
     let invocation_locator_json = ref None in
     let calls = ref 0 in
+    let settled_before_observer = ref false in
     with_fresh codec dir (fun _sw writer ->
       let scope = require_agent_scope (Agent_scope.start ~writer ~agent_name:"agent") in
       scope_locator_json
@@ -634,17 +687,29 @@ let test_agent_scope_owns_effect_topology () =
       := Some
            (Agent_scope.invocation_locator_to_yojson
               (Agent_scope.invocation_locator invocation));
+      let before_effect =
+        Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+      in
       (match
-         Agent_scope.execute invocation ~invoke:(fun ~start_child ~tool_name:_ ~input:_ ->
-           incr calls;
-           let child = require_agent_scope (start_child ~agent_name:"child-agent") in
-           require_agent_scope (Agent_scope.finish child Event.Succeeded);
-           "done", Types.Tool_succeeded)
+         Agent_scope.execute_phased
+           invocation
+           ~invoke:(fun ~start_child ~tool_name:_ ~input:_ ->
+             incr calls;
+             let child = require_agent_scope (start_child ~agent_name:"child-agent") in
+             require_agent_scope (Agent_scope.finish child Event.Succeeded);
+             ( ("done", Types.Tool_succeeded)
+             , fun () ->
+                 let observed =
+                   Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq
+                 in
+                 check int "observer sees durable ToolResult" (before_effect + 6) observed;
+                 settled_before_observer := true ))
        with
        | Ok (Agent_scope.Executed _) -> ()
        | Ok (Agent_scope.Replayed _) -> fail "fresh scoped effect was replayed"
        | Error error -> fail (Agent_scope.error_to_string error));
       check int "scoped effect call count" 1 !calls;
+      check bool "post-effect observer ran after settlement" true !settled_before_observer;
       let abort_result =
         match
           Eio.Cancel.sub (fun cancellation ->

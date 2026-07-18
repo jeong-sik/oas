@@ -35,40 +35,6 @@ let failure_summary = function
   | Observer_failure { exception_; _ } -> Printexc.to_string exception_
 ;;
 
-let failure_priority = function
-  | Durability_failure _ -> 3
-  | Observer_failure _ -> 2
-  | Hook_failure _ -> 1
-;;
-
-let prefer_failure current candidate =
-  match current with
-  | None -> Some candidate
-  | Some primary ->
-    if failure_priority candidate > failure_priority primary
-    then Some candidate
-    else current
-;;
-
-let%test "durability failure dominates an earlier observer failure" =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
-  in
-  let invocation = Tool.Invocation.create ~tool_use_id:"priority" ~turn:0 ~schedule in
-  let observer =
-    Observer_failure
-      { invocation
-      ; exception_ = Failure "observer"
-      ; backtrace = Printexc.get_callstack 1
-      }
-  in
-  match
-    prefer_failure (Some observer) (Durability_failure { invocation; detail = "lost" })
-  with
-  | Some (Durability_failure _) -> true
-  | Some (Hook_failure _ | Observer_failure _) | None -> false
-;;
-
 type scheduled_tool_use =
   { index : int
   ; id : string
@@ -221,14 +187,6 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
     raise_hook_observer exn
 ;;
 
-type deferred_failure =
-  | Deferred_hook_failure of execution_error
-  | Deferred_observer_failure of
-      { invocation : Tool.Invocation.t
-      ; exception_ : exn
-      ; backtrace : Printexc.raw_backtrace
-      }
-
 let execution_failure_of_deferred = function
   | Deferred_hook_failure error -> Hook_failure error
   | Deferred_observer_failure { invocation; exception_; backtrace } ->
@@ -238,11 +196,6 @@ let execution_failure_of_deferred = function
 let deferred_failure_summary deferred =
   failure_summary (execution_failure_of_deferred deferred)
 ;;
-
-type tool_dispatch =
-  { result : tool_execution_result
-  ; deferred_failure : deferred_failure option
-  }
 
 let hook_execution_error ~hook_name ~stage ~tool_name ~invocation ~detail =
   Hook_execution_failed { hook_name; stage; tool_name; invocation; detail }
@@ -314,6 +267,7 @@ let find_and_execute_tool_with_index
       ?correlation_id
       ?run_id
       ?on_hook_invoked
+      ~publish_legacy_events
       ~invocation
       name
       input
@@ -322,6 +276,10 @@ let find_and_execute_tool_with_index
   let requested_name = name in
   let name, input, tool_opt = resolve_tool_call tool_index name input in
   let first_deferred_failure = ref None in
+  let post_effect_observers = ref [] in
+  let defer_observer observer =
+    post_effect_observers := observer :: !post_effect_observers
+  in
   let record_deferred_failure failure =
     match !first_deferred_failure with
     | None -> first_deferred_failure := Some failure
@@ -354,8 +312,9 @@ let find_and_execute_tool_with_index
      [~run_id] explicitly or we fall back to the fresh id minted by
      [mk_event]. *)
   let tool_called_run_id =
-    match event_bus with
-    | Some bus ->
+    match publish_legacy_events, event_bus with
+    | false, _ -> None
+    | true, Some bus ->
       let ev =
         Event_bus.mk_event
           ?correlation_id
@@ -370,7 +329,7 @@ let find_and_execute_tool_with_index
          let backtrace = Printexc.get_raw_backtrace () in
          record_deferred_exception exception_ backtrace;
          None)
-    | None -> None
+    | true, None -> None
   in
   let dispatch =
     match tool_opt with
@@ -407,11 +366,13 @@ let find_and_execute_tool_with_index
           let message =
             Tool_input_validation.format_errors_inline ~tool_name:name ~args:input errors
           in
-          Error (message, emit_post_tool_use_failure ~input message)
+          defer_observer (fun () ->
+            emit_post_tool_use_failure ~input message
+            |> Option.iter record_deferred_failure);
+          Error message
       in
       (match validated_input with
-       | Error (message, deferred_failure) ->
-         Option.iter record_deferred_failure deferred_failure;
+       | Error message ->
          { result = validation_error_result ~input message; deferred_failure = None }
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
@@ -432,49 +393,52 @@ let find_and_execute_tool_with_index
            | Ok { content; _meta = _ } -> String.length content
            | Error { message; _ } -> String.length message
          in
-         invoke_post_hook
-           ?on_hook_invoked
-           ~tracer
-           ~agent_name
-           ~invocation
-           ~hook_name:"post_tool_use"
-           ~tool_name:name
-           hooks.post_tool_use
-           (Hooks.PostToolUse
-              { invocation
-              ; tool_name = name
-              ; input = exact_input
-              ; output = result
-              ; result_bytes
-              ; duration_ms
-              })
-         |> Option.iter record_deferred_failure;
+         defer_observer (fun () ->
+           invoke_post_hook
+             ?on_hook_invoked
+             ~tracer
+             ~agent_name
+             ~invocation
+             ~hook_name:"post_tool_use"
+             ~tool_name:name
+             hooks.post_tool_use
+             (Hooks.PostToolUse
+                { invocation
+                ; tool_name = name
+                ; input = exact_input
+                ; output = result
+                ; result_bytes
+                ; duration_ms
+                })
+           |> Option.iter record_deferred_failure);
          (match result with
           | Ok _ -> ()
           | Error { message; _ } ->
-            invoke_post_hook
-              ?on_hook_invoked
-              ~tracer
-              ~agent_name
-              ~invocation
-              ~hook_name:"post_tool_use_failure"
-              ~tool_name:name
-              hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure
-                 { invocation; tool_name = name; input = exact_input; error = message })
-            |> Option.iter record_deferred_failure;
+            defer_observer (fun () ->
+              invoke_post_hook
+                ?on_hook_invoked
+                ~tracer
+                ~agent_name
+                ~invocation
+                ~hook_name:"post_tool_use_failure"
+                ~tool_name:name
+                hooks.post_tool_use_failure
+                (Hooks.PostToolUseFailure
+                   { invocation; tool_name = name; input = exact_input; error = message })
+              |> Option.iter record_deferred_failure);
             (* [OnToolError] is the compact error projection. The exact
                invocation remains shared with the richer failure hook. *)
-            invoke_post_hook
-              ?on_hook_invoked
-              ~tracer
-              ~agent_name
-              ~invocation
-              ~hook_name:"on_tool_error"
-              ~tool_name:name
-              hooks.on_tool_error
-              (Hooks.OnToolError { invocation; tool_name = name; error = message })
-            |> Option.iter record_deferred_failure);
+            defer_observer (fun () ->
+              invoke_post_hook
+                ?on_hook_invoked
+                ~tracer
+                ~agent_name
+                ~invocation
+                ~hook_name:"on_tool_error"
+                ~tool_name:name
+                hooks.on_tool_error
+                (Hooks.OnToolError { invocation; tool_name = name; error = message })
+              |> Option.iter record_deferred_failure));
          let content, outcome =
            match result with
            | Ok { content; _meta = _ } -> content, Tool_succeeded
@@ -505,7 +469,7 @@ let find_and_execute_tool_with_index
         [ Log.S ("tool", requested_name)
         ; Log.S ("available_tools", render_tool_names available)
         ];
-      let deferred_failure =
+      defer_observer (fun () ->
         invoke_post_hook
           ?on_hook_invoked
           ~tracer
@@ -519,8 +483,7 @@ let find_and_execute_tool_with_index
              ; detail = message
              ; context = "agent_tools.find_and_execute_tool"
              })
-      in
-      Option.iter record_deferred_failure deferred_failure;
+        |> Option.iter record_deferred_failure);
       { result =
           { invocation
           ; tool_name = requested_name
@@ -532,26 +495,33 @@ let find_and_execute_tool_with_index
       }
   in
   (* ToolCompleted event *)
-  (match event_bus with
-   | Some bus ->
-     let output_content = dispatch.result.content in
-     let output =
-       Types.tool_result_of_outcome ~content:output_content dispatch.result.outcome
-     in
-     (try
-        Event_bus.publish
-          bus
-          (Event_bus.mk_event
-             ?correlation_id
-             ?run_id
-             ?caused_by:tool_called_run_id
-             (ToolCompleted { invocation; agent_name; tool_name = name; output }))
-      with
-      | exception_ ->
-        let backtrace = Printexc.get_raw_backtrace () in
-        record_deferred_exception exception_ backtrace)
-   | None -> ());
-  { dispatch with deferred_failure = !first_deferred_failure }
+  defer_observer (fun () ->
+    match publish_legacy_events, event_bus with
+    | false, _ -> ()
+    | true, Some bus ->
+      let output_content = dispatch.result.content in
+      let output =
+        Types.tool_result_of_outcome ~content:output_content dispatch.result.outcome
+      in
+      (try
+         Event_bus.publish
+           bus
+           (Event_bus.mk_event
+              ?correlation_id
+              ?run_id
+              ?caused_by:tool_called_run_id
+              (ToolCompleted { invocation; agent_name; tool_name = name; output }))
+       with
+       | exception_ ->
+         let backtrace = Printexc.get_raw_backtrace () in
+         record_deferred_exception exception_ backtrace)
+    | true, None -> ());
+  { result = dispatch.result
+  ; finish_observers =
+      (fun () ->
+        List.rev !post_effect_observers |> List.iter (fun observe -> observe ());
+        { dispatch with deferred_failure = !first_deferred_failure })
+  }
 ;;
 
 let find_and_execute_tool
@@ -570,20 +540,23 @@ let find_and_execute_tool
   =
   let tool_index = build_index tools in
   try
-    find_and_execute_tool_with_index
-      ~context
-      ~tool_index
-      ~hooks
-      ~event_bus
-      ~tracer
-      ~agent_name
-      ?correlation_id
-      ?run_id
-      ?on_hook_invoked
-      ~invocation
-      name
-      input
-    |> resolve_dispatch
+    let pending =
+      find_and_execute_tool_with_index
+        ~context
+        ~tool_index
+        ~hooks
+        ~event_bus
+        ~tracer
+        ~agent_name
+        ?correlation_id
+        ?run_id
+        ?on_hook_invoked
+        ~publish_legacy_events:true
+        ~invocation
+        name
+        input
+    in
+    pending.finish_observers () |> resolve_dispatch
   with
   | Hook_observer_raised (exn, backtrace) -> reraise_hook_observer exn backtrace
 ;;
@@ -620,7 +593,7 @@ let execute_scheduled_tool
   let invocation = Tool.Invocation.create ~tool_use_id:id ~turn:turn_count ~schedule in
   let id = Tool.Invocation.tool_use_id invocation in
   let turn_count = Tool.Invocation.turn invocation in
-  let completed_dispatch = ref None in
+  let completed_dispatch : tool_dispatch option ref = ref None in
   let first_failure = ref None in
   let record_failure failure =
     match !first_failure with
@@ -666,7 +639,8 @@ let execute_scheduled_tool
   in
   let outcome () =
     { index
-    ; completed_result = Option.map (fun dispatch -> dispatch.result) !completed_dispatch
+    ; completed_result =
+        Option.map (fun (dispatch : tool_dispatch) -> dispatch.result) !completed_dispatch
     ; failure = !first_failure
     }
   in
@@ -728,13 +702,14 @@ let execute_scheduled_tool
     | Hooks.Continue ->
       let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
       (try
-         let execute_effect ~tool_name ~input =
-           observe_before_completion (fun () ->
-             match on_tool_execution_started with
-             | Some callback -> callback ~invocation ~tool_name ~input
-             | None -> ());
+         let observe_started ~tool_name ~input =
+           match on_tool_execution_started with
+           | Some callback -> callback ~invocation ~tool_name ~input
+           | None -> ()
+         in
+         let begin_effect ~publish_legacy_events ~tool_name ~input =
            let t0_tool = Unix.gettimeofday () in
-           let dispatch =
+           let pending =
              find_and_execute_tool_with_index
                ~context
                ~tool_index
@@ -745,15 +720,21 @@ let execute_scheduled_tool
                ?correlation_id
                ?run_id
                ?on_hook_invoked
+               ~publish_legacy_events
                ~invocation
                tool_name
                input
            in
+           completed_dispatch
+           := Some ({ result = pending.result; deferred_failure = None } : tool_dispatch);
+           pending, (Unix.gettimeofday () -. t0_tool) *. 1000.0
+         in
+         let finish_effect pending ~tool_name =
+           let dispatch = pending.finish_observers () in
            completed_dispatch := Some dispatch;
            Option.iter
              (fun deferred -> record_failure (execution_failure_of_deferred deferred))
              dispatch.deferred_failure;
-           let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
            observe_after_completion (fun () ->
              match on_tool_execution_finished with
              | Some callback ->
@@ -763,7 +744,7 @@ let execute_scheduled_tool
                  ~content:dispatch.result.content
                  ~is_error:(Types.tool_result_outcome_is_error dispatch.result.outcome)
              | None -> ());
-           dispatch, duration_ms_tool
+           dispatch
          in
          let dispatch =
            Tracing.with_span
@@ -793,17 +774,26 @@ let execute_scheduled_tool
                           });
                      raise Abort_tool_dispatch
                    | Ok durable_invocation ->
+                     observe_before_completion (fun () ->
+                       observe_started ~tool_name:name ~input);
                      (match
-                        Execution_agent_scope.execute
+                        Execution_agent_scope.execute_phased
                           durable_invocation
                           ~invoke:(fun ~start_child ~tool_name ~input ->
                             Execution_context.with_child_scope_factory
                               start_child
                               (fun () ->
-                                 let dispatch, _duration_ms =
-                                   execute_effect ~tool_name ~input
+                                 let pending, _duration_ms =
+                                   begin_effect
+                                     ~publish_legacy_events:false
+                                     ~tool_name
+                                     ~input
                                  in
-                                 dispatch.result.content, dispatch.result.outcome))
+                                 ( (pending.result.content, pending.result.outcome)
+                                 , fun () ->
+                                     ignore
+                                       (finish_effect pending ~tool_name : tool_dispatch)
+                                 )))
                       with
                       | Error error ->
                         (* The effect may already have returned, but without an
@@ -836,6 +826,7 @@ let execute_scheduled_tool
                         dispatch))
                 | None ->
                   observe_before_completion (fun () ->
+                    observe_started ~tool_name:name ~input;
                     match journal with
                     | Some j ->
                       Agent_execution_event_writer.append
@@ -848,9 +839,10 @@ let execute_scheduled_tool
                            ; timestamp = Unix.gettimeofday ()
                            })
                     | None -> ());
-                  let dispatch, duration_ms_tool =
-                    execute_effect ~tool_name:name ~input
+                  let pending, duration_ms_tool =
+                    begin_effect ~publish_legacy_events:true ~tool_name:name ~input
                   in
+                  let dispatch = finish_effect pending ~tool_name:name in
                   observe_after_completion (fun () ->
                     match journal with
                     | Some j ->

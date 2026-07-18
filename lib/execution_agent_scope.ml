@@ -279,24 +279,29 @@ let tool_result_of_block durable = function
   | Llm_provider.Types.Audio _ -> Error Invalid_tool_result
 ;;
 
-let execute invocation ~invoke =
+let execute_phased invocation ~invoke =
   let durable = invocation.durable in
   let settled =
-    Settlement.execute_with_attempt durable.authority ~invoke:(fun parent_attempt ->
-      let start_child ~agent_name =
-        transact invocation.scope.writer (Tx.start_run ~parent_attempt ~agent_name ())
-        |> Result.map (fun (run, _event) -> { writer = invocation.scope.writer; run })
-      in
-      let content, outcome =
-        invoke ~start_child ~tool_name:durable.tool_name ~input:durable.input
-      in
-      Llm_provider.Types.ToolResult
-        { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
-        ; content
-        ; outcome
-        ; json = None
-        ; content_blocks = None
-        })
+    Settlement.execute_with_attempt_phased
+      durable.authority
+      ~invoke:(fun parent_attempt ->
+        let start_child ~agent_name =
+          transact invocation.scope.writer (Tx.start_run ~parent_attempt ~agent_name ())
+          |> Result.map (fun (run, _event) -> { writer = invocation.scope.writer; run })
+        in
+        let (content, outcome), after_settle =
+          invoke ~start_child ~tool_name:durable.tool_name ~input:durable.input
+        in
+        Settlement.phased_effect
+          ~result:
+            (Llm_provider.Types.ToolResult
+               { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
+               ; content
+               ; outcome
+               ; json = None
+               ; content_blocks = None
+               })
+          ~after_settle)
     |> Result.map_error (fun error -> Settlement_failed error)
   in
   match settled with
@@ -306,6 +311,11 @@ let execute invocation ~invoke =
     |> Result.map (fun result -> Executed (result, through, event_count))
   | Ok (Settlement.Replayed block) ->
     tool_result_of_block durable block |> Result.map (fun result -> Replayed result)
+;;
+
+let execute invocation ~invoke =
+  execute_phased invocation ~invoke:(fun ~start_child ~tool_name ~input ->
+    invoke ~start_child ~tool_name ~input, Fun.id)
 ;;
 
 let close_node writer node terminal =

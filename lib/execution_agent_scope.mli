@@ -90,6 +90,17 @@ val execute
         -> string * Llm_provider.Types.tool_result_outcome)
   -> (execution, error) result
 
+(** As {!execute}, but the effect returns a callback that runs only after its
+    ToolResult is durably settled. Replayed results run neither phase. *)
+val execute_phased
+  :  invocation
+  -> invoke:
+       (start_child:(agent_name:string -> (t, error) result)
+        -> tool_name:string
+        -> input:Yojson.Safe.t
+        -> (string * Llm_provider.Types.tool_result_outcome) * (unit -> unit))
+  -> (execution, error) result
+
 val close_provider_attempt
   :  provider_attempt
   -> Execution_event.terminal
