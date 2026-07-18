@@ -15,12 +15,6 @@ let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
    the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
 
-let append_journal journal event =
-  match Durable_event.append journal event with
-  | Ok () -> ()
-  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
-;;
-
 let stage_input ?raw_trace_run ?clock agent =
   let ts = Pipeline_common.timestamp_now ?clock () in
   set_lifecycle agent ~ready_at:ts Ready;
@@ -239,7 +233,7 @@ let stage_parse ?raw_trace_run ?clock agent =
    | None -> ());
   (match agent.options.journal with
    | Some j ->
-     append_journal
+     Agent_execution_event_writer.append
        j
        (Turn_started
           { turn = agent.state.turn_count

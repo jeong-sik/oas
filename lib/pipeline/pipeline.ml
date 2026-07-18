@@ -23,12 +23,6 @@ let _log = Log.create ~module_name:"pipeline" ()
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 
-let append_journal journal event =
-  match Durable_event.append journal event with
-  | Ok () -> ()
-  | Error { exception_; backtrace } -> Printexc.raise_with_backtrace exception_ backtrace
-;;
-
 open Result_syntax
 
 type api_strategy =
@@ -62,7 +56,7 @@ let persist_turn_checkpoint_for_state agent stage state =
      | Ok () ->
        (match agent.options.journal with
         | Some journal ->
-          append_journal
+          Agent_execution_event_writer.append
             journal
             (Checkpoint_saved
                { checkpoint_id = Printf.sprintf "%s-%d" stage_label turn; timestamp })
@@ -337,7 +331,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
                   })));
        (match agent.options.journal with
         | Some j ->
-          append_journal
+          Agent_execution_event_writer.append
             j
             (State_transition
                { from_state = "turn_running"
@@ -593,7 +587,7 @@ let run_turn
        error; OAS does not mutate the transcript or retry implicitly. *)
     (match agent.options.journal with
      | Some j ->
-       append_journal
+       Agent_execution_event_writer.append
          j
          (Llm_request
             { turn = agent.state.turn_count
@@ -622,7 +616,7 @@ let run_turn
          | Some u -> Some u.input_tokens, Some u.output_tokens
          | None -> None, None
        in
-       append_journal
+       Agent_execution_event_writer.append
          j
          (Llm_response
             { turn = agent.state.turn_count
@@ -633,7 +627,7 @@ let run_turn
             ; timestamp = Pipeline_common.timestamp_now ?clock ()
             })
      | Some j, Error err ->
-       append_journal
+       Agent_execution_event_writer.append
          j
          (Error_occurred
             { turn = agent.state.turn_count
