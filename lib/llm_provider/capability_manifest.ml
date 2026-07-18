@@ -395,18 +395,22 @@ let parse_entry json =
     | None -> Ok None
     | Some raw -> Result.map (fun label -> Some label) (base_label_of_string raw)
   in
-  (* Read the raw label and the exact-validated token, then join them:
-     [thinking_control_format_of_label_and_token] validates the label against the
-     vocab and enforces the chat_template_token <-> token cross-field invariant. *)
+  (* Read the raw label/token pair and decode it through the exact vocabulary
+     authority. The codec owns label exactness, token exactness, and the
+     cross-field invariant. *)
   let* thinking_control_format_raw =
     member_string_closed "thinking_control_format" json
   in
-  let* thinking_control_token = non_empty_member_string "thinking_control_token" json in
+  let* thinking_control_token = member_string_closed "thinking_control_token" json in
   let* thinking_control_format =
-    Capability_vocab.thinking_control_format_of_label_and_token
-      ~format:thinking_control_format_raw
+    Capability_vocab.decode_optional_thinking_control_format
+      ~label:thinking_control_format_raw
       ~token:thinking_control_token
-    |> Result.map_error (fun msg -> Printf.sprintf "entry %S %s" id_prefix msg)
+    |> Result.map_error (fun error ->
+      Printf.sprintf
+        "entry %S %s"
+        id_prefix
+        (Capability_vocab.thinking_control_format_codec_error_to_string error))
   in
   let* anthropic_thinking_control =
     canonical_anthropic_thinking_control "anthropic_thinking_control" json
