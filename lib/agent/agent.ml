@@ -537,6 +537,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ~net:agent.net
       ~config:target.config
       ~tools:target.tools
+      ~context_fit_admission:agent.context_fit_admission
       ~options:
         { default_options with
           base_url = agent.options.base_url
@@ -607,6 +608,7 @@ let resume
       ?context
       ?(options = default_options)
       ?provider_config
+      ?(context_fit_admission = Disabled)
       ?checkpoint_sink
       ?config
       ()
@@ -627,6 +629,7 @@ let resume
   ; context = ctx
   ; options
   ; provider_config
+  ; context_fit_admission
   ; checkpoint_sink
   }
 ;;

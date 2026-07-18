@@ -30,6 +30,14 @@ type checkpoint_snapshot = Agent_types.checkpoint_snapshot =
 
 type checkpoint_sink = Agent_types.checkpoint_sink
 
+(** Agent-level provider-fit policy. [Disabled] preserves the historical
+    single-call path. [Enforce_when_supported] uses provider-native request
+    measurement for protocols that OAS supports and otherwise preserves that
+    protocol's historical path; it never estimates token counts. *)
+type context_fit_admission = Agent_types.context_fit_admission =
+  | Disabled
+  | Enforce_when_supported
+
 type options = Agent_types.options =
   { base_url : string
   ; provider : Provider.config option
@@ -95,7 +103,10 @@ val sdk_version : string
 
     [provider_config] is the exact typed provider carrier. When supplied it
     replaces [options.provider]; endpoint, credential, request path, headers,
-    and capability overrides are not reconstructed from the legacy option. *)
+    and capability overrides are not reconstructed from the legacy option.
+
+    [context_fit_admission] is separate from [options] so callers that construct
+    options records remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -103,6 +114,7 @@ val create
   -> ?context:Context.t
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
+  -> ?context_fit_admission:context_fit_admission
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -381,7 +393,9 @@ val run_with_handoffs_blocks_detailed
     turn-boundary checkpoint sink used by {!create}. It is not stored in
     {!options}; pass it explicitly when resumed turns should continue emitting
     crash-recovery checkpoints. An explicit [provider_config] replaces
-    [options.provider] under the same exact-carrier contract as {!create}. *)
+    [options.provider] under the same exact-carrier contract as {!create}.
+    [context_fit_admission] must be supplied again when a resumed Agent should
+    retain opt-in provider-fit enforcement. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t
@@ -389,6 +403,7 @@ val resume
   -> ?context:Context.t
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
+  -> ?context_fit_admission:context_fit_admission
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit

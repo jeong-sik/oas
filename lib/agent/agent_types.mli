@@ -30,6 +30,10 @@ type checkpoint_snapshot =
 
 type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
 
+type context_fit_admission =
+  | Disabled
+  | Enforce_when_supported
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -146,6 +150,7 @@ type t =
   ; context : Context.t
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
+  ; context_fit_admission : context_fit_admission
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -179,6 +184,7 @@ val create
   -> ?context:Context.t
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
+  -> ?context_fit_admission:context_fit_admission
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t

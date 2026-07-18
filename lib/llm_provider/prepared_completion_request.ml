@@ -1,31 +1,31 @@
 type t = { request : Llm_transport.completion_request }
-type identity = t
-
-type measurement_evidence =
-  { request_identity : identity
-  ; measurement : Count_tokens_sync.completion_request_measurement
-  }
 
 type measured =
   { prepared : t
-  ; evidence : measurement_evidence
+  ; measurement : Count_tokens_sync.completion_request_measurement
   }
 
-let prepare request = { request }
+type context_fit =
+  { input_tokens : int
+  ; reserved_output_tokens : int
+  ; max_context_tokens : int
+  }
 
-let prepare_sync ~config ~messages ?(tools = []) ?(trace_context = []) () =
-  prepare
-    { Llm_transport.config =
-        Complete_common.config_with_trace_context config trace_context
-    ; messages
-    ; tools
-    ; capture_id = None
-    ; observe_wire_chunk = None
-    ; stream_idle_timeout_s = None
-    }
-;;
+type fit_error =
+  | Context_limit_unknown of { model_id : string }
+  | Invalid_context_limit of
+      { model_id : string
+      ; max_context_tokens : int
+      }
+  | Output_reservation_unknown of { model_id : string }
+  | Context_window_exceeded of context_fit
 
-let prepare_stream
+type admitted =
+  { measured : measured
+  ; fit : context_fit
+  }
+
+let prepare
       ~config
       ~messages
       ?(tools = [])
@@ -34,20 +34,19 @@ let prepare_stream
       ?stream_idle_timeout_s
       ()
   =
-  prepare
-    { Llm_transport.config =
-        Complete_common.config_with_trace_context config trace_context
-    ; messages
-    ; tools
-    ; capture_id
-    ; observe_wire_chunk = None
-    ; stream_idle_timeout_s
-    }
+  { request =
+      { Llm_transport.config =
+          Complete_common.config_with_trace_context config trace_context
+      ; messages
+      ; tools
+      ; capture_id
+      ; observe_wire_chunk = None
+      ; stream_idle_timeout_s
+      }
+  }
 ;;
 
 let request prepared = prepared.request
-let identity prepared = prepared
-let same_identity left right = left == right
 
 let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   Count_tokens_sync.measure_completion_request
@@ -57,36 +56,37 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
     ~sw
     ~net
     prepared.request
-  |> Result.map (fun measurement ->
-    { prepared; evidence = { request_identity = prepared; measurement } })
+  |> Result.map (fun measurement -> { prepared; measurement })
 ;;
 
-let measurement_evidence measured = measured.evidence
+let measurement measured = measured.measurement
 
-let inline_test_request () =
-  let config =
-    Provider_config.make
-      ~kind:Provider_config.Anthropic
-      ~model_id:"prepared-identity-test"
-      ~base_url:"https://example.invalid"
-      ~api_key:"test-key"
-      ~max_tokens:1
-      ()
-  in
-  { Llm_transport.config
-  ; messages = []
-  ; tools = []
-  ; capture_id = None
-  ; observe_wire_chunk = None
-  ; stream_idle_timeout_s = None
-  }
+let admit measured =
+  let request = measured.prepared.request in
+  match request.config.max_context with
+  | None -> Error (Context_limit_unknown { model_id = request.config.model_id })
+  | Some max_context_tokens when max_context_tokens <= 0 ->
+    Error
+      (Invalid_context_limit { model_id = request.config.model_id; max_context_tokens })
+  | Some max_context_tokens ->
+    let input_tokens = measured.measurement.input_count.input_tokens in
+    let reserved_output_tokens =
+      Types.output_token_receipt_effective measured.measurement.output_token_receipt
+    in
+    (match reserved_output_tokens with
+     | None ->
+       (* [measure_completion_request] currently returns only a required
+          receipt. Keep this branch total if a future provider protocol can
+          report an optional output ceiling. *)
+       Error (Output_reservation_unknown { model_id = request.config.model_id })
+     | Some reserved_output_tokens ->
+       let fit = { input_tokens; reserved_output_tokens; max_context_tokens } in
+       if
+         reserved_output_tokens > max_context_tokens
+         || input_tokens > max_context_tokens - reserved_output_tokens
+       then Error (Context_window_exceeded fit)
+       else Ok { measured; fit })
 ;;
 
-let%test "prepare retains the exact request with allocation-specific identity" =
-  let raw = inline_test_request () in
-  let left = prepare raw in
-  let right = prepare raw in
-  request left == raw
-  && identity left == left
-  && not (same_identity (identity left) (identity right))
-;;
+let admitted_request admitted = admitted.measured.prepared
+let admitted_fit admitted = admitted.fit

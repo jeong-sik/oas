@@ -27,6 +27,10 @@ type checkpoint_snapshot =
 
 type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
 
+type context_fit_admission =
+  | Disabled
+  | Enforce_when_supported
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -132,6 +136,7 @@ type t =
   ; context : Context.t
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
+  ; context_fit_admission : context_fit_admission
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -270,6 +275,7 @@ let create
       ?context
       ?(options = default_options)
       ?provider_config
+      ?(context_fit_admission = Disabled)
       ?checkpoint_sink
       ()
   =
@@ -298,6 +304,7 @@ let create
   ; context = ctx
   ; options
   ; provider_config
+  ; context_fit_admission
   ; checkpoint_sink
   }
 ;;
@@ -319,6 +326,7 @@ let clone ?(copy_context = false) agent =
   ; context = ctx
   ; options = agent.options
   ; provider_config = agent.provider_config
+  ; context_fit_admission = agent.context_fit_admission
   ; checkpoint_sink = agent.checkpoint_sink
   }
 ;;

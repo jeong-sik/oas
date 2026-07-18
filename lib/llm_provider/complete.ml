@@ -12,6 +12,31 @@ include Complete_common
 include Complete_sync
 include Complete_stream
 
+type prepared_request = Prepared_completion_request.t
+type measured_request = Prepared_completion_request.measured
+type admitted_request = Prepared_completion_request.admitted
+
+type context_fit = Prepared_completion_request.context_fit =
+  { input_tokens : int
+  ; reserved_output_tokens : int
+  ; max_context_tokens : int
+  }
+
+type fit_error = Prepared_completion_request.fit_error =
+  | Context_limit_unknown of { model_id : string }
+  | Invalid_context_limit of
+      { model_id : string
+      ; max_context_tokens : int
+      }
+  | Output_reservation_unknown of { model_id : string }
+  | Context_window_exceeded of context_fit
+
+let prepare_request = Prepared_completion_request.prepare
+let measure_request = Prepared_completion_request.measure
+let request_measurement = Prepared_completion_request.measurement
+let admit_request = Prepared_completion_request.admit
+let admitted_fit = Prepared_completion_request.admitted_fit
+
 let complete_prepared_sync
       ~sw
       ~net
@@ -204,15 +229,38 @@ let complete
       ?body_timeout_s
       ()
   =
-  let prepared =
-    Prepared_completion_request.prepare_sync ~config ~messages ~tools ~trace_context ()
-  in
+  let prepared = prepare_request ~config ~messages ~tools ~trace_context () in
   complete_prepared_sync
     ~sw
     ~net
     ?clock
     ?transport
     ~prepared
+    ?cache
+    ?connection_cache
+    ?metrics
+    ?body_timeout_s
+    ()
+;;
+
+let complete_admitted
+      ~sw
+      ~net
+      ?clock
+      ?transport
+      admitted
+      ?cache
+      ?connection_cache
+      ?metrics
+      ?body_timeout_s
+      ()
+  =
+  complete_prepared_sync
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ~prepared:(Prepared_completion_request.admitted_request admitted)
     ?cache
     ?connection_cache
     ?metrics
@@ -361,7 +409,7 @@ let complete_stream
       ()
   =
   let prepared =
-    Prepared_completion_request.prepare_stream
+    prepare_request
       ~config
       ~messages
       ~tools
@@ -377,6 +425,33 @@ let complete_stream
     ?transport
     ?wire_observer
     ~prepared
+    ~on_event
+    ?metrics
+    ?connection_cache
+    ?on_telemetry
+    ()
+;;
+
+let complete_stream_admitted
+      ~sw
+      ~net
+      ?clock
+      ?transport
+      ?wire_observer
+      admitted
+      ~on_event
+      ?metrics
+      ?connection_cache
+      ?on_telemetry
+      ()
+  =
+  complete_prepared_stream
+    ~sw
+    ~net
+    ?clock
+    ?transport
+    ?wire_observer
+    ~prepared:(Prepared_completion_request.admitted_request admitted)
     ~on_event
     ?metrics
     ?connection_cache
