@@ -364,6 +364,182 @@ let test_dangling_tool_use_is_not_synthetically_closed () =
     (List.hd followup_parts |> member "text" |> to_string)
 ;;
 
+(* oas#2535: a ToolResult whose originating ToolUse is absent from history
+   (the ToolUse turn was compacted or trimmed away) must fail closed with a
+   typed provider-lowering error BEFORE HTTP dispatch, rather than fabricating
+   the functionResponse name from the raw tool_use_id (a UUID). This guards the
+   permissive-default regression: pre-fix, build_request silently emitted
+   name = tool_use_id and returned a body. *)
+let test_tool_result_missing_origin_fails_closed () =
+  let config = gemini_config () in
+  let missing_id = "call_orphaned_999" in
+  let messages =
+    [ Types.user_msg "What's the weather?"
+    ; { role = User
+      ; content =
+          [ ToolResult
+              { tool_use_id = missing_id
+              ; content = "Sunny, 25C"
+              ; outcome = Tool_succeeded
+              ; json = None
+              ; content_blocks = None
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  match Backend_gemini.build_request ~config ~messages () with
+  | exception Backend_gemini.Gemini_api_error msg ->
+    let contains needle =
+      let nl = String.length needle
+      and hl = String.length msg in
+      let rec go i = i + nl <= hl && (String.sub msg i nl = needle || go (i + 1)) in
+      nl = 0 || go 0
+    in
+    check bool "error names the unresolvable tool_use_id" true (contains missing_id);
+    check
+      bool
+      "error states it refuses the UUID name"
+      true
+      (contains "functionResponse.name")
+  | body ->
+    fail
+      (Printf.sprintf
+         "expected Gemini_api_error for a compacted ToolUse origin, but build_request \
+          succeeded and produced a body: %s"
+         body)
+;;
+
+(* oas#2535: two distinct ToolUse/ToolResult pairs must each resolve to their
+   own retained function name via the id_to_name provenance table. The happy
+   path stays exactly as before the fix. *)
+let test_tool_result_parallel_calls_resolve () =
+  let config = gemini_config () in
+  let messages =
+    [ Types.user_msg "Weather and time?"
+    ; { role = Assistant
+      ; content =
+          [ ToolUse
+              { id = "call_weather"
+              ; name = "get_weather"
+              ; input = `Assoc [ "city", `String "Seoul" ]
+              }
+          ; ToolUse
+              { id = "call_time"
+              ; name = "get_time"
+              ; input = `Assoc [ "tz", `String "KST" ]
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; { role = User
+      ; content =
+          [ ToolResult
+              { tool_use_id = "call_weather"
+              ; content = "Sunny, 25C"
+              ; outcome = Tool_succeeded
+              ; json = None
+              ; content_blocks = None
+              }
+          ; ToolResult
+              { tool_use_id = "call_time"
+              ; content = "14:09 KST"
+              ; outcome = Tool_succeeded
+              ; json = None
+              ; content_blocks = None
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let contents = json |> member "contents" |> to_list in
+  let result_parts = List.nth contents 2 |> member "parts" |> to_list in
+  let name_of part = part |> member "functionResponse" |> member "name" |> to_string in
+  let id_of part = part |> member "functionResponse" |> member "id" |> to_string in
+  check int "two functionResponse parts" 2 (List.length result_parts);
+  let names = List.map (fun p -> id_of p, name_of p) result_parts in
+  check
+    (option string)
+    "weather pair resolves"
+    (Some "get_weather")
+    (List.assoc_opt "call_weather" names);
+  check
+    (option string)
+    "time pair resolves"
+    (Some "get_time")
+    (List.assoc_opt "call_time" names)
+;;
+
+(* oas#2535: both a provider-native-style id and an OAS-allocated UUID-style id
+   resolve to their retained function name when the ToolUse pair is present.
+   The name always comes from typed provenance, never from the id shape. *)
+let test_tool_result_native_and_allocated_ids_resolve () =
+  let config = gemini_config () in
+  let native_id = "get_weather-0" in
+  let allocated_id = "a1b2c3d4-e5f6-7890-abcd-ef0123456789" in
+  let messages =
+    [ Types.user_msg "Weather twice?"
+    ; { role = Assistant
+      ; content =
+          [ ToolUse { id = native_id; name = "get_weather"; input = `Null }
+          ; ToolUse { id = allocated_id; name = "get_forecast"; input = `Null }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; { role = User
+      ; content =
+          [ ToolResult
+              { tool_use_id = native_id
+              ; content = "Sunny"
+              ; outcome = Tool_succeeded
+              ; json = None
+              ; content_blocks = None
+              }
+          ; ToolResult
+              { tool_use_id = allocated_id
+              ; content = "Rain tomorrow"
+              ; outcome = Tool_succeeded
+              ; json = None
+              ; content_blocks = None
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let contents = json |> member "contents" |> to_list in
+  let result_parts = List.nth contents 2 |> member "parts" |> to_list in
+  let name_of part = part |> member "functionResponse" |> member "name" |> to_string in
+  let id_of part = part |> member "functionResponse" |> member "id" |> to_string in
+  let names = List.map (fun p -> id_of p, name_of p) result_parts in
+  check
+    (option string)
+    "native id resolves"
+    (Some "get_weather")
+    (List.assoc_opt native_id names);
+  check
+    (option string)
+    "allocated id resolves"
+    (Some "get_forecast")
+    (List.assoc_opt allocated_id names)
+;;
+
 let test_json_mode () =
   let config = gemini_config ~json_mode:true () in
   let messages = [ Types.user_msg "Return JSON." ] in
@@ -1678,6 +1854,18 @@ let () =
             `Quick
             test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
+        ; test_case
+            "tool result missing origin fails closed"
+            `Quick
+            test_tool_result_missing_origin_fails_closed
+        ; test_case
+            "tool result parallel calls resolve"
+            `Quick
+            test_tool_result_parallel_calls_resolve
+        ; test_case
+            "tool result native and allocated ids resolve"
+            `Quick
+            test_tool_result_native_and_allocated_ids_resolve
         ; test_case
             "dangling tool use is not synthetically closed"
             `Quick

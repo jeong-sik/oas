@@ -442,15 +442,27 @@ let part_of_content_block id_to_name tool_signatures = function
       match Hashtbl.find_opt id_to_name tool_use_id with
       | Some n -> n
       | None ->
-        Diag.warn
-          "backend_gemini"
-          "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Gemini API requires name). This usually \
-           means the ToolUse block was in a conversation turn that was compacted or \
-           trimmed."
-          tool_use_id
-          (Hashtbl.length id_to_name);
-        tool_use_id
+        (* oas#2535: fail closed instead of fabricating a functionResponse name.
+           Gemini requires the real function name; [id_to_name] is the typed
+           retained provenance carrying that name for every ToolUse/ToolResult
+           pair still present in history. A miss means the originating ToolUse
+           was compacted or trimmed away, so no valid name can be recovered.
+           Emitting the raw [tool_use_id] (a UUID) violates Gemini's name
+           grammar and is rejected opaquely downstream. Do NOT infer the name
+           from ID shape or arguments; raise a typed provider-lowering error
+           here, during request building (before HTTP dispatch), consistent with
+           the module's other fail-closed invariants (blank thoughtSignature,
+           malformed inlineData). The message carries the tool_use_id and the
+           lookup-table size for diagnosis. *)
+        raise
+          (Gemini_api_error
+             (Printf.sprintf
+                "Gemini ToolResult tool_use_id %S has no matching ToolUse in the \
+                 %d-entry function-name lookup table; the originating ToolUse was \
+                 compacted or trimmed away, so its function name cannot be recovered. \
+                 Refusing to send the UUID as functionResponse.name."
+                tool_use_id
+                (Hashtbl.length id_to_name)))
     in
     Some
       (`Assoc
