@@ -186,21 +186,26 @@ let dispatch_sync
           ~trace_context
           ()
       in
-      match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
-      | Error error -> Error (measurement_error ~binding error)
-      | Ok measured ->
-        (match Llm_provider.Complete.admit_request measured with
-         | Error error -> Error (fit_error ~binding error)
-         | Ok admitted ->
-           Llm_provider.Complete.complete_admitted
-             ~sw
-             ~net:agent.net
-             ?clock
-             ?transport:agent.options.transport
-             admitted
-             ?body_timeout_s:agent.options.body_timeout_s
-             ()
-           |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))
+      (* Resolve the context limit first: it needs no network, so a pre-knowable
+         limit failure surfaces without wasting a [measure_request] round-trip. *)
+      (match Llm_provider.Complete.resolve_context_limit prepared with
+       | Error error -> Error (fit_error ~binding error)
+       | Ok max_context_tokens ->
+         (match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
+          | Error error -> Error (measurement_error ~binding error)
+          | Ok measured ->
+            (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+             | Error error -> Error (fit_error ~binding error)
+             | Ok admitted ->
+               Llm_provider.Complete.complete_admitted
+                 ~sw
+                 ~net:agent.net
+                 ?clock
+                 ?transport:agent.options.transport
+                 admitted
+                 ?body_timeout_s:agent.options.body_timeout_s
+                 ()
+               |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())
@@ -262,22 +267,27 @@ let dispatch_stream
           ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
           ()
       in
-      match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
-      | Error error -> Error (measurement_error ~binding error)
-      | Ok measured ->
-        (match Llm_provider.Complete.admit_request measured with
-         | Error error -> Error (fit_error ~binding error)
-         | Ok admitted ->
-           Llm_provider.Complete.complete_stream_admitted
-             ~sw
-             ~net:agent.net
-             ?clock
-             ?transport:agent.options.transport
-             admitted
-             ~on_event
-             ?on_telemetry
-             ()
-           |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))
+      (* Resolve the context limit first: it needs no network, so a pre-knowable
+         limit failure surfaces without wasting a [measure_request] round-trip. *)
+      (match Llm_provider.Complete.resolve_context_limit prepared with
+       | Error error -> Error (fit_error ~binding error)
+       | Ok max_context_tokens ->
+         (match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
+          | Error error -> Error (measurement_error ~binding error)
+          | Ok measured ->
+            (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+             | Error error -> Error (fit_error ~binding error)
+             | Ok admitted ->
+               Llm_provider.Complete.complete_stream_admitted
+                 ~sw
+                 ~net:agent.net
+                 ?clock
+                 ?transport:agent.options.transport
+                 admitted
+                 ~on_event
+                 ?on_telemetry
+                 ()
+               |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())

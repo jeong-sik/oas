@@ -254,8 +254,13 @@ let test_prepared_measure_admit_dispatch () =
       | Ok measured -> measured
       | Error _ -> fail "expected prepared request measurement"
     in
+    let max_context_tokens =
+      match Complete.resolve_context_limit prepared with
+      | Ok limit -> limit
+      | Error _ -> fail "expected resolved context limit"
+    in
     let admitted =
-      match Complete.admit_request measured with
+      match Complete.admit_request ~max_context_tokens measured with
       | Ok admitted -> admitted
       | Error _ -> fail "expected prepared request admission"
     in
@@ -306,7 +311,10 @@ let test_prepared_context_overflow_is_typed () =
     in
     match Complete.measure_request ~sw ~net prepared with
     | Error _ -> fail "expected prepared request measurement"
-    | Ok measured -> Complete.admit_request measured
+    | Ok measured ->
+      (match Complete.resolve_context_limit prepared with
+       | Error _ -> fail "expected resolved context limit"
+       | Ok max_context_tokens -> Complete.admit_request ~max_context_tokens measured)
   in
   match result with
   | Error
@@ -328,7 +336,8 @@ let test_prepared_admission_resolves_catalog_context_limit () =
     in
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
     let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
-    Complete.admit_request measured, expected
+    let max_context_tokens = Complete.resolve_context_limit prepared |> Result.get_ok in
+    Complete.admit_request ~max_context_tokens measured, expected
   in
   match result with
   | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"
@@ -338,6 +347,60 @@ let test_prepared_admission_resolves_catalog_context_limit () =
       "catalog context is the admission limit"
       expected
       (Complete.admitted_fit admitted).max_context_tokens
+;;
+
+(* Regression for #2678: the caller resolves the context limit before it
+   measures, so a pre-knowable [Context_limit_unknown] surfaces without a
+   [/count_tokens] round-trip. The loopback stub counts POSTs (it never awaits a
+   captured promise) so a zero-POST run cannot block.
+
+   Counterfactual: pre-fix the caller ran [measure_request] first, the handler
+   would fire, [posts] would reach 1, and the [posts = 0] assertion below would
+   fail. That is the honest red state for this reorder. *)
+let test_resolve_before_measure_skips_count_roundtrip () =
+  let posts = Atomic.make 0 in
+  let result =
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let net = Eio.Stdenv.net env in
+    let port = fresh_port () in
+    let handler _conn _request body =
+      ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
+      Atomic.incr posts;
+      Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"input_tokens":321}|} ()
+    in
+    let socket =
+      Eio.Net.listen
+        net
+        ~sw
+        ~backlog:4
+        ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    in
+    let server = Cohttp_eio.Server.make ~callback:handler () in
+    Eio.Fiber.fork_daemon ~sw (fun () ->
+      Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+    let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+    (* model_id "input-count-fixture" has no catalog row and the config carries
+       no ~max_context, so [resolve_context_limit] returns None. *)
+    let prepared =
+      Complete.prepare_request ~config:(config base_url) ~messages ~tools:[ tool ] ()
+    in
+    (* Caller sequence under the fix: resolve first; measure/admit run only on an
+       Ok limit. *)
+    match Complete.resolve_context_limit prepared with
+    | Error error -> Error error
+    | Ok max_context_tokens ->
+      (match Complete.measure_request ~sw ~net prepared with
+       | Error _ -> fail "measurement must not run when the limit is unknown"
+       | Ok measured -> Complete.admit_request ~max_context_tokens measured)
+  in
+  (match result with
+   | Error (Complete.Context_limit_unknown { model_id = "input-count-fixture" }) -> ()
+   | Ok _ | Error _ -> fail "expected typed Context_limit_unknown before measurement");
+  check int "no /count_tokens round-trip for an unknown limit" 0 (Atomic.get posts)
 ;;
 
 let test_measurement_validates_before_io () =
@@ -605,6 +668,10 @@ let () =
             "prepared admission resolves catalog context limit"
             `Quick
             test_prepared_admission_resolves_catalog_context_limit
+        ; test_case
+            "resolve before measure skips count round-trip"
+            `Quick
+            test_resolve_before_measure_skips_count_roundtrip
         ; test_case
             "measurement validates before I/O"
             `Quick

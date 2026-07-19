@@ -45,6 +45,13 @@ val measure
   -> (measured, Count_tokens_sync.completion_request_error) result
 
 val measurement : measured -> Count_tokens_sync.completion_request_measurement
-val admit : measured -> (admitted, fit_error) result
+
+(** Resolve the validated positive context-token limit from the explicit
+    [max_context] config value, or the exact model capability when none was
+    supplied. Pure: performs no measurement I/O. [Context_limit_unknown] when no
+    limit is declared, [Invalid_context_limit] when it is non-positive. *)
+val resolve_context_limit : t -> (int, fit_error) result
+
+val admit : max_context_tokens:int -> measured -> (admitted, fit_error) result
 val admitted_request : admitted -> t
 val admitted_fit : admitted -> context_fit

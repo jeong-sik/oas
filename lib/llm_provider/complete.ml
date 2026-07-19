@@ -34,6 +34,7 @@ type fit_error = Prepared_completion_request.fit_error =
 let prepare_request = Prepared_completion_request.prepare
 let measure_request = Prepared_completion_request.measure
 let request_measurement = Prepared_completion_request.measurement
+let resolve_context_limit = Prepared_completion_request.resolve_context_limit
 let admit_request = Prepared_completion_request.admit
 let admitted_fit = Prepared_completion_request.admitted_fit
 
