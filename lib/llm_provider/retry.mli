@@ -46,6 +46,19 @@ type api_error =
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
 
+(** [overflow_of_empty_completion ~stop_reason ~message] classifies an empty
+    provider completion into [Some (ContextOverflow …)] when [stop_reason] is
+    [ContextWindowExceeded], else [None]. Single compiler-checked source for the
+    #2621 empty-completion overflow rule shared by [Api],
+    [Provider_failure_attribution], and the SDK boundary in [Error]; each caller
+    keeps its own wrapping of the returned value. The message prefix
+    ["empty completion (stop_reason=model_context_window_exceeded): "] and
+    [limit = None] live here so all three call sites stay byte-identical. *)
+val overflow_of_empty_completion
+  :  stop_reason:Types.stop_reason
+  -> message:string
+  -> api_error option
+
 (** Merge a provider's structured [retry_after] evidence: the JSON body's
     [error.retry_after] field wins when present (provider-specific, more
     precise); the transport's parsed [Retry-After] response header

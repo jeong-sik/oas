@@ -99,6 +99,62 @@ let is_retryable = function
   | PaymentRequired _ -> false
 ;;
 
+(** [overflow_of_empty_completion ~stop_reason ~message] is the single,
+    compiler-checked source for the #2621 empty-completion overflow rule.
+
+    An empty turn whose typed [stop_reason] is [ContextWindowExceeded] is a
+    context-overflow contract, not provider unavailability: retrying or
+    rotating replays the same oversized prompt, so only the consumer's context
+    recovery (compaction) can make progress. The provider does not report its
+    limit on this path, hence [limit = None].
+
+    Only the typed [ContextOverflow] value is produced here. Each caller keeps
+    its own wrapping of the result — [Api.attributed_retry_error],
+    [Provider_failure_attribution]'s [Error.Api], and the SDK boundary in
+    [Error] that flattens via [error_message] into [InvalidRequest]. Every
+    other stop_reason returns [None] so callers apply their existing
+    non-overflow handling. The match is exhaustive (no [_] catch-all) so adding
+    a new [Types.stop_reason] forces a decision here. *)
+let overflow_of_empty_completion ~(stop_reason : Types.stop_reason) ~message =
+  match stop_reason with
+  | Types.ContextWindowExceeded ->
+    Some
+      (ContextOverflow
+         { message =
+             "empty completion (stop_reason=model_context_window_exceeded): " ^ message
+         ; limit = None
+         })
+  | Types.EndTurn
+  | Types.StopToolUse
+  | Types.MaxTokens
+  | Types.StopSequence
+  | Types.Refusal
+  | Types.ContentFilter
+  | Types.RepetitionTruncation
+  | Types.PauseTurn
+  | Types.Compaction
+  | Types.UnmatchedToolCalls
+  | Types.Unknown _ -> None
+;;
+
+let%test "overflow_of_empty_completion: ContextWindowExceeded yields ContextOverflow" =
+  match
+    overflow_of_empty_completion ~stop_reason:Types.ContextWindowExceeded ~message:"X"
+  with
+  | Some
+      (ContextOverflow
+         { message = "empty completion (stop_reason=model_context_window_exceeded): X"
+         ; limit = None
+         }) -> true
+  | Some _ | None -> false
+;;
+
+let%test "overflow_of_empty_completion: non-overflow stop_reason yields None" =
+  match overflow_of_empty_completion ~stop_reason:Types.EndTurn ~message:"X" with
+  | None -> true
+  | Some _ -> false
+;;
+
 (** Extract a human-readable error message from a provider error body.
     Error prose remains diagnostic data only and is never classified. *)
 let extract_error_message (body : string) : string =

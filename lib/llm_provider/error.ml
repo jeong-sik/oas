@@ -276,36 +276,30 @@ let of_provider_failure ?provider kind message =
       { detail =
           Printf.sprintf "provider response exceeded %d bytes: %s" limit_bytes message
       }
-  | Http_client.Empty_completion { stop_reason = Types.ContextWindowExceeded } ->
-    (* Third promotion site of the #2621 misclassification fix: an empty
-       completion whose typed stop_reason is ContextWindowExceeded is a
-       caller-fixable context overflow, not provider unavailability.  Retrying
-       or rotating replays the same oversized prompt, so render it through the
-       same [Retry.ContextOverflow] path as the Api branch above. *)
-    InvalidRequest
-      { provider
-      ; reason =
-          Retry.error_message
-            (Retry.ContextOverflow
-               { message =
-                   "empty completion (stop_reason=model_context_window_exceeded): "
-                   ^ message
-               ; limit = None
-               })
-      }
   | Http_client.Empty_completion { stop_reason } ->
-    (* [stop_reason] stays typed until this deliberate SDK boundary.  The public
-       error surface remains source-compatible: callers already handle an empty
-       completion as provider unavailability, and no control flow reparses this
-       diagnostic rendering. *)
-    ProviderUnavailable
-      { provider
-      ; detail =
-          Printf.sprintf
-            "empty completion (stop_reason=%s): %s"
-            (Types.stop_reason_to_string stop_reason)
-            message
-      }
+    (match Retry.overflow_of_empty_completion ~stop_reason ~message with
+     | Some overflow ->
+       (* Third promotion site of the #2621 misclassification fix: a
+          ContextWindowExceeded empty completion is a caller-fixable context
+          overflow, not provider unavailability. The overflow VALUE comes from
+          the shared [Retry.overflow_of_empty_completion] classifier; this
+          deliberate SDK boundary flattens it to a string via
+          [Retry.error_message] into [InvalidRequest], preserving the typed →
+          string boundary that keeps the public surface source-compatible. *)
+       InvalidRequest { provider; reason = Retry.error_message overflow }
+     | None ->
+       (* [stop_reason] stays typed until this deliberate SDK boundary.  The
+          public error surface remains source-compatible: callers already handle
+          a non-overflow empty completion as provider unavailability, and no
+          control flow reparses this diagnostic rendering. *)
+       ProviderUnavailable
+         { provider
+         ; detail =
+             Printf.sprintf
+               "empty completion (stop_reason=%s): %s"
+               (Types.stop_reason_to_string stop_reason)
+               message
+         })
   | Http_client.Unknown_provider_failure { reason } ->
     let reason =
       match reason with
