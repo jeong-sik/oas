@@ -114,12 +114,6 @@ let enforce_context_fit agent (provider_config : Llm_provider.Provider_config.t)
     Llm_provider.Count_tokens_sync.supports_completion_request_measurement provider_config
 ;;
 
-let context_fit_timeout_s agent =
-  match agent.options.body_timeout_s with
-  | Some _ as timeout -> timeout
-  | None -> agent.options.stream_idle_timeout_s
-;;
-
 let finish_call ?on_provider_failure = function
   | Ok response ->
     notify_attribution on_provider_failure None;
@@ -197,7 +191,7 @@ let dispatch_sync
           ~sw
           ~net:agent.net
           ?clock
-          ?timeout_s:(context_fit_timeout_s agent)
+          ?timeout_s:agent.options.body_timeout_s
           prepared
       with
       | Error error -> Error (measurement_error ~binding error)
@@ -280,7 +274,7 @@ let dispatch_stream
           ~sw
           ~net:agent.net
           ?clock
-          ?timeout_s:(context_fit_timeout_s agent)
+          ?timeout_s:agent.options.body_timeout_s
           prepared
       with
       | Error error -> Error (measurement_error ~binding error)

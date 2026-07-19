@@ -31,6 +31,8 @@ type context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
+type model_input_projection = message list -> (message list, string) result
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -137,7 +139,7 @@ type t =
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
-  ; model_input_projection : (message list -> message list) option
+  ; model_input_projection : model_input_projection option
   ; checkpoint_sink : checkpoint_sink option
   }
 

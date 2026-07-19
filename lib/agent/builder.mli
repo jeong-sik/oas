@@ -117,8 +117,9 @@ val with_context_fit_admission : Agent.context_fit_admission -> t -> t
 
 (** Apply a caller-owned projection once to the complete provider-bound message
     list. Native request measurement and actual dispatch consume that same
-    projected request; canonical Agent state and checkpoints remain unchanged. *)
-val with_model_input_projection : (Types.message list -> Types.message list) -> t -> t
+    projected request; canonical Agent state and checkpoints remain unchanged.
+    [Error detail] fails the turn as a typed hook execution error. *)
+val with_model_input_projection : Agent.model_input_projection -> t -> t
 
 val with_base_url : string -> t -> t
 

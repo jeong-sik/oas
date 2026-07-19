@@ -31,7 +31,7 @@ type t =
   ; provider : Provider.config option
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : Agent.context_fit_admission
-  ; model_input_projection : (message list -> message list) option
+  ; model_input_projection : Agent.model_input_projection option
   ; stream_idle_timeout_s : float option
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks

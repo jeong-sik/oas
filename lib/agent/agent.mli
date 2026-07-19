@@ -38,6 +38,8 @@ type context_fit_admission = Agent_types.context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
+type model_input_projection = Agent_types.model_input_projection
+
 type options = Agent_types.options =
   { base_url : string
   ; provider : Provider.config option
@@ -109,7 +111,8 @@ val sdk_version : string
     [options] so callers that construct options records remain source-compatible.
     The optional projection is applied once during turn preparation; native
     request measurement and provider dispatch consume the same projected
-    messages. *)
+    messages. A returned [Error detail] or non-reserved callback exception
+    fails the turn as {!Error.HookExecutionFailed}. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -118,7 +121,7 @@ val create
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
-  -> ?model_input_projection:(Types.message list -> Types.message list)
+  -> ?model_input_projection:model_input_projection
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -520,7 +523,7 @@ val resume
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
-  -> ?model_input_projection:(Types.message list -> Types.message list)
+  -> ?model_input_projection:model_input_projection
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit

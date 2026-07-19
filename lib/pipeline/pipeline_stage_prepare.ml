@@ -148,6 +148,17 @@ let prepare_turn_for_agent agent ~turn_params =
     ()
 ;;
 
+let model_input_projection_error detail =
+  Error.Agent
+    (HookExecutionFailed
+       { hook_name = "model_input_projection"
+       ; stage = "turn:parse"
+       ; tool_name = None
+       ; tool_use_id = None
+       ; detail
+       })
+;;
+
 let stage_parse ?raw_trace_run ?clock agent =
   let* turn_params =
     match
@@ -241,7 +252,10 @@ let stage_parse ?raw_trace_run ?clock agent =
           ; timestamp = Pipeline_common.timestamp_now ?clock ()
           })
    | None -> ());
-  let prep = prepare_turn_for_agent agent ~turn_params in
+  let* prep =
+    prepare_turn_for_agent agent ~turn_params
+    |> Result.map_error model_input_projection_error
+  in
   let ready_tool_names = prep.visible_tool_names in
   (* TurnReady reports the exact caller-supplied tool list the LLM will see
      this turn. Downstream substrate observability subscribers use this

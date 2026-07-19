@@ -14,6 +14,11 @@ let context_messages = function
   | Error error -> Alcotest.fail error.Agent_turn.detail
 ;;
 
+let prepared_turn = function
+  | Ok prep -> prep
+  | Error detail -> Alcotest.fail detail
+;;
+
 (* ── prepare_turn tests ────────────────────────────────────── *)
 
 let test_prepare_turn_empty_tools () =
@@ -23,6 +28,7 @@ let test_prepare_turn_empty_tools () =
       ~messages:[]
       ~turn_params:Hooks.default_turn_params
       ()
+    |> prepared_turn
   in
   Alcotest.(check (option (list reject))) "no tools" None prep.tools_json
 ;;
@@ -47,6 +53,7 @@ let test_prepare_turn_with_tools () =
       ~messages:[]
       ~turn_params:Hooks.default_turn_params
       ()
+    |> prepared_turn
   in
   Alcotest.(check bool)
     "tools present"
@@ -71,6 +78,7 @@ let test_prepare_turn_preserves_supplied_tools () =
       ~messages:[]
       ~turn_params:Hooks.default_turn_params
       ()
+    |> prepared_turn
   in
   let count =
     match prep.tools_json with
@@ -94,6 +102,7 @@ let test_prepare_turn_visible_tool_names_empty () =
       ~messages:[]
       ~turn_params:Hooks.default_turn_params
       ()
+    |> prepared_turn
   in
   Alcotest.(check (list string)) "empty when no tools" [] prep.visible_tool_names
 ;;
@@ -106,6 +115,7 @@ let test_prepare_turn_visible_tool_names_preserves_order () =
   let tools = Tool_set.of_list [ make "Bash"; make "Read"; make "Edit" ] in
   let prep =
     Agent_turn.prepare_turn ~tools ~messages:[] ~turn_params:Hooks.default_turn_params ()
+    |> prepared_turn
   in
   Alcotest.(check (list string))
     "registry order preserved"

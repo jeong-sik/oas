@@ -98,7 +98,7 @@ let response =
 
 let build_admission_agent
       ?model_input_projection
-      ?stream_idle_timeout_s
+      ?body_timeout_s
       ~net
       ~provider_config
       ~transport
@@ -117,9 +117,9 @@ let build_admission_agent
     | Some project -> Agent_sdk.Builder.with_model_input_projection project builder
   in
   let builder =
-    match stream_idle_timeout_s with
+    match body_timeout_s with
     | None -> builder
-    | Some timeout_s -> Agent_sdk.Builder.with_stream_idle_timeout timeout_s builder
+    | Some timeout_s -> Agent_sdk.Builder.with_body_timeout timeout_s builder
   in
   builder
   |> Agent_sdk.Builder.build_safe
@@ -522,6 +522,7 @@ let test_agent_stream_route_uses_prepared_admission () =
 ;;
 
 let test_agent_projection_is_shared_by_measurement_and_dispatch () =
+  let projection_calls = ref 0 in
   let (result, dispatched), (_, _, measured_body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
     @@ fun ~sw ~net ~base_url ->
@@ -543,7 +544,8 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
         ~provider_config
         ~transport
         ~model_input_projection:(fun provider_messages ->
-          provider_messages @ [ hydrated ])
+          incr projection_calls;
+          Ok (provider_messages @ [ hydrated ]))
         ()
     in
     let result = Agent_sdk.Agent.run ~sw agent "canonical input" in
@@ -553,6 +555,7 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
   | Error error, _ -> fail (Agent_sdk.Error.to_string error)
   | Ok _, None -> fail "projected request was not dispatched"
   | Ok _, Some request ->
+    check int "projection is applied exactly once" 1 !projection_calls;
     check int "dispatch receives projected messages" 2 (List.length request.messages);
     check
       string
@@ -563,6 +566,41 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
          ~tools:request.tools
          ())
       measured_body
+;;
+
+let test_agent_projection_failure_is_typed () =
+  let result =
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let provider_config = config ~max_context:512 "http://127.0.0.1:1" in
+    let transport =
+      { Llm_transport.complete_sync = (fun _ -> fail "unexpected sync dispatch")
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+      }
+    in
+    let agent =
+      build_admission_agent
+        ~net:(Eio.Stdenv.net env)
+        ~provider_config
+        ~transport
+        ~model_input_projection:(fun _ -> Error "artifact unavailable")
+        ()
+    in
+    Agent_sdk.Agent.run ~sw agent "canonical input"
+  in
+  match result with
+  | Error
+      (Agent_sdk.Error.Agent
+         (HookExecutionFailed
+            { hook_name; stage; tool_name = None; tool_use_id = None; detail })) ->
+    check string "projection hook name" "model_input_projection" hook_name;
+    check string "projection stage" "turn:parse" stage;
+    check string "projection detail" "artifact unavailable" detail
+  | Error error -> fail (Agent_sdk.Error.to_string error)
+  | Ok _ -> fail "failed projection must abort the turn"
 ;;
 
 let test_agent_count_preflight_uses_completion_timeout () =
@@ -581,12 +619,7 @@ let test_agent_count_preflight_uses_completion_timeout () =
       }
     in
     let agent =
-      build_admission_agent
-        ~stream_idle_timeout_s:0.02
-        ~net
-        ~provider_config
-        ~transport
-        ()
+      build_admission_agent ~body_timeout_s:0.02 ~net ~provider_config ~transport ()
     in
     let result = Agent_sdk.Agent.run ~sw ~clock agent "bounded count preflight" in
     result, !dispatched
@@ -820,6 +853,10 @@ let () =
             "Agent projection is shared by measurement and dispatch"
             `Quick
             test_agent_projection_is_shared_by_measurement_and_dispatch
+        ; test_case
+            "Agent projection failure is typed"
+            `Quick
+            test_agent_projection_failure_is_typed
         ; test_case
             "Agent count preflight uses completion timeout"
             `Quick
