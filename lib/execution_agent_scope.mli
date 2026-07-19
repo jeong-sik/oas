@@ -52,6 +52,7 @@ type error =
 val error_to_string : error -> string
 val start : writer:Execution_lane_writer.t -> agent_name:string -> (t, error) result
 val scope_locator : t -> scope_locator
+val scope_locator_run_id : scope_locator -> Execution_event.Run_id.t
 val scope_locator_to_yojson : scope_locator -> Yojson.Safe.t
 val scope_locator_of_yojson : Yojson.Safe.t -> (scope_locator, string) result
 

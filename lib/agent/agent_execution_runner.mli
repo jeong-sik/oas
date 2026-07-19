@@ -27,6 +27,8 @@ val create_runtime
   -> domain_count:int
   -> (runtime, Error.sdk_error) result
 
+val runtime_codec : runtime -> Execution_codec_executor.t
+
 val store
   :  runtime:runtime
   -> dir:Eio.Fs.dir_ty Eio.Path.t
@@ -38,6 +40,7 @@ val store
 
 val locator_to_yojson : locator -> Yojson.Safe.t
 val locator_of_yojson : Yojson.Safe.t -> (locator, string) result
+val locator_run_id : locator -> Execution_event.Run_id.t
 
 val with_fresh
   :  store

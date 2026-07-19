@@ -116,6 +116,7 @@ let require_locator_version fields =
 ;;
 
 let scope_locator scope = { run_id = Journal.run_id scope.run }
+let scope_locator_run_id (locator : scope_locator) = locator.run_id
 
 let scope_locator_to_yojson (locator : scope_locator) =
   `Assoc
