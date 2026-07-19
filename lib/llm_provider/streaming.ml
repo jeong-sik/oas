@@ -749,12 +749,12 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
 ;;
 
 type openai_projection_scalar_snapshot =
-  { thinking_block_started : bool
-  ; thinking_block_index : int
-  ; text_block_started : bool
-  ; text_block_index : int
-  ; next_block_index : int
-  ; thinking_state : thinking_state
+  { snapshot_thinking_block_started : bool
+  ; snapshot_thinking_block_index : int
+  ; snapshot_text_block_started : bool
+  ; snapshot_text_block_index : int
+  ; snapshot_next_block_index : int
+  ; snapshot_thinking_state : thinking_state
   }
 
 type openai_projection_undo =
@@ -771,12 +771,12 @@ type openai_projection_tx =
 let begin_openai_projection state =
   { state
   ; scalar_snapshot =
-      { thinking_block_started = state.thinking_block_started
-      ; thinking_block_index = state.thinking_block_index
-      ; text_block_started = state.text_block_started
-      ; text_block_index = state.text_block_index
-      ; next_block_index = state.next_block_index
-      ; thinking_state = state.thinking_state
+      { snapshot_thinking_block_started = state.thinking_block_started
+      ; snapshot_thinking_block_index = state.thinking_block_index
+      ; snapshot_text_block_started = state.text_block_started
+      ; snapshot_text_block_index = state.text_block_index
+      ; snapshot_next_block_index = state.next_block_index
+      ; snapshot_thinking_state = state.thinking_state
       }
   ; undo = []
   }
@@ -790,12 +790,12 @@ let restore_table_entry table key = function
 let rollback_openai_projection tx =
   let state = tx.state in
   let snapshot = tx.scalar_snapshot in
-  state.thinking_block_started <- snapshot.thinking_block_started;
-  state.thinking_block_index <- snapshot.thinking_block_index;
-  state.text_block_started <- snapshot.text_block_started;
-  state.text_block_index <- snapshot.text_block_index;
-  state.next_block_index <- snapshot.next_block_index;
-  state.thinking_state <- snapshot.thinking_state;
+  state.thinking_block_started <- snapshot.snapshot_thinking_block_started;
+  state.thinking_block_index <- snapshot.snapshot_thinking_block_index;
+  state.text_block_started <- snapshot.snapshot_text_block_started;
+  state.text_block_index <- snapshot.snapshot_text_block_index;
+  state.next_block_index <- snapshot.snapshot_next_block_index;
+  state.thinking_state <- snapshot.snapshot_thinking_state;
   List.iter
     (function
       | Undo_tool_block_by_id (id, previous) ->
