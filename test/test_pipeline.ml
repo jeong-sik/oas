@@ -210,6 +210,7 @@ let test_agent_turn_preparation () =
   in
   let prep =
     Agent_turn.prepare_turn ~tools ~messages ~turn_params:Hooks.default_turn_params ()
+    |> Result.get_ok
   in
   (* tools_json should be Some with 2 tools *)
   (match prep.tools_json with
@@ -774,6 +775,7 @@ let test_prepare_turn_no_tools () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   (match prep.tools_json with
    | None -> ()
@@ -811,6 +813,7 @@ let test_prepare_turn_preserves_messages () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   Alcotest.(check int) "3 messages" 3 (List.length prep.effective_messages)
 ;;
@@ -993,7 +996,10 @@ let test_prepare_turn_extra_context () =
       extra_system_context = Some "You are in debug mode."
     }
   in
-  let prep = Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params () in
+  let prep =
+    Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params ()
+    |> Result.get_ok
+  in
   (* Extra context is appended at the end to preserve prefix for KV cache *)
   Alcotest.(check int)
     "2 messages (original + context)"

@@ -96,12 +96,32 @@ let response =
   }
 ;;
 
-let build_admission_agent ~net ~provider_config ~transport =
-  Agent_sdk.Builder.create ~net ~model:provider_config.Provider_config.model_id
-  |> Agent_sdk.Builder.with_provider_config provider_config
-  |> Agent_sdk.Builder.with_context_fit_admission Agent_sdk.Agent.Enforce_when_supported
-  |> Agent_sdk.Builder.with_transport transport
-  |> Agent_sdk.Builder.without_event_bus
+let build_admission_agent
+      ?model_input_projection
+      ?body_timeout_s
+      ~net
+      ~provider_config
+      ~transport
+      ()
+  =
+  let builder =
+    Agent_sdk.Builder.create ~net ~model:provider_config.Provider_config.model_id
+    |> Agent_sdk.Builder.with_provider_config provider_config
+    |> Agent_sdk.Builder.with_context_fit_admission Agent_sdk.Agent.Enforce_when_supported
+    |> Agent_sdk.Builder.with_transport transport
+    |> Agent_sdk.Builder.without_event_bus
+  in
+  let builder =
+    match model_input_projection with
+    | None -> builder
+    | Some project -> Agent_sdk.Builder.with_model_input_projection project builder
+  in
+  let builder =
+    match body_timeout_s with
+    | None -> builder
+    | Some timeout_s -> Agent_sdk.Builder.with_body_timeout timeout_s builder
+  in
+  builder
   |> Agent_sdk.Builder.build_safe
   |> function
   | Ok agent -> agent
@@ -188,12 +208,13 @@ let fresh_port () =
   port
 ;;
 
-let with_mock ~status ~response f =
+let with_mock_env ?response_delay_s ~status ~response f =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
+  let clock = Eio.Stdenv.clock env in
   let port = fresh_port () in
   let captured, resolve_captured = Eio.Promise.create () in
   let handler _conn request body =
@@ -201,6 +222,7 @@ let with_mock ~status ~response f =
     Eio.Promise.resolve
       resolve_captured
       (Cohttp.Request.uri request |> Uri.path, Cohttp.Request.headers request, body);
+    Option.iter (Eio.Time.sleep clock) response_delay_s;
     Cohttp_eio.Server.respond_string ~status ~body:response ()
   in
   let socket =
@@ -215,8 +237,13 @@ let with_mock ~status ~response f =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
-  let result = f ~sw ~net ~base_url in
+  let result = f ~sw ~net ~clock ~base_url in
   result, Eio.Promise.await captured
+;;
+
+let with_mock ~status ~response f =
+  with_mock_env ~status ~response (fun ~sw ~net ~clock:_ ~base_url ->
+    f ~sw ~net ~base_url)
 ;;
 
 let test_transport_success () =
@@ -452,7 +479,7 @@ let test_agent_route_uses_prepared_admission () =
             Ok response)
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     let result = Agent_sdk.Agent.run ~sw agent "measure this exact turn" in
     result, !dispatched
   in
@@ -481,7 +508,7 @@ let test_agent_stream_route_uses_prepared_admission () =
             Ok response)
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     let result = Agent_sdk.Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "stream" in
     result, !dispatched
   in
@@ -492,6 +519,130 @@ let test_agent_stream_route_uses_prepared_admission () =
     check string "stream response" "accepted" (Types.visible_text_of_response actual);
     check string "stream dispatch model" "input-count-fixture" request.config.model_id;
     check int "stream dispatch messages" 1 (List.length request.messages)
+;;
+
+let test_agent_projection_is_shared_by_measurement_and_dispatch () =
+  let projection_calls = ref 0 in
+  let (result, dispatched), (_, _, measured_body) =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let dispatched = ref None in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun request ->
+            dispatched := Some request;
+            { Llm_transport.response = Ok response; latency_ms = Some 1 })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+      }
+    in
+    let hydrated = msg User [ Text "hydrated artifact payload" ] in
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config
+        ~transport
+        ~model_input_projection:(fun provider_messages ->
+          incr projection_calls;
+          Ok (provider_messages @ [ hydrated ]))
+        ()
+    in
+    let result = Agent_sdk.Agent.run ~sw agent "canonical input" in
+    result, !dispatched
+  in
+  match result, dispatched with
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok _, None -> fail "projected request was not dispatched"
+  | Ok _, Some request ->
+    check int "projection is applied exactly once" 1 !projection_calls;
+    check int "dispatch receives projected messages" 2 (List.length request.messages);
+    check
+      string
+      "measurement and dispatch share exact request"
+      (Backend_anthropic.build_count_tokens_request
+         ~config:request.config
+         ~messages:request.messages
+         ~tools:request.tools
+         ())
+      measured_body
+;;
+
+let run_failing_projection projection =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let provider_config = config ~max_context:512 "http://127.0.0.1:1" in
+  let transport =
+    { Llm_transport.complete_sync = (fun _ -> fail "unexpected sync dispatch")
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+    }
+  in
+  let agent =
+    build_admission_agent
+      ~net:(Eio.Stdenv.net env)
+      ~provider_config
+      ~transport
+      ~model_input_projection:projection
+      ()
+  in
+  Agent_sdk.Agent.run ~sw agent "canonical input"
+;;
+
+let check_projection_failure expected_detail = function
+  | Error
+      (Agent_sdk.Error.Agent
+         (HookExecutionFailed
+            { hook_name; stage; tool_name = None; tool_use_id = None; detail })) ->
+    check string "projection hook name" "model_input_projection" hook_name;
+    check string "projection stage" "turn:parse" stage;
+    check string "projection detail" expected_detail detail
+  | Error error -> fail (Agent_sdk.Error.to_string error)
+  | Ok _ -> fail "failed projection must abort the turn"
+;;
+
+let test_agent_projection_failure_is_typed () =
+  run_failing_projection (fun _ -> Error "artifact unavailable")
+  |> check_projection_failure "artifact unavailable"
+;;
+
+let test_agent_projection_exception_is_typed () =
+  let exception_ = Failure "projection exploded" in
+  run_failing_projection (fun _ -> raise exception_)
+  |> check_projection_failure (Printexc.to_string exception_)
+;;
+
+let test_agent_count_preflight_uses_completion_timeout () =
+  let (result, dispatched), _captured =
+    with_mock_env ~response_delay_s:1.0 ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~clock ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let dispatched = ref false in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun _ ->
+            dispatched := true;
+            { Llm_transport.response = Ok response; latency_ms = Some 1 })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+      }
+    in
+    let agent =
+      build_admission_agent ~body_timeout_s:0.02 ~net ~provider_config ~transport ()
+    in
+    let result = Agent_sdk.Agent.run ~sw ~clock agent "bounded count preflight" in
+    result, !dispatched
+  in
+  match result, dispatched with
+  | ( Error
+        (Agent_sdk.Error.Provider
+           (Llm_provider.Error.Timeout
+              { timeout_phase = Some Llm_provider.Http_client.Http_operation; _ }))
+    , false ) -> ()
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok _, _ -> fail "stalled count preflight must time out before completion dispatch"
 ;;
 
 let test_agent_overflow_blocks_dispatch () =
@@ -509,7 +660,7 @@ let test_agent_overflow_blocks_dispatch () =
           (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     let result = Agent_sdk.Agent.run ~sw agent "overflow" in
     result, !dispatched
   in
@@ -535,7 +686,7 @@ let test_kimi_agent_overflow_blocks_dispatch () =
           (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     let result = Agent_sdk.Agent.run ~sw agent "overflow" in
     result, !dispatched
   in
@@ -559,7 +710,7 @@ let test_invalid_count_response_is_provider_parse_failure () =
             fail "malformed count response must block streaming dispatch")
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     Agent_sdk.Agent.run_detailed ~sw agent "malformed count response"
   in
   match result with
@@ -596,7 +747,7 @@ let test_unsupported_provider_preserves_compatibility () =
         (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
     }
   in
-  let agent = build_admission_agent ~net ~provider_config ~transport in
+  let agent = build_admission_agent ~net ~provider_config ~transport () in
   match Agent_sdk.Agent.run ~sw agent "compatibility" with
   | Error error -> fail (Agent_sdk.Error.to_string error)
   | Ok _ -> check bool "compatibility dispatch" true !dispatched
@@ -709,6 +860,22 @@ let () =
             "Agent stream route uses prepared admission"
             `Quick
             test_agent_stream_route_uses_prepared_admission
+        ; test_case
+            "Agent projection is shared by measurement and dispatch"
+            `Quick
+            test_agent_projection_is_shared_by_measurement_and_dispatch
+        ; test_case
+            "Agent projection failure is typed"
+            `Quick
+            test_agent_projection_failure_is_typed
+        ; test_case
+            "Agent projection exception is typed"
+            `Quick
+            test_agent_projection_exception_is_typed
+        ; test_case
+            "Agent count preflight uses completion timeout"
+            `Quick
+            test_agent_count_preflight_uses_completion_timeout
         ; test_case
             "Agent overflow blocks dispatch"
             `Quick

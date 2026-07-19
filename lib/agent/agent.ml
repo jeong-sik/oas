@@ -562,8 +562,6 @@ let run_stream
   |> project_detailed_error
 ;;
 
-(* ── Handoff support ─────────────────────────────────────────── *)
-
 let validate_handoff_targets agent (targets : Handoff.handoff_target list) =
   let rec loop seen (remaining : Handoff.handoff_target list) =
     match remaining with
@@ -653,6 +651,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ~config:target.config
       ~tools:target.tools
       ~context_fit_admission:agent.context_fit_admission
+      ?model_input_projection:agent.model_input_projection
       ~options:
         { default_options with
           base_url = agent.options.base_url
@@ -727,8 +726,6 @@ let run_with_handoffs_blocks ~sw ?clock ?execution_store agent ~targets user_blo
   |> project_detailed_error
 ;;
 
-(* ── Checkpoint / Resume ─────────────────────────────────────── *)
-
 let resume
       ~net
       ~(checkpoint : Checkpoint.t)
@@ -737,6 +734,7 @@ let resume
       ?(options = default_options)
       ?provider_config
       ?(context_fit_admission = Disabled)
+      ?model_input_projection
       ?checkpoint_sink
       ?config
       ()
@@ -758,6 +756,7 @@ let resume
   ; options
   ; provider_config
   ; context_fit_admission
+  ; model_input_projection
   ; checkpoint_sink
   }
 ;;
