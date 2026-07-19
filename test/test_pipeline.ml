@@ -20,6 +20,31 @@ let invocation tool_use_id =
   Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
 ;;
 
+let terminal_outcome_name = function
+  | Agent.Terminal_succeeded -> "succeeded"
+  | Agent.Terminal_failed -> "failed"
+  | Agent.Terminal_cancelled -> "cancelled"
+;;
+
+let recovery_action_name = function
+  | Agent.Retire -> "retire"
+  | Agent.Operator_repair_required Agent.Effect_outcome_unknown ->
+    "operator_repair:effect_outcome_unknown"
+;;
+
+let check_terminal_disposition ~outcome ~recovery = function
+  | None -> Alcotest.fail "terminal disposition callback was not invoked"
+  | Some disposition ->
+    Alcotest.(check string)
+      "terminal outcome"
+      outcome
+      (terminal_outcome_name disposition.Agent.outcome);
+    Alcotest.(check string)
+      "terminal recovery action"
+      recovery
+      (recovery_action_name disposition.Agent.recovery)
+;;
+
 (* ── Provider mock: verify pipeline stages via mock responses ── *)
 
 let test_mock_text_response () =
@@ -1068,6 +1093,195 @@ let test_mock_multi_tool_response () =
   | Error _ -> Alcotest.fail "expected ok"
 ;;
 
+let with_execution_test_dir prefix f =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let runtime =
+    match
+      Agent.create_execution_runtime
+        ~sw
+        ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+        ~domain_count:1
+    with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let native_path = Filename.temp_file prefix ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+  Eio.Switch.on_release sw (fun () -> Eio.Path.rmtree ~missing_ok:true dir);
+  f ~env ~sw ~runtime ~dir
+;;
+
+let test_terminal_disposition_retires_settled_provider_failure () =
+  with_execution_test_dir "oas-agent-terminal-failure-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let checkpoint_count = ref 0 in
+  let locator_persisted = ref false in
+  let terminal_disposition = ref None in
+  let responses =
+    ref
+      [ Ok
+          (Provider_mock.tool_use_response
+             ~tool_name:"durable_tool"
+             ~tool_input:(`Assoc [])
+             ()
+             [])
+      ; Error
+          (Llm_provider.Http_client.AcceptRejected
+             { reason = "provider failed after persisted checkpoint" })
+      ]
+  in
+  let next_response () =
+    match !responses with
+    | response :: rest ->
+      responses := rest;
+      response
+    | [] -> Alcotest.fail "provider failure fixture exhausted responses"
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = next_response (); latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+    }
+  in
+  let tool =
+    Tool.create
+      ~name:"durable_tool"
+      ~description:"settled before provider failure"
+      ~parameters:[]
+      (fun _input -> Ok { Types.content = "settled"; _meta = None })
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-provider-failure-test"
+        }
+      ~tools:[ tool ]
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ~checkpoint_sink:(fun _snapshot ->
+        incr checkpoint_count;
+        Ok ())
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_scope_ready:(fun _locator ->
+        locator_persisted := true;
+        Ok ())
+      ~on_terminal_disposition:(fun disposition ->
+        terminal_disposition := Some disposition;
+        Ok ())
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "run the tool" with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "provider failure unexpectedly completed");
+  Alcotest.(check bool) "locator persisted" true !locator_persisted;
+  Alcotest.(check bool) "checkpoint persisted" true (!checkpoint_count > 0);
+  check_terminal_disposition ~outcome:"failed" ~recovery:"retire" !terminal_disposition
+;;
+
+let test_terminal_disposition_sink_failure_fails_call () =
+  with_execution_test_dir "oas-agent-terminal-sink-failure-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let callback_count = ref 0 in
+  let response = Provider_mock.text_response "done" [] in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-sink-failure-test"
+        }
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_terminal_disposition:(fun _disposition ->
+        incr callback_count;
+        Error "injected persistence failure")
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "complete" with
+   | Error (Error.Internal _) -> ()
+   | Error error ->
+     Alcotest.failf "terminal sink failure changed category: %s" (Error.to_string error)
+   | Ok _ -> Alcotest.fail "terminal sink failure unexpectedly completed");
+  Alcotest.(check int) "terminal sink called once" 1 !callback_count;
+  Alcotest.(check bool)
+    "terminal journal committed before sink failure"
+    true
+    (Eio.Path.is_file Eio.Path.(dir / "events.v1.commit"))
+;;
+
+let test_terminal_disposition_observes_cancellation () =
+  with_execution_test_dir "oas-agent-terminal-cancel-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let terminal_disposition = ref None in
+  let cancel () = raise (Eio.Cancel.Cancelled Exit) in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync = (fun _request -> cancel ())
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> cancel ())
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-cancellation-test"
+        }
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_terminal_disposition:(fun disposition ->
+        terminal_disposition := Some disposition;
+        Ok ())
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "cancel" with
+   | exception Eio.Cancel.Cancelled Exit -> ()
+   | exception exn ->
+     Alcotest.failf "unexpected cancellation exception: %s" (Printexc.to_string exn)
+   | Ok _ | Error _ -> Alcotest.fail "cancellation did not propagate");
+  check_terminal_disposition ~outcome:"cancelled" ~recovery:"retire" !terminal_disposition
+;;
+
 let test_agent_run_uses_durable_tool_authority () =
   Eio_main.run
   @@ fun env ->
@@ -1094,6 +1308,7 @@ let test_agent_run_uses_durable_tool_authority () =
        let effect_after_locator = ref false in
        let effect_count = ref 0 in
        let completion_cursor = ref None in
+       let terminal_disposition = ref None in
        let committed_cursor () =
          let authority =
            Eio.Path.load Eio.Path.(dir / "events.v1.commit") |> Yojson.Safe.from_string
@@ -1192,6 +1407,10 @@ let test_agent_run_uses_durable_tool_authority () =
               | _ -> Alcotest.fail "execution locator is not an object");
              locator_persisted := true;
              Ok ())
+           ~on_terminal_disposition:(fun disposition ->
+             ignore (committed_cursor ());
+             terminal_disposition := Some disposition;
+             Ok ())
            ()
        in
        (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
@@ -1206,6 +1425,10 @@ let test_agent_run_uses_durable_tool_authority () =
          "locator is durable before tool effect"
          true
          !effect_after_locator;
+       check_terminal_disposition
+         ~outcome:"succeeded"
+         ~recovery:"retire"
+         !terminal_disposition;
        Alcotest.(check (option int))
          "completion observes the final durable cursor"
          (Some (committed_cursor ()))
@@ -1243,7 +1466,7 @@ let test_agent_run_uses_durable_tool_authority () =
          (List.length public_tool_events))
 ;;
 
-let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
+let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -1282,6 +1505,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
          }
        in
        let locator_json = ref None in
+       let exception Effect_interrupted_after_attempt in
        let provider_config =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -1339,12 +1563,19 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
               Internal_scope.execute
                 durable
                 ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
-                  "settled-before-restart", Types.Tool_succeeded)
+                  if settled
+                  then "settled-before-restart", Types.Tool_succeeded
+                  else raise Effect_interrupted_after_attempt)
             with
-            | Ok (Internal_scope.Executed _) -> ()
+            | Ok (Internal_scope.Executed _) when settled -> ()
+            | Ok (Internal_scope.Executed _) ->
+              Alcotest.fail "unknown-effect fixture unexpectedly settled"
             | Ok (Internal_scope.Replayed _) ->
               Alcotest.fail "fixture unexpectedly replayed its first tool effect"
-            | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            | exception Effect_interrupted_after_attempt when not settled -> ()
+            | exception Effect_interrupted_after_attempt ->
+              Alcotest.fail "settled fixture interrupted its tool effect")
         with
         | Ok () -> ()
         | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure));
@@ -1364,6 +1595,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
        let effect_count = ref 0 in
        let pre_hook_count = ref 0 in
        let post_hook_count = ref 0 in
+       let terminal_disposition = ref None in
        let tool =
          Tool.create
            ~name:"durable_tool"
@@ -1420,17 +1652,51 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
          ; turn_count = 1
          ; usage = Types.empty_usage
          };
-       let execution_store = Agent.execution_store ~runtime ~dir ~resume:locator () in
-       (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
-        | Ok response ->
+       let execution_store =
+         Agent.execution_store
+           ~runtime
+           ~dir
+           ~on_terminal_disposition:(fun disposition ->
+             terminal_disposition := Some disposition;
+             Ok ())
+           ~resume:locator
+           ()
+       in
+       (match settled, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | true, Ok response ->
           Alcotest.(check string)
             "terminal response"
             "done-after-restart"
             (Types.text_of_response response)
-        | Error error -> Alcotest.fail (Error.to_string error));
+        | true, Error error -> Alcotest.fail (Error.to_string error)
+        | false, Error (Error.Internal _) -> ()
+        | false, Error error ->
+          Alcotest.failf
+            "unknown effect changed error category: %s"
+            (Error.to_string error)
+        | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
        Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
        Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
-       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count)
+       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
+       if settled
+       then
+         check_terminal_disposition
+           ~outcome:"succeeded"
+           ~recovery:"retire"
+           !terminal_disposition
+       else
+         check_terminal_disposition
+           ~outcome:"failed"
+           ~recovery:"operator_repair:effect_outcome_unknown"
+           !terminal_disposition)
+;;
+
+let test_agent_run_resumes_settled_tool_without_duplicate_effects =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true
+;;
+
+let test_agent_run_reports_unknown_effect_for_operator_repair =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false
 ;;
 
 (* ── Runner ──────────────────────────────────────────────── *)
@@ -1523,6 +1789,22 @@ let () =
             "Agent.run resumes settled tool without duplicate effects"
             `Quick
             test_agent_run_resumes_settled_tool_without_duplicate_effects
+        ; Alcotest.test_case
+            "terminal disposition retires settled provider failure"
+            `Quick
+            test_terminal_disposition_retires_settled_provider_failure
+        ; Alcotest.test_case
+            "terminal disposition requires operator repair for unknown effect"
+            `Quick
+            test_agent_run_reports_unknown_effect_for_operator_repair
+        ; Alcotest.test_case
+            "terminal disposition sink failure fails call"
+            `Quick
+            test_terminal_disposition_sink_failure_fails_call
+        ; Alcotest.test_case
+            "terminal disposition observes cancellation"
+            `Quick
+            test_terminal_disposition_observes_cancellation
         ] )
     ]
 ;;

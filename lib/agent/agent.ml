@@ -33,6 +33,23 @@ type execution_runtime = Agent_execution_runner.runtime
 type execution_store = Agent_execution_runner.store
 type execution_locator = Agent_execution_runner.locator
 
+type execution_terminal_outcome = Agent_execution_runner.terminal_outcome =
+  | Terminal_succeeded
+  | Terminal_failed
+  | Terminal_cancelled
+
+type execution_operator_repair_reason = Agent_execution_runner.operator_repair_reason =
+  | Effect_outcome_unknown
+
+type execution_recovery_action = Agent_execution_runner.recovery_action =
+  | Retire
+  | Operator_repair_required of execution_operator_repair_reason
+
+type execution_terminal_disposition = Agent_execution_runner.terminal_disposition =
+  { outcome : execution_terminal_outcome
+  ; recovery : execution_recovery_action
+  }
+
 let create_execution_runtime = Agent_execution_runner.create_runtime
 let execution_store = Agent_execution_runner.store
 let execution_locator_to_yojson = Agent_execution_runner.locator_to_yojson
@@ -46,9 +63,8 @@ let project_detailed_error result =
   Result.map_error (fun detailed -> detailed.error) result
 ;;
 
-(** Run a single turn via the 6-stage pipeline.
-    Converts Pipeline.turn_outcome to the polymorphic variant interface
-    expected by run_loop and the public API. *)
+(** Run a single turn via the 6-stage pipeline, converting [Pipeline.turn_outcome]
+    to the polymorphic variant interface expected by [run_loop] and the public API. *)
 let run_turn_core_detailed
       ~sw
       ?clock

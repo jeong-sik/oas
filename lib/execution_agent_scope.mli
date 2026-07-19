@@ -28,6 +28,12 @@ type abort_reason =
       ; data : Yojson.Safe.t option
       }
 
+type operator_repair_reason = Effect_outcome_unknown
+
+type recovery_action =
+  | Retire
+  | Operator_repair_required of operator_repair_reason
+
 type error =
   | Admission_failed of Execution_lane_writer.submit_error
   | Mutation_failed of Execution_lane_writer.ticket_error
@@ -132,3 +138,8 @@ val finish : t -> Execution_event.terminal -> (unit, error) result
 
 (** Atomically terminate every open descendant and the run root. *)
 val abort : t -> abort_reason -> (unit, error) result
+
+(** Classify the terminal scope from its exact durable topology. An invocation
+    with an admitted attempt and no settled ToolResult cannot be retried
+    automatically because its external effect may already have happened. *)
+val terminal_recovery_action : t -> (recovery_action, error) result
