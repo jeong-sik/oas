@@ -349,15 +349,14 @@ let test_prepared_admission_resolves_catalog_context_limit () =
       (Complete.admitted_fit admitted).max_context_tokens
 ;;
 
-(* Regression for #2678: the caller resolves the context limit before it
-   measures, so a pre-knowable [Context_limit_unknown] surfaces without a
-   [/count_tokens] round-trip. The loopback stub counts POSTs (it never awaits a
-   captured promise) so a zero-POST run cannot block.
-
-   Counterfactual: pre-fix the caller ran [measure_request] first, the handler
-   would fire, [posts] would reach 1, and the [posts = 0] assertion below would
-   fail. That is the honest red state for this reorder. *)
-let test_resolve_before_measure_skips_count_roundtrip () =
+(* Loopback server that counts every request it receives into [posts] and,
+   unlike [with_mock], never awaits a captured promise. That makes it safe to
+   drive code that is expected to issue no request at all: a zero-request run
+   cannot block on an unresolved promise. In these fixtures the only server-bound
+   request the code under test can make is the [/count_tokens] measurement (the
+   completion itself uses the injected [transport], not the network), so [posts]
+   observes the number of [/count_tokens] round-trips. *)
+let with_post_counter f =
   let posts = Atomic.make 0 in
   let result =
     Eio_main.run
@@ -383,24 +382,92 @@ let test_resolve_before_measure_skips_count_roundtrip () =
     Eio.Fiber.fork_daemon ~sw (fun () ->
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
     let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
-    (* model_id "input-count-fixture" has no catalog row and the config carries
-       no ~max_context, so [resolve_context_limit] returns None. *)
-    let prepared =
-      Complete.prepare_request ~config:(config base_url) ~messages ~tools:[ tool ] ()
-    in
-    (* Caller sequence under the fix: resolve first; measure/admit run only on an
-       Ok limit. *)
-    match Complete.resolve_context_limit prepared with
-    | Error error -> Error error
-    | Ok max_context_tokens ->
-      (match Complete.measure_request ~sw ~net prepared with
-       | Error _ -> fail "measurement must not run when the limit is unknown"
-       | Ok measured -> Complete.admit_request ~max_context_tokens measured)
+    f ~sw ~net ~base_url
   in
-  (match result with
-   | Error (Complete.Context_limit_unknown { model_id = "input-count-fixture" }) -> ()
-   | Ok _ | Error _ -> fail "expected typed Context_limit_unknown before measurement");
-  check int "no /count_tokens round-trip for an unknown limit" 0 (Atomic.get posts)
+  result, Atomic.get posts
+;;
+
+(* Transport that flips [dispatched] if the completion is ever dispatched. An
+   unknown context limit must fail admission before either path runs. *)
+let dispatch_tripwire dispatched =
+  { Llm_transport.complete_sync =
+      (fun _ ->
+        dispatched := true;
+        { Llm_transport.response = Ok response; latency_ms = None })
+  ; complete_stream =
+      (fun ?on_telemetry:_ ~on_event:_ _ ->
+        dispatched := true;
+        Ok response)
+  }
+;;
+
+(* Regression for #2678: [Pipeline_stage_route.dispatch_sync] /
+   [dispatch_stream] resolve the context limit (pure, no network) before they
+   [measure_request] (the [/count_tokens] POST), so a pre-knowable
+   [Context_limit_unknown] surfaces without a wasted round-trip.
+
+   These two tests drive the REAL production dispatch path via
+   [Agent_sdk.Agent.run] / [Agent_sdk.Agent.run_stream] (both route through
+   [Pipeline_stage_route]); they do NOT reconstruct the resolve/measure/admit
+   sequence inline. That is what makes them guard the production ordering: the
+   model has no catalog row and the config carries no [~max_context], so resolve
+   fails, and with the shipped order no request reaches the server ([posts] = 0)
+   and the tripwire transport never dispatches.
+
+   Counterfactual: revert the order in [Pipeline_stage_route] so [measure_request]
+   runs before [resolve_context_limit]. The measurement then POSTs to
+   [/count_tokens] before the (still failing) resolve, [posts] reaches 1, and the
+   [posts = 0] assertion goes red. The typed error is identical in both orders
+   (resolve fails either way), so [posts] is the discriminating observation for
+   the reorder. The sync and stream cases guard the two independent call sites
+   the production fix touched. *)
+let expect_unknown_limit_failure label result =
+  match result with
+  | Error
+      (Agent_sdk.Error.Config (Agent_sdk.Error.InvalidConfig { field = "max_context"; _ }))
+    -> ()
+  | Error error -> fail (label ^ ": " ^ Agent_sdk.Error.to_string error)
+  | Ok _ -> fail (label ^ ": expected unknown-context-limit failure before measurement")
+;;
+
+let test_resolve_before_measure_skips_count_roundtrip () =
+  let dispatched = ref false in
+  let result, posts =
+    with_post_counter
+    @@ fun ~sw ~net ~base_url ->
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config:(config base_url)
+        ~transport:(dispatch_tripwire dispatched)
+    in
+    Agent_sdk.Agent.run ~sw agent "resolve before measuring"
+  in
+  expect_unknown_limit_failure "sync" result;
+  check bool "unknown limit must not dispatch (sync)" false !dispatched;
+  check int "no /count_tokens round-trip for an unknown limit (sync)" 0 posts
+;;
+
+let test_resolve_before_measure_skips_count_roundtrip_stream () =
+  let dispatched = ref false in
+  let result, posts =
+    with_post_counter
+    @@ fun ~sw ~net ~base_url ->
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config:(config base_url)
+        ~transport:(dispatch_tripwire dispatched)
+    in
+    Agent_sdk.Agent.run_stream
+      ~sw
+      ~on_event:(fun _ -> ())
+      agent
+      "resolve before measuring"
+  in
+  expect_unknown_limit_failure "stream" result;
+  check bool "unknown limit must not dispatch (stream)" false !dispatched;
+  check int "no /count_tokens round-trip for an unknown limit (stream)" 0 posts
 ;;
 
 let test_measurement_validates_before_io () =
@@ -672,6 +739,10 @@ let () =
             "resolve before measure skips count round-trip"
             `Quick
             test_resolve_before_measure_skips_count_roundtrip
+        ; test_case
+            "resolve before measure skips count round-trip (stream)"
+            `Quick
+            test_resolve_before_measure_skips_count_roundtrip_stream
         ; test_case
             "measurement validates before I/O"
             `Quick
