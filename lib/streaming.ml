@@ -40,6 +40,12 @@ let accumulate_event = Llm_provider.Complete_stream_acc.accumulate_event
 let finalize_stream_acc = Llm_provider.Complete_stream_acc.finalize_stream_acc
 let stream_failed = Llm_provider.Complete_stream_acc.stream_failed
 
+exception Stream_finished
+
+let stop_sse_read_if_terminal acc =
+  if stream_failed acc || !(acc.done_sentinel_seen) then raise Stream_finished
+;;
+
 let emit_message_stop_if_missing acc ~on_event =
   if
     !(acc.stop_reason_received)
@@ -84,6 +90,24 @@ let%test "terminal callback is not synthesized after stream failure" =
          emitted := event :: !emitted);
        List.is_empty !emitted)
     failures
+;;
+
+let%test "terminal state stops the SSE reader immediately" =
+  let acc = create_stream_acc () in
+  let lines_seen = ref 0 in
+  let flow = Eio.Flow.string_source "data: terminal\n\ndata: late\n\n" in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 flow in
+  match
+    Llm_provider.Http_client.read_sse
+      ~reader
+      ~on_data:(fun ~event_type:_ _ ->
+        incr lines_seen;
+        accumulate_event acc MessageStop;
+        stop_sse_read_if_terminal acc)
+      ()
+  with
+  | () -> false
+  | exception Stream_finished -> !lines_seen = 1
 ;;
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
@@ -259,10 +283,12 @@ let create_message_stream_detailed
                             accumulate_event acc evt
                           | Some evt ->
                             on_event evt;
-                            accumulate_event acc evt))
+                            accumulate_event acc evt);
+                        stop_sse_read_if_terminal acc)
                       ()
                   with
                   | () -> ()
+                  | exception Stream_finished -> ()
                   | exception Eio.Time.Timeout when stream_failed acc -> ());
                  emit_message_stop_if_missing acc ~on_event;
                  finalize_stream_acc acc)
@@ -360,10 +386,12 @@ let create_message_stream_detailed
                               (fun event ->
                                  on_event event;
                                  accumulate_event acc event)
-                              events))
+                              events);
+                        stop_sse_read_if_terminal acc)
                       ()
                   with
                   | () -> ()
+                  | exception Stream_finished -> ()
                   | exception Eio.Time.Timeout when stream_failed acc -> ());
                  emit_message_stop_if_missing acc ~on_event;
                  finalize_stream_acc acc)
