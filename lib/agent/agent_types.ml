@@ -137,6 +137,7 @@ type t =
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
+  ; model_input_projection : (message list -> message list) option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -276,6 +277,7 @@ let create
       ?(options = default_options)
       ?provider_config
       ?(context_fit_admission = Disabled)
+      ?model_input_projection
       ?checkpoint_sink
       ()
   =
@@ -305,6 +307,7 @@ let create
   ; options
   ; provider_config
   ; context_fit_admission
+  ; model_input_projection
   ; checkpoint_sink
   }
 ;;
@@ -327,6 +330,7 @@ let clone ?(copy_context = false) agent =
   ; options = agent.options
   ; provider_config = agent.provider_config
   ; context_fit_admission = agent.context_fit_admission
+  ; model_input_projection = agent.model_input_projection
   ; checkpoint_sink = agent.checkpoint_sink
   }
 ;;

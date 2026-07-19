@@ -151,6 +151,7 @@ type t =
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
+  ; model_input_projection : (Types.message list -> Types.message list) option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -185,6 +186,7 @@ val create
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
+  -> ?model_input_projection:(Types.message list -> Types.message list)
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t

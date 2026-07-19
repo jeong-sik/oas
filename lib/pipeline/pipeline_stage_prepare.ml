@@ -144,6 +144,7 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~turn_params
+    ?model_input_projection:agent.model_input_projection
     ()
 ;;
 

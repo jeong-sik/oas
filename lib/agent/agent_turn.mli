@@ -51,6 +51,7 @@ val prepare_turn
   :  tools:Tool_set.t
   -> messages:Types.message list
   -> turn_params:Hooks.turn_params
+  -> ?model_input_projection:(Types.message list -> Types.message list)
   -> unit
   -> turn_preparation
 

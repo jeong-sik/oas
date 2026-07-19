@@ -48,9 +48,14 @@ let prepare_messages ~messages ~turn_params () =
     messages @ [ system_msg ]
 ;;
 
-let prepare_turn ~tools ~messages ~turn_params () =
+let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
   let tools_json, visible_tool_names = prepare_tools ~tools () in
-  let effective_messages = prepare_messages ~messages ~turn_params () in
+  let effective_messages =
+    let prepared = prepare_messages ~messages ~turn_params () in
+    match model_input_projection with
+    | None -> prepared
+    | Some project -> project prepared
+  in
   { tools_json; effective_messages; visible_tool_names }
 ;;
 

@@ -115,6 +115,11 @@ val with_provider_config : Llm_provider.Provider_config.t -> t -> t
     [Complete] compatibility behavior. *)
 val with_context_fit_admission : Agent.context_fit_admission -> t -> t
 
+(** Apply a caller-owned projection once to the complete provider-bound message
+    list. Native request measurement and actual dispatch consume that same
+    projected request; canonical Agent state and checkpoints remain unchanged. *)
+val with_model_input_projection : (Types.message list -> Types.message list) -> t -> t
+
 val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.
