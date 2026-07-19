@@ -686,7 +686,7 @@ let test_kimi_agent_overflow_blocks_dispatch () =
           (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
       }
     in
-    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let agent = build_admission_agent ~net ~provider_config ~transport () in
     let result = Agent_sdk.Agent.run ~sw agent "overflow" in
     result, !dispatched
   in
