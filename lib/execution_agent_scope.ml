@@ -58,6 +58,16 @@ type recovery_action =
   | Retire
   | Operator_repair_required of operator_repair_reason
 
+type turn_resume =
+  | Resume_turn_absent
+  | Resume_turn_open of turn
+  | Resume_turn_settled
+
+type provider_resume =
+  | Resume_provider_absent
+  | Resume_provider_open of provider_attempt
+  | Resume_provider_settled
+
 type error =
   | Admission_failed of Writer.submit_error
   | Mutation_failed of Writer.ticket_error
@@ -252,14 +262,25 @@ let resume_turn scope ~ordinal =
         root.children
     in
     (match matching with
-     | [] -> Ok None
+     | [] -> Ok Resume_turn_absent
      | [ node ] ->
        (match Writer.find_node scope.writer node with
         | Error error -> Error (Scope_unavailable error)
         | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
-        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { scope; node })
-        | Ok (Some { status = Journal.Closed _; _ }) ->
-          Error (Resume_topology_mismatch "requested turn is already closed"))
+        | Ok (Some { status = Journal.Open; _ }) -> Ok (Resume_turn_open { scope; node })
+        (* Idempotent completed boundary: a turn already closed [Succeeded] under a
+           still-[Running] root is a crash after [close_turn] but before the root
+           [finish] (or after the provider close but before this turn's close, once
+           the caller finishes that close). Its whole subtree is settled (the
+           journal rejects closing a node with open children), so resume surfaces
+           the settled outcome instead of aborting the root as Failed. *)
+        | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
+          Ok Resume_turn_settled
+        | Ok
+            (Some
+               { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
+               ; _
+               }) -> Error (Resume_topology_mismatch "requested turn is already closed"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate turn ordinal"))
 ;;
 
@@ -291,13 +312,26 @@ let resume_provider_attempt (turn : turn) =
         view.children
     in
     (match providers with
-     | [] -> Ok None
+     | [] -> Ok Resume_provider_absent
      | [ node ] ->
        (match Writer.find_node turn.scope.writer node with
         | Error error -> Error (Scope_unavailable error)
         | Ok None -> Error (Resume_topology_mismatch "provider child disappeared")
-        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { turn; node })
-        | Ok (Some { status = Journal.Closed _; _ }) ->
+        | Ok (Some { status = Journal.Open; _ }) ->
+          Ok (Resume_provider_open { turn; node })
+        (* Idempotent completed boundary: a provider attempt already closed
+           [Succeeded] under a still-open turn is a crash inside [close_success]
+           between the provider close and the turn close. Its invocations are
+           settled (the journal rejects closing a node with open children), so the
+           caller finishes the interrupted turn close and surfaces the settled
+           outcome instead of aborting the root as Failed. *)
+        | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
+          Ok Resume_provider_settled
+        | Ok
+            (Some
+               { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
+               ; _
+               }) ->
           Error (Resume_topology_mismatch "requested provider attempt is already closed"))
      | _ :: _ :: _ ->
        Error (Resume_topology_mismatch "multiple provider attempts remain open"))

@@ -68,6 +68,53 @@ let recovered_tool_result_ids messages_after =
     messages_after
 ;;
 
+type settled_replay =
+  | Replay_tools_settled
+  | Replay_terminal of Types.message
+
+let last_assistant_message messages =
+  List.fold_left
+    (fun acc (message : Types.message) ->
+       match message.role with
+       | Assistant -> Some message
+       | System | User | Tool -> acc)
+    None
+    messages
+;;
+
+(* Classify a [Closed Succeeded] turn resumed under a still-[Running] root. The
+   turn's effects are durably settled (the journal rejects closing a node with
+   open children), so resume surfaces the settled outcome rather than
+   re-executing. A completed tool turn — its ToolResults already recovered into
+   the restored After_tool_results_appended checkpoint — continues the run loop;
+   a terminal turn (final assistant response, no pending tool calls) completes the
+   run. A tool turn whose recovered results do not match its restored ToolUse
+   checkpoint stays an error (fail-closed on inconsistent topology). *)
+let classify_settled agent =
+  match last_tool_turn agent.Agent_types.state.messages with
+  | Some (_tool_blocks, expected_ids, messages_after) ->
+    (match recovered_tool_result_ids messages_after with
+     | Some result_ids when result_ids = expected_ids -> Ok Replay_tools_settled
+     | Some _ ->
+       Error
+         (Error.Internal
+            "durable execution resume settled turn ToolResult identities differ from the \
+             restored ToolUse checkpoint")
+     | None ->
+       Error
+         (Error.Internal
+            "durable execution resume settled tool turn is missing its recovered \
+             ToolResults"))
+  | None ->
+    (match last_assistant_message agent.Agent_types.state.messages with
+     | Some message -> Ok (Replay_terminal message)
+     | None ->
+       Error
+         (Error.Internal
+            "durable execution resume settled terminal turn has no restored assistant \
+             message"))
+;;
+
 let run agent execution ~execute ~already_settled =
   let outcome =
     match last_tool_turn agent.Agent_types.state.messages with

@@ -631,6 +631,23 @@ let run_new_turn
        Pipeline_execution_scope.close_success execution |> Result.map (fun () -> value))
 ;;
 
+(* Reconstruct a terminal turn's response from the durably-settled assistant
+   message the resume restored (After_assistant_collected checkpoint). The
+   content is the exact settled message content; [stop_reason] is [EndTurn]
+   because a terminal turn stopped with no pending tool calls. Per-call
+   [usage]/[telemetry] and the provider response [id] are not part of the
+   persisted checkpoint, so they surface as empty/[None] rather than being
+   fabricated. Returning the settled result is a recovery, not a recomputation. *)
+let response_of_settled_terminal agent (message : Types.message) : Types.api_response =
+  { Types.id = ""
+  ; model = agent.state.config.model
+  ; stop_reason = EndTurn
+  ; content = message.content
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
 let run_turn
       ~sw
       ?clock
@@ -646,16 +663,31 @@ let run_turn
       Pipeline_execution_scope.resume_current
         (Execution_context.agent_scope ())
         ~ordinal:agent.state.turn_count
-    else Ok None
+    else Ok Pipeline_execution_scope.Fresh
   in
   match resumed with
-  | Some execution ->
+  | Pipeline_execution_scope.Active execution ->
     Pipeline_execution_resume.run
       agent
       execution
       ~execute:(stage_execute ?raw_trace_run agent)
       ~already_settled:(ToolsExecuted After_tool_results_appended)
-  | None ->
+  | Pipeline_execution_scope.Settled boundary ->
+    (* Idempotent completed boundary: the turn is already [Closed Succeeded]
+       under a still-[Running] root (crash between the provider close, the turn
+       close, and the root finish of a fully-settled turn). Complete any
+       interrupted [close_success] (close the still-open turn), then surface the
+       already-settled turn outcome so the run loop advances exactly as the
+       un-crashed run would have — replaying the settled results without
+       re-executing effects and without aborting the root as Failed. *)
+    let* () = Pipeline_execution_scope.finalize_settled boundary in
+    let* replay = Pipeline_execution_resume.classify_settled agent in
+    (match replay with
+     | Pipeline_execution_resume.Replay_tools_settled ->
+       Ok (ToolsExecuted After_tool_results_appended)
+     | Pipeline_execution_resume.Replay_terminal message ->
+       Ok (Complete (response_of_settled_terminal agent message)))
+  | Pipeline_execution_scope.Fresh ->
     run_new_turn
       ~sw
       ?clock

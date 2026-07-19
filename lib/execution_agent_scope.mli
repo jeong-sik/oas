@@ -70,8 +70,27 @@ val resume_running
   -> scope_locator
   -> (t, error) result
 
+(** Total classification of a turn node found at a resume ordinal. [Settled] is a
+    turn already [Closed Succeeded] under a still-[Running] root: an idempotent
+    completed boundary (crash after {!close_turn} but before the root
+    {!finish}). A [Closed Failed]/[Closed Cancelled] turn stays a
+    [Resume_topology_mismatch] error (fail-closed on real corruption). *)
+type turn_resume =
+  | Resume_turn_absent
+  | Resume_turn_open of turn
+  | Resume_turn_settled
+
+(** Total classification of a provider attempt found under a resumed turn.
+    [Settled] is a provider attempt already [Closed Succeeded] under a still-open
+    turn (crash inside [close_success] after the provider close but before the
+    turn close). See {!turn_resume} for the fail-closed contract. *)
+type provider_resume =
+  | Resume_provider_absent
+  | Resume_provider_open of provider_attempt
+  | Resume_provider_settled
+
 val open_turn : t -> ordinal:int -> (turn, error) result
-val resume_turn : t -> ordinal:int -> (turn option, error) result
+val resume_turn : t -> ordinal:int -> (turn_resume, error) result
 
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt
@@ -80,7 +99,7 @@ val open_provider_attempt
   -> Binding_identity.t
   -> (provider_attempt, error) result
 
-val resume_provider_attempt : turn -> (provider_attempt option, error) result
+val resume_provider_attempt : turn -> (provider_resume, error) result
 
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation
