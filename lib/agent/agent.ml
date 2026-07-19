@@ -562,8 +562,6 @@ let run_stream
   |> project_detailed_error
 ;;
 
-(* ── Handoff support ─────────────────────────────────────────── *)
-
 let validate_handoff_targets agent (targets : Handoff.handoff_target list) =
   let rec loop seen (remaining : Handoff.handoff_target list) =
     match remaining with
@@ -727,8 +725,6 @@ let run_with_handoffs_blocks ~sw ?clock ?execution_store agent ~targets user_blo
   run_with_handoffs_blocks_detailed ~sw ?clock ?execution_store agent ~targets user_blocks
   |> project_detailed_error
 ;;
-
-(* ── Checkpoint / Resume ─────────────────────────────────────── *)
 
 let resume
       ~net
