@@ -255,12 +255,8 @@ let cursor_to_yojson (cursor : cursor) =
     ]
 ;;
 
-let cursor_field_of_name = function
-  | "version" -> Some Version
-  | "scope_id" -> Some Scope_id
-  | "sequence" -> Some Sequence
-  | _ -> None
-;;
+let cursor_fields = [ "version", Version; "scope_id", Scope_id; "sequence", Sequence ]
+let cursor_field_of_name name = List.assoc_opt name cursor_fields
 
 let cursor_field_name = function
   | Version -> "version"
@@ -292,7 +288,8 @@ let cursor_of_yojson json =
   let* fields =
     match json with
     | `Assoc fields -> Ok fields
-    | _ -> Error Cursor_not_object
+    | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+      Error Cursor_not_object
   in
   let rec collect version scope_id sequence = function
     | [] -> Ok (version, scope_id, sequence)
