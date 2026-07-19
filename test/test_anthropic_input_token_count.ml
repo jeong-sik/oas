@@ -568,39 +568,50 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
       measured_body
 ;;
 
-let test_agent_projection_failure_is_typed () =
-  let result =
-    Eio_main.run
-    @@ fun env ->
-    Eio.Switch.run
-    @@ fun sw ->
-    let provider_config = config ~max_context:512 "http://127.0.0.1:1" in
-    let transport =
-      { Llm_transport.complete_sync = (fun _ -> fail "unexpected sync dispatch")
-      ; complete_stream =
-          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
-      }
-    in
-    let agent =
-      build_admission_agent
-        ~net:(Eio.Stdenv.net env)
-        ~provider_config
-        ~transport
-        ~model_input_projection:(fun _ -> Error "artifact unavailable")
-        ()
-    in
-    Agent_sdk.Agent.run ~sw agent "canonical input"
+let run_failing_projection projection =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let provider_config = config ~max_context:512 "http://127.0.0.1:1" in
+  let transport =
+    { Llm_transport.complete_sync = (fun _ -> fail "unexpected sync dispatch")
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected streaming dispatch")
+    }
   in
-  match result with
+  let agent =
+    build_admission_agent
+      ~net:(Eio.Stdenv.net env)
+      ~provider_config
+      ~transport
+      ~model_input_projection:projection
+      ()
+  in
+  Agent_sdk.Agent.run ~sw agent "canonical input"
+;;
+
+let check_projection_failure expected_detail = function
   | Error
       (Agent_sdk.Error.Agent
          (HookExecutionFailed
             { hook_name; stage; tool_name = None; tool_use_id = None; detail })) ->
     check string "projection hook name" "model_input_projection" hook_name;
     check string "projection stage" "turn:parse" stage;
-    check string "projection detail" "artifact unavailable" detail
+    check string "projection detail" expected_detail detail
   | Error error -> fail (Agent_sdk.Error.to_string error)
   | Ok _ -> fail "failed projection must abort the turn"
+;;
+
+let test_agent_projection_failure_is_typed () =
+  run_failing_projection (fun _ -> Error "artifact unavailable")
+  |> check_projection_failure "artifact unavailable"
+;;
+
+let test_agent_projection_exception_is_typed () =
+  let exception_ = Failure "projection exploded" in
+  run_failing_projection (fun _ -> raise exception_)
+  |> check_projection_failure (Printexc.to_string exception_)
 ;;
 
 let test_agent_count_preflight_uses_completion_timeout () =
@@ -857,6 +868,10 @@ let () =
             "Agent projection failure is typed"
             `Quick
             test_agent_projection_failure_is_typed
+        ; test_case
+            "Agent projection exception is typed"
+            `Quick
+            test_agent_projection_exception_is_typed
         ; test_case
             "Agent count preflight uses completion timeout"
             `Quick
