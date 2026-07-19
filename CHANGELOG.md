@@ -268,6 +268,14 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.5](https://github.com/jeong-sik/oas/compare/v0.216.4...v0.216.5) (2026-07-19)
+
+
+### Features
+
+* **agent:** expose durable execution projection ([#2701](https://github.com/jeong-sik/oas/issues/2701)) ([976cacd](https://github.com/jeong-sik/oas/commit/976cacd24b958cc3eea299101ec8ae973026e01d))
+* **agent:** expose typed execution terminal disposition ([#2694](https://github.com/jeong-sik/oas/issues/2694)) ([66f6831](https://github.com/jeong-sik/oas/commit/66f6831e14b1cd579710e7ad6812139ca8f220ae))
+
 ## [0.216.4](https://github.com/jeong-sik/oas/compare/v0.216.3...v0.216.4) (2026-07-18)
 
 
