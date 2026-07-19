@@ -334,28 +334,34 @@ let build_openai_body_unchecked
       body_assoc
   in
   let body_assoc =
-    if not capabilities.supports_reasoning
-    then body_assoc
-    else (
-      let zai_glm_clear_thinking =
-        (* [Types.agent_config] carries no [clear_thinking] field, so the
-           projection's [clear_thinking = None] resolves from
-           [preserve_thinking] inside the SSOT resolver. *)
-        Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
-          ~thinking_control_format:capabilities.thinking_control_format
-          ~is_zai_glm
-          ~clear_thinking:serialization_config.PConfig.clear_thinking
-          ~preserve_thinking:serialization_config.PConfig.preserve_thinking
-      in
-      Llm_provider.Reasoning_dialect.request_control_fields
-        dialect
-        ~enable_thinking:serialization_config.enable_thinking
-        ~preserve_thinking:serialization_config.preserve_thinking
-        ~thinking_budget:serialization_config.thinking_budget
-        ~reasoning_effort:serialization_config.PConfig.reasoning_effort
-        ?zai_glm_clear_thinking
-        ()
-      @ body_assoc)
+    let zai_glm_clear_thinking =
+      (* [Types.agent_config] carries no [clear_thinking] field, so the
+         projection's [clear_thinking = None] resolves from
+         [preserve_thinking] inside the SSOT resolver. *)
+      Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
+        ~thinking_control_format:capabilities.thinking_control_format
+        ~is_zai_glm
+        ~clear_thinking:serialization_config.PConfig.clear_thinking
+        ~preserve_thinking:serialization_config.PConfig.preserve_thinking
+    in
+    let request_control =
+      match
+        Llm_provider.Reasoning_dialect.request_control_fields
+          Llm_provider.Reasoning_dialect.Chat_completions
+          dialect
+          ~enable_thinking:serialization_config.enable_thinking
+          ~preserve_thinking:serialization_config.preserve_thinking
+          ~thinking_budget:serialization_config.thinking_budget
+          ~reasoning_effort:serialization_config.PConfig.reasoning_effort
+          ?zai_glm_clear_thinking
+          ()
+      with
+      | Ok artifact -> artifact
+      | Error rejection ->
+        invalid_arg
+          (Llm_provider.Reasoning_dialect.request_control_rejection_to_message rejection)
+    in
+    request_control.fields @ body_assoc
   in
   let body_assoc =
     match tools_to_send with
