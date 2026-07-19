@@ -85,13 +85,14 @@ val without_event_bus : t -> t
     @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
 
-(** Set the total deadline applied to non-streaming HTTP completion body
-    consumption. Requires a clock to be provided to the underlying request;
-    without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Non_streaming_body; _ }] which the retry layer
-    treats as retryable. Streaming requests ignore this knob and rely on
-    [with_stream_idle_timeout] for inter-line liveness so active long
-    streams are not killed by total duration. @since 0.181.0 *)
+(** Set the per-call total deadline for non-streaming HTTP response body
+    consumption. This separately bounds a provider-native input-count
+    preflight and a non-streaming completion; it is not a combined turn
+    deadline. Requires a clock to be provided to the underlying request;
+    without one the wrapper is skipped. The streaming completion itself
+    ignores this knob and relies on [with_stream_idle_timeout] for inter-line
+    liveness; only its optional non-streaming count preflight uses this
+    deadline. @since 0.181.0 *)
 val with_body_timeout : float -> t -> t
 
 val with_elicitation : Hooks.elicitation_callback -> t -> t
