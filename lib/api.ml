@@ -39,8 +39,8 @@ let create_message_error_of_http_error = function
       http_error
       (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
   | Llm_provider.Http_client.ProviderFailure
-      { kind = Llm_provider.Http_client.Empty_completion { stop_reason }; message }
-    as http_error ->
+      { kind = Llm_provider.Http_client.Empty_completion { stop_reason }; message } as
+    http_error ->
     (* The #2621 empty-completion overflow rule lives in one place now:
        [Retry.overflow_of_empty_completion]. A ContextWindowExceeded empty turn
        is a context-overflow contract (only compaction makes progress, not
