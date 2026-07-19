@@ -52,6 +52,12 @@ type abort_reason =
       ; data : Yojson.Safe.t option
       }
 
+type operator_repair_reason = Effect_outcome_unknown
+
+type recovery_action =
+  | Retire
+  | Operator_repair_required of operator_repair_reason
+
 type error =
   | Admission_failed of Writer.submit_error
   | Mutation_failed of Writer.ticket_error
@@ -501,4 +507,34 @@ let abort scope reason =
   in
   transact_cleanup scope.writer (Tx.abort_run ~run:scope.run terminal)
   |> Result.map ignore
+;;
+
+let terminal_recovery_action scope =
+  let rec visit = function
+    | [] -> Ok Retire
+    | node :: rest ->
+      (match Writer.find_node scope.writer node with
+       | Error error -> Error (Scope_unavailable error)
+       | Ok None -> Error (Resume_topology_mismatch "execution descendant disappeared")
+       | Ok (Some view) ->
+         (match view.Journal.materialized, view.children with
+          | Journal.Tool_invocation_state { result = None; _ }, _ :: _ ->
+            Ok (Operator_repair_required Effect_outcome_unknown)
+          | ( ( Journal.Agent_run_state
+              | Journal.Agent_turn_state
+              | Journal.Provider_attempt_state _
+              | Journal.Output_block_state _
+              | Journal.Tool_attempt_state
+              | Journal.Tool_invocation_state { result = Some _; _ }
+              | Journal.Tool_invocation_state { result = None; _ } )
+            , children ) ->
+            visit
+              (List.rev_append
+                 (List.map
+                    (fun (child : Event.node Journal.event_record) ->
+                       Event.node_id child.value)
+                    children)
+                 rest)))
+  in
+  visit [ Journal.run_root scope.run ]
 ;;

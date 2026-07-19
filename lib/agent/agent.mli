@@ -150,6 +150,22 @@ type execution_store
 (** Opaque durable identity for one Agent API-call execution scope. *)
 type execution_locator
 
+type execution_terminal_outcome =
+  | Terminal_succeeded
+  | Terminal_failed
+  | Terminal_cancelled
+
+type execution_operator_repair_reason = Effect_outcome_unknown
+
+type execution_recovery_action =
+  | Retire
+  | Operator_repair_required of execution_operator_repair_reason
+
+type execution_terminal_disposition =
+  { outcome : execution_terminal_outcome
+  ; recovery : execution_recovery_action
+  }
+
 val execution_locator_to_yojson : execution_locator -> Yojson.Safe.t
 
 (** Decode the exact versioned locator emitted by
@@ -178,11 +194,26 @@ val create_execution_runtime
     [on_scope_ready], when supplied, must persist the opaque locator before
     provider or Tool effects begin. It is invoked for both fresh and resumed
     scopes, so the sink should be idempotent. Failure aborts the scope and the
-    Agent call. *)
+    Agent call.
+
+    [on_terminal_disposition] is invoked after the terminal journal commit and
+    successful writer drain, before this Agent call returns. [Retire] means the
+    caller-owned recovery locator may be removed.
+    [Operator_repair_required Effect_outcome_unknown] means an admitted Tool
+    attempt has no settled result, so automatic retry could duplicate an
+    external effect. The sink should persist the decision idempotently. A
+    returned error or non-reserved exception fails the Agent call with
+    [Error.Internal] after the terminal commit; the recovery locator must
+    remain. If writer drain fails, the sink is not invoked and the locator must
+    likewise remain. Caller cancellation is protected through terminal
+    settlement, writer drain, and callback, then re-raised. If callback cleanup
+    also fails, cancellation remains the primary exception and the cleanup
+    failure is logged. *)
 val execution_store
   :  runtime:execution_runtime
   -> dir:Eio.Fs.dir_ty Eio.Path.t
   -> ?on_scope_ready:(execution_locator -> (unit, string) result)
+  -> ?on_terminal_disposition:(execution_terminal_disposition -> (unit, string) result)
   -> ?resume:execution_locator
   -> unit
   -> execution_store

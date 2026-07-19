@@ -186,6 +186,14 @@ original tag dates. `0.100.4` was never tagged or released.
   re-export. Scripted provider responses remain test-only code, not an SDK
   runtime provider.
 
+### Features
+
+* **durable execution:** add an optional typed terminal-disposition sink to
+  `Agent.execution_store`. After the terminal journal commit it distinguishes
+  safe locator retirement from operator repair required for an admitted Tool
+  attempt whose external effect outcome is unknown, without changing the
+  existing Agent run surfaces or classifying error strings (#2687).
+
 ### Bug Fixes
 
 * **eval collection:** atomically cancel and drain event-bus subscriptions
