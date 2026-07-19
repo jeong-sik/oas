@@ -2112,12 +2112,20 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
      let (_ : string) = empty_text in
      ()
    | None -> ());
-  (* Tool calls. Ollama typically emits these complete in the done
-     chunk rather than incrementally. We still keyed-cache by the
-     per-tool index so a server that DID stream them incrementally
-     would get correct accumulation behaviour. *)
+  (* Tool calls. Ollama native streams can emit complete calls in separate
+     chunks; each chunk's JSON array restarts its positional index. Therefore
+     an id-less [Args_complete] item is a new occurrence even when a prior
+     chunk used the same array index. String argument fragments remain routed
+     by wire index until their call completes. *)
   List.iter
     (fun (tc : ollama_tool_call_delta) ->
+       let idless_semantics =
+         match non_blank_provider_tool_id tc.oll_tc_id, tc.oll_tc_arguments with
+         | Some _, (Some (Args_fragment _ | Args_complete _) | None) ->
+           Continue_by_wire_index
+         | None, Some (Args_complete _) -> Complete_occurrence
+         | None, (Some (Args_fragment _) | None) -> Continue_by_wire_index
+       in
        let block_idx =
          resolve_tool_block
            state
@@ -2126,7 +2134,7 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
            ~provider_tool_id:tc.oll_tc_id
            ~tool_name:tc.oll_tc_name
            ~index_policy:Next_available
-           ~idless_semantics:Continue_by_wire_index
+           ~idless_semantics
        in
        let resolution, start = block_idx in
        Option.iter emit start;

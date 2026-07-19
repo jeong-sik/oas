@@ -348,22 +348,6 @@ let gemini_tool_signatures_of_blocks blocks =
   tbl
 ;;
 
-(** Build a tool_use_id -> tool_name lookup table from message history.
-    Gemini's functionResponse requires the function NAME, but OAS
-    ToolResult only carries the tool_use_id (a UUID). *)
-let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t =
-  let tbl = Hashtbl.create 8 in
-  List.iter
-    (fun (msg : message) ->
-       List.iter
-         (function
-           | ToolUse { id; name; _ } -> Hashtbl.replace tbl id name
-           | _ -> ())
-         msg.content)
-    messages;
-  tbl
-;;
-
 (* ── Content block -> Gemini part ───────────────────── *)
 
 let inline_data_part ~block ~media_type ~data source_type =
@@ -439,18 +423,12 @@ let part_of_content_block id_to_name tool_signatures = function
     Some (`Assoc fields)
   | ToolResult { tool_use_id; content; _ } ->
     let name =
-      match Hashtbl.find_opt id_to_name tool_use_id with
-      | Some n -> n
-      | None ->
-        Diag.warn
-          "backend_gemini"
-          "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Gemini API requires name). This usually \
-           means the ToolUse block was in a conversation turn that was compacted or \
-           trimmed."
-          tool_use_id
-          (Hashtbl.length id_to_name);
-        tool_use_id
+      match Tool_history_index.resolve id_to_name ~tool_use_id with
+      | Ok name -> name
+      | Error error ->
+        invalid_arg
+          ("Backend_gemini.contents_of_messages: "
+           ^ Tool_history_index.error_to_string error)
     in
     Some
       (`Assoc
@@ -580,7 +558,14 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
 
 let contents_of_messages (messages : message list) =
   let messages = Api_common.merge_tool_result_followup_user_messages messages in
-  let id_to_name = build_tool_id_to_name messages in
+  let id_to_name =
+    match Tool_history_index.of_messages messages with
+    | Ok index -> index
+    | Error error ->
+      invalid_arg
+        ("Backend_gemini.contents_of_messages: "
+         ^ Tool_history_index.error_to_string error)
+  in
   let system_parts = ref [] in
   let contents = ref [] in
   List.iter

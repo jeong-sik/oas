@@ -1198,12 +1198,12 @@ let test_gemma4_reasoning_dialect_uses_template_parser () =
   check
     string
     "replay policy"
-    "no_replay"
+    "latest_user_turn_tool_calls"
     (RD.replay_policy_to_string dialect.replay_policy);
   check
     bool
-    "no tool-call replay requirement"
-    false
+    "native tool-call thinking replay required"
+    true
     (RD.requires_reasoning_replay_on_tool_call dialect);
   check
     (list string)

@@ -331,6 +331,56 @@ let test_tool_result () =
   check string "function call id" "call_123" (function_call |> member "id" |> to_string)
 ;;
 
+let test_tool_result_missing_correlation_fails_closed () =
+  let messages =
+    [ ({ role = Types.Tool
+       ; content =
+           [ Types.ToolResult
+               { tool_use_id = "missing-call"
+               ; content = "result"
+               ; outcome = Tool_succeeded
+               ; json = None
+               ; content_blocks = None
+               }
+           ]
+       ; name = None
+       ; tool_call_id = None
+       ; metadata = []
+       }
+       : Types.message)
+    ]
+  in
+  match Backend_gemini.contents_of_messages messages with
+  | _ -> fail "expected missing Gemini tool correlation to fail closed"
+  | exception Invalid_argument message ->
+    check
+      string
+      "missing correlation"
+      "Backend_gemini.contents_of_messages: ToolResult identity \"missing-call\" has no \
+       matching ToolUse"
+      message
+;;
+
+let test_conflicting_tool_identity_fails_closed () =
+  let tool_use name : Types.message =
+    { role = Assistant
+    ; content = [ ToolUse { id = "call-1"; name; input = `Assoc [] } ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  match Backend_gemini.contents_of_messages [ tool_use "lookup"; tool_use "write" ] with
+  | _ -> fail "expected conflicting Gemini tool identity to fail closed"
+  | exception Invalid_argument message ->
+    check
+      string
+      "conflicting identity"
+      "Backend_gemini.contents_of_messages: conflicting ToolUse identity \"call-1\" \
+       names \"lookup\" and \"write\""
+      message
+;;
+
 let test_dangling_tool_use_is_not_synthetically_closed () =
   let config = gemini_config () in
   let messages =
@@ -1678,6 +1728,14 @@ let () =
             `Quick
             test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
+        ; test_case
+            "tool result missing correlation"
+            `Quick
+            test_tool_result_missing_correlation_fails_closed
+        ; test_case
+            "conflicting tool identity"
+            `Quick
+            test_conflicting_tool_identity_fails_closed
         ; test_case
             "dangling tool use is not synthetically closed"
             `Quick
