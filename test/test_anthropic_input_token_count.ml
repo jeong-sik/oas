@@ -79,6 +79,13 @@ let config
     ()
 ;;
 
+let kimi_config ?max_context base_url =
+  { (config ~kind:Provider_config.Kimi ?max_context base_url) with
+    response_format = Off
+  ; output_schema = None
+  }
+;;
+
 let response =
   { id = "prepared-response"
   ; model = "input-count-fixture"
@@ -142,6 +149,29 @@ let test_shared_projection () =
     [ "model"; "messages"; "system"; "tools"; "tool_choice"; "output_config" ];
   List.iter
     (fun name -> check bool ("count omits " ^ name) false (List.mem_assoc name count))
+    [ "max_tokens"; "stream"; "temperature"; "top_p"; "top_k" ]
+;;
+
+let test_kimi_shared_projection () =
+  let cfg = kimi_config "https://api.kimi.com/coding" in
+  let completion =
+    Backend_anthropic.build_request ~config:cfg ~messages ~tools:[ tool ] () |> assoc
+  in
+  let count =
+    Backend_anthropic.build_count_tokens_request ~config:cfg ~messages ~tools:[ tool ] ()
+    |> assoc
+  in
+  List.iter
+    (fun name ->
+       check
+         string
+         ("Kimi shared field " ^ name)
+         (field_json name completion)
+         (field_json name count))
+    [ "model"; "messages"; "system"; "tools"; "tool_choice" ];
+  List.iter
+    (fun name ->
+       check bool ("Kimi count omits " ^ name) false (List.mem_assoc name count))
     [ "max_tokens"; "stream"; "temperature"; "top_p"; "top_k" ]
 ;;
 
@@ -230,6 +260,34 @@ let test_transport_success () =
     "canonical request body"
     (Backend_anthropic.build_count_tokens_request
        ~config:(config "unused")
+       ~messages
+       ~tools:[ tool ]
+       ())
+    body
+;;
+
+let test_kimi_transport_success () =
+  let result, (path, headers, body) =
+    with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
+    @@ fun ~sw ~net ~base_url ->
+    let cfg = kimi_config base_url in
+    Count_tokens_sync.measure_completion_request ~sw ~net (completion_request cfg)
+  in
+  (match result with
+   | Ok measurement ->
+     check int "Kimi input tokens" 321 measurement.input_count.input_tokens
+   | Error _ -> fail "expected native Kimi count success");
+  check string "Kimi count path" "/proxy/messages/count_tokens" path;
+  check
+    (option string)
+    "Kimi x-api-key"
+    (Some "test-key")
+    (Cohttp.Header.get headers "x-api-key");
+  check
+    string
+    "Kimi canonical request body"
+    (Backend_anthropic.build_count_tokens_request
+       ~config:(kimi_config "unused")
        ~messages
        ~tools:[ tool ]
        ())
@@ -462,6 +520,32 @@ let test_agent_overflow_blocks_dispatch () =
   | Ok _, _ -> fail "overflowed prepared request must not dispatch"
 ;;
 
+let test_kimi_agent_overflow_blocks_dispatch () =
+  let result, _captured =
+    with_mock ~status:`OK ~response:{|{"input_tokens":500}|}
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = kimi_config ~max_context:512 base_url in
+    let dispatched = ref false in
+    let transport =
+      { Llm_transport.complete_sync =
+          (fun _ ->
+            dispatched := true;
+            { Llm_transport.response = Ok response; latency_ms = None })
+      ; complete_stream =
+          (fun ?on_telemetry:_ ~on_event:_ _ -> fail "unexpected stream dispatch")
+      }
+    in
+    let agent = build_admission_agent ~net ~provider_config ~transport in
+    let result = Agent_sdk.Agent.run ~sw agent "overflow" in
+    result, !dispatched
+  in
+  match result with
+  | Error (Agent_sdk.Error.Api (Retry.ContextOverflow { limit = Some 512; _ })), false ->
+    ()
+  | Error error, _ -> fail (Agent_sdk.Error.to_string error)
+  | Ok _, _ -> fail "overflowed Kimi request must not dispatch"
+;;
+
 let test_invalid_count_response_is_provider_parse_failure () =
   let result, _captured =
     with_mock ~status:`OK ~response:{|{"unexpected":true}|}
@@ -590,9 +674,13 @@ let test_count_tokens_url () =
 let () =
   run
     "anthropic-input-token-count"
-    [ "request", [ test_case "shared canonical projection" `Quick test_shared_projection ]
+    [ ( "request"
+      , [ test_case "shared canonical projection" `Quick test_shared_projection
+        ; test_case "Kimi shared canonical projection" `Quick test_kimi_shared_projection
+        ] )
     ; ( "transport"
       , [ test_case "native success" `Quick test_transport_success
+        ; test_case "Kimi native success" `Quick test_kimi_transport_success
         ; test_case
             "prepared measure admit dispatch"
             `Quick
@@ -625,6 +713,10 @@ let () =
             "Agent overflow blocks dispatch"
             `Quick
             test_agent_overflow_blocks_dispatch
+        ; test_case
+            "Kimi Agent overflow blocks dispatch"
+            `Quick
+            test_kimi_agent_overflow_blocks_dispatch
         ; test_case
             "invalid count response is provider parse failure"
             `Quick

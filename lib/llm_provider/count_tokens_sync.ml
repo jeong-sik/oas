@@ -25,7 +25,7 @@ let count_anthropic
   =
   let protocol = Input_token_count.Anthropic_messages_count_tokens in
   match config.kind with
-  | Provider_config.Anthropic ->
+  | Provider_config.Anthropic | Provider_config.Kimi ->
     let request_body =
       try
         Ok (Backend_anthropic.build_count_tokens_request ~config ~messages ~tools ())
@@ -57,7 +57,6 @@ let count_anthropic
       ~protocol
       ~model_id:config.model_id
       response_body
-  | Provider_config.Kimi
   | Provider_config.OpenAI_compat
   | Provider_config.Ollama
   | Provider_config.Gemini
@@ -78,8 +77,7 @@ type completion_request_error =
 
 let supports_completion_request_measurement (config : Provider_config.t) =
   match config.kind with
-  | Provider_config.Anthropic -> true
-  | Provider_config.Kimi
+  | Provider_config.Anthropic | Provider_config.Kimi -> true
   | Provider_config.OpenAI_compat
   | Provider_config.Ollama
   | Provider_config.Gemini
