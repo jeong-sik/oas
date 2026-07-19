@@ -5,6 +5,7 @@ type wire_finish =
   | Refusal
   | Content_filter
   | Repetition_truncation
+  | Context_window_exceeded
   | Other of string
 
 let wire_finish_of_string s =
@@ -15,6 +16,11 @@ let wire_finish_of_string s =
   | "refusal" -> Refusal
   | "content_filter" -> Content_filter
   | "repetition_truncation" -> Repetition_truncation
+  (* SSOT parity with [Types.stop_reason_of_string]: the OpenAI/GLM finish-reason
+     decoder must recognize the canonical overflow token so an empty completion
+     that reports it reaches [Retry.overflow_of_empty_completion] as
+     [ContextWindowExceeded] instead of the [Unknown _] dead arm. *)
+  | "model_context_window_exceeded" -> Context_window_exceeded
   | other -> Other other
 ;;
 
@@ -26,6 +32,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Refusal -> Types.Refusal
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
+  | Context_window_exceeded -> Types.ContextWindowExceeded
   (* "trust content over label": a non-tool finish that nonetheless carried tool
      blocks is a tool-use turn (mirrors the historical non-streaming guard);
      without tool blocks it is surfaced verbatim as [Unknown]. *)
@@ -40,6 +47,7 @@ let provisional_of_string s : Types.stop_reason =
   | Refusal -> Types.Refusal
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
+  | Context_window_exceeded -> Types.ContextWindowExceeded
   | Other other -> Types.Unknown other
 ;;
 
@@ -141,4 +149,28 @@ let%test "known terminal reasons map identically on both paths" =
   && same "refusal"
   && same "content_filter"
   && same "repetition_truncation"
+  && same "model_context_window_exceeded"
+;;
+
+(* oas#2621 wire-root regression guard: the overflow finish-reason token must
+   decode to [ContextWindowExceeded] on BOTH the parse-time ([of_finish]) and
+   streaming ([provisional_of_string]) paths, and the guard must ignore
+   [has_tool_blocks] (an overflow turn is terminal regardless of any block set).
+   Reverting the [Context_window_exceeded] wire branch turns these RED. *)
+let%test "overflow token decodes to ContextWindowExceeded (parse-time, no tools)" =
+  of_finish (wire_finish_of_string "model_context_window_exceeded") ~has_tool_blocks:false
+  = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decodes to ContextWindowExceeded (parse-time, with tools)" =
+  of_finish (wire_finish_of_string "model_context_window_exceeded") ~has_tool_blocks:true
+  = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decodes to ContextWindowExceeded (streaming provisional)" =
+  provisional_of_string "model_context_window_exceeded" = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decode is case-insensitive" =
+  provisional_of_string "MODEL_CONTEXT_WINDOW_EXCEEDED" = Types.ContextWindowExceeded
 ;;
