@@ -73,6 +73,12 @@ val resume_running
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn option, error) result
 
+(** Recover the single open turn from durable topology. This is a recovery-only
+    lookup; callers must not reconstruct its ordinal from mutable agent state. *)
+val resume_open_turn : t -> (turn option, error) result
+
+val turn_ordinal : turn -> int
+
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt
   :  turn
