@@ -115,6 +115,39 @@ let classify_settled agent =
              message"))
 ;;
 
+(* Reconstruct a terminal turn's response from the durably-settled assistant
+   message the resume restored (After_assistant_collected checkpoint). The
+   content is the exact settled message content; [stop_reason] is [EndTurn]
+   because a terminal turn stopped with no pending tool calls. Per-call
+   [usage]/[telemetry] and the provider response [id] are not part of the
+   persisted checkpoint, so they surface as empty/[None] rather than being
+   fabricated. Returning the settled result is a recovery, not a recomputation. *)
+let response_of_settled_terminal agent (message : Types.message) : Types.api_response =
+  { Types.id = ""
+  ; model = agent.Agent_types.state.config.model
+  ; stop_reason = EndTurn
+  ; content = message.content
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+(* Idempotent completed boundary: the turn is already [Closed Succeeded] under a
+   still-[Running] root (crash between the provider close, the turn close, and the
+   root finish of a fully-settled turn). Complete any interrupted [close_success]
+   (close the still-open turn), then surface the already-settled turn outcome so
+   the run loop advances exactly as the un-crashed run would have — replaying the
+   settled results without re-executing effects and without aborting the root as
+   Failed. [tools_settled] is the completed-tool-turn outcome; [terminal] wraps
+   the reconstructed final assistant response. *)
+let run_settled agent boundary ~tools_settled ~terminal =
+  let* () = Pipeline_execution_scope.finalize_settled boundary in
+  let* replay = classify_settled agent in
+  match replay with
+  | Replay_tools_settled -> Ok tools_settled
+  | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
+;;
+
 let run agent execution ~execute ~already_settled =
   let outcome =
     match last_tool_turn agent.Agent_types.state.messages with
@@ -158,4 +191,26 @@ let run agent execution ~execute ~already_settled =
   | Error _ as error -> error
   | Ok outcome ->
     Pipeline_execution_scope.close_success execution |> Result.map (fun () -> outcome)
+;;
+
+(* Dispatch one pipeline turn against the durable-execution scope. Consume the
+   one-shot resume flag and classify what the restored scope found at the turn
+   ordinal: [Active] resumes an in-progress turn/provider via {!run}; [Settled]
+   surfaces an already-settled boundary via {!run_settled}; [Fresh] (no resume
+   requested, or nothing left to resume) runs a new turn via [fresh]. The resume
+   flag is consumed here — before [fresh] — exactly as the pre-crash run would
+   have, so effects and order match the non-resumed path. *)
+let dispatch agent ~ordinal ~execute ~tools_settled ~terminal ~fresh =
+  let* resumed =
+    if Execution_context.take_resume_once ()
+    then
+      Pipeline_execution_scope.resume_current (Execution_context.agent_scope ()) ~ordinal
+    else Ok Pipeline_execution_scope.Fresh
+  in
+  match resumed with
+  | Pipeline_execution_scope.Active execution ->
+    run agent execution ~execute ~already_settled:tools_settled
+  | Pipeline_execution_scope.Settled boundary ->
+    run_settled agent boundary ~tools_settled ~terminal
+  | Pipeline_execution_scope.Fresh -> fresh ()
 ;;
