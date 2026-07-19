@@ -258,6 +258,41 @@ let test_openai_parse_edge_shapes () =
        reason;
      check string "projected batch raw payload" mixed_tool_calls raw
    | _ -> fail "malformed batch must emit exactly one SSEParseFailed event");
+  let valid_then_malformed =
+    {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-valid","type":"function","function":{"name":"lookup","arguments":"{}"}},{"index":"bad"}]},"finish_reason":null}]}|}
+  in
+  let valid_then_malformed_result = S.parse_openai_sse_chunk valid_then_malformed in
+  (match valid_then_malformed_result with
+   | S.Openai_parse_failed { reason; raw } ->
+     check
+       string
+       "valid-first batch failure reason"
+       "malformed_delta_tool_call:position:1:index_not_nonnegative_integer"
+       reason;
+     check string "valid-first batch raw payload" valid_then_malformed raw
+   | S.Openai_chunk _ -> fail "valid prefix must not survive a malformed suffix"
+   | S.Openai_done -> fail "valid-first mixed payload cannot be DONE"
+   | S.Openai_empty -> fail "valid-first mixed payload cannot be empty"
+   | S.Openai_provider_error _ -> fail "valid-first mixed payload is not a provider error");
+  let valid_first_events, valid_first_telemetry =
+    S.openai_sse_parse_result_to_events
+      (S.create_openai_stream_state ~provider:"p" ~model:"m" ())
+      valid_then_malformed_result
+  in
+  check
+    bool
+    "valid-first parse failure has no telemetry"
+    true
+    (Option.is_none valid_first_telemetry);
+  (match valid_first_events with
+   | [ SSEParseFailed { reason; raw } ] ->
+     check
+       string
+       "valid-first projected failure reason"
+       "malformed_delta_tool_call:position:1:index_not_nonnegative_integer"
+       reason;
+     check string "valid-first projected raw payload" valid_then_malformed raw
+   | _ -> fail "valid prefix must not emit before a malformed suffix");
   let non_list_tool_calls =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":{"unexpected":true}},"finish_reason":null}]}|}
   in
