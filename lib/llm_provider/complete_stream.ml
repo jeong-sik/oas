@@ -678,24 +678,26 @@ let complete_stream_http
                        ~reader
                        ~on_line:(fun line ->
                          observe_wire_chunk line;
-                         match Streaming.parse_ollama_ndjson_chunk line with
-                         | None ->
-                           dispatch
-                             ( [ Types.SSEParseFailed
-                                   { raw = line
-                                   ; reason = "ollama_ndjson_chunk_parse_failure"
-                                   }
-                               ]
-                             , None )
-                         | Some chunk ->
-                           (match chunk.oll_timings with
-                            | Some _ as t -> ollama_timings := t
-                            | None -> ());
-                           (match chunk.oll_usage with
-                            | Some _ as u -> ollama_usage := u
-                            | None -> ());
-                           dispatch
-                             (Streaming.ollama_chunk_to_events (get_state ()) chunk))
+                         if not (Complete_stream_acc.stream_failed acc)
+                         then (
+                           match Streaming.parse_ollama_ndjson_chunk line with
+                           | None ->
+                             dispatch
+                               ( [ Types.SSEParseFailed
+                                     { raw = line
+                                     ; reason = "ollama_ndjson_chunk_parse_failure"
+                                     }
+                                 ]
+                               , None )
+                           | Some chunk ->
+                             (match chunk.oll_timings with
+                              | Some _ as t -> ollama_timings := t
+                              | None -> ());
+                             (match chunk.oll_usage with
+                              | Some _ as u -> ollama_usage := u
+                              | None -> ());
+                             dispatch
+                               (Streaming.ollama_chunk_to_events (get_state ()) chunk)))
                        ()
                    | _non_ollama_kind ->
                      Http_client.read_sse
@@ -704,41 +706,46 @@ let complete_stream_http
                        ~reader
                        ~on_data:(fun ~event_type data ->
                          observe_wire_chunk data;
-                         let events =
-                           match http_codec with
-                           | Provider_http_codec.Anthropic_messages ->
-                             (match Streaming.parse_sse_event event_type data with
-                              | Some evt -> [ evt ], None
-                              | None -> [], None)
-                           | Provider_http_codec.Openai_responses ->
-                             Streaming.responses_sse_to_events
-                               (get_state ())
-                               event_type
-                               data
-                           | Provider_http_codec.Openai_chat ->
-                             Streaming.parse_openai_sse_chunk ~streaming_reasoning data
-                             |> Streaming.openai_sse_parse_result_to_events (get_state ())
-                           | Provider_http_codec.Gemini_generate_content ->
-                             (match Streaming.parse_gemini_sse_chunk data with
-                              | Some chunk ->
-                                Streaming.gemini_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                ( [ Types.SSEParseFailed
-                                      { raw = data
-                                      ; reason = "gemini_sse_chunk_parse_failure"
-                                      }
-                                  ]
-                                , None ))
-                           | Provider_http_codec.Glm_chat ->
-                             Backend_glm.parse_stream_chunk data
-                             |> Streaming.openai_sse_parse_result_to_events (get_state ())
-                           | Provider_http_codec.Ollama_chat ->
-                             [], None (* unreachable: handled above *)
-                         in
-                         dispatch events)
+                         if not (Complete_stream_acc.stream_failed acc)
+                         then (
+                           let events =
+                             match http_codec with
+                             | Provider_http_codec.Anthropic_messages ->
+                               (match Streaming.parse_sse_event event_type data with
+                                | Some evt -> [ evt ], None
+                                | None -> [], None)
+                             | Provider_http_codec.Openai_responses ->
+                               Streaming.responses_sse_to_events
+                                 (get_state ())
+                                 event_type
+                                 data
+                             | Provider_http_codec.Openai_chat ->
+                               Streaming.parse_openai_sse_chunk ~streaming_reasoning data
+                               |> Streaming.openai_sse_parse_result_to_events
+                                    (get_state ())
+                             | Provider_http_codec.Gemini_generate_content ->
+                               (match Streaming.parse_gemini_sse_chunk data with
+                                | Some chunk ->
+                                  Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                | None ->
+                                  ( [ Types.SSEParseFailed
+                                        { raw = data
+                                        ; reason = "gemini_sse_chunk_parse_failure"
+                                        }
+                                    ]
+                                  , None ))
+                             | Provider_http_codec.Glm_chat ->
+                               Backend_glm.parse_stream_chunk data
+                               |> Streaming.openai_sse_parse_result_to_events
+                                    (get_state ())
+                             | Provider_http_codec.Ollama_chat ->
+                               [], None (* unreachable: handled above *)
+                           in
+                           dispatch events))
                        ());
                   Ok ()
                 with
+                | Eio.Time.Timeout when Complete_stream_acc.stream_failed acc -> Ok ()
                 | Eio.Time.Timeout ->
                   let phase =
                     Http_client.timeout_phase_of_stream_idle_state !stream_idle_state

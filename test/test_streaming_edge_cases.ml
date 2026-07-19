@@ -364,6 +364,9 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
     ; ( "scalar arguments"
       , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":true}}]}}]}|}
       , "malformed_delta_tool_call:position:0:arguments_invalid_type" )
+    ; ( "array arguments"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":[]}}]}}]}|}
+      , "malformed_delta_tool_call:position:0:arguments_invalid_type" )
     ]
   in
   List.iter
@@ -389,6 +392,86 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
          check string (label ^ " event raw") raw observed_raw
        | _ -> fail (label ^ ": expected exactly one SSEParseFailed event"))
     cases
+;;
+
+let test_openai_tool_route_conflict_is_transactional () =
+  let tc tc_index tc_id tc_name tc_arguments : S.openai_tool_call_delta =
+    { tc_index; tc_id = Some tc_id; tc_name = Some tc_name; tc_arguments }
+  in
+  let state = S.create_openai_stream_state () in
+  let conflicting_chunk =
+    openai_chunk
+      ~delta_reasoning:"plan"
+      ~delta_content:"answer"
+      ~delta_tool_calls:
+        [ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|}))
+        ; tc 1 "call-b" "second" (Some (S.Args_complete {|{"b":2}|}))
+        ; tc 1 "call-a" "first" None
+        ]
+      ()
+  in
+  let events, telemetry = S.openai_chunk_to_events state conflicting_chunk in
+  check bool "route conflict has no telemetry" true (Option.is_none telemetry);
+  (match events with
+   | [ SSEParseFailed { raw; reason } ] ->
+     check string "route conflict raw" "openai tool_call index 1" raw;
+     check
+       string
+       "route conflict reason"
+       "provider_tool_call_id_route_conflict: one provider identity used multiple wire \
+        routes"
+       reason
+   | _ -> fail "valid siblings must not emit before a later route conflict");
+  let retry_events, _ =
+    S.openai_chunk_to_events
+      state
+      (openai_chunk
+         ~delta_reasoning:"plan"
+         ~delta_content:"answer"
+         ~delta_tool_calls:[ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|})) ]
+         ())
+  in
+  (match retry_events with
+   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "plan" }
+     ; ContentBlockStart { index = 1; content_type = "text"; _ }
+     ; ContentBlockDelta { index = 1; delta = TextDelta "answer" }
+     ; ContentBlockStart { index = 2; content_type = "tool_use"; _ }
+     ; ContentBlockDelta { index = 2; delta = InputJsonSnapshot {|{"a":1}|} }
+     ] -> ()
+   | _ -> fail "route-conflict rollback must leave the stream state unchanged");
+  let shared_index_state = S.create_openai_stream_state () in
+  let shared_index_conflict, _ =
+    S.openai_chunk_to_events
+      shared_index_state
+      (openai_chunk
+         ~delta_tool_calls:
+           [ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|}))
+           ; tc 0 "call-b" "second" (Some (S.Args_complete {|{"b":2}|}))
+           ; { S.tc_index = 0; tc_id = None; tc_name = None; tc_arguments = None }
+           ]
+         ())
+  in
+  (match shared_index_conflict with
+   | [ SSEParseFailed { reason; _ } ] ->
+     check
+       string
+       "same-key route conflict reason"
+       "ambiguous_tool_call_index: id-less continuation follows multiple tool identities"
+       reason
+   | _ -> fail "same-key route conflict must discard every earlier sibling");
+  let shared_index_retry, _ =
+    S.openai_chunk_to_events
+      shared_index_state
+      (openai_chunk
+         ~delta_tool_calls:[ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|})) ]
+         ())
+  in
+  match shared_index_retry with
+  | [ ContentBlockStart { index = 0; content_type = "tool_use"; _ }
+    ; ContentBlockDelta { index = 0; delta = InputJsonSnapshot {|{"a":1}|} }
+    ] -> ()
+  | _ -> fail "same-key journal rollback must restore the missing route"
 ;;
 
 let test_openai_event_edge_branches () =
@@ -675,6 +758,10 @@ let () =
             "malformed tool-call shapes fail closed"
             `Quick
             test_openai_malformed_tool_call_shapes_fail_closed
+        ; test_case
+            "tool route conflict is transactional"
+            `Quick
+            test_openai_tool_route_conflict_is_transactional
         ; test_case "event edge branches" `Quick test_openai_event_edge_branches
         ] )
     ; ( "gemini_sse"

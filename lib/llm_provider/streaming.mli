@@ -44,10 +44,10 @@ val sse_event_is_deliverable_progress_signal : sse_event -> bool
 (** {1 Openai SSE} *)
 
 (** Wire shape of streamed tool-call arguments. [Args_fragment] is an incremental
-    string chunk the accumulator appends; [Args_complete] is a whole object/array
-    value serialized in a single delta, which the accumulator uses to replace the
-    block buffer so a re-emitted complete value does not concatenate into invalid
-    JSON. *)
+    string chunk the accumulator appends; [Args_complete] is a whole JSON-value
+    snapshot serialized in a single delta, which replaces the block buffer so a
+    re-emitted snapshot does not concatenate into invalid JSON. Each codec and
+    the completed ToolUse boundary validate the value shape they allow. *)
 type tool_call_arguments =
   | Args_fragment of string
   | Args_complete of string
@@ -95,8 +95,9 @@ type openai_sse_parse_result =
       }
   | Openai_parse_failed of openai_chunk_parse_error
 
-(** Mutable normalization state.  Its representation is private so callers
-    cannot bypass tool identity and block-routing invariants. *)
+(** Request-local mutable normalization state, owned by one sequential stream
+    decoder. Its representation is private so callers cannot bypass tool
+    identity and block-routing invariants or share its tables directly. *)
 type openai_stream_state
 
 val parse_openai_sse_chunk

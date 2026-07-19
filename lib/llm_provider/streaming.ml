@@ -297,9 +297,10 @@ let%test "emit_synthetic_events round-trips a media block through the accumulato
 
 (* Wire shape of streamed tool-call arguments. [Args_fragment] is an incremental
    string chunk that the accumulator appends; [Args_complete] is a whole
-   object/array value serialized in a single delta, which the accumulator uses
-   to replace the block buffer so a provider that re-emits the same complete
-   value does not concatenate it into invalid JSON. *)
+   JSON-value snapshot serialized in a single delta, which replaces the block
+   buffer so a provider that re-emits the same snapshot does not concatenate it
+   into invalid JSON. Each codec and the completed ToolUse boundary validate
+   the value shape they allow. *)
 type tool_call_arguments =
   | Args_fragment of string
   | Args_complete of string
@@ -462,17 +463,19 @@ let parse_delta_tool_call_arguments ~position function_json =
   match assoc_field_opt "arguments" function_json with
   | None | Some `Null -> Ok None
   | Some (`String arguments) -> Ok (Some (Args_fragment arguments))
-  | Some ((`Assoc _ | `List _) as arguments) ->
-    (* Some explicitly OpenAI-compatible servers send a complete JSON value
-       rather than the wire string fragment. This is a structural wire variant,
-       not a provider/model-name inference: the complete value replaces the
-       accumulator buffer instead of being concatenated. *)
-    Ok (Some (Args_complete (Yojson.Safe.to_string arguments)))
-  | Some (`Int _ | `Intlit _ | `Float _ | `Bool _) ->
-    Error
-      (Printf.sprintf
-         "malformed_delta_tool_call:position:%d:arguments_invalid_type"
-         position)
+  | Some arguments ->
+    (match Tool_call_input.validate_object arguments with
+     | Ok arguments ->
+       (* Some explicitly OpenAI-compatible servers send a complete JSON object
+          rather than the wire string fragment. This is a structural wire
+          variant, not a provider/model-name inference: the complete value
+          replaces the accumulator buffer instead of being concatenated. *)
+       Ok (Some (Args_complete (Yojson.Safe.to_string arguments)))
+     | Error (Tool_call_input.Invalid_json _ | Tool_call_input.Not_object) ->
+       Error
+         (Printf.sprintf
+            "malformed_delta_tool_call:position:%d:arguments_invalid_type"
+            position))
 ;;
 
 let parse_openai_delta_tool_call ~position = function
@@ -686,7 +689,9 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_sse_parse_resu
                openai_parse_failed ~raw:data_str ("invalid_argument: " ^ message)))))
 ;;
 
-(** Mutable state for converting Openai flat deltas to block-based events. *)
+(** Request-local mutable state for converting OpenAI flat deltas to block-based
+    events. One sequential stream decoder owns each value; it is never shared
+    across fibers or domains. *)
 type thinking_state =
   | Not_thinking
   | Thinking_started of float
@@ -743,6 +748,86 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   }
 ;;
 
+type openai_projection_scalar_snapshot =
+  { thinking_block_started : bool
+  ; thinking_block_index : int
+  ; text_block_started : bool
+  ; text_block_index : int
+  ; next_block_index : int
+  ; thinking_state : thinking_state
+  }
+
+type openai_projection_undo =
+  | Undo_tool_block_by_id of string * int option
+  | Undo_tool_index_route of int * tool_index_route option
+  | Undo_tool_block_identity of int * tool_block_identity option
+
+type openai_projection_tx =
+  { state : openai_stream_state
+  ; scalar_snapshot : openai_projection_scalar_snapshot
+  ; mutable undo : openai_projection_undo list
+  }
+
+let begin_openai_projection state =
+  { state
+  ; scalar_snapshot =
+      { thinking_block_started = state.thinking_block_started
+      ; thinking_block_index = state.thinking_block_index
+      ; text_block_started = state.text_block_started
+      ; text_block_index = state.text_block_index
+      ; next_block_index = state.next_block_index
+      ; thinking_state = state.thinking_state
+      }
+  ; undo = []
+  }
+;;
+
+let restore_table_entry table key = function
+  | Some value -> Hashtbl.replace table key value
+  | None -> Hashtbl.remove table key
+;;
+
+let rollback_openai_projection tx =
+  let state = tx.state in
+  let snapshot = tx.scalar_snapshot in
+  state.thinking_block_started <- snapshot.thinking_block_started;
+  state.thinking_block_index <- snapshot.thinking_block_index;
+  state.text_block_started <- snapshot.text_block_started;
+  state.text_block_index <- snapshot.text_block_index;
+  state.next_block_index <- snapshot.next_block_index;
+  state.thinking_state <- snapshot.thinking_state;
+  List.iter
+    (function
+      | Undo_tool_block_by_id (id, previous) ->
+        restore_table_entry state.tool_blocks_by_id id previous
+      | Undo_tool_index_route (index, previous) ->
+        restore_table_entry state.tool_block_indices index previous
+      | Undo_tool_block_identity (index, previous) ->
+        restore_table_entry state.tool_block_identities index previous)
+    tx.undo
+;;
+
+let tx_replace_tool_block_by_id tx id block_index =
+  tx.undo
+  <- Undo_tool_block_by_id (id, Hashtbl.find_opt tx.state.tool_blocks_by_id id) :: tx.undo;
+  Hashtbl.replace tx.state.tool_blocks_by_id id block_index
+;;
+
+let tx_replace_tool_index_route tx index route =
+  tx.undo
+  <- Undo_tool_index_route (index, Hashtbl.find_opt tx.state.tool_block_indices index)
+     :: tx.undo;
+  Hashtbl.replace tx.state.tool_block_indices index route
+;;
+
+let tx_replace_tool_block_identity tx index identity =
+  tx.undo
+  <- Undo_tool_block_identity
+       (index, Hashtbl.find_opt tx.state.tool_block_identities index)
+     :: tx.undo;
+  Hashtbl.replace tx.state.tool_block_identities index identity
+;;
+
 let tool_index_route_add_block route block_index =
   match route with
   | Tool_index_single existing when existing = block_index -> Tool_index_single existing
@@ -752,13 +837,15 @@ let tool_index_route_add_block route block_index =
     Tool_index_ambiguous (List.sort_uniq compare (block_index :: indices))
 ;;
 
-let record_tool_index_route table tool_index block_index =
+let record_tool_index_route ?tx state tool_index block_index =
   let route =
-    match Hashtbl.find_opt table tool_index with
+    match Hashtbl.find_opt state.tool_block_indices tool_index with
     | Some route -> tool_index_route_add_block route block_index
     | None -> Tool_index_single block_index
   in
-  Hashtbl.replace table tool_index route
+  match tx with
+  | Some tx -> tx_replace_tool_index_route tx tool_index route
+  | None -> Hashtbl.replace state.tool_block_indices tool_index route
 ;;
 
 type tool_block_index_policy =
@@ -819,12 +906,24 @@ let reject_tool_block ~protocol ~wire_index failure =
        })
 ;;
 
-let register_tool_block_identity state ~block_index identity =
-  Hashtbl.replace state.tool_blocks_by_id identity.id block_index;
-  Hashtbl.replace state.tool_block_identities block_index identity
+let register_tool_block_identity ?tx state ~block_index identity =
+  match tx with
+  | Some tx ->
+    tx_replace_tool_block_by_id tx identity.id block_index;
+    tx_replace_tool_block_identity tx block_index identity
+  | None ->
+    Hashtbl.replace state.tool_blocks_by_id identity.id block_index;
+    Hashtbl.replace state.tool_block_identities block_index identity
 ;;
 
-let open_tool_block state ~protocol ~wire_index ~provider_tool_id ~tool_name ~index_policy
+let open_tool_block
+      ?tx
+      state
+      ~protocol
+      ~wire_index
+      ~provider_tool_id
+      ~tool_name
+      ~index_policy
   =
   let block_index =
     match index_policy with
@@ -840,7 +939,7 @@ let open_tool_block state ~protocol ~wire_index ~provider_tool_id ~tool_name ~in
       | Some id -> { id; origin = Provider_supplied }
       | None -> { id = Api_common.fresh_tool_use_id (); origin = Oas_allocated }
     in
-    register_tool_block_identity state ~block_index identity;
+    register_tool_block_identity ?tx state ~block_index identity;
     state.next_block_index <- max state.next_block_index (block_index + 1);
     ( Tool_block_resolved { block_index; identity }
     , Some
@@ -853,6 +952,7 @@ let open_tool_block state ~protocol ~wire_index ~provider_tool_id ~tool_name ~in
 ;;
 
 let resolve_tool_block
+      ?tx
       state
       ~protocol
       ~wire_index
@@ -865,6 +965,7 @@ let resolve_tool_block
   let open_and_record () =
     let resolution, start =
       open_tool_block
+        ?tx
         state
         ~protocol
         ~wire_index
@@ -874,7 +975,7 @@ let resolve_tool_block
     in
     (match resolution with
      | Tool_block_resolved { block_index; _ } ->
-       record_tool_index_route state.tool_block_indices wire_index block_index
+       record_tool_index_route ?tx state wire_index block_index
      | Tool_block_rejected _ -> ());
     resolution, start
   in
@@ -945,12 +1046,11 @@ let openai_open_block_stops (state : openai_stream_state) : sse_event list =
   indices |> List.sort_uniq compare |> List.map (fun index -> ContentBlockStop { index })
 ;;
 
-(** Convert a parsed {!openai_chunk} into {!sse_event} list.
-    Synthesizes [ContentBlockStart] events on first occurrence of
-    text content or each new tool_call index, and a matching
-    [ContentBlockStop] for every open block on the terminal finish chunk. *)
-let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
-  : sse_event list * Telemetry_event.t option
+(** Project one parsed chunk into locally buffered events. Tool route failures
+    remain typed so the caller can roll back tool-bearing chunks before any
+    event escapes. *)
+let project_openai_chunk ?tx (state : openai_stream_state) (chunk : openai_chunk)
+  : (sse_event list * Telemetry_event.t option, sse_event) result
   =
   let events = ref [] in
   let emit evt = events := evt :: !events in
@@ -1044,61 +1144,98 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
      let (_ : string) = empty_text in
      ()
    | None -> ());
-  (* Tool call deltas *)
-  List.iter
-    (fun (tc : openai_tool_call_delta) ->
-       let resolution, start =
-         resolve_tool_block
-           state
-           ~protocol:"openai"
-           ~wire_index:tc.tc_index
-           ~provider_tool_id:tc.tc_id
-           ~tool_name:tc.tc_name
-           ~index_policy:Next_available
-           ~idless_semantics:Continue_by_wire_index
+  (* Tool call deltas are one state transaction with the rest of this chunk.
+     A late identity/index conflict rolls back every earlier sibling and
+     discards locally buffered events before the caller can observe them. *)
+  let rec emit_tool_calls = function
+    | [] -> Ok ()
+    | (tc : openai_tool_call_delta) :: rest ->
+      let resolution, start =
+        resolve_tool_block
+          ?tx
+          state
+          ~protocol:"openai"
+          ~wire_index:tc.tc_index
+          ~provider_tool_id:tc.tc_id
+          ~tool_name:tc.tc_name
+          ~index_policy:Next_available
+          ~idless_semantics:Continue_by_wire_index
+      in
+      (match resolution with
+       | Tool_block_rejected error -> Error error
+       | Tool_block_resolved { block_index; _ } ->
+         Option.iter emit start;
+         (match tc.tc_arguments with
+          | Some (Args_fragment args) when args <> "" ->
+            emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
+          | Some (Args_complete args) when args <> "" ->
+            emit
+              (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
+          | Some (Args_fragment _ | Args_complete _) | None -> ());
+         emit_tool_calls rest)
+  in
+  match emit_tool_calls chunk.delta_tool_calls with
+  | Error error -> Error error
+  | Ok () ->
+    (* Finish reason -> MessageDelta *)
+    (match chunk.finish_reason with
+     | Some reason ->
+       let stop_reason =
+         (* OpenAI wire vocabulary -> PROVISIONAL stop_reason. The accumulated
+            tool-block set is unknown at the chunk boundary (tool arguments arrive
+            as deltas before this terminal chunk), so a "tool_calls" finish is
+            recorded as a provisional StopToolUse and reconciled against the
+            assembled content in Complete_stream_acc.finalize_stream_acc
+            (Stop_reason_wire.reconcile). SSOT: the wire vocabulary lives in
+            Stop_reason_wire, not in an unguarded chunk-level match. *)
+         Stop_reason_wire.provisional_of_string reason
        in
-       Option.iter emit start;
-       match resolution, tc.tc_arguments with
-       | Tool_block_resolved { block_index; _ }, Some (Args_fragment args) when args <> ""
-         -> emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
-       | Tool_block_resolved { block_index; _ }, Some (Args_complete args) when args <> ""
-         ->
-         emit (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
-       | Tool_block_resolved _, Some (Args_fragment _ | Args_complete _)
-       | Tool_block_resolved _, None -> ()
-       | Tool_block_rejected error, _ -> emit error)
-    chunk.delta_tool_calls;
-  (* Finish reason -> MessageDelta *)
-  (match chunk.finish_reason with
-   | Some reason ->
-     let stop_reason =
-       (* OpenAI wire vocabulary -> PROVISIONAL stop_reason. The accumulated
-          tool-block set is unknown at the chunk boundary (tool arguments arrive
-          as deltas before this terminal chunk), so a "tool_calls" finish is
-          recorded as a provisional StopToolUse and reconciled against the
-          assembled content in Complete_stream_acc.finalize_stream_acc
-          (Stop_reason_wire.reconcile). SSOT: the wire vocabulary lives in
-          Stop_reason_wire, not in an unguarded chunk-level match. *)
-       Stop_reason_wire.provisional_of_string reason
-     in
-     (* Close every block this message opened before the terminal MessageDelta,
+       (* Close every block this message opened before the terminal MessageDelta,
           mirroring Anthropic's content_block_stop-then-message_delta ordering.
           Without this the OpenAI-compat stream leaves tool blocks open and a
           downstream per-message block-index consumer collides on the next
           message's reused index. *)
-     List.iter emit (openai_open_block_stops state);
-     emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
-   | None ->
-     (* With stream_options.include_usage the provider sends token totals in a
-        separate final chunk that has no finish_reason and an empty choices
-        array (hence no content/tool deltas). Emit a MessageDelta carrying only
-        the usage so the accumulator records it. The finish_reason branch above
-        already forwards usage when a stop arrives in the same chunk, so the two
-        paths are mutually exclusive and usage is never emitted twice. *)
-     (match chunk.chunk_usage with
-      | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
-      | None -> ()));
-  List.rev !events, !telemetry_event
+       List.iter emit (openai_open_block_stops state);
+       emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
+     | None ->
+       (* With stream_options.include_usage the provider sends token totals in a
+          separate final chunk that has no finish_reason and an empty choices
+          array (hence no content/tool deltas). Emit a MessageDelta carrying only
+          the usage so the accumulator records it. The finish_reason branch above
+          already forwards usage when a stop arrives in the same chunk, so the two
+          paths are mutually exclusive and usage is never emitted twice. *)
+       (match chunk.chunk_usage with
+        | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
+        | None -> ()));
+    Ok (List.rev !events, !telemetry_event)
+;;
+
+(** Convert a parsed {!openai_chunk} into {!sse_event} list.
+    Synthesizes [ContentBlockStart] events on first occurrence of text content
+    or each new tool-call identity, and matching stops on terminal chunks.
+
+    Tool-bearing chunks are transactional: a sibling route conflict returns
+    exactly one parse failure and rolls back every scalar/table mutation. The
+    structurally exact no-tool fast path avoids transaction allocation for the
+    common text/reasoning token stream. *)
+let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
+  : sse_event list * Telemetry_event.t option
+  =
+  match chunk.delta_tool_calls with
+  | [] ->
+    (match project_openai_chunk state chunk with
+     | Ok result -> result
+     | Error error -> [ error ], None)
+  | _ :: _ ->
+    let tx = begin_openai_projection state in
+    (match project_openai_chunk ~tx state chunk with
+     | Ok result -> result
+     | Error error ->
+       rollback_openai_projection tx;
+       [ error ], None
+     | exception exn ->
+       rollback_openai_projection tx;
+       raise exn)
 ;;
 
 let openai_sse_parse_result_to_events state = function
