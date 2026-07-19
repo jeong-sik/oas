@@ -50,10 +50,20 @@ type execution_terminal_disposition = Agent_execution_runner.terminal_dispositio
   ; recovery : execution_recovery_action
   }
 
+module Execution_projection = Agent_execution_projection
+
 let create_execution_runtime = Agent_execution_runner.create_runtime
 let execution_store = Agent_execution_runner.store
 let execution_locator_to_yojson = Agent_execution_runner.locator_to_yojson
 let execution_locator_of_yojson = Agent_execution_runner.locator_of_yojson
+
+let open_execution_projection ~runtime ~dir locator =
+  Execution_projection.open_durable
+    ~codec:(Agent_execution_runner.runtime_codec runtime)
+    ~dir
+    ~locator_run_id:(Agent_execution_runner.locator_run_id locator)
+    ()
+;;
 
 let replace_projected_error error detailed =
   { detailed with Provider_failure_attribution.error }
@@ -250,6 +260,32 @@ let run_loop_turns_detailed
   loop Held
 ;;
 
+let ambient_execution_scope_factory agent =
+  Execution_context.child_scope_factory ()
+  |> Option.map (fun start_child () -> start_child ~agent_name:agent.state.config.name)
+;;
+
+let run_with_execution_scope ~sw ?execution_store agent run =
+  let execution_scope_factory = ambient_execution_scope_factory agent in
+  match execution_store, execution_scope_factory with
+  | None, None -> run ~sw
+  | Some store, None ->
+    Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
+  | None, Some start_scope ->
+    (match start_scope () with
+     | Error error ->
+       Error
+         (detailed_error_of_sdk_error
+            (Error.Internal
+               ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
+     | Ok execution_scope ->
+       Agent_execution_runner.with_scope execution_scope (fun () -> run ~sw))
+  | Some _, Some _ ->
+    Error
+      (detailed_error_of_sdk_error
+         (Error.Internal "execution store and child scope factory are mutually exclusive"))
+;;
+
 let run_loop_detailed
       ~sw
       ?clock
@@ -257,7 +293,6 @@ let run_loop_detailed
       ?on_yield
       ?on_resume
       ?execution_store
-      ?execution_scope_factory
       agent
       user_blocks
   =
@@ -290,23 +325,7 @@ let run_loop_detailed
       ?raw_trace_run
       agent
   in
-  match execution_store, execution_scope_factory with
-  | None, None -> run ~sw
-  | Some store, None ->
-    Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
-  | None, Some start_scope ->
-    (match start_scope () with
-     | Error error ->
-       Error
-         (detailed_error_of_sdk_error
-            (Error.Internal
-               ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
-     | Ok execution_scope ->
-       Agent_execution_runner.with_scope execution_scope (fun () -> run ~sw))
-  | Some _, Some _ ->
-    Error
-      (detailed_error_of_sdk_error
-         (Error.Internal "execution store and child scope factory are mutually exclusive"))
+  run_with_execution_scope ~sw ?execution_store agent run
 ;;
 
 let run_loop
@@ -643,19 +662,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ?provider_config:agent.provider_config
       ()
   in
-  let result =
-    match Execution_context.child_scope_factory () with
-    | None -> run ~sw ?clock sub prompt
-    | Some start_child ->
-      run_loop_detailed
-        ~sw
-        ?clock
-        ~api_strategy:Sync
-        ~execution_scope_factory:(fun () -> start_child ~agent_name:target.config.name)
-        sub
-        [ Text prompt ]
-      |> project_detailed_error
-  in
+  let result = run ~sw ?clock sub prompt in
   publish_handoff_completed
     agent
     target
@@ -908,10 +915,7 @@ module Advanced = struct
         ~on_tool_boundary
         agent
     in
-    match execution_store with
-    | None -> run ~sw
-    | Some store ->
-      Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
+    run_with_execution_scope ~sw ?execution_store agent run
   ;;
 
   let run_blocks_detailed
@@ -977,11 +981,7 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
       ~api_strategy:(Stream { on_event; on_telemetry })
       agent
   in
-  (match execution_store with
-   | None -> run ~sw ()
-   | Some store ->
-     Agent_execution_runner.with_store store agent (fun ~sw _execution_scope ->
-       run ~sw ()))
+  run_with_execution_scope ~sw ?execution_store agent (fun ~sw -> run ~sw ())
   |> Result.map (function
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted)

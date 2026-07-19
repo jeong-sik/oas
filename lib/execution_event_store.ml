@@ -132,6 +132,13 @@ type error =
       { after_seq : int
       ; high_watermark : int
       }
+  | Commit_authority_identity_changed
+  | Commit_authority_regressed of
+      { previous_committed_offset : int64
+      ; actual_committed_offset : int64
+      ; previous_last_seq : int
+      ; actual_last_seq : int
+      }
   | Store_poisoned of string
   | Commit_outcome_unknown of string
 [@@deriving show]
@@ -184,6 +191,21 @@ let rec error_to_string = function
       "execution store cursor %d is ahead of high watermark %d"
       after_seq
       high_watermark
+  | Commit_authority_identity_changed ->
+    "execution store commit authority identity changed"
+  | Commit_authority_regressed
+      { previous_committed_offset
+      ; actual_committed_offset
+      ; previous_last_seq
+      ; actual_last_seq
+      } ->
+    Printf.sprintf
+      "execution store commit authority regressed from offset %Ld sequence %d to offset \
+       %Ld sequence %d"
+      previous_committed_offset
+      previous_last_seq
+      actual_committed_offset
+      actual_last_seq
   | Store_poisoned detail -> "execution store is poisoned: " ^ detail
   | Commit_outcome_unknown detail ->
     "execution store commit outcome is unknown: " ^ detail
@@ -604,8 +626,16 @@ type opened =
   ; replay_events : Event.t list
   }
 
-let scope_id store = store.scope_id
-let correlation_id store = store.correlation_id
+type read_only_snapshot =
+  { scope_id : Scope_id.t
+  ; correlation_id : Event.Correlation_id.t
+  ; committed_offset : int64
+  ; last_seq : int
+  ; appended_events : Event.t list
+  }
+
+let scope_id (store : t) = store.scope_id
+let correlation_id (store : t) = store.correlation_id
 let with_read store f = Eio.Mutex.use_ro store.mu f
 let with_state_write store f = Eio.Mutex.use_rw ~protect:true store.mu f
 let with_writer store f = Eio.Mutex.use_ro store.writer_gate f
@@ -638,7 +668,7 @@ let last_seq store =
     else Error Store_released)
 ;;
 
-let beginning_cursor store = { scope_id = store.scope_id; seq = 0 }
+let beginning_cursor (store : t) = { scope_id = store.scope_id; seq = 0 }
 
 let current_cursor store =
   let+ seq = last_seq store in
@@ -1236,31 +1266,26 @@ let validate_scanned_event correlation_id ~expected_seq located event =
   else Ok ()
 ;;
 
-let scan_store codec file ~file_size =
-  let* metadata_frame = decode_frame file ~file_size 0L in
-  let* scope_id, correlation_id, first_batch_offset =
-    match metadata_frame with
-    | Complete_frame { kind = Metadata; payload; next_offset; _ } ->
-      let+ scope_id, correlation_id = metadata_of_string ~offset:0L payload in
-      scope_id, correlation_id, next_offset
-    | Complete_frame _ ->
-      Error (Corrupt_store { offset = 0L; detail = "first frame is not metadata" })
-    | End_of_store | Incomplete_frame ->
-      Error (Corrupt_store { offset = 0L; detail = "metadata frame is incomplete" })
-  in
+type scan_mode =
+  | Rebuild_durable_index
+  | Read_only_events
+
+let scan_committed_batches
+      codec
+      file
+      ~file_size
+      ~correlation_id
+      ~first_offset
+      ~committed_seq
+      ~mode
+  =
   let locations = ref Sequence_map.empty in
   let events_rev = ref [] in
   let rec scan_batches offset committed_seq =
     let* frame = decode_frame file ~file_size offset in
     match frame with
     | End_of_store ->
-      Ok
-        ( scope_id
-        , correlation_id
-        , offset
-        , committed_seq
-        , !locations
-        , reverse_cooperatively !events_rev )
+      Ok (offset, committed_seq, !locations, reverse_cooperatively !events_rev)
     | Incomplete_frame ->
       Error
         (Corrupt_store { offset; detail = "committed batch begin frame is incomplete" })
@@ -1334,17 +1359,21 @@ let scan_store codec file ~file_size =
                 ({ kind = Event_record; payload; payload_offset; next_offset; _ } as
                  event_frame) ->
               let expected_seq = header.expected_next_seq + ordinal in
-              let location =
-                { seq = expected_seq
-                ; payload_offset
-                ; payload_length = String.length payload
-                ; frame = frame_guard event_offset event_frame
-                }
-              in
               let located = { offset = event_offset; payload } in
               let* event = decode_located_payload codec located in
               let* () =
                 validate_scanned_event correlation_id ~expected_seq located event
+              in
+              let locations_rev =
+                match mode with
+                | Read_only_events -> locations_rev
+                | Rebuild_durable_index ->
+                  { seq = expected_seq
+                  ; payload_offset
+                  ; payload_length = String.length payload
+                  ; frame = frame_guard event_offset event_frame
+                  }
+                  :: locations_rev
               in
               Eio.Fiber.yield ();
               scan_events
@@ -1361,19 +1390,187 @@ let scan_store codec file ~file_size =
         let* next_offset, last_seq, batch_locations, batch_events =
           scan_events next_offset 0 Sha256.empty [] []
         in
-        locations
-        := List.fold_left
-             (fun locations location ->
-                Eio.Fiber.yield ();
-                Sequence_map.add location.seq location locations)
-             !locations
-             batch_locations;
+        (match mode with
+         | Read_only_events -> ()
+         | Rebuild_durable_index ->
+           locations
+           := List.fold_left
+                (fun locations location ->
+                   Eio.Fiber.yield ();
+                   Sequence_map.add location.seq location locations)
+                !locations
+                batch_locations);
         events_rev := reverse_append_cooperatively batch_events !events_rev;
         scan_batches next_offset last_seq)
     | Complete_frame _ ->
       Error (Corrupt_store { offset; detail = "expected a batch begin frame" })
   in
-  scan_batches first_batch_offset 0
+  scan_batches first_offset committed_seq
+;;
+
+let scan_store codec file ~file_size ~mode =
+  let* metadata_frame = decode_frame file ~file_size 0L in
+  let* scope_id, correlation_id, first_batch_offset =
+    match metadata_frame with
+    | Complete_frame { kind = Metadata; payload; next_offset; _ } ->
+      let+ scope_id, correlation_id = metadata_of_string ~offset:0L payload in
+      scope_id, correlation_id, next_offset
+    | Complete_frame _ ->
+      Error (Corrupt_store { offset = 0L; detail = "first frame is not metadata" })
+    | End_of_store | Incomplete_frame ->
+      Error (Corrupt_store { offset = 0L; detail = "metadata frame is incomplete" })
+  in
+  let+ committed_offset, last_seq, locations, events =
+    scan_committed_batches
+      codec
+      file
+      ~file_size
+      ~correlation_id
+      ~first_offset:first_batch_offset
+      ~committed_seq:0
+      ~mode
+  in
+  scope_id, correlation_id, committed_offset, last_seq, locations, events
+;;
+
+let validate_previous_snapshot
+      (previous : read_only_snapshot)
+      (authority : commit_authority)
+  =
+  if
+    not
+      (Scope_id.equal previous.scope_id authority.scope_id
+       && Event.Correlation_id.equal previous.correlation_id authority.correlation_id)
+  then Error Commit_authority_identity_changed
+  else if
+    Int64.compare authority.committed_offset previous.committed_offset < 0
+    || authority.last_seq < previous.last_seq
+  then
+    Error
+      (Commit_authority_regressed
+         { previous_committed_offset = previous.committed_offset
+         ; actual_committed_offset = authority.committed_offset
+         ; previous_last_seq = previous.last_seq
+         ; actual_last_seq = authority.last_seq
+         })
+  else if
+    Int64.equal authority.committed_offset previous.committed_offset
+    <> (authority.last_seq = previous.last_seq)
+  then
+    Error
+      (Corrupt_store
+         { offset = authority.committed_offset
+         ; detail = "commit authority offset and sequence advanced inconsistently"
+         })
+  else Ok ()
+;;
+
+let read_only_snapshot ~codec ~dir ?previous () =
+  let* directory_exists =
+    with_io "check read-only store directory" (fun () -> Eio.Path.is_directory dir)
+  in
+  if not directory_exists
+  then Error Store_not_found
+  else
+    let* wal_exists =
+      with_io "check read-only WAL existence" (fun () -> Eio.Path.is_file (wal_path dir))
+    in
+    let* initialization_exists =
+      with_io "check read-only initialization WAL existence" (fun () ->
+        Eio.Path.is_file (initializing_path dir))
+    in
+    let* authority_exists =
+      with_io "check read-only commit authority existence" (fun () ->
+        Eio.Path.is_file (authority_path dir))
+    in
+    let* () =
+      match wal_exists, initialization_exists, authority_exists with
+      | true, false, true -> Ok ()
+      | true, false, false | false, true, false -> Error Store_initialization_incomplete
+      | false, false, false -> Error Store_not_found
+      | false, _, true | true, true, _ -> Error Store_initialization_conflict
+    in
+    let* authority = load_authority dir in
+    let* () =
+      match previous with
+      | None -> Ok ()
+      | Some previous -> validate_previous_snapshot previous authority
+    in
+    Eio.Switch.run
+    @@ fun sw ->
+    let* file =
+      with_io "open read-only WAL" (fun () -> Eio.Path.open_in ~sw (wal_path dir))
+    in
+    let* actual_size =
+      with_io "read read-only WAL size" (fun () ->
+        Optint.Int63.to_int64 (Eio.File.size file))
+    in
+    let* () =
+      if Int64.compare actual_size authority.committed_offset >= 0
+      then Ok ()
+      else
+        Error
+          (Corrupt_store
+             { offset = actual_size
+             ; detail =
+                 Printf.sprintf
+                   "WAL size %Ld is below authoritative committed offset %Ld"
+                   actual_size
+                   authority.committed_offset
+             })
+    in
+    match previous with
+    | Some previous when Int64.equal previous.committed_offset authority.committed_offset
+      -> Ok previous
+    | None ->
+      let* scope_id, correlation_id, committed_offset, last_seq, _locations, events =
+        scan_store codec file ~file_size:authority.committed_offset ~mode:Read_only_events
+      in
+      if
+        Scope_id.equal scope_id authority.scope_id
+        && Event.Correlation_id.equal correlation_id authority.correlation_id
+        && Int64.equal committed_offset authority.committed_offset
+        && last_seq = authority.last_seq
+      then
+        Ok
+          { scope_id
+          ; correlation_id
+          ; committed_offset
+          ; last_seq
+          ; appended_events = events
+          }
+      else
+        Error
+          (Corrupt_store
+             { offset = 0L; detail = "commit authority does not match the WAL prefix" })
+    | Some previous ->
+      let* committed_offset, last_seq, _locations, appended_events =
+        scan_committed_batches
+          codec
+          file
+          ~file_size:authority.committed_offset
+          ~correlation_id:previous.correlation_id
+          ~first_offset:previous.committed_offset
+          ~committed_seq:previous.last_seq
+          ~mode:Read_only_events
+      in
+      if
+        Int64.equal committed_offset authority.committed_offset
+        && last_seq = authority.last_seq
+      then
+        Ok
+          { scope_id = previous.scope_id
+          ; correlation_id = previous.correlation_id
+          ; committed_offset
+          ; last_seq
+          ; appended_events
+          }
+      else
+        Error
+          (Corrupt_store
+             { offset = previous.committed_offset
+             ; detail = "commit authority does not match the appended WAL suffix"
+             })
 ;;
 
 let make_store
@@ -1635,7 +1832,11 @@ let open_existing ~sw ~codec ~dir =
                })
       in
       let* scope_id, correlation_id, committed_offset, last_seq, locations, replay_events =
-        scan_store codec file ~file_size:authority.committed_offset
+        scan_store
+          codec
+          file
+          ~file_size:authority.committed_offset
+          ~mode:Rebuild_durable_index
       in
       let* () =
         if

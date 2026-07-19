@@ -178,6 +178,22 @@ val create_execution_runtime
   -> domain_count:int
   -> (execution_runtime, Error.sdk_error) result
 
+(** Lossless read-only projection of OAS's canonical recursive execution
+    journal. These values are observations only: they cannot append, admit,
+    pause, cancel, or terminate execution. *)
+module Execution_projection : Agent_execution_projection_intf.S
+
+(** Open the same read-only projection for a currently running scope or after
+    process restart. [locator] must identify the top-level run in exactly this
+    directory. The call takes no writer lock and performs no recovery writes.
+    The returned value is safe to share between fibers; sharing also preserves
+    its incremental validated-prefix cache across consumers. *)
+val open_execution_projection
+  :  runtime:execution_runtime
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> execution_locator
+  -> (Execution_projection.t, Execution_projection.error) result
+
 (** Configure one durable execution scope. Without [resume], the directory must
     be new and the call starts a fresh scope. With [resume], the same Agent API
     reopens that scope in the same directory, validates Agent identity and the
@@ -194,7 +210,9 @@ val create_execution_runtime
     [on_scope_ready], when supplied, must persist the opaque locator before
     provider or Tool effects begin. It is invoked for both fresh and resumed
     scopes, so the sink should be idempotent. Failure aborts the scope and the
-    Agent call.
+    Agent call. The same locator and directory can be passed to
+    {!open_execution_projection} immediately for live reads or later after a
+    restart; the callback is not a separate event or catch-up authority.
 
     [on_terminal_disposition] is invoked after the terminal journal commit and
     successful writer drain, before this Agent call returns. [Retire] means the

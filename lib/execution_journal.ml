@@ -57,6 +57,26 @@ module Run_id_map = Map.Make (struct
     let compare = Event.Run_id.compare
   end)
 
+module Occurrence = struct
+  type t =
+    | Agent_turn of int
+    | Provider_attempt of int
+    | Tool_invocation of int
+
+  let compare left right =
+    match left, right with
+    | Agent_turn left, Agent_turn right
+    | Provider_attempt left, Provider_attempt right
+    | Tool_invocation left, Tool_invocation right -> Int.compare left right
+    | Agent_turn _, (Provider_attempt _ | Tool_invocation _) -> -1
+    | Provider_attempt _, Agent_turn _ -> 1
+    | Provider_attempt _, Tool_invocation _ -> -1
+    | Tool_invocation _, (Agent_turn _ | Provider_attempt _) -> 1
+  ;;
+end
+
+module Occurrence_map = Map.Make (Occurrence)
+
 type run =
   { id : Event.Run_id.t
   ; root : Event.Node_id.t
@@ -332,6 +352,7 @@ module Reducer = struct
     ; last_event_id : Event.Event_id.t
     ; open_children : Node_id_set.t
     ; children_rev : Event.node event_record list
+    ; occurrences : Event.Node_id.t Occurrence_map.t
     ; updates_rev : Event.node_update event_record list
     ; provider_response_id : string option
     ; output_snapshot : Llm_provider.Types.content_block option
@@ -525,50 +546,28 @@ module Reducer = struct
       , _ ) -> false
   ;;
 
-  let find_child parent_record matches =
-    List.find_map
-      (fun (child : Event.node event_record) ->
-         if matches (Event.node_kind child.value)
-         then Some (Event.node_id child.value)
-         else None)
-      parent_record.children_rev
+  let occurrence parent_kind child_kind =
+    match parent_kind, child_kind with
+    | Event.Agent_run _, Event.Agent_turn { ordinal } ->
+      Some (Occurrence.Agent_turn ordinal)
+    | Event.Agent_turn _, Event.Provider_attempt { ordinal; target = _ } ->
+      Some (Occurrence.Provider_attempt ordinal)
+    | ( (Event.Provider_attempt _ | Event.Tool_attempt)
+      , Event.Tool_invocation { schedule; _ } ) ->
+      Some (Occurrence.Tool_invocation schedule.planned_index)
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_invocation _
+        | Event.Tool_attempt )
+      , _ ) -> None
   ;;
 
   let ensure_occurrence_available parent_id parent_record child_kind =
     let existing =
-      match Event.node_kind parent_record.node, child_kind with
-      | Event.Agent_run _, Event.Agent_turn { ordinal } ->
-        find_child parent_record (function
-          | Event.Agent_turn child -> child.ordinal = ordinal
-          | Event.Agent_run _
-          | Event.Provider_attempt _
-          | Event.Output_block _
-          | Event.Tool_invocation _
-          | Event.Tool_attempt -> false)
-      | Event.Agent_turn _, Event.Provider_attempt { ordinal; target = _ } ->
-        find_child parent_record (function
-          | Event.Provider_attempt child -> child.ordinal = ordinal
-          | Event.Agent_run _
-          | Event.Agent_turn _
-          | Event.Output_block _
-          | Event.Tool_invocation _
-          | Event.Tool_attempt -> false)
-      | (Event.Provider_attempt _ | Event.Tool_attempt), Event.Tool_invocation tool ->
-        find_child parent_record (function
-          | Event.Tool_invocation child ->
-            child.schedule.planned_index = tool.schedule.planned_index
-          | Event.Agent_run _
-          | Event.Agent_turn _
-          | Event.Provider_attempt _
-          | Event.Output_block _
-          | Event.Tool_attempt -> false)
-      | ( ( Event.Agent_run _
-          | Event.Agent_turn _
-          | Event.Provider_attempt _
-          | Event.Output_block _
-          | Event.Tool_invocation _
-          | Event.Tool_attempt )
-        , _ ) -> None
+      occurrence (Event.node_kind parent_record.node) child_kind
+      |> Option.bind (fun key -> Occurrence_map.find_opt key parent_record.occurrences)
     in
     match existing, child_kind with
     | None, _ -> Ok ()
@@ -668,6 +667,7 @@ module Reducer = struct
       ; last_event_id = Event.event_id event
       ; open_children = Node_id_set.empty
       ; children_rev = []
+      ; occurrences = Occurrence_map.empty
       ; updates_rev = []
       ; provider_response_id = None
       ; output_snapshot = None
@@ -683,10 +683,18 @@ module Reducer = struct
         (match Node_id_map.find_opt parent_id nodes with
          | None -> Error (Unknown_parent_node parent_id)
          | Some parent_record ->
+           let occurrences =
+             match
+               occurrence (Event.node_kind parent_record.node) (Event.node_kind node)
+             with
+             | None -> parent_record.occurrences
+             | Some key -> Occurrence_map.add key node_id parent_record.occurrences
+           in
            let parent_record =
              { parent_record with
                open_children = Node_id_set.add node_id parent_record.open_children
              ; children_rev = opened :: parent_record.children_rev
+             ; occurrences
              }
            in
            Ok (Node_id_map.add parent_id parent_record nodes))
@@ -938,6 +946,7 @@ module Reducer = struct
       ; last_event_id = Event.event_id event
       ; open_children = record.open_children
       ; children_rev = record.children_rev
+      ; occurrences = record.occurrences
       ; updates_rev = record.updates_rev
       ; provider_response_id = record.provider_response_id
       ; output_snapshot = record.output_snapshot
@@ -1502,19 +1511,9 @@ let stage_open_tool_invocation
   let planned_index = Tool.Invocation.planned_index invocation in
   let* () =
     match
-      List.find_map
-        (fun (child : Event.node event_record) ->
-           match Event.node_kind child.value with
-           | Event.Tool_invocation { schedule; _ }
-             when schedule.planned_index = planned_index ->
-             Some (Event.node_id child.value)
-           | Event.Agent_run _
-           | Event.Agent_turn _
-           | Event.Provider_attempt _
-           | Event.Output_block _
-           | Event.Tool_invocation _
-           | Event.Tool_attempt -> None)
-        provider_record.children_rev
+      Occurrence_map.find_opt
+        (Occurrence.Tool_invocation planned_index)
+        provider_record.occurrences
     with
     | None -> Ok ()
     | Some existing ->
