@@ -566,8 +566,9 @@ module Reducer = struct
 
   let ensure_occurrence_available parent_id parent_record child_kind =
     let existing =
-      occurrence (Event.node_kind parent_record.node) child_kind
-      |> Option.bind (fun key -> Occurrence_map.find_opt key parent_record.occurrences)
+      Option.bind
+        (occurrence (Event.node_kind parent_record.node) child_kind)
+        (fun key -> Occurrence_map.find_opt key parent_record.occurrences)
     in
     match existing, child_kind with
     | None, _ -> Ok ()
