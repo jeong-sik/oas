@@ -1380,7 +1380,7 @@ let scan_committed_batches
                 next_offset
                 (ordinal + 1)
                 (feed_payload_digest digest_context payload)
-                (location :: locations_rev)
+                locations_rev
                 (event :: events_rev)
             | Complete_frame _ ->
               Error
