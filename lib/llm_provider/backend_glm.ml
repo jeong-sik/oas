@@ -274,6 +274,22 @@ let parse_response_result body : (api_response, Backend_openai_parse.parse_error
      | Yojson.Safe.Util.Undefined (msg, _) -> raise (glm_parse_error msg))
 ;;
 
+(* Raising wrapper over [parse_response_result] for raise-style callers and the
+   coverage tests: returns the [api_response] on success and raises
+   [Glm_api_error] on any parse/provider error (an empty completion raises the
+   pre-#2621 "empty assistant turn" message instead of surfacing its typed
+   [stop_reason]). Production paths use [parse_response_result] directly so an
+   overflow empty turn's [stop_reason] reaches the overflow classifier. *)
+let parse_response body =
+  match parse_response_result body with
+  | Ok resp -> resp
+  | Error (Backend_openai_parse.Provider_error msg) -> raise (glm_parse_error msg)
+  | Error (Backend_openai_parse.Empty_completion _) ->
+    raise
+      (glm_parse_error
+         "provider returned an empty assistant turn (no thinking, text, or tool calls)")
+;;
+
 (* ── Streaming ───────────────────────────────────── *)
 
 (** Parse Glm SSE chunk.  Glm uses Openai SSE format but adds
