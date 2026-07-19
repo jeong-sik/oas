@@ -170,7 +170,8 @@ let test_kimi_shared_projection () =
          (field_json name count))
     [ "model"; "messages"; "system"; "tools"; "tool_choice" ];
   List.iter
-    (fun name -> check bool ("Kimi count omits " ^ name) false (List.mem_assoc name count))
+    (fun name ->
+       check bool ("Kimi count omits " ^ name) false (List.mem_assoc name count))
     [ "max_tokens"; "stream"; "temperature"; "top_p"; "top_k" ]
 ;;
 
@@ -270,10 +271,7 @@ let test_kimi_transport_success () =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
     @@ fun ~sw ~net ~base_url ->
     let cfg = kimi_config base_url in
-    Count_tokens_sync.measure_completion_request
-      ~sw
-      ~net
-      (completion_request cfg)
+    Count_tokens_sync.measure_completion_request ~sw ~net (completion_request cfg)
   in
   (match result with
    | Ok measurement ->
