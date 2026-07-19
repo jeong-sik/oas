@@ -416,14 +416,9 @@ let parse_stream_reasoning_details = function
 let parse_optional_delta_string ~position ~field json =
   match assoc_field_opt field json with
   | None | Some `Null -> Ok None
-  | Some (`String value) when not (Api_common.string_is_blank value) ->
-    Ok (Some value)
+  | Some (`String value) when not (Api_common.string_is_blank value) -> Ok (Some value)
   | Some (`String _) ->
-    Error
-      (Printf.sprintf
-         "malformed_delta_tool_call:position:%d:blank_%s"
-         position
-         field)
+    Error (Printf.sprintf "malformed_delta_tool_call:position:%d:blank_%s" position field)
   | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
     Error
       (Printf.sprintf
@@ -437,14 +432,10 @@ let parse_delta_tool_call_type ~position json =
   | None | Some `Null | Some (`String "function") -> Ok ()
   | Some (`String _) ->
     Error
-      (Printf.sprintf
-         "malformed_delta_tool_call:position:%d:unsupported_type"
-         position)
+      (Printf.sprintf "malformed_delta_tool_call:position:%d:unsupported_type" position)
   | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
     Error
-      (Printf.sprintf
-         "malformed_delta_tool_call:position:%d:type_not_string"
-         position)
+      (Printf.sprintf "malformed_delta_tool_call:position:%d:type_not_string" position)
 ;;
 
 let parse_delta_tool_call_index ~position json =
@@ -459,8 +450,7 @@ let parse_delta_tool_call_index ~position json =
             "malformed_delta_tool_call:position:%d:index_not_nonnegative_integer"
             position))
   | None | Some `Null ->
-    Error
-      (Printf.sprintf "malformed_delta_tool_call:position:%d:missing_index" position)
+    Error (Printf.sprintf "malformed_delta_tool_call:position:%d:missing_index" position)
   | Some (`Assoc _ | `List _ | `String _ | `Float _ | `Bool _ | `Int _) ->
     Error
       (Printf.sprintf
@@ -498,9 +488,7 @@ let parse_openai_delta_tool_call ~position = function
         let* tc_name =
           parse_optional_delta_string ~position ~field:"name" function_json
         in
-        let* tc_arguments =
-          parse_delta_tool_call_arguments ~position function_json
-        in
+        let* tc_arguments = parse_delta_tool_call_arguments ~position function_json in
         Ok (tc_name, tc_arguments)
       | Some (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
         Error
@@ -510,8 +498,7 @@ let parse_openai_delta_tool_call ~position = function
     in
     Ok { tc_index; tc_id; tc_name; tc_arguments }
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-    Error
-      (Printf.sprintf "malformed_delta_tool_call:position:%d:not_object" position)
+    Error (Printf.sprintf "malformed_delta_tool_call:position:%d:not_object" position)
 ;;
 
 let parse_openai_delta_tool_calls delta =
@@ -536,24 +523,19 @@ let openai_provider_error_of_json ~raw json =
     let message =
       match assoc_field_opt "message" error with
       | Some (`String message) -> message
-      | None
-      | Some
-          (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) ->
-        raw
+      | None | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+        -> raw
     in
     let error_type =
       match assoc_field_opt "type" error with
       | Some (`String error_type) -> Some error_type
-      | None
-      | Some
-          (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) ->
-        None
+      | None | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+        -> None
     in
     Some (Openai_provider_error { message; error_type; raw })
   | Some (`String message) ->
     Some (Openai_provider_error { message; error_type = None; raw })
-  | None
-  | Some (`List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) -> None
+  | None | Some (`List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) -> None
 ;;
 
 let openai_parse_failed ~raw reason = Openai_parse_failed { reason; raw }
@@ -565,7 +547,7 @@ let openai_parse_failed ~raw reason = Openai_parse_failed { reason; raw }
 let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_sse_parse_result =
   if String.equal data_str openai_done_sentinel
   then Openai_done
-  else
+  else (
     match Yojson.Safe.from_string data_str with
     | exception Yojson.Json_error message ->
       openai_parse_failed ~raw:data_str ("json_error: " ^ message)
@@ -653,9 +635,8 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_sse_parse_resu
                                  { delta_reasoning_content = reasoning_content
                                  ; delta_details = Option.value details ~default:[]
                                  } ))
-                      | Error reason, Ok _
-                      | Ok _, Error reason
-                      | Error reason, Error _ -> Error reason)
+                      | Error reason, Ok _ | Ok _, Error reason | Error reason, Error _ ->
+                        Error reason)
                    | Some (Reasoning_dialect.Delta_field field) ->
                      Ok (non_blank_delta_field field, None)
                    | Some
@@ -689,9 +670,10 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_sse_parse_resu
                          ; chunk_usage
                          }))
                | None | Some `Null ->
-                 openai_parse_failed ~raw:data_str "malformed_openai_sse_payload:missing_choices"
-               | Some
-                   (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
+                 openai_parse_failed
+                   ~raw:data_str
+                   "malformed_openai_sse_payload:missing_choices"
+               | Some (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
                  openai_parse_failed
                    ~raw:data_str
                    "malformed_openai_sse_payload:choices_not_list"
@@ -701,7 +683,7 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_sse_parse_resu
              | Yojson.Safe.Util.Undefined (message, _) ->
                openai_parse_failed ~raw:data_str ("undefined: " ^ message)
              | Invalid_argument message ->
-               openai_parse_failed ~raw:data_str ("invalid_argument: " ^ message))))
+               openai_parse_failed ~raw:data_str ("invalid_argument: " ^ message)))))
 ;;
 
 (** Mutable state for converting Openai flat deltas to block-based events. *)
@@ -974,151 +956,149 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
   let emit evt = events := evt :: !events in
   let telemetry_event = ref None in
   (* Reasoning content delta — emitted before text *)
-    (match chunk.delta_reasoning with
-     | Some text when text <> "" ->
-       (match state.thinking_state with
-        | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
-        | Thinking_started _ | Thinking_done ->
-          (* Already started, or model is re-emitting reasoning after a
+  (match chunk.delta_reasoning with
+   | Some text when text <> "" ->
+     (match state.thinking_state with
+      | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | Thinking_started _ | Thinking_done ->
+        (* Already started, or model is re-emitting reasoning after a
            closure — keep current state. Enumerated explicitly so adding
            a new [thinking_state] variant forces review of how it should
            react to a fresh reasoning chunk. *)
-          ());
-       if not state.thinking_block_started
-       then (
-         state.thinking_block_index <- state.next_block_index;
-         emit
-           (ContentBlockStart
-              { index = state.next_block_index
-              ; content_type = "thinking"
-              ; tool_id = None
-              ; tool_name = None
-              });
-         state.thinking_block_started <- true;
-         state.next_block_index <- state.next_block_index + 1);
+        ());
+     if not state.thinking_block_started
+     then (
+       state.thinking_block_index <- state.next_block_index;
        emit
-         (ContentBlockDelta
-            { index = state.thinking_block_index; delta = ThinkingDelta text })
-     | Some "" ->
-       (match state.thinking_state with
-        | Thinking_started t0 ->
-          let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-          state.thinking_state <- Thinking_done;
-          telemetry_event
-          := Some
-               (Telemetry_event.Thinking_complete
-                  { provider = state.provider; model = state.model; thinking_duration_ms })
-        | Not_thinking | Thinking_done ->
-          (* Empty reasoning chunk while never started, or after a prior
+         (ContentBlockStart
+            { index = state.next_block_index
+            ; content_type = "thinking"
+            ; tool_id = None
+            ; tool_name = None
+            });
+       state.thinking_block_started <- true;
+       state.next_block_index <- state.next_block_index + 1);
+     emit
+       (ContentBlockDelta
+          { index = state.thinking_block_index; delta = ThinkingDelta text })
+   | Some "" ->
+     (match state.thinking_state with
+      | Thinking_started t0 ->
+        let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+        state.thinking_state <- Thinking_done;
+        telemetry_event
+        := Some
+             (Telemetry_event.Thinking_complete
+                { provider = state.provider; model = state.model; thinking_duration_ms })
+      | Not_thinking | Thinking_done ->
+        (* Empty reasoning chunk while never started, or after a prior
            close — no telemetry to emit. Enumerated explicitly so a new
            [thinking_state] variant cannot silently inherit the no-op. *)
-          ())
-     | Some empty_reasoning ->
-       let (_ : string) = empty_reasoning in
-       ()
-     | None -> ());
-    (match chunk.delta_reasoning_details with
-     | Some { delta_reasoning_content; delta_details } ->
-       (match state.thinking_state with
-        | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
-        | Thinking_started _ | Thinking_done -> ());
-       if not state.thinking_block_started
-       then (
-         state.thinking_block_index <- state.next_block_index;
-         emit
-           (ContentBlockStart
-              { index = state.next_block_index
-              ; content_type = "reasoning_details"
-              ; tool_id = None
-              ; tool_name = None
-              });
-         state.thinking_block_started <- true;
-         state.next_block_index <- state.next_block_index + 1);
+        ())
+   | Some empty_reasoning ->
+     let (_ : string) = empty_reasoning in
+     ()
+   | None -> ());
+  (match chunk.delta_reasoning_details with
+   | Some { delta_reasoning_content; delta_details } ->
+     (match state.thinking_state with
+      | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | Thinking_started _ | Thinking_done -> ());
+     if not state.thinking_block_started
+     then (
+       state.thinking_block_index <- state.next_block_index;
        emit
-         (ContentBlockDelta
-            { index = state.thinking_block_index
-            ; delta =
-                ReasoningDetailsDelta
-                  { reasoning_content = delta_reasoning_content; details = delta_details }
-            })
-     | None -> ());
-    (* Text content delta *)
-    (match chunk.delta_content with
-     | Some text when text <> "" ->
-       if not state.text_block_started
-       then (
-         state.text_block_index <- state.next_block_index;
-         emit
-           (ContentBlockStart
-              { index = state.next_block_index
-              ; content_type = "text"
-              ; tool_id = None
-              ; tool_name = None
-              });
-         state.text_block_started <- true;
-         state.next_block_index <- state.next_block_index + 1);
-       emit (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text })
-     | Some empty_text ->
-       let (_ : string) = empty_text in
-       ()
-     | None -> ());
-    (* Tool call deltas *)
-    List.iter
-      (fun (tc : openai_tool_call_delta) ->
-         let resolution, start =
-           resolve_tool_block
-             state
-             ~protocol:"openai"
-             ~wire_index:tc.tc_index
-             ~provider_tool_id:tc.tc_id
-             ~tool_name:tc.tc_name
-             ~index_policy:Next_available
-             ~idless_semantics:Continue_by_wire_index
-         in
-         Option.iter emit start;
-         match resolution, tc.tc_arguments with
-         | Tool_block_resolved { block_index; _ }, Some (Args_fragment args)
-           when args <> "" ->
-           emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
-         | Tool_block_resolved { block_index; _ }, Some (Args_complete args)
-           when args <> "" ->
-           emit
-             (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
-         | Tool_block_resolved _, Some (Args_fragment _ | Args_complete _)
-         | Tool_block_resolved _, None -> ()
-         | Tool_block_rejected error, _ -> emit error)
-      chunk.delta_tool_calls;
-    (* Finish reason -> MessageDelta *)
-    (match chunk.finish_reason with
-     | Some reason ->
-       let stop_reason =
-         (* OpenAI wire vocabulary -> PROVISIONAL stop_reason. The accumulated
+         (ContentBlockStart
+            { index = state.next_block_index
+            ; content_type = "reasoning_details"
+            ; tool_id = None
+            ; tool_name = None
+            });
+       state.thinking_block_started <- true;
+       state.next_block_index <- state.next_block_index + 1);
+     emit
+       (ContentBlockDelta
+          { index = state.thinking_block_index
+          ; delta =
+              ReasoningDetailsDelta
+                { reasoning_content = delta_reasoning_content; details = delta_details }
+          })
+   | None -> ());
+  (* Text content delta *)
+  (match chunk.delta_content with
+   | Some text when text <> "" ->
+     if not state.text_block_started
+     then (
+       state.text_block_index <- state.next_block_index;
+       emit
+         (ContentBlockStart
+            { index = state.next_block_index
+            ; content_type = "text"
+            ; tool_id = None
+            ; tool_name = None
+            });
+       state.text_block_started <- true;
+       state.next_block_index <- state.next_block_index + 1);
+     emit (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text })
+   | Some empty_text ->
+     let (_ : string) = empty_text in
+     ()
+   | None -> ());
+  (* Tool call deltas *)
+  List.iter
+    (fun (tc : openai_tool_call_delta) ->
+       let resolution, start =
+         resolve_tool_block
+           state
+           ~protocol:"openai"
+           ~wire_index:tc.tc_index
+           ~provider_tool_id:tc.tc_id
+           ~tool_name:tc.tc_name
+           ~index_policy:Next_available
+           ~idless_semantics:Continue_by_wire_index
+       in
+       Option.iter emit start;
+       match resolution, tc.tc_arguments with
+       | Tool_block_resolved { block_index; _ }, Some (Args_fragment args) when args <> ""
+         -> emit (ContentBlockDelta { index = block_index; delta = InputJsonDelta args })
+       | Tool_block_resolved { block_index; _ }, Some (Args_complete args) when args <> ""
+         ->
+         emit (ContentBlockDelta { index = block_index; delta = InputJsonSnapshot args })
+       | Tool_block_resolved _, Some (Args_fragment _ | Args_complete _)
+       | Tool_block_resolved _, None -> ()
+       | Tool_block_rejected error, _ -> emit error)
+    chunk.delta_tool_calls;
+  (* Finish reason -> MessageDelta *)
+  (match chunk.finish_reason with
+   | Some reason ->
+     let stop_reason =
+       (* OpenAI wire vocabulary -> PROVISIONAL stop_reason. The accumulated
           tool-block set is unknown at the chunk boundary (tool arguments arrive
           as deltas before this terminal chunk), so a "tool_calls" finish is
           recorded as a provisional StopToolUse and reconciled against the
           assembled content in Complete_stream_acc.finalize_stream_acc
           (Stop_reason_wire.reconcile). SSOT: the wire vocabulary lives in
           Stop_reason_wire, not in an unguarded chunk-level match. *)
-         Stop_reason_wire.provisional_of_string reason
-       in
-       (* Close every block this message opened before the terminal MessageDelta,
+       Stop_reason_wire.provisional_of_string reason
+     in
+     (* Close every block this message opened before the terminal MessageDelta,
           mirroring Anthropic's content_block_stop-then-message_delta ordering.
           Without this the OpenAI-compat stream leaves tool blocks open and a
           downstream per-message block-index consumer collides on the next
           message's reused index. *)
-       List.iter emit (openai_open_block_stops state);
-       emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
-     | None ->
-       (* With stream_options.include_usage the provider sends token totals in a
+     List.iter emit (openai_open_block_stops state);
+     emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
+   | None ->
+     (* With stream_options.include_usage the provider sends token totals in a
         separate final chunk that has no finish_reason and an empty choices
         array (hence no content/tool deltas). Emit a MessageDelta carrying only
         the usage so the accumulator records it. The finish_reason branch above
         already forwards usage when a stop arrives in the same chunk, so the two
         paths are mutually exclusive and usage is never emitted twice. *)
-       (match chunk.chunk_usage with
-        | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
-        | None -> ()));
-    List.rev !events, !telemetry_event
+     (match chunk.chunk_usage with
+      | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
+      | None -> ()));
+  List.rev !events, !telemetry_event
 ;;
 
 let openai_sse_parse_result_to_events state = function

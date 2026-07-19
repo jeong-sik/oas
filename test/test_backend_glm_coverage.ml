@@ -214,10 +214,8 @@ let test_parse_stream_chunk_delegates_reasoning_delta () =
   | S.Openai_chunk chunk ->
     check (option string) "content" (Some "token") chunk.delta_content;
     check (option string) "reasoning" (Some "thinking") chunk.delta_reasoning
-  | S.Openai_done
-  | S.Openai_empty
-  | S.Openai_provider_error _
-  | S.Openai_parse_failed _ -> fail "expected stream chunk"
+  | S.Openai_done | S.Openai_empty | S.Openai_provider_error _ | S.Openai_parse_failed _
+    -> fail "expected stream chunk"
 ;;
 
 let () =

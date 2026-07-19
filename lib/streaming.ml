@@ -270,26 +270,26 @@ let create_message_stream_detailed
                    ~on_data:(fun ~event_type:_ data ->
                      match Llm_provider.Streaming.parse_openai_sse_chunk data with
                      | Llm_provider.Streaming.Openai_chunk chunk ->
-                         if not !msg_started
-                         then (
-                           msg_started := true;
-                           let evt =
-                             MessageStart
-                               { id = chunk.chunk_id
-                               ; model = chunk.chunk_model
-                               ; usage = None
-                               }
-                           in
-                           on_event evt;
-                           accumulate_event acc evt);
-                         let evs, _tel =
-                           Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                       if not !msg_started
+                       then (
+                         msg_started := true;
+                         let evt =
+                           MessageStart
+                             { id = chunk.chunk_id
+                             ; model = chunk.chunk_model
+                             ; usage = None
+                             }
                          in
-                         List.iter
-                           (fun evt ->
-                              on_event evt;
-                              accumulate_event acc evt)
-                           evs
+                         on_event evt;
+                         accumulate_event acc evt);
+                       let evs, _tel =
+                         Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                       in
+                       List.iter
+                         (fun evt ->
+                            on_event evt;
+                            accumulate_event acc evt)
+                         evs
                      | Llm_provider.Streaming.Openai_empty -> ()
                      | ( Llm_provider.Streaming.Openai_done
                        | Llm_provider.Streaming.Openai_provider_error _

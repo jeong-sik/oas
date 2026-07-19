@@ -188,8 +188,7 @@ let%test "OpenAI-compatible parser classifies the DONE sentinel" =
 
 let%test "OpenAI-compatible parser classifies a normal content chunk" =
   match
-    Streaming.parse_openai_sse_chunk
-      {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|}
+    Streaming.parse_openai_sse_chunk {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|}
   with
   | Streaming.Openai_chunk _ -> true
   | Streaming.Openai_done
@@ -222,10 +221,7 @@ let%test
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
-  accumulate_openai_payload
-    acc
-    st
-    {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|};
+  accumulate_openai_payload acc st {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|};
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
   | Error _ -> false
@@ -720,11 +716,8 @@ let complete_stream_http
                                event_type
                                data
                            | Provider_http_codec.Openai_chat ->
-                             Streaming.parse_openai_sse_chunk
-                               ~streaming_reasoning
-                               data
-                             |> Streaming.openai_sse_parse_result_to_events
-                                  (get_state ())
+                             Streaming.parse_openai_sse_chunk ~streaming_reasoning data
+                             |> Streaming.openai_sse_parse_result_to_events (get_state ())
                            | Provider_http_codec.Gemini_generate_content ->
                              (match Streaming.parse_gemini_sse_chunk data with
                               | Some chunk ->
@@ -738,8 +731,7 @@ let complete_stream_http
                                 , None ))
                            | Provider_http_codec.Glm_chat ->
                              Backend_glm.parse_stream_chunk data
-                             |> Streaming.openai_sse_parse_result_to_events
-                                  (get_state ())
+                             |> Streaming.openai_sse_parse_result_to_events (get_state ())
                            | Provider_http_codec.Ollama_chat ->
                              [], None (* unreachable: handled above *)
                          in

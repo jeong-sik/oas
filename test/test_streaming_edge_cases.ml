@@ -341,7 +341,8 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
         | S.Openai_chunk _ -> fail (label ^ ": malformed call was accepted")
         | S.Openai_done -> fail (label ^ ": malformed call became DONE")
         | S.Openai_empty -> fail (label ^ ": malformed call became empty")
-        | S.Openai_provider_error _ -> fail (label ^ ": malformed call became provider error"));
+        | S.Openai_provider_error _ ->
+          fail (label ^ ": malformed call became provider error"));
        let events, _telemetry =
          S.openai_sse_parse_result_to_events
            (S.create_openai_stream_state ~provider:"p" ~model:"m" ())
