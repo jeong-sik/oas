@@ -626,8 +626,11 @@ let%test "extract_reasoning_content skips empty reasoning" =
 let%test "parse_stream_chunk delegates to openai" =
   let data = {|{"id":"x","choices":[{"delta":{"content":"hi"},"index":0}]}|} in
   match parse_stream_chunk data with
-  | Some chunk -> chunk.delta_content = Some "hi"
-  | None -> false
+  | Streaming.Openai_chunk chunk -> chunk.delta_content = Some "hi"
+  | Streaming.Openai_done
+  | Streaming.Openai_empty
+  | Streaming.Openai_provider_error _
+  | Streaming.Openai_parse_failed _ -> false
 ;;
 
 let%test "build_request strips chat_template_kwargs from Glm body" =

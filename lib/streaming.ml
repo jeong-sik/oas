@@ -211,7 +211,8 @@ let create_message_stream_detailed
                          on_event evt;
                          accumulate_event acc evt))
                    ();
-                 if !(acc.stop_reason_received) then on_event MessageStop;
+                 if !(acc.stop_reason_received) && not !(acc.done_sentinel_seen)
+                 then on_event MessageStop;
                  finalize_stream_acc acc)
                ()
              |> map_stream_finalize_result_detailed
@@ -267,18 +268,8 @@ let create_message_stream_detailed
                    ?idle_timeout
                    ~reader
                    ~on_data:(fun ~event_type:_ data ->
-                     if data = "[DONE]"
-                     then ()
-                     else (
-                       match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                       | None ->
-                         let evt =
-                           SSEParseFailed
-                             { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                         in
-                         on_event evt;
-                         accumulate_event acc evt
-                       | Some chunk ->
+                     match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                     | Llm_provider.Streaming.Openai_chunk chunk ->
                          if not !msg_started
                          then (
                            msg_started := true;
@@ -298,7 +289,21 @@ let create_message_stream_detailed
                            (fun evt ->
                               on_event evt;
                               accumulate_event acc evt)
-                           evs))
+                           evs
+                     | Llm_provider.Streaming.Openai_empty -> ()
+                     | ( Llm_provider.Streaming.Openai_done
+                       | Llm_provider.Streaming.Openai_provider_error _
+                       | Llm_provider.Streaming.Openai_parse_failed _ ) as parsed ->
+                       let events, _telemetry =
+                         Llm_provider.Streaming.openai_sse_parse_result_to_events
+                           oai_state
+                           parsed
+                       in
+                       List.iter
+                         (fun event ->
+                            on_event event;
+                            accumulate_event acc event)
+                         events)
                    ();
                  if !(acc.stop_reason_received) then on_event MessageStop;
                  finalize_stream_acc acc)

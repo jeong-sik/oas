@@ -78,8 +78,22 @@ type openai_chunk =
   ; delta_tool_calls : openai_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
-  ; chunk_parse_error : openai_chunk_parse_error option
   }
+
+(** Closed classification of one OpenAI-compatible SSE data payload. Parsing
+    never collapses malformed data into an absent chunk: callers must handle a
+    terminal sentinel, an intentional empty chunk, a provider error, or a
+    protocol parse failure explicitly. *)
+type openai_sse_parse_result =
+  | Openai_chunk of openai_chunk
+  | Openai_done
+  | Openai_empty
+  | Openai_provider_error of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
+  | Openai_parse_failed of openai_chunk_parse_error
 
 (** Mutable normalization state.  Its representation is private so callers
     cannot bypass tool identity and block-routing invariants. *)
@@ -88,28 +102,7 @@ type openai_stream_state
 val parse_openai_sse_chunk
   :  ?streaming_reasoning:Reasoning_dialect.streaming_reasoning
   -> string
-  -> openai_chunk option
-
-(** Surface an OpenAI-compatible mid-stream error object
-    ([{"error": {"type"; "message"; ...}}]) as a typed [SSEError]. Call this
-    on a payload that {!parse_openai_sse_chunk} returned [None] for: such a
-    chunk has no [choices] and would otherwise be dropped, letting the stream
-    finalize as a phantom completion. Returns [None] for the [DONE] sentinel,
-    empty/usage-only chunks, and malformed data.
-
-    @since 0.205.0 *)
-val openai_compat_error_event : string -> sse_event option
-
-(** Terminal events for an OpenAI-compatible SSE payload that
-    {!parse_openai_sse_chunk} returned [None] for. The explicit [data: [DONE]]
-    sentinel becomes a single [MessageStop] so the accumulator records a clean
-    stream close (and may default a missing [stop_reason] to [EndTurn] instead
-    of rejecting a phantom completion); a provider error object becomes a typed
-    [SSEError]; any other [None] payload yields no events. A stream truncated
-    without a [DONE] sentinel never reaches here and still finalizes as [Error].
-
-    @since 0.207.25 *)
-val openai_compat_terminal_events : string -> sse_event list
+  -> openai_sse_parse_result
 
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
@@ -131,6 +124,14 @@ val create_openai_stream_state
 val openai_chunk_to_events
   :  openai_stream_state
   -> openai_chunk
+  -> sse_event list * Telemetry_event.t option
+
+(** Convert every closed parser outcome into stream events. Malformed payloads
+    become exactly one [SSEParseFailed], provider errors become exactly one
+    [SSEError], and the terminal sentinel becomes [MessageStop]. *)
+val openai_sse_parse_result_to_events
+  :  openai_stream_state
+  -> openai_sse_parse_result
   -> sse_event list * Telemetry_event.t option
 
 (** Convert one OpenAI Responses API streaming SSE payload into OAS stream
