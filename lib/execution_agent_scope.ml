@@ -454,7 +454,11 @@ let provider_invocations_settled provider =
            Error (Resume_topology_mismatch "provider child changed node kind"))
     in
     (match invocation_nodes with
-     | [] -> Ok false
+     (* All ToolUses were PreToolUse-blocked: blocked_tool_results exist but no
+        Tool_invocation nodes were opened (agent_tools.ml Continue-only). With
+        result_ids already asserted == expected_ids by the sole caller, an empty
+        invocation set is vacuously fully-settled, not unsettled. *)
+     | [] -> Ok true
      | nodes -> all_settled nodes)
 ;;
 

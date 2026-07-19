@@ -647,7 +647,10 @@ let run_turn
   Pipeline_execution_resume.dispatch
     agent
     ~ordinal:agent.state.turn_count
-    ~execute:(stage_execute ?raw_trace_run agent)
+      (* Thread [before_tool_execution] (the provider-lease [on_yield] release) as
+         the fresh path threads it below; dropping it disabled [yield_on_tool]'s
+         release on the resume turn (lease advanced but never released). *)
+    ~execute:(stage_execute ?raw_trace_run ?before_tool_execution agent)
     ~tools_settled:(ToolsExecuted After_tool_results_appended)
     ~terminal:(fun response -> Complete response)
     ~fresh:(fun () ->
