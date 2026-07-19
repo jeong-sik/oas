@@ -6,7 +6,7 @@
  (private_modules
   model_catalog_embedded
   provider_http_codec
-  tool_history_index
+  tool_result_projection
   output_token_wire_internal
   request_artifact_internal
   prepared_completion_request)

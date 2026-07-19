@@ -296,7 +296,7 @@ let test_tool_result () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "call_123"
@@ -357,27 +357,30 @@ let test_tool_result_missing_correlation_fails_closed () =
       string
       "missing correlation"
       "Backend_gemini.contents_of_messages: ToolResult identity \"missing-call\" has no \
-       matching ToolUse"
+       matching ToolUse in the active assistant batch"
       message
 ;;
 
 let test_conflicting_tool_identity_fails_closed () =
-  let tool_use name : Types.message =
+  let message : Types.message =
     { role = Assistant
-    ; content = [ ToolUse { id = "call-1"; name; input = `Assoc [] } ]
+    ; content =
+        [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [] }
+        ; ToolUse { id = "call-1"; name = "write"; input = `Assoc [] }
+        ]
     ; name = None
     ; tool_call_id = None
     ; metadata = []
     }
   in
-  match Backend_gemini.contents_of_messages [ tool_use "lookup"; tool_use "write" ] with
+  match Backend_gemini.contents_of_messages [ message ] with
   | _ -> fail "expected conflicting Gemini tool identity to fail closed"
   | exception Invalid_argument message ->
     check
       string
       "conflicting identity"
       "Backend_gemini.contents_of_messages: conflicting ToolUse identity \"call-1\" \
-       names \"lookup\" and \"write\""
+       names \"lookup\" and \"write\" in one assistant batch"
       message
 ;;
 
@@ -919,7 +922,7 @@ let test_thought_signature_roundtrip_request () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id

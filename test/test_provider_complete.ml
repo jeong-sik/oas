@@ -832,19 +832,55 @@ let test_ollama_missing_tool_correlation_rejected_sync_and_stream () =
   check_ollama_correlation_rejected
     ~expected:
       "Backend_ollama.build_request: ToolResult identity \"missing-call\" has no \
-       matching ToolUse"
+       matching ToolUse in the active assistant batch"
     [ tool_result_message "missing-call" ]
 ;;
 
 let test_ollama_conflicting_tool_correlation_rejected_sync_and_stream () =
+  let conflicting_batch : message =
+    { role = Assistant
+    ; content =
+        [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [] }
+        ; ToolUse { id = "call-1"; name = "write"; input = `Assoc [] }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
   check_ollama_correlation_rejected
     ~expected:
       "Backend_ollama.build_request: conflicting ToolUse identity \"call-1\" names \
-       \"lookup\" and \"write\""
-    [ tool_use_message "call-1" "lookup"
-    ; tool_use_message "call-1" "write"
-    ; tool_result_message "call-1"
+       \"lookup\" and \"write\" in one assistant batch"
+    [ conflicting_batch; tool_result_message "call-1" ]
+;;
+
+let test_ollama_reused_tool_id_resolves_by_turn_occurrence () =
+  let messages =
+    [ user_msg "first turn"
+    ; tool_use_message "reused-call" "lookup"
+    ; tool_result_message "reused-call"
+    ; user_msg "second turn"
+    ; tool_use_message "reused-call" "write"
+    ; tool_result_message "reused-call"
     ]
+  in
+  let body =
+    BOL.build_request ~config:(ollama_tool_correlation_config ()) ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let tool_names =
+    Yojson.Safe.Util.(body |> member "messages" |> to_list)
+    |> List.filter_map (fun message ->
+      match Yojson.Safe.Util.(message |> member "role" |> to_string_option) with
+      | Some "tool" ->
+        Yojson.Safe.Util.(message |> member "tool_name" |> to_string_option)
+      | Some _ | None -> None)
+  in
+  Alcotest.(check (list string))
+    "provider id reuse is scoped to each canonical turn occurrence"
+    [ "lookup"; "write" ]
+    tool_names
 ;;
 
 let test_ollama_native_tool_role_rejects_legacy_shapes () =
@@ -863,6 +899,14 @@ let test_ollama_native_tool_role_rejects_legacy_shapes () =
       , [ make_message ~role:Tool [] ]
       , "Backend_ollama.build_request: Ollama native role Tool requires at least one \
          ToolResult" )
+    ; ( "User/ToolUse"
+      , [ { (tool_use_message "call-1" "lookup") with role = User } ]
+      , "Backend_ollama.build_request: Ollama native ToolUse must use role Assistant, \
+         got role user" )
+    ; ( "System/ToolUse"
+      , [ { (tool_use_message "call-1" "lookup") with role = System } ]
+      , "Backend_ollama.build_request: Ollama native ToolUse must use role Assistant, \
+         got role system" )
     ]
   in
   List.iter
@@ -1794,6 +1838,10 @@ let () =
             "ollama conflicting correlation rejects sync and stream"
             `Quick
             test_ollama_conflicting_tool_correlation_rejected_sync_and_stream
+        ; test_case
+            "ollama reused tool id resolves by turn occurrence"
+            `Quick
+            test_ollama_reused_tool_id_resolves_by_turn_occurrence
         ; test_case
             "ollama native legacy tool shapes rejected"
             `Quick

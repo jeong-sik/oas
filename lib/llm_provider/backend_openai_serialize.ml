@@ -653,92 +653,105 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
           ])
 ;;
 
-let ollama_tool_messages_of_blocks tool_history blocks =
+let ollama_tool_messages_of_blocks blocks =
   let rec loop messages = function
     | [] -> Ok (List.rev messages)
-    | ToolResult { tool_use_id; content; content_blocks; _ } :: rest ->
-      (match Tool_history_index.resolve tool_history ~tool_use_id with
-       | Error _ as error -> error
-       | Ok tool_name ->
-         let content = tool_result_content_string ~content ~content_blocks in
-         let message =
-           `Assoc
-             [ "role", `String "tool"
-             ; "tool_name", `String tool_name
-             ; "content", `String content
-             ]
-         in
-         loop (message :: messages) rest)
-    | ( Text _
-      | Thinking _
-      | ReasoningDetails _
-      | RedactedThinking _
-      | ToolUse _
-      | Image _
-      | Document _
-      | Audio _ )
-      :: rest -> loop messages rest
-  in
-  loop [] blocks
-;;
-
-let ollama_tool_result_role_contract (message : message) =
-  let has_tool_result =
-    List.exists
-      (function
-        | ToolResult _ -> true
-        | Text _
+    | (ToolResult { content; content_blocks; _ }, Some tool_name) :: rest ->
+      let content = tool_result_content_string ~content ~content_blocks in
+      let message =
+        `Assoc
+          [ "role", `String "tool"
+          ; "tool_name", `String tool_name
+          ; "content", `String content
+          ]
+      in
+      loop (message :: messages) rest
+    | (ToolResult { tool_use_id; _ }, None) :: _ ->
+      Error
+        (Printf.sprintf
+           "Ollama native ToolResult identity %S has no resolved tool name"
+           tool_use_id)
+    | ( ( Text _
         | Thinking _
         | ReasoningDetails _
         | RedactedThinking _
         | ToolUse _
         | Image _
         | Document _
-        | Audio _ -> false)
-      message.content
+        | Audio _ )
+      , None )
+      :: rest -> loop messages rest
+    | (_, Some _) :: _ ->
+      Error "Ollama native correlation annotated a non-ToolResult content block"
   in
-  match message.role with
-  | Tool ->
-    if message.content = []
-    then Error "Ollama native role Tool requires at least one ToolResult"
-    else if
-      List.exists
-        (function
-          | ToolResult _ -> false
-          | Text _
-          | Thinking _
-          | ReasoningDetails _
-          | RedactedThinking _
-          | ToolUse _
-          | Image _
-          | Document _
-          | Audio _ -> true)
-        message.content
+  loop [] blocks
+;;
+
+let ollama_tool_block_role_contract (message : message) =
+  let rec classify has_tool_use has_tool_result has_other = function
+    | [] -> has_tool_use, has_tool_result, has_other
+    | ToolUse _ :: rest -> classify true has_tool_result has_other rest
+    | ToolResult _ :: rest -> classify has_tool_use true has_other rest
+    | ( Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | Image _
+      | Document _
+      | Audio _ )
+      :: rest -> classify has_tool_use has_tool_result true rest
+  in
+  let has_tool_use, has_tool_result, has_other =
+    classify false false false message.content
+  in
+  match message.role, message.content with
+  | Tool, [] -> Error "Ollama native role Tool requires at least one ToolResult"
+  | Tool, _ ->
+    if has_tool_use || has_other
     then Error "Ollama native role Tool accepts only ToolResult blocks"
+    else if not has_tool_result
+    then Error "Ollama native role Tool requires at least one ToolResult"
     else Ok ()
-  | User | Assistant | System ->
+  | (User | System | Assistant), _ ->
     if has_tool_result
     then
       Error
         (Printf.sprintf
            "Ollama native ToolResult must use role Tool, got role %s"
            (Types.role_to_string message.role))
+    else if has_tool_use && message.role <> Assistant
+    then
+      Error
+        (Printf.sprintf
+           "Ollama native ToolUse must use role Assistant, got role %s"
+           (Types.role_to_string message.role))
     else Ok ()
 ;;
 
 let ollama_messages_of_history ?(model_id = "") messages =
-  match Tool_history_index.of_messages messages with
-  | Error error -> Error (Tool_history_index.error_to_string error)
-  | Ok tool_history ->
-    let modality_priority = modality_priority_for_model_id model_id in
-    let rec render rendered = function
-      | [] -> Ok (List.rev rendered |> List.concat)
-      | (msg : message) :: rest ->
-        (match ollama_tool_result_role_contract msg with
-         | Error error -> Error error
-         | Ok () ->
-           (match ollama_tool_messages_of_blocks tool_history msg.content with
-            | Error error -> Error (Tool_history_index.error_to_string error)
+  let rec validate = function
+    | [] -> Ok ()
+    | message :: rest ->
+      (match ollama_tool_block_role_contract message with
+       | Error _ as error -> error
+       | Ok () -> validate rest)
+  in
+  match validate messages with
+  | Error _ as error -> error
+  | Ok () ->
+    (match Tool_result_projection.of_messages messages with
+     | Error error -> Error (Tool_result_projection.error_to_string error)
+     | Ok projection ->
+       let modality_priority = modality_priority_for_model_id model_id in
+       let rec render rendered = function
+         | [] -> Ok (List.rev rendered |> List.concat)
+         | resolved_message :: rest ->
+           let msg = Tool_result_projection.original_message resolved_message in
+           (match
+              Tool_result_projection.content resolved_message
+              |> ollama_tool_messages_of_blocks
+            with
+            | Error _ as error -> error
             | Ok tool_messages ->
               let wire_messages =
                 match msg.role with
@@ -765,9 +778,9 @@ let ollama_messages_of_history ?(model_id = "") messages =
                     ~modality_priority
                     msg
               in
-              render (wire_messages :: rendered) rest))
-    in
-    render [] messages
+              render (wire_messages :: rendered) rest)
+       in
+       render [] (Tool_result_projection.messages projection))
 ;;
 
 let tool_choice_to_openai_json = function
