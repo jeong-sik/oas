@@ -33,16 +33,17 @@ type completion_request =
     (** RFC-OAS-037: time-to-first-event (TTFT / prefill) deadline, in
         seconds, distinct from [stream_idle_timeout_s]. Bounds only the wait
         for the first streaming event; inter-token idle arms after it. [None]
-        falls back to [body_timeout_s] then a fail-safe ceiling, so the
-        first-event wait is still bounded; inter-token idle still guards once
-        the stream produces. @since 0.218.0 *)
+        falls back to [body_timeout_s], then to [stream_idle_timeout_s] (the
+        bound that applied before RFC-OAS-037); inter-token idle still guards
+        once the stream produces. @since 0.218.0 *)
   ; body_timeout_s : float option
     (** RFC-OAS-037 §4.2: total body budget, in seconds. On the streaming path
         it is the fallback bound for the first-event (TTFT/prefill) wait when
         [first_event_timeout_s] is [None] — the common production shape, since
         callers wire [body_timeout_s] but not [first_event_timeout_s]. [None]
-        leaves the streaming first-event wait to the fail-safe ceiling. Armed
-        only when the transport also holds a clock. @since 0.219.0 *)
+        leaves the first-event wait to [stream_idle_timeout_s], and unarmed if
+        that is [None] too. Armed only when the transport also holds a clock.
+        @since 0.219.0 *)
   }
 
 (** Result of a sync completion. *)

@@ -1789,8 +1789,8 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
    deadline. Either an explicit [first_event_timeout] OR the [body_timeout]
    fallback that now backs it (see [resolve_first_event_timeout]) would
    silently disarm without a clock, leaving the prefill wait unbounded. The
-   all-[None] case has no configured deadline to disarm — its fail-safe ceiling
-   only arms when a clock is present, so it is intentionally not rejected. *)
+   all-[None] case configures no first-event deadline at all, so there is
+   nothing to disarm and nothing to reject. *)
 let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout =
   match clock with
   | Some _ -> ()
@@ -1800,28 +1800,34 @@ let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeo
      | None, None -> ())
 ;;
 
-(* RFC-OAS-037 review / RFC-0345 (fail-safe): the wait for the first streamed
-   event must never be left fully unbounded. When neither an explicit
-   [first_event_timeout] nor a [body_timeout] fallback is configured, a
-   provider that returns 200 + headers then emits no body byte would otherwise
-   hang the read forever. This single generous liveness ceiling is a fail-safe
-   floor, NOT a per-provider tuned value (that would violate the RFC's non-goal
-   of provider-specific tuning): large enough that any real prefill on a large
-   context completes well within it, finite so a genuinely dead connection is
-   eventually caught. *)
-let first_event_failsafe_ceiling_s = 300.0
-
 (* RFC-OAS-037 §4.2: resolve the effective first-event (TTFT/prefill) bound.
-   Prefer the explicit [first_event_timeout]; otherwise fall back to the
-   caller's [body_timeout] (the total body budget masc wires but which did not
-   reach the streaming reader before this fix); otherwise the fail-safe
-   ceiling. The result is always finite, so once a clock is available the
-   first-event wait can never be left unbounded. *)
-let resolve_first_event_timeout ~first_event_timeout ~body_timeout =
-  match first_event_timeout, body_timeout with
-  | Some t, _ -> t
-  | None, Some t -> t
-  | None, None -> first_event_failsafe_ceiling_s
+   Every arm returns a caller-supplied value — this function never invents a
+   deadline of its own:
+
+   - explicit [first_event_timeout] wins;
+   - else [body_timeout], the total body budget masc already wires but which
+     did not reach the streaming reader before this fix (the production shape
+     the RFC exists to repair: a long prefill bounded by the long budget
+     instead of the short inter-token one);
+   - else [idle_timeout], preserving the pre-RFC bound for callers that wired
+     only an idle deadline — before this change that value also bounded the
+     first event, and silently widening it would be an unrequested behaviour
+     change;
+   - else [None]: the caller configured no deadline on any channel, so the
+     first-event wait stays unarmed exactly as it was. Inventing a default
+     here would re-introduce the provider idle defaults that were deliberately
+     removed (see [removed_provider_idle_defaults_upper_bound_s] in the
+     streaming tests) and would be a hardcoded magic number besides.
+
+   A dead connect on the all-[None] path is bounded by the connect timeout and
+   by the caller's own total-call deadline, not by a budget this layer makes
+   up. *)
+let resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout =
+  match first_event_timeout, body_timeout, idle_timeout with
+  | Some t, _, _ -> Some t
+  | None, Some t, _ -> Some t
+  | None, None, Some t -> Some t
+  | None, None, None -> None
 ;;
 
 let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
@@ -1839,9 +1845,10 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
      inter-token idle. A silent prefill on a large context is slow-but-alive,
      not a hang, so it must not be cut by the inter-token idle value. When
      [first_event_timeout] is [None] the first-event wait falls back to
-     [body_timeout] (masc's total body budget), then to a fail-safe ceiling
-     (see [resolve_first_event_timeout]) — a dead connect that emits no first
-     byte is therefore still bounded, never left to hang. Inter-token idle
+     [body_timeout] (masc's total body budget), then to [idle_timeout] — the
+     pre-RFC bound, kept so callers that wired only an idle deadline keep
+     exactly their previous behaviour (see [resolve_first_event_timeout]).
+     With nothing wired the wait stays unarmed, as before. Inter-token idle
      still guards once the stream produces. *)
   let first_event_seen = ref false in
   let read_meaningful_line () =
@@ -1853,7 +1860,7 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
     let active_timeout =
       if !first_event_seen
       then idle_timeout
-      else Some (resolve_first_event_timeout ~first_event_timeout ~body_timeout)
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
     in
     let parsed =
       match clock, active_timeout with
@@ -1861,8 +1868,7 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
       | Some _, None -> inner ()
       (* No clock: nothing can be armed. Misconfiguration (an explicit
          deadline without a clock) already failed loud at entry, so this is
-         either the no-config default or the all-[None] fail-safe with no
-         clock to enforce it — best-effort read, unchanged pre-timeout
+         the no-config default — best-effort read, unchanged pre-timeout
          behaviour. *)
       | None, _ -> inner ()
     in
@@ -1917,9 +1923,9 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
 
     RFC-OAS-037: the wait for the FIRST line is the time-to-first-event
     (TTFT / prefill) window, bounded by [first_event_timeout] when set;
-    otherwise it falls back to [body_timeout] then a fail-safe ceiling so a
-    dead connect is still bounded. [idle_timeout] arms only AFTER the first
-    line for inter-token idle. *)
+    otherwise it falls back to [body_timeout], then to [idle_timeout] (the
+    pre-RFC bound), and stays unarmed when the caller wired none of them.
+    [idle_timeout] arms only AFTER the first line for inter-token idle. *)
 let read_ndjson
       ?clock
       ?idle_timeout
@@ -1937,7 +1943,7 @@ let read_ndjson
     let active_timeout =
       if !first_event_seen
       then idle_timeout
-      else Some (resolve_first_event_timeout ~first_event_timeout ~body_timeout)
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
     in
     let line =
       match clock, active_timeout with
@@ -2551,30 +2557,47 @@ let%test "read_ndjson: first_event_timeout admits a silent prefill past idle" =
 
 (* ── RFC-OAS-037 review: effective first-event bound resolution ── *)
 
-(* The pure resolver is the deterministic seam for the fallback policy. A
-   real-clock I/O test cannot wait out the multi-minute fail-safe ceiling, so
-   the [None]+[None] case is pinned here (proving it resolves to a FINITE
-   bound, not an unbounded wait); the I/O tests below prove that a resolved
-   bound actually arms the first-event wait through [read_sse]/[read_ndjson]. *)
-let%test "resolve_first_event_timeout: explicit first_event wins over body" =
-  Float.equal
-    (resolve_first_event_timeout ~first_event_timeout:(Some 5.0) ~body_timeout:(Some 9.0))
-    5.0
+(* The pure resolver is the deterministic seam for the fallback policy: one
+   test per arm of the precedence chain
+   [first_event > body > idle > unarmed], so a reordering or a re-introduced
+   built-in default fails here rather than in a timing-dependent I/O test. The
+   I/O tests below prove that a resolved bound actually arms the first-event
+   wait through [read_sse]/[read_ndjson]. *)
+let%test "resolve_first_event_timeout: explicit first_event wins over body and idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 5.0
 ;;
 
-let%test "resolve_first_event_timeout: falls back to body_timeout when first is None" =
-  Float.equal
-    (resolve_first_event_timeout ~first_event_timeout:None ~body_timeout:(Some 3.0))
-    3.0
+let%test "resolve_first_event_timeout: falls back to body_timeout over idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:(Some 3.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 3.0
 ;;
 
-let%test "resolve_first_event_timeout: all-None yields the finite fail-safe ceiling" =
-  let ceiling =
-    resolve_first_event_timeout ~first_event_timeout:None ~body_timeout:None
-  in
-  Float.equal ceiling first_event_failsafe_ceiling_s
-  && Float.is_finite ceiling
-  && ceiling > 0.0
+(* Pre-RFC behaviour preservation: with only an idle deadline wired, that value
+   bounded the first event too. Widening it here would be an unrequested
+   behaviour change for every such caller. *)
+let%test "resolve_first_event_timeout: falls back to idle when it is the only bound" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Some 0.5
+;;
+
+(* Guards the removed provider idle defaults: with nothing wired the resolver
+   must stay unarmed rather than invent a bound of its own. *)
+let%test "resolve_first_event_timeout: all-None stays unarmed" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:None
+  = None
 ;;
 
 (* P3b (production default): [first_event_timeout = None] + [body_timeout = Some

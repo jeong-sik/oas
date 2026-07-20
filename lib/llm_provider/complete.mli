@@ -267,10 +267,10 @@ val complete_admitted
     event. This prevents a slow-but-alive silent prefill on a large context
     (no keepalives) from being cancelled as [phase=first_token] under the
     short inter-token idle value. When omitted the first-event wait falls back
-    to [body_timeout_s] (below), then to an internal fail-safe ceiling, so a
-    dead connect that emits no first byte is still bounded rather than hanging;
-    inter-token idle still guards once the stream produces, and the connect
-    timeout still guards connection setup.
+    to [body_timeout_s] (below), then to [stream_idle_timeout_s] — the bound
+    that applied before this change — and stays unarmed when the caller wired
+    none of the three. Inter-token idle still guards once the stream produces,
+    and the connect timeout still guards connection setup.
 
     RFC-OAS-037 §4.2: [body_timeout_s] is the total body budget also used by
     the non-streaming path. On the streaming path it is the fallback bound for

@@ -29,8 +29,8 @@ type completion_request =
         [first_event_timeout_s] is [None] — the common production shape, since
         callers (e.g. masc) wire [body_timeout_s] but not
         [first_event_timeout_s]. [None] leaves the streaming first-event wait
-        to the fail-safe ceiling. Armed only when the transport also holds a
-        clock. @since 0.219.0 *)
+        to [stream_idle_timeout_s], and unarmed if that is [None] too. Armed
+        only when the transport also holds a clock. @since 0.219.0 *)
   }
 
 type sync_result =
