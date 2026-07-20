@@ -33,6 +33,7 @@ type t =
   ; context_fit_admission : Agent.context_fit_admission
   ; model_input_projection : Agent.model_input_projection option
   ; stream_idle_timeout_s : float option
+  ; first_event_timeout_s : float option
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks
   ; guardrails_async : Guardrails_async.t
@@ -84,6 +85,7 @@ let create ~net ~model =
   ; context_fit_admission = Agent.Disabled
   ; model_input_projection = None
   ; stream_idle_timeout_s = None
+  ; first_event_timeout_s = None
   ; body_timeout_s = None
   ; hooks = Hooks.empty
   ; guardrails_async = Guardrails_async.empty
@@ -214,6 +216,7 @@ let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let without_event_bus b = { b with event_bus = None }
 let with_stream_idle_timeout s b = { b with stream_idle_timeout_s = Some s }
+let with_first_event_timeout s b = { b with first_event_timeout_s = Some s }
 let with_body_timeout s b = { b with body_timeout_s = Some s }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
@@ -268,6 +271,7 @@ let build b =
     { Agent_types.base_url = b.base_url
     ; provider = b.provider
     ; stream_idle_timeout_s = b.stream_idle_timeout_s
+    ; first_event_timeout_s = b.first_event_timeout_s
     ; body_timeout_s = b.body_timeout_s
     ; hooks = b.hooks
     ; guardrails_async = b.guardrails_async
