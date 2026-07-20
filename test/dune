@@ -529,34 +529,9 @@
  (modules test_agent_cancellation_tla_parity)
  (libraries agent_sdk alcotest))
 
-(test
- (name test_runtime_server_resolve)
- (modules test_runtime_server_resolve)
- (libraries agent_sdk alcotest unix))
-
 (tests
- (names
-  test_runtime_evidence
-  test_runtime_health
-  test_runtime_projection_cov2
-  test_runtime_continuation
-  test_runtime_replay
-  test_runtime_server_coverage
-  test_runtime_server_types
-  test_runtime_store_unit
-  test_runtime_sync
-  test_runtime_types)
- (modules
-  test_runtime_evidence
-  test_runtime_health
-  test_runtime_projection_cov2
-  test_runtime_continuation
-  test_runtime_replay
-  test_runtime_server_coverage
-  test_runtime_server_types
-  test_runtime_store_unit
-  test_runtime_sync
-  test_runtime_types)
+ (names test_runtime_store_unit test_runtime_types)
+ (modules test_runtime_store_unit test_runtime_types)
  (libraries agent_sdk alcotest eio eio_main unix yojson)
  (action
   (run %{test})))

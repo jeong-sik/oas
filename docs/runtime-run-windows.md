@@ -28,21 +28,6 @@ and events continue to load.
 deduplicated by stable event id `<session_id>#<event.seq>` before returning
 events.
 
-## Checkpoint Delta Projection
-
-`Runtime_replay.checkpoint_delta_projection_from_store` reads `Checkpoint_saved`
-events from the selected windows and loads each referenced path as a canonical
-`Checkpoint.t`. The first valid checkpoint is emitted as a full checkpoint; each
-following valid checkpoint is emitted as a `Checkpoint.compute_delta` result
-against the previous valid checkpoint. This gives replay consumers a concrete
-JSON contract for cross-run checkpoint deltas without changing the existing
-`Runtime_sync.window` event format.
-
-Checkpoint paths are deduplicated before projection, so overlapping selectors
-do not repeat the same checkpoint. Corrupt, missing, or non-checkpoint paths are
-reported as partial failures and do not prevent valid checkpoint deltas from
-being returned.
-
 ## Retention And Compatibility
 
 The read side only scans files currently present under the runtime session
