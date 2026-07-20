@@ -166,6 +166,7 @@ let test_handoff_emits_request_and_completion () =
 ;;
 
 (* ── B. Agent.run emits AgentStarted/AgentCompleted/AgentFailed ── *)
+(* ── B. Agent.run emits AgentStarted/AgentCompleted/AgentFailed ── *)
 
 (* Run-level lifecycle triple restored in [Agent.run]: the legacy
    orchestrator producer was removed in #1755, leaving the variants
@@ -342,7 +343,83 @@ let test_run_emits_failed_companion_on_error () =
       failed.meta.caused_by)
 ;;
 
-(* ── Entry point ──────────────────────────────────────────────── *)
+(* ── C. with_run_lifecycle_events closes Started on synchronous exn ── *)
+
+(* F5 regression: when the run switch is cancelled mid-flight, [Agent.run]
+   observes [Eio.Cancel.Cancelled] from the inner pipeline.  Before the
+   exception-arm fix in [lib/agent/agent_lifecycle_events.ml], that path
+   skipped [publish_finished], leaving a dangling [AgentStarted] with no
+   [AgentCompleted]/[AgentFailed].  The wrapper now mirrors the
+   [Agent_trace] exception-arm contract: publish a terminal event, then
+   re-raise. *)
+
+let slow_handler _conn _req _body =
+  (* Hold the connection so the agent is mid HTTP read when the sub-switch
+     is cancelled below.  Cancellation raises [Eio.Cancel.Cancelled]
+     inside the in-flight read. *)
+  Unix.sleepf 30.0 |> ignore;
+  Cohttp_eio.Server.respond_string ~status:`OK ~body:"never" ()
+;;
+
+let test_run_emits_terminal_on_switch_cancel () =
+  skip_if_bisect "Agent.run emits terminal on switch cancel";
+  with_mock_server ~handler:slow_handler (fun ~sw env base_url ->
+    let bus = Event_bus.create () in
+    let config =
+      Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+      |> Result.get_ok
+    in
+    let sub = Event_bus.subscribe ~config bus in
+    let provider : Provider.config =
+      { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
+    in
+    let options =
+      { Agent.default_options with
+        base_url
+      ; provider = Some provider
+      ; event_bus = Some bus
+      }
+    in
+    let agent =
+      Agent.create
+        ~config:(Types.default_config ~model:"test-model")
+        ~net:env#net
+        ~options
+        ()
+    in
+    (* Run the agent in its own sub-switch so we can cancel it without
+       tearing down the outer mock-server switch. *)
+    (try
+       Eio.Switch.run
+       @@ fun agent_sw ->
+       let (_ : unit) =
+         Eio.Fiber.fork ~sw:agent_sw (fun () ->
+           let _ = Agent.run ~sw:agent_sw agent "hello" in
+           ())
+       in
+       (* Yield once so the forked fiber can enter [Agent.run] and
+          publish [AgentStarted].  The slow handler keeps the forked
+          fiber in an in-flight HTTP read when we cancel. *)
+       Eio.Fiber.yield ();
+       Eio.Switch.fail agent_sw Exit
+     with
+     | Exit -> ());
+    (* Sub-switch has been torn down.  The outer switch is still live,
+       so [Event_bus.drain] (which uses [Eio.Mutex]) works.  Whatever
+       events were published before the cancellation re-raise must be
+       available on the bus. *)
+    let events = Event_bus.drain sub in
+    let names = List.map event_kind events in
+    check bool "agent_started emitted" true (List.mem "agent_started" names);
+    check
+      bool
+      "terminal event emitted (completed or failed)"
+      true
+      (List.mem "agent_completed" names || List.mem "agent_failed" names);
+    Eio.Switch.fail sw Exit)
+;;
+
+(* ── Entry point ─────────────────────────────────────────────────── *)
 
 let () =
   if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
@@ -364,6 +441,10 @@ let () =
             "Agent.run emits Failed companion on error"
             `Quick
             test_run_emits_failed_companion_on_error
+        ; test_case
+            "Agent.run emits terminal on switch cancel"
+            `Quick
+            test_run_emits_terminal_on_switch_cancel
         ] )
     ]
 ;;

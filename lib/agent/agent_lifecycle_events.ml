@@ -99,13 +99,34 @@ let with_run_lifecycle_events ~event_bus ~agent_name ~raw_trace ~current_run_id 
       ~agent_name
       ~correlation_id:(Option.bind raw_trace Raw_trace.session_id)
   in
-  let result = f () in
-  publish_finished
-    ~event_bus
-    ~agent_name
-    ~started
-    ~current_run_id:(current_run_id ())
-    ~result:(Result.map_error project result)
-    ~elapsed:(Unix.gettimeofday () -. started_at);
-  result
+  (* Mirror the [with_raw_trace_run_classified_result] exception arm in
+     [Agent_trace]: the terminal lifecycle transition must not be skipped
+     even when [f] raises (e.g. [Eio.Cancel.Cancelled] on switch failure
+     or any synchronous exn from the pipeline).  Subscribers always see
+     [AgentStarted] closed by [AgentCompleted]/[AgentFailed]; the original
+     exception is then re-raised with its backtrace so callers still
+     observe the failure. *)
+  match f () with
+  | result ->
+    publish_finished
+      ~event_bus
+      ~agent_name
+      ~started
+      ~current_run_id:(current_run_id ())
+      ~result:(Result.map_error project result)
+      ~elapsed:(Unix.gettimeofday () -. started_at);
+    result
+  | exception exn ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    let error =
+      Error.Internal (Printf.sprintf "Unhandled exception: %s" (Printexc.to_string exn))
+    in
+    publish_finished
+      ~event_bus
+      ~agent_name
+      ~started
+      ~current_run_id:(current_run_id ())
+      ~result:(Error error)
+      ~elapsed:(Unix.gettimeofday () -. started_at);
+    Printexc.raise_with_backtrace exn backtrace
 ;;
