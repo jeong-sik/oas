@@ -153,7 +153,6 @@
   test_skill_discovery
   test_skill_registry
   test_slot_cache_http
-  test_sse_parser
   test_stream_accumulator
   test_streaming_cov
   test_streaming_edge_cases
@@ -319,7 +318,6 @@
   test_skill_discovery
   test_skill_registry
   test_slot_cache_http
-  test_sse_parser
   test_stream_accumulator
   test_streaming_cov
   test_streaming_edge_cases

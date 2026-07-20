@@ -223,7 +223,7 @@ let finalize_stream_acc (acc : stream_acc) =
   | None when (not !(acc.stop_reason_received)) && not !(acc.done_sentinel_seen) ->
     (* Stream ended without a terminal stop_reason AND without an explicit
        terminal sentinel. This is a truncated stream: the connection dropped
-       mid-stream (End_of_file in sse_parser) before any [data: [DONE]] /
+       mid-stream (End_of_file in Http_client.read_sse) before any [data: [DONE]] /
        message_stop arrived. Without this check the default EndTurn would make a
        truncated stream look like a successful completion (phantom completion).
 
