@@ -756,9 +756,24 @@ let complete_stream_http
                   let phase =
                     Http_client.timeout_phase_of_stream_idle_state !stream_idle_state
                   in
+                  (* RFC-OAS-037: name the knob that actually armed this
+                     deadline. Before the TTFT split every phase was governed
+                     by stream_idle_timeout_s; now a first-event timeout can
+                     come from first_event_timeout_s or body_timeout_s, and
+                     naming the idle knob would send the operator to tune a
+                     value that had no effect on the phase that failed. *)
+                  let governing_knob =
+                    Http_client.timeout_knob_to_param
+                      (Http_client.governing_timeout_knob
+                         ~state:!stream_idle_state
+                         ~first_event_timeout:first_event_timeout_s
+                         ~body_timeout:body_timeout_s
+                         ~idle_timeout:stream_idle_timeout_s)
+                  in
                   let message =
                     Printf.sprintf
-                      "stream_idle_timeout_s deadline exceeded while %s"
+                      "%s deadline exceeded while %s"
+                      governing_knob
                       (Http_client.stream_idle_state_to_label !stream_idle_state)
                   in
                   emit_stream_event on_event (Types.Timeout message);
@@ -772,7 +787,8 @@ let complete_stream_http
                     ~terminal:
                       (Telemetry_event.Terminal_error
                          (Printf.sprintf
-                            "stream_idle_timeout_s_exceeded:%s"
+                            "%s_exceeded:%s"
+                            governing_knob
                             (Http_client.stream_idle_state_to_label !stream_idle_state)))
                     ();
                   Error (Http_client.TimeoutError { message; phase })

@@ -41,9 +41,10 @@ type options =
     (** RFC-OAS-037: separate bound for the time-to-first-event (TTFT /
         prefill) wait, distinct from [stream_idle_timeout_s] which bounds
         inter-token idle only AFTER the first event. When [None] the
-        first-event wait is not bounded by the short idle value (the
-        streaming path carries no total body budget), and a slow silent
-        prefill is guarded by inter-token idle once the stream produces. *)
+        first-event wait is not bounded by the short idle value; when unset it
+        falls back to [body_timeout_s], then to [stream_idle_timeout_s], and a
+        slow silent prefill is guarded by inter-token idle once the stream
+        produces. *)
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks
   ; guardrails_async : Guardrails_async.t

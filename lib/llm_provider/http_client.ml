@@ -1800,6 +1800,30 @@ let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeo
      | None, None -> ())
 ;;
 
+(* RFC-OAS-037: the caller-supplied knob a streaming deadline came from.
+   Carried so a fired timeout can name the budget the operator must tune,
+   rather than always blaming the inter-token idle knob. *)
+type timeout_knob =
+  | First_event_timeout
+  | Body_timeout
+  | Stream_idle_timeout
+
+let timeout_knob_to_param = function
+  | First_event_timeout -> "first_event_timeout_s"
+  | Body_timeout -> "body_timeout_s"
+  | Stream_idle_timeout -> "stream_idle_timeout_s"
+;;
+
+(* Resolution outcome for the first-event wait: either a bound with the knob it
+   came from, or no bound at all. Keeping the knob attached to the value is what
+   lets attribution reuse the resolver instead of re-deriving the precedence. *)
+type first_event_bound =
+  | Bounded of
+      { knob : timeout_knob
+      ; seconds : float
+      }
+  | Unarmed
+
 (* RFC-OAS-037 §4.2: resolve the effective first-event (TTFT/prefill) bound.
    Every arm returns a caller-supplied value — this function never invents a
    deadline of its own:
@@ -1822,12 +1846,40 @@ let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeo
    A dead connect on the all-[None] path is bounded by the connect timeout and
    by the caller's own total-call deadline, not by a budget this layer makes
    up. *)
-let resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout =
+let resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout =
   match first_event_timeout, body_timeout, idle_timeout with
-  | Some t, _, _ -> Some t
-  | None, Some t, _ -> Some t
-  | None, None, Some t -> Some t
-  | None, None, None -> None
+  | Some seconds, _, _ -> Bounded { knob = First_event_timeout; seconds }
+  | None, Some seconds, _ -> Bounded { knob = Body_timeout; seconds }
+  | None, None, Some seconds -> Bounded { knob = Stream_idle_timeout; seconds }
+  | None, None, None -> Unarmed
+;;
+
+let resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout =
+  match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+  | Bounded { seconds; _ } -> Some seconds
+  | Unarmed -> None
+;;
+
+(* RFC-OAS-037: name the knob whose value produced the deadline that fired, so
+   an operator tunes the budget that actually governs. Derived from the SAME
+   resolver as the armed bound — the precedence chain exists in exactly one
+   place, so the message can never drift from the behaviour. Only the
+   first-event phase can be governed by something other than the idle knob;
+   every later phase is inter-token idle by construction. *)
+let governing_timeout_knob ~state ~first_event_timeout ~body_timeout ~idle_timeout =
+  match state with
+  | Awaiting_first_event ->
+    (match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+     | Bounded { knob; _ } -> knob
+     | Unarmed -> Stream_idle_timeout)
+  | Awaiting_first_delta
+  | Streaming_answer
+  | Streaming_thinking
+  | Streaming_tool_call
+  | Streaming_heartbeat
+  | Streaming_substrate
+  | Streaming_done
+  | Streaming_unknown -> Stream_idle_timeout
 ;;
 
 let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
@@ -2598,6 +2650,51 @@ let%test "resolve_first_event_timeout: all-None stays unarmed" =
     ~body_timeout:None
     ~idle_timeout:None
   = None
+;;
+
+(* RFC-OAS-037 attribution: a fired deadline must name the knob that supplied
+   its value. Pinning all three first-event sources plus one later phase means
+   a regression to the old "always stream_idle_timeout_s" message fails here. *)
+let%test "governing_timeout_knob: first-event names its explicit knob" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = First_event_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names body when it supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Body_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names idle when idle supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "governing_timeout_knob: inter-token phases stay attributed to idle" =
+  governing_timeout_knob
+    ~state:Streaming_answer
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "timeout_knob_to_param: names match the caller-facing parameters" =
+  String.equal (timeout_knob_to_param First_event_timeout) "first_event_timeout_s"
+  && String.equal (timeout_knob_to_param Body_timeout) "body_timeout_s"
+  && String.equal (timeout_knob_to_param Stream_idle_timeout) "stream_idle_timeout_s"
 ;;
 
 (* P3b (production default): [first_event_timeout = None] + [body_timeout = Some

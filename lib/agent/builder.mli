@@ -90,10 +90,11 @@ val with_stream_idle_timeout : float -> t -> t
     wait for the FIRST streaming event; [stream_idle_timeout_s] arms for
     inter-token idle only after the first event arrives. A silent prefill
     on a large context is slow-but-alive, not a hang, so it must not be
-    cut by the short inter-token idle value. When unset the first-event
-    wait is unbounded (the streaming path carries no total body budget);
-    inter-token idle still guards once the stream produces, and the connect
-    timeout still guards connection setup. @since 0.218.0 *)
+    cut by the short inter-token idle value. When unset the first-event wait
+    falls back to the body timeout, then to the stream idle timeout, and is
+    unarmed only when none of the three is set; inter-token idle still guards
+    once the stream produces, and the connect timeout still guards connection
+    setup. @since 0.218.0 *)
 val with_first_event_timeout : float -> t -> t
 
 (** Set the per-call total deadline for non-streaming HTTP response body

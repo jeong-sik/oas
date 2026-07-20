@@ -43,7 +43,7 @@ type completion_request =
         callers wire [body_timeout_s] but not [first_event_timeout_s]. [None]
         leaves the first-event wait to [stream_idle_timeout_s], and unarmed if
         that is [None] too. Armed only when the transport also holds a clock.
-        @since 0.219.0 *)
+        @since 0.218.0 *)
   }
 
 (** Result of a sync completion. *)

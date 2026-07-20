@@ -62,11 +62,11 @@ type options =
         the wait; [stream_idle_timeout_s] arms only AFTER the first event
         (inter-token idle). A silent prefill on a large context is a
         slow-but-alive stream, not a hang, so it must not be cut by the
-        short inter-token idle value. When [None] the first-event wait is
-        left unbounded (the streaming path carries no total body budget to
-        fall back to); inter-token idle still guards once the stream
-        produces, and [connect_timeout_s] still guards connection setup.
-        @since 0.218.0 *)
+        short inter-token idle value. When [None] the first-event wait falls
+        back to [body_timeout_s], then to [stream_idle_timeout_s], and stays
+        unarmed only when none of the three is set; inter-token idle still
+        guards once the stream produces, and [connect_timeout_s] still guards
+        connection setup. @since 0.218.0 *)
   ; body_timeout_s : float option
     (** Per-call total deadline applied to non-streaming HTTP response body
         consumption. Threaded through {!Pipeline.stage_route} into both the

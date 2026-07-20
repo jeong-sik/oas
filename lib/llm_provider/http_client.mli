@@ -212,6 +212,29 @@ val stream_idle_state_to_label : stream_idle_state -> string
 val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase
 val timeout_phase_to_label : timeout_phase -> string
 
+(** RFC-OAS-037: the caller-supplied knob a streaming deadline came from. A
+    fired timeout names this knob so the operator tunes the budget that
+    actually governed the phase, instead of always being pointed at the
+    inter-token idle one. *)
+type timeout_knob =
+  | First_event_timeout
+  | Body_timeout
+  | Stream_idle_timeout
+
+(** Parameter name of [timeout_knob], as callers spell it. *)
+val timeout_knob_to_param : timeout_knob -> string
+
+(** Which knob governs a timeout fired in [state]. For
+    [Awaiting_first_event] this follows the same precedence chain that arms
+    the first-event wait ([first_event_timeout] > [body_timeout] >
+    [idle_timeout]); every later phase is inter-token idle by construction. *)
+val governing_timeout_knob
+  :  state:stream_idle_state
+  -> first_event_timeout:float option
+  -> body_timeout:float option
+  -> idle_timeout:float option
+  -> timeout_knob
+
 (** Canonical resolution of an optional caller-owned deadline.
 
     [Unbounded] means no timeout was requested and therefore needs no clock.
