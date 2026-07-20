@@ -76,30 +76,42 @@ let append_user_input agent user_blocks =
 
 let resume_user_input agent user_blocks =
   let exact_input = sanitize_user_input_blocks user_blocks in
-  let existing =
-    List.find_map
-      (fun message ->
-         match message.role with
-         | User -> Some message.content
-         | System | Assistant | Tool -> None)
-      (List.rev agent.state.messages)
-  in
-  match existing with
-  | Some content when content = exact_input -> Ok exact_input
-  | Some _ ->
+  (* Match the resume prompt against the run's ORIGINAL prompt, not the latest
+     User message. [append_user_input] snocs the original prompt immediately
+     after the seed messages ([config.initial_messages]), so it lives at index
+     [List.length config.initial_messages] in [state.messages]. Context
+     injection (Agent_turn.apply_context_injection) appends further User-role
+     messages during a turn, so a reverse scan for the last User message can
+     pick an injected message instead of the original prompt and falsely reject
+     a valid resume.
+
+     The positional anchor is [config.initial_messages], NOT [base_messages
+     agent]: [base_messages] returns the whole [state.messages] once it is
+     non-empty, which at resume is the full restored conversation — its length
+     is not the prompt's index. [config.initial_messages] is the seed/history
+     prefix the prompt was appended after, so its length is the prompt's index.
+
+     No recorded prompt identity exists to match against (neither
+     Checkpoint_types.t nor the durable execution journal stores the original
+     input), so positional matching is the bounded, deterministic option. *)
+  let base_len = List.length agent.state.config.initial_messages in
+  match List.nth_opt agent.state.messages base_len with
+  | Some { role = User; content; _ } when content = exact_input -> Ok exact_input
+  | Some { role = User; _ } ->
     Error
       (Error.Config
          (Error.InvalidConfig
             { field = "execution_store.resume"
             ; detail =
-                "resume input differs from the latest User message in the restored Agent \
-                 checkpoint"
+                "resume input differs from the original User prompt in the restored \
+                 Agent checkpoint"
             }))
-  | None ->
+  | Some _ | None ->
     Error
       (Error.Config
          (Error.InvalidConfig
             { field = "execution_store.resume"
-            ; detail = "restored Agent checkpoint contains no User message to resume"
+            ; detail =
+                "restored Agent checkpoint contains no original User prompt to resume"
             }))
 ;;

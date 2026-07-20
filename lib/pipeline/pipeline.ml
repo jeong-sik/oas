@@ -655,6 +655,10 @@ let run_new_turn
        Pipeline_execution_scope.close_success execution |> Result.map (fun () -> value))
 ;;
 
+(* Resume-vs-fresh dispatch (including settled-boundary replay and terminal
+   reconstruction) lives in [Pipeline_execution_resume]; this driver supplies the
+   fresh-turn continuation and the turn_outcome constructors as pure values, so
+   the resume flag is consumed inside [dispatch] in the same order as before. *)
 let run_turn
       ~sw
       ?clock
@@ -664,28 +668,27 @@ let run_turn
       ?before_tool_execution
       agent
   =
-  let* resumed =
-    if Execution_context.take_resume_once ()
-    then Pipeline_execution_scope.resume_current (Execution_context.agent_scope ())
-    else Ok None
-  in
-  match resumed with
-  | Some execution ->
-    let turn = Pipeline_execution_scope.turn_ordinal execution in
-    Pipeline_execution_resume.run
-      agent
-      execution
-      ~execute:(stage_execute ?raw_trace_run ~turn agent)
-      ~already_settled:(ToolsExecuted After_tool_results_appended)
-  | None ->
-    run_new_turn
-      ~sw
-      ?clock
-      ~api_strategy
-      ?raw_trace_run
-      ?on_provider_failure
-      ?before_tool_execution
-      agent
+  Pipeline_execution_resume.dispatch
+    agent
+    (* Thread [before_tool_execution] (the provider-lease [on_yield] release) as
+         the fresh path threads it below; dropping it disabled [yield_on_tool]'s
+         release on the resume turn (lease advanced but never released). The turn
+         identity is the durable turn ordinal supplied by [dispatch]
+         ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
+         traced under the exact ordinal the crashed run used (#2709). *)
+    ~execute:(fun ~turn ->
+      stage_execute ?raw_trace_run ?before_tool_execution ~turn agent)
+    ~tools_settled:(ToolsExecuted After_tool_results_appended)
+    ~terminal:(fun response -> Complete response)
+    ~fresh:(fun () ->
+      run_new_turn
+        ~sw
+        ?clock
+        ~api_strategy
+        ?raw_trace_run
+        ?on_provider_failure
+        ?before_tool_execution
+        agent)
 ;;
 
 [@@@coverage off]

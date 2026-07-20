@@ -268,6 +268,36 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.217.2](https://github.com/jeong-sik/oas/compare/v0.217.1...v0.217.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **llm_provider:** log reasoning_replay_dropped at Info, not Warn ([#2721](https://github.com/jeong-sik/oas/issues/2721)) ([658a910](https://github.com/jeong-sik/oas/commit/658a91091154be543685840fad73bd8936f8ac1e))
+
+## [0.217.1](https://github.com/jeong-sik/oas/compare/v0.217.0...v0.217.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **agent:** resume matches the run's original prompt, not the latest (injected) User message ([#2683](https://github.com/jeong-sik/oas/issues/2683)) ([#2715](https://github.com/jeong-sik/oas/issues/2715)) ([2ac114e](https://github.com/jeong-sik/oas/commit/2ac114eb8162d2242b83fd0b9871613d9a67b3df))
+
+## [0.217.0](https://github.com/jeong-sik/oas/compare/v0.216.7...v0.217.0) (2026-07-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **streaming:** reject malformed tool-call batches ([#2702](https://github.com/jeong-sik/oas/issues/2702))
+
+### Bug Fixes
+
+* **execution:** resume settled turn after partial-close crash instead of aborting Failed ([#2683](https://github.com/jeong-sik/oas/issues/2683)) ([#2713](https://github.com/jeong-sik/oas/issues/2713)) ([ec09415](https://github.com/jeong-sik/oas/commit/ec094155a96de55a5b821571c5c49129f6fb3467))
+* **llm_provider:** decode overflow wire finish_reason so empty-completion classifier is reachable ([#2621](https://github.com/jeong-sik/oas/issues/2621)) ([#2703](https://github.com/jeong-sik/oas/issues/2703)) ([6525705](https://github.com/jeong-sik/oas/commit/6525705d2d2e78648b5387a9a2477a46c1b939a8))
+* **llm_provider:** reject non-finite/negative retry_after at parse boundary ([#2644](https://github.com/jeong-sik/oas/issues/2644)) ([#2708](https://github.com/jeong-sik/oas/issues/2708)) ([a4395af](https://github.com/jeong-sik/oas/commit/a4395afc82c0ee5e562f4022af8b7af55ef68c4e))
+* **llm_provider:** reject unencoded explicit thinking ([#2716](https://github.com/jeong-sik/oas/issues/2716)) ([1000d42](https://github.com/jeong-sik/oas/commit/1000d42fb81f2e34fd225ad1da492608e3c584d6))
+* **llm_provider:** sanitize base_url in admission conflict warning ([#2706](https://github.com/jeong-sik/oas/issues/2706)) ([a72b785](https://github.com/jeong-sik/oas/commit/a72b785e46f33e15d16d7191add052e5cad769df))
+* **streaming:** reject malformed tool-call batches ([#2702](https://github.com/jeong-sik/oas/issues/2702)) ([69a0dcd](https://github.com/jeong-sik/oas/commit/69a0dcd5a16fd1498a95b2493937feae4774443b))
+
 ## [0.216.7](https://github.com/jeong-sik/oas/compare/v0.216.6...v0.216.7) (2026-07-19)
 
 

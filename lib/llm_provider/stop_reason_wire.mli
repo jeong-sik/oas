@@ -23,9 +23,16 @@ type wire_finish =
   | Refusal
   | Content_filter
   | Repetition_truncation
+  | Context_window_exceeded
   | Other of string
 
-(** Case-insensitive OpenAI-compatible vocabulary. ["end_turn"] maps to [Stop]. *)
+(** Case-insensitive OpenAI-compatible vocabulary. ["end_turn"] maps to [Stop].
+    ["model_context_window_exceeded"] maps to [Context_window_exceeded] so the
+    OpenAI/GLM finish-reason decoder recognizes the same overflow token as the
+    canonical {!Types.stop_reason_of_string} decoder (previously only the
+    Anthropic/cache path decoded it; the OpenAI/GLM path surfaced it as
+    [Other _ -> Types.Unknown], which the empty-completion overflow classifier
+    routed to provider-unavailability instead of context overflow). *)
 val wire_finish_of_string : string -> wire_finish
 
 (** Canonical parse-time mapping for backends that know the assembled tool-block
