@@ -1829,7 +1829,7 @@ type first_event_bound =
    deadline of its own:
 
    - explicit [first_event_timeout] wins;
-   - else [body_timeout], the total body budget masc already wires but which
+   - else [body_timeout], the total body budget callers already wire, but which
      did not reach the streaming reader before this fix (the production shape
      the RFC exists to repair: a long prefill bounded by the long budget
      instead of the short inter-token one);
@@ -1897,7 +1897,7 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
      inter-token idle. A silent prefill on a large context is slow-but-alive,
      not a hang, so it must not be cut by the inter-token idle value. When
      [first_event_timeout] is [None] the first-event wait falls back to
-     [body_timeout] (masc's total body budget), then to [idle_timeout] — the
+     [body_timeout] (the total body budget already wired by the caller), then to [idle_timeout] — the
      pre-RFC bound, kept so callers that wired only an idle deadline keep
      exactly their previous behaviour (see [resolve_first_event_timeout]).
      With nothing wired the wait stays unarmed, as before. Inter-token idle
