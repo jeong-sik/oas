@@ -194,22 +194,25 @@ let run agent execution ~execute ~already_settled =
 ;;
 
 (* Dispatch one pipeline turn against the durable-execution scope. Consume the
-   one-shot resume flag and classify what the restored scope found at the turn
-   ordinal: [Active] resumes an in-progress turn/provider via {!run}; [Settled]
-   surfaces an already-settled boundary via {!run_settled}; [Fresh] (no resume
-   requested, or nothing left to resume) runs a new turn via [fresh]. The resume
-   flag is consumed here — before [fresh] — exactly as the pre-crash run would
-   have, so effects and order match the non-resumed path. *)
-let dispatch agent ~ordinal ~execute ~tools_settled ~terminal ~fresh =
+   one-shot resume flag and classify what the restored scope found at the durable
+   turn frontier: [Active] resumes an in-progress turn/provider via {!run};
+   [Settled] surfaces an already-settled boundary via {!run_settled}; [Fresh] (no
+   resume requested, or nothing left to resume) runs a new turn via [fresh]. The
+   resume flag is consumed here — before [fresh] — exactly as the pre-crash run
+   would have, so effects and order match the non-resumed path. The turn identity
+   passed to [execute] is read from the durable turn ([turn_ordinal]), never
+   reconstructed from mutable agent state, so a resumed tool turn is traced under
+   the same ordinal the crashed run used. *)
+let dispatch agent ~execute ~tools_settled ~terminal ~fresh =
   let* resumed =
     if Execution_context.take_resume_once ()
-    then
-      Pipeline_execution_scope.resume_current (Execution_context.agent_scope ()) ~ordinal
+    then Pipeline_execution_scope.resume_current (Execution_context.agent_scope ())
     else Ok Pipeline_execution_scope.Fresh
   in
   match resumed with
   | Pipeline_execution_scope.Active execution ->
-    run agent execution ~execute ~already_settled:tools_settled
+    let turn = Pipeline_execution_scope.turn_ordinal execution in
+    run agent execution ~execute:(execute ~turn) ~already_settled:tools_settled
   | Pipeline_execution_scope.Settled boundary ->
     run_settled agent boundary ~tools_settled ~terminal
   | Pipeline_execution_scope.Fresh -> fresh ()

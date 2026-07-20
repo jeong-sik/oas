@@ -13,6 +13,7 @@ type t =
 type turn =
   { scope : t
   ; node : Event.Node_id.t
+  ; ordinal : int
   }
 
 type provider_attempt =
@@ -239,8 +240,10 @@ let open_turn scope ~ordinal =
        ~parent:(Journal.run_root scope.run)
        ~kind:(Event.Agent_turn { ordinal })
        ())
-  |> Result.map (fun (node, _event) -> { scope; node })
+  |> Result.map (fun (node, _event) -> { scope; node; ordinal })
 ;;
+
+let turn_ordinal turn = turn.ordinal
 
 let resume_turn scope ~ordinal =
   match Writer.find_node scope.writer (Journal.run_root scope.run) with
@@ -267,7 +270,8 @@ let resume_turn scope ~ordinal =
        (match Writer.find_node scope.writer node with
         | Error error -> Error (Scope_unavailable error)
         | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
-        | Ok (Some { status = Journal.Open; _ }) -> Ok (Resume_turn_open { scope; node })
+        | Ok (Some { status = Journal.Open; _ }) ->
+          Ok (Resume_turn_open { scope; node; ordinal })
         (* Idempotent completed boundary: a turn already closed [Succeeded] under a
            still-[Running] root is a crash after [close_turn] but before the root
            [finish] (or after the provider close but before this turn's close, once
@@ -282,6 +286,68 @@ let resume_turn scope ~ordinal =
                ; _
                }) -> Error (Resume_topology_mismatch "requested turn is already closed"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate turn ordinal"))
+;;
+
+let resume_current_turn scope =
+  match Writer.find_node scope.writer (Journal.run_root scope.run) with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error Run_not_found
+  | Ok (Some root) ->
+    let turn_children =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Agent_turn { ordinal } -> Some (Event.node_id child.value, ordinal)
+           | Event.Agent_run _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        root.children
+    in
+    (* Resolve every turn child's live status once. The turn identity (ordinal) is
+       owned by the durable topology, never reconstructed from mutable agent state:
+       an in-progress turn is the single [Open] child; a crash-settled boundary is
+       the highest-ordinal [Closed] child (the frontier). *)
+    let rec resolve ~open_acc ~closed_acc = function
+      | [] -> Ok (open_acc, closed_acc)
+      | (node, ordinal) :: rest ->
+        (match Writer.find_node scope.writer node with
+         | Error error -> Error (Scope_unavailable error)
+         | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
+         | Ok (Some { status = Journal.Open; _ }) ->
+           resolve ~open_acc:({ scope; node; ordinal } :: open_acc) ~closed_acc rest
+         | Ok (Some { status = Journal.Closed { value; _ }; _ }) ->
+           resolve ~open_acc ~closed_acc:((ordinal, value) :: closed_acc) rest)
+    in
+    (match resolve ~open_acc:[] ~closed_acc:[] turn_children with
+     | Error _ as error -> error
+     | Ok (open_turns, closed_turns) ->
+       (match open_turns with
+        | _ :: _ :: _ -> Error (Resume_topology_mismatch "multiple open agent turns")
+        | [ turn ] -> Ok (Resume_turn_open turn)
+        | [] ->
+          (* No turn is still open: classify the highest-ordinal turn, the crash
+             frontier. A [Closed Succeeded] frontier is the idempotent completed
+             boundary (#2683) resume replays instead of aborting the root Failed; a
+             [Closed Failed]/[Cancelled] frontier stays a fail-closed error; and no
+             turns at all is a genuinely fresh resume. *)
+          (match closed_turns with
+           | [] -> Ok Resume_turn_absent
+           | first :: rest ->
+             let _, frontier_value =
+               List.fold_left
+                 (fun (best_ordinal, best_value) (ordinal, value) ->
+                    if ordinal >= best_ordinal
+                    then ordinal, value
+                    else best_ordinal, best_value)
+                 first
+                 rest
+             in
+             (match frontier_value with
+              | Event.Succeeded -> Ok Resume_turn_settled
+              | Event.Failed _ | Event.Cancelled _ ->
+                Error (Resume_topology_mismatch "requested turn is already closed")))))
 ;;
 
 let open_provider_attempt turn ~ordinal binding =

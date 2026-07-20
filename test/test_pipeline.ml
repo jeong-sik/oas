@@ -316,6 +316,145 @@ let test_pipeline_sends_exact_supplied_tools () =
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
 ;;
 
+let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let before_turns = ref [] in
+  let after_turns = ref [] in
+  let pre_tool_turns = ref [] in
+  let handler_turns = ref [] in
+  let hooks =
+    { Hooks.empty with
+      before_turn =
+        Some
+          (function
+            | Hooks.BeforeTurn { turn; _ } ->
+              before_turns := turn :: !before_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected BeforeTurn")
+    ; after_turn =
+        Some
+          (function
+            | Hooks.AfterTurn { turn; _ } ->
+              after_turns := turn :: !after_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected AfterTurn")
+    ; pre_tool_use =
+        Some
+          (function
+            | Hooks.PreToolUse { invocation; _ } ->
+              pre_tool_turns := Tool.Invocation.turn invocation :: !pre_tool_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected PreToolUse")
+    }
+  in
+  let tool =
+    Tool.create_with_execution_env
+      ~name:"identity_tool"
+      ~description:"observe the canonical provider turn"
+      ~parameters:[]
+      (fun execution_env _input ->
+         (match Tool.Execution_env.invocation execution_env with
+          | None -> Alcotest.fail "tool handler received no invocation"
+          | Some invocation ->
+            handler_turns := Tool.Invocation.turn invocation :: !handler_turns);
+         Ok { Types.content = "observed"; _meta = None })
+  in
+  let responses =
+    ref
+      [ { (pipeline_response StopToolUse) with
+          id = "provider-turn-0"
+        ; content =
+            [ ToolUse
+                { id = "provider-tool-0"; name = "identity_tool"; input = `Assoc [] }
+            ]
+        }
+      ; { (pipeline_response EndTurn) with id = "provider-turn-1" }
+      ]
+  in
+  let next_response () =
+    match !responses with
+    | response :: rest ->
+      responses := rest;
+      Ok response
+    | [] ->
+      Error
+        (Llm_provider.Http_client.AcceptRejected
+           { reason = "provider-turn identity fixture exhausted responses" })
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = next_response (); latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+    }
+  in
+  let event_bus = Event_bus.create () in
+  let event_config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config:event_config event_bus in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "provider-turn-identity-test"
+        }
+      ~tools:[ tool ]
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        ; hooks
+        ; event_bus = Some event_bus
+        }
+      ()
+  in
+  (match Agent.run ~sw agent "run identity_tool" with
+   | Ok response ->
+     Alcotest.(check string) "terminal response" "done" (Types.text_of_response response)
+   | Error error -> Alcotest.fail (Error.to_string error));
+  let turn_started, turn_ready, turn_completed, tool_events =
+    Event_bus.drain subscription
+    |> List.fold_left
+         (fun (started, ready, completed, tools) (event : Event_bus.event) ->
+            match event.payload with
+            | TurnStarted { turn; _ } -> turn :: started, ready, completed, tools
+            | TurnReady { turn; _ } -> started, turn :: ready, completed, tools
+            | TurnCompleted { turn; _ } -> started, ready, turn :: completed, tools
+            | ToolCalled { invocation; _ } | ToolCompleted { invocation; _ } ->
+              started, ready, completed, Tool.Invocation.turn invocation :: tools
+            | AgentStarted _
+            | AgentCompleted _
+            | AgentFailed _
+            | HandoffRequested _
+            | HandoffCompleted _
+            | ElicitationCompleted _
+            | InferenceTelemetry _
+            | Custom _ -> started, ready, completed, tools)
+         ([], [], [], [])
+  in
+  let check_turns label expected actual =
+    Alcotest.(check (list int)) label expected (List.rev actual)
+  in
+  check_turns "BeforeTurn identity" [ 0; 1 ] !before_turns;
+  check_turns "AfterTurn identity" [ 0; 1 ] !after_turns;
+  check_turns "TurnStarted identity" [ 0; 1 ] turn_started;
+  check_turns "TurnReady identity" [ 0; 1 ] turn_ready;
+  check_turns "TurnCompleted identity" [ 0; 1 ] turn_completed;
+  check_turns "PreToolUse identity" [ 0 ] !pre_tool_turns;
+  check_turns "tool handler identity" [ 0 ] !handler_turns;
+  check_turns "public tool event identity" [ 0; 0 ] tool_events;
+  Alcotest.(check int)
+    "state advances after two provider turns"
+    2
+    (Agent.state agent).turn_count
+;;
+
 let unwrap_raw_trace = function
   | Ok value -> value
   | Error error -> Alcotest.fail (Error.to_string error)
@@ -1544,7 +1683,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -1553,7 +1692,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -1796,7 +1935,7 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -1805,7 +1944,7 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -2053,7 +2192,7 @@ let test_agent_run_resumes_all_blocked_settled_turn () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -2245,7 +2384,7 @@ let test_agent_run_resume_fires_on_yield () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -2375,6 +2514,10 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "provider turn identity spans multiturn tool loop"
+            `Quick
+            test_provider_turn_identity_is_shared_across_multiturn_tool_loop
         ; Alcotest.test_case
             "output rejects unknown terminal"
             `Quick

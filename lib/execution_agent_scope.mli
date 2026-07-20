@@ -92,6 +92,18 @@ type provider_resume =
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn_resume, error) result
 
+(** Classify the current turn from durable topology, without a caller-supplied
+    ordinal. This is a recovery-only lookup; the turn identity is owned by the
+    journal, never reconstructed from mutable agent state. [Resume_turn_open] is
+    the single still-open turn (resume it); [Resume_turn_settled] is the
+    highest-ordinal turn already [Closed Succeeded] under a still-[Running] root
+    (an idempotent completed boundary to replay, not re-run); a [Closed
+    Failed]/[Cancelled] frontier stays a [Resume_topology_mismatch] error;
+    [Resume_turn_absent] is a genuinely fresh resume. *)
+val resume_current_turn : t -> (turn_resume, error) result
+
+val turn_ordinal : turn -> int
+
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt
   :  turn
