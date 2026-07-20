@@ -59,6 +59,38 @@ type thinking_object_only_control =
   ; keep_all : bool
   }
 
+(** OpenAI-compatible request envelope selected by the typed HTTP codec. *)
+type openai_request_wire =
+  | Chat_completions
+  | Responses
+
+(** Concrete wire location that satisfied an explicit
+    [enable_thinking = Some true] request. *)
+type explicit_enable_encoding =
+  | Request_control_field
+  | Chat_template_system_token
+
+type explicit_enable_receipt =
+  | Explicit_enable_not_requested
+  | Explicit_enable_encoded of explicit_enable_encoding
+  | Explicit_enable_not_encoded
+
+(** Immutable request-control projection. [fields] are the exact JSON members
+    for the selected OpenAI-compatible envelope; the receipts are derived in
+    the same exhaustive dialect branch, so admission cannot claim an encoding
+    that the serializer does not own. *)
+type request_control_artifact =
+  { fields : (string * Yojson.Safe.t) list
+  ; explicit_enable_receipt : explicit_enable_receipt
+  }
+
+type request_control_rejection =
+  | Thinking_budget_unsupported
+  | Reasoning_effort_unsupported
+  | Reasoning_effort_value_unsupported of Reasoning_effort.t
+
+val request_control_rejection_to_message : request_control_rejection -> string
+
 type t =
   { toggle_default : toggle_default
   ; toggle_wire : toggle_wire
@@ -102,22 +134,24 @@ val ignores_sampling_param
   -> Capabilities.sampling_parameter
   -> bool
 
-(** Canonical OpenAI-compatible thinking-control request fields for a dialect.
+(** Canonical OpenAI-compatible thinking-control request artifact for a dialect.
 
-    This is the single source of truth for the request-body fields emitted by
-    both the low-level [Provider_config]-based builder and the high-level
-    Agent API builder. [zai_glm_clear_thinking] is only used for
-    ZAI GLM's historical [No_toggle] transport, where GLM still accepts a
-    provider-specific [thinking] object. *)
+    This is the single source of truth for both request-body fields and typed
+    admission receipts. The low-level [Provider_config]-based builder, the
+    high-level Agent API builder, the Responses builder, and Complete preflight
+    all consume projections of this artifact. [zai_glm_clear_thinking] is only
+    used for ZAI GLM's historical [No_toggle] Chat transport, where GLM still
+    accepts a provider-specific [thinking] object. *)
 val request_control_fields
-  :  t
+  :  openai_request_wire
+  -> t
   -> enable_thinking:bool option
   -> preserve_thinking:bool option
   -> thinking_budget:int option
   -> reasoning_effort:Reasoning_effort.t option
   -> ?zai_glm_clear_thinking:bool
   -> unit
-  -> (string * Yojson.Safe.t) list
+  -> (request_control_artifact, request_control_rejection) result
 
 (** Normalize a typed caller effort for a provider dialect. *)
 val normalize_effort_value : t -> Reasoning_effort.t -> string option
