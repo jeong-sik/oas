@@ -60,7 +60,7 @@ let entry_for ~key ~max =
           "conflicting max_concurrent_requests for %s %s: scheduler holds %d, a config \
            declares %d; the first declaration stays authoritative"
           key.kind
-          key.base_url
+          (Complete_common.sanitize_url_for_log key.base_url)
           entry.declared_max
           max);
       entry
