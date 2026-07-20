@@ -141,9 +141,6 @@ let apply_event (session : session) (event : event) =
        Error
          (Error.Internal
             (Printf.sprintf "Input response %s has no pending request" detail.request_id)))
-  | Pending_input_updated _ ->
-    let* session = ensure_active_phase session in
-    Ok session
   | Agent_spawn_requested detail ->
     let* session = ensure_active_phase session in
     Ok

@@ -583,7 +583,18 @@ let%test "openai tool_calls response validates correctly" =
     && (List.hd result.tool_calls_found).name = "read_file"
 ;;
 
-let%test "wrong stop_reason for tool calls fails validation" =
+(* Integration guard for the finish_reason=stop/end_turn + tool-block mislabel
+   fix: a provider that emits a complete tool_use block but labels the turn
+   [end_turn] is reconciled by [Backend_anthropic.parse_response]
+   ([Stop_reason_wire.reconcile]) to a [StopToolUse] turn, so the executable
+   tool call is not left dangling (no tool_result) and the parsed response
+   validates as a correct tool turn. Reverting the [reconcile]/[of_finish]
+   [EndTurn]-with-tool-blocks arm turns this RED (the parser would return
+   [EndTurn] and [stop_reason_matches_tool_calls] would flag the tool turn as a
+   stop-reason mismatch). The pure-unit invariant that a *typed* [EndTurn] with
+   tool calls is a mismatch is still asserted separately against
+   [validate_response] on a hand-built [api_response]. *)
+let%test "end_turn + tool_use is reconciled to a valid tool turn" =
   let json =
     `Assoc
       [ "id", `String "msg_bad"
@@ -608,7 +619,7 @@ let%test "wrong stop_reason for tool calls fails validation" =
       ]
   in
   let result = validate_anthropic_response ~declared_tools:[ "test" ] json in
-  not result.stop_reason_correct
+  result.stop_reason_correct && List.length result.tool_calls_found = 1
 ;;
 
 let%test "text-only response passes validation" =

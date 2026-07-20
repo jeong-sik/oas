@@ -127,13 +127,7 @@ let payload_kind = function
 
 (* ── ID generation ────────────────────────────────────────────────── *)
 
-let id_counter = Atomic.make 0
-
-let fresh_id () =
-  let n = Atomic.fetch_and_add id_counter 1 in
-  let timestamp_us = Int.of_float (Unix.gettimeofday () *. 1_000_000.) in
-  Printf.sprintf "%x-%x-%x" (Unix.getpid ()) timestamp_us n
-;;
+let fresh_id = Event_envelope.fresh_id
 
 let mk_envelope ?correlation_id ?run_id ?caused_by () =
   let correlation_id =

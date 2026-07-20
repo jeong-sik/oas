@@ -339,8 +339,13 @@ let test_prepared_measure_admit_dispatch () =
       | Ok measured -> measured
       | Error _ -> fail "expected prepared request measurement"
     in
+    let max_context_tokens =
+      match Complete.resolve_context_limit prepared with
+      | Ok limit -> limit
+      | Error _ -> fail "expected resolved context limit"
+    in
     let admitted =
-      match Complete.admit_request measured with
+      match Complete.admit_request ~max_context_tokens measured with
       | Ok admitted -> admitted
       | Error _ -> fail "expected prepared request admission"
     in
@@ -391,7 +396,10 @@ let test_prepared_context_overflow_is_typed () =
     in
     match Complete.measure_request ~sw ~net prepared with
     | Error _ -> fail "expected prepared request measurement"
-    | Ok measured -> Complete.admit_request measured
+    | Ok measured ->
+      (match Complete.resolve_context_limit prepared with
+       | Error _ -> fail "expected resolved context limit"
+       | Ok max_context_tokens -> Complete.admit_request ~max_context_tokens measured)
   in
   match result with
   | Error
@@ -413,7 +421,8 @@ let test_prepared_admission_resolves_catalog_context_limit () =
     in
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
     let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
-    Complete.admit_request measured, expected
+    let max_context_tokens = Complete.resolve_context_limit prepared |> Result.get_ok in
+    Complete.admit_request ~max_context_tokens measured, expected
   in
   match result with
   | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"
@@ -423,6 +432,129 @@ let test_prepared_admission_resolves_catalog_context_limit () =
       "catalog context is the admission limit"
       expected
       (Complete.admitted_fit admitted).max_context_tokens
+;;
+
+(* Loopback server that counts every request it receives into [posts] and,
+   unlike [with_mock], never awaits a captured promise. That makes it safe to
+   drive code that is expected to issue no request at all: a zero-request run
+   cannot block on an unresolved promise. In these fixtures the only server-bound
+   request the code under test can make is the [/count_tokens] measurement (the
+   completion itself uses the injected [transport], not the network), so [posts]
+   observes the number of [/count_tokens] round-trips. *)
+let with_post_counter f =
+  let posts = Atomic.make 0 in
+  let result =
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let net = Eio.Stdenv.net env in
+    let port = fresh_port () in
+    let handler _conn _request body =
+      ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
+      Atomic.incr posts;
+      Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"input_tokens":321}|} ()
+    in
+    let socket =
+      Eio.Net.listen
+        net
+        ~sw
+        ~backlog:4
+        ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    in
+    let server = Cohttp_eio.Server.make ~callback:handler () in
+    Eio.Fiber.fork_daemon ~sw (fun () ->
+      Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+    let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+    f ~sw ~net ~base_url
+  in
+  result, Atomic.get posts
+;;
+
+(* Transport that flips [dispatched] if the completion is ever dispatched. An
+   unknown context limit must fail admission before either path runs. *)
+let dispatch_tripwire dispatched =
+  { Llm_transport.complete_sync =
+      (fun _ ->
+        dispatched := true;
+        { Llm_transport.response = Ok response; latency_ms = None })
+  ; complete_stream =
+      (fun ?on_telemetry:_ ~on_event:_ _ ->
+        dispatched := true;
+        Ok response)
+  }
+;;
+
+(* Regression for #2678: [Pipeline_stage_route.dispatch_sync] /
+   [dispatch_stream] resolve the context limit (pure, no network) before they
+   [measure_request] (the [/count_tokens] POST), so a pre-knowable
+   [Context_limit_unknown] surfaces without a wasted round-trip.
+
+   These two tests drive the REAL production dispatch path via
+   [Agent_sdk.Agent.run] / [Agent_sdk.Agent.run_stream] (both route through
+   [Pipeline_stage_route]); they do NOT reconstruct the resolve/measure/admit
+   sequence inline. That is what makes them guard the production ordering: the
+   model has no catalog row and the config carries no [~max_context], so resolve
+   fails, and with the shipped order no request reaches the server ([posts] = 0)
+   and the tripwire transport never dispatches.
+
+   Counterfactual: revert the order in [Pipeline_stage_route] so [measure_request]
+   runs before [resolve_context_limit]. The measurement then POSTs to
+   [/count_tokens] before the (still failing) resolve, [posts] reaches 1, and the
+   [posts = 0] assertion goes red. The typed error is identical in both orders
+   (resolve fails either way), so [posts] is the discriminating observation for
+   the reorder. The sync and stream cases guard the two independent call sites
+   the production fix touched. *)
+let expect_unknown_limit_failure label result =
+  match result with
+  | Error
+      (Agent_sdk.Error.Config (Agent_sdk.Error.InvalidConfig { field = "max_context"; _ }))
+    -> ()
+  | Error error -> fail (label ^ ": " ^ Agent_sdk.Error.to_string error)
+  | Ok _ -> fail (label ^ ": expected unknown-context-limit failure before measurement")
+;;
+
+let test_resolve_before_measure_skips_count_roundtrip () =
+  let dispatched = ref false in
+  let result, posts =
+    with_post_counter
+    @@ fun ~sw ~net ~base_url ->
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config:(config base_url)
+        ~transport:(dispatch_tripwire dispatched)
+        ()
+    in
+    Agent_sdk.Agent.run ~sw agent "resolve before measuring"
+  in
+  expect_unknown_limit_failure "sync" result;
+  check bool "unknown limit must not dispatch (sync)" false !dispatched;
+  check int "no /count_tokens round-trip for an unknown limit (sync)" 0 posts
+;;
+
+let test_resolve_before_measure_skips_count_roundtrip_stream () =
+  let dispatched = ref false in
+  let result, posts =
+    with_post_counter
+    @@ fun ~sw ~net ~base_url ->
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config:(config base_url)
+        ~transport:(dispatch_tripwire dispatched)
+        ()
+    in
+    Agent_sdk.Agent.run_stream
+      ~sw
+      ~on_event:(fun _ -> ())
+      agent
+      "resolve before measuring"
+  in
+  expect_unknown_limit_failure "stream" result;
+  check bool "unknown limit must not dispatch (stream)" false !dispatched;
+  check int "no /count_tokens round-trip for an unknown limit (stream)" 0 posts
 ;;
 
 let test_measurement_validates_before_io () =
@@ -844,6 +976,14 @@ let () =
             "prepared admission resolves catalog context limit"
             `Quick
             test_prepared_admission_resolves_catalog_context_limit
+        ; test_case
+            "resolve before measure skips count round-trip"
+            `Quick
+            test_resolve_before_measure_skips_count_roundtrip
+        ; test_case
+            "resolve before measure skips count round-trip (stream)"
+            `Quick
+            test_resolve_before_measure_skips_count_roundtrip_stream
         ; test_case
             "measurement validates before I/O"
             `Quick

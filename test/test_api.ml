@@ -1203,6 +1203,59 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
   | Ok _ -> fail "expected Result.Error for unsupported GLM named tool_choice"
 ;;
 
+(* #2716 completion (N-of-M validation parity). The LIVE Complete path rejects an
+   unencoded explicit-thinking request before transport, but the legacy public
+   wire path ([Api.create_message_detailed] / streaming ->
+   [build_openai_body_result_for_resolved_config]) ran only tool_choice
+   validation and silently assembled a body with the thinking directive dropped.
+   A raw OpenAI-compatible model whose capability record is [No_thinking_control]
+   + [supports_reasoning=false], with [enable_thinking=Some true], produces an
+   [Explicit_enable_not_encoded] receipt that the Complete path rejects. This
+   asserts the legacy builder now rejects the identical config with the identical
+   shared reason. Reverting the
+   [validate_thinking_control_request_for_resolved_config] call in
+   [Api_openai.build_openai_body_result_for_resolved_config] makes the builder
+   return [Ok] (silent assembly), failing this test. *)
+let test_legacy_openai_body_rejects_unencoded_explicit_thinking () =
+  let caps = Llm_provider.Capabilities.openai_compat_chat_capabilities in
+  let resolved_config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"unknown-openai-compat-reasoner"
+      ~base_url:"http://127.0.0.1:8085"
+      ~request_path:"/v1/chat/completions"
+      ~max_tokens:1024
+      ~enable_thinking:true
+      ~model_capabilities_override:caps
+      ()
+  in
+  (* Parity anchor: the Complete path's shared decision classifies this config as
+     a rejection with a stable reason. *)
+  let complete_reason =
+    Llm_provider.Complete_common.thinking_control_request_rejection_reason resolved_config
+  in
+  check bool "Complete path rejects this config" true (Option.is_some complete_reason);
+  match
+    Api.build_openai_body_result_for_resolved_config ~resolved_config ~messages:[] ()
+  with
+  | Ok _ ->
+    fail
+      "legacy OpenAI body builder must reject enable_thinking=true on a \
+       No_thinking_control + supports_reasoning=false model instead of silently \
+       assembling a body without the thinking directive"
+  | Error reason ->
+    check
+      bool
+      "rejection mentions the explicit enable_thinking request"
+      true
+      (contains_substring ~sub:"enable_thinking=true" reason);
+    check
+      bool
+      "legacy reason matches the Complete path's shared reason"
+      true
+      (Some reason = complete_reason)
+;;
+
 (* Complement of [test_build_openai_body_glm_preserves_reasoning_content]: the
    same Preserved-Thinking configuration WITHOUT a declared Z.AI endpoint gets
    no GLM dialect behavior. Before the typed-dialect reshape, the prefix-only
@@ -1228,8 +1281,16 @@ let test_build_openai_body_bare_glm_gets_no_glm_dialect () =
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
-          model = "glm-5"
-        ; enable_thinking = Some true
+          model =
+            "glm-5"
+            (* enable_thinking=Some true on this bare glm-5 (generic
+             OpenAI-compat: No_thinking_control, supports_reasoning=false) is now
+             rejected before assembly by #2716's restored invariant, covered by
+             [test_legacy_openai_body_rejects_unencoded_explicit_thinking]. This
+             suite asserts GLM-dialect selection, which is identical for any
+             admissible enable_thinking on a non-reasoning model (the
+             thinking-control block is skipped when supports_reasoning=false). *)
+        ; enable_thinking = Some false
         ; preserve_thinking = Some true
         }
     ; messages = []
@@ -1456,8 +1517,15 @@ let test_build_openai_body_openai_compat_glm_uses_openai_wire_dialect () =
   let state =
     { Types.config =
         { (Types.default_config ~model:"test-model") with
-          model = provider_config.model_id
-        ; enable_thinking = Some true
+          model =
+            provider_config.model_id
+            (* enable_thinking=Some true on a generic OpenAI-compat glm-5
+             (No_thinking_control, supports_reasoning=false) is now rejected by
+             #2716's restored invariant, covered by
+             [test_legacy_openai_body_rejects_unencoded_explicit_thinking]. The
+             openai-wire-dialect assertions below are unchanged for any admissible
+             enable_thinking on a non-reasoning model. *)
+        ; enable_thinking = Some false
         ; tool_choice = Some Types.Auto
         }
     ; messages = []
@@ -2564,6 +2632,10 @@ let () =
             "glm rejects unsupported forced tool choice"
             `Quick
             test_build_openai_body_rejects_glm_forced_tool_choice
+        ; test_case
+            "legacy openai body rejects unencoded explicit thinking (#2716)"
+            `Quick
+            test_legacy_openai_body_rejects_unencoded_explicit_thinking
         ; test_case
             "bare glm gets no glm dialect"
             `Quick

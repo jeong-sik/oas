@@ -70,39 +70,45 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
 
 let measurement measured = measured.measurement
 
-let admit measured =
-  let request = measured.prepared.request in
+(* Pure single source for the context-token limit. Uses only the caller-owned
+   config and the exact model capability -- no network -- so a pre-knowable
+   limit failure is decidable before any measurement round-trip. *)
+let resolve_context_limit prepared =
+  let config = prepared.request.config in
   let max_context =
-    match request.config.max_context with
+    match config.max_context with
     | Some _ as explicit -> explicit
     | None ->
       Option.bind
-        (Provider_config.capabilities_for_config_model request.config)
+        (Provider_config.capabilities_for_config_model config)
         (fun capabilities -> capabilities.Capabilities.max_context_tokens)
   in
   match max_context with
-  | None -> Error (Context_limit_unknown { model_id = request.config.model_id })
+  | None -> Error (Context_limit_unknown { model_id = config.model_id })
   | Some max_context_tokens when max_context_tokens <= 0 ->
-    Error
-      (Invalid_context_limit { model_id = request.config.model_id; max_context_tokens })
-  | Some max_context_tokens ->
-    let input_tokens = measured.measurement.input_count.input_tokens in
-    let reserved_output_tokens =
-      Types.output_token_receipt_effective measured.measurement.output_token_receipt
-    in
-    (match reserved_output_tokens with
-     | None ->
-       (* [measure_completion_request] currently returns only a required
-          receipt. Keep this branch total if a future provider protocol can
-          report an optional output ceiling. *)
-       Error (Output_reservation_unknown { model_id = request.config.model_id })
-     | Some reserved_output_tokens ->
-       let fit = { input_tokens; reserved_output_tokens; max_context_tokens } in
-       if
-         reserved_output_tokens > max_context_tokens
-         || input_tokens > max_context_tokens - reserved_output_tokens
-       then Error (Context_window_exceeded fit)
-       else Ok { measured; fit })
+    Error (Invalid_context_limit { model_id = config.model_id; max_context_tokens })
+  | Some max_context_tokens -> Ok max_context_tokens
+;;
+
+let admit ~max_context_tokens measured =
+  let request = measured.prepared.request in
+  let input_tokens = measured.measurement.input_count.input_tokens in
+  let reserved_output_tokens =
+    Types.output_token_receipt_effective measured.measurement.output_token_receipt
+  in
+  match reserved_output_tokens with
+  | None ->
+    (* [measure_completion_request] currently returns only a required receipt.
+       Keep this branch total if a future provider protocol can report an
+       optional output ceiling. *)
+    Error (Output_reservation_unknown { model_id = request.config.model_id })
+  | Some reserved_output_tokens ->
+    let fit = { input_tokens; reserved_output_tokens; max_context_tokens } in
+    if
+      reserved_output_tokens > max_context_tokens
+      || input_tokens > max_context_tokens - reserved_output_tokens
+    then Error (Context_window_exceeded fit)
+    else Ok { measured; fit }
 ;;
 
 let admitted_request admitted = admitted.measured.prepared

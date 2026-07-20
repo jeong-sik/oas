@@ -219,10 +219,6 @@ type error_ctx =
 
 let with_stage stage error = { error; stage = Some stage; backtrace = None }
 
-let with_backtrace error =
-  { error; stage = None; backtrace = Some (Printexc.get_backtrace ()) }
-;;
-
 (* ── String / retryable ─────────────────────────────────── *)
 
 let to_string (err : [< sdk_error_poly ]) : string =
