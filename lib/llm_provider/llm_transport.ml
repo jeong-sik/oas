@@ -19,9 +19,9 @@ type completion_request =
     (** RFC-OAS-037: time-to-first-event (TTFT / prefill) deadline, in
         seconds, distinct from [stream_idle_timeout_s]. Bounds only the wait
         for the first streaming event; inter-token idle arms after it. [None]
-        falls back to [body_timeout_s] (below), then to an internal fail-safe
-        ceiling, so the first-event wait is still bounded; inter-token idle
-        still guards once producing. @since 0.218.0 *)
+        falls back to [body_timeout_s], then to [stream_idle_timeout_s] (the
+        bound that applied before RFC-OAS-037); inter-token idle still guards
+        once the stream produces. @since 0.218.0 *)
   ; body_timeout_s : float option
     (** RFC-OAS-037 §4.2: total body budget, in seconds. On the non-streaming
         path this bounds the whole response read. On the streaming path it is

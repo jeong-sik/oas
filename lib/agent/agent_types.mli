@@ -76,9 +76,11 @@ type options =
         Requires [clock] to be supplied; without a clock the wrapper is
         skipped. A timeout surfaces as
         [TimeoutError] and is returned unchanged after that provider attempt.
-        The streaming completion itself deliberately ignores this field and
-        uses [stream_idle_timeout_s] for inter-line liveness; only its optional
-        non-streaming count preflight uses this deadline.
+        On the streaming path this field is the fallback bound for the
+        first-event (TTFT/prefill) wait when [first_event_timeout_s] is
+        [None] — inter-token liveness after the first event is still governed
+        by [stream_idle_timeout_s], and only the optional non-streaming count
+        preflight uses this deadline directly.
         @since 0.181.0 *)
   ; hooks : Hooks.hooks
   ; guardrails_async : Guardrails_async.t
