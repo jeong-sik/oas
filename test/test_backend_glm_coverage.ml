@@ -1,6 +1,7 @@
 open Alcotest
 module K = Llm_provider.Backend_glm
 module PC = Llm_provider.Provider_config
+module S = Llm_provider.Streaming
 module T = Llm_provider.Types
 
 let member key json = Yojson.Safe.Util.member key json
@@ -210,10 +211,11 @@ let test_parse_stream_chunk_delegates_reasoning_delta () =
     {|{"id":"chunk-1","model":"glm-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
   in
   match K.parse_stream_chunk data with
-  | Some chunk ->
+  | S.Openai_chunk chunk ->
     check (option string) "content" (Some "token") chunk.delta_content;
     check (option string) "reasoning" (Some "thinking") chunk.delta_reasoning
-  | None -> fail "expected stream chunk"
+  | S.Openai_done | S.Openai_empty | S.Openai_provider_error _ | S.Openai_parse_failed _
+    -> fail "expected stream chunk"
 ;;
 
 let () =

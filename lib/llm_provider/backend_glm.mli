@@ -100,4 +100,4 @@ val extract_reasoning_content : api_response -> string -> api_response
 
 (** Parse a Glm SSE streaming chunk.
     Delegates to {!Streaming.parse_openai_sse_chunk}. *)
-val parse_stream_chunk : string -> Streaming.openai_chunk option
+val parse_stream_chunk : string -> Streaming.openai_sse_parse_result

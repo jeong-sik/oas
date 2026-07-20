@@ -584,17 +584,17 @@ let function_call_required_string ~field item =
 
 let function_call_arguments ~call_id item =
   let* arguments = function_call_required_string ~field:"arguments" item in
-  match Yojson.Safe.from_string arguments with
-  | `Assoc _ as input -> Ok input
-  | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+  match Tool_call_input.parse_object arguments with
+  | Ok input -> Ok input
+  | Error Tool_call_input.Not_object ->
     Error
       (Printf.sprintf "malformed_responses_function_call:%s:arguments:not_object" call_id)
-  | exception Yojson.Json_error msg ->
+  | Error (Tool_call_input.Invalid_json message) ->
     Error
       (Printf.sprintf
          "malformed_responses_function_call:%s:arguments:json_parse_error:%s"
          call_id
-         msg)
+         message)
 ;;
 
 let content_block_of_function_call item =

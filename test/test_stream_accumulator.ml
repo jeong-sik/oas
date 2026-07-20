@@ -227,13 +227,18 @@ let test_accumulate_message_delta_cache_update () =
 
 let test_accumulate_ignores_ping () =
   let acc = Streaming.create_stream_acc () in
+  Alcotest.(check bool) "fresh stream has not failed" false (Streaming.stream_failed acc);
   Streaming.accumulate_event acc Ping;
   Streaming.accumulate_event acc MessageStop;
   Streaming.accumulate_event acc (ContentBlockStop { index = 0 });
   Streaming.accumulate_event
     acc
     (SSEError { message = "oops"; error_type = None; raw = "oops" });
-  Alcotest.(check string) "state unchanged" "" !(acc.id)
+  Alcotest.(check string) "state unchanged" "" !(acc.id);
+  Alcotest.(check bool)
+    "typed stream failure is terminal"
+    true
+    (Streaming.stream_failed acc)
 ;;
 
 (* ── finalize_stream_acc ──────────────────────────────────── *)
@@ -378,6 +383,39 @@ let test_finalize_tool_use_invalid_json () =
       (String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason)
   | Error err -> fail_unexpected_stream_error err
   | Ok _ -> Alcotest.fail "expected malformed tool_use arguments to fail closed"
+;;
+
+let test_finalize_tool_use_rejects_non_object_json () =
+  List.iter
+    (fun (label, raw) ->
+       let acc = Streaming.create_stream_acc () in
+       acc_events
+         acc
+         [ MessageStart { id = "m"; model = "m"; usage = None }
+         ; ContentBlockStart
+             { index = 0
+             ; content_type = "tool_use"
+             ; tool_id = Some "tu-non-object"
+             ; tool_name = Some "lookup"
+             }
+         ; ContentBlockDelta { index = 0; delta = InputJsonDelta raw }
+         ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
+         ];
+       match Streaming.finalize_stream_acc acc with
+       | Error (Stream_parse_failed { reason; raw = observed_raw }) ->
+         Alcotest.(check string) (label ^ " raw") raw observed_raw;
+         Alcotest.(check string)
+           (label ^ " reason")
+           "malformed_tool_use_arguments:index:0:not_object"
+           reason
+       | Error err -> fail_unexpected_stream_error err
+       | Ok _ -> Alcotest.fail (label ^ " tool input must fail closed"))
+    [ "number", "42"
+    ; "array", "[]"
+    ; "boolean", "true"
+    ; "null", "null"
+    ; "string", {|"value"|}
+    ]
 ;;
 
 let test_finalize_multi_block_ordering () =
@@ -553,6 +591,10 @@ let () =
             "tool_use invalid json"
             `Quick
             test_finalize_tool_use_invalid_json
+        ; Alcotest.test_case
+            "tool_use non-object json"
+            `Quick
+            test_finalize_tool_use_rejects_non_object_json
         ; Alcotest.test_case
             "multi block ordering"
             `Quick

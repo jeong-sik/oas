@@ -160,28 +160,41 @@ let%test "stream unknown event stays provider parse failure" =
     (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
 ;;
 
-let%test "openai_compat_error_event surfaces a typed SSEError from an error chunk" =
+let%test "OpenAI-compatible parser preserves a typed provider error" =
   match
-    Streaming.openai_compat_error_event
+    Streaming.parse_openai_sse_chunk
       {|{"error":{"type":"rate_limit_exceeded","message":"slow down"}}|}
   with
-  | Some (Types.SSEError { message; error_type; _ }) ->
+  | Streaming.Openai_provider_error { message; error_type; _ } ->
     String.equal message "slow down"
     &&
       (match error_type with
       | Some "rate_limit_exceeded" -> true
       | Some _ | None -> false)
-  | Some _ | None -> false
+  | Streaming.Openai_chunk _
+  | Streaming.Openai_done
+  | Streaming.Openai_empty
+  | Streaming.Openai_parse_failed _ -> false
 ;;
 
-let%test "openai_compat_error_event returns None for the DONE sentinel" =
-  Option.is_none (Streaming.openai_compat_error_event "[DONE]")
+let%test "OpenAI-compatible parser classifies the DONE sentinel" =
+  match Streaming.parse_openai_sse_chunk "[DONE]" with
+  | Streaming.Openai_done -> true
+  | Streaming.Openai_chunk _
+  | Streaming.Openai_empty
+  | Streaming.Openai_provider_error _
+  | Streaming.Openai_parse_failed _ -> false
 ;;
 
-let%test "openai_compat_error_event returns None for a normal content chunk" =
-  Option.is_none
-    (Streaming.openai_compat_error_event
-       {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|})
+let%test "OpenAI-compatible parser classifies a normal content chunk" =
+  match
+    Streaming.parse_openai_sse_chunk {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|}
+  with
+  | Streaming.Openai_chunk _ -> true
+  | Streaming.Openai_done
+  | Streaming.Openai_empty
+  | Streaming.Openai_provider_error _
+  | Streaming.Openai_parse_failed _ -> false
 ;;
 
 (* Per-provider clean-stream regression guards for the phantom-completion check
@@ -189,10 +202,18 @@ let%test "openai_compat_error_event returns None for a normal content chunk" =
    [Complete_stream_acc.finalize_stream_acc]). Each backend's REAL wire terminal,
    run through its actual parser + converter, must set the terminal flag so a
    clean stream finalizes [Ok] -- never a false truncation. The OpenAI-compat
-   case is the trap: its "[DONE]" sentinel parses to [None], so the signal is the
-   finish_reason MessageDelta, not [DONE]. *)
+   OpenAI-compatible parser outcome is converted through one event projection,
+   including its terminal sentinel and typed failures. *)
 let accumulate_events acc events =
   List.iter (Complete_stream_acc.accumulate_event acc) events
+;;
+
+let accumulate_openai_payload acc state payload =
+  let events, _telemetry =
+    Streaming.parse_openai_sse_chunk payload
+    |> Streaming.openai_sse_parse_result_to_events state
+  in
+  accumulate_events acc events
 ;;
 
 let%test
@@ -200,12 +221,7 @@ let%test
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
-  (match
-     Streaming.parse_openai_sse_chunk
-       {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|}
-   with
-   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
-   | None -> ());
+  accumulate_openai_payload acc st {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|};
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
   | Error _ -> false
@@ -269,27 +285,19 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
 
 (* GAP 1: an OpenAI-compatible stream whose only completion signal is the
    [data: [DONE]] sentinel (every content chunk carries [finish_reason: null]).
-   The sentinel parses to [None], so before the terminal-events helper it
-   produced no event and [finalize_stream_acc] rejected the stream as a phantom
-   truncation -- surfacing "SSE parse failed:
-   stream_terminated_without_stop_reason" to the caller. This is the exact shape
-   a downstream consumer's default provider hits (https://ollama.com/v1,
-   OpenAI-compat wire). The helper now emits [MessageStop], so the stream
-   finalizes [Ok] with
-   the default [EndTurn]. *)
+   The closed parser and event projection preserve that terminal fact as
+   [MessageStop], so finalization can use the default [EndTurn]. *)
 let%test
     "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason defaults \
      EndTurn (covers GLM/Kimi/DashScope)"
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
-  (match
-     Streaming.parse_openai_sse_chunk
-       {|{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}|}
-   with
-   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
-   | None -> ());
-  accumulate_events acc (Streaming.openai_compat_terminal_events "[DONE]");
+  accumulate_openai_payload
+    acc
+    st
+    {|{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}|};
+  accumulate_openai_payload acc st "[DONE]";
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok resp -> resp.stop_reason = Types.EndTurn
   | Error _ -> false
@@ -306,27 +314,24 @@ let%test
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
-  (match
-     Streaming.parse_openai_sse_chunk
-       {|{"choices":[{"delta":{"content":"hi"},"finish_reason":"length"}]}|}
-   with
-   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
-   | None -> ());
-  accumulate_events acc (Streaming.openai_compat_terminal_events "[DONE]");
+  accumulate_openai_payload
+    acc
+    st
+    {|{"choices":[{"delta":{"content":"hi"},"finish_reason":"length"}]}|};
+  accumulate_openai_payload acc st "[DONE]";
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok resp -> resp.stop_reason = Types.MaxTokens
   | Error _ -> false
 ;;
 
-(* A provider error object routed through the same helper still finalizes Error,
-   never an [Ok] / a [MessageStop]: the helper's non-[DONE] branch surfaces a
-   typed SSEError so the consumer routes it through error classification. *)
-let%test "OpenAI-compat error object via terminal-events helper finalizes Error" =
+(* A provider error remains [SSEError], never [MessageStop] or an empty result. *)
+let%test "OpenAI-compatible provider error result finalizes Error" =
   let acc = Complete_stream_acc.create_stream_acc () in
-  accumulate_events
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  accumulate_openai_payload
     acc
-    (Streaming.openai_compat_terminal_events
-       {|{"error":{"type":"rate_limit_exceeded","message":"slow down"}}|});
+    st
+    {|{"error":{"type":"rate_limit_exceeded","message":"slow down"}}|};
   match Complete_stream_acc.finalize_stream_acc acc with
   | Error _ -> true
   | Ok _ -> false
@@ -673,24 +678,26 @@ let complete_stream_http
                        ~reader
                        ~on_line:(fun line ->
                          observe_wire_chunk line;
-                         match Streaming.parse_ollama_ndjson_chunk line with
-                         | None ->
-                           dispatch
-                             ( [ Types.SSEParseFailed
-                                   { raw = line
-                                   ; reason = "ollama_ndjson_chunk_parse_failure"
-                                   }
-                               ]
-                             , None )
-                         | Some chunk ->
-                           (match chunk.oll_timings with
-                            | Some _ as t -> ollama_timings := t
-                            | None -> ());
-                           (match chunk.oll_usage with
-                            | Some _ as u -> ollama_usage := u
-                            | None -> ());
-                           dispatch
-                             (Streaming.ollama_chunk_to_events (get_state ()) chunk))
+                         if not (Complete_stream_acc.stream_failed acc)
+                         then (
+                           match Streaming.parse_ollama_ndjson_chunk line with
+                           | None ->
+                             dispatch
+                               ( [ Types.SSEParseFailed
+                                     { raw = line
+                                     ; reason = "ollama_ndjson_chunk_parse_failure"
+                                     }
+                                 ]
+                               , None )
+                           | Some chunk ->
+                             (match chunk.oll_timings with
+                              | Some _ as t -> ollama_timings := t
+                              | None -> ());
+                             (match chunk.oll_usage with
+                              | Some _ as u -> ollama_usage := u
+                              | None -> ());
+                             dispatch
+                               (Streaming.ollama_chunk_to_events (get_state ()) chunk)))
                        ()
                    | _non_ollama_kind ->
                      Http_client.read_sse
@@ -699,59 +706,46 @@ let complete_stream_http
                        ~reader
                        ~on_data:(fun ~event_type data ->
                          observe_wire_chunk data;
-                         let events =
-                           match http_codec with
-                           | Provider_http_codec.Anthropic_messages ->
-                             (match Streaming.parse_sse_event event_type data with
-                              | Some evt -> [ evt ], None
-                              | None -> [], None)
-                           | Provider_http_codec.Openai_responses ->
-                             Streaming.responses_sse_to_events
-                               (get_state ())
-                               event_type
-                               data
-                           | Provider_http_codec.Openai_chat ->
-                             (match
-                                Streaming.parse_openai_sse_chunk ~streaming_reasoning data
-                              with
-                              | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                (* A [None] from the chunk parser is the [DONE]
-                                   sentinel, a usage-only/empty chunk, OR a
-                                   provider error object ([{"error": ...}]) that
-                                   has no [choices]. The helper maps [DONE] to a
-                                   [MessageStop] (clean close -> no phantom
-                                   completion) and an error object to a typed
-                                   [SSEError]; everything else yields no events. *)
-                                Streaming.openai_compat_terminal_events data, None)
-                           | Provider_http_codec.Gemini_generate_content ->
-                             (match Streaming.parse_gemini_sse_chunk data with
-                              | Some chunk ->
-                                Streaming.gemini_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                ( [ Types.SSEParseFailed
-                                      { raw = data
-                                      ; reason = "gemini_sse_chunk_parse_failure"
-                                      }
-                                  ]
-                                , None ))
-                           | Provider_http_codec.Glm_chat ->
-                             (match Backend_glm.parse_stream_chunk data with
-                              | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None ->
-                                (* Same [None] cases as the OpenAI-compatible
-                                   branch: [DONE] -> [MessageStop], error object
-                                   -> [SSEError], else no events. *)
-                                Streaming.openai_compat_terminal_events data, None)
-                           | Provider_http_codec.Ollama_chat ->
-                             [], None (* unreachable: handled above *)
-                         in
-                         dispatch events)
+                         if not (Complete_stream_acc.stream_failed acc)
+                         then (
+                           let events =
+                             match http_codec with
+                             | Provider_http_codec.Anthropic_messages ->
+                               (match Streaming.parse_sse_event event_type data with
+                                | Some evt -> [ evt ], None
+                                | None -> [], None)
+                             | Provider_http_codec.Openai_responses ->
+                               Streaming.responses_sse_to_events
+                                 (get_state ())
+                                 event_type
+                                 data
+                             | Provider_http_codec.Openai_chat ->
+                               Streaming.parse_openai_sse_chunk ~streaming_reasoning data
+                               |> Streaming.openai_sse_parse_result_to_events
+                                    (get_state ())
+                             | Provider_http_codec.Gemini_generate_content ->
+                               (match Streaming.parse_gemini_sse_chunk data with
+                                | Some chunk ->
+                                  Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                | None ->
+                                  ( [ Types.SSEParseFailed
+                                        { raw = data
+                                        ; reason = "gemini_sse_chunk_parse_failure"
+                                        }
+                                    ]
+                                  , None ))
+                             | Provider_http_codec.Glm_chat ->
+                               Backend_glm.parse_stream_chunk data
+                               |> Streaming.openai_sse_parse_result_to_events
+                                    (get_state ())
+                             | Provider_http_codec.Ollama_chat ->
+                               [], None (* unreachable: handled above *)
+                           in
+                           dispatch events))
                        ());
                   Ok ()
                 with
+                | Eio.Time.Timeout when Complete_stream_acc.stream_failed acc -> Ok ()
                 | Eio.Time.Timeout ->
                   let phase =
                     Http_client.timeout_phase_of_stream_idle_state !stream_idle_state

@@ -350,8 +350,12 @@ let test_parse_with_explicit_event_type () =
 
 let parse_openai_chunk_exn data =
   match Agent_sdk.Llm_provider.Streaming.parse_openai_sse_chunk data with
-  | Some chunk -> chunk
-  | None -> Alcotest.fail "expected OpenAI-compatible stream chunk"
+  | Agent_sdk.Llm_provider.Streaming.Openai_chunk chunk -> chunk
+  | Agent_sdk.Llm_provider.Streaming.Openai_done
+  | Agent_sdk.Llm_provider.Streaming.Openai_empty
+  | Agent_sdk.Llm_provider.Streaming.Openai_provider_error _
+  | Agent_sdk.Llm_provider.Streaming.Openai_parse_failed _ ->
+    Alcotest.fail "expected OpenAI-compatible stream chunk"
 ;;
 
 let test_openai_compat_interleaved_reasoning_and_tool_deltas () =
