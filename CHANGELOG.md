@@ -268,6 +268,14 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.217.3](https://github.com/jeong-sik/oas/compare/v0.217.2...v0.217.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* **ollama:** hard-cut native tool-loop replay and correlation ([#2710](https://github.com/jeong-sik/oas/issues/2710)) ([f7754cb](https://github.com/jeong-sik/oas/commit/f7754cbf46dfbcfab746e6a34ea610cc593ccdfe))
+* **pipeline:** classify durable Error_occurred error_domain from the error, not hardcoded "Api" ([#2717](https://github.com/jeong-sik/oas/issues/2717)) ([eebb5d5](https://github.com/jeong-sik/oas/commit/eebb5d53902f91d46e8ae0b4fba08637d7c5f99d))
+
 ## [0.217.2](https://github.com/jeong-sik/oas/compare/v0.217.1...v0.217.2) (2026-07-20)
 
 
