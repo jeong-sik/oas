@@ -113,6 +113,35 @@ let test_classify_error_403_authorization_denied () =
   check bool "403 is not retryable" false (Retry.is_retryable err)
 ;;
 
+(* #2644: a hostile or malformed 429 body may carry a non-finite or negative
+   [error.retry_after]. Yojson parses [NaN]/[Infinity]/[-Infinity] and
+   overflowing exponents ([1e400]) into non-finite floats, and [-5.0] into a
+   negative one. The parse boundary must reject all of these so no bad float
+   reaches a sleep/backoff computation; the value then falls through to the
+   header (here [None]). A finite non-negative value is preserved unchanged.
+   These cases fail if the [usable_retry_after] guard is reverted. *)
+let test_classify_error_429_retry_after_finite_guard () =
+  let retry_after_of body =
+    match Retry.classify_error ~retry_after_header:None ~status:429 ~body with
+    | Retry.RateLimited { retry_after; _ } -> retry_after
+    | _ -> fail "expected RateLimited for 429"
+  in
+  let expect_none label body =
+    match retry_after_of body with
+    | None -> ()
+    | Some bad -> failf "%s: expected retry_after None, got Some %f" label bad
+  in
+  expect_none "NaN body retry_after" {|{"error":{"retry_after":NaN}}|};
+  expect_none "Infinity body retry_after" {|{"error":{"retry_after":Infinity}}|};
+  expect_none "-Infinity body retry_after" {|{"error":{"retry_after":-Infinity}}|};
+  expect_none "overflow-exponent body retry_after" {|{"error":{"retry_after":1e400}}|};
+  expect_none "negative body retry_after" {|{"error":{"retry_after":-5.0}}|};
+  (* Valid finite non-negative value is unchanged (no regression). *)
+  match retry_after_of {|{"error":{"retry_after":3.0}}|} with
+  | Some ra -> check (float 0.0) "valid retry_after preserved" 3.0 ra
+  | None -> fail "expected retry_after Some 3.0 for a valid body"
+;;
+
 let test_is_retryable () =
   check
     bool
@@ -245,6 +274,10 @@ let () =
             "403 authorization denied"
             `Quick
             test_classify_error_403_authorization_denied
+        ; test_case
+            "429 retry_after finite guard"
+            `Quick
+            test_classify_error_429_retry_after_finite_guard
         ] )
     ; ( "typed_projection"
       , [ test_case "retryable predicates" `Quick test_is_retryable

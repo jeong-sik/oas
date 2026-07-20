@@ -49,6 +49,43 @@ type thinking_object_only_control =
   ; keep_all : bool
   }
 
+type openai_request_wire =
+  | Chat_completions
+  | Responses
+
+type explicit_enable_encoding =
+  | Request_control_field
+  | Chat_template_system_token
+
+type explicit_enable_receipt =
+  | Explicit_enable_not_requested
+  | Explicit_enable_encoded of explicit_enable_encoding
+  | Explicit_enable_not_encoded
+
+type request_control_artifact =
+  { fields : (string * Yojson.Safe.t) list
+  ; explicit_enable_receipt : explicit_enable_receipt
+  }
+
+type request_control_rejection =
+  | Thinking_budget_unsupported
+  | Reasoning_effort_unsupported
+  | Reasoning_effort_value_unsupported of Reasoning_effort.t
+
+let request_control_rejection_to_message = function
+  | Thinking_budget_unsupported ->
+    "Reasoning_dialect.request_control_fields: thinking_budget is unsupported by the \
+     selected provider wire"
+  | Reasoning_effort_unsupported ->
+    "Reasoning_dialect.request_control_fields: reasoning_effort is unsupported by the \
+     selected provider wire"
+  | Reasoning_effort_value_unsupported effort ->
+    Printf.sprintf
+      "Reasoning_dialect.request_control_fields: reasoning_effort %S is not supported by \
+       the selected provider wire"
+      (Reasoning_effort.to_string effort)
+;;
+
 type t =
   { toggle_default : toggle_default
   ; toggle_wire : toggle_wire
@@ -297,7 +334,38 @@ let normalize_effort_value dialect effort =
   | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
 ;;
 
+let validate_request_control_inputs
+      request_wire
+      dialect
+      ~thinking_budget
+      ~reasoning_effort
+  =
+  let thinking_budget_result =
+    match thinking_budget, request_wire, dialect.toggle_wire with
+    | None, _, _ | Some _, Chat_completions, Enable_thinking -> Ok ()
+    | Some _, _, _ -> Error Thinking_budget_unsupported
+  in
+  match thinking_budget_result with
+  | Error _ as error -> error
+  | Ok () ->
+    (match reasoning_effort, request_wire, dialect.toggle_wire with
+     | None, _, _
+     | Some _, (Chat_completions | Responses), Reasoning_effort
+     | Some _, Chat_completions, Thinking_object { includes_reasoning_effort = true } ->
+       Ok ()
+     | Some _, _, _ -> Error Reasoning_effort_unsupported)
+;;
+
+let normalized_effort_for_request dialect = function
+  | None -> Ok None
+  | Some effort ->
+    (match normalize_effort_value dialect effort with
+     | Some normalized -> Ok (Some normalized)
+     | None -> Error (Reasoning_effort_value_unsupported effort))
+;;
+
 let request_control_fields
+      request_wire
       dialect
       ~enable_thinking
       ~preserve_thinking
@@ -306,104 +374,160 @@ let request_control_fields
       ?zai_glm_clear_thinking
       ()
   =
-  (match thinking_budget, dialect.toggle_wire with
-   | None, _ | Some _, Enable_thinking -> ()
-   | Some _, _ ->
-     invalid_arg
-       "Reasoning_dialect.request_control_fields: thinking_budget is unsupported by the \
-        selected provider wire");
-  (match reasoning_effort, dialect.toggle_wire with
-   | None, _
-   | Some _, Reasoning_effort
-   | Some _, Thinking_object { includes_reasoning_effort = true } -> ()
-   | Some _, _ ->
-     invalid_arg
-       "Reasoning_dialect.request_control_fields: reasoning_effort is unsupported by the \
-        selected provider wire");
-  let output_fields = reasoning_output_fields dialect ~enable_thinking in
-  let normalized_effort_field () =
-    match reasoning_effort with
-    | Some effort ->
-      (match normalize_effort_value dialect effort with
-       | Some normalized -> [ "reasoning_effort", `String normalized ]
-       | None ->
-         invalid_arg
-           (Printf.sprintf
-              "Reasoning_dialect.request_control_fields: reasoning_effort %S is not \
-               supported by the selected provider wire"
-              (Reasoning_effort.to_string effort)))
-    | None -> []
-  in
-  match dialect.toggle_wire with
-  | Chat_template_kwargs ->
-    output_fields
-    @
-      (match
-         bool_field "enable_thinking" enable_thinking
-         @ bool_field
-             "preserve_thinking"
-             (chat_template_kwargs_preserve_field dialect ~preserve_thinking)
-       with
-      | [] -> []
-      | fields -> [ "chat_template_kwargs", `Assoc fields ])
-  | Chat_template_token | Ollama_think -> output_fields
-  | Enable_thinking ->
-    let fields =
-      bool_field "enable_thinking" enable_thinking
-      @ bool_field
-          "preserve_thinking"
-          (top_level_preserve_field dialect ~preserve_thinking)
-    in
-    let fields =
-      match enable_thinking, thinking_budget with
-      | Some true, Some budget -> ("thinking_budget", `Int budget) :: fields
-      | _ -> fields
-    in
-    output_fields @ fields
-  | Reasoning_effort -> output_fields @ normalized_effort_field ()
-  | Thinking_object _ ->
-    output_fields
-    @
-      (match enable_thinking with
-      | Some true ->
-        ("thinking", `Assoc [ "type", `String "enabled" ]) :: normalized_effort_field ()
-      | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-      | None -> [])
-  | Thinking_object_adaptive ->
-    output_fields
-    @
-      (match enable_thinking with
-      | Some true -> [ "thinking", `Assoc [ "type", `String "adaptive" ] ]
-      | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-      | None -> [])
-  | Thinking_object_only ->
-    let control =
-      thinking_object_only_control dialect ~enable_thinking ~preserve_thinking
-    in
-    let fields =
-      match control.enabled with
-      | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
-      | None -> []
-    in
-    let fields =
-      if control.keep_all then fields @ [ "keep", `String "all" ] else fields
-    in
-    output_fields
-    @
-      (match fields with
-      | [] -> []
-      | fields -> [ "thinking", `Assoc fields ])
-  | No_toggle ->
-    output_fields
-    @
-      (match zai_glm_clear_thinking, enable_thinking with
-      | Some clear_thinking, Some true ->
-        [ ( "thinking"
-          , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
-        ]
-      | Some _, Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-      | Some _, None | None, _ -> [])
-  | Anthropic_thinking | Gemini_thinking_config -> output_fields
+  match
+    validate_request_control_inputs
+      request_wire
+      dialect
+      ~thinking_budget
+      ~reasoning_effort
+  with
+  | Error _ as error -> error
+  | Ok () ->
+    (match normalized_effort_for_request dialect reasoning_effort with
+     | Error _ as error -> error
+     | Ok normalized_effort ->
+       let normalized_effort_field () =
+         match normalized_effort with
+         | Some effort -> [ "reasoning_effort", `String effort ]
+         | None -> []
+       in
+       let explicit_field_encoding =
+         match enable_thinking with
+         | Some true -> Some Request_control_field
+         | Some false | None -> None
+       in
+       let explicit_reasoning_effort_encoding =
+         (* [None_] is the typed no-reasoning setting, not proof that an
+            explicit enable request reached the wire. Keep this decision on
+            the constructor so admission never interprets the wire string. *)
+         match enable_thinking, reasoning_effort with
+         | ( Some true
+           , Some
+               ( Reasoning_effort.Minimal
+               | Reasoning_effort.Low
+               | Reasoning_effort.Medium
+               | Reasoning_effort.High
+               | Reasoning_effort.XHigh
+               | Reasoning_effort.Max ) ) -> Some Request_control_field
+         | Some true, (Some Reasoning_effort.None_ | None) | (Some false | None), _ ->
+           None
+       in
+       let fields, explicit_enable_encoding =
+         match request_wire, dialect.toggle_wire with
+         | Responses, Reasoning_effort ->
+           (match normalized_effort with
+            | Some effort ->
+              ( [ "reasoning", `Assoc [ "effort", `String effort ] ]
+              , explicit_reasoning_effort_encoding )
+            | None -> [], None)
+         | ( Responses
+           , ( No_toggle
+             | Thinking_object _
+             | Thinking_object_adaptive
+             | Thinking_object_only
+             | Chat_template_kwargs
+             | Chat_template_token
+             | Ollama_think
+             | Enable_thinking
+             | Anthropic_thinking
+             | Gemini_thinking_config ) ) -> [], None
+         | Chat_completions, Chat_template_kwargs ->
+           let fields =
+             bool_field "enable_thinking" enable_thinking
+             @ bool_field
+                 "preserve_thinking"
+                 (chat_template_kwargs_preserve_field dialect ~preserve_thinking)
+           in
+           ( (match fields with
+              | [] -> []
+              | fields -> [ "chat_template_kwargs", `Assoc fields ])
+           , explicit_field_encoding )
+         | Chat_completions, Chat_template_token ->
+           let encoding =
+             match enable_thinking with
+             | Some true -> Some Chat_template_system_token
+             | Some false | None -> None
+           in
+           [], encoding
+         | Chat_completions, Ollama_think -> [], None
+         | Chat_completions, Enable_thinking ->
+           let fields =
+             bool_field "enable_thinking" enable_thinking
+             @ bool_field
+                 "preserve_thinking"
+                 (top_level_preserve_field dialect ~preserve_thinking)
+           in
+           let fields =
+             match enable_thinking, thinking_budget with
+             | Some true, Some budget -> ("thinking_budget", `Int budget) :: fields
+             | _ -> fields
+           in
+           fields, explicit_field_encoding
+         | Chat_completions, Reasoning_effort ->
+           let fields = normalized_effort_field () in
+           fields, explicit_reasoning_effort_encoding
+         | Chat_completions, Thinking_object _ ->
+           let fields =
+             match enable_thinking with
+             | Some true ->
+               ("thinking", `Assoc [ "type", `String "enabled" ])
+               :: normalized_effort_field ()
+             | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+             | None -> []
+           in
+           fields, explicit_field_encoding
+         | Chat_completions, Thinking_object_adaptive ->
+           let fields =
+             match enable_thinking with
+             | Some true -> [ "thinking", `Assoc [ "type", `String "adaptive" ] ]
+             | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+             | None -> []
+           in
+           fields, explicit_field_encoding
+         | Chat_completions, Thinking_object_only ->
+           let control =
+             thinking_object_only_control dialect ~enable_thinking ~preserve_thinking
+           in
+           let fields =
+             match control.enabled with
+             | Some enabled ->
+               [ "type", `String (if enabled then "enabled" else "disabled") ]
+             | None -> []
+           in
+           let fields =
+             if control.keep_all then fields @ [ "keep", `String "all" ] else fields
+           in
+           ( (match fields with
+              | [] -> []
+              | fields -> [ "thinking", `Assoc fields ])
+           , explicit_field_encoding )
+         | Chat_completions, No_toggle ->
+           (match zai_glm_clear_thinking, enable_thinking with
+            | Some clear_thinking, Some true ->
+              ( [ ( "thinking"
+                  , `Assoc
+                      [ "type", `String "enabled"
+                      ; "clear_thinking", `Bool clear_thinking
+                      ] )
+                ]
+              , explicit_field_encoding )
+            | Some _, Some false ->
+              [ "thinking", `Assoc [ "type", `String "disabled" ] ], None
+            | Some _, None | None, _ -> [], None)
+         | Chat_completions, (Anthropic_thinking | Gemini_thinking_config) -> [], None
+       in
+       let output_fields =
+         match request_wire with
+         | Chat_completions -> reasoning_output_fields dialect ~enable_thinking
+         | Responses -> []
+       in
+       let explicit_enable_receipt =
+         match enable_thinking, explicit_enable_encoding with
+         | Some true, Some encoding -> Explicit_enable_encoded encoding
+         | Some true, None -> Explicit_enable_not_encoded
+         | Some false, _ | None, _ -> Explicit_enable_not_requested
+       in
+       Ok { fields = output_fields @ fields; explicit_enable_receipt })
 ;;
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
@@ -705,15 +829,20 @@ let%test "request_control_fields emits qwen chat_template kwargs" =
       }
   in
   request_control_fields
+    Chat_completions
     dialect
     ~enable_thinking:(Some false)
     ~preserve_thinking:(Some true)
     ~thinking_budget:None
     ~reasoning_effort:None
     ()
-  = [ ( "chat_template_kwargs"
-      , `Assoc [ "enable_thinking", `Bool false; "preserve_thinking", `Bool true ] )
-    ]
+  = Ok
+      { fields =
+          [ ( "chat_template_kwargs"
+            , `Assoc [ "enable_thinking", `Bool false; "preserve_thinking", `Bool true ] )
+          ]
+      ; explicit_enable_receipt = Explicit_enable_not_requested
+      }
 ;;
 
 let%test "request_control_fields emits thinking object with explicitly supported effort" =
@@ -725,19 +854,25 @@ let%test "request_control_fields emits thinking object with explicitly supported
       }
   in
   request_control_fields
+    Chat_completions
     dialect
     ~enable_thinking:(Some true)
     ~preserve_thinking:None
     ~thinking_budget:None
     ~reasoning_effort:(Some Reasoning_effort.High)
     ()
-  = [ "thinking", `Assoc [ "type", `String "enabled" ]
-    ; "reasoning_effort", `String "high"
-    ]
+  = Ok
+      { fields =
+          [ "thinking", `Assoc [ "type", `String "enabled" ]
+          ; "reasoning_effort", `String "high"
+          ]
+      ; explicit_enable_receipt = Explicit_enable_encoded Request_control_field
+      }
 ;;
 
 let%test "request_control_fields keeps zai glm no-toggle exception explicit" =
   request_control_fields
+    Chat_completions
     default
     ~enable_thinking:(Some true)
     ~preserve_thinking:(Some true)
@@ -745,5 +880,100 @@ let%test "request_control_fields keeps zai glm no-toggle exception explicit" =
     ~reasoning_effort:None
     ~zai_glm_clear_thinking:false
     ()
-  = [ "thinking", `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool false ] ]
+  = Ok
+      { fields =
+          [ ( "thinking"
+            , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool false ] )
+          ]
+      ; explicit_enable_receipt = Explicit_enable_encoded Request_control_field
+      }
+;;
+
+let%test "explicit enable receipt follows the selected OpenAI request wire" =
+  let dialect format =
+    of_capabilities
+      { Capabilities.default_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = format
+      }
+  in
+  let request request_wire dialect ?reasoning_effort () =
+    request_control_fields
+      request_wire
+      dialect
+      ~enable_thinking:(Some true)
+      ~preserve_thinking:None
+      ~thinking_budget:None
+      ~reasoning_effort
+      ()
+  in
+  let reasoning_effort_dialect = dialect Capabilities.Reasoning_effort in
+  let thinking_object_dialect = dialect Capabilities.Thinking_object in
+  request Chat_completions reasoning_effort_dialect ()
+  = Ok { fields = []; explicit_enable_receipt = Explicit_enable_not_encoded }
+  && request
+       Responses
+       reasoning_effort_dialect
+       ~reasoning_effort:Reasoning_effort.Medium
+       ()
+     = Ok
+         { fields = [ "reasoning", `Assoc [ "effort", `String "medium" ] ]
+         ; explicit_enable_receipt = Explicit_enable_encoded Request_control_field
+         }
+  && request
+       Responses
+       reasoning_effort_dialect
+       ~reasoning_effort:Reasoning_effort.None_
+       ()
+     = Ok
+         { fields = [ "reasoning", `Assoc [ "effort", `String "none" ] ]
+         ; explicit_enable_receipt = Explicit_enable_not_encoded
+         }
+  && request Responses thinking_object_dialect ()
+     = Ok { fields = []; explicit_enable_receipt = Explicit_enable_not_encoded }
+;;
+
+let%test "chat-template token receipt names its out-of-band wire encoding" =
+  let dialect =
+    of_capabilities
+      { Capabilities.default_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = Capabilities.Chat_template_token "<THINK>"
+      }
+  in
+  request_control_fields
+    Chat_completions
+    dialect
+    ~enable_thinking:(Some true)
+    ~preserve_thinking:None
+    ~thinking_budget:None
+    ~reasoning_effort:None
+    ()
+  = Ok
+      { fields = []
+      ; explicit_enable_receipt = Explicit_enable_encoded Chat_template_system_token
+      }
+;;
+
+let%test "unrelated output field cannot satisfy explicit enable receipt" =
+  let dialect =
+    of_capabilities
+      { Capabilities.default_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = Capabilities.Ollama_think
+      ; reasoning_output_format = Capabilities.Split_reasoning_fields
+      }
+  in
+  request_control_fields
+    Chat_completions
+    dialect
+    ~enable_thinking:(Some true)
+    ~preserve_thinking:None
+    ~thinking_budget:None
+    ~reasoning_effort:None
+    ()
+  = Ok
+      { fields = [ "reasoning_split", `Bool true ]
+      ; explicit_enable_receipt = Explicit_enable_not_encoded
+      }
 ;;

@@ -18,7 +18,6 @@ let openai_chunk
       ?(delta_tool_calls = [])
       ?finish_reason
       ?chunk_usage
-      ?chunk_parse_error
       ()
   : S.openai_chunk
   =
@@ -30,7 +29,6 @@ let openai_chunk
   ; delta_tool_calls
   ; finish_reason
   ; chunk_usage
-  ; chunk_parse_error
   }
 ;;
 
@@ -63,6 +61,15 @@ let check_event_count label expected events =
 let require_some label = function
   | Some x -> x
   | None -> fail (label ^ ": expected Some")
+;;
+
+let require_openai_chunk label = function
+  | S.Openai_chunk chunk -> chunk
+  | S.Openai_done -> fail (label ^ ": unexpected terminal sentinel")
+  | S.Openai_empty -> fail (label ^ ": unexpected empty chunk")
+  | S.Openai_provider_error _ -> fail (label ^ ": unexpected provider error")
+  | S.Openai_parse_failed { reason; _ } ->
+    fail (Printf.sprintf "%s: unexpected parse failure: %s" label reason)
 ;;
 
 let test_anthropic_sse_parser_edges () =
@@ -226,24 +233,77 @@ let test_openai_parse_edge_shapes () =
   let mixed_tool_calls =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":"bad"},{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}],"usage":{"prompt_tokens":4,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}|}
   in
-  let chunk =
-    require_some "openai mixed tool calls" (S.parse_openai_sse_chunk mixed_tool_calls)
+  let mixed_result = S.parse_openai_sse_chunk mixed_tool_calls in
+  (match mixed_result with
+   | S.Openai_parse_failed { reason; raw } ->
+     check
+       string
+       "mixed batch failure reason"
+       "malformed_delta_tool_call:position:0:index_not_nonnegative_integer"
+       reason;
+     check string "mixed batch raw payload" mixed_tool_calls raw
+   | S.Openai_chunk _ -> fail "malformed sibling must reject the complete batch"
+   | S.Openai_done -> fail "mixed tool-call payload cannot be DONE"
+   | S.Openai_empty -> fail "mixed tool-call payload cannot be empty"
+   | S.Openai_provider_error _ -> fail "mixed tool-call payload is not a provider error");
+  let state = S.create_openai_stream_state ~provider:"p" ~model:"m" () in
+  let events, telemetry = S.openai_sse_parse_result_to_events state mixed_result in
+  check bool "parse failure has no telemetry" true (Option.is_none telemetry);
+  (match events with
+   | [ SSEParseFailed { reason; raw } ] ->
+     check
+       string
+       "projected batch failure reason"
+       "malformed_delta_tool_call:position:0:index_not_nonnegative_integer"
+       reason;
+     check string "projected batch raw payload" mixed_tool_calls raw
+   | _ -> fail "malformed batch must emit exactly one SSEParseFailed event");
+  let valid_then_malformed =
+    {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-valid","type":"function","function":{"name":"lookup","arguments":"{}"}},{"index":"bad"}]},"finish_reason":null}]}|}
   in
-  check int "only valid tool call retained" 1 (List.length chunk.delta_tool_calls);
-  (match chunk.chunk_usage with
-   | Some u ->
-     check int "cached tokens" 3 u.cache_read_input_tokens;
-     check int "input tokens" 4 u.input_tokens
-   | None -> fail "expected usage");
+  let valid_then_malformed_result = S.parse_openai_sse_chunk valid_then_malformed in
+  (match valid_then_malformed_result with
+   | S.Openai_parse_failed { reason; raw } ->
+     check
+       string
+       "valid-first batch failure reason"
+       "malformed_delta_tool_call:position:1:index_not_nonnegative_integer"
+       reason;
+     check string "valid-first batch raw payload" valid_then_malformed raw
+   | S.Openai_chunk _ -> fail "valid prefix must not survive a malformed suffix"
+   | S.Openai_done -> fail "valid-first mixed payload cannot be DONE"
+   | S.Openai_empty -> fail "valid-first mixed payload cannot be empty"
+   | S.Openai_provider_error _ -> fail "valid-first mixed payload is not a provider error");
+  let valid_first_events, valid_first_telemetry =
+    S.openai_sse_parse_result_to_events
+      (S.create_openai_stream_state ~provider:"p" ~model:"m" ())
+      valid_then_malformed_result
+  in
+  check
+    bool
+    "valid-first parse failure has no telemetry"
+    true
+    (Option.is_none valid_first_telemetry);
+  (match valid_first_events with
+   | [ SSEParseFailed { reason; raw } ] ->
+     check
+       string
+       "valid-first projected failure reason"
+       "malformed_delta_tool_call:position:1:index_not_nonnegative_integer"
+       reason;
+     check string "valid-first projected raw payload" valid_then_malformed raw
+   | _ -> fail "valid prefix must not emit before a malformed suffix");
   let non_list_tool_calls =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":{"unexpected":true}},"finish_reason":null}]}|}
   in
-  let chunk =
-    require_some
-      "openai non-list tool calls"
-      (S.parse_openai_sse_chunk non_list_tool_calls)
-  in
-  check int "non-list tool calls ignored" 0 (List.length chunk.delta_tool_calls)
+  match S.parse_openai_sse_chunk non_list_tool_calls with
+  | S.Openai_parse_failed { reason; raw } ->
+    check string "non-list batch failure" "malformed_delta_tool_calls:not_list" reason;
+    check string "non-list batch raw payload" non_list_tool_calls raw
+  | S.Openai_chunk _ -> fail "non-list tool_calls must not be ignored"
+  | S.Openai_done -> fail "non-list tool_calls payload cannot be DONE"
+  | S.Openai_empty -> fail "non-list tool_calls payload cannot be empty"
+  | S.Openai_provider_error _ -> fail "non-list payload is not a provider error"
 ;;
 
 let test_openai_object_arguments () =
@@ -254,7 +314,9 @@ let test_openai_object_arguments () =
   let object_args =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"f","arguments":{"x":1}}}]},"finish_reason":null}]}|}
   in
-  let chunk = require_some "openai object args" (S.parse_openai_sse_chunk object_args) in
+  let chunk =
+    require_openai_chunk "openai object args" (S.parse_openai_sse_chunk object_args)
+  in
   match chunk.delta_tool_calls with
   | [ tc ] ->
     (match tc.tc_arguments with
@@ -268,6 +330,148 @@ let test_openai_object_arguments () =
        fail "object arguments must be tagged Args_complete, not a fragment"
      | None -> fail "object arguments dropped to None")
   | _ -> fail "expected exactly one tool call"
+;;
+
+let test_openai_malformed_tool_call_shapes_fail_closed () =
+  let cases =
+    [ ( "non-object member"
+      , {|{"choices":[{"delta":{"tool_calls":[null]}}]}|}
+      , "malformed_delta_tool_call:position:0:not_object" )
+    ; ( "negative index"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":-1}]}}]}|}
+      , "malformed_delta_tool_call:position:0:index_not_nonnegative_integer" )
+    ; ( "non-string id"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":42}]}}]}|}
+      , "malformed_delta_tool_call:position:0:id_not_string" )
+    ; ( "blank id"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":" "}]}}]}|}
+      , "malformed_delta_tool_call:position:0:blank_id" )
+    ; ( "unsupported type"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"custom"}]}}]}|}
+      , "malformed_delta_tool_call:position:0:unsupported_type" )
+    ; ( "non-string type"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"type":42}]}}]}|}
+      , "malformed_delta_tool_call:position:0:type_not_string" )
+    ; ( "non-object function"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":[]}]}}]}|}
+      , "malformed_delta_tool_call:position:0:function_not_object" )
+    ; ( "non-string name"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":42}}]}}]}|}
+      , "malformed_delta_tool_call:position:0:name_not_string" )
+    ; ( "blank name"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":" "}}]}}]}|}
+      , "malformed_delta_tool_call:position:0:blank_name" )
+    ; ( "scalar arguments"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":true}}]}}]}|}
+      , "malformed_delta_tool_call:position:0:arguments_invalid_type" )
+    ; ( "array arguments"
+      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":[]}}]}}]}|}
+      , "malformed_delta_tool_call:position:0:arguments_invalid_type" )
+    ]
+  in
+  List.iter
+    (fun (label, raw, expected_reason) ->
+       let parsed = S.parse_openai_sse_chunk raw in
+       (match parsed with
+        | S.Openai_parse_failed { reason; raw = observed_raw } ->
+          check string (label ^ " reason") expected_reason reason;
+          check string (label ^ " raw") raw observed_raw
+        | S.Openai_chunk _ -> fail (label ^ ": malformed call was accepted")
+        | S.Openai_done -> fail (label ^ ": malformed call became DONE")
+        | S.Openai_empty -> fail (label ^ ": malformed call became empty")
+        | S.Openai_provider_error _ ->
+          fail (label ^ ": malformed call became provider error"));
+       let events, _telemetry =
+         S.openai_sse_parse_result_to_events
+           (S.create_openai_stream_state ~provider:"p" ~model:"m" ())
+           parsed
+       in
+       match events with
+       | [ SSEParseFailed { reason; raw = observed_raw } ] ->
+         check string (label ^ " event reason") expected_reason reason;
+         check string (label ^ " event raw") raw observed_raw
+       | _ -> fail (label ^ ": expected exactly one SSEParseFailed event"))
+    cases
+;;
+
+let test_openai_tool_route_conflict_is_transactional () =
+  let tc tc_index tc_id tc_name tc_arguments : S.openai_tool_call_delta =
+    { tc_index; tc_id = Some tc_id; tc_name = Some tc_name; tc_arguments }
+  in
+  let state = S.create_openai_stream_state () in
+  let conflicting_chunk =
+    openai_chunk
+      ~delta_reasoning:"plan"
+      ~delta_content:"answer"
+      ~delta_tool_calls:
+        [ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|}))
+        ; tc 1 "call-b" "second" (Some (S.Args_complete {|{"b":2}|}))
+        ; tc 1 "call-a" "first" None
+        ]
+      ()
+  in
+  let events, telemetry = S.openai_chunk_to_events state conflicting_chunk in
+  check bool "route conflict has no telemetry" true (Option.is_none telemetry);
+  (match events with
+   | [ SSEParseFailed { raw; reason } ] ->
+     check string "route conflict raw" "openai tool_call index 1" raw;
+     check
+       string
+       "route conflict reason"
+       "provider_tool_call_id_route_conflict: one provider identity used multiple wire \
+        routes"
+       reason
+   | _ -> fail "valid siblings must not emit before a later route conflict");
+  let retry_events, _ =
+    S.openai_chunk_to_events
+      state
+      (openai_chunk
+         ~delta_reasoning:"plan"
+         ~delta_content:"answer"
+         ~delta_tool_calls:[ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|})) ]
+         ())
+  in
+  (match retry_events with
+   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "plan" }
+     ; ContentBlockStart { index = 1; content_type = "text"; _ }
+     ; ContentBlockDelta { index = 1; delta = TextDelta "answer" }
+     ; ContentBlockStart { index = 2; content_type = "tool_use"; _ }
+     ; ContentBlockDelta { index = 2; delta = InputJsonSnapshot {|{"a":1}|} }
+     ] -> ()
+   | _ -> fail "route-conflict rollback must leave the stream state unchanged");
+  let shared_index_state = S.create_openai_stream_state () in
+  let shared_index_conflict, _ =
+    S.openai_chunk_to_events
+      shared_index_state
+      (openai_chunk
+         ~delta_tool_calls:
+           [ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|}))
+           ; tc 0 "call-b" "second" (Some (S.Args_complete {|{"b":2}|}))
+           ; { S.tc_index = 0; tc_id = None; tc_name = None; tc_arguments = None }
+           ]
+         ())
+  in
+  (match shared_index_conflict with
+   | [ SSEParseFailed { reason; _ } ] ->
+     check
+       string
+       "same-key route conflict reason"
+       "ambiguous_tool_call_index: id-less continuation follows multiple tool identities"
+       reason
+   | _ -> fail "same-key route conflict must discard every earlier sibling");
+  let shared_index_retry, _ =
+    S.openai_chunk_to_events
+      shared_index_state
+      (openai_chunk
+         ~delta_tool_calls:[ tc 0 "call-a" "first" (Some (S.Args_complete {|{"a":1}|})) ]
+         ())
+  in
+  match shared_index_retry with
+  | [ ContentBlockStart { index = 0; content_type = "tool_use"; _ }
+    ; ContentBlockDelta { index = 0; delta = InputJsonSnapshot {|{"a":1}|} }
+    ] -> ()
+  | _ -> fail "same-key journal rollback must restore the missing route"
 ;;
 
 let test_openai_event_edge_branches () =
@@ -550,6 +754,14 @@ let () =
     ; ( "openai_sse"
       , [ test_case "parse edge shapes" `Quick test_openai_parse_edge_shapes
         ; test_case "object-form tool arguments" `Quick test_openai_object_arguments
+        ; test_case
+            "malformed tool-call shapes fail closed"
+            `Quick
+            test_openai_malformed_tool_call_shapes_fail_closed
+        ; test_case
+            "tool route conflict is transactional"
+            `Quick
+            test_openai_tool_route_conflict_is_transactional
         ; test_case "event edge branches" `Quick test_openai_event_edge_branches
         ] )
     ; ( "gemini_sse"

@@ -210,7 +210,21 @@ let complete_http
                      Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason))
                 | Provider_http_codec.Gemini_generate_content ->
                   Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
-                | Provider_http_codec.Glm_chat -> Ok (Backend_glm.parse_response body)
+                | Provider_http_codec.Glm_chat ->
+                  (match Backend_glm.parse_response_result body with
+                   | Ok resp -> Ok resp
+                   | Error (Backend_openai_parse.Empty_completion e) ->
+                     (* oas#2621 P1#2: mirror the Openai_chat seam so a GLM empty
+                        completion carries its typed [stop_reason] to the shared
+                        overflow classifier instead of collapsing to a
+                        stop_reason-less glm_parse_error. Policy stays downstream
+                        of the preserved [stop_reason]. *)
+                     Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason)
+                   | Error (Backend_openai_parse.Provider_error msg) ->
+                     (* GLM attributes a response-body parse failure to the "glm"
+                        parser, identical to the prior Glm_api_error
+                        Response_parse routing. *)
+                     provider_parse_failure ~parser:"glm" msg)
               with
               | Yojson.Json_error msg ->
                 Diag.error "complete" "JSON parse error: %s" msg;

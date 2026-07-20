@@ -149,15 +149,12 @@ let parse_tool_call_function ~tool_index json =
 ;;
 
 let parse_tool_call_arguments ~tool_index raw =
-  try
-    match Yojson.Safe.from_string raw with
-    | `Assoc _ as input -> Ok input
-    | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-      Error
-        (Printf.sprintf "malformed_tool_call_arguments:index:%d:not_object" tool_index)
-  with
-  | Yojson.Json_error msg ->
-    Error (Printf.sprintf "malformed_tool_call_arguments:index:%d:%s" tool_index msg)
+  match Tool_call_input.parse_object raw with
+  | Ok input -> Ok input
+  | Error Tool_call_input.Not_object ->
+    Error (Printf.sprintf "malformed_tool_call_arguments:index:%d:not_object" tool_index)
+  | Error (Tool_call_input.Invalid_json message) ->
+    Error (Printf.sprintf "malformed_tool_call_arguments:index:%d:%s" tool_index message)
 ;;
 
 let parse_tool_call ~tool_index tc =

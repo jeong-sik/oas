@@ -1243,6 +1243,318 @@ let fake_transport response : Llm_provider.Llm_transport.t =
   }
 ;;
 
+let successful_response model : api_response =
+  { id = "response-ok"
+  ; model
+  ; stop_reason = EndTurn
+  ; content = [ Text "ok" ]
+  ; usage
+  ; telemetry = None
+  }
+;;
+
+let rejected_before_transport : Llm_provider.Llm_transport.t =
+  { complete_sync = (fun _ -> Alcotest.fail "sync transport must not be called")
+  ; complete_stream =
+      (fun ?on_telemetry:_ ~on_event:_ _ ->
+        Alcotest.fail "stream transport must not be called")
+  }
+;;
+
+let complete_sync_and_stream ~config ~transport =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let sync =
+    Llm_provider.Complete.complete
+      ~sw
+      ~net
+      ~config
+      ~messages:[ user_msg "hi" ]
+      ~transport
+      ()
+  in
+  let stream =
+    Llm_provider.Complete.complete_stream
+      ~sw
+      ~net
+      ~config
+      ~messages:[ user_msg "hi" ]
+      ~on_event:(fun _ -> ())
+      ~transport
+      ()
+  in
+  sync, stream
+;;
+
+let expect_complete_ok label = function
+  | Ok _ -> ()
+  | Error _ -> Alcotest.failf "%s: expected completion success" label
+;;
+
+let accept_rejected_reason label = function
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) -> reason
+  | Ok _ -> Alcotest.failf "%s: expected AcceptRejected" label
+  | Error _ -> Alcotest.failf "%s: expected typed AcceptRejected" label
+;;
+
+let enable_thinking_field body =
+  body |> Yojson.Safe.from_string |> Yojson.Safe.Util.member "enable_thinking"
+;;
+
+let test_unknown_openai_compat_enable_rejected_sync_and_stream () =
+  let rejected_reasons request_path =
+    let config =
+      PC.make
+        ~kind:OpenAI_compat
+        ~model_id:"unknown-openai-compatible-model"
+        ~base_url:"https://unknown-openai-compatible.example/v1"
+        ~request_path
+        ~enable_thinking:true
+        ()
+    in
+    let sync, stream =
+      complete_sync_and_stream ~config ~transport:rejected_before_transport
+    in
+    accept_rejected_reason "sync" sync, accept_rejected_reason "stream" stream
+  in
+  let chat_sync, chat_stream = rejected_reasons "/v1/chat/completions" in
+  let responses_sync, responses_stream = rejected_reasons "/v1/responses" in
+  List.iter
+    (Alcotest.check Alcotest.string "same typed rejection payload" chat_sync)
+    [ chat_stream; responses_sync; responses_stream ];
+  List.iter
+    (fun fragment ->
+       Alcotest.(check bool)
+         ("rejection contains " ^ fragment)
+         true
+         (contains_substring ~sub:fragment chat_sync))
+    [ "enable_thinking=true"
+    ; "thinking_control_format=No_thinking_control"
+    ; "supports_reasoning=false"
+    ]
+;;
+
+let test_declared_enable_dialect_passes_sync_stream_and_wire () =
+  let caps =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; thinking_control_format = Llm_provider.Capabilities.Enable_thinking
+    }
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"declared-enable-dialect"
+      ~base_url:"https://declared-openai-compatible.example/v1"
+      ~model_capabilities_override:caps
+      ~enable_thinking:true
+      ()
+  in
+  let transport = fake_transport (successful_response config.model_id) in
+  let sync, stream = complete_sync_and_stream ~config ~transport in
+  expect_complete_ok "sync declared dialect" sync;
+  expect_complete_ok "stream declared dialect" stream;
+  Alcotest.(check bool)
+    "sync wire carries enable_thinking=true"
+    true
+    (enable_thinking_field (BO.build_request ~config ~messages:[ user_msg "hi" ] ())
+     = `Bool true);
+  Alcotest.(check bool)
+    "stream wire carries enable_thinking=true"
+    true
+    (enable_thinking_field
+       (BO.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] ())
+     = `Bool true)
+;;
+
+let test_declared_responses_effort_passes_sync_stream_and_wire () =
+  let caps =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; thinking_control_format = Llm_provider.Capabilities.Reasoning_effort
+    ; accepted_reasoning_efforts = Some [ Llm_provider.Reasoning_effort.Medium ]
+    }
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"declared-responses-effort"
+      ~base_url:"https://declared-openai-compatible.example/v1"
+      ~request_path:"/v1/responses"
+      ~model_capabilities_override:caps
+      ~enable_thinking:true
+      ~reasoning_effort:Llm_provider.Reasoning_effort.Medium
+      ()
+  in
+  let transport = fake_transport (successful_response config.model_id) in
+  let sync, stream = complete_sync_and_stream ~config ~transport in
+  expect_complete_ok "sync declared Responses effort" sync;
+  expect_complete_ok "stream declared Responses effort" stream;
+  [ BOR.build_request ~config ~messages:[ user_msg "hi" ] ()
+  ; BOR.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] ()
+  ]
+  |> List.iter (fun body ->
+    Alcotest.(check string)
+      "Responses wire carries the typed reasoning effort"
+      "medium"
+      Yojson.Safe.Util.(
+        body
+        |> Yojson.Safe.from_string
+        |> member "reasoning"
+        |> member "effort"
+        |> to_string))
+;;
+
+let test_declared_chat_template_token_receipt_matches_wire () =
+  let caps =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; thinking_control_format =
+        Llm_provider.Capabilities.Chat_template_token "<DECLARED_THINK>"
+    }
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"declared-chat-template-token"
+      ~base_url:"https://declared-openai-compatible.example/v1"
+      ~system_prompt:"Base prompt."
+      ~model_capabilities_override:caps
+      ~enable_thinking:true
+      ()
+  in
+  let transport = fake_transport (successful_response config.model_id) in
+  let sync, stream = complete_sync_and_stream ~config ~transport in
+  expect_complete_ok "sync declared chat-template token" sync;
+  expect_complete_ok "stream declared chat-template token" stream;
+  [ BO.build_request ~config ~messages:[ user_msg "hi" ] ()
+  ; BO.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] ()
+  ]
+  |> List.iter (fun body ->
+    let system_content =
+      Yojson.Safe.Util.(
+        body
+        |> Yojson.Safe.from_string
+        |> member "messages"
+        |> index 0
+        |> member "content"
+        |> to_string)
+    in
+    Alcotest.(check bool)
+      "chat-template receipt corresponds to injected wire token"
+      true
+      (String.starts_with ~prefix:"<DECLARED_THINK>\n" system_content))
+;;
+
+let test_declared_inherent_thinking_passes_without_wire_toggle () =
+  let caps =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Llm_provider.Capabilities.No_thinking_control
+    }
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"declared-inherent-reasoner"
+      ~base_url:"https://declared-openai-compatible.example/v1"
+      ~model_capabilities_override:caps
+      ~enable_thinking:true
+      ()
+  in
+  let transport = fake_transport (successful_response config.model_id) in
+  let sync, stream = complete_sync_and_stream ~config ~transport in
+  expect_complete_ok "sync inherent" sync;
+  expect_complete_ok "stream inherent" stream;
+  Alcotest.(check bool)
+    "inherent contract needs no wire toggle"
+    true
+    (enable_thinking_field (BO.build_request ~config ~messages:[ user_msg "hi" ] ())
+     = `Null)
+;;
+
+let test_explicit_false_semantics_remain_typed () =
+  let no_reasoning =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"declared-non-reasoner"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
+      ~enable_thinking:false
+      ()
+  in
+  let transport = fake_transport (successful_response no_reasoning.model_id) in
+  let sync, stream = complete_sync_and_stream ~config:no_reasoning ~transport in
+  expect_complete_ok "sync non-reasoning disable no-op" sync;
+  expect_complete_ok "stream non-reasoning disable no-op" stream;
+  let inherent_caps =
+    { Llm_provider.Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Llm_provider.Capabilities.No_thinking_control
+    }
+  in
+  let inherent =
+    { no_reasoning with
+      model_id = "declared-inherent-reasoner"
+    ; model_capabilities_override = Some inherent_caps
+    }
+  in
+  let sync, stream =
+    complete_sync_and_stream ~config:inherent ~transport:rejected_before_transport
+  in
+  let sync_reason = accept_rejected_reason "sync inherent disable" sync in
+  let stream_reason = accept_rejected_reason "stream inherent disable" stream in
+  Alcotest.(check string)
+    "inherent disable has sync/stream parity"
+    sync_reason
+    stream_reason;
+  let encodable_caps =
+    { inherent_caps with
+      thinking_control_format = Llm_provider.Capabilities.Enable_thinking
+    }
+  in
+  let encodable =
+    { inherent with
+      model_id = "declared-disable-dialect"
+    ; model_capabilities_override = Some encodable_caps
+    }
+  in
+  let transport = fake_transport (successful_response encodable.model_id) in
+  let sync, stream = complete_sync_and_stream ~config:encodable ~transport in
+  expect_complete_ok "sync encodable disable" sync;
+  expect_complete_ok "stream encodable disable" stream;
+  Alcotest.(check bool)
+    "encodable false reaches wire"
+    true
+    (enable_thinking_field
+       (BO.build_request ~config:encodable ~messages:[ user_msg "hi" ] ())
+     = `Bool false)
+;;
+
+let test_standard_openai_request_without_toggle_is_unchanged () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1"
+      ()
+  in
+  let transport = fake_transport (successful_response config.model_id) in
+  let sync, stream = complete_sync_and_stream ~config ~transport in
+  expect_complete_ok "sync standard OpenAI" sync;
+  expect_complete_ok "stream standard OpenAI" stream;
+  Alcotest.(check bool)
+    "standard request does not invent enable_thinking"
+    true
+    (enable_thinking_field (BO.build_request ~config ~messages:[ user_msg "hi" ] ())
+     = `Null)
+;;
+
 let with_model_catalog_toml contents f =
   let original = Llm_provider.Model_catalog.global () in
   match
@@ -1860,6 +2172,36 @@ let () =
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path
+        ] )
+    ; ( "thinking_control_admission"
+      , [ test_case
+            "unknown compat enable rejects sync and stream"
+            `Quick
+            test_unknown_openai_compat_enable_rejected_sync_and_stream
+        ; test_case
+            "declared enable dialect passes sync stream and wire"
+            `Quick
+            test_declared_enable_dialect_passes_sync_stream_and_wire
+        ; test_case
+            "declared Responses effort passes sync stream and wire"
+            `Quick
+            test_declared_responses_effort_passes_sync_stream_and_wire
+        ; test_case
+            "declared chat-template token receipt matches wire"
+            `Quick
+            test_declared_chat_template_token_receipt_matches_wire
+        ; test_case
+            "declared inherent thinking passes without wire toggle"
+            `Quick
+            test_declared_inherent_thinking_passes_without_wire_toggle
+        ; test_case
+            "explicit false semantics remain typed"
+            `Quick
+            test_explicit_false_semantics_remain_typed
+        ; test_case
+            "standard OpenAI request without toggle unchanged"
+            `Quick
+            test_standard_openai_request_without_toggle_is_unchanged
         ] )
     ; ( "cli_transport_guard"
       , [ test_case

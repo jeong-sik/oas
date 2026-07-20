@@ -1306,29 +1306,39 @@ let test_parse_tool_calls_rejects_malformed_arguments () =
 ;;
 
 let test_parse_tool_calls_rejects_non_object_arguments () =
-  let json =
-    response_json
-      ~content:`Null
-      ~finish_reason:"tool_calls"
-      ~message_fields:
-        [ ( "tool_calls"
-          , `List
-              [ `Assoc
-                  [ "id", `String "call-scalar"
-                  ; ( "function"
-                    , `Assoc [ "name", `String "lookup"; "arguments", `String "42" ] )
-                  ]
-              ] )
-        ]
-      ()
-  in
-  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
-  | Error msg ->
-    check_string
-      "non-object arguments rejected"
-      "malformed_tool_call_arguments:index:0:not_object"
-      (Parse.parse_error_to_string msg)
-  | Ok _ -> Alcotest.fail "expected scalar tool arguments to fail closed"
+  List.iter
+    (fun (label, arguments) ->
+       let json =
+         response_json
+           ~content:`Null
+           ~finish_reason:"tool_calls"
+           ~message_fields:
+             [ ( "tool_calls"
+               , `List
+                   [ `Assoc
+                       [ "id", `String "call-non-object"
+                       ; ( "function"
+                         , `Assoc
+                             [ "name", `String "lookup"; "arguments", `String arguments ]
+                         )
+                       ]
+                   ] )
+             ]
+           ()
+       in
+       match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+       | Error msg ->
+         check_string
+           (label ^ " rejected")
+           "malformed_tool_call_arguments:index:0:not_object"
+           (Parse.parse_error_to_string msg)
+       | Ok _ -> Alcotest.fail (label ^ " tool arguments must fail closed"))
+    [ "number", "42"
+    ; "array", "[]"
+    ; "boolean", "true"
+    ; "null", "null"
+    ; "string", {|"value"|}
+    ]
 ;;
 
 let test_parse_error_default_message () =
