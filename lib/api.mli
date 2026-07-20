@@ -1,5 +1,15 @@
 (** API dispatch — routes requests to provider-specific backends.
 
+    {2 Deprecated dispatch entry points}
+
+    {!create_message} and {!create_message_detailed} are the legacy dispatch
+    path: the production path has converged on {!Llm_provider.Complete}. They
+    are retained for compatibility and will be removed in a future major
+    release. The remaining values in this module — request body builders,
+    response parsers, and JSON codecs such as {!content_block_to_json} and
+    {!content_block_of_json} — are {b not} deprecated and remain supported
+    helpers.
+
     @stability Evolving
     @since 0.93.1 *)
 
@@ -104,6 +114,9 @@ val create_message_detailed
   -> ?slot_id:int
   -> unit
   -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+[@@deprecated
+  "Use Llm_provider.Complete — this legacy dispatch path is retained for compatibility \
+   and will be removed in a future major release."]
 
 val create_message
   :  sw:Eio.Switch.t
@@ -117,3 +130,6 @@ val create_message
   -> ?slot_id:int
   -> unit
   -> (Types.api_response, Error.sdk_error) result
+[@@deprecated
+  "Use Llm_provider.Complete — this legacy dispatch path is retained for compatibility \
+   and will be removed in a future major release."]

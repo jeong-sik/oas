@@ -23,7 +23,11 @@ module Fs_result = Fs_result
 module Fs_atomic_eio = Fs_atomic_eio
 module Context = Agent_sdk_base.Context
 module Provider = Provider
+
+(** First-class-module dispatch surface. Deprecated in favor of
+    {!Llm_provider.Complete}; retained for compatibility. *)
 module Provider_intf = Provider_intf
+
 module Provider_runtime_binding = Provider_runtime_binding
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
@@ -53,8 +57,17 @@ module Telemetry_sca_registry = Telemetry_sca_registry
 module Skill = Skill
 module Skill_registry = Skill_registry
 module Contract = Contract
+
+(** Request-dispatch facade. {!Api.create_message} and
+    {!Api.create_message_detailed} are deprecated in favor of
+    {!Llm_provider.Complete}; the helper re-exports remain supported. *)
 module Api = Api
+
+(** SSE streaming facade. {!Streaming.create_message_stream} and
+    {!Streaming.create_message_stream_detailed} are deprecated in favor of
+    {!Llm_provider.Complete}; the pure helpers remain supported. *)
 module Streaming = Streaming
+
 module Subagent = Subagent
 module Structured = Structured
 module Checkpoint = Checkpoint

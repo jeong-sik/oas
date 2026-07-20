@@ -6,6 +6,10 @@
     {b Compile-time guarantee}: attempting to pass a non-streaming
     provider as STREAMING_PROVIDER produces a type error. *)
 
+(* Implements the deprecated legacy dispatch surface; references to the
+   deprecated Api / Streaming dispatch entry points are intentional. *)
+[@@@alert "-deprecated"]
+
 (** Synchronous provider: can send a message and get a response. *)
 module type PROVIDER = sig
   type t

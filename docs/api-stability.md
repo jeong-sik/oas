@@ -90,6 +90,23 @@ CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as
 public OCaml modules in this stability table.
 
+### Deprecated surfaces
+
+The legacy request-dispatch island is deprecated in favor of
+`Llm_provider.Complete`. It is retained for compatibility and will be removed
+in a future major release:
+
+- `Api.create_message` / `Api.create_message_detailed` (`lib/api.mli`)
+- `Streaming.create_message_stream` / `Streaming.create_message_stream_detailed` (`lib/streaming.mli`)
+- All of `Provider_intf` (`lib/provider_intf.mli`)
+
+These entry points carry OCaml `[@@deprecated]` attributes, so downstream
+builds surface alert 3 at use sites. The helper re-exports in `Api` (request
+body builders, response parsers, JSON codecs such as `content_block_to_json`
+/ `content_block_of_json`) and the pure helpers and stream accumulator
+surface in `Streaming` are **not** deprecated. Per the Evolving policy
+above, removal follows the one minor-version deprecation window.
+
 ### Internal modules
 
 Implementation-detail modules with no compatibility promise. Most entries in
