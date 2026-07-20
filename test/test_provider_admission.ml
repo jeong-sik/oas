@@ -125,6 +125,42 @@ let test_conflicting_declaration_first_wins () =
     check int "first declaration stays authoritative" 1 snap.Slot_scheduler.max_slots
 ;;
 
+(* oas#2641: the conflict warning names the endpoint, and a custom base_url can
+   carry userinfo or a `?token=`/`?password=` query credential. Assert the
+   emitted diagnostic is routed through sanitize_url_for_log so no raw secret
+   reaches the Diag sink, matching the sibling log sites in complete_common and
+   complete_sync. *)
+let test_conflict_warning_sanitizes_base_url () =
+  Eio_main.run
+  @@ fun _env ->
+  let base_url = "http://user:secret@leak.test:1/v1?token=abc" in
+  let first = make_config ~base_url ~max_concurrent_requests:1 () in
+  let second = make_config ~base_url ~max_concurrent_requests:5 () in
+  let captured = Buffer.create 256 in
+  Diag.with_sink
+    (fun _level ~ctx:_ msg -> Buffer.add_string captured msg)
+    (fun () ->
+       Provider_admission.with_admission ~config:first (fun () -> ());
+       Provider_admission.with_admission ~config:second (fun () -> ()));
+  let logged = Buffer.contents captured in
+  check
+    bool
+    "the conflict warning was emitted"
+    true
+    (contains_substring ~sub:"conflicting max_concurrent_requests" logged);
+  check bool "sanitized host survives" true (contains_substring ~sub:"leak.test:1" logged);
+  check
+    bool
+    "userinfo credential is stripped from the log"
+    false
+    (contains_substring ~sub:"secret" logged);
+  check
+    bool
+    "query credential is stripped from the log"
+    false
+    (contains_substring ~sub:"token=abc" logged)
+;;
+
 let reject_dispatch_transport : Llm_transport.t =
   { complete_sync = (fun _ -> fail "invalid declaration must never dispatch")
   ; complete_stream =
@@ -224,6 +260,10 @@ let () =
             "conflicting declaration keeps first"
             `Quick
             test_conflicting_declaration_first_wins
+        ; test_case
+            "conflict warning sanitizes base_url"
+            `Quick
+            test_conflict_warning_sanitizes_base_url
         ; test_case
             "zero declaration rejected before dispatch"
             `Quick

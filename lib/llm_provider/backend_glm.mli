@@ -72,9 +72,26 @@ val build_request_artifact
   -> unit
   -> request_artifact
 
-(** Parse a Glm chat completion response.
-    Handles Glm-specific string error codes and extracts
-    [reasoning_content] as {!Types.Thinking} content block. *)
+(** Parse a Glm chat completion response into the typed parse outcome.
+    Handles Glm-specific string error codes and extracts [reasoning_content]
+    as a {!Types.Thinking} content block.
+
+    Malformed JSON and GLM provider errors (documented string codes) raise
+    {!Glm_api_error}. A blank-content 200 is returned as
+    [Error (Backend_openai_parse.Empty_completion _)] carrying the typed
+    [stop_reason], so the caller can route an overflow empty turn to the
+    shared empty-completion overflow classifier rather than dropping the
+    stop_reason (oas#2621). *)
+val parse_response_result
+  :  string
+  -> (api_response, Backend_openai_parse.parse_error) result
+
+(** Raising variant of {!parse_response_result} for raise-style callers and the
+    coverage tests: returns the parsed [api_response] on success and raises
+    {!Glm_api_error} on any parse/provider error (an empty completion raises
+    rather than surfacing its typed [stop_reason]). Production paths use
+    {!parse_response_result} so an overflow empty turn's [stop_reason] reaches
+    the overflow classifier (oas#2621). *)
 val parse_response : string -> api_response
 
 (** Extract [reasoning_content] from Glm response body and prepend
