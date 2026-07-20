@@ -500,50 +500,54 @@ let thinking_control_request_rejection
     if disable_not_encodable then Some Disable_not_encodable else None
 ;;
 
-let validate_thinking_control_request (config : Provider_config.t) =
+(* Operator-facing rejection reason for an unsatisfiable thinking-control
+   request, or [None] when the request is admissible. Single source of truth for
+   both the Complete path ([validate_thinking_control_request], which wraps the
+   reason in a typed [Http_client.AcceptRejected]) and the public
+   OpenAI-compatible body builder ([Api_openai.build_openai_body_result*], which
+   wraps it in that path's string rejection). Sharing one function keeps the two
+   wire-assembly sites rejecting the identical config with the identical message
+   instead of one honoring the [explicit_enable_receipt] and the other silently
+   dropping it. *)
+let thinking_control_request_rejection_reason (config : Provider_config.t) =
   let caps, _source = resolve_capabilities_for_config config in
   match thinking_control_request_rejection ~caps config with
-  | None -> Ok ()
+  | None -> None
   | Some Enable_not_declared ->
-    Error
-      (Http_client.AcceptRejected
-         { reason =
-             Printf.sprintf
-               "model %S has no typed capability contract that can satisfy \
-                enable_thinking=true: thinking_control_format=No_thinking_control and \
-                supports_reasoning=false. Declare the model's exact \
-                thinking_control_format, or declare supports_reasoning=true only for a \
-                model whose inherent/default-on reasoning contract is verified."
-               config.model_id
-         })
+    Some
+      (Printf.sprintf
+         "model %S has no typed capability contract that can satisfy \
+          enable_thinking=true: thinking_control_format=No_thinking_control and \
+          supports_reasoning=false. Declare the model's exact thinking_control_format, \
+          or declare supports_reasoning=true only for a model whose inherent/default-on \
+          reasoning contract is verified."
+         config.model_id)
   | Some Enable_not_encodable ->
-    Error
-      (Http_client.AcceptRejected
-         { reason =
-             Printf.sprintf
-               "model %S declares thinking control, but the resolved typed dialect \
-                cannot encode enable_thinking=true on this OpenAI-compatible request \
-                path. Use the dialect's explicit control value (for example \
-                reasoning_effort), or declare the exact wire dialect for this endpoint."
-               config.model_id
-         })
+    Some
+      (Printf.sprintf
+         "model %S declares thinking control, but the resolved typed dialect cannot \
+          encode enable_thinking=true on this OpenAI-compatible request path. Use the \
+          dialect's explicit control value (for example reasoning_effort), or declare \
+          the exact wire dialect for this endpoint."
+         config.model_id)
   | Some (Request_control_invalid rejection) ->
-    Error
-      (Http_client.AcceptRejected
-         { reason = Reasoning_dialect.request_control_rejection_to_message rejection })
+    Some (Reasoning_dialect.request_control_rejection_to_message rejection)
   | Some Disable_not_encodable ->
-    Error
-      (Http_client.AcceptRejected
-         { reason =
-             Printf.sprintf
-               "model %S is reasoning-capable but its capability record declares \
-                thinking_control_format=No_thinking_control: enable_thinking=false \
-                cannot be encoded and would be silently dropped, letting the model think \
-                freely and corrupt JSON-mode output. Declare a thinking_control_format \
-                for this model in Capabilities.for_model_id (models.toml), or route to a \
-                model that supports disabling thinking."
-               config.model_id
-         })
+    Some
+      (Printf.sprintf
+         "model %S is reasoning-capable but its capability record declares \
+          thinking_control_format=No_thinking_control: enable_thinking=false cannot be \
+          encoded and would be silently dropped, letting the model think freely and \
+          corrupt JSON-mode output. Declare a thinking_control_format for this model in \
+          Capabilities.for_model_id (models.toml), or route to a model that supports \
+          disabling thinking."
+         config.model_id)
+;;
+
+let validate_thinking_control_request (config : Provider_config.t) =
+  match thinking_control_request_rejection_reason config with
+  | None -> Ok ()
+  | Some reason -> Error (Http_client.AcceptRejected { reason })
 ;;
 
 (* An admission bound of zero or less would mean "no request may ever
