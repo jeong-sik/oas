@@ -1,4 +1,4 @@
-(** Tests for Provider_registry and Capability_filter (v0.69.0). *)
+(** Tests for Provider_registry (v0.69.0). *)
 
 open Alcotest
 open Llm_provider
@@ -194,7 +194,9 @@ let test_find_capable_tools () =
     reg
     (mk "with-tools" { Capabilities.default_capabilities with supports_tools = true });
   Provider_registry.register reg (mk "no-tools" Capabilities.default_capabilities);
-  let capable = Provider_registry.find_capable reg Capability_filter.requires_tools in
+  let capable =
+    Provider_registry.find_capable reg (fun c -> c.Capabilities.supports_tools)
+  in
   check int "1 with tools" 1 (List.length capable);
   check string "correct one" "with-tools" (List.hd capable).name
 ;;
@@ -226,10 +228,7 @@ let test_find_capable_composite () =
     reg
     (mk "tools-only" { Capabilities.default_capabilities with supports_tools = true });
   Provider_registry.register reg (mk "none" Capabilities.default_capabilities);
-  let need_both =
-    Capability_filter.requires_all
-      [ Capability_filter.requires_tools; Capability_filter.requires_reasoning ]
-  in
+  let need_both c = c.Capabilities.supports_tools && c.Capabilities.supports_reasoning in
   let capable = Provider_registry.find_capable reg need_both in
   check int "only full matches" 1 (List.length capable);
   check string "the full one" "full" (List.hd capable).name
@@ -1043,26 +1042,6 @@ let test_usage_of_response_none () =
   check (option reject) "missing usage preserved" None (Types.usage_of_response resp)
 ;;
 
-(* ── Capability_filter combinators ──────────────────── *)
-
-let test_requires_any () =
-  let caps = { Capabilities.default_capabilities with supports_reasoning = true } in
-  check
-    bool
-    "any: reasoning or tools"
-    true
-    (Capability_filter.requires_any
-       [ Capability_filter.requires_tools; Capability_filter.requires_reasoning ]
-       caps);
-  check
-    bool
-    "any: tools or streaming = false"
-    false
-    (Capability_filter.requires_any
-       [ Capability_filter.requires_tools; Capability_filter.requires_streaming ]
-       caps)
-;;
-
 (* ── Kind ↔ registry integrity ────────────────────────── *)
 
 (** Minimal [Provider_config.t] construction for a given kind. URL contents
@@ -1122,7 +1101,6 @@ let () =
     ; ( "capabilities"
       , [ test_case "find with tools" `Quick test_find_capable_tools
         ; test_case "composite predicate" `Quick test_find_capable_composite
-        ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
       , [ test_case "default provider set" `Quick test_default_provider_names
