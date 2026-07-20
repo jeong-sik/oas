@@ -430,9 +430,12 @@ provider. Missing credentials / endpoints skip gracefully.
    - Add this doc row.
    - Update `test/test_multivendor_events.ml` golden transcript if the new event is part of the standard lifecycle.
 
-4. **Exhaustiveness**: confirm `lib/eval_collector.ml` and other `match`
-   sites on `Event_bus.payload` cover the new variant (they use explicit
-   arms, not `_`, so the compiler will flag omissions).
+4. **Exhaustiveness**: confirm `Event_bus.payload_kind` in
+   `lib/event_bus.ml` and other `match` sites on `Event_bus.payload`
+   cover the new variant (they use explicit arms, not `_`, so the
+   compiler will flag omissions under the repo's `warn-error +8` flag
+   set). `lib/eval_collector.ml` was removed in PR #2689 and is no
+   longer a match site to update.
 
 ## 10. How to add a new provider
 
