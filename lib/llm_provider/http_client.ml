@@ -530,9 +530,24 @@ let request_body_shape_profile (body : string) : Yojson.Safe.t =
                 else None)
              (List.sort_uniq String.compare names))
       in
+      (* Every top-level key NAME present, so a rejection caused by an
+         unrecognised or misspelled field is diagnosable even though it is not
+         one of the typed fields below. Key names are our own serialisation
+         vocabulary (schema), not request TEXT, so this leaks no user content.
+         Reporting the full key set also makes the profile schema-agnostic
+         rather than a curated per-provider key list: the typed fields are
+         richer detail on commonly-relevant keys, not the limit of what is
+         seen. *)
+      let top_level_keys =
+        `List
+          (List.map
+             (fun name -> `String name)
+             (List.sort_uniq String.compare (List.map fst fields)))
+      in
       `Assoc
         ([ "parseable", `Bool true
          ; "body_bytes", `Int (String.length body)
+         ; "top_level_keys", top_level_keys
          ; "model", string_field_label (List.assoc_opt "model" fields)
          ; "message_count", list_len_field_label messages_field
          ]
@@ -614,6 +629,49 @@ let%test "request_body_shape_profile extracts shape without message text" =
   && field "thinking_present" = `Bool true
   && field "max_tokens_present" = `Bool false
   && (not (contains ~needle:"secret prompt" s))
+  && not (contains ~needle:"private" s)
+;;
+
+(* The profile reports EVERY top-level key by NAME, so a 4xx caused by an
+   unrecognised or misspelled field is diagnosable even though that field is not
+   one of the typed fields. Key names are our own serialisation vocabulary
+   (schema), not request TEXT, so no value or user content leaks through them. *)
+let%test "shape profile surfaces unrecognised top-level keys without their values" =
+  let body =
+    {|{"model":"m","messages":[{"role":"user","content":"private"}],"unexpected_knob":"leak-me","typo_max_tokens":4}|}
+  in
+  let profile = request_body_shape_profile body in
+  let s = Yojson.Safe.to_string profile in
+  let contains ~needle haystack =
+    let nl = String.length needle
+    and hl = String.length haystack in
+    let rec loop i =
+      if i + nl > hl
+      then false
+      else if String.sub haystack i nl = needle
+      then true
+      else loop (i + 1)
+    in
+    nl = 0 || loop 0
+  in
+  let keys =
+    match Yojson.Safe.Util.member "top_level_keys" profile with
+    | `List xs ->
+      List.filter_map
+        (function
+          | `String s -> Some s
+          | _ -> None)
+        xs
+    | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+  in
+  let has_key k = List.mem k keys in
+  (* unrecognised keys are visible by NAME ... *)
+  has_key "unexpected_knob"
+  && has_key "typo_max_tokens"
+  && has_key "model"
+  && has_key "messages"
+  (* ... but their VALUES are not echoed, and message content stays absent *)
+  && (not (contains ~needle:"leak-me" s))
   && not (contains ~needle:"private" s)
 ;;
 
