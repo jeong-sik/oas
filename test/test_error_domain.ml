@@ -708,7 +708,7 @@ let test_retryable_internal () =
     (Error_domain.is_retryable (`Internal "x"))
 ;;
 
-(* ── with_stage / with_backtrace / ctx_to_string ────────── *)
+(* ── with_stage / ctx_to_string ─────────────────────────── *)
 
 let test_with_stage () =
   let ctx = Error_domain.with_stage "route" (`Auth_error "bad") in
@@ -716,16 +716,6 @@ let test_with_stage () =
   Alcotest.(check (option string)) "backtrace" None ctx.backtrace;
   match ctx.error with
   | `Auth_error "bad" -> ()
-  | _ -> Alcotest.fail "wrong error in ctx"
-;;
-
-let test_with_backtrace () =
-  let ctx = Error_domain.with_backtrace (`Internal "boom") in
-  Alcotest.(check (option string)) "stage" None ctx.stage;
-  (* Backtrace is Some (possibly empty string) *)
-  Alcotest.(check bool) "backtrace is some" true (Option.is_some ctx.backtrace);
-  match ctx.error with
-  | `Internal "boom" -> ()
   | _ -> Alcotest.fail "wrong error in ctx"
 ;;
 
@@ -740,7 +730,9 @@ let test_ctx_to_string_with_stage () =
 ;;
 
 let test_ctx_to_string_without_stage () =
-  let ctx = Error_domain.with_backtrace (`Internal "oops") in
+  let ctx : Error_domain.error_ctx =
+    { error = `Internal "oops"; stage = None; backtrace = None }
+  in
   let s = Error_domain.ctx_to_string ctx in
   (* Should not have brackets prefix *)
   Alcotest.(check bool) "no stage prefix" true (String.length s > 0 && s.[0] <> '[')
@@ -913,7 +905,6 @@ let () =
         ] )
     ; ( "context"
       , [ Alcotest.test_case "with_stage" `Quick test_with_stage
-        ; Alcotest.test_case "with_backtrace" `Quick test_with_backtrace
         ; Alcotest.test_case
             "ctx_to_string with stage"
             `Quick

@@ -93,28 +93,6 @@ let test_runtime_status_labels () =
     cases
 ;;
 
-let test_runtime_pending_input_update_roundtrip () =
-  let event =
-    Runtime.Pending_input_updated
-      { input_id = Some "input-1"
-      ; participant_name = Some "keeper"
-      ; source = Some "dashboard"
-      ; boundary = Runtime_continuation.Provider_streaming_reasoning
-      ; policy = Runtime_continuation.Queue_until_safe_boundary
-      ; status = "queued"
-      ; message = Some "ordinary input queued while provider is reasoning"
-      ; created_at = 1.0
-      }
-  in
-  let json = Runtime.event_kind_to_yojson event in
-  match Runtime.event_kind_of_yojson json with
-  | Ok (Runtime.Pending_input_updated decoded) ->
-    Alcotest.(check (option string)) "input_id" (Some "input-1") decoded.input_id;
-    Alcotest.(check string) "status" "queued" decoded.status
-  | Ok other -> Alcotest.failf "unexpected event kind: %s" (Runtime.show_event_kind other)
-  | Error err -> Alcotest.fail err
-;;
-
 let () =
   Alcotest.run
     "runtime_continuation"
@@ -133,12 +111,6 @@ let () =
             `Quick
             test_explicit_interrupt_is_not_pause_or_stop
         ; Alcotest.test_case "status labels" `Quick test_runtime_status_labels
-        ] )
-    ; ( "runtime"
-      , [ Alcotest.test_case
-            "pending input update event roundtrip"
-            `Quick
-            test_runtime_pending_input_update_roundtrip
         ] )
     ]
 ;;

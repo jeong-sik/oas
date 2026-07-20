@@ -23,15 +23,6 @@ the boundary policy.
 Explicit operator interrupts are separate from ordinary input. An interrupt may
 cancel/checkpoint/resume the running turn, but it is not a pause or stop command.
 
-## Runtime Event
-
-`Runtime.Pending_input_updated` reports host queue state with status labels:
-
-- `queued`
-- `applied`
-- `interrupted`
-- `ignored`
-
-This is deliberately not a runtime lifecycle phase. A busy agent with queued
-input should keep running until it reaches a safe boundary or receives an
-explicit interrupt.
+Ordinary input that arrives while a turn is busy is deliberately not a runtime
+lifecycle phase. A busy agent with queued input should keep running until it
+reaches a safe boundary or receives an explicit interrupt.
