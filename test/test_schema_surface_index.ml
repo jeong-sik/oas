@@ -81,9 +81,9 @@ let test_catalog_shape () =
     (fun row ->
        let id = require_string "id" row in
        let historical =
-         (match member "removed_in" row with
-          | Some (`String s) when String.length s > 0 -> true
-          | _ -> false)
+         match member "removed_in" row with
+         | Some (`String s) when String.length s > 0 -> true
+         | _ -> false
        in
        check
          bool
@@ -105,7 +105,11 @@ let test_catalog_shape () =
          (id ^ " sources present")
          true
          (historical || require_string_list "schema_source" row <> []);
-       check bool (id ^ " tests present") true (historical || require_string_list "tests" row <> []))
+       check
+         bool
+         (id ^ " tests present")
+         true
+         (historical || require_string_list "tests" row <> []))
     rows
 ;;
 
