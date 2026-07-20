@@ -384,65 +384,154 @@ let validate_request_path (config : Provider_config.t) =
   | Error reason -> Error (Http_client.AcceptRejected { reason })
 ;;
 
-(* RFC-OAS-023 (capability axis) — fail-loud on an unsatisfiable thinking-control
-   request instead of dropping it silently.
+(* RFC-OAS-023 (capability axis) — fail loud when an explicit thinking-control
+   request cannot be satisfied by the resolved typed capability contract.
 
-   When a caller explicitly disables thinking (enable_thinking = Some false) on a
-   reasoning-capable model whose resolved capability cannot encode a thinking
-   directive (thinking_control_format = No_thinking_control, and not the zai/GLM
-   special case that backend_openai_request handles), the directive is dropped at
-   the wire. The reasoning model then thinks freely and pollutes/empties JSON-mode
-   output — the memory-os librarian "empty response" / "invalid episode JSON" class.
-   Reject before sending so the caller sees a typed AcceptRejected error rather than
-   silent garbage.
+   [No_thinking_control] and [supports_reasoning] are intentionally interpreted
+   together, never as independent guesses:
+   - [supports_reasoning = true] + [No_thinking_control] is the existing
+     declared inherent/default-on contract. Explicit enable is already
+     satisfied, while explicit disable is impossible (except the typed GLM
+     serializer, which has its own control field).
+   - [supports_reasoning = false] + [No_thinking_control] has neither an
+     encodable toggle nor a declared inherent-thinking contract. Explicit
+     enable must therefore be rejected instead of disappearing from the wire.
+   - a concrete [thinking_control_format] is accepted only when the selected
+     OpenAI-compatible serializer can emit the corresponding activation field.
+     A categorical [Reasoning_effort] dialect therefore also requires an
+     explicit effort value; merely naming the dialect emits no wire control.
 
-   Scope guards against over-firing:
-   - supports_reasoning = false: the model does not think, so enable_thinking=false
-     is a harmless no-op — not rejected.
-   - enable_thinking = Some true / None: a reasoning model thinks by default, so an
-     "enable" (or unset) request is satisfiable — not rejected.
-   Unknown models (provider_default) are caught earlier by the consumer's startup
-   binding validation; by the time a request reaches here the model is catalogued,
-   so a No_thinking_control + supports_reasoning hit signals a catalog gap to fix. *)
-(* Pure decision (no global state) so it is unit-testable in isolation: is an
-   explicit "disable thinking" request impossible to honor for [caps]? *)
-let thinking_control_disable_unsatisfiable
+   Absence remains absence: [enable_thinking = None] never invents a policy.
+   Explicit disable on a non-reasoning model remains a satisfied no-op. *)
+type thinking_control_request_rejection =
+  | Enable_not_declared
+  | Enable_not_encodable
+  | Disable_not_encodable
+  | Request_control_invalid of Reasoning_dialect.request_control_rejection
+
+let openai_compat_request_control_artifact
       ~(caps : Capabilities.capabilities)
       (config : Provider_config.t)
   =
-  match config.enable_thinking with
-  | Some true | None -> false
-  | Some false ->
+  let dialect = Reasoning_dialect.of_capabilities caps in
+  let build request_wire =
+    Reasoning_dialect.request_control_fields
+      request_wire
+      dialect
+      ~enable_thinking:config.enable_thinking
+      ~preserve_thinking:config.preserve_thinking
+      ~thinking_budget:config.thinking_budget
+      ~reasoning_effort:config.reasoning_effort
+      ()
+  in
+  match Provider_http_codec.of_config config with
+  | Provider_http_codec.Openai_chat -> Some (build Reasoning_dialect.Chat_completions)
+  | Provider_http_codec.Openai_responses -> Some (build Reasoning_dialect.Responses)
+  | Provider_http_codec.Anthropic_messages
+  | Provider_http_codec.Ollama_chat
+  | Provider_http_codec.Gemini_generate_content
+  | Provider_http_codec.Glm_chat -> None
+;;
+
+let thinking_control_request_rejection
+      ~(caps : Capabilities.capabilities)
+      (config : Provider_config.t)
+  =
+  match config.enable_thinking, caps.thinking_control_format with
+  | None, _ -> None
+  | Some true, thinking_control_format ->
     (match config.kind with
-     | Provider_config.Anthropic ->
-       (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
-        | Some Capabilities.Anthropic_always_adaptive -> true
-        | Some
-            ( Capabilities.Anthropic_manual_budget
-            | Capabilities.Anthropic_adaptive_default
-            | Capabilities.Anthropic_adaptive_preferred
-            | Capabilities.Anthropic_adaptive_only ) -> false
-        | None -> caps.supports_reasoning)
+     | Provider_config.OpenAI_compat ->
+       (match openai_compat_request_control_artifact ~caps config with
+        | None -> Some Enable_not_encodable
+        | Some (Error rejection) -> Some (Request_control_invalid rejection)
+        | Some (Ok artifact) ->
+          (match artifact.Reasoning_dialect.explicit_enable_receipt with
+           | Reasoning_dialect.Explicit_enable_encoded _ -> None
+           | Reasoning_dialect.Explicit_enable_not_requested -> Some Enable_not_encodable
+           | Reasoning_dialect.Explicit_enable_not_encoded ->
+             (match thinking_control_format, caps.supports_reasoning with
+              | Capabilities.No_thinking_control, true -> None
+              | Capabilities.No_thinking_control, false -> Some Enable_not_declared
+              | ( ( Capabilities.Thinking_object
+                  | Capabilities.Thinking_object_adaptive
+                  | Capabilities.Thinking_object_only
+                  | Capabilities.Chat_template_kwargs
+                  | Capabilities.Chat_template_token _
+                  | Capabilities.Ollama_think
+                  | Capabilities.Reasoning_effort
+                  | Capabilities.Enable_thinking )
+                , (false | true) ) -> Some Enable_not_encodable)))
+     | Provider_config.Anthropic
      | Provider_config.Kimi
-     | Provider_config.OpenAI_compat
      | Provider_config.Ollama
      | Provider_config.Gemini
      | Provider_config.Glm
-     | Provider_config.DashScope ->
-       let glm_special_case =
-         (* backend_openai_request encodes thinking for zai/GLM even under
-            No_thinking_control, so that combination IS satisfiable. *)
-         Provider_config.is_zai_glm_config config
-       in
-       caps.supports_reasoning
-       && caps.thinking_control_format = Capabilities.No_thinking_control
-       && not glm_special_case)
+     | Provider_config.DashScope -> None)
+  | Some false, _ ->
+    let disable_not_encodable =
+      match config.kind with
+      | Provider_config.Anthropic ->
+        (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
+         | Some Capabilities.Anthropic_always_adaptive -> true
+         | Some
+             ( Capabilities.Anthropic_manual_budget
+             | Capabilities.Anthropic_adaptive_default
+             | Capabilities.Anthropic_adaptive_preferred
+             | Capabilities.Anthropic_adaptive_only ) -> false
+         | None ->
+           caps.supports_reasoning
+           && caps.thinking_control_format = Capabilities.No_thinking_control)
+      | Provider_config.Kimi
+      | Provider_config.OpenAI_compat
+      | Provider_config.Ollama
+      | Provider_config.Gemini
+      | Provider_config.Glm
+      | Provider_config.DashScope ->
+        let glm_special_case =
+          (* backend_openai_request encodes thinking for typed GLM configs even
+             under [No_thinking_control]. *)
+          Provider_config.is_zai_glm_config config
+        in
+        caps.supports_reasoning
+        && caps.thinking_control_format = Capabilities.No_thinking_control
+        && not glm_special_case
+    in
+    if disable_not_encodable then Some Disable_not_encodable else None
 ;;
 
 let validate_thinking_control_request (config : Provider_config.t) =
   let caps, _source = resolve_capabilities_for_config config in
-  if thinking_control_disable_unsatisfiable ~caps config
-  then
+  match thinking_control_request_rejection ~caps config with
+  | None -> Ok ()
+  | Some Enable_not_declared ->
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             Printf.sprintf
+               "model %S has no typed capability contract that can satisfy \
+                enable_thinking=true: thinking_control_format=No_thinking_control and \
+                supports_reasoning=false. Declare the model's exact \
+                thinking_control_format, or declare supports_reasoning=true only for a \
+                model whose inherent/default-on reasoning contract is verified."
+               config.model_id
+         })
+  | Some Enable_not_encodable ->
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             Printf.sprintf
+               "model %S declares thinking control, but the resolved typed dialect \
+                cannot encode enable_thinking=true on this OpenAI-compatible request \
+                path. Use the dialect's explicit control value (for example \
+                reasoning_effort), or declare the exact wire dialect for this endpoint."
+               config.model_id
+         })
+  | Some (Request_control_invalid rejection) ->
+    Error
+      (Http_client.AcceptRejected
+         { reason = Reasoning_dialect.request_control_rejection_to_message rejection })
+  | Some Disable_not_encodable ->
     Error
       (Http_client.AcceptRejected
          { reason =
@@ -455,7 +544,6 @@ let validate_thinking_control_request (config : Provider_config.t) =
                 model that supports disabling thinking."
                config.model_id
          })
-  else Ok ()
 ;;
 
 (* An admission bound of zero or less would mean "no request may ever

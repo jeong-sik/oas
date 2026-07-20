@@ -38,6 +38,77 @@ type stream_acc = Llm_provider.Complete_stream_acc.stream_acc =
 let create_stream_acc = Llm_provider.Complete_stream_acc.create_stream_acc
 let accumulate_event = Llm_provider.Complete_stream_acc.accumulate_event
 let finalize_stream_acc = Llm_provider.Complete_stream_acc.finalize_stream_acc
+let stream_failed = Llm_provider.Complete_stream_acc.stream_failed
+
+exception Stream_finished
+
+let stop_sse_read_if_terminal acc =
+  if stream_failed acc || !(acc.done_sentinel_seen) then raise Stream_finished
+;;
+
+let emit_message_stop_if_missing acc ~on_event =
+  if
+    !(acc.stop_reason_received)
+    && (not !(acc.done_sentinel_seen))
+    && not (stream_failed acc)
+  then on_event MessageStop
+;;
+
+let%test "terminal callback is exactly once with finish reason and sentinel" =
+  let acc = create_stream_acc () in
+  let emitted = ref [] in
+  let on_event event = emitted := event :: !emitted in
+  accumulate_event acc (MessageDelta { stop_reason = Some EndTurn; usage = None });
+  on_event MessageStop;
+  accumulate_event acc MessageStop;
+  emit_message_stop_if_missing acc ~on_event;
+  List.equal ( = ) !emitted [ MessageStop ]
+;;
+
+let%test "terminal callback is synthesized once without sentinel" =
+  let acc = create_stream_acc () in
+  let emitted = ref [] in
+  let on_event event = emitted := event :: !emitted in
+  accumulate_event acc (MessageDelta { stop_reason = Some EndTurn; usage = None });
+  emit_message_stop_if_missing acc ~on_event;
+  List.equal ( = ) !emitted [ MessageStop ]
+;;
+
+let%test "terminal callback is not synthesized after stream failure" =
+  let failures =
+    [ SSEError { message = "provider failed"; error_type = None; raw = "error" }
+    ; SSEParseFailed { reason = "malformed"; raw = "{" }
+    ]
+  in
+  List.for_all
+    (fun failure ->
+       let acc = create_stream_acc () in
+       let emitted = ref [] in
+       accumulate_event acc (MessageDelta { stop_reason = Some EndTurn; usage = None });
+       accumulate_event acc failure;
+       emit_message_stop_if_missing acc ~on_event:(fun event ->
+         emitted := event :: !emitted);
+       List.is_empty !emitted)
+    failures
+;;
+
+let%test "terminal state stops the SSE reader immediately" =
+  let acc = create_stream_acc () in
+  let lines_seen = ref 0 in
+  let flow = Eio.Flow.string_source "data: terminal\n\ndata: late\n\n" in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 flow in
+  match
+    Llm_provider.Http_client.read_sse
+      ~reader
+      ~on_data:(fun ~event_type:_ _ ->
+        incr lines_seen;
+        accumulate_event acc MessageStop;
+        stop_sse_read_if_terminal acc)
+      ()
+  with
+  | () -> false
+  | exception Stream_finished -> !lines_seen = 1
+;;
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
 
@@ -192,26 +263,34 @@ let create_message_stream_detailed
                ~body
                ~f:(fun reader ->
                  let acc = create_stream_acc () in
-                 Llm_provider.Http_client.read_sse
-                   ?clock
-                   ?idle_timeout
-                   ~reader
-                   ~on_data:(fun ~event_type data ->
-                     if data <> "[DONE]"
-                     then (
-                       match parse_sse_event event_type data with
-                       | None ->
-                         let evt =
-                           SSEParseFailed
-                             { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
-                         in
-                         on_event evt;
-                         accumulate_event acc evt
-                       | Some evt ->
-                         on_event evt;
-                         accumulate_event acc evt))
-                   ();
-                 if !(acc.stop_reason_received) then on_event MessageStop;
+                 (match
+                    Llm_provider.Http_client.read_sse
+                      ?clock
+                      ?idle_timeout
+                      ~reader
+                      ~on_data:(fun ~event_type data ->
+                        if (not (stream_failed acc)) && data <> "[DONE]"
+                        then (
+                          match parse_sse_event event_type data with
+                          | None ->
+                            let evt =
+                              SSEParseFailed
+                                { raw = data
+                                ; reason = "anthropic_sse_chunk_parse_failure"
+                                }
+                            in
+                            on_event evt;
+                            accumulate_event acc evt
+                          | Some evt ->
+                            on_event evt;
+                            accumulate_event acc evt);
+                        stop_sse_read_if_terminal acc)
+                      ()
+                  with
+                  | () -> ()
+                  | exception Stream_finished -> ()
+                  | exception Eio.Time.Timeout when stream_failed acc -> ());
+                 emit_message_stop_if_missing acc ~on_event;
                  finalize_stream_acc acc)
                ()
              |> map_stream_finalize_result_detailed
@@ -262,45 +341,59 @@ let create_message_stream_detailed
                  let acc = create_stream_acc () in
                  let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
                  let msg_started = ref false in
-                 Llm_provider.Http_client.read_sse
-                   ?clock
-                   ?idle_timeout
-                   ~reader
-                   ~on_data:(fun ~event_type:_ data ->
-                     if data = "[DONE]"
-                     then ()
-                     else (
-                       match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                       | None ->
-                         let evt =
-                           SSEParseFailed
-                             { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                         in
-                         on_event evt;
-                         accumulate_event acc evt
-                       | Some chunk ->
-                         if not !msg_started
-                         then (
-                           msg_started := true;
-                           let evt =
-                             MessageStart
-                               { id = chunk.chunk_id
-                               ; model = chunk.chunk_model
-                               ; usage = None
-                               }
-                           in
-                           on_event evt;
-                           accumulate_event acc evt);
-                         let evs, _tel =
-                           Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
-                         in
-                         List.iter
-                           (fun evt ->
+                 (match
+                    Llm_provider.Http_client.read_sse
+                      ?clock
+                      ?idle_timeout
+                      ~reader
+                      ~on_data:(fun ~event_type:_ data ->
+                        if not (stream_failed acc)
+                        then (
+                          match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                          | Llm_provider.Streaming.Openai_chunk chunk ->
+                            if not !msg_started
+                            then (
+                              msg_started := true;
+                              let evt =
+                                MessageStart
+                                  { id = chunk.chunk_id
+                                  ; model = chunk.chunk_model
+                                  ; usage = None
+                                  }
+                              in
                               on_event evt;
-                              accumulate_event acc evt)
-                           evs))
-                   ();
-                 if !(acc.stop_reason_received) then on_event MessageStop;
+                              accumulate_event acc evt);
+                            let evs, _tel =
+                              Llm_provider.Streaming.openai_chunk_to_events
+                                oai_state
+                                chunk
+                            in
+                            List.iter
+                              (fun evt ->
+                                 on_event evt;
+                                 accumulate_event acc evt)
+                              evs
+                          | Llm_provider.Streaming.Openai_empty -> ()
+                          | ( Llm_provider.Streaming.Openai_done
+                            | Llm_provider.Streaming.Openai_provider_error _
+                            | Llm_provider.Streaming.Openai_parse_failed _ ) as parsed ->
+                            let events, _telemetry =
+                              Llm_provider.Streaming.openai_sse_parse_result_to_events
+                                oai_state
+                                parsed
+                            in
+                            List.iter
+                              (fun event ->
+                                 on_event event;
+                                 accumulate_event acc event)
+                              events);
+                        stop_sse_read_if_terminal acc)
+                      ()
+                  with
+                  | () -> ()
+                  | exception Stream_finished -> ()
+                  | exception Eio.Time.Timeout when stream_failed acc -> ());
+                 emit_message_stop_if_missing acc ~on_event;
                  finalize_stream_acc acc)
                ()
              |> map_stream_finalize_result_detailed

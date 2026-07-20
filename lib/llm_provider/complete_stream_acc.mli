@@ -44,6 +44,11 @@ type stream_acc =
 (** Create a fresh accumulator with empty defaults. *)
 val create_stream_acc : unit -> stream_acc
 
+(** [true] after the first typed provider/wire parse failure. Callers use this
+    terminal state to suppress trailing success events without erasing the
+    original failure. *)
+val stream_failed : stream_acc -> bool
+
 (** Feed a single SSE event into the accumulator.
     Updates id, model, tokens, content blocks in-place. *)
 val accumulate_event : stream_acc -> Types.sse_event -> unit

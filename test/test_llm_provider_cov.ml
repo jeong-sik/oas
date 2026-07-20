@@ -1666,9 +1666,9 @@ let test_with_context_size_overrides () =
   Alcotest.(check (option int)) "overrides" (Some 1_000_000) c.max_context_tokens
 ;;
 
-(* ── Complete_common.thinking_control_disable_unsatisfiable ──
-   Guards the fail-loud path that rejects an unsatisfiable "disable thinking"
-   request instead of dropping it silently (the librarian empty/invalid-JSON class). *)
+(* ── Complete_common.thinking_control_request_rejection ──
+   Guards the pure, shared sync/stream admission decision for explicit thinking
+   control. *)
 
 let reasoning_no_control_caps =
   { Capabilities.openai_compat_chat_capabilities with supports_reasoning = true }
@@ -1679,29 +1679,77 @@ let test_thinking_disable_unsatisfiable_when_reasoning_no_control () =
   Alcotest.(check bool)
     "reasoning model + No_thinking_control + disable -> unsatisfiable"
     true
-    (Complete_common.thinking_control_disable_unsatisfiable
+    (Complete_common.thinking_control_request_rejection
        ~caps:reasoning_no_control_caps
-       config)
+       config
+     = Some Complete_common.Disable_not_encodable)
 ;;
 
-let test_thinking_enable_is_satisfiable () =
+let test_thinking_enable_is_satisfied_by_declared_inherent_contract () =
   let config = make_config ~model_id:"reasoner-no-control" ~enable_thinking:true () in
   Alcotest.(check bool)
-    "enable_thinking=true is satisfiable (model thinks by default)"
-    false
-    (Complete_common.thinking_control_disable_unsatisfiable
+    "enable_thinking=true is satisfied by supports_reasoning + No_thinking_control"
+    true
+    (Complete_common.thinking_control_request_rejection
        ~caps:reasoning_no_control_caps
-       config)
+       config
+     = None)
+;;
+
+let test_thinking_enable_rejects_without_dialect_or_inherent_contract () =
+  let config = make_config ~model_id:"undeclared" ~enable_thinking:true () in
+  Alcotest.(check bool)
+    "enable_thinking=true without a dialect or inherent contract is rejected"
+    true
+    (Complete_common.thinking_control_request_rejection
+       ~caps:Capabilities.openai_compat_chat_capabilities
+       config
+     = Some Complete_common.Enable_not_declared)
+;;
+
+let test_reasoning_effort_requires_an_explicit_wire_value () =
+  let caps =
+    { reasoning_no_control_caps with
+      thinking_control_format = Capabilities.Reasoning_effort
+    }
+  in
+  List.iter
+    (fun (label, request_path) ->
+       let config =
+         make_config
+           ~model_id:"reasoning-effort-model"
+           ~request_path
+           ~enable_thinking:true
+           ()
+       in
+       Alcotest.(check bool)
+         (label ^ " without an effort cannot encode explicit enable")
+         true
+         (Complete_common.thinking_control_request_rejection ~caps config
+          = Some Complete_common.Enable_not_encodable);
+       let config = { config with reasoning_effort = Some Reasoning_effort.Medium } in
+       Alcotest.(check bool)
+         (label ^ " with an effort encodes explicit enable")
+         true
+         (Complete_common.thinking_control_request_rejection ~caps config = None);
+       let config = { config with reasoning_effort = Some Reasoning_effort.None_ } in
+       Alcotest.(check bool)
+         (label ^ " with effort=none cannot satisfy explicit enable")
+         true
+         (Complete_common.thinking_control_request_rejection ~caps config
+          = Some Complete_common.Enable_not_encodable))
+    [ "Chat Completions", "/v1/chat/completions"; "Responses", "/v1/responses" ]
 ;;
 
 let test_thinking_unset_is_satisfiable () =
   let config = make_config ~model_id:"reasoner-no-control" () in
   Alcotest.(check bool)
     "enable_thinking unset -> nothing to satisfy"
-    false
-    (Complete_common.thinking_control_disable_unsatisfiable
+    true
+    (Complete_common.thinking_control_request_rejection
        ~caps:reasoning_no_control_caps
-       config)
+       config
+     = None)
 ;;
 
 let test_thinking_disable_noop_for_non_reasoning () =
@@ -1709,10 +1757,11 @@ let test_thinking_disable_noop_for_non_reasoning () =
   let config = make_config ~model_id:"non-reasoner" ~enable_thinking:false () in
   Alcotest.(check bool)
     "non-reasoning model -> disable is a harmless no-op"
-    false
-    (Complete_common.thinking_control_disable_unsatisfiable
+    true
+    (Complete_common.thinking_control_request_rejection
        ~caps:Capabilities.openai_compat_chat_capabilities
-       config)
+       config
+     = None)
 ;;
 
 let test_thinking_disable_satisfiable_with_control_format () =
@@ -1725,8 +1774,8 @@ let test_thinking_disable_satisfiable_with_control_format () =
   let config = make_config ~model_id:"reasoner-with-control" ~enable_thinking:false () in
   Alcotest.(check bool)
     "reasoning model WITH a thinking_control_format -> satisfiable"
-    false
-    (Complete_common.thinking_control_disable_unsatisfiable ~caps config)
+    true
+    (Complete_common.thinking_control_request_rejection ~caps config = None)
 ;;
 
 (* ── Json_util.decode_json_with (provider parse boundary) ────────── *)
@@ -2071,9 +2120,17 @@ let () =
             `Quick
             test_thinking_disable_unsatisfiable_when_reasoning_no_control
         ; Alcotest.test_case
-            "enable is satisfiable"
+            "enable is satisfied by declared inherent contract"
             `Quick
-            test_thinking_enable_is_satisfiable
+            test_thinking_enable_is_satisfied_by_declared_inherent_contract
+        ; Alcotest.test_case
+            "enable rejects undeclared contract"
+            `Quick
+            test_thinking_enable_rejects_without_dialect_or_inherent_contract
+        ; Alcotest.test_case
+            "reasoning effort requires explicit wire value"
+            `Quick
+            test_reasoning_effort_requires_an_explicit_wire_value
         ; Alcotest.test_case
             "unset is satisfiable"
             `Quick

@@ -70,12 +70,37 @@ val resume_running
   -> scope_locator
   -> (t, error) result
 
-val open_turn : t -> ordinal:int -> (turn, error) result
-val resume_turn : t -> ordinal:int -> (turn option, error) result
+(** Total classification of a turn node found at a resume ordinal. [Settled] is a
+    turn already [Closed Succeeded] under a still-[Running] root: an idempotent
+    completed boundary (crash after {!close_turn} but before the root
+    {!finish}). A [Closed Failed]/[Closed Cancelled] turn stays a
+    [Resume_topology_mismatch] error (fail-closed on real corruption). *)
+type turn_resume =
+  | Resume_turn_absent
+  | Resume_turn_open of turn
+  | Resume_turn_settled
 
-(** Recover the single open turn from durable topology. This is a recovery-only
-    lookup; callers must not reconstruct its ordinal from mutable agent state. *)
-val resume_open_turn : t -> (turn option, error) result
+(** Total classification of a provider attempt found under a resumed turn.
+    [Settled] is a provider attempt already [Closed Succeeded] under a still-open
+    turn (crash inside [close_success] after the provider close but before the
+    turn close). See {!turn_resume} for the fail-closed contract. *)
+type provider_resume =
+  | Resume_provider_absent
+  | Resume_provider_open of provider_attempt
+  | Resume_provider_settled
+
+val open_turn : t -> ordinal:int -> (turn, error) result
+val resume_turn : t -> ordinal:int -> (turn_resume, error) result
+
+(** Classify the current turn from durable topology, without a caller-supplied
+    ordinal. This is a recovery-only lookup; the turn identity is owned by the
+    journal, never reconstructed from mutable agent state. [Resume_turn_open] is
+    the single still-open turn (resume it); [Resume_turn_settled] is the
+    highest-ordinal turn already [Closed Succeeded] under a still-[Running] root
+    (an idempotent completed boundary to replay, not re-run); a [Closed
+    Failed]/[Cancelled] frontier stays a [Resume_topology_mismatch] error;
+    [Resume_turn_absent] is a genuinely fresh resume. *)
+val resume_current_turn : t -> (turn_resume, error) result
 
 val turn_ordinal : turn -> int
 
@@ -86,7 +111,7 @@ val open_provider_attempt
   -> Binding_identity.t
   -> (provider_attempt, error) result
 
-val resume_provider_attempt : turn -> (provider_attempt option, error) result
+val resume_provider_attempt : turn -> (provider_resume, error) result
 
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation

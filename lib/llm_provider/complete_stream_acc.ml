@@ -60,6 +60,8 @@ let create_stream_acc () =
   }
 ;;
 
+let stream_failed acc = Option.is_some !(acc.sse_error)
+
 let accumulate_event (acc : stream_acc) = function
   | Types.MessageStart { id; model; usage } ->
     acc.id := id;
@@ -332,9 +334,18 @@ let finalize_stream_acc (acc : stream_acc) =
           if String.trim text = ""
           then Ok (`Assoc [])
           else (
-            match Yojson.Safe.from_string text with
-            | input -> Ok input
-            | exception Yojson.Json_error reason ->
+            match Tool_call_input.parse_object text with
+            | Ok input -> Ok input
+            | Error Tool_call_input.Not_object ->
+              Error
+                (Types.Stream_parse_failed
+                   { reason =
+                       Printf.sprintf
+                         "malformed_tool_use_arguments:index:%d:not_object"
+                         idx
+                   ; raw = text
+                   })
+            | Error (Tool_call_input.Invalid_json reason) ->
               (* Preserve the offending accumulated buffer in [raw] so the rare,
                provider-specific malformed tool-arg wire is diagnosable from the
                operator-facing diagnostic log (the [Complete_stream] renderer
