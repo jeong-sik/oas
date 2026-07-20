@@ -60,7 +60,9 @@ let allowed_kinds =
   ]
 ;;
 
-let allowed_stability = [ "stable"; "evolving"; "internal"; "operator_internal"; "frozen" ]
+let allowed_stability =
+  [ "stable"; "evolving"; "internal"; "operator_internal"; "frozen" ]
+;;
 
 let has_prefix ~prefix value =
   let prefix_len = String.length prefix in

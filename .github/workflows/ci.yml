@@ -172,7 +172,10 @@ jobs:
           # 77.55% (21220/27362). Reset the ratchet floor to
           # floor(77.55 - 1) = 76 until the removed binary/CLI-era
           # coverage surface is replaced by in-process runtime coverage.
-          THRESHOLD=76
+          # 2026-07-21: runtime cluster redesign (#2737) deleted 9 unreachable
+          # modules (-9705 lines) + 9 dedicated tests; bisect measured 75.56%.
+          # Reset the ratchet floor to floor(75.56 - 1) = 75 per #1175 policy.
+          THRESHOLD=75
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
