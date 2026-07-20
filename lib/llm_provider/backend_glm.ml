@@ -242,12 +242,22 @@ let glm_parse_error message =
     }
 ;;
 
-let parse_response body =
+let parse_response_result body : (api_response, Backend_openai_parse.parse_error) result =
   (* Parse the body once; a malformed body raises glm_parse_error (matching
      the prior path where check_glm_error swallowed the parse error as None
-     and then parse_openai_response_result re-raised it). The three consumers
-     below all traverse this same [json] instead of each re-parsing the body
-     string -- was 3 full Yojson.Safe.from_string of the response per turn. *)
+     and then parse_openai_response_result re-raised it). The consumers below
+     all traverse this same [json] instead of each re-parsing the body string
+     -- was 3 full Yojson.Safe.from_string of the response per turn.
+
+     oas#2621 P1#2: return the typed parse outcome instead of collapsing an
+     [Empty_completion] into a stop_reason-less [glm_parse_error]. Preserving
+     the typed empty completion lets [Complete_sync]'s Glm_chat seam route it
+     through [Http_client.empty_completion_error ~stop_reason] exactly like the
+     sibling Openai_chat seam, so an overflow empty turn reaches
+     [Retry.overflow_of_empty_completion] as [ContextWindowExceeded] rather
+     than provider-parse-failure (the #2659/#2696 classifier was previously
+     unreachable on the GLM path). Malformed JSON and GLM provider errors
+     ([check_glm_error_json]) still raise [Glm_api_error]. *)
   let json =
     try Yojson.Safe.from_string body with
     | Yojson.Json_error msg -> raise (glm_parse_error msg)
@@ -257,18 +267,27 @@ let parse_response body =
   | None ->
     (try
        match Backend_openai_parse.parse_openai_response_result_json json with
-       | Error (Backend_openai_parse.Provider_error msg) -> raise (glm_parse_error msg)
-       | Error (Backend_openai_parse.Empty_completion _) ->
-         (* oas#2483: GLM fails closed on an empty completion too (raises rather
-            than returning an empty turn). *)
-         raise
-           (glm_parse_error
-              "provider returned an empty assistant turn (no thinking, text, or tool \
-               calls)")
-       | Ok resp -> extract_reasoning_content_json resp json
+       | Ok resp -> Ok (extract_reasoning_content_json resp json)
+       | Error _ as typed -> typed
      with
      | Yojson.Safe.Util.Type_error (msg, _) -> raise (glm_parse_error msg)
      | Yojson.Safe.Util.Undefined (msg, _) -> raise (glm_parse_error msg))
+;;
+
+(* Raising wrapper over [parse_response_result] for raise-style callers and the
+   coverage tests: returns the [api_response] on success and raises
+   [Glm_api_error] on any parse/provider error (an empty completion raises the
+   pre-#2621 "empty assistant turn" message instead of surfacing its typed
+   [stop_reason]). Production paths use [parse_response_result] directly so an
+   overflow empty turn's [stop_reason] reaches the overflow classifier. *)
+let parse_response body =
+  match parse_response_result body with
+  | Ok resp -> resp
+  | Error (Backend_openai_parse.Provider_error msg) -> raise (glm_parse_error msg)
+  | Error (Backend_openai_parse.Empty_completion _) ->
+    raise
+      (glm_parse_error
+         "provider returned an empty assistant turn (no thinking, text, or tool calls)")
 ;;
 
 (* ── Streaming ───────────────────────────────────── *)

@@ -173,15 +173,29 @@ let extract_error_message (body : string) : string =
     body
 ;;
 
+(** A retry_after delay is usable only when it is finite and non-negative:
+    those are the values that can feed a sleep/backoff computation without
+    producing a nonsensical or unbounded wait. Yojson parses JSON number
+    tokens (and its [NaN]/[Infinity]/[-Infinity] extensions, plus overflowing
+    exponents like [1e400]) into non-finite floats, and a hostile body may
+    carry a negative value; reject all of them here so the value produced at
+    the parse boundary is always safe for downstream. [Float.is_finite] is
+    load-bearing on its own: [Float.infinity >= 0.0] is [true], so the
+    non-negativity check alone would admit [+inf]. *)
+let usable_retry_after (seconds : float) : float option =
+  if Float.is_finite seconds && seconds >= 0.0 then Some seconds else None
+;;
+
 (** Parse the provider-specific [error.retry_after] JSON body field, if
     present and well-formed. This is provider prose, not transport
     evidence, but it is the more precise of the two retry_after signals
-    when a provider bothers to emit it. *)
+    when a provider bothers to emit it. Non-finite or negative values are
+    rejected ([None]) at this boundary (parse, don't validate). *)
 let parse_body_retry_after (body : string) : float option =
   try
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    Some (json |> member "error" |> member "retry_after" |> to_float)
+    json |> member "error" |> member "retry_after" |> to_float |> usable_retry_after
   with
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
     None
