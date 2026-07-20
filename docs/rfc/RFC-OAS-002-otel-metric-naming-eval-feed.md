@@ -221,4 +221,4 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 - Checkpoint delta protocol 변경 (Issue #484 Epic 범위)
 - Raw trace format 변경 (v1 유지)
 - Downstream consumer code changes (those live in their own repositories, not in OAS)
-- Cost tracking OTel emit 세부 구현 (Phase 3에서 다루되 cost_tracker.ml 내부 로직 변경은 없음)
+- Cost tracking OTel emit 세부 구현 (~~Phase 3에서 다루되 cost_tracker.ml 내부 로직 변경은 없음~~ — `cost_tracker.ml`은 2026-07-21 test-only surface cut에서 삭제됨)

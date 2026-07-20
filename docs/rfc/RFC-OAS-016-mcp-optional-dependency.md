@@ -69,7 +69,7 @@ Grep `rg -l 'Mcp_protocol' lib/` returns nothing outside `lib/protocol/`. The fo
 
 ### 2.3 Runtime dormancy
 
-`mcp_clients` defaults to `[]` (`agent_types.ml:156`, `builder.ml:123`). `agent_config.ml` only invokes `Mcp.connect_and_load*` when `cfg.mcp_servers <> []`. So the actual **MCP network/spawn code path is dormant by default** — but the embedded MCP types are always linked, and that is enough to require the fork.
+`mcp_clients` defaults to `[]` (`agent_types.ml:156`, `builder.ml:123`). `agent_config.ml` only invoked `Mcp.connect_and_load*` when `cfg.mcp_servers <> []` (file removed 2026-07-21, test-only surface cut — the gated invocation path no longer exists; `git grep mcp_servers -- lib` is now 0). So the actual **MCP network/spawn code path is dormant by default** — but the embedded MCP types are always linked, and that is enough to require the fork.
 
 ## 3. Options
 
@@ -118,7 +118,7 @@ Same trick for:
 - `Mcp.json_schema_type_to_param_type` → moves to `lib/base/json_schema_to_param.ml` (it's a pure helper, no MCP runtime needed; the function lives in `Mcp` today only by historical accident)
 - `Mcp_schema.json_schema_to_params` → similar
 
-After inversion: `lib/protocol/mcp*` becomes a pure plug-in implementation behind `Mcp_handle`. `agent_config.ml`, `agent_types.ml`, `checkpoint*.ml`, `contract.ml`, `tool_middleware.ml`, `agent_sdk.ml` reference only `Mcp_handle.*` — no `mcp_protocol` dep.
+After inversion: `lib/protocol/mcp*` becomes a pure plug-in implementation behind `Mcp_handle`. `agent_config.ml` (removed 2026-07-21), `agent_types.ml`, `checkpoint*.ml`, `contract.ml`, `tool_middleware.ml`, `agent_sdk.ml` reference only `Mcp_handle.*` — no `mcp_protocol` dep.
 
 ### Option E — break-out the public re-export only (interim)
 
@@ -136,7 +136,7 @@ Drop `module Mcp = Mcp` etc. from `agent_sdk.ml` so the **public facade** doesn'
 
 **Phase 4.2** — introduce `Mcp_handle.managed` / `session_info` abstract types in `agent_sdk_base`:
 - New file `lib/base/mcp_handle.{ml,mli}` with opaque types and the operations used in core (`close_all`, accessors).
-- Replace `Mcp.managed` with `Mcp_handle.managed` in: `agent_types.ml`, `agent.mli`, `builder.{ml,mli}`, `contract.{ml,mli}`, `agent_config.ml` (gated paths), `checkpoint_types.ml`, `checkpoint.ml`, `checkpoint_codec.ml`.
+- Replace `Mcp.managed` with `Mcp_handle.managed` in: `agent_types.ml`, `agent.mli`, `builder.{ml,mli}`, `contract.{ml,mli}`, ~~`agent_config.ml` (gated paths)~~ (removed 2026-07-21 — do not restore for this phase; the surviving call sites are the complete list), `checkpoint_types.ml`, `checkpoint.ml`, `checkpoint_codec.ml`.
 - `lib/protocol/mcp.ml` exposes a constructor `to_handle : Mcp.managed -> Mcp_handle.managed` (or makes `Mcp.managed` an alias of `Mcp_handle.managed`).
 - Acceptance: `rg 'Mcp\.managed\|Mcp_session\.info' lib/` returns only `lib/protocol/`.
 

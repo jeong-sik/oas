@@ -71,11 +71,6 @@ module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Raw_trace = Raw_trace
-
-(** Typed handoff targets for {!Agent.run_with_handoffs}. Construct
-    [Handoff.handoff_target] records directly; the markdown-driven
-    [Subagent] convenience wrapper was removed in the 2026-07-21
-    test-only surface cut. *)
 module Raw_trace_query = Raw_trace_query
 
 (** Typed handoff targets for {!Agent.run_with_handoffs}. Construct
