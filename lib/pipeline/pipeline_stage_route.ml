@@ -186,7 +186,14 @@ let dispatch_sync
           ~trace_context
           ()
       in
-      match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
+      match
+        Llm_provider.Complete.measure_request
+          ~sw
+          ~net:agent.net
+          ?clock
+          ?timeout_s:agent.options.body_timeout_s
+          prepared
+      with
       | Error error -> Error (measurement_error ~binding error)
       | Ok measured ->
         (match Llm_provider.Complete.admit_request measured with
@@ -262,7 +269,14 @@ let dispatch_stream
           ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
           ()
       in
-      match Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared with
+      match
+        Llm_provider.Complete.measure_request
+          ~sw
+          ~net:agent.net
+          ?clock
+          ?timeout_s:agent.options.body_timeout_s
+          prepared
+      with
       | Error error -> Error (measurement_error ~binding error)
       | Ok measured ->
         (match Llm_provider.Complete.admit_request measured with

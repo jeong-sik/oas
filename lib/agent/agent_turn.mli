@@ -43,7 +43,8 @@ val prepare_messages
   -> unit
   -> Types.message list
 
-(** Full turn preparation: exact caller-supplied tools plus messages.
+(** Full turn preparation: exact caller-supplied tools plus messages. A failed
+    caller projection is returned before provider measurement or dispatch.
 
     @since 0.185.0 added optional [config] parameter for provider-facing
       thinking preservation. *)
@@ -51,8 +52,9 @@ val prepare_turn
   :  tools:Tool_set.t
   -> messages:Types.message list
   -> turn_params:Hooks.turn_params
+  -> ?model_input_projection:Agent_types.model_input_projection
   -> unit
-  -> turn_preparation
+  -> (turn_preparation, string) result
 
 (** {1 Usage accumulation} *)
 

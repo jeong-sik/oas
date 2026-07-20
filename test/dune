@@ -389,6 +389,26 @@
   (run %{test})))
 
 (test
+ (name test_execution_projection)
+ (modules test_execution_projection)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
+ (flags
+  (:standard -alias-deps))
+ (deps ../models.toml)
+ (action
+  (run %{test})))
+
+(test
+ (name test_agent_ambient_execution)
+ (modules test_agent_ambient_execution)
+ (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
+ (flags
+  (:standard -alias-deps))
+ (deps ../models.toml)
+ (action
+  (run %{test})))
+
+(test
  (name test_execution_lane_writer)
  (modules test_execution_lane_writer)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)

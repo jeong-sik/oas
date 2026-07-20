@@ -34,6 +34,10 @@ type context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
+(** Caller-owned provider-message projection. [Error detail] aborts the turn
+    before request measurement or dispatch. Canonical Agent state is unchanged. *)
+type model_input_projection = Types.message list -> (Types.message list, string) result
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -52,17 +56,17 @@ type options =
         [stdout_idle_timeout_s] knob via the transport's own config.
         @since 0.176.0 *)
   ; body_timeout_s : float option
-    (** Total deadline applied to non-streaming HTTP completion body
-        consumption. Threaded through {!Pipeline.stage_route} into
-        {!Llm_provider.Complete.complete}, where it wraps the synchronous HTTP
-        body read in [Eio.Time.with_timeout_exn].
+    (** Per-call total deadline applied to non-streaming HTTP response body
+        consumption. Threaded through {!Pipeline.stage_route} into both the
+        provider-native input-count preflight, when enabled, and
+        {!Llm_provider.Complete.complete}. Each round-trip owns a separate
+        deadline; the value is not a combined turn deadline.
         Requires [clock] to be supplied; without a clock the wrapper is
         skipped. A timeout surfaces as
-        [TimeoutError { phase = Non_streaming_body; _ }] and is returned
-        unchanged after that one provider attempt. Streaming requests
-        deliberately ignore this field and use [stream_idle_timeout_s] for
-        inter-line liveness so active long streams are not killed by a total
-        body deadline.
+        [TimeoutError] and is returned unchanged after that provider attempt.
+        The streaming completion itself deliberately ignores this field and
+        uses [stream_idle_timeout_s] for inter-line liveness; only its optional
+        non-streaming count preflight uses this deadline.
         @since 0.181.0 *)
   ; hooks : Hooks.hooks
   ; guardrails_async : Guardrails_async.t
@@ -151,6 +155,7 @@ type t =
   ; options : options
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
+  ; model_input_projection : model_input_projection option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -185,6 +190,7 @@ val create
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
+  -> ?model_input_projection:model_input_projection
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t

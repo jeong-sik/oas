@@ -13,6 +13,7 @@ type t =
 type turn =
   { scope : t
   ; node : Event.Node_id.t
+  ; ordinal : int
   }
 
 type provider_attempt =
@@ -116,6 +117,7 @@ let require_locator_version fields =
 ;;
 
 let scope_locator scope = { run_id = Journal.run_id scope.run }
+let scope_locator_run_id (locator : scope_locator) = locator.run_id
 
 let scope_locator_to_yojson (locator : scope_locator) =
   `Assoc
@@ -228,8 +230,10 @@ let open_turn scope ~ordinal =
        ~parent:(Journal.run_root scope.run)
        ~kind:(Event.Agent_turn { ordinal })
        ())
-  |> Result.map (fun (node, _event) -> { scope; node })
+  |> Result.map (fun (node, _event) -> { scope; node; ordinal })
 ;;
+
+let turn_ordinal turn = turn.ordinal
 
 let resume_turn scope ~ordinal =
   match Writer.find_node scope.writer (Journal.run_root scope.run) with
@@ -256,10 +260,44 @@ let resume_turn scope ~ordinal =
        (match Writer.find_node scope.writer node with
         | Error error -> Error (Scope_unavailable error)
         | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
-        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { scope; node })
+        | Ok (Some { status = Journal.Open; _ }) -> Ok (Some { scope; node; ordinal })
         | Ok (Some { status = Journal.Closed _; _ }) ->
           Error (Resume_topology_mismatch "requested turn is already closed"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate turn ordinal"))
+;;
+
+let resume_open_turn scope =
+  match Writer.find_node scope.writer (Journal.run_root scope.run) with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error Run_not_found
+  | Ok (Some root) ->
+    let turn_children =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Agent_turn { ordinal } -> Some (Event.node_id child.value, ordinal)
+           | Event.Agent_run _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_invocation _
+           | Event.Tool_attempt -> None)
+        root.children
+    in
+    let rec collect_open acc = function
+      | [] -> Ok acc
+      | (node, ordinal) :: rest ->
+        (match Writer.find_node scope.writer node with
+         | Error error -> Error (Scope_unavailable error)
+         | Ok None -> Error (Resume_topology_mismatch "turn child disappeared")
+         | Ok (Some { status = Journal.Open; _ }) ->
+           collect_open ({ scope; node; ordinal } :: acc) rest
+         | Ok (Some { status = Journal.Closed _; _ }) -> collect_open acc rest)
+    in
+    (match collect_open [] turn_children with
+     | Error _ as error -> error
+     | Ok [] -> Ok None
+     | Ok [ turn ] -> Ok (Some turn)
+     | Ok (_ :: _ :: _) -> Error (Resume_topology_mismatch "multiple open agent turns"))
 ;;
 
 let open_provider_attempt turn ~ordinal binding =

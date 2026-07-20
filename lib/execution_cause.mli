@@ -8,6 +8,7 @@ module External_source : sig
   type t
 
   val of_string : string -> (t, string) result
+  val to_string : t -> string
   val equal : t -> t -> bool
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
