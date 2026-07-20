@@ -366,15 +366,23 @@ let build_request_assoc_artifact
      | Error reason ->
        invalid_arg
          (Printf.sprintf "Backend_openai_request.normalized_reasoning_effort: %s" reason));
-    Reasoning_dialect.request_control_fields
-      dialect
-      ~enable_thinking:config.enable_thinking
-      ~preserve_thinking:config.preserve_thinking
-      ~thinking_budget:config.thinking_budget
-      ~reasoning_effort:config.reasoning_effort
-      ?zai_glm_clear_thinking
-      ()
-    @ body
+    let request_control =
+      match
+        Reasoning_dialect.request_control_fields
+          Reasoning_dialect.Chat_completions
+          dialect
+          ~enable_thinking:config.enable_thinking
+          ~preserve_thinking:config.preserve_thinking
+          ~thinking_budget:config.thinking_budget
+          ~reasoning_effort:config.reasoning_effort
+          ?zai_glm_clear_thinking
+          ()
+      with
+      | Ok artifact -> artifact
+      | Error rejection ->
+        invalid_arg (Reasoning_dialect.request_control_rejection_to_message rejection)
+    in
+    request_control.fields @ body
   in
   let body =
     if should_emit_tool_choice config

@@ -5,6 +5,7 @@ type wire_finish =
   | Refusal
   | Content_filter
   | Repetition_truncation
+  | Context_window_exceeded
   | Other of string
 
 let wire_finish_of_string s =
@@ -15,6 +16,11 @@ let wire_finish_of_string s =
   | "refusal" -> Refusal
   | "content_filter" -> Content_filter
   | "repetition_truncation" -> Repetition_truncation
+  (* SSOT parity with [Types.stop_reason_of_string]: the OpenAI/GLM finish-reason
+     decoder must recognize the canonical overflow token so an empty completion
+     that reports it reaches [Retry.overflow_of_empty_completion] as
+     [ContextWindowExceeded] instead of the [Unknown _] dead arm. *)
+  | "model_context_window_exceeded" -> Context_window_exceeded
   | other -> Other other
 ;;
 
@@ -22,10 +28,18 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   match w with
   | Tool_calls -> if has_tool_blocks then Types.StopToolUse else Types.UnmatchedToolCalls
   | Length -> Types.MaxTokens
-  | Stop -> Types.EndTurn
+  (* Parse-time parity with [reconcile]: a [Stop] (finish_reason=stop/end_turn)
+     that nonetheless carried complete tool blocks is a provider mislabel of a
+     tool-request turn, so trust the content and upgrade to [StopToolUse]. This
+     keeps the streaming chain ([provisional_of_string] |> [reconcile]) and the
+     non-streaming parser ([of_finish]) in agreement. Scoped to [Stop] only —
+     [Length] stays [MaxTokens] because a length-truncated tool call may be
+     incomplete and unsafe to auto-execute. *)
+  | Stop -> if has_tool_blocks then Types.StopToolUse else Types.EndTurn
   | Refusal -> Types.Refusal
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
+  | Context_window_exceeded -> Types.ContextWindowExceeded
   (* "trust content over label": a non-tool finish that nonetheless carried tool
      blocks is a tool-use turn (mirrors the historical non-streaming guard);
      without tool blocks it is surfaced verbatim as [Unknown]. *)
@@ -40,6 +54,7 @@ let provisional_of_string s : Types.stop_reason =
   | Refusal -> Types.Refusal
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
+  | Context_window_exceeded -> Types.ContextWindowExceeded
   | Other other -> Types.Unknown other
 ;;
 
@@ -48,6 +63,20 @@ let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   | Types.StopToolUse when not has_tool_blocks -> Types.UnmatchedToolCalls
   | Types.UnmatchedToolCalls when has_tool_blocks -> Types.StopToolUse
   | Types.Unknown _ when has_tool_blocks -> Types.StopToolUse
+  (* "trust content over label" for normal completion: a provider that emitted
+     complete tool_use blocks but labeled the turn [EndTurn]
+     (OpenAI/GLM finish_reason=stop) is mislabeling a tool-request turn. The
+     tool-block presence is authoritative, so upgrade to [StopToolUse] and let
+     the driver execute the tools instead of ending the turn with dangling
+     tool_uses (tool_use blocks with no tool_result). Mirrors the same upgrade
+     already applied to [UnmatchedToolCalls] + blocks and [Unknown] + blocks.
+     Deliberately scoped to [EndTurn] only. [MaxTokens] + blocks may be a
+     TRUNCATED/incomplete tool call, so auto-executing it is unsafe;
+     [Refusal]/[ContentFilter]/[RepetitionTruncation]/[StopSequence]/
+     [PauseTurn]/[Compaction]/[ContextWindowExceeded] carry specific terminal
+     meaning where executing a stray tool block is unsafe or ambiguous. Only
+     normal completion + blocks is an unambiguous provider mislabel. *)
+  | Types.EndTurn when has_tool_blocks -> Types.StopToolUse
   | Types.StopToolUse
   | Types.EndTurn
   | Types.MaxTokens
@@ -103,6 +132,60 @@ let%test "reconcile preserves StopToolUse with tools" =
   reconcile Types.StopToolUse ~has_tool_blocks:true = Types.StopToolUse
 ;;
 
+(* EndTurn + tool blocks is a provider mislabel (finish_reason=stop alongside
+   complete tool_calls): upgrade to StopToolUse so the driver executes the tools
+   instead of persisting dangling tool_uses. Reverting the new [reconcile] arm
+   turns this RED. *)
+let%test "reconcile upgrades EndTurn with tools to StopToolUse" =
+  reconcile Types.EndTurn ~has_tool_blocks:true = Types.StopToolUse
+;;
+
+(* A normal completion with no tool blocks still ends the turn. *)
+let%test "reconcile preserves EndTurn without tools" =
+  reconcile Types.EndTurn ~has_tool_blocks:false = Types.EndTurn
+;;
+
+(* Truncation safety: MaxTokens + tool blocks is NOT upgraded, because a
+   length-truncated tool call may be incomplete and unsafe to auto-execute.
+   Reverting the [EndTurn]-scoping (e.g. widening the guard to MaxTokens) turns
+   this RED. *)
+let%test "reconcile preserves MaxTokens with tools (truncation not upgraded)" =
+  reconcile Types.MaxTokens ~has_tool_blocks:true = Types.MaxTokens
+;;
+
+(* Parse-time counterpart of the upgrade for the non-streaming OpenAI parser,
+   which calls [of_finish] directly (no [reconcile]). Reverting the [of_finish]
+   [Stop] guard turns this RED. *)
+let%test "of_finish Stop with tools is StopToolUse" =
+  of_finish Stop ~has_tool_blocks:true = Types.StopToolUse
+;;
+
+let%test "of_finish Stop without tools is EndTurn" =
+  of_finish Stop ~has_tool_blocks:false = Types.EndTurn
+;;
+
+(* of_finish Length (finish_reason=length) keeps MaxTokens even with tools —
+   truncation is preserved on the parse-time path too. *)
+let%test "of_finish Length with tools stays MaxTokens" =
+  of_finish Length ~has_tool_blocks:true = Types.MaxTokens
+;;
+
+(* Streaming (provisional |> reconcile) and parse-time (of_finish) must agree
+   for finish_reason=stop with tools. Reverting EITHER the reconcile arm OR the
+   of_finish guard breaks parity here (one side changes, the other does not). *)
+let%test "streaming chain matches parse-time of_finish for stop + tools" =
+  let chain hb =
+    reconcile (provisional_of_string "stop") ~has_tool_blocks:hb
+    = of_finish (wire_finish_of_string "stop") ~has_tool_blocks:hb
+  in
+  chain true && chain false
+;;
+
+let%test "streaming chain matches parse-time of_finish for end_turn + tools" =
+  reconcile (provisional_of_string "end_turn") ~has_tool_blocks:true
+  = of_finish (wire_finish_of_string "end_turn") ~has_tool_blocks:true
+;;
+
 let%test "is_unmatched_tool_calls recognizes only canonical fail-closed value" =
   is_unmatched_tool_calls Types.UnmatchedToolCalls
   && (not (is_unmatched_tool_calls (Types.Unknown "tool_calls")))
@@ -141,4 +224,28 @@ let%test "known terminal reasons map identically on both paths" =
   && same "refusal"
   && same "content_filter"
   && same "repetition_truncation"
+  && same "model_context_window_exceeded"
+;;
+
+(* oas#2621 wire-root regression guard: the overflow finish-reason token must
+   decode to [ContextWindowExceeded] on BOTH the parse-time ([of_finish]) and
+   streaming ([provisional_of_string]) paths, and the guard must ignore
+   [has_tool_blocks] (an overflow turn is terminal regardless of any block set).
+   Reverting the [Context_window_exceeded] wire branch turns these RED. *)
+let%test "overflow token decodes to ContextWindowExceeded (parse-time, no tools)" =
+  of_finish (wire_finish_of_string "model_context_window_exceeded") ~has_tool_blocks:false
+  = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decodes to ContextWindowExceeded (parse-time, with tools)" =
+  of_finish (wire_finish_of_string "model_context_window_exceeded") ~has_tool_blocks:true
+  = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decodes to ContextWindowExceeded (streaming provisional)" =
+  provisional_of_string "model_context_window_exceeded" = Types.ContextWindowExceeded
+;;
+
+let%test "overflow token decode is case-insensitive" =
+  provisional_of_string "MODEL_CONTEXT_WINDOW_EXCEEDED" = Types.ContextWindowExceeded
 ;;

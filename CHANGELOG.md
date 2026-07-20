@@ -268,6 +268,80 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.217.4](https://github.com/jeong-sik/oas/compare/v0.217.3...v0.217.4) (2026-07-20)
+
+
+### Bug Fixes
+
+* **api:** reject unencoded explicit thinking on the legacy openai body path too ([#2716](https://github.com/jeong-sik/oas/issues/2716)) ([#2720](https://github.com/jeong-sik/oas/issues/2720)) ([262957a](https://github.com/jeong-sik/oas/commit/262957ae2235747bcf25afef88fdbb0281ea243a))
+* **llm_provider:** reconcile EndTurn with tool blocks to StopToolUse so complete tool calls are executed, not left dangling ([#2728](https://github.com/jeong-sik/oas/issues/2728)) ([4c2abbd](https://github.com/jeong-sik/oas/commit/4c2abbd6fcddcfcd7f4d77d2044b908a69c7dd07))
+* **pipeline:** resolve context limit before measuring tokens ([#2693](https://github.com/jeong-sik/oas/issues/2693)) ([a266f7a](https://github.com/jeong-sik/oas/commit/a266f7ab24547dd30822728837d89a3b2e56436e))
+
+## [0.217.3](https://github.com/jeong-sik/oas/compare/v0.217.2...v0.217.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* **ollama:** hard-cut native tool-loop replay and correlation ([#2710](https://github.com/jeong-sik/oas/issues/2710)) ([f7754cb](https://github.com/jeong-sik/oas/commit/f7754cbf46dfbcfab746e6a34ea610cc593ccdfe))
+* **pipeline:** classify durable Error_occurred error_domain from the error, not hardcoded "Api" ([#2717](https://github.com/jeong-sik/oas/issues/2717)) ([eebb5d5](https://github.com/jeong-sik/oas/commit/eebb5d53902f91d46e8ae0b4fba08637d7c5f99d))
+
+## [0.217.2](https://github.com/jeong-sik/oas/compare/v0.217.1...v0.217.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **llm_provider:** log reasoning_replay_dropped at Info, not Warn ([#2721](https://github.com/jeong-sik/oas/issues/2721)) ([658a910](https://github.com/jeong-sik/oas/commit/658a91091154be543685840fad73bd8936f8ac1e))
+
+## [0.217.1](https://github.com/jeong-sik/oas/compare/v0.217.0...v0.217.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **agent:** resume matches the run's original prompt, not the latest (injected) User message ([#2683](https://github.com/jeong-sik/oas/issues/2683)) ([#2715](https://github.com/jeong-sik/oas/issues/2715)) ([2ac114e](https://github.com/jeong-sik/oas/commit/2ac114eb8162d2242b83fd0b9871613d9a67b3df))
+
+## [0.217.0](https://github.com/jeong-sik/oas/compare/v0.216.7...v0.217.0) (2026-07-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **streaming:** reject malformed tool-call batches ([#2702](https://github.com/jeong-sik/oas/issues/2702))
+
+### Bug Fixes
+
+* **execution:** resume settled turn after partial-close crash instead of aborting Failed ([#2683](https://github.com/jeong-sik/oas/issues/2683)) ([#2713](https://github.com/jeong-sik/oas/issues/2713)) ([ec09415](https://github.com/jeong-sik/oas/commit/ec094155a96de55a5b821571c5c49129f6fb3467))
+* **llm_provider:** decode overflow wire finish_reason so empty-completion classifier is reachable ([#2621](https://github.com/jeong-sik/oas/issues/2621)) ([#2703](https://github.com/jeong-sik/oas/issues/2703)) ([6525705](https://github.com/jeong-sik/oas/commit/6525705d2d2e78648b5387a9a2477a46c1b939a8))
+* **llm_provider:** reject non-finite/negative retry_after at parse boundary ([#2644](https://github.com/jeong-sik/oas/issues/2644)) ([#2708](https://github.com/jeong-sik/oas/issues/2708)) ([a4395af](https://github.com/jeong-sik/oas/commit/a4395afc82c0ee5e562f4022af8b7af55ef68c4e))
+* **llm_provider:** reject unencoded explicit thinking ([#2716](https://github.com/jeong-sik/oas/issues/2716)) ([1000d42](https://github.com/jeong-sik/oas/commit/1000d42fb81f2e34fd225ad1da492608e3c584d6))
+* **llm_provider:** sanitize base_url in admission conflict warning ([#2706](https://github.com/jeong-sik/oas/issues/2706)) ([a72b785](https://github.com/jeong-sik/oas/commit/a72b785e46f33e15d16d7191add052e5cad769df))
+* **streaming:** reject malformed tool-call batches ([#2702](https://github.com/jeong-sik/oas/issues/2702)) ([69a0dcd](https://github.com/jeong-sik/oas/commit/69a0dcd5a16fd1498a95b2493937feae4774443b))
+
+## [0.216.7](https://github.com/jeong-sik/oas/compare/v0.216.6...v0.216.7) (2026-07-19)
+
+
+### Bug Fixes
+
+* **agent:** share exact provider turn identity ([#2709](https://github.com/jeong-sik/oas/issues/2709)) ([0615043](https://github.com/jeong-sik/oas/commit/0615043447fbd57ab647b8430f4d192535889fc3))
+
+## [0.216.6](https://github.com/jeong-sik/oas/compare/v0.216.5...v0.216.6) (2026-07-19)
+
+
+### Features
+
+* **llm_provider:** admit Kimi with native token count ([#2705](https://github.com/jeong-sik/oas/issues/2705)) ([c939488](https://github.com/jeong-sik/oas/commit/c9394887755aedb2b69c039838a62595ab146d4a))
+
+
+### Bug Fixes
+
+* **agent:** make projected provider input the admission SSOT ([#2707](https://github.com/jeong-sik/oas/issues/2707)) ([cadea00](https://github.com/jeong-sik/oas/commit/cadea00fc86a73a4c3afc03758d3b02610f309c0))
+
+## [0.216.5](https://github.com/jeong-sik/oas/compare/v0.216.4...v0.216.5) (2026-07-19)
+
+
+### Features
+
+* **agent:** expose durable execution projection ([#2701](https://github.com/jeong-sik/oas/issues/2701)) ([976cacd](https://github.com/jeong-sik/oas/commit/976cacd24b958cc3eea299101ec8ae973026e01d))
+* **agent:** expose typed execution terminal disposition ([#2694](https://github.com/jeong-sik/oas/issues/2694)) ([66f6831](https://github.com/jeong-sik/oas/commit/66f6831e14b1cd579710e7ad6812139ca8f220ae))
+
 ## [0.216.4](https://github.com/jeong-sik/oas/compare/v0.216.3...v0.216.4) (2026-07-18)
 
 

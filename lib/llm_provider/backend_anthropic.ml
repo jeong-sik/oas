@@ -482,13 +482,14 @@ let build_request ?stream ~config ~messages ?tools () =
 
 let build_count_tokens_request ~config ~messages ?tools () =
   match config.Provider_config.kind with
-  | Provider_config.Anthropic ->
+  | Provider_config.Anthropic | Provider_config.Kimi ->
     build_request_payload ~request_mode:Count_tokens ~config ~messages ?tools ()
-  | Provider_config.Kimi
   | Provider_config.OpenAI_compat
   | Provider_config.Ollama
   | Provider_config.Gemini
   | Provider_config.Glm
   | Provider_config.DashScope ->
-    invalid_arg "Backend_anthropic.build_count_tokens_request: Anthropic required"
+    invalid_arg
+      ("Backend_anthropic.build_count_tokens_request: Anthropic-compatible Messages "
+       ^ "provider required")
 ;;

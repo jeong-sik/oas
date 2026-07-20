@@ -296,7 +296,7 @@ let test_tool_result () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "call_123"
@@ -329,6 +329,59 @@ let test_tool_result () =
     assistant |> member "parts" |> to_list |> List.hd |> member "functionCall"
   in
   check string "function call id" "call_123" (function_call |> member "id" |> to_string)
+;;
+
+let test_tool_result_missing_correlation_fails_closed () =
+  let messages =
+    [ ({ role = Types.Tool
+       ; content =
+           [ Types.ToolResult
+               { tool_use_id = "missing-call"
+               ; content = "result"
+               ; outcome = Tool_succeeded
+               ; json = None
+               ; content_blocks = None
+               }
+           ]
+       ; name = None
+       ; tool_call_id = None
+       ; metadata = []
+       }
+       : Types.message)
+    ]
+  in
+  match Backend_gemini.contents_of_messages messages with
+  | _ -> fail "expected missing Gemini tool correlation to fail closed"
+  | exception Invalid_argument message ->
+    check
+      string
+      "missing correlation"
+      "Backend_gemini.contents_of_messages: ToolResult identity \"missing-call\" has no \
+       matching ToolUse in the active assistant batch"
+      message
+;;
+
+let test_conflicting_tool_identity_fails_closed () =
+  let message : Types.message =
+    { role = Assistant
+    ; content =
+        [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [] }
+        ; ToolUse { id = "call-1"; name = "write"; input = `Assoc [] }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  match Backend_gemini.contents_of_messages [ message ] with
+  | _ -> fail "expected conflicting Gemini tool identity to fail closed"
+  | exception Invalid_argument message ->
+    check
+      string
+      "conflicting identity"
+      "Backend_gemini.contents_of_messages: conflicting ToolUse identity \"call-1\" \
+       names \"lookup\" and \"write\" in one assistant batch"
+      message
 ;;
 
 let test_dangling_tool_use_is_not_synthetically_closed () =
@@ -869,7 +922,7 @@ let test_thought_signature_roundtrip_request () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id
@@ -1678,6 +1731,14 @@ let () =
             `Quick
             test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
+        ; test_case
+            "tool result missing correlation"
+            `Quick
+            test_tool_result_missing_correlation_fails_closed
+        ; test_case
+            "conflicting tool identity"
+            `Quick
+            test_conflicting_tool_identity_fails_closed
         ; test_case
             "dangling tool use is not synthetically closed"
             `Quick

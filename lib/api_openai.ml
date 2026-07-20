@@ -165,6 +165,21 @@ let validate_tool_choice_request_for_resolved_config =
   PConfig.validate_tool_choice_request
 ;;
 
+(* Restore #2716's reject-before-transport invariant on the legacy public wire
+   path. [build_openai_body_unchecked] binds the request-control artifact and
+   emits [artifact.fields] but never inspects [artifact.explicit_enable_receipt],
+   so an unencoded explicit-thinking request (receipt [Explicit_enable_not_encoded]
+   on a No_thinking_control model) is silently dropped and still sent. The Complete
+   path rejects the identical config via
+   [Complete_common.validate_thinking_control_request]; reuse the same typed
+   decision here (its [string option] reason form, matching this path's string
+   rejection) so the two wire-assembly sites reject the same config identically. *)
+let validate_thinking_control_request_for_resolved_config (config : PConfig.t) =
+  match Llm_provider.Complete_common.thinking_control_request_rejection_reason config with
+  | None -> Ok ()
+  | Some reason -> Error reason
+;;
+
 let add_sampling_field dialect ~enable_thinking parameter value body_assoc =
   let field = Llm_provider.Capabilities.sampling_parameter_to_string parameter in
   if
@@ -334,28 +349,34 @@ let build_openai_body_unchecked
       body_assoc
   in
   let body_assoc =
-    if not capabilities.supports_reasoning
-    then body_assoc
-    else (
-      let zai_glm_clear_thinking =
-        (* [Types.agent_config] carries no [clear_thinking] field, so the
-           projection's [clear_thinking = None] resolves from
-           [preserve_thinking] inside the SSOT resolver. *)
-        Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
-          ~thinking_control_format:capabilities.thinking_control_format
-          ~is_zai_glm
-          ~clear_thinking:serialization_config.PConfig.clear_thinking
-          ~preserve_thinking:serialization_config.PConfig.preserve_thinking
-      in
-      Llm_provider.Reasoning_dialect.request_control_fields
-        dialect
-        ~enable_thinking:serialization_config.enable_thinking
-        ~preserve_thinking:serialization_config.preserve_thinking
-        ~thinking_budget:serialization_config.thinking_budget
-        ~reasoning_effort:serialization_config.PConfig.reasoning_effort
-        ?zai_glm_clear_thinking
-        ()
-      @ body_assoc)
+    let zai_glm_clear_thinking =
+      (* [Types.agent_config] carries no [clear_thinking] field, so the
+         projection's [clear_thinking = None] resolves from
+         [preserve_thinking] inside the SSOT resolver. *)
+      Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
+        ~thinking_control_format:capabilities.thinking_control_format
+        ~is_zai_glm
+        ~clear_thinking:serialization_config.PConfig.clear_thinking
+        ~preserve_thinking:serialization_config.PConfig.preserve_thinking
+    in
+    let request_control =
+      match
+        Llm_provider.Reasoning_dialect.request_control_fields
+          Llm_provider.Reasoning_dialect.Chat_completions
+          dialect
+          ~enable_thinking:serialization_config.enable_thinking
+          ~preserve_thinking:serialization_config.preserve_thinking
+          ~thinking_budget:serialization_config.thinking_budget
+          ~reasoning_effort:serialization_config.PConfig.reasoning_effort
+          ?zai_glm_clear_thinking
+          ()
+      with
+      | Ok artifact -> artifact
+      | Error rejection ->
+        invalid_arg
+          (Llm_provider.Reasoning_dialect.request_control_rejection_to_message rejection)
+    in
+    request_control.fields @ body_assoc
   in
   let body_assoc =
     match tools_to_send with
@@ -416,16 +437,21 @@ let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id 
     (match validate_tool_choice_request_for_resolved_config serialization_config with
      | Error reason -> Error reason
      | Ok () ->
-       (try
-          Ok
-            (build_openai_body_unchecked
-               ~serialization_config
-               ~messages
-               ?tools
-               ?slot_id
-               ())
+       (match
+          validate_thinking_control_request_for_resolved_config serialization_config
         with
-        | Invalid_argument reason -> Error reason))
+        | Error reason -> Error reason
+        | Ok () ->
+          (try
+             Ok
+               (build_openai_body_unchecked
+                  ~serialization_config
+                  ~messages
+                  ?tools
+                  ?slot_id
+                  ())
+           with
+           | Invalid_argument reason -> Error reason)))
 ;;
 
 let build_openai_body_result_for_resolved_config
@@ -438,16 +464,19 @@ let build_openai_body_result_for_resolved_config
   match validate_tool_choice_request_for_resolved_config resolved_config with
   | Error reason -> Error reason
   | Ok () ->
-    (try
-       Ok
-         (build_openai_body_unchecked
-            ~serialization_config:resolved_config
-            ~messages
-            ?tools
-            ?slot_id
-            ())
-     with
-     | Invalid_argument reason -> Error reason)
+    (match validate_thinking_control_request_for_resolved_config resolved_config with
+     | Error reason -> Error reason
+     | Ok () ->
+       (try
+          Ok
+            (build_openai_body_unchecked
+               ~serialization_config:resolved_config
+               ~messages
+               ?tools
+               ?slot_id
+               ())
+        with
+        | Invalid_argument reason -> Error reason))
 ;;
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =

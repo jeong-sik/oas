@@ -358,9 +358,16 @@ let observe ~component projection =
              ; "reasoning_on_non_assistant", `Int non_assistant
              ])
      in
-     if missing_source > 0 || incompatible_source > 0
-     then Diag.warn component "%s" payload
-     else Diag.info component "%s" payload);
+     (* All drop reasons here are outcomes of a *successful* projection: the
+        error path raises [invalid_arg] and never reaches this observe hook, so a
+        drop summary always accompanies an [Ok projection] the caller proceeds
+        with. Stripping untagged (missing_source) or cross-target (incompatible_
+        source) prior-turn reasoning is the normal, expected behaviour for
+        OpenAI-compat/Ollama backends where reasoning arrives as an untagged
+        side-channel — an expected lifecycle event (Info), not a failure (Warn).
+        The previous Warn split fired ~973x/day narrating routine replay
+        normalisation. Per-reason counts remain in [payload] for diagnostics. *)
+     Diag.info component "%s" payload);
   match projection.removed_empty_assistant_indices with
   | [] -> ()
   | indices ->

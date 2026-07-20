@@ -31,6 +31,7 @@ type t =
   ; provider : Provider.config option
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : Agent.context_fit_admission
+  ; model_input_projection : Agent.model_input_projection option
   ; stream_idle_timeout_s : float option
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks
@@ -81,6 +82,7 @@ let create ~net ~model =
   ; provider = None
   ; provider_config = None
   ; context_fit_admission = Agent.Disabled
+  ; model_input_projection = None
   ; stream_idle_timeout_s = None
   ; body_timeout_s = None
   ; hooks = Hooks.empty
@@ -182,6 +184,11 @@ let with_provider_config (pc : Llm_provider.Provider_config.t) b =
 ;;
 
 let with_context_fit_admission context_fit_admission b = { b with context_fit_admission }
+
+let with_model_input_projection model_input_projection b =
+  { b with model_input_projection = Some model_input_projection }
+;;
+
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
@@ -288,6 +295,7 @@ let build b =
     ~options
     ?provider_config:b.provider_config
     ~context_fit_admission:b.context_fit_admission
+    ?model_input_projection:b.model_input_projection
     ?checkpoint_sink:b.checkpoint_sink
     ()
 ;;

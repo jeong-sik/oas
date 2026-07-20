@@ -68,11 +68,22 @@ val request_measurement
   :  measured_request
   -> Count_tokens_sync.completion_request_measurement
 
-(** Admit the measured request against an explicit [max_context], or the exact
-    model capability when no explicit limit was supplied. The output-token
-    reservation is the effective value carried by the same provider request
-    artifact. Unknown limits and overflow are explicit. *)
-val admit_request : measured_request -> (admitted_request, fit_error) result
+(** Resolve the validated positive context-token limit from the explicit
+    [max_context] config value, or the exact model capability when none was
+    supplied. Pure: performs no measurement I/O. [Context_limit_unknown] when no
+    limit is declared, [Invalid_context_limit] when it is non-positive. Callers
+    resolve this before measurement so a pre-knowable limit failure never costs a
+    count round-trip. *)
+val resolve_context_limit : prepared_request -> (int, fit_error) result
+
+(** Admit the measured request against the [max_context_tokens] resolved by
+    {!resolve_context_limit}. The output-token reservation is the effective value
+    carried by the same provider request artifact. A missing reservation and
+    context overflow are explicit. *)
+val admit_request
+  :  max_context_tokens:int
+  -> measured_request
+  -> (admitted_request, fit_error) result
 
 val admitted_fit : admitted_request -> context_fit
 

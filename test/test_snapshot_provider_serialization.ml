@@ -57,10 +57,45 @@ let messages =
           }
       ]
   ; msg
-      User
+      Tool
       [ ToolResult
           { tool_use_id = "call_1"
           ; content = "Sunny, 25C"
+          ; outcome = Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      ]
+  ]
+;;
+
+let parallel_messages =
+  [ msg User [ Text "What's the weather in Seoul and London?" ]
+  ; msg
+      Assistant
+      [ ToolUse
+          { id = "call_1"
+          ; name = "get_weather"
+          ; input = `Assoc [ "city", `String "Seoul" ]
+          }
+      ; ToolUse
+          { id = "call_2"
+          ; name = "get_weather"
+          ; input = `Assoc [ "city", `String "London" ]
+          }
+      ]
+  ; msg
+      Tool
+      [ ToolResult
+          { tool_use_id = "call_1"
+          ; content = "Sunny, 25C"
+          ; outcome = Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      ; ToolResult
+          { tool_use_id = "call_2"
+          ; content = "Rain, 16C"
           ; outcome = Tool_succeeded
           ; json = None
           ; content_blocks = None
@@ -723,7 +758,11 @@ let test_glm_any () =
 (* ── Ollama (native /api/chat shape) ────────────────── *)
 
 let ollama_any_expected =
-  {|{"options":{"temperature":0.7,"num_predict":1024},"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"keep_alive":-1,"stream":false,"model":"oas-snapshot-fixture-model","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Seoul"}}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}]}|}
+  {|{"options":{"temperature":0.7,"num_predict":1024},"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"keep_alive":-1,"stream":false,"model":"oas-snapshot-fixture-model","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Seoul"}}}],"role":"assistant","content":null},{"role":"tool","tool_name":"get_weather","content":"Sunny, 25C"}]}|}
+;;
+
+let ollama_parallel_expected =
+  {|{"options":{"temperature":0.7,"num_predict":1024},"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"keep_alive":-1,"stream":true,"model":"oas-snapshot-fixture-model","messages":[{"role":"user","content":"What's the weather in Seoul and London?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Seoul"}}},{"id":"call_2","type":"function","function":{"name":"get_weather","arguments":{"city":"London"}}}],"role":"assistant","content":null},{"role":"tool","tool_name":"get_weather","content":"Sunny, 25C"},{"role":"tool","tool_name":"get_weather","content":"Rain, 16C"}]}|}
 ;;
 
 let test_ollama_any () =
@@ -743,6 +782,21 @@ let test_ollama_any () =
   check bool "keep_alive pinned to -1" true (contains ~needle:{|"keep_alive":-1|} body);
   (* Ollama native /api/chat takes no tool_choice / parallel_tool_calls. *)
   check bool "no tool_choice field" false (contains ~needle:{|"tool_choice"|} body)
+;;
+
+let test_ollama_parallel_tool_results () =
+  let body =
+    Backend_ollama.build_request
+      ~stream:true
+      ~config:(ollama_cfg ~tool_choice:Any)
+      ~messages:parallel_messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  snapshot
+    "ollama parallel tool-result correlation snapshot"
+    ollama_parallel_expected
+    body
 ;;
 
 (* ── Structured-output wire (output_schema serialization) ──── *)
@@ -892,7 +946,13 @@ let () =
             test_gemini_nudged_tool_turn_merges_followup_text
         ] )
     ; "glm", [ test_case "tool_choice Any" `Quick test_glm_any ]
-    ; "ollama", [ test_case "tool_choice Any" `Quick test_ollama_any ]
+    ; ( "ollama"
+      , [ test_case "tool_choice Any" `Quick test_ollama_any
+        ; test_case
+            "parallel tool-result correlation"
+            `Quick
+            test_ollama_parallel_tool_results
+        ] )
     ; ( "structured_output_wire"
       , [ test_case "ollama output_schema -> format" `Quick test_ollama_output_schema
         ; test_case

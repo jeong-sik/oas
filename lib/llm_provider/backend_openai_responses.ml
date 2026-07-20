@@ -430,14 +430,24 @@ let build_request_artifact
        "Backend_openai_responses.build_request: thinking_budget is unsupported; pass \
         reasoning_effort"
    | None -> ());
-  let reasoning_effort =
+  let request_control =
     (match Provider_config.validate_reasoning_effort_request config with
      | Ok () -> ()
      | Error reason ->
        invalid_arg (Printf.sprintf "Backend_openai_responses.reasoning_effort: %s" reason));
-    match config.reasoning_effort with
-    | Some effort -> Reasoning_dialect.normalize_effort_value dialect effort
-    | None -> None
+    match
+      Reasoning_dialect.request_control_fields
+        Reasoning_dialect.Responses
+        dialect
+        ~enable_thinking:config.enable_thinking
+        ~preserve_thinking:config.preserve_thinking
+        ~thinking_budget:config.thinking_budget
+        ~reasoning_effort:config.reasoning_effort
+        ()
+    with
+    | Ok artifact -> artifact
+    | Error rejection ->
+      invalid_arg (Reasoning_dialect.request_control_rejection_to_message rejection)
   in
   let body =
     [ "model", `String config.model_id
@@ -476,14 +486,10 @@ let build_request_artifact
     | Some text -> ("text", text) :: body
     | None -> body
   in
-  let body =
-    match reasoning_effort with
-    | Some effort -> ("reasoning", `Assoc [ "effort", `String effort ]) :: body
-    | None -> body
-  in
+  let body = request_control.fields @ body in
   let body =
     if
-      Option.is_some reasoning_effort
+      request_control.fields <> []
       || List.exists message_has_responses_raw_reasoning projected_messages
     then ("include", `List [ `String "reasoning.encrypted_content" ]) :: body
     else body
@@ -584,17 +590,17 @@ let function_call_required_string ~field item =
 
 let function_call_arguments ~call_id item =
   let* arguments = function_call_required_string ~field:"arguments" item in
-  match Yojson.Safe.from_string arguments with
-  | `Assoc _ as input -> Ok input
-  | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+  match Tool_call_input.parse_object arguments with
+  | Ok input -> Ok input
+  | Error Tool_call_input.Not_object ->
     Error
       (Printf.sprintf "malformed_responses_function_call:%s:arguments:not_object" call_id)
-  | exception Yojson.Json_error msg ->
+  | Error (Tool_call_input.Invalid_json message) ->
     Error
       (Printf.sprintf
          "malformed_responses_function_call:%s:arguments:json_parse_error:%s"
          call_id
-         msg)
+         message)
 ;;
 
 let content_block_of_function_call item =

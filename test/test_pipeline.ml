@@ -210,6 +210,7 @@ let test_agent_turn_preparation () =
   in
   let prep =
     Agent_turn.prepare_turn ~tools ~messages ~turn_params:Hooks.default_turn_params ()
+    |> Result.get_ok
   in
   (* tools_json should be Some with 2 tools *)
   (match prep.tools_json with
@@ -313,6 +314,145 @@ let test_pipeline_sends_exact_supplied_tools () =
     "provider receives exact caller tool schemas"
     true
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
+;;
+
+let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let before_turns = ref [] in
+  let after_turns = ref [] in
+  let pre_tool_turns = ref [] in
+  let handler_turns = ref [] in
+  let hooks =
+    { Hooks.empty with
+      before_turn =
+        Some
+          (function
+            | Hooks.BeforeTurn { turn; _ } ->
+              before_turns := turn :: !before_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected BeforeTurn")
+    ; after_turn =
+        Some
+          (function
+            | Hooks.AfterTurn { turn; _ } ->
+              after_turns := turn :: !after_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected AfterTurn")
+    ; pre_tool_use =
+        Some
+          (function
+            | Hooks.PreToolUse { invocation; _ } ->
+              pre_tool_turns := Tool.Invocation.turn invocation :: !pre_tool_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected PreToolUse")
+    }
+  in
+  let tool =
+    Tool.create_with_execution_env
+      ~name:"identity_tool"
+      ~description:"observe the canonical provider turn"
+      ~parameters:[]
+      (fun execution_env _input ->
+         (match Tool.Execution_env.invocation execution_env with
+          | None -> Alcotest.fail "tool handler received no invocation"
+          | Some invocation ->
+            handler_turns := Tool.Invocation.turn invocation :: !handler_turns);
+         Ok { Types.content = "observed"; _meta = None })
+  in
+  let responses =
+    ref
+      [ { (pipeline_response StopToolUse) with
+          id = "provider-turn-0"
+        ; content =
+            [ ToolUse
+                { id = "provider-tool-0"; name = "identity_tool"; input = `Assoc [] }
+            ]
+        }
+      ; { (pipeline_response EndTurn) with id = "provider-turn-1" }
+      ]
+  in
+  let next_response () =
+    match !responses with
+    | response :: rest ->
+      responses := rest;
+      Ok response
+    | [] ->
+      Error
+        (Llm_provider.Http_client.AcceptRejected
+           { reason = "provider-turn identity fixture exhausted responses" })
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = next_response (); latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+    }
+  in
+  let event_bus = Event_bus.create () in
+  let event_config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config:event_config event_bus in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "provider-turn-identity-test"
+        }
+      ~tools:[ tool ]
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        ; hooks
+        ; event_bus = Some event_bus
+        }
+      ()
+  in
+  (match Agent.run ~sw agent "run identity_tool" with
+   | Ok response ->
+     Alcotest.(check string) "terminal response" "done" (Types.text_of_response response)
+   | Error error -> Alcotest.fail (Error.to_string error));
+  let turn_started, turn_ready, turn_completed, tool_events =
+    Event_bus.drain subscription
+    |> List.fold_left
+         (fun (started, ready, completed, tools) (event : Event_bus.event) ->
+            match event.payload with
+            | TurnStarted { turn; _ } -> turn :: started, ready, completed, tools
+            | TurnReady { turn; _ } -> started, turn :: ready, completed, tools
+            | TurnCompleted { turn; _ } -> started, ready, turn :: completed, tools
+            | ToolCalled { invocation; _ } | ToolCompleted { invocation; _ } ->
+              started, ready, completed, Tool.Invocation.turn invocation :: tools
+            | AgentStarted _
+            | AgentCompleted _
+            | AgentFailed _
+            | HandoffRequested _
+            | HandoffCompleted _
+            | ElicitationCompleted _
+            | InferenceTelemetry _
+            | Custom _ -> started, ready, completed, tools)
+         ([], [], [], [])
+  in
+  let check_turns label expected actual =
+    Alcotest.(check (list int)) label expected (List.rev actual)
+  in
+  check_turns "BeforeTurn identity" [ 0; 1 ] !before_turns;
+  check_turns "AfterTurn identity" [ 0; 1 ] !after_turns;
+  check_turns "TurnStarted identity" [ 0; 1 ] turn_started;
+  check_turns "TurnReady identity" [ 0; 1 ] turn_ready;
+  check_turns "TurnCompleted identity" [ 0; 1 ] turn_completed;
+  check_turns "PreToolUse identity" [ 0 ] !pre_tool_turns;
+  check_turns "tool handler identity" [ 0 ] !handler_turns;
+  check_turns "public tool event identity" [ 0; 0 ] tool_events;
+  Alcotest.(check int)
+    "state advances after two provider turns"
+    2
+    (Agent.state agent).turn_count
 ;;
 
 let unwrap_raw_trace = function
@@ -774,6 +914,7 @@ let test_prepare_turn_no_tools () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   (match prep.tools_json with
    | None -> ()
@@ -811,6 +952,7 @@ let test_prepare_turn_preserves_messages () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   Alcotest.(check int) "3 messages" 3 (List.length prep.effective_messages)
 ;;
@@ -993,7 +1135,10 @@ let test_prepare_turn_extra_context () =
       extra_system_context = Some "You are in debug mode."
     }
   in
-  let prep = Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params () in
+  let prep =
+    Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params ()
+    |> Result.get_ok
+  in
   (* Extra context is appended at the end to preserve prefix for KV cache *)
   Alcotest.(check int)
     "2 messages (original + context)"
@@ -1068,6 +1213,35 @@ let test_error_domain_provider_errors () =
        let s = Error_domain.to_string e in
        Alcotest.(check bool) "has string" true (String.length s > 0))
     errs
+;;
+
+(* Pipeline.error_domain_of stamps the durable [Error_occurred] event's
+   [error_domain] from the actual error's typed category, not a hardcoded
+   "Api". A durable journal/store-write failure surfaces as [Error.Internal]
+   (see Pipeline_execution_scope.sdk_error), so it must be labeled "Internal",
+   not misattributed to the provider "Api" domain. The Internal->Internal
+   assertion fails if the hardcoded [error_domain = "Api"] is restored. *)
+let test_error_domain_of_persistence_not_api () =
+  Alcotest.(check string)
+    "persistence/store failure -> Internal"
+    "Internal"
+    (Internal_pipeline.error_domain_of (Error.Internal "journal write failed: disk full"));
+  Alcotest.(check bool)
+    "persistence failure is not misattributed to Api"
+    true
+    (Internal_pipeline.error_domain_of (Error.Internal "x") <> "Api");
+  (* Genuine provider errors stay "Api" so existing provider logs are stable. *)
+  Alcotest.(check string)
+    "genuine provider error -> Api"
+    "Api"
+    (Internal_pipeline.error_domain_of
+       (Error.Api (Error.Retry.AuthError { message = "bad key" })));
+  (* A third variant confirms the label is derived, not constant. *)
+  Alcotest.(check string)
+    "config error -> Config"
+    "Config"
+    (Internal_pipeline.error_domain_of
+       (Error.Config (Error.MissingEnvVar { var_name = "API_KEY" })))
 ;;
 
 (* ── Provider_mock: multi-tool response ───────────────────── *)
@@ -1466,7 +1640,13 @@ let test_agent_run_uses_durable_tool_authority () =
          (List.length public_tool_events))
 ;;
 
-let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
+let test_agent_run_resumes_tool_without_duplicate_effects
+      ?(extra_restored_messages = [])
+      ?(resume_prompt = "run the tool")
+      ?(expect_reject = false)
+      ~settled
+      ()
+  =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -1538,7 +1718,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -1547,7 +1727,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -1649,6 +1829,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
                ; metadata = []
                }
              ]
+             @ extra_restored_messages
          ; turn_count = 1
          ; usage = Types.empty_usage
          };
@@ -1662,41 +1843,731 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
            ~resume:locator
            ()
        in
-       (match settled, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
-        | true, Ok response ->
+       let run_result = Agent.run ~sw:runtime_sw ~execution_store agent resume_prompt in
+       if expect_reject
+       then (
+         (* Fail-closed: a resume prompt that does not match the run's original
+            prompt is rejected before the durable scope reopens. The rejection
+            short-circuits [resume_user_input] ahead of any journal I/O, so the
+            settled tool effect is never rerun. *)
+         (match run_result with
+          | Error
+              (Error.Config (Error.InvalidConfig { field = "execution_store.resume"; _ }))
+            -> ()
+          | Error error ->
+            Alcotest.failf
+              "expected resume-input rejection, got: %s"
+              (Error.to_string error)
+          | Ok _ -> Alcotest.fail "expected resume-input rejection, but resume succeeded");
+         Alcotest.(check int) "rejected resume does not run tool handler" 0 !effect_count)
+       else (
+         (match settled, run_result with
+          | true, Ok response ->
+            Alcotest.(check string)
+              "terminal response"
+              "done-after-restart"
+              (Types.text_of_response response)
+          | true, Error error -> Alcotest.fail (Error.to_string error)
+          | false, Error (Error.Internal _) -> ()
+          | false, Error error ->
+            Alcotest.failf
+              "unknown effect changed error category: %s"
+              (Error.to_string error)
+          | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
+         Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
+         Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
+         Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
+         if settled
+         then
+           check_terminal_disposition
+             ~outcome:"succeeded"
+             ~recovery:"retire"
+             !terminal_disposition
+         else
+           check_terminal_disposition
+             ~outcome:"failed"
+             ~recovery:"operator_repair:effect_outcome_unknown"
+             !terminal_disposition))
+;;
+
+let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true ()
+;;
+
+let test_agent_run_reports_unknown_effect_for_operator_repair () =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false ()
+;;
+
+(* A context injector appends User-role messages during a turn (see
+   [Agent_turn.apply_context_injection]); after such a turn the latest User
+   message in the restored checkpoint is the injected one, not the run's
+   original prompt. Resume must match the original prompt (at the base-messages
+   boundary), so it succeeds even though a later injected User message differs.
+   Reverting [resume_user_input] to a latest-User-message scan makes this fail:
+   the injected message no longer equals the resume prompt. *)
+let test_agent_run_resume_ignores_injected_user_context_message () =
+  test_agent_run_resumes_tool_without_duplicate_effects
+    ~settled:true
+    ~extra_restored_messages:
+      [ { Types.role = User
+        ; content = [ Text "[system] git status: clean" ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    ()
+;;
+
+(* Fail-closed preserved: a genuinely different resume prompt is still
+   rejected, even with an injected User message present. *)
+let test_agent_run_resume_rejects_mismatched_prompt () =
+  test_agent_run_resumes_tool_without_duplicate_effects
+    ~settled:true
+    ~extra_restored_messages:
+      [ { Types.role = User
+        ; content = [ Text "[system] git status: clean" ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    ~resume_prompt:"a completely different prompt"
+    ~expect_reject:true
+    ()
+;;
+
+(* Regression for #2683: a fully-settled turn interrupted between the provider
+   close, the turn close, and the root finish must resume through the public
+   [Agent.run ~resume] surface instead of aborting the root as Failed.
+   [close_success] commits the provider close and turn close as two journal
+   transactions and the root [finish] is a third, so a crash leaves either
+   [Window_provider_closed] (provider Closed Succeeded, turn Open) or
+   [Window_turn_closed] (turn Closed Succeeded). Both are idempotent completed
+   boundaries: the tool effect is durably settled and must be replayed, not
+   re-run, and the run must complete Succeeded. [Window_turn_failed] pins the
+   fail-closed contract: a Closed [Failed] turn stays an error, never a bogus
+   success. *)
+type settled_window =
+  | Window_provider_closed
+  | Window_turn_closed
+  | Window_turn_failed
+
+let test_agent_run_resumes_settled_closed_turn ~window () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Agent.create_execution_runtime ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let internal_runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime internal_runtime in
+  let native_path = Filename.temp_file "oas-agent-settled-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let config =
+         { (Types.default_config ~model:"test-model") with
+           name = "durable-agent-settled-test"
+         }
+       in
+       let tool_input = `Assoc [ "value", `Int 7 ] in
+       let tool_use_id = "settled-tool-use" in
+       let schedule : Tool.schedule =
+         { planned_index = 0
+         ; batch_index = 0
+         ; batch_size = 1
+         ; execution_mode = Tool.Serial
+         }
+       in
+       let locator_json = ref None in
+       let provider_config =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"test-model"
+           ~base_url:"http://resume.invalid"
+           ~api_key:""
+           ~request_path:"/v1/chat/completions"
+           ()
+       in
+       let binding =
+         match
+           Internal_binding.of_provider_config
+             ~transport:Internal_binding.Injected
+             provider_config
+         with
+         | Ok binding -> binding
+         | Error detail -> Alcotest.fail detail
+       in
+       (* Build the durable journal to the exact crash-window topology: a settled
+          tool invocation whose provider (and, for [Window_turn_closed], turn) is
+          Closed Succeeded, with the run root deliberately left Running (no
+          [finish]). *)
+       (match
+          Internal_writer.run ~codec ~dir (fun ~sw:_ writer ->
+            let scope =
+              match
+                Internal_scope.start ~writer ~agent_name:"durable-agent-settled-test"
+              with
+              | Ok scope -> scope
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            locator_json
+            := Some
+                 (Internal_scope.scope_locator_to_yojson
+                    (Internal_scope.scope_locator scope));
+            let turn =
+              match Internal_scope.open_turn scope ~ordinal:0 with
+              | Ok turn -> turn
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            let provider =
+              match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+              | Ok provider -> provider
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
+            let durable =
+              match
+                Internal_scope.open_invocation
+                  provider
+                  ~invocation
+                  ~tool_name:"durable_tool"
+                  ~input:tool_input
+              with
+              | Ok durable -> durable
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            (match
+               Internal_scope.execute
+                 durable
+                 ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
+                   "settled-before-restart", Types.Tool_succeeded)
+             with
+             | Ok (Internal_scope.Executed _) -> ()
+             | Ok (Internal_scope.Replayed _) ->
+               Alcotest.fail "fixture unexpectedly replayed its first tool effect"
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+            (match
+               Internal_scope.close_provider_attempt
+                 provider
+                 Internal.Execution_event.Succeeded
+             with
+             | Ok () -> ()
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+            match window with
+            | Window_provider_closed -> ()
+            | Window_turn_closed ->
+              (match
+                 Internal_scope.close_turn turn Internal.Execution_event.Succeeded
+               with
+               | Ok () -> ()
+               | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+            | Window_turn_failed ->
+              (match
+                 Internal_scope.close_turn
+                   turn
+                   (Internal.Execution_event.Failed
+                      { kind = Internal.Execution_event.Internal_failure
+                      ; detail = "injected settled-turn failure"
+                      ; data = None
+                      })
+               with
+               | Ok () -> ()
+               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)))
+        with
+        | Ok () -> ()
+        | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure));
+       let locator =
+         match Option.get !locator_json |> Agent.execution_locator_of_yojson with
+         | Ok locator -> locator
+         | Error detail -> Alcotest.fail detail
+       in
+       let response = Provider_mock.text_response "done-after-restart" [] in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _request ->
+               { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+         ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+         }
+       in
+       let effect_count = ref 0 in
+       let terminal_disposition = ref None in
+       let tool =
+         Tool.create
+           ~name:"durable_tool"
+           ~description:"must not rerun after restart"
+           ~parameters:[]
+           (fun _input ->
+              incr effect_count;
+              Ok { Types.content = "duplicate"; _meta = None })
+       in
+       let options =
+         { Agent.default_options with
+           transport = Some transport
+         ; provider = Some (Provider_mock.to_provider_config ())
+         }
+       in
+       let agent =
+         Agent.create ~net:(Eio.Stdenv.net env) ~config ~tools:[ tool ] ~options ()
+       in
+       (* The settled tool turn's checkpoint (After_tool_results_appended) is
+          restored: the ToolUse and its recovered ToolResult are already present,
+          so resume replays the settled result without re-running the effect. *)
+       Agent.set_state
+         agent
+         { config
+         ; messages =
+             [ { Types.role = User
+               ; content = [ Text "run the tool" ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { Types.role = Assistant
+               ; content =
+                   [ ToolUse
+                       { id = tool_use_id; name = "durable_tool"; input = tool_input }
+                   ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { Types.role = Tool
+               ; content =
+                   [ ToolResult
+                       { tool_use_id
+                       ; content = "settled-before-restart"
+                       ; outcome = Types.Tool_succeeded
+                       ; json = None
+                       ; content_blocks = None
+                       }
+                   ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ]
+         ; turn_count = 1
+         ; usage = Types.empty_usage
+         };
+       let execution_store =
+         Agent.execution_store
+           ~runtime
+           ~dir
+           ~on_terminal_disposition:(fun disposition ->
+             terminal_disposition := Some disposition;
+             Ok ())
+           ~resume:locator
+           ()
+       in
+       (match window, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | (Window_provider_closed | Window_turn_closed), Ok response ->
           Alcotest.(check string)
-            "terminal response"
+            "settled turn resumes and completes"
             "done-after-restart"
             (Types.text_of_response response)
-        | true, Error error -> Alcotest.fail (Error.to_string error)
-        | false, Error (Error.Internal _) -> ()
-        | false, Error error ->
+        | (Window_provider_closed | Window_turn_closed), Error error ->
           Alcotest.failf
-            "unknown effect changed error category: %s"
+            "settled turn resume aborted instead of completing: %s"
             (Error.to_string error)
-        | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
+        | Window_turn_failed, Error _ -> ()
+        | Window_turn_failed, Ok _ ->
+          Alcotest.fail "closed-Failed turn must not resume as a bogus success");
        Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
-       Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
-       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
-       if settled
-       then
+       match window with
+       | Window_provider_closed | Window_turn_closed ->
          check_terminal_disposition
            ~outcome:"succeeded"
            ~recovery:"retire"
            !terminal_disposition
-       else
-         check_terminal_disposition
-           ~outcome:"failed"
-           ~recovery:"operator_repair:effect_outcome_unknown"
-           !terminal_disposition)
+       | Window_turn_failed -> ())
 ;;
 
-let test_agent_run_resumes_settled_tool_without_duplicate_effects =
-  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true
+let test_agent_run_resumes_settled_provider_closed_turn =
+  test_agent_run_resumes_settled_closed_turn ~window:Window_provider_closed
 ;;
 
-let test_agent_run_reports_unknown_effect_for_operator_repair =
-  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false
+let test_agent_run_resumes_settled_closed_turn_boundary =
+  test_agent_run_resumes_settled_closed_turn ~window:Window_turn_closed
+;;
+
+let test_agent_run_rejects_settled_failed_turn =
+  test_agent_run_resumes_settled_closed_turn ~window:Window_turn_failed
+;;
+
+(* Regression for #2713 follow-up (Site 2, all-blocked vacuous-truth): a resumed
+   turn whose ToolUses were all PreToolUse-blocked has its blocked ToolResults in
+   the restored checkpoint but ZERO durable Tool_invocation nodes — a blocked call
+   emits a model-visible ToolResult but never reaches [open_invocation] (that is
+   Continue-only in agent_tools.ml). The journal turn and provider are still Open
+   (the run crashed with results collected but the scope not yet closed), so
+   resume takes the Active path, asserts result_ids == expected_ids, then checks
+   journal settlement. An empty invocation set must count as fully-settled
+   (vacuous truth), not "settlement incomplete"; otherwise the root is aborted
+   Failed and the run becomes un-resumable. Reverting [provider_invocations_settled]'s
+   empty arm to [Ok false] makes this go red (resume Error -> root Failed). *)
+let test_agent_run_resumes_all_blocked_settled_turn () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Agent.create_execution_runtime ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let internal_runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime internal_runtime in
+  let native_path = Filename.temp_file "oas-agent-all-blocked-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let config =
+         { (Types.default_config ~model:"test-model") with
+           name = "durable-agent-all-blocked-test"
+         }
+       in
+       let tool_input = `Assoc [ "value", `Int 7 ] in
+       let tool_use_id = "all-blocked-tool-use" in
+       let locator_json = ref None in
+       let provider_config =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"test-model"
+           ~base_url:"http://resume.invalid"
+           ~api_key:""
+           ~request_path:"/v1/chat/completions"
+           ()
+       in
+       let binding =
+         match
+           Internal_binding.of_provider_config
+             ~transport:Internal_binding.Injected
+             provider_config
+         with
+         | Ok binding -> binding
+         | Error detail -> Alcotest.fail detail
+       in
+       (* Build the durable journal to the all-blocked crash topology: an Open turn
+          with an Open provider attempt and NO invocation node, the run root left
+          Running (no [finish]). *)
+       (match
+          Internal_writer.run ~codec ~dir (fun ~sw:_ writer ->
+            let scope =
+              match
+                Internal_scope.start ~writer ~agent_name:"durable-agent-all-blocked-test"
+              with
+              | Ok scope -> scope
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            locator_json
+            := Some
+                 (Internal_scope.scope_locator_to_yojson
+                    (Internal_scope.scope_locator scope));
+            let turn =
+              match Internal_scope.open_turn scope ~ordinal:0 with
+              | Ok turn -> turn
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+            | Ok _provider -> ()
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+        with
+        | Ok () -> ()
+        | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure));
+       let locator =
+         match Option.get !locator_json |> Agent.execution_locator_of_yojson with
+         | Ok locator -> locator
+         | Error detail -> Alcotest.fail detail
+       in
+       let response = Provider_mock.text_response "done-after-restart" [] in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _request ->
+               { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+         ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+         }
+       in
+       let effect_count = ref 0 in
+       let terminal_disposition = ref None in
+       let tool =
+         Tool.create
+           ~name:"durable_tool"
+           ~description:"must not rerun after restart"
+           ~parameters:[]
+           (fun _input ->
+              incr effect_count;
+              Ok { Types.content = "duplicate"; _meta = None })
+       in
+       let options =
+         { Agent.default_options with
+           transport = Some transport
+         ; provider = Some (Provider_mock.to_provider_config ())
+         }
+       in
+       let agent =
+         Agent.create ~net:(Eio.Stdenv.net env) ~config ~tools:[ tool ] ~options ()
+       in
+       (* Restored checkpoint: the blocked ToolResult is present (a blocked call
+          still emits a model-visible ToolResult) even though no Tool_invocation
+          node exists. Only the tool_use_id drives the resume classification. *)
+       Agent.set_state
+         agent
+         { config
+         ; messages =
+             [ { Types.role = User
+               ; content = [ Text "run the tool" ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { Types.role = Assistant
+               ; content =
+                   [ ToolUse
+                       { id = tool_use_id; name = "durable_tool"; input = tool_input }
+                   ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { Types.role = Tool
+               ; content =
+                   [ ToolResult
+                       { tool_use_id
+                       ; content = "blocked by pre_tool_use hook"
+                       ; outcome =
+                           Tool_failed
+                             { failure_kind = Non_retryable_tool_error
+                             ; error_class = Some Deterministic
+                             }
+                       ; json = None
+                       ; content_blocks = None
+                       }
+                   ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ]
+         ; turn_count = 1
+         ; usage = Types.empty_usage
+         };
+       let execution_store =
+         Agent.execution_store
+           ~runtime
+           ~dir
+           ~on_terminal_disposition:(fun disposition ->
+             terminal_disposition := Some disposition;
+             Ok ())
+           ~resume:locator
+           ()
+       in
+       (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | Ok response ->
+          Alcotest.(check string)
+            "all-blocked settled turn resumes and completes"
+            "done-after-restart"
+            (Types.text_of_response response)
+        | Error error ->
+          Alcotest.failf
+            "all-blocked settled turn resume aborted instead of completing: %s"
+            (Error.to_string error));
+       Alcotest.(check int) "blocked turn runs no tool effect on resume" 0 !effect_count;
+       check_terminal_disposition
+         ~outcome:"succeeded"
+         ~recovery:"retire"
+         !terminal_disposition)
+;;
+
+(* Regression for #2713 follow-up (Site 1, on_yield parity): with [yield_on_tool]
+   and a durable execution_store, a crash after the ToolUse was collected but
+   before any ToolResults were produced leaves the turn/provider Open with no
+   invocation node. Resume re-executes the tools through the resume [~execute]
+   closure, which must thread [before_tool_execution] (the provider-lease
+   [on_yield] release) exactly as the fresh path threads it into [run_new_turn].
+   Otherwise [on_yield] never fires on the resume turn while the lease still
+   advances Held->Released and re-acquires next turn, leaving an acquire with no
+   matching release. Reverting the resume [~execute] closure to drop
+   [?before_tool_execution] makes this go red ([yield_count] stays 0). *)
+let test_agent_run_resume_fires_on_yield () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Agent.create_execution_runtime ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let internal_runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime internal_runtime in
+  let native_path = Filename.temp_file "oas-agent-resume-yield-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let config =
+         { (Types.default_config ~model:"test-model") with
+           name = "durable-agent-resume-yield-test"
+         ; yield_on_tool = true
+         }
+       in
+       let tool_input = `Assoc [ "value", `Int 7 ] in
+       let tool_use_id = "resume-yield-tool-use" in
+       let locator_json = ref None in
+       let provider_config =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"test-model"
+           ~base_url:"http://resume.invalid"
+           ~api_key:""
+           ~request_path:"/v1/chat/completions"
+           ()
+       in
+       let binding =
+         match
+           Internal_binding.of_provider_config
+             ~transport:Internal_binding.Injected
+             provider_config
+         with
+         | Ok binding -> binding
+         | Error detail -> Alcotest.fail detail
+       in
+       (* Build the durable journal to the pre-execution crash topology: an Open
+          turn with an Open provider attempt, no invocation node and no results,
+          the run root left Running. *)
+       (match
+          Internal_writer.run ~codec ~dir (fun ~sw:_ writer ->
+            let scope =
+              match
+                Internal_scope.start ~writer ~agent_name:"durable-agent-resume-yield-test"
+              with
+              | Ok scope -> scope
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            locator_json
+            := Some
+                 (Internal_scope.scope_locator_to_yojson
+                    (Internal_scope.scope_locator scope));
+            let turn =
+              match Internal_scope.open_turn scope ~ordinal:0 with
+              | Ok turn -> turn
+              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            in
+            match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+            | Ok _provider -> ()
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+        with
+        | Ok () -> ()
+        | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure));
+       let locator =
+         match Option.get !locator_json |> Agent.execution_locator_of_yojson with
+         | Ok locator -> locator
+         | Error detail -> Alcotest.fail detail
+       in
+       let response = Provider_mock.text_response "done-after-restart" [] in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _request ->
+               { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+         ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+         }
+       in
+       let effect_count = ref 0 in
+       let yield_count = ref 0 in
+       let resume_count = ref 0 in
+       let tool =
+         Tool.create
+           ~name:"durable_tool"
+           ~description:"executes once on resume"
+           ~parameters:[]
+           (fun _input ->
+              incr effect_count;
+              Ok { Types.content = "executed"; _meta = None })
+       in
+       let options =
+         { Agent.default_options with
+           transport = Some transport
+         ; provider = Some (Provider_mock.to_provider_config ())
+         }
+       in
+       let agent =
+         Agent.create ~net:(Eio.Stdenv.net env) ~config ~tools:[ tool ] ~options ()
+       in
+       (* Restored checkpoint: the ToolUse is collected, but no ToolResults exist
+          yet, so resume re-executes the tools and must fire [on_yield] before the
+          first tool implementation runs. *)
+       Agent.set_state
+         agent
+         { config
+         ; messages =
+             [ { Types.role = User
+               ; content = [ Text "run the tool" ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { Types.role = Assistant
+               ; content =
+                   [ ToolUse
+                       { id = tool_use_id; name = "durable_tool"; input = tool_input }
+                   ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ]
+         ; turn_count = 1
+         ; usage = Types.empty_usage
+         };
+       let execution_store = Agent.execution_store ~runtime ~dir ~resume:locator () in
+       (match
+          Agent.run
+            ~sw:runtime_sw
+            ~on_yield:(fun () -> incr yield_count)
+            ~on_resume:(fun () -> incr resume_count)
+            ~execution_store
+            agent
+            "run the tool"
+        with
+        | Ok response ->
+          Alcotest.(check string)
+            "resume completes"
+            "done-after-restart"
+            (Types.text_of_response response)
+        | Error error -> Alcotest.failf "resume run failed: %s" (Error.to_string error));
+       Alcotest.(check int) "tool executes once on resume" 1 !effect_count;
+       Alcotest.(check int)
+         "on_yield fires on the resume turn (fresh/resume parity)"
+         1
+         !yield_count)
 ;;
 
 (* ── Runner ──────────────────────────────────────────────── *)
@@ -1736,6 +2607,10 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "provider turn identity spans multiturn tool loop"
+            `Quick
+            test_provider_turn_identity_is_shared_across_multiturn_tool_loop
         ; Alcotest.test_case
             "output rejects unknown terminal"
             `Quick
@@ -1778,6 +2653,10 @@ let () =
         ; Alcotest.test_case "with_stage" `Quick test_error_domain_with_stage
         ; Alcotest.test_case "is_retryable" `Quick test_error_domain_is_retryable
         ; Alcotest.test_case "provider errors" `Quick test_error_domain_provider_errors
+        ; Alcotest.test_case
+            "durable event: persistence not Api"
+            `Quick
+            test_error_domain_of_persistence_not_api
         ] )
     ; ( "provider_mock_extra"
       , [ Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response
@@ -1789,6 +2668,34 @@ let () =
             "Agent.run resumes settled tool without duplicate effects"
             `Quick
             test_agent_run_resumes_settled_tool_without_duplicate_effects
+        ; Alcotest.test_case
+            "Agent.run resume matches original prompt not injected User message"
+            `Quick
+            test_agent_run_resume_ignores_injected_user_context_message
+        ; Alcotest.test_case
+            "Agent.run resume rejects mismatched prompt (fail-closed)"
+            `Quick
+            test_agent_run_resume_rejects_mismatched_prompt
+        ; Alcotest.test_case
+            "Agent.run resumes settled turn after provider-close crash (#2683)"
+            `Quick
+            test_agent_run_resumes_settled_provider_closed_turn
+        ; Alcotest.test_case
+            "Agent.run resumes settled turn after turn-close crash (#2683)"
+            `Quick
+            test_agent_run_resumes_settled_closed_turn_boundary
+        ; Alcotest.test_case
+            "Agent.run rejects a closed-Failed turn on resume (#2683)"
+            `Quick
+            test_agent_run_rejects_settled_failed_turn
+        ; Alcotest.test_case
+            "Agent.run resumes an all-blocked settled turn (#2713 Site 2)"
+            `Quick
+            test_agent_run_resumes_all_blocked_settled_turn
+        ; Alcotest.test_case
+            "Agent.run fires on_yield on the resume turn (#2713 Site 1)"
+            `Quick
+            test_agent_run_resume_fires_on_yield
         ; Alcotest.test_case
             "terminal disposition retires settled provider failure"
             `Quick

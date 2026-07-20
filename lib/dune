@@ -3,6 +3,7 @@
 (library
  (name agent_sdk)
  (public_name agent_sdk)
+ (modules_without_implementation agent_execution_projection_intf)
  (private_modules
   random_id
   execution_id
@@ -20,6 +21,7 @@
   execution_context
   agent_input
   agent_tool_execution_types
+  agent_execution_projection
   agent_execution_runner
   pipeline_checkpoint
   pipeline_execution_scope

@@ -38,6 +38,8 @@ type context_fit_admission = Agent_types.context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
+type model_input_projection = Agent_types.model_input_projection
+
 type options = Agent_types.options =
   { base_url : string
   ; provider : Provider.config option
@@ -105,8 +107,12 @@ val sdk_version : string
     replaces [options.provider]; endpoint, credential, request path, headers,
     and capability overrides are not reconstructed from the legacy option.
 
-    [context_fit_admission] is separate from [options] so callers that construct
-    options records remain source-compatible. *)
+    [context_fit_admission] and [model_input_projection] are separate from
+    [options] so callers that construct options records remain source-compatible.
+    The optional projection is applied once during turn preparation; native
+    request measurement and provider dispatch consume the same projected
+    messages. A returned [Error detail] or non-reserved callback exception
+    fails the turn as {!Error.HookExecutionFailed}. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -115,6 +121,7 @@ val create
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
+  -> ?model_input_projection:model_input_projection
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -178,6 +185,22 @@ val create_execution_runtime
   -> domain_count:int
   -> (execution_runtime, Error.sdk_error) result
 
+(** Lossless read-only projection of OAS's canonical recursive execution
+    journal. These values are observations only: they cannot append, admit,
+    pause, cancel, or terminate execution. *)
+module Execution_projection : Agent_execution_projection_intf.S
+
+(** Open the same read-only projection for a currently running scope or after
+    process restart. [locator] must identify the top-level run in exactly this
+    directory. The call takes no writer lock and performs no recovery writes.
+    The returned value is safe to share between fibers; sharing also preserves
+    its incremental validated-prefix cache across consumers. *)
+val open_execution_projection
+  :  runtime:execution_runtime
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> execution_locator
+  -> (Execution_projection.t, Execution_projection.error) result
+
 (** Configure one durable execution scope. Without [resume], the directory must
     be new and the call starts a fresh scope. With [resume], the same Agent API
     reopens that scope in the same directory, validates Agent identity and the
@@ -194,7 +217,9 @@ val create_execution_runtime
     [on_scope_ready], when supplied, must persist the opaque locator before
     provider or Tool effects begin. It is invoked for both fresh and resumed
     scopes, so the sink should be idempotent. Failure aborts the scope and the
-    Agent call.
+    Agent call. The same locator and directory can be passed to
+    {!open_execution_projection} immediately for live reads or later after a
+    restart; the callback is not a separate event or catch-up authority.
 
     [on_terminal_disposition] is invoked after the terminal journal commit and
     successful writer drain, before this Agent call returns. [Retire] means the
@@ -487,8 +512,9 @@ val run_with_handoffs_blocks_detailed
     {!options}; pass it explicitly when resumed turns should continue emitting
     crash-recovery checkpoints. An explicit [provider_config] replaces
     [options.provider] under the same exact-carrier contract as {!create}.
-    [context_fit_admission] must be supplied again when a resumed Agent should
-    retain opt-in provider-fit enforcement. *)
+    [context_fit_admission] and [model_input_projection] must be supplied again
+    when a resumed Agent should retain opt-in provider-fit enforcement and
+    caller-owned provider-message projection. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t
@@ -497,6 +523,7 @@ val resume
   -> ?options:options
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
+  -> ?model_input_projection:model_input_projection
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit

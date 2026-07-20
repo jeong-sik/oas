@@ -104,6 +104,13 @@ type error =
       { after_seq : int
       ; high_watermark : int
       }
+  | Commit_authority_identity_changed
+  | Commit_authority_regressed of
+      { previous_committed_offset : int64
+      ; actual_committed_offset : int64
+      ; previous_last_seq : int
+      ; actual_last_seq : int
+      }
   | Store_poisoned of string
   | Commit_outcome_unknown of string
 [@@deriving show]
@@ -118,6 +125,31 @@ type opened = private
   ; recovery : recovery
   ; replay_events : Execution_event.t list
   }
+
+(** One immutable read-only view of the atomic commit authority. It owns no
+    writer claim and never repairs, truncates, renames, or syncs store files.
+    [appended_events] is decoded only from the exact authority-bound WAL
+    prefix. *)
+type read_only_snapshot = private
+  { scope_id : Scope_id.t
+  ; correlation_id : Execution_event.Correlation_id.t
+  ; committed_offset : int64
+  ; last_seq : int
+  ; appended_events : Execution_event.t list
+  }
+
+(** Capture the current committed prefix without acquiring writer authority.
+    Supplying [previous] avoids rescanning the already validated prefix;
+    [appended_events] then contains only the newly committed suffix (and all
+    events for the initial snapshot). Authority identity changes or
+    regressions are rejected rather than interpreted as a new scope.
+    Non-authoritative WAL and authority tails are ignored and never modified. *)
+val read_only_snapshot
+  :  codec:Execution_codec_executor.t
+  -> dir:Eio.Fs.dir_ty Eio.Path.t
+  -> ?previous:read_only_snapshot
+  -> unit
+  -> (read_only_snapshot, error) result
 
 (** [create ~sw ~codec ~dir ()] creates a new store inside an existing caller-owned
     directory. It never creates the directory, opens an existing WAL, or
