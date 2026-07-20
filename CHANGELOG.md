@@ -268,6 +268,15 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.217.4](https://github.com/jeong-sik/oas/compare/v0.217.3...v0.217.4) (2026-07-20)
+
+
+### Bug Fixes
+
+* **api:** reject unencoded explicit thinking on the legacy openai body path too ([#2716](https://github.com/jeong-sik/oas/issues/2716)) ([#2720](https://github.com/jeong-sik/oas/issues/2720)) ([262957a](https://github.com/jeong-sik/oas/commit/262957ae2235747bcf25afef88fdbb0281ea243a))
+* **llm_provider:** reconcile EndTurn with tool blocks to StopToolUse so complete tool calls are executed, not left dangling ([#2728](https://github.com/jeong-sik/oas/issues/2728)) ([4c2abbd](https://github.com/jeong-sik/oas/commit/4c2abbd6fcddcfcd7f4d77d2044b908a69c7dd07))
+* **pipeline:** resolve context limit before measuring tokens ([#2693](https://github.com/jeong-sik/oas/issues/2693)) ([a266f7a](https://github.com/jeong-sik/oas/commit/a266f7ab24547dd30822728837d89a3b2e56436e))
+
 ## [0.217.3](https://github.com/jeong-sik/oas/compare/v0.217.2...v0.217.3) (2026-07-20)
 
 
