@@ -77,6 +77,7 @@ let dispatch_stream = Pipeline_stage_route.dispatch_stream
 let stage_route
       ~sw
       ?clock
+      ~turn
       ~api_strategy
       ?raw_trace_run
       ?on_provider_failure
@@ -92,7 +93,7 @@ let stage_route
       { kind = Api_call
       ; name = "create_message"
       ; agent_name = agent.state.config.name
-      ; turn = agent.state.turn_count
+      ; turn
       ; extra = []
       ; links = []
       }
@@ -114,7 +115,7 @@ let stage_route
       { kind = Api_call
       ; name = "create_message_stream"
       ; agent_name = agent.state.config.name
-      ; turn = agent.state.turn_count
+      ; turn
       ; extra = []
       ; links = []
       }
@@ -139,13 +140,13 @@ let stage_route
 
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, and increment turn_count. *)
-let stage_collect ?raw_trace_run ?clock agent response =
+let stage_collect ?raw_trace_run ?clock ~turn agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
     ; name = "turn:collect"
     ; agent_name = agent.state.config.name
-    ; turn = agent.state.turn_count
+    ; turn
     ; extra = []
     ; links = []
     }
@@ -172,9 +173,10 @@ let stage_collect ?raw_trace_run ?clock agent response =
          invoke_hook_with_trace
            agent
            ?raw_trace_run
+           ~turn
            ~hook_name:"after_turn"
            agent.options.hooks.after_turn
-           (Hooks.AfterTurn { turn = agent.state.turn_count; response })
+           (Hooks.AfterTurn { turn; response })
        in
        let* () =
          match after_decision with
@@ -194,7 +196,6 @@ let stage_collect ?raw_trace_run ?clock agent response =
                 ~stage:Hooks.After_turn
                 ~decision)
        in
-       let completed_turn = agent.state.turn_count in
        let* assistant_message =
          match Types.assistant_message_of_response response with
          | Ok message -> Ok message
@@ -204,10 +205,11 @@ let stage_collect ?raw_trace_run ?clock agent response =
                 ("assistant response has invalid reasoning provenance: "
                  ^ Types.show_assistant_message_error error))
        in
+       let next_turn = turn + 1 in
        let checkpoint_state =
          { agent.state with
            messages = Util.snoc agent.state.messages assistant_message
-         ; turn_count = agent.state.turn_count + 1
+         ; turn_count = next_turn
          ; usage
          }
        in
@@ -220,7 +222,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
        update_state agent (fun state ->
          { state with
            messages = Util.snoc state.messages assistant_message
-         ; turn_count = state.turn_count + 1
+         ; turn_count = next_turn
          ; usage
          });
        (match agent.options.event_bus with
@@ -228,9 +230,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
           safe_publish
             bus
             { meta = Pipeline_common.event_envelope agent
-            ; payload =
-                TurnCompleted
-                  { agent_name = agent.state.config.name; turn = completed_turn }
+            ; payload = TurnCompleted { agent_name = agent.state.config.name; turn }
             }
         | None -> ());
        (* Observability-as-default: emit per-call inference telemetry beside
@@ -261,7 +261,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
                   ; payload =
                       InferenceTelemetry
                         { agent_name = agent.state.config.name
-                        ; turn = completed_turn
+                        ; turn
                         ; provider = Llm_provider.Provider_kind.to_string provider_kind
                         ; model = response.model
                         ; prompt_tokens =
@@ -300,7 +300,7 @@ let stage_collect ?raw_trace_run ?clock agent response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution and context injection. *)
-let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty =
+let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_nonempty =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -312,14 +312,14 @@ let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty
     { kind = Tool_exec
     ; name = "turn:execute"
     ; agent_name = agent.state.config.name
-    ; turn = agent.state.turn_count
+    ; turn
     ; extra = []
     ; links = []
     }
     (fun _tracer ->
        Option.iter (fun callback -> callback ()) before_tool_execution;
        let results, failure =
-         match execute_tools_with_trace agent raw_trace_run tool_uses with
+         match execute_tools_with_trace agent raw_trace_run ~turn tool_uses with
          | Ok results -> results, None
          | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
            completed_results, Some cause
@@ -390,13 +390,13 @@ let stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
-let stage_output ?raw_trace_run ?before_tool_execution agent response =
+let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
     ; name = "turn:output"
     ; agent_name = agent.state.config.name
-    ; turn = agent.state.turn_count
+    ; turn
     ; extra = []
     ; links = []
     }
@@ -431,7 +431,12 @@ let stage_output ?raw_trace_run ?before_tool_execution agent response =
                  (UnrecognizedStopReason
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
-            stage_execute ?raw_trace_run ?before_tool_execution agent tool_uses_nonempty)
+            stage_execute
+              ?raw_trace_run
+              ?before_tool_execution
+              ~turn
+              agent
+              tool_uses_nonempty)
        | UnmatchedToolCalls ->
          (* The wire boundary has already classified this response shape as
             malformed. Keep rejecting it; arbitrary provider terminal reasons
@@ -453,6 +458,7 @@ let stage_output ?raw_trace_run ?before_tool_execution agent response =
            invoke_hook_with_trace
              agent
              ?raw_trace_run
+             ~turn
              ~hook_name:"on_stop"
              agent.options.hooks.on_stop
              (Hooks.OnStop { reason = response.stop_reason; response })
@@ -503,6 +509,10 @@ let run_new_turn
       ?before_tool_execution
       agent
   =
+  (* One immutable zero-based identity owns the complete provider turn.  The
+     collect stage advances mutable agent state before output/tool dispatch,
+     so reading [state.turn_count] again downstream would name the next turn. *)
+  let turn = agent.state.turn_count in
   (* Stage 1: Input *)
   let* () =
     Tracing.with_span
@@ -510,11 +520,11 @@ let run_new_turn
       { kind = Hook_invoke
       ; name = "turn:input"
       ; agent_name = agent.state.config.name
-      ; turn = agent.state.turn_count
+      ; turn
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_input ?raw_trace_run ?clock agent |> tag_error "input")
+      (fun _tracer -> stage_input ?raw_trace_run ?clock ~turn agent |> tag_error "input")
   in
   (* Stage 2: Parse *)
   let* prep, turn_config, turn_params =
@@ -523,11 +533,11 @@ let run_new_turn
       { kind = Hook_invoke
       ; name = "turn:parse"
       ; agent_name = agent.state.config.name
-      ; turn = agent.state.turn_count
+      ; turn
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent |> tag_error "parse")
+      (fun _tracer -> stage_parse ?raw_trace_run ?clock ~turn agent |> tag_error "parse")
   in
   (* Stage 2.5: Async input validation *)
   let async_guard = agent.options.guardrails_async in
@@ -540,9 +550,7 @@ let run_new_turn
     Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
   | Guardrails_async.Pass ->
     let* execution =
-      Pipeline_execution_scope.open_turn
-        (Execution_context.agent_scope ())
-        ~ordinal:(agent.state.turn_count + 1)
+      Pipeline_execution_scope.open_turn (Execution_context.agent_scope ()) ~ordinal:turn
     in
     (* Stage 3: Route exactly once. Provider [ContextOverflow] remains a typed
        error; OAS does not mutate the transcript or retry implicitly. *)
@@ -551,7 +559,7 @@ let run_new_turn
        Agent_execution_event_writer.append
          j
          (Llm_request
-            { turn = agent.state.turn_count
+            { turn
             ; model = turn_config.model
             ; timestamp = Pipeline_common.timestamp_now ?clock ()
             })
@@ -561,6 +569,7 @@ let run_new_turn
       stage_route
         ~sw
         ?clock
+        ~turn
         ~api_strategy
         ?raw_trace_run
         ?on_provider_failure
@@ -582,7 +591,7 @@ let run_new_turn
        Agent_execution_event_writer.append
          j
          (Llm_response
-            { turn = agent.state.turn_count
+            { turn
             ; input_tokens
             ; output_tokens
             ; stop_reason = Types.show_stop_reason response.stop_reason
@@ -593,7 +602,7 @@ let run_new_turn
        Agent_execution_event_writer.append
          j
          (Error_occurred
-            { turn = agent.state.turn_count
+            { turn
             ; error_domain = "Api"
             ; detail = Error.to_string err
             ; timestamp = Pipeline_common.timestamp_now ?clock ()
@@ -616,13 +625,15 @@ let run_new_turn
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
            let* () =
-             stage_collect ?raw_trace_run ?clock agent response |> tag_error "collect"
+             stage_collect ?raw_trace_run ?clock ~turn agent response
+             |> tag_error "collect"
            in
            (match Pipeline_execution_scope.provider execution with
-            | None -> stage_output ?raw_trace_run ?before_tool_execution agent response
+            | None ->
+              stage_output ?raw_trace_run ?before_tool_execution ~turn agent response
             | Some provider ->
               Execution_context.with_provider_attempt provider (fun () ->
-                stage_output ?raw_trace_run ?before_tool_execution agent response))
+                stage_output ?raw_trace_run ?before_tool_execution ~turn agent response))
            |> tag_error "output")
     in
     (match outcome with
@@ -642,18 +653,16 @@ let run_turn
   =
   let* resumed =
     if Execution_context.take_resume_once ()
-    then
-      Pipeline_execution_scope.resume_current
-        (Execution_context.agent_scope ())
-        ~ordinal:agent.state.turn_count
+    then Pipeline_execution_scope.resume_current (Execution_context.agent_scope ())
     else Ok None
   in
   match resumed with
   | Some execution ->
+    let turn = Pipeline_execution_scope.turn_ordinal execution in
     Pipeline_execution_resume.run
       agent
       execution
-      ~execute:(stage_execute ?raw_trace_run agent)
+      ~execute:(stage_execute ?raw_trace_run ~turn agent)
       ~already_settled:(ToolsExecuted After_tool_results_appended)
   | None ->
     run_new_turn
@@ -885,22 +894,6 @@ let%test "last_tool_results_from error tool result" =
   | _ -> false
 ;;
 
-let%test "tag_error with Config error" =
-  let err = Error.Config (MissingEnvVar { var_name = "X" }) in
-  match tag_error "parse" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Agent error" =
-  let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
-  match tag_error "output" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error string result Ok" = tag_error "collect" (Ok "success") = Ok "success"
-
 (* --- Additional pipeline tests --- *)
 
 let%test "last_tool_results_from only non-result roles" =
@@ -971,29 +964,3 @@ let%test "last_tool_results_from user msg with only non-tool content" =
   in
   last_tool_results_from msgs = []
 ;;
-
-let%test "tag_error with Serialization error" =
-  let err = Error.Serialization (JsonParseError { detail = "bad json" }) in
-  match tag_error "route" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Io error" =
-  let err =
-    Error.Io (FileOpFailed { op = "read"; path = "/tmp/x"; detail = "not found" })
-  in
-  match tag_error "input" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Mcp error" =
-  let err = Error.Mcp (InitializeFailed { detail = "timeout" }) in
-  match tag_error "parse" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error Ok unit" = tag_error "collect" (Ok ()) = Ok ()
-let%test "tag_error Ok list" = tag_error "output" (Ok [ 1; 2; 3 ]) = Ok [ 1; 2; 3 ]

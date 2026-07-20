@@ -26,9 +26,12 @@ type schedule =
   }
 
 (** Exact occurrence metadata for correlation and observability only.
-    It does not authorize tool execution. [turn] and [schedule.planned_index]
-    scope provider [tool_use_id] values that may be blank or repeated. The
-    embedding runtime owns any broader agent/run identity.
+    It does not authorize tool execution. [turn] is the zero-based provider
+    turn shared by BeforeTurn, AfterTurn, TurnCompleted, and every tool
+    occurrence produced by that response. Together, [turn] and
+    [schedule.planned_index] scope provider [tool_use_id] values that may be
+    blank or repeated. The embedding runtime owns any broader agent/run
+    identity.
 
     @since 0.215.0
     @since 0.216.0 Owns the canonical [schedule]. *)

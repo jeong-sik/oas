@@ -6,16 +6,17 @@
 
     @stability Internal *)
 
-(** Endpoint for the Anthropic Messages count-tokens call: inserts
+(** Endpoint for an Anthropic-compatible Messages count-tokens call: inserts
     [/count_tokens] after the configured request path, preserving any query
     string carried by custom or proxy configurations. *)
 val count_tokens_url : Provider_config.t -> string
 
-(** Count one Anthropic Messages input through the provider's native
-    [/v1/messages/count_tokens] endpoint.
+(** Count one Anthropic-compatible Messages input through the provider's
+    native [/v1/messages/count_tokens] endpoint.
 
-    The request reuses {!Backend_anthropic}'s completion input projection.
-    Non-Anthropic configs fail with [Unsupported] before any I/O.
+    The request reuses {!Backend_anthropic}'s provider-specific completion
+    input projection. Anthropic and Kimi configs are supported; other configs
+    fail with [Unsupported] before any I/O.
 
     The call is bounded only when [timeout_s] is explicitly supplied;
     enforcing it also requires [clock], mirroring {!Http_client.post_sync}. *)

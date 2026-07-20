@@ -268,6 +268,33 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.7](https://github.com/jeong-sik/oas/compare/v0.216.6...v0.216.7) (2026-07-19)
+
+
+### Bug Fixes
+
+* **agent:** share exact provider turn identity ([#2709](https://github.com/jeong-sik/oas/issues/2709)) ([0615043](https://github.com/jeong-sik/oas/commit/0615043447fbd57ab647b8430f4d192535889fc3))
+
+## [0.216.6](https://github.com/jeong-sik/oas/compare/v0.216.5...v0.216.6) (2026-07-19)
+
+
+### Features
+
+* **llm_provider:** admit Kimi with native token count ([#2705](https://github.com/jeong-sik/oas/issues/2705)) ([c939488](https://github.com/jeong-sik/oas/commit/c9394887755aedb2b69c039838a62595ab146d4a))
+
+
+### Bug Fixes
+
+* **agent:** make projected provider input the admission SSOT ([#2707](https://github.com/jeong-sik/oas/issues/2707)) ([cadea00](https://github.com/jeong-sik/oas/commit/cadea00fc86a73a4c3afc03758d3b02610f309c0))
+
+## [0.216.5](https://github.com/jeong-sik/oas/compare/v0.216.4...v0.216.5) (2026-07-19)
+
+
+### Features
+
+* **agent:** expose durable execution projection ([#2701](https://github.com/jeong-sik/oas/issues/2701)) ([976cacd](https://github.com/jeong-sik/oas/commit/976cacd24b958cc3eea299101ec8ae973026e01d))
+* **agent:** expose typed execution terminal disposition ([#2694](https://github.com/jeong-sik/oas/issues/2694)) ([66f6831](https://github.com/jeong-sik/oas/commit/66f6831e14b1cd579710e7ad6812139ca8f220ae))
+
 ## [0.216.4](https://github.com/jeong-sik/oas/compare/v0.216.3...v0.216.4) (2026-07-18)
 
 
