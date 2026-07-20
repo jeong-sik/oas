@@ -118,7 +118,6 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
 | `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts an exact caller-owned `Continue` or `Block` decision |
-| `Guardrail_llm` | Adapts caller-injected typed judge closures; no fixed risk taxonomy or string parser |
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
 | `Error` / `Error_domain` | 2-level structured errors: 8 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |

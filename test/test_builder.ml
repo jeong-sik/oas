@@ -507,16 +507,17 @@ let test_handoff_inherits_injected_transport () =
     }
   in
   let target =
-    Subagent.to_handoff_target
-      ~parent_config:(Types.default_config ~model:"parent-model")
-      ~base_tools:[]
-      (Subagent.of_markdown
-         "---\n\
-          name: researcher\n\
-          description: Inspect the requested subject\n\
-          model: subagent-model\n\
-          ---\n\
-          Inspect the request.")
+    let parent_config = Types.default_config ~model:"parent-model" in
+    { Handoff.name = "researcher"
+    ; description = "Inspect the requested subject"
+    ; config =
+        { parent_config with
+          name = "researcher"
+        ; model = "subagent-model"
+        ; system_prompt = Some "Inspect the request."
+        }
+    ; tools = []
+    }
   in
   let agent =
     Builder.create ~net ~model:"parent-model"

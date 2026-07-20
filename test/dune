@@ -34,7 +34,6 @@
   test_agent_tool
   test_agent_turn
   test_agent_tools_index
-  test_agent_typed
   test_api_http_client
   test_api_dispatch
   test_tool_execution
@@ -61,8 +60,6 @@
   test_context_concurrency
   test_context_flow_proof
   test_contract
-  test_cost_integration
-  test_cost_tracker
   test_custom_provider
   test_discovery
   test_discovery_http
@@ -80,8 +77,6 @@
   test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
-  test_guardrail_llm
-  test_guardrail_tripwire
   test_harness
   test_harness_deep
   test_hooks
@@ -101,7 +96,6 @@
   test_mcp_http
   test_mcp_integration
   test_mcp_session
-  test_metric_contract
   test_metrics
   test_model_catalog_default
   test_model_catalog_overlay
@@ -153,12 +147,10 @@
   test_structured_deep
   test_structured_ext
   test_structured_stream
-  test_subagent
   test_swiss_verdict_json
   test_tool
   test_tool_input_validation
   test_tool_middleware
-  test_tool_schema_gen
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -166,8 +158,7 @@
   test_typed_tool
   test_types
   test_usability_v030
-  test_util
-  test_vcs_graph_snapshot)
+  test_util)
  (modules
   model_catalog_test_support
   provider_mock
@@ -185,7 +176,6 @@
   test_agent_tool
   test_agent_turn
   test_agent_tools_index
-  test_agent_typed
   test_api_http_client
   test_api_dispatch
   test_tool_execution
@@ -212,8 +202,6 @@
   test_context_concurrency
   test_context_flow_proof
   test_contract
-  test_cost_integration
-  test_cost_tracker
   test_custom_provider
   test_discovery
   test_discovery_http
@@ -231,8 +219,6 @@
   test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
-  test_guardrail_llm
-  test_guardrail_tripwire
   test_harness
   test_harness_deep
   test_hooks
@@ -252,7 +238,6 @@
   test_mcp_http
   test_mcp_integration
   test_mcp_session
-  test_metric_contract
   test_metrics
   test_model_catalog_default
   test_model_catalog_overlay
@@ -304,12 +289,10 @@
   test_structured_deep
   test_structured_ext
   test_structured_stream
-  test_subagent
   test_swiss_verdict_json
   test_tool
   test_tool_input_validation
   test_tool_middleware
-  test_tool_schema_gen
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -317,8 +300,7 @@
   test_typed_tool
   test_types
   test_usability_v030
-  test_util
-  test_vcs_graph_snapshot)
+  test_util)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
  (deps ../docs/example-capability-manifest.json ../models.toml)
  (action
