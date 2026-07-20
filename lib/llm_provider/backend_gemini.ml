@@ -348,22 +348,6 @@ let gemini_tool_signatures_of_blocks blocks =
   tbl
 ;;
 
-(** Build a tool_use_id -> tool_name lookup table from message history.
-    Gemini's functionResponse requires the function NAME, but OAS
-    ToolResult only carries the tool_use_id (a UUID). *)
-let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t =
-  let tbl = Hashtbl.create 8 in
-  List.iter
-    (fun (msg : message) ->
-       List.iter
-         (function
-           | ToolUse { id; name; _ } -> Hashtbl.replace tbl id name
-           | _ -> ())
-         msg.content)
-    messages;
-  tbl
-;;
-
 (* ── Content block -> Gemini part ───────────────────── *)
 
 let inline_data_part ~block ~media_type ~data source_type =
@@ -415,7 +399,8 @@ let blocks_with_part_signature ~target ~block = function
   | None -> [ block ]
 ;;
 
-let part_of_content_block id_to_name tool_signatures = function
+let part_of_content_block tool_signatures (block, tool_result_name) =
+  match block with
   | Text s -> Some (`Assoc [ "text", `String (Utf8_sanitize.sanitize s) ])
   | Thinking { content; _ } ->
     Some
@@ -439,18 +424,14 @@ let part_of_content_block id_to_name tool_signatures = function
     Some (`Assoc fields)
   | ToolResult { tool_use_id; content; _ } ->
     let name =
-      match Hashtbl.find_opt id_to_name tool_use_id with
-      | Some n -> n
+      match tool_result_name with
+      | Some name -> name
       | None ->
-        Diag.warn
-          "backend_gemini"
-          "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Gemini API requires name). This usually \
-           means the ToolUse block was in a conversation turn that was compacted or \
-           trimmed."
-          tool_use_id
-          (Hashtbl.length id_to_name);
-        tool_use_id
+        invalid_arg
+          (Printf.sprintf
+             "Backend_gemini.contents_of_messages: ToolResult identity %S has no \
+              resolved tool name"
+             tool_use_id)
     in
     Some
       (`Assoc
@@ -511,7 +492,7 @@ let attach_thought_signature thought_signature = function
          "Gemini part serializer produced a non-object for a thoughtSignature target")
 ;;
 
-let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
+let parts_of_content_blocks ~role tool_signatures blocks =
   (* Gemini requires an opaque [thoughtSignature] to be replayed on the exact
      model part that carried it. OAS represents that otherwise-unmodeled field
      as a [RedactedThinking] block immediately before its target. Adjacency is
@@ -532,9 +513,9 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
             actual))
   in
   let rec loop acc = function
-    | RedactedThinking data :: target_block :: rest ->
+    | (RedactedThinking data, _) :: ((target_block, _) as target) :: rest ->
       (match decode_gemini_part_thought_signature data with
-       | Not_gemini_part_signature -> loop acc (target_block :: rest)
+       | Not_gemini_part_signature -> loop acc (target :: rest)
        | Malformed_gemini_part_signature ->
          raise
            (Gemini_api_error
@@ -550,12 +531,12 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
          let actual_target = signature_target_of_content_block target_block in
          (match actual_target with
           | Some actual_target when same_signature_target expected_target actual_target ->
-            (match part_of_content_block id_to_name tool_signatures target_block with
+            (match part_of_content_block tool_signatures target with
              | Some part ->
                loop (attach_thought_signature thought_signature part :: acc) rest
              | None -> malformed_carrier expected_target (Some actual_target))
           | Some _ | None -> malformed_carrier expected_target actual_target))
-    | [ RedactedThinking data ] ->
+    | [ (RedactedThinking data, _) ] ->
       (match decode_gemini_part_thought_signature data with
        | Decoded_gemini_part_signature (expected_target, _) ->
          malformed_carrier expected_target None
@@ -566,7 +547,7 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
        | Not_gemini_part_signature -> List.rev acc)
     | block :: rest ->
       let acc =
-        match part_of_content_block id_to_name tool_signatures block with
+        match part_of_content_block tool_signatures block with
         | Some part -> part :: acc
         | None -> acc
       in
@@ -580,21 +561,30 @@ let parts_of_content_blocks ~role id_to_name tool_signatures blocks =
 
 let contents_of_messages (messages : message list) =
   let messages = Api_common.merge_tool_result_followup_user_messages messages in
-  let id_to_name = build_tool_id_to_name messages in
+  let projection =
+    match Tool_result_projection.of_messages messages with
+    | Ok projection -> projection
+    | Error error ->
+      invalid_arg
+        ("Backend_gemini.contents_of_messages: "
+         ^ Tool_result_projection.error_to_string error)
+  in
   let system_parts = ref [] in
   let contents = ref [] in
   List.iter
-    (fun (msg : message) ->
+    (fun resolved_message ->
+       let msg = Tool_result_projection.original_message resolved_message in
+       let resolved_content = Tool_result_projection.content resolved_message in
        let tool_signatures = gemini_tool_signatures_of_blocks msg.content in
        match msg.role with
        | System ->
          let parts =
-           parts_of_content_blocks ~role:msg.role id_to_name tool_signatures msg.content
+           parts_of_content_blocks ~role:msg.role tool_signatures resolved_content
          in
          system_parts := !system_parts @ parts
        | User | Assistant | Tool ->
          let parts =
-           parts_of_content_blocks ~role:msg.role id_to_name tool_signatures msg.content
+           parts_of_content_blocks ~role:msg.role tool_signatures resolved_content
          in
          if parts <> []
          then
@@ -602,7 +592,7 @@ let contents_of_messages (messages : message list) =
            := `Assoc
                 [ "role", `String (gemini_role_of_oas msg.role); "parts", `List parts ]
               :: !contents)
-    messages;
+    (Tool_result_projection.messages projection);
   let system_instruction =
     match !system_parts with
     | [] -> None

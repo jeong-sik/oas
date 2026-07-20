@@ -86,15 +86,20 @@ let build_request_artifact
       projection.messages
   in
   let provider_messages =
-    (match system_prompt with
-     | Some s when not (Api_common.string_is_blank s) ->
-       [ `Assoc
-           [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
-       ]
-     | _ -> [])
-    @ List.concat_map
-        (Backend_openai_serialize.ollama_messages_of_message ~model_id:config.model_id)
+    match
+      Backend_openai_serialize.ollama_messages_of_history
+        ~model_id:config.model_id
         projected_messages
+    with
+    | Error error -> invalid_arg ("Backend_ollama.build_request: " ^ error)
+    | Ok messages ->
+      (match system_prompt with
+       | Some s when not (Api_common.string_is_blank s) ->
+         [ `Assoc
+             [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
+         ]
+       | _ -> [])
+      @ messages
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   (* Emit native thinking control only when the caller supplied it. Some

@@ -172,7 +172,7 @@ let test_tool_use_id_roundtrip () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { Types.role = User
+    ; { Types.role = Tool
       ; content =
           [ Types.ToolResult
               { tool_use_id = tu_id

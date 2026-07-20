@@ -58,7 +58,16 @@ val dialect_messages_of_history
   -> Types.message list
   -> (Yojson.Safe.t list, Reasoning_history_projection.error) result
 
-val ollama_messages_of_message : ?model_id:string -> Types.message -> Yojson.Safe.t list
+(** Serialize a whole Ollama native history through an immutable,
+    occurrence-scoped ToolUse-to-ToolResult projection. Ollama tool results
+    carry [tool_name], not the OpenAI-compatible [tool_call_id]. Missing or
+    ambiguous correlation is returned explicitly so the HTTP serialization
+    boundary can reject it. *)
+val ollama_messages_of_history
+  :  ?model_id:string
+  -> Types.message list
+  -> (Yojson.Safe.t list, string) result
+
 val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
 
 (** [parallel_tool_calls_fields ~disable_parallel ~tools_present] returns the
