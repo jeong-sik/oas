@@ -261,6 +261,7 @@ let dispatch_stream
         ?on_telemetry
         ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
         ?first_event_timeout_s:agent.options.first_event_timeout_s
+        ?body_timeout_s:agent.options.body_timeout_s
         ()
       |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
@@ -274,6 +275,7 @@ let dispatch_stream
           ?capture_id
           ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
           ?first_event_timeout_s:agent.options.first_event_timeout_s
+          ?body_timeout_s:agent.options.body_timeout_s
           ()
       in
       (* Resolve the context limit first: it needs no network, so a pre-knowable

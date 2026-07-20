@@ -428,15 +428,22 @@ val with_post_stream
     (TTFT / prefill) window — separately from [idle_timeout], which arms
     only AFTER the first meaningful line for inter-token idle. A silent
     prefill on a large context is slow-but-alive, not a hang, so it must not
-    be cut by the short [idle_timeout] value. When [first_event_timeout] is
-    omitted the first-event wait is left unbounded (it never falls back to
-    the short idle value); inter-token idle still guards once the stream
-    produces. Supplying [first_event_timeout] WITHOUT [clock] raises
-    [Invalid_argument] (same silent-disarm guard as [idle_timeout]). *)
+    be cut by the short [idle_timeout] value. A "meaningful line" here is a
+    genuine data/event field: a bare blank dispatch delimiter does NOT end the
+    first-event wait (it would switch to the short idle budget prematurely).
+    When [first_event_timeout] is omitted the first-event wait falls back to
+    [body_timeout] (the caller's total body budget), and when both are omitted
+    to an internal fail-safe ceiling — so a dead connect that emits no first
+    byte is still bounded rather than hanging forever. Inter-token idle still
+    guards once the stream produces. Supplying [first_event_timeout] or
+    [body_timeout] WITHOUT [clock] raises [Invalid_argument] (same
+    silent-disarm guard as [idle_timeout]); the all-omitted fail-safe ceiling
+    only arms when a clock is present. *)
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
   -> ?first_event_timeout:float
+  -> ?body_timeout:float
   -> reader:Eio.Buf_read.t
   -> on_data:(event_type:string option -> string -> unit)
   -> unit
@@ -458,14 +465,17 @@ val read_sse
     RFC-OAS-037: [first_event_timeout], when supplied (with [clock]),
     bounds the wait for the FIRST line — the time-to-first-event (TTFT /
     prefill) window — separately from [idle_timeout], which arms only AFTER
-    the first line for inter-token idle. Omitting it leaves the first-event
-    wait unbounded (never the short idle value); inter-token idle still
-    guards once the stream produces. Supplying [first_event_timeout] WITHOUT
-    [clock] raises [Invalid_argument]. *)
+    the first line for inter-token idle. A leading blank line does NOT end the
+    first-event wait. Omitting [first_event_timeout] falls back to
+    [body_timeout], then to an internal fail-safe ceiling, so a dead connect
+    is still bounded; inter-token idle still guards once the stream produces.
+    Supplying [first_event_timeout] or [body_timeout] WITHOUT [clock] raises
+    [Invalid_argument]. *)
 val read_ndjson
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
   -> ?first_event_timeout:float
+  -> ?body_timeout:float
   -> reader:Eio.Buf_read.t
   -> on_line:(string -> unit)
   -> unit

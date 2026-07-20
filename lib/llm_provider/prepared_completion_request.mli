@@ -31,6 +31,7 @@ val prepare
   -> ?capture_id:string
   -> ?stream_idle_timeout_s:float
   -> ?first_event_timeout_s:float
+  -> ?body_timeout_s:float
   -> unit
   -> t
 

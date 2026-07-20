@@ -33,6 +33,7 @@ let prepare
       ?capture_id
       ?stream_idle_timeout_s
       ?first_event_timeout_s
+      ?body_timeout_s
       ()
   =
   { request =
@@ -44,6 +45,7 @@ let prepare
       ; observe_wire_chunk = None
       ; stream_idle_timeout_s
       ; first_event_timeout_s
+      ; body_timeout_s
       }
   }
 ;;

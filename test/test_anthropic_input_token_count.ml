@@ -136,6 +136,7 @@ let completion_request config : Llm_transport.completion_request =
   ; observe_wire_chunk = None
   ; stream_idle_timeout_s = None
   ; first_event_timeout_s = None
+  ; body_timeout_s = None
   }
 ;;
 

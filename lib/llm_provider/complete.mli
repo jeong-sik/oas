@@ -48,6 +48,7 @@ val prepare_request
   -> ?capture_id:string
   -> ?stream_idle_timeout_s:float
   -> ?first_event_timeout_s:float
+  -> ?body_timeout_s:float
   -> unit
   -> prepared_request
 
@@ -265,16 +266,24 @@ val complete_admitted
     [stream_idle_timeout_s] arms for inter-token idle only AFTER the first
     event. This prevents a slow-but-alive silent prefill on a large context
     (no keepalives) from being cancelled as [phase=first_token] under the
-    short inter-token idle value. When omitted the first-event wait is left
-    unbounded (the streaming path carries no total body budget to fall back
-    to); inter-token idle still guards once the stream produces, and the
-    connect timeout still guards connection setup. *)
+    short inter-token idle value. When omitted the first-event wait falls back
+    to [body_timeout_s] (below), then to an internal fail-safe ceiling, so a
+    dead connect that emits no first byte is still bounded rather than hanging;
+    inter-token idle still guards once the stream produces, and the connect
+    timeout still guards connection setup.
+
+    RFC-OAS-037 §4.2: [body_timeout_s] is the total body budget also used by
+    the non-streaming path. On the streaming path it is the fallback bound for
+    the first-event wait when [first_event_timeout_s] is [None] — the common
+    production shape (callers wire [body_timeout_s], not
+    [first_event_timeout_s]). *)
 val complete_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> ?stream_idle_timeout_s:float
   -> ?first_event_timeout_s:float
+  -> ?body_timeout_s:float
   -> ?transport:Llm_transport.t
   -> ?capture_id:string
   -> ?wire_observer:Wire_observer.try_observe
