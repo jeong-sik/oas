@@ -28,6 +28,12 @@ type abort_reason =
       ; data : Yojson.Safe.t option
       }
 
+type operator_repair_reason = Effect_outcome_unknown
+
+type recovery_action =
+  | Retire
+  | Operator_repair_required of operator_repair_reason
+
 type error =
   | Admission_failed of Execution_lane_writer.submit_error
   | Mutation_failed of Execution_lane_writer.ticket_error
@@ -46,6 +52,7 @@ type error =
 val error_to_string : error -> string
 val start : writer:Execution_lane_writer.t -> agent_name:string -> (t, error) result
 val scope_locator : t -> scope_locator
+val scope_locator_run_id : scope_locator -> Execution_event.Run_id.t
 val scope_locator_to_yojson : scope_locator -> Yojson.Safe.t
 val scope_locator_of_yojson : Yojson.Safe.t -> (scope_locator, string) result
 
@@ -65,6 +72,12 @@ val resume_running
 
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn option, error) result
+
+(** Recover the single open turn from durable topology. This is a recovery-only
+    lookup; callers must not reconstruct its ordinal from mutable agent state. *)
+val resume_open_turn : t -> (turn option, error) result
+
+val turn_ordinal : turn -> int
 
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt
@@ -132,3 +145,8 @@ val finish : t -> Execution_event.terminal -> (unit, error) result
 
 (** Atomically terminate every open descendant and the run root. *)
 val abort : t -> abort_reason -> (unit, error) result
+
+(** Classify the terminal scope from its exact durable topology. An invocation
+    with an admitted attempt and no settled ToolResult cannot be retried
+    automatically because its external effect may already have happened. *)
+val terminal_recovery_action : t -> (recovery_action, error) result

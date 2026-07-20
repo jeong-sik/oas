@@ -15,16 +15,17 @@ let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
    the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
 
-let stage_input ?raw_trace_run ?clock agent =
+let stage_input ?raw_trace_run ?clock ~turn agent =
   let ts = Pipeline_common.timestamp_now ?clock () in
   set_lifecycle agent ~ready_at:ts Ready;
   let before_decision =
     invoke_hook_with_trace
       agent
       ?raw_trace_run
+      ~turn
       ~hook_name:"before_turn"
       agent.options.hooks.before_turn
-      (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
+      (Hooks.BeforeTurn { turn; messages = agent.state.messages })
   in
   match before_decision with
   | Hooks.ElicitInput req ->
@@ -56,7 +57,7 @@ let stage_input ?raw_trace_run ?clock agent =
        let input_required =
          Agent_elicitation.input_required_of_request
            ~agent_name:agent.state.config.name
-           ~turn:agent.state.turn_count
+           ~turn
            ~created_at:ts
            req
        in
@@ -144,18 +145,30 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~turn_params
+    ?model_input_projection:agent.model_input_projection
     ()
 ;;
 
-let stage_parse ?raw_trace_run ?clock agent =
+let model_input_projection_error detail =
+  Error.Agent
+    (HookExecutionFailed
+       { hook_name = "model_input_projection"
+       ; stage = "turn:parse"
+       ; tool_name = None
+       ; tool_use_id = None
+       ; detail
+       })
+;;
+
+let stage_parse ?raw_trace_run ?clock ~turn agent =
   let* turn_params =
     match
       Agent_turn.resolve_turn_params
         ~hooks:agent.options.hooks
         ~messages:agent.state.messages
-        ~turn:agent.state.turn_count
+        ~turn
         ~invoke_hook:(fun ~hook_name hook event ->
-          invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook event)
+          invoke_hook_with_trace agent ?raw_trace_run ~turn ~hook_name hook event)
     with
     | Ok params -> Ok params
     | Error (Agent_turn.Hook_failed { stage; detail }) ->
@@ -226,21 +239,19 @@ let stage_parse ?raw_trace_run ?clock agent =
                 | Some run_id -> run_id
                 | None -> Event_bus.fresh_id ())
              ()
-       ; payload =
-           TurnStarted
-             { agent_name = agent.state.config.name; turn = agent.state.turn_count }
+       ; payload = TurnStarted { agent_name = agent.state.config.name; turn }
        }
    | None -> ());
   (match agent.options.journal with
    | Some j ->
      Agent_execution_event_writer.append
        j
-       (Turn_started
-          { turn = agent.state.turn_count
-          ; timestamp = Pipeline_common.timestamp_now ?clock ()
-          })
+       (Turn_started { turn; timestamp = Pipeline_common.timestamp_now ?clock () })
    | None -> ());
-  let prep = prepare_turn_for_agent agent ~turn_params in
+  let* prep =
+    prepare_turn_for_agent agent ~turn_params
+    |> Result.map_error model_input_projection_error
+  in
   let ready_tool_names = prep.visible_tool_names in
   (* TurnReady reports the exact caller-supplied tool list the LLM will see
      this turn. Downstream substrate observability subscribers use this
@@ -267,10 +278,7 @@ let stage_parse ?raw_trace_run ?clock agent =
              ()
        ; payload =
            TurnReady
-             { agent_name = agent.state.config.name
-             ; turn = agent.state.turn_count
-             ; tool_names = ready_tool_names
-             }
+             { agent_name = agent.state.config.name; turn; tool_names = ready_tool_names }
        }
    | None -> ());
   Ok (prep, turn_config, turn_params)

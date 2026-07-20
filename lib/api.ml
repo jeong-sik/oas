@@ -39,26 +39,17 @@ let create_message_error_of_http_error = function
       http_error
       (Retry.InvalidRequest { message; reason = Unknown_invalid_request })
   | Llm_provider.Http_client.ProviderFailure
-      { kind =
-          Llm_provider.Http_client.Empty_completion
-            { stop_reason = Llm_provider.Types.ContextWindowExceeded }
-      ; message
-      } as http_error ->
-    (* An empty turn whose typed stop_reason is ContextWindowExceeded is a
-       context-overflow contract, not provider unavailability: retrying or
-       rotating replays the same oversized prompt, so only the consumer's
-       context recovery (compaction) can make progress. The provider does not
-       report its limit on this path, hence [limit = None]. *)
-    attributed_retry_error
-      http_error
-      (Retry.ContextOverflow
-         { message =
-             "empty completion (stop_reason=model_context_window_exceeded): " ^ message
-         ; limit = None
-         })
-  | Llm_provider.Http_client.ProviderFailure
-      { kind = Llm_provider.Http_client.Empty_completion _; _ } as http_error ->
-    Completion_error http_error
+      { kind = Llm_provider.Http_client.Empty_completion { stop_reason }; message } as
+    http_error ->
+    (* The #2621 empty-completion overflow rule lives in one place now:
+       [Retry.overflow_of_empty_completion]. A ContextWindowExceeded empty turn
+       is a context-overflow contract (only compaction makes progress, not
+       retry/rotate); every other stop_reason stays an opaque completion error.
+       This site's wrappers — [attributed_retry_error] / [Completion_error] —
+       are preserved exactly. *)
+    (match Retry.overflow_of_empty_completion ~stop_reason ~message with
+     | Some overflow -> attributed_retry_error http_error overflow
+     | None -> Completion_error http_error)
   | Llm_provider.Http_client.ProviderFailure { kind; message } as http_error ->
     attributed_retry_error
       http_error

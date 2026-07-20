@@ -192,7 +192,12 @@ let dispatch_sync
       | Error error -> Error (fit_error ~binding error)
       | Ok max_context_tokens ->
         (match
-           Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared
+           Llm_provider.Complete.measure_request
+             ~sw
+             ~net:agent.net
+             ?clock
+             ?timeout_s:agent.options.body_timeout_s
+             prepared
          with
          | Error error -> Error (measurement_error ~binding error)
          | Ok measured ->
@@ -275,7 +280,12 @@ let dispatch_stream
       | Error error -> Error (fit_error ~binding error)
       | Ok max_context_tokens ->
         (match
-           Llm_provider.Complete.measure_request ~sw ~net:agent.net ?clock prepared
+           Llm_provider.Complete.measure_request
+             ~sw
+             ~net:agent.net
+             ?clock
+             ?timeout_s:agent.options.body_timeout_s
+             prepared
          with
          | Error error -> Error (measurement_error ~binding error)
          | Ok measured ->

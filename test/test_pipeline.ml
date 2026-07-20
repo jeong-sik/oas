@@ -20,6 +20,31 @@ let invocation tool_use_id =
   Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
 ;;
 
+let terminal_outcome_name = function
+  | Agent.Terminal_succeeded -> "succeeded"
+  | Agent.Terminal_failed -> "failed"
+  | Agent.Terminal_cancelled -> "cancelled"
+;;
+
+let recovery_action_name = function
+  | Agent.Retire -> "retire"
+  | Agent.Operator_repair_required Agent.Effect_outcome_unknown ->
+    "operator_repair:effect_outcome_unknown"
+;;
+
+let check_terminal_disposition ~outcome ~recovery = function
+  | None -> Alcotest.fail "terminal disposition callback was not invoked"
+  | Some disposition ->
+    Alcotest.(check string)
+      "terminal outcome"
+      outcome
+      (terminal_outcome_name disposition.Agent.outcome);
+    Alcotest.(check string)
+      "terminal recovery action"
+      recovery
+      (recovery_action_name disposition.Agent.recovery)
+;;
+
 (* ── Provider mock: verify pipeline stages via mock responses ── *)
 
 let test_mock_text_response () =
@@ -185,6 +210,7 @@ let test_agent_turn_preparation () =
   in
   let prep =
     Agent_turn.prepare_turn ~tools ~messages ~turn_params:Hooks.default_turn_params ()
+    |> Result.get_ok
   in
   (* tools_json should be Some with 2 tools *)
   (match prep.tools_json with
@@ -288,6 +314,145 @@ let test_pipeline_sends_exact_supplied_tools () =
     "provider receives exact caller tool schemas"
     true
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
+;;
+
+let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let before_turns = ref [] in
+  let after_turns = ref [] in
+  let pre_tool_turns = ref [] in
+  let handler_turns = ref [] in
+  let hooks =
+    { Hooks.empty with
+      before_turn =
+        Some
+          (function
+            | Hooks.BeforeTurn { turn; _ } ->
+              before_turns := turn :: !before_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected BeforeTurn")
+    ; after_turn =
+        Some
+          (function
+            | Hooks.AfterTurn { turn; _ } ->
+              after_turns := turn :: !after_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected AfterTurn")
+    ; pre_tool_use =
+        Some
+          (function
+            | Hooks.PreToolUse { invocation; _ } ->
+              pre_tool_turns := Tool.Invocation.turn invocation :: !pre_tool_turns;
+              Hooks.Continue
+            | _ -> Alcotest.fail "expected PreToolUse")
+    }
+  in
+  let tool =
+    Tool.create_with_execution_env
+      ~name:"identity_tool"
+      ~description:"observe the canonical provider turn"
+      ~parameters:[]
+      (fun execution_env _input ->
+         (match Tool.Execution_env.invocation execution_env with
+          | None -> Alcotest.fail "tool handler received no invocation"
+          | Some invocation ->
+            handler_turns := Tool.Invocation.turn invocation :: !handler_turns);
+         Ok { Types.content = "observed"; _meta = None })
+  in
+  let responses =
+    ref
+      [ { (pipeline_response StopToolUse) with
+          id = "provider-turn-0"
+        ; content =
+            [ ToolUse
+                { id = "provider-tool-0"; name = "identity_tool"; input = `Assoc [] }
+            ]
+        }
+      ; { (pipeline_response EndTurn) with id = "provider-turn-1" }
+      ]
+  in
+  let next_response () =
+    match !responses with
+    | response :: rest ->
+      responses := rest;
+      Ok response
+    | [] ->
+      Error
+        (Llm_provider.Http_client.AcceptRejected
+           { reason = "provider-turn identity fixture exhausted responses" })
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = next_response (); latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+    }
+  in
+  let event_bus = Event_bus.create () in
+  let event_config =
+    Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
+    |> Result.get_ok
+  in
+  let subscription = Event_bus.subscribe ~config:event_config event_bus in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "provider-turn-identity-test"
+        }
+      ~tools:[ tool ]
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        ; hooks
+        ; event_bus = Some event_bus
+        }
+      ()
+  in
+  (match Agent.run ~sw agent "run identity_tool" with
+   | Ok response ->
+     Alcotest.(check string) "terminal response" "done" (Types.text_of_response response)
+   | Error error -> Alcotest.fail (Error.to_string error));
+  let turn_started, turn_ready, turn_completed, tool_events =
+    Event_bus.drain subscription
+    |> List.fold_left
+         (fun (started, ready, completed, tools) (event : Event_bus.event) ->
+            match event.payload with
+            | TurnStarted { turn; _ } -> turn :: started, ready, completed, tools
+            | TurnReady { turn; _ } -> started, turn :: ready, completed, tools
+            | TurnCompleted { turn; _ } -> started, ready, turn :: completed, tools
+            | ToolCalled { invocation; _ } | ToolCompleted { invocation; _ } ->
+              started, ready, completed, Tool.Invocation.turn invocation :: tools
+            | AgentStarted _
+            | AgentCompleted _
+            | AgentFailed _
+            | HandoffRequested _
+            | HandoffCompleted _
+            | ElicitationCompleted _
+            | InferenceTelemetry _
+            | Custom _ -> started, ready, completed, tools)
+         ([], [], [], [])
+  in
+  let check_turns label expected actual =
+    Alcotest.(check (list int)) label expected (List.rev actual)
+  in
+  check_turns "BeforeTurn identity" [ 0; 1 ] !before_turns;
+  check_turns "AfterTurn identity" [ 0; 1 ] !after_turns;
+  check_turns "TurnStarted identity" [ 0; 1 ] turn_started;
+  check_turns "TurnReady identity" [ 0; 1 ] turn_ready;
+  check_turns "TurnCompleted identity" [ 0; 1 ] turn_completed;
+  check_turns "PreToolUse identity" [ 0 ] !pre_tool_turns;
+  check_turns "tool handler identity" [ 0 ] !handler_turns;
+  check_turns "public tool event identity" [ 0; 0 ] tool_events;
+  Alcotest.(check int)
+    "state advances after two provider turns"
+    2
+    (Agent.state agent).turn_count
 ;;
 
 let unwrap_raw_trace = function
@@ -749,6 +914,7 @@ let test_prepare_turn_no_tools () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   (match prep.tools_json with
    | None -> ()
@@ -786,6 +952,7 @@ let test_prepare_turn_preserves_messages () =
       ~messages
       ~turn_params:Hooks.default_turn_params
       ()
+    |> Result.get_ok
   in
   Alcotest.(check int) "3 messages" 3 (List.length prep.effective_messages)
 ;;
@@ -968,7 +1135,10 @@ let test_prepare_turn_extra_context () =
       extra_system_context = Some "You are in debug mode."
     }
   in
-  let prep = Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params () in
+  let prep =
+    Agent_turn.prepare_turn ~tools:Tool_set.empty ~messages ~turn_params ()
+    |> Result.get_ok
+  in
   (* Extra context is appended at the end to preserve prefix for KV cache *)
   Alcotest.(check int)
     "2 messages (original + context)"
@@ -1068,6 +1238,195 @@ let test_mock_multi_tool_response () =
   | Error _ -> Alcotest.fail "expected ok"
 ;;
 
+let with_execution_test_dir prefix f =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let runtime =
+    match
+      Agent.create_execution_runtime
+        ~sw
+        ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+        ~domain_count:1
+    with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let native_path = Filename.temp_file prefix ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+  Eio.Switch.on_release sw (fun () -> Eio.Path.rmtree ~missing_ok:true dir);
+  f ~env ~sw ~runtime ~dir
+;;
+
+let test_terminal_disposition_retires_settled_provider_failure () =
+  with_execution_test_dir "oas-agent-terminal-failure-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let checkpoint_count = ref 0 in
+  let locator_persisted = ref false in
+  let terminal_disposition = ref None in
+  let responses =
+    ref
+      [ Ok
+          (Provider_mock.tool_use_response
+             ~tool_name:"durable_tool"
+             ~tool_input:(`Assoc [])
+             ()
+             [])
+      ; Error
+          (Llm_provider.Http_client.AcceptRejected
+             { reason = "provider failed after persisted checkpoint" })
+      ]
+  in
+  let next_response () =
+    match !responses with
+    | response :: rest ->
+      responses := rest;
+      response
+    | [] -> Alcotest.fail "provider failure fixture exhausted responses"
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = next_response (); latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> next_response ())
+    }
+  in
+  let tool =
+    Tool.create
+      ~name:"durable_tool"
+      ~description:"settled before provider failure"
+      ~parameters:[]
+      (fun _input -> Ok { Types.content = "settled"; _meta = None })
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-provider-failure-test"
+        }
+      ~tools:[ tool ]
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ~checkpoint_sink:(fun _snapshot ->
+        incr checkpoint_count;
+        Ok ())
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_scope_ready:(fun _locator ->
+        locator_persisted := true;
+        Ok ())
+      ~on_terminal_disposition:(fun disposition ->
+        terminal_disposition := Some disposition;
+        Ok ())
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "run the tool" with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "provider failure unexpectedly completed");
+  Alcotest.(check bool) "locator persisted" true !locator_persisted;
+  Alcotest.(check bool) "checkpoint persisted" true (!checkpoint_count > 0);
+  check_terminal_disposition ~outcome:"failed" ~recovery:"retire" !terminal_disposition
+;;
+
+let test_terminal_disposition_sink_failure_fails_call () =
+  with_execution_test_dir "oas-agent-terminal-sink-failure-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let callback_count = ref 0 in
+  let response = Provider_mock.text_response "done" [] in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-sink-failure-test"
+        }
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_terminal_disposition:(fun _disposition ->
+        incr callback_count;
+        Error "injected persistence failure")
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "complete" with
+   | Error (Error.Internal _) -> ()
+   | Error error ->
+     Alcotest.failf "terminal sink failure changed category: %s" (Error.to_string error)
+   | Ok _ -> Alcotest.fail "terminal sink failure unexpectedly completed");
+  Alcotest.(check int) "terminal sink called once" 1 !callback_count;
+  Alcotest.(check bool)
+    "terminal journal committed before sink failure"
+    true
+    (Eio.Path.is_file Eio.Path.(dir / "events.v1.commit"))
+;;
+
+let test_terminal_disposition_observes_cancellation () =
+  with_execution_test_dir "oas-agent-terminal-cancel-"
+  @@ fun ~env ~sw ~runtime ~dir ->
+  let terminal_disposition = ref None in
+  let cancel () = raise (Eio.Cancel.Cancelled Exit) in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync = (fun _request -> cancel ())
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> cancel ())
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:"test-model") with
+          name = "terminal-cancellation-test"
+        }
+      ~options:
+        { Agent.default_options with
+          transport = Some transport
+        ; provider = Some (Provider_mock.to_provider_config ())
+        }
+      ()
+  in
+  let execution_store =
+    Agent.execution_store
+      ~runtime
+      ~dir
+      ~on_terminal_disposition:(fun disposition ->
+        terminal_disposition := Some disposition;
+        Ok ())
+      ()
+  in
+  (match Agent.run ~sw ~execution_store agent "cancel" with
+   | exception Eio.Cancel.Cancelled Exit -> ()
+   | exception exn ->
+     Alcotest.failf "unexpected cancellation exception: %s" (Printexc.to_string exn)
+   | Ok _ | Error _ -> Alcotest.fail "cancellation did not propagate");
+  check_terminal_disposition ~outcome:"cancelled" ~recovery:"retire" !terminal_disposition
+;;
+
 let test_agent_run_uses_durable_tool_authority () =
   Eio_main.run
   @@ fun env ->
@@ -1094,6 +1453,7 @@ let test_agent_run_uses_durable_tool_authority () =
        let effect_after_locator = ref false in
        let effect_count = ref 0 in
        let completion_cursor = ref None in
+       let terminal_disposition = ref None in
        let committed_cursor () =
          let authority =
            Eio.Path.load Eio.Path.(dir / "events.v1.commit") |> Yojson.Safe.from_string
@@ -1192,6 +1552,10 @@ let test_agent_run_uses_durable_tool_authority () =
               | _ -> Alcotest.fail "execution locator is not an object");
              locator_persisted := true;
              Ok ())
+           ~on_terminal_disposition:(fun disposition ->
+             ignore (committed_cursor ());
+             terminal_disposition := Some disposition;
+             Ok ())
            ()
        in
        (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
@@ -1206,6 +1570,10 @@ let test_agent_run_uses_durable_tool_authority () =
          "locator is durable before tool effect"
          true
          !effect_after_locator;
+       check_terminal_disposition
+         ~outcome:"succeeded"
+         ~recovery:"retire"
+         !terminal_disposition;
        Alcotest.(check (option int))
          "completion observes the final durable cursor"
          (Some (committed_cursor ()))
@@ -1243,7 +1611,7 @@ let test_agent_run_uses_durable_tool_authority () =
          (List.length public_tool_events))
 ;;
 
-let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
+let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -1282,6 +1650,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
          }
        in
        let locator_json = ref None in
+       let exception Effect_interrupted_after_attempt in
        let provider_config =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -1314,7 +1683,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
                  (Internal_scope.scope_locator_to_yojson
                     (Internal_scope.scope_locator scope));
             let turn =
-              match Internal_scope.open_turn scope ~ordinal:1 with
+              match Internal_scope.open_turn scope ~ordinal:0 with
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -1323,7 +1692,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -1339,12 +1708,19 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
               Internal_scope.execute
                 durable
                 ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
-                  "settled-before-restart", Types.Tool_succeeded)
+                  if settled
+                  then "settled-before-restart", Types.Tool_succeeded
+                  else raise Effect_interrupted_after_attempt)
             with
-            | Ok (Internal_scope.Executed _) -> ()
+            | Ok (Internal_scope.Executed _) when settled -> ()
+            | Ok (Internal_scope.Executed _) ->
+              Alcotest.fail "unknown-effect fixture unexpectedly settled"
             | Ok (Internal_scope.Replayed _) ->
               Alcotest.fail "fixture unexpectedly replayed its first tool effect"
-            | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+            | exception Effect_interrupted_after_attempt when not settled -> ()
+            | exception Effect_interrupted_after_attempt ->
+              Alcotest.fail "settled fixture interrupted its tool effect")
         with
         | Ok () -> ()
         | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure));
@@ -1364,6 +1740,7 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
        let effect_count = ref 0 in
        let pre_hook_count = ref 0 in
        let post_hook_count = ref 0 in
+       let terminal_disposition = ref None in
        let tool =
          Tool.create
            ~name:"durable_tool"
@@ -1420,17 +1797,51 @@ let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
          ; turn_count = 1
          ; usage = Types.empty_usage
          };
-       let execution_store = Agent.execution_store ~runtime ~dir ~resume:locator () in
-       (match Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
-        | Ok response ->
+       let execution_store =
+         Agent.execution_store
+           ~runtime
+           ~dir
+           ~on_terminal_disposition:(fun disposition ->
+             terminal_disposition := Some disposition;
+             Ok ())
+           ~resume:locator
+           ()
+       in
+       (match settled, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | true, Ok response ->
           Alcotest.(check string)
             "terminal response"
             "done-after-restart"
             (Types.text_of_response response)
-        | Error error -> Alcotest.fail (Error.to_string error));
+        | true, Error error -> Alcotest.fail (Error.to_string error)
+        | false, Error (Error.Internal _) -> ()
+        | false, Error error ->
+          Alcotest.failf
+            "unknown effect changed error category: %s"
+            (Error.to_string error)
+        | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
        Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
        Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
-       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count)
+       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
+       if settled
+       then
+         check_terminal_disposition
+           ~outcome:"succeeded"
+           ~recovery:"retire"
+           !terminal_disposition
+       else
+         check_terminal_disposition
+           ~outcome:"failed"
+           ~recovery:"operator_repair:effect_outcome_unknown"
+           !terminal_disposition)
+;;
+
+let test_agent_run_resumes_settled_tool_without_duplicate_effects =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true
+;;
+
+let test_agent_run_reports_unknown_effect_for_operator_repair =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false
 ;;
 
 (* ── Runner ──────────────────────────────────────────────── *)
@@ -1470,6 +1881,10 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "provider turn identity spans multiturn tool loop"
+            `Quick
+            test_provider_turn_identity_is_shared_across_multiturn_tool_loop
         ; Alcotest.test_case
             "output rejects unknown terminal"
             `Quick
@@ -1523,6 +1938,22 @@ let () =
             "Agent.run resumes settled tool without duplicate effects"
             `Quick
             test_agent_run_resumes_settled_tool_without_duplicate_effects
+        ; Alcotest.test_case
+            "terminal disposition retires settled provider failure"
+            `Quick
+            test_terminal_disposition_retires_settled_provider_failure
+        ; Alcotest.test_case
+            "terminal disposition requires operator repair for unknown effect"
+            `Quick
+            test_agent_run_reports_unknown_effect_for_operator_repair
+        ; Alcotest.test_case
+            "terminal disposition sink failure fails call"
+            `Quick
+            test_terminal_disposition_sink_failure_fails_call
+        ; Alcotest.test_case
+            "terminal disposition observes cancellation"
+            `Quick
+            test_terminal_disposition_observes_cancellation
         ] )
     ]
 ;;

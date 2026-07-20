@@ -33,10 +33,37 @@ type execution_runtime = Agent_execution_runner.runtime
 type execution_store = Agent_execution_runner.store
 type execution_locator = Agent_execution_runner.locator
 
+type execution_terminal_outcome = Agent_execution_runner.terminal_outcome =
+  | Terminal_succeeded
+  | Terminal_failed
+  | Terminal_cancelled
+
+type execution_operator_repair_reason = Agent_execution_runner.operator_repair_reason =
+  | Effect_outcome_unknown
+
+type execution_recovery_action = Agent_execution_runner.recovery_action =
+  | Retire
+  | Operator_repair_required of execution_operator_repair_reason
+
+type execution_terminal_disposition = Agent_execution_runner.terminal_disposition =
+  { outcome : execution_terminal_outcome
+  ; recovery : execution_recovery_action
+  }
+
+module Execution_projection = Agent_execution_projection
+
 let create_execution_runtime = Agent_execution_runner.create_runtime
 let execution_store = Agent_execution_runner.store
 let execution_locator_to_yojson = Agent_execution_runner.locator_to_yojson
 let execution_locator_of_yojson = Agent_execution_runner.locator_of_yojson
+
+let open_execution_projection ~runtime ~dir locator =
+  Execution_projection.open_durable
+    ~codec:(Agent_execution_runner.runtime_codec runtime)
+    ~dir
+    ~locator_run_id:(Agent_execution_runner.locator_run_id locator)
+    ()
+;;
 
 let replace_projected_error error detailed =
   { detailed with Provider_failure_attribution.error }
@@ -46,9 +73,8 @@ let project_detailed_error result =
   Result.map_error (fun detailed -> detailed.error) result
 ;;
 
-(** Run a single turn via the 6-stage pipeline.
-    Converts Pipeline.turn_outcome to the polymorphic variant interface
-    expected by run_loop and the public API. *)
+(** Run a single turn via the 6-stage pipeline, converting [Pipeline.turn_outcome]
+    to the polymorphic variant interface expected by [run_loop] and the public API. *)
 let run_turn_core_detailed
       ~sw
       ?clock
@@ -234,6 +260,32 @@ let run_loop_turns_detailed
   loop Held
 ;;
 
+let ambient_execution_scope_factory agent =
+  Execution_context.child_scope_factory ()
+  |> Option.map (fun start_child () -> start_child ~agent_name:agent.state.config.name)
+;;
+
+let run_with_execution_scope ~sw ?execution_store agent run =
+  let execution_scope_factory = ambient_execution_scope_factory agent in
+  match execution_store, execution_scope_factory with
+  | None, None -> run ~sw
+  | Some store, None ->
+    Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
+  | None, Some start_scope ->
+    (match start_scope () with
+     | Error error ->
+       Error
+         (detailed_error_of_sdk_error
+            (Error.Internal
+               ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
+     | Ok execution_scope ->
+       Agent_execution_runner.with_scope execution_scope (fun () -> run ~sw))
+  | Some _, Some _ ->
+    Error
+      (detailed_error_of_sdk_error
+         (Error.Internal "execution store and child scope factory are mutually exclusive"))
+;;
+
 let run_loop_detailed
       ~sw
       ?clock
@@ -241,7 +293,6 @@ let run_loop_detailed
       ?on_yield
       ?on_resume
       ?execution_store
-      ?execution_scope_factory
       agent
       user_blocks
   =
@@ -274,23 +325,7 @@ let run_loop_detailed
       ?raw_trace_run
       agent
   in
-  match execution_store, execution_scope_factory with
-  | None, None -> run ~sw
-  | Some store, None ->
-    Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
-  | None, Some start_scope ->
-    (match start_scope () with
-     | Error error ->
-       Error
-         (detailed_error_of_sdk_error
-            (Error.Internal
-               ("durable child scope: " ^ Execution_agent_scope.error_to_string error)))
-     | Ok execution_scope ->
-       Agent_execution_runner.with_scope execution_scope (fun () -> run ~sw))
-  | Some _, Some _ ->
-    Error
-      (detailed_error_of_sdk_error
-         (Error.Internal "execution store and child scope factory are mutually exclusive"))
+  run_with_execution_scope ~sw ?execution_store agent run
 ;;
 
 let run_loop
@@ -527,8 +562,6 @@ let run_stream
   |> project_detailed_error
 ;;
 
-(* ── Handoff support ─────────────────────────────────────────── *)
-
 let validate_handoff_targets agent (targets : Handoff.handoff_target list) =
   let rec loop seen (remaining : Handoff.handoff_target list) =
     match remaining with
@@ -618,6 +651,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ~config:target.config
       ~tools:target.tools
       ~context_fit_admission:agent.context_fit_admission
+      ?model_input_projection:agent.model_input_projection
       ~options:
         { default_options with
           base_url = agent.options.base_url
@@ -627,19 +661,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ?provider_config:agent.provider_config
       ()
   in
-  let result =
-    match Execution_context.child_scope_factory () with
-    | None -> run ~sw ?clock sub prompt
-    | Some start_child ->
-      run_loop_detailed
-        ~sw
-        ?clock
-        ~api_strategy:Sync
-        ~execution_scope_factory:(fun () -> start_child ~agent_name:target.config.name)
-        sub
-        [ Text prompt ]
-      |> project_detailed_error
-  in
+  let result = run ~sw ?clock sub prompt in
   publish_handoff_completed
     agent
     target
@@ -704,8 +726,6 @@ let run_with_handoffs_blocks ~sw ?clock ?execution_store agent ~targets user_blo
   |> project_detailed_error
 ;;
 
-(* ── Checkpoint / Resume ─────────────────────────────────────── *)
-
 let resume
       ~net
       ~(checkpoint : Checkpoint.t)
@@ -714,6 +734,7 @@ let resume
       ?(options = default_options)
       ?provider_config
       ?(context_fit_admission = Disabled)
+      ?model_input_projection
       ?checkpoint_sink
       ?config
       ()
@@ -735,6 +756,7 @@ let resume
   ; options
   ; provider_config
   ; context_fit_admission
+  ; model_input_projection
   ; checkpoint_sink
   }
 ;;
@@ -892,10 +914,7 @@ module Advanced = struct
         ~on_tool_boundary
         agent
     in
-    match execution_store with
-    | None -> run ~sw
-    | Some store ->
-      Agent_execution_runner.with_store store agent (fun ~sw _execution_scope -> run ~sw)
+    run_with_execution_scope ~sw ?execution_store agent run
   ;;
 
   let run_blocks_detailed
@@ -961,11 +980,7 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
       ~api_strategy:(Stream { on_event; on_telemetry })
       agent
   in
-  (match execution_store with
-   | None -> run ~sw ()
-   | Some store ->
-     Agent_execution_runner.with_store store agent (fun ~sw _execution_scope ->
-       run ~sw ()))
+  run_with_execution_scope ~sw ?execution_store agent (fun ~sw -> run ~sw ())
   |> Result.map (function
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted)
