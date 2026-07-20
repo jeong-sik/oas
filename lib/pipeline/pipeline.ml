@@ -500,6 +500,19 @@ let tag_error stage result =
     Error e
 ;;
 
+(* Observation-only domain label for a durable [Error_occurred] event.
+
+   Derived from the actual error via [Error.category] — the exhaustive typed
+   SSOT (a new [Error.sdk_error] variant forces a compile error there, so no
+   error can silently fall back to a wrong domain). [String.capitalize_ascii]
+   only presents the canonical lowercase [category_label] in the durable
+   event's historic capitalized style, keeping "Api" for genuine provider
+   ([Error.Api]) errors so those logs stay consistent. It is not a classifier:
+   classification lives entirely in the typed [Error.category] match. *)
+let error_domain_of (err : Error.sdk_error) : string =
+  Error.category err |> Error.category_label |> String.capitalize_ascii
+;;
+
 let run_new_turn
       ~sw
       ?clock
@@ -603,7 +616,7 @@ let run_new_turn
          j
          (Error_occurred
             { turn
-            ; error_domain = "Api"
+            ; error_domain = error_domain_of err
             ; detail = Error.to_string err
             ; timestamp = Pipeline_common.timestamp_now ?clock ()
             })
