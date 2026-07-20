@@ -27,7 +27,7 @@ type completion_request =
         path this bounds the whole response read. On the streaming path it is
         the fallback bound for the first-event (TTFT/prefill) wait when
         [first_event_timeout_s] is [None] — the common production shape, since
-        callers (e.g. masc) wire [body_timeout_s] but not
+        callers wire [body_timeout_s] but not
         [first_event_timeout_s]. [None] leaves the streaming first-event wait
         to [stream_idle_timeout_s], and unarmed if that is [None] too. Armed
         only when the transport also holds a clock. @since 0.218.0 *)
