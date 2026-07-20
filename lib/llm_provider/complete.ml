@@ -357,6 +357,8 @@ let complete_prepared_stream
           ~net
           ?clock
           ?stream_idle_timeout_s:request.stream_idle_timeout_s
+          ?first_event_timeout_s:request.first_event_timeout_s
+          ?body_timeout_s:request.body_timeout_s
           ?observe_wire_chunk:request.observe_wire_chunk
           ~latency_counter
           ?on_telemetry
@@ -396,6 +398,8 @@ let complete_stream
       ~net
       ?clock
       ?stream_idle_timeout_s
+      ?first_event_timeout_s
+      ?body_timeout_s
       ?transport
       ?capture_id
       ?wire_observer
@@ -417,6 +421,8 @@ let complete_stream
       ~trace_context
       ?capture_id
       ?stream_idle_timeout_s
+      ?first_event_timeout_s
+      ?body_timeout_s
       ()
   in
   complete_prepared_stream
@@ -494,6 +500,8 @@ let make_http_transport
           ~net
           ?clock
           ?stream_idle_timeout_s:req.stream_idle_timeout_s
+          ?first_event_timeout_s:req.first_event_timeout_s
+          ?body_timeout_s:req.body_timeout_s
           ?observe_wire_chunk:req.observe_wire_chunk
           ?connection_cache
           ?latency_counter
