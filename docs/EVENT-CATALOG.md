@@ -267,7 +267,6 @@ on **two channels simultaneously**:
 | `Turn_recorded` | `runtime.turn_recorded` |
 | `Input_required` | `runtime.input_required` |
 | `Input_provided` | `runtime.input_provided` |
-| `Pending_input_updated` | `runtime.pending_input_updated` |
 | `Agent_spawn_requested` | `runtime.agent_spawn_requested` |
 | `Agent_became_live` | `runtime.agent_became_live` |
 | `Agent_output_delta` | `runtime.agent_output_delta` |
@@ -305,10 +304,6 @@ different payload shapes. Disambiguate by Custom name prefix:
   while phase is `Input_required`; `Provide_input` emits
   `Input_provided`, clears the payload, and returns the session to
   `Running`.
-- `Runtime.Pending_input_updated` reports ordinary input that arrived while a
-  turn was busy. Status values are `queued`, `applied`, `interrupted`, or
-  `ignored`. The event is intentionally not a lifecycle phase: ordinary queued
-  input must not imply keeper pause/stop.
 - Runtime finalization persists the operator-facing evidence set:
   `report.json`, `proof.json`, `runtime-telemetry-json`,
   `runtime-telemetry`, `runtime-raw-trace-json`, and `runtime-evidence`.

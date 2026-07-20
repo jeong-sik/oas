@@ -205,18 +205,6 @@ type input_provided_event =
   }
 [@@deriving yojson, show]
 
-type pending_input_update_event =
-  { input_id : string option
-  ; participant_name : string option
-  ; source : string option
-  ; boundary : Runtime_continuation.continuation_boundary
-  ; policy : Runtime_continuation.pending_input_policy
-  ; status : string
-  ; message : string option
-  ; created_at : float
-  }
-[@@deriving yojson, show]
-
 type spawn_event =
   { participant_name : string
   ; role : string option
@@ -317,7 +305,6 @@ type event_kind =
   | Turn_recorded of turn_event
   | Input_required of input_request
   | Input_provided of input_provided_event
-  | Pending_input_updated of pending_input_update_event
   | Agent_spawn_requested of spawn_event
   | Agent_became_live of participant_live_event
   | Agent_output_delta of output_delta_event

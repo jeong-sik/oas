@@ -402,7 +402,6 @@ let custom_name_of_kind = function
   | Turn_recorded _ -> "runtime.turn_recorded"
   | Input_required _ -> "runtime.input_required"
   | Input_provided _ -> "runtime.input_provided"
-  | Pending_input_updated _ -> "runtime.pending_input_updated"
   | Agent_spawn_requested _ -> "runtime.agent_spawn_requested"
   | Agent_became_live _ -> "runtime.agent_became_live"
   | Agent_output_delta _ -> "runtime.agent_output_delta"
@@ -433,7 +432,6 @@ let event_bus_run_id_of_event (event : event) =
   | Turn_recorded _
   | Input_required _
   | Input_provided _
-  | Pending_input_updated _
   | Agent_spawn_requested _
   | Artifact_attached _
   | Checkpoint_saved _

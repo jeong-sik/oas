@@ -138,17 +138,6 @@ let test_custom_name_of_kind_all_variants () =
           ; response = Runtime.Input_answer (`String "yes")
           }
       , "runtime.input_provided" )
-    ; ( Runtime.Pending_input_updated
-          { input_id = Some "pending-1"
-          ; participant_name = Some "worker-1"
-          ; source = Some "dashboard"
-          ; boundary = Runtime_continuation.Provider_streaming_reasoning
-          ; policy = Runtime_continuation.Queue_until_safe_boundary
-          ; status = "queued"
-          ; message = Some "queued while reasoning"
-          ; created_at = 1.0
-          }
-      , "runtime.pending_input_updated" )
     ; ( Runtime.Agent_spawn_requested
           { participant_name = "worker-1"
           ; role = Some "reviewer"
