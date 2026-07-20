@@ -217,17 +217,6 @@ scripts/dune-local.sh runtest
 # Coverage report
 make coverage
 
-# Harness datasets
-oas eval record-trace --session /path/to/raw-trace.ndjson --out evals/replay.jsonl
-oas eval run --dataset examples/evals/replay.jsonl --out _build/evals
-oas eval run --config oas.json --dataset examples/evals/mixed.jsonl --out _build/evals
-oas eval save-baseline --dataset examples/evals/replay.jsonl --out evals/replay-baseline.json
-oas eval run --dataset examples/evals/replay.jsonl --baseline evals/replay-baseline.json --out _build/evals
-oas eval run --config oas.json --dataset evals/replay.jsonl --out _build/evals
-
-# `trace_replay` cases run offline, `fixture` cases use --config live in the same dataset
-# Baseline compare/save currently target one evaluated case; use `--case <id>` when a dataset produces multiple runs
-
 # Integration tests (requires local LLM server)
 LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
 LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe

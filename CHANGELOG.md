@@ -185,6 +185,16 @@ original tag dates. `0.100.4` was never tagged or released.
 * **test support:** remove the production `Provider_mock` module and top-level
   re-export. Scripted provider responses remain test-only code, not an SDK
   runtime provider.
+* **eval/harness execution stack:** remove the nine unwired
+  `Agent_sdk` module re-exports — `Eval_baseline`, `Eval_report`,
+  `Eval_collector`, `Eval_otel_bridge`, `Harness_case`, `Harness_dataset`,
+  `Harness_report`, `Harness_runner`, and `Trace_eval` — along with the
+  backing modules, `Eval.run_metrics`'s `trace_summary` field, and
+  `Eval.{compare_statistical,run_metrics_to_json,set_trace_summary}`.
+  The stack's only entry point (`oas eval` CLI) was deleted in #1814; the
+  execution chain had zero production consumers since. Shared types
+  (`Agent_sdk.Harness.verdict`) and the residual `Eval.create_collector`
+  test surface stay. See PR #2689.
 
 ### Features
 

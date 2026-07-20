@@ -7,13 +7,7 @@ open Agent_sdk
 let mk_metric name value = { Eval.name; value; unit_ = None; tags = [] }
 
 let mk_run_metrics ?(run_id = "r1") ?(agent_name = "test") metrics =
-  { Eval.run_id
-  ; agent_name
-  ; timestamp = 0.0
-  ; metrics
-  ; harness_verdicts = []
-  ; trace_summary = None
-  }
+  { Eval.run_id; agent_name; timestamp = 0.0; metrics; harness_verdicts = [] }
 ;;
 
 (* ── metric_value tests ───────────────────────────────────────── *)
@@ -189,63 +183,6 @@ let test_run_metrics_yojson () =
   | Error e -> Alcotest.fail e
 ;;
 
-(* ── eval_collector tests ─────────────────────────────────────── *)
-
-let invocation () =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
-  in
-  Tool.Invocation.create ~tool_use_id:"tu-test" ~turn:0 ~schedule
-;;
-
-let test_eval_collector_basic () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create () in
-  let subscription =
-    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
-    |> Result.get_ok
-  in
-  let ec =
-    Eval_collector.wrap_run ~bus ~subscription ~agent_name:"test" ~run_id:"r1" ()
-  in
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event (TurnStarted { agent_name = "test"; turn = 0 }));
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event (TurnStarted { agent_name = "test"; turn = 1 }));
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event
-       (ToolCalled
-          { invocation = invocation ()
-          ; agent_name = "test"
-          ; tool_name = "t1"
-          ; input = `Null
-          }));
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event
-       (ToolCompleted
-          { invocation = invocation ()
-          ; agent_name = "test"
-          ; tool_name = "t1"
-          ; output = Ok { Types.content = "done"; _meta = None }
-          }));
-  let rm = Eval_collector.finalize ec in
-  (* Check auto-collected metrics *)
-  (match Eval.find_metric_value rm "turn_count" with
-   | Some (Int_val 2) -> ()
-   | _ -> Alcotest.fail "expected turn_count=2");
-  (match Eval.find_metric_value rm "tool_calls" with
-   | Some (Int_val 1) -> ()
-   | _ -> Alcotest.fail "expected tool_calls=1");
-  match Eval.find_metric_value rm "tool_completions" with
-  | Some (Int_val 1) -> ()
-  | _ -> Alcotest.fail "expected tool_completions=1"
-;;
-
 (* ── Runner ───────────────────────────────────────────────────── *)
 
 let () =
@@ -278,7 +215,5 @@ let () =
     ; "lookup", [ Alcotest.test_case "find_metric" `Quick test_find_metric ]
     ; ( "serialization"
       , [ Alcotest.test_case "run_metrics yojson" `Quick test_run_metrics_yojson ] )
-    ; ( "eval_collector"
-      , [ Alcotest.test_case "basic auto-collect" `Quick test_eval_collector_basic ] )
     ]
 ;;

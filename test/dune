@@ -79,11 +79,7 @@
   test_error
   test_error_domain
   test_eval
-  test_eval_baseline
   test_eval_coverage
-  test_eval_otel_bridge
-  test_eval_report
-  test_eval_report_full
   test_eval_stats
   test_event_bus
   test_event_envelope
@@ -93,9 +89,7 @@
   test_guardrail_llm
   test_guardrail_tripwire
   test_harness
-  test_harness_case
   test_harness_deep
-  test_harness_runner
   test_hooks
   test_hooks_integration
   test_http_client
@@ -173,7 +167,6 @@
   test_tool_input_validation
   test_tool_middleware
   test_tool_schema_gen
-  test_trace_eval
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -245,11 +238,7 @@
   test_error
   test_error_domain
   test_eval
-  test_eval_baseline
   test_eval_coverage
-  test_eval_otel_bridge
-  test_eval_report
-  test_eval_report_full
   test_eval_stats
   test_event_bus
   test_event_envelope
@@ -259,9 +248,7 @@
   test_guardrail_llm
   test_guardrail_tripwire
   test_harness
-  test_harness_case
   test_harness_deep
-  test_harness_runner
   test_hooks
   test_hooks_integration
   test_http_client
@@ -339,7 +326,6 @@
   test_tool_input_validation
   test_tool_middleware
   test_tool_schema_gen
-  test_trace_eval
   test_tracing
   test_trajectory
   test_trajectory_unit

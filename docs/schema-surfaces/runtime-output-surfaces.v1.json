@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-14",
+  "updated_at": "2026-07-18",
   "description": "Operator-facing index of OAS runtime output and schema surfaces.",
   "surfaces": [
     {
@@ -128,34 +128,6 @@
       "stability": "evolving",
       "version_field": null,
       "notes": "Indexes latest run, run refs, summaries, and validations for a runtime session."
-    },
-    {
-      "id": "oas.harness_report.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Harness_report / oas CLI",
-      "consumer": ["CI jobs", "human harness reviewers", "baseline tooling"],
-      "wire_or_artifact": "report.json, report.md, and report.junit.xml",
-      "schema_source": ["lib/harness_report.mli"],
-      "validator": "Harness_report.to_json/to_markdown/to_junit_xml plus harness artifact tests",
-      "tests": ["test/test_harness_runner.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Harness reports include case evidence, raw trace path references, and optional evaluation metrics."
-    },
-    {
-      "id": "oas.eval_report.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Eval_report / oas CLI",
-      "consumer": ["CI jobs", "baseline comparison reviewers"],
-      "wire_or_artifact": "eval report JSON and report.md evaluation appendix",
-      "schema_source": ["lib/eval_report.mli"],
-      "validator": "Eval_report.to_json/to_string plus baseline comparison tests",
-      "tests": ["test/test_eval_report.ml"],
-      "stability": "evolving",
-      "version_field": null,
-      "notes": "Evaluation reports carry pass@k, baseline comparison, skipped run counts, and text summary."
     },
     {
       "id": "oas.structured_schema.v1",
