@@ -15,6 +15,22 @@ type completion_request =
         blocks until the provider closes). Armed only when the transport also
         holds a clock (closed over at construction). Carried on the request so
         the dispatch cannot silently drop it. See RFC-OAS-026. @since 0.205.0 *)
+  ; first_event_timeout_s : float option
+    (** RFC-OAS-037: time-to-first-event (TTFT / prefill) deadline, in
+        seconds, distinct from [stream_idle_timeout_s]. Bounds only the wait
+        for the first streaming event; inter-token idle arms after it. [None]
+        falls back to [body_timeout_s], then to [stream_idle_timeout_s] (the
+        bound that applied before RFC-OAS-037); inter-token idle still guards
+        once the stream produces. @since 0.218.0 *)
+  ; body_timeout_s : float option
+    (** RFC-OAS-037 §4.2: total body budget, in seconds. On the non-streaming
+        path this bounds the whole response read. On the streaming path it is
+        the fallback bound for the first-event (TTFT/prefill) wait when
+        [first_event_timeout_s] is [None] — the common production shape, since
+        callers (e.g. masc) wire [body_timeout_s] but not
+        [first_event_timeout_s]. [None] leaves the streaming first-event wait
+        to [stream_idle_timeout_s], and unarmed if that is [None] too. Armed
+        only when the transport also holds a clock. @since 0.218.0 *)
   }
 
 type sync_result =

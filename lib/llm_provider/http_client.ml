@@ -1766,6 +1766,14 @@ let idle_timeout_without_clock site =
         silently disarmed (pass ?clock, or drop ?idle_timeout)")
 ;;
 
+let first_event_timeout_without_clock site =
+  invalid_arg
+    (site
+     ^ ": a first-event bound (first_event_timeout or its body_timeout fallback) is set \
+        but no clock was supplied — the first-event deadline would be silently disarmed \
+        (pass ?clock, or drop the timeout)")
+;;
+
 let require_clock_when_idle ~site ~clock ~idle_timeout =
   match clock, idle_timeout with
   | None, Some _ ->
@@ -1777,23 +1785,157 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
   | Some _, _ | None, None -> ()
 ;;
 
-let read_sse ?clock ?idle_timeout ~reader ~on_data () =
+(* RFC-OAS-037: same fail-loud contract for the first-event (TTFT/prefill)
+   deadline. Either an explicit [first_event_timeout] OR the [body_timeout]
+   fallback that now backs it (see [resolve_first_event_timeout]) would
+   silently disarm without a clock, leaving the prefill wait unbounded. The
+   all-[None] case configures no first-event deadline at all, so there is
+   nothing to disarm and nothing to reject. *)
+let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout =
+  match clock with
+  | Some _ -> ()
+  | None ->
+    (match first_event_timeout, body_timeout with
+     | Some _, _ | None, Some _ -> first_event_timeout_without_clock site
+     | None, None -> ())
+;;
+
+(* RFC-OAS-037: the caller-supplied knob a streaming deadline came from.
+   Carried so a fired timeout can name the budget the operator must tune,
+   rather than always blaming the inter-token idle knob. *)
+type timeout_knob =
+  | First_event_timeout
+  | Body_timeout
+  | Stream_idle_timeout
+
+let timeout_knob_to_param = function
+  | First_event_timeout -> "first_event_timeout_s"
+  | Body_timeout -> "body_timeout_s"
+  | Stream_idle_timeout -> "stream_idle_timeout_s"
+;;
+
+(* Resolution outcome for the first-event wait: either a bound with the knob it
+   came from, or no bound at all. Keeping the knob attached to the value is what
+   lets attribution reuse the resolver instead of re-deriving the precedence. *)
+type first_event_bound =
+  | Bounded of
+      { knob : timeout_knob
+      ; seconds : float
+      }
+  | Unarmed
+
+(* RFC-OAS-037 §4.2: resolve the effective first-event (TTFT/prefill) bound.
+   Every arm returns a caller-supplied value — this function never invents a
+   deadline of its own:
+
+   - explicit [first_event_timeout] wins;
+   - else [body_timeout], the total body budget masc already wires but which
+     did not reach the streaming reader before this fix (the production shape
+     the RFC exists to repair: a long prefill bounded by the long budget
+     instead of the short inter-token one);
+   - else [idle_timeout], preserving the pre-RFC bound for callers that wired
+     only an idle deadline — before this change that value also bounded the
+     first event, and silently widening it would be an unrequested behaviour
+     change;
+   - else [None]: the caller configured no deadline on any channel, so the
+     first-event wait stays unarmed exactly as it was. Inventing a default
+     here would re-introduce the provider idle defaults that were deliberately
+     removed (see [removed_provider_idle_defaults_upper_bound_s] in the
+     streaming tests) and would be a hardcoded magic number besides.
+
+   A dead connect on the all-[None] path is bounded by the connect timeout and
+   by the caller's own total-call deadline, not by a budget this layer makes
+   up. *)
+let resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout =
+  match first_event_timeout, body_timeout, idle_timeout with
+  | Some seconds, _, _ -> Bounded { knob = First_event_timeout; seconds }
+  | None, Some seconds, _ -> Bounded { knob = Body_timeout; seconds }
+  | None, None, Some seconds -> Bounded { knob = Stream_idle_timeout; seconds }
+  | None, None, None -> Unarmed
+;;
+
+let resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout =
+  match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+  | Bounded { seconds; _ } -> Some seconds
+  | Unarmed -> None
+;;
+
+(* RFC-OAS-037: name the knob whose value produced the deadline that fired, so
+   an operator tunes the budget that actually governs. Derived from the SAME
+   resolver as the armed bound — the precedence chain exists in exactly one
+   place, so the message can never drift from the behaviour. Only the
+   first-event phase can be governed by something other than the idle knob;
+   every later phase is inter-token idle by construction. *)
+let governing_timeout_knob ~state ~first_event_timeout ~body_timeout ~idle_timeout =
+  match state with
+  | Awaiting_first_event ->
+    (match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+     | Bounded { knob; _ } -> knob
+     | Unarmed -> Stream_idle_timeout)
+  | Awaiting_first_delta
+  | Streaming_answer
+  | Streaming_thinking
+  | Streaming_tool_call
+  | Streaming_heartbeat
+  | Streaming_substrate
+  | Streaming_done
+  | Streaming_unknown -> Stream_idle_timeout
+;;
+
+let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
   let site = "read_sse" in
   require_clock_when_idle ~site ~clock ~idle_timeout;
+  require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
   (* SSE keepalive comments carry no payload. Skipping them inside the
-     SAME [with_timeout_exn] window preserves the idle deadline so a
-     provider that emits only keepalives still trips [idle_timeout]
-     when no real event arrives. *)
+     SAME [with_timeout_exn] window preserves the armed deadline so a
+     provider that emits only keepalives still trips it when no real event
+     arrives.
+     RFC-OAS-037: the wait for the FIRST meaningful line is the
+     time-to-first-event (TTFT / prefill) window; bound it with
+     [first_event_timeout] (a separate, larger liveness budget) rather than
+     the short [idle_timeout], which arms only AFTER the first event for
+     inter-token idle. A silent prefill on a large context is slow-but-alive,
+     not a hang, so it must not be cut by the inter-token idle value. When
+     [first_event_timeout] is [None] the first-event wait falls back to
+     [body_timeout] (masc's total body budget), then to [idle_timeout] — the
+     pre-RFC bound, kept so callers that wired only an idle deadline keep
+     exactly their previous behaviour (see [resolve_first_event_timeout]).
+     With nothing wired the wait stays unarmed, as before. Inter-token idle
+     still guards once the stream produces. *)
+  let first_event_seen = ref false in
   let read_meaningful_line () =
     let rec inner () =
       match parse_sse_line (Eio.Buf_read.line reader) with
       | Sse_comment -> inner ()
       | (Sse_blank | Sse_field _) as parsed -> parsed
     in
-    match clock, idle_timeout with
-    | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
-    | Some _, None | None, None -> inner ()
-    | None, Some _ -> idle_timeout_without_clock site
+    let active_timeout =
+      if !first_event_seen
+      then idle_timeout
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
+    in
+    let parsed =
+      match clock, active_timeout with
+      | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
+      | Some _, None -> inner ()
+      (* No clock: nothing can be armed. Misconfiguration (an explicit
+         deadline without a clock) already failed loud at entry, so this is
+         the no-config default — best-effort read, unchanged pre-timeout
+         behaviour. *)
+      | None, _ -> inner ()
+    in
+    (* P3a (RFC-OAS-037 review): the transition to the inter-token idle budget
+       must fire on GENUINE first output — a data/event field — NOT on a bare
+       blank dispatch delimiter. A provider that emits a leading blank line
+       before real prefill would otherwise switch to the short idle budget
+       prematurely and re-introduce the very bug this RFC fixes for it.
+       [Sse_comment] is already filtered inside [inner]; the only non-field
+       line [inner] can return is [Sse_blank]. *)
+    (match parsed with
+     | Sse_field _ -> first_event_seen := true
+     | Sse_blank -> ()
+     | Sse_comment -> () (* unreachable: filtered in [inner] *));
+    parsed
   in
   let current_event_type = ref None in
   let rec loop () =
@@ -1829,15 +1971,47 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
 
     When [clock] and [idle_timeout] are both set, each line read is
     wrapped in [Eio.Time.with_timeout_exn] so a stalled stream raises
-    [Eio.Time.Timeout] after [idle_timeout] seconds of silence. *)
-let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
+    [Eio.Time.Timeout] after [idle_timeout] seconds of silence.
+
+    RFC-OAS-037: the wait for the FIRST line is the time-to-first-event
+    (TTFT / prefill) window, bounded by [first_event_timeout] when set;
+    otherwise it falls back to [body_timeout], then to [idle_timeout] (the
+    pre-RFC bound), and stays unarmed when the caller wired none of them.
+    [idle_timeout] arms only AFTER the first line for inter-token idle. *)
+let read_ndjson
+      ?clock
+      ?idle_timeout
+      ?first_event_timeout
+      ?body_timeout
+      ~reader
+      ~on_line
+      ()
+  =
   let site = "read_ndjson" in
   require_clock_when_idle ~site ~clock ~idle_timeout;
+  require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
+  let first_event_seen = ref false in
   let read_line () =
-    match clock, idle_timeout with
-    | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
-    | Some _, None | None, None -> Eio.Buf_read.line reader
-    | None, Some _ -> idle_timeout_without_clock site
+    let active_timeout =
+      if !first_event_seen
+      then idle_timeout
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
+    in
+    let line =
+      match clock, active_timeout with
+      | Some c, Some t ->
+        Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
+      | Some _, None -> Eio.Buf_read.line reader
+      (* No clock: nothing can be armed. See [read_sse] for why this is
+         best-effort rather than a loud failure here. *)
+      | None, _ -> Eio.Buf_read.line reader
+    in
+    (* P3a (RFC-OAS-037 review): a bare blank line is a delimiter, not real
+       provider output — the [loop] below skips it. Flip to the inter-token
+       idle budget only on a non-empty line so a leading blank does not switch
+       budgets prematurely (SSE [Sse_blank] parity). *)
+    if String.length line > 0 then first_event_seen := true;
+    line
   in
   let rec loop () =
     match read_line () with
@@ -2315,4 +2489,317 @@ let%test "read_sse: idle_timeout fires when stream stalls mid-read" =
     false
   with
   | Eio.Time.Timeout -> true
+;;
+
+(* ── RFC-OAS-037: first_event_timeout (TTFT/prefill) tests ── *)
+
+(* Acceptance (a): a silent prefill that produces its first event AFTER the
+   short inter-token idle but WITHIN the first-event budget must succeed —
+   NOT be cancelled as a first-token timeout. Reverting the change (using the
+   short idle for the first event) makes this test fail: the 0.2s silent
+   prefill exceeds the 0.05s idle. *)
+let%test "read_sse: first_event_timeout admits a silent prefill past idle" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let payloads = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       (* Silent for 0.2s: longer than idle (0.05), shorter than the
+          first-event budget (1.0). Then emit the first event and close. *)
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "data: hello\n\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_sse
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_data:(fun ~event_type:_ d -> payloads := d :: !payloads)
+         ());
+  List.rev !payloads = [ "hello" ]
+;;
+
+(* Acceptance (b): no first event ever arrives — the short first-event budget
+   still guards a dead connect even though the inter-token idle budget is
+   long. *)
+let%test "read_sse: first_event_timeout fires when no first event arrives" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  (* Keep the sink open and never write: the first line read hangs. The long
+     idle budget (1.0) must NOT rescue it; the first-event budget (0.05) does
+     the guarding. *)
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:1.0
+      ~first_event_timeout:0.05
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* Acceptance (c): after the first event, inter-token idle still guards a
+   stalled active stream — unchanged behaviour. The first-event budget (1.0)
+   is long; the idle budget (0.05) is what fires once the stream has
+   produced. *)
+let%test "read_sse: idle_timeout still guards after the first event" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  (* First event arrives immediately, then the stream goes silent. *)
+  Eio.Flow.copy_string "data: hello\n" sink;
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:0.05
+      ~first_event_timeout:1.0
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* NDJSON parity for acceptance (a): the first-event budget must admit a silent
+   prefill past idle on the Ollama NDJSON path too (reverting to short idle on
+   the first line makes this fail). *)
+let%test "read_ndjson: first_event_timeout admits a silent prefill past idle" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let lines = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "{\"a\":1}\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_ndjson
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_line:(fun l -> lines := l :: !lines)
+         ());
+  List.rev !lines = [ "{\"a\":1}" ]
+;;
+
+(* ── RFC-OAS-037 review: effective first-event bound resolution ── *)
+
+(* The pure resolver is the deterministic seam for the fallback policy: one
+   test per arm of the precedence chain
+   [first_event > body > idle > unarmed], so a reordering or a re-introduced
+   built-in default fails here rather than in a timing-dependent I/O test. The
+   I/O tests below prove that a resolved bound actually arms the first-event
+   wait through [read_sse]/[read_ndjson]. *)
+let%test "resolve_first_event_timeout: explicit first_event wins over body and idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 5.0
+;;
+
+let%test "resolve_first_event_timeout: falls back to body_timeout over idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:(Some 3.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 3.0
+;;
+
+(* Pre-RFC behaviour preservation: with only an idle deadline wired, that value
+   bounded the first event too. Widening it here would be an unrequested
+   behaviour change for every such caller. *)
+let%test "resolve_first_event_timeout: falls back to idle when it is the only bound" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Some 0.5
+;;
+
+(* Guards the removed provider idle defaults: with nothing wired the resolver
+   must stay unarmed rather than invent a bound of its own. *)
+let%test "resolve_first_event_timeout: all-None stays unarmed" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:None
+  = None
+;;
+
+(* RFC-OAS-037 attribution: a fired deadline must name the knob that supplied
+   its value. Pinning all three first-event sources plus one later phase means
+   a regression to the old "always stream_idle_timeout_s" message fails here. *)
+let%test "governing_timeout_knob: first-event names its explicit knob" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = First_event_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names body when it supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Body_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names idle when idle supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "governing_timeout_knob: inter-token phases stay attributed to idle" =
+  governing_timeout_knob
+    ~state:Streaming_answer
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "timeout_knob_to_param: names match the caller-facing parameters" =
+  String.equal (timeout_knob_to_param First_event_timeout) "first_event_timeout_s"
+  && String.equal (timeout_knob_to_param Body_timeout) "body_timeout_s"
+  && String.equal (timeout_knob_to_param Stream_idle_timeout) "stream_idle_timeout_s"
+;;
+
+(* P3b (production default): [first_event_timeout = None] + [body_timeout = Some
+   small] + a reader that never emits a first event. Pre-fix the first-event
+   wait was fully unbounded and this read hung forever (defeating RFC-OAS-037
+   acceptance point (4)); the body_timeout fallback now bounds it. The long
+   inter-token idle budget must NOT rescue it — the first-event bound does. *)
+let%test "read_sse: body_timeout bounds the first-event wait when first_event is None" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:1.0
+      ~body_timeout:0.05
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+let%test "read_ndjson: body_timeout bounds the first-event wait when first_event is None" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_ndjson
+      ~clock
+      ~idle_timeout:1.0
+      ~body_timeout:0.05
+      ~reader
+      ~on_line:(fun _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* P3a (premature transition): a provider that emits a leading BARE BLANK line
+   before real prefill. The blank is a dispatch delimiter, not first output, so
+   it must NOT switch to the short inter-token idle budget. Then it is silent
+   for 0.2s (> idle 0.05, < first-event 1.0) before the real event. Reverting
+   the fix (flipping [first_event_seen] on the blank) arms the 0.05 idle for the
+   second read and this times out at 0.05s instead of admitting the prefill. *)
+let%test "read_sse: a leading blank line does not end the first-event wait" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let payloads = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Flow.copy_string "\n" sink;
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "data: hello\n\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_sse
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_data:(fun ~event_type:_ d -> payloads := d :: !payloads)
+         ());
+  List.rev !payloads = [ "hello" ]
+;;
+
+(* NDJSON parity for P3a: a leading blank line must not end the first-event
+   wait on the Ollama NDJSON path either. *)
+let%test "read_ndjson: a leading blank line does not end the first-event wait" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let lines = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Flow.copy_string "\n" sink;
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "{\"a\":1}\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_ndjson
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_line:(fun l -> lines := l :: !lines)
+         ());
+  List.rev !lines = [ "{\"a\":1}" ]
 ;;
