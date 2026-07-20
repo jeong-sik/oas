@@ -135,6 +135,7 @@ let completion_request config : Llm_transport.completion_request =
   ; capture_id = Some "request-count-fixture"
   ; observe_wire_chunk = None
   ; stream_idle_timeout_s = None
+  ; first_event_timeout_s = None
   }
 ;;
 

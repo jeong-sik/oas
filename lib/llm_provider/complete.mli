@@ -47,6 +47,7 @@ val prepare_request
   -> ?trace_context:(string * string) list
   -> ?capture_id:string
   -> ?stream_idle_timeout_s:float
+  -> ?first_event_timeout_s:float
   -> unit
   -> prepared_request
 
@@ -256,12 +257,24 @@ val complete_admitted
     orchestration can distinguish streaming/thinking idleness from total-call
     deadlines and schedule any later attempt independently. Non-HTTP transports
     (CLI subprocess) ignore
-    [stream_idle_timeout_s]. *)
+    [stream_idle_timeout_s].
+
+    RFC-OAS-037: [first_event_timeout_s], when set, bounds the wait for the
+    FIRST streaming event separately from [stream_idle_timeout_s]. Until the
+    first event arrives the read is bounded by [first_event_timeout_s];
+    [stream_idle_timeout_s] arms for inter-token idle only AFTER the first
+    event. This prevents a slow-but-alive silent prefill on a large context
+    (no keepalives) from being cancelled as [phase=first_token] under the
+    short inter-token idle value. When omitted the first-event wait is left
+    unbounded (the streaming path carries no total body budget to fall back
+    to); inter-token idle still guards once the stream produces, and the
+    connect timeout still guards connection setup. *)
 val complete_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> ?stream_idle_timeout_s:float
+  -> ?first_event_timeout_s:float
   -> ?transport:Llm_transport.t
   -> ?capture_id:string
   -> ?wire_observer:Wire_observer.try_observe

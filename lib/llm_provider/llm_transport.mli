@@ -29,6 +29,12 @@ type completion_request =
         [None] preserves pre-0.205.0 behaviour (no idle deadline). Armed only
         when the transport also holds a clock (closed over at construction).
         See RFC-OAS-026. @since 0.205.0 *)
+  ; first_event_timeout_s : float option
+    (** RFC-OAS-037: time-to-first-event (TTFT / prefill) deadline, in
+        seconds, distinct from [stream_idle_timeout_s]. Bounds only the wait
+        for the first streaming event; inter-token idle arms after it. [None]
+        leaves the first-event wait unbounded; inter-token idle still guards
+        once the stream produces. @since 0.218.0 *)
   }
 
 (** Result of a sync completion. *)

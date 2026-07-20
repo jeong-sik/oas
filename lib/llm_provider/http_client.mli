@@ -421,10 +421,22 @@ val with_post_stream
     deadline. Wrapped by {!with_post_stream} the timeout should be
     caught by the caller and surfaced as
     [TimeoutError { phase = Stream_idle state; _ }] so downstream
-    policy can see which stream state stalled. *)
+    policy can see which stream state stalled.
+
+    RFC-OAS-037: [first_event_timeout], when supplied (with [clock]),
+    bounds the wait for the FIRST meaningful line — the time-to-first-event
+    (TTFT / prefill) window — separately from [idle_timeout], which arms
+    only AFTER the first meaningful line for inter-token idle. A silent
+    prefill on a large context is slow-but-alive, not a hang, so it must not
+    be cut by the short [idle_timeout] value. When [first_event_timeout] is
+    omitted the first-event wait is left unbounded (it never falls back to
+    the short idle value); inter-token idle still guards once the stream
+    produces. Supplying [first_event_timeout] WITHOUT [clock] raises
+    [Invalid_argument] (same silent-disarm guard as [idle_timeout]). *)
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
+  -> ?first_event_timeout:float
   -> reader:Eio.Buf_read.t
   -> on_data:(event_type:string option -> string -> unit)
   -> unit
@@ -441,10 +453,19 @@ val read_sse
     [idle_timeout] WITHOUT [clock] raises [Invalid_argument] (silent
     disarm removed). The raised timeout should be caught by the caller
     and surfaced as [TimeoutError { phase = Stream_idle state; _ }] so
-    downstream policy can see which stream state stalled. *)
+    downstream policy can see which stream state stalled.
+
+    RFC-OAS-037: [first_event_timeout], when supplied (with [clock]),
+    bounds the wait for the FIRST line — the time-to-first-event (TTFT /
+    prefill) window — separately from [idle_timeout], which arms only AFTER
+    the first line for inter-token idle. Omitting it leaves the first-event
+    wait unbounded (never the short idle value); inter-token idle still
+    guards once the stream produces. Supplying [first_event_timeout] WITHOUT
+    [clock] raises [Invalid_argument]. *)
 val read_ndjson
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
+  -> ?first_event_timeout:float
   -> reader:Eio.Buf_read.t
   -> on_line:(string -> unit)
   -> unit

@@ -32,6 +32,7 @@ let prepare
       ?(trace_context = [])
       ?capture_id
       ?stream_idle_timeout_s
+      ?first_event_timeout_s
       ()
   =
   { request =
@@ -42,6 +43,7 @@ let prepare
       ; capture_id
       ; observe_wire_chunk = None
       ; stream_idle_timeout_s
+      ; first_event_timeout_s
       }
   }
 ;;

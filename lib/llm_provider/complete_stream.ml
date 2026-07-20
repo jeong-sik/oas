@@ -343,6 +343,7 @@ let complete_stream_http
       ?clock
       ?latency_counter
       ?stream_idle_timeout_s
+      ?first_event_timeout_s
       ?observe_wire_chunk
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
@@ -675,6 +676,7 @@ let complete_stream_http
                      Http_client.read_ndjson
                        ?clock
                        ?idle_timeout:stream_idle_timeout_s
+                       ?first_event_timeout:first_event_timeout_s
                        ~reader
                        ~on_line:(fun line ->
                          observe_wire_chunk line;
@@ -703,6 +705,7 @@ let complete_stream_http
                      Http_client.read_sse
                        ?clock
                        ?idle_timeout:stream_idle_timeout_s
+                       ?first_event_timeout:first_event_timeout_s
                        ~reader
                        ~on_data:(fun ~event_type data ->
                          observe_wire_chunk data;

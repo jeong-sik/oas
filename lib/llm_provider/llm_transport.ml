@@ -15,6 +15,13 @@ type completion_request =
         blocks until the provider closes). Armed only when the transport also
         holds a clock (closed over at construction). Carried on the request so
         the dispatch cannot silently drop it. See RFC-OAS-026. @since 0.205.0 *)
+  ; first_event_timeout_s : float option
+    (** RFC-OAS-037: time-to-first-event (TTFT / prefill) deadline, in
+        seconds, distinct from [stream_idle_timeout_s]. Bounds only the wait
+        for the first streaming event; inter-token idle arms after it. [None]
+        leaves the first-event wait unbounded (no total body budget on the
+        streaming path); inter-token idle still guards once producing.
+        @since 0.218.0 *)
   }
 
 type sync_result =
