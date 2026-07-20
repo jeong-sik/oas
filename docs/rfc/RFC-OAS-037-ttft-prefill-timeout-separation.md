@@ -56,7 +56,20 @@ Scale the first-event budget by prompt token count (prefill grows with context).
 
 ### 4.2 Recommendation
 
-**Option A.** Arm `stream_idle_timeout_s` only after the first event; bound `Awaiting_first_event` with `first_event_timeout_s` (a separate, longer liveness bound), defaulting to `body_timeout_s` when unset. This corrects the conflation while keeping a dead-connect guard and the short inter-token idle guard.
+**Option A.** Arm `stream_idle_timeout_s` only after the first event; bound `Awaiting_first_event` with `first_event_timeout_s` (a separate, longer liveness bound). This corrects the conflation while keeping a dead-connect guard and the short inter-token idle guard.
+
+**Fallback chain when `first_event_timeout_s` is unset** (updated to match the implementation in #2723):
+
+`first_event_timeout_s` → `body_timeout_s` → `stream_idle_timeout_s` → unarmed.
+
+The draft stopped at `body_timeout_s`. Two arms were added while implementing:
+
+- **`stream_idle_timeout_s`**: before this RFC that value bounded the first event too. A caller that wires only an idle deadline and neither of the other two must keep exactly its previous bound — widening it is an unrequested behaviour change, and the repo's contract tests catch it.
+- **unarmed**: with none of the three wired the wait stays unarmed, as before. An earlier revision of #2723 inserted an internal 300s ceiling here; that was wrong twice over — a hardcoded magic number, and a silent reversal of the "omitted means disabled" contract that re-introduced the provider idle defaults which were deliberately removed (pinned by `removed_provider_idle_defaults_upper_bound_s` in `test_complete_http.ml`). Every arm must resolve to a caller-supplied value; this layer never invents a deadline.
+
+A dead connect on the all-unset path is bounded by the connect timeout and by the caller's own total-call deadline, not by a budget this layer makes up.
+
+**Attribution.** A fired deadline names the knob that actually armed it. Before the split every phase was governed by `stream_idle_timeout_s`; naming that knob for a first-event timeout sourced from `body_timeout_s` would send the operator to tune a value with no effect on the phase that failed — defeating the diagnosis this RFC exists to enable. Attribution is derived from the same resolver as the armed bound, so the precedence chain has one definition and the message cannot drift from behaviour.
 
 ### 4.3 Interaction with masc RFC-0345
 
@@ -68,6 +81,9 @@ RFC-0345 (merged) adds a masc-side fail-safe floor for `stream_idle_timeout_s`. 
 - A stream with no first event beyond the first-event budget still fails (dead connect guarded).
 - A stream that produces a first event then stalls beyond `stream_idle_timeout_s` still fails (inter-token idle guarded) — unchanged.
 - Keepalive-emitting providers unchanged.
+- **Each arm of the fallback chain is pinned separately** — explicit `first_event_timeout_s` wins over both others; `body_timeout_s` wins over idle; idle applies when it is the only bound; all-unset stays unarmed. A reordering, or a re-introduced built-in default, fails one of these rather than showing up as a timing flake.
+- **A caller that wires only `stream_idle_timeout_s` keeps its previous behaviour** — the existing streaming contract tests (`stream` 9/12/14/15/16 in `test_complete_http.ml`) stay green without modification. They are the guard against reviving the removed provider idle defaults, so they must not be relaxed to accommodate this change.
+- **A fired timeout names the governing knob**, not `stream_idle_timeout_s` unconditionally. Pinned per source, including one later phase to confirm inter-token timeouts are still attributed to idle.
 
 ## 6. Blast radius
 
