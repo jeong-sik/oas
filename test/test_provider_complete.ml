@@ -767,6 +767,159 @@ let test_ollama_parse_rejects_non_object_tool_arguments () =
   | Ok _ -> Alcotest.fail "expected non-object Ollama tool arguments to fail closed"
 ;;
 
+let ollama_tool_correlation_config () =
+  PC.make
+    ~kind:Ollama
+    ~model_id:"native-tool-correlation-test"
+    ~base_url:"http://127.0.0.1:11434"
+    ()
+;;
+
+let tool_result_message tool_use_id : message =
+  { role = Tool
+  ; content =
+      [ ToolResult
+          { tool_use_id
+          ; content = "ok"
+          ; outcome = Tool_succeeded
+          ; json = None
+          ; content_blocks = None
+          }
+      ]
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let tool_use_message id name : message =
+  { role = Assistant
+  ; content = [ ToolUse { id; name; input = `Assoc [] } ]
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let check_ollama_correlation_rejected ~expected messages =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let config = ollama_tool_correlation_config () in
+  let check_result label = function
+    | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+      Alcotest.(check string) label expected reason
+    | Ok _ -> Alcotest.failf "%s: expected AcceptRejected" label
+    | Error _ -> Alcotest.failf "%s: expected typed AcceptRejected" label
+  in
+  check_result
+    "sync correlation rejection"
+    (Llm_provider.Complete.complete ~sw ~net ~config ~messages ());
+  check_result
+    "stream correlation rejection"
+    (Llm_provider.Complete.complete_stream
+       ~sw
+       ~net
+       ~config
+       ~messages
+       ~on_event:(fun _ -> ())
+       ())
+;;
+
+let test_ollama_missing_tool_correlation_rejected_sync_and_stream () =
+  check_ollama_correlation_rejected
+    ~expected:
+      "Backend_ollama.build_request: ToolResult identity \"missing-call\" has no \
+       matching ToolUse in the active assistant batch"
+    [ tool_result_message "missing-call" ]
+;;
+
+let test_ollama_conflicting_tool_correlation_rejected_sync_and_stream () =
+  let conflicting_batch : message =
+    { role = Assistant
+    ; content =
+        [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [] }
+        ; ToolUse { id = "call-1"; name = "write"; input = `Assoc [] }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  check_ollama_correlation_rejected
+    ~expected:
+      "Backend_ollama.build_request: conflicting ToolUse identity \"call-1\" names \
+       \"lookup\" and \"write\" in one assistant batch"
+    [ conflicting_batch; tool_result_message "call-1" ]
+;;
+
+let test_ollama_reused_tool_id_resolves_by_turn_occurrence () =
+  let messages =
+    [ user_msg "first turn"
+    ; tool_use_message "reused-call" "lookup"
+    ; tool_result_message "reused-call"
+    ; user_msg "second turn"
+    ; tool_use_message "reused-call" "write"
+    ; tool_result_message "reused-call"
+    ]
+  in
+  let body =
+    BOL.build_request ~config:(ollama_tool_correlation_config ()) ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let tool_names =
+    Yojson.Safe.Util.(body |> member "messages" |> to_list)
+    |> List.filter_map (fun message ->
+      match Yojson.Safe.Util.(message |> member "role" |> to_string_option) with
+      | Some "tool" ->
+        Yojson.Safe.Util.(message |> member "tool_name" |> to_string_option)
+      | Some _ | None -> None)
+  in
+  Alcotest.(check (list string))
+    "provider id reuse is scoped to each canonical turn occurrence"
+    [ "lookup"; "write" ]
+    tool_names
+;;
+
+let test_ollama_native_tool_role_rejects_legacy_shapes () =
+  let cases =
+    [ ( "User/ToolResult"
+      , [ tool_use_message "call-1" "lookup"
+        ; { (tool_result_message "call-1") with role = User }
+        ]
+      , "Backend_ollama.build_request: Ollama native ToolResult must use role Tool, got \
+         role user" )
+    ; ( "Tool/Text"
+      , [ make_message ~role:Tool [ Text "legacy fallback" ] ]
+      , "Backend_ollama.build_request: Ollama native role Tool accepts only ToolResult \
+         blocks" )
+    ; ( "empty Tool"
+      , [ make_message ~role:Tool [] ]
+      , "Backend_ollama.build_request: Ollama native role Tool requires at least one \
+         ToolResult" )
+    ; ( "User/ToolUse"
+      , [ { (tool_use_message "call-1" "lookup") with role = User } ]
+      , "Backend_ollama.build_request: Ollama native ToolUse must use role Assistant, \
+         got role user" )
+    ; ( "System/ToolUse"
+      , [ { (tool_use_message "call-1" "lookup") with role = System } ]
+      , "Backend_ollama.build_request: Ollama native ToolUse must use role Assistant, \
+         got role system" )
+    ]
+  in
+  List.iter
+    (fun (label, messages, expected) ->
+       match
+         BOL.build_request ~config:(ollama_tool_correlation_config ()) ~messages ()
+       with
+       | _ -> Alcotest.failf "expected legacy Ollama native shape %s to be rejected" label
+       | exception Invalid_argument message ->
+         Alcotest.(check string) label expected message)
+    cases
+;;
+
 let test_openai_with_json_schema () =
   let schema =
     `Assoc
@@ -1989,6 +2142,22 @@ let () =
             "ollama non-object tool arguments rejected"
             `Quick
             test_ollama_parse_rejects_non_object_tool_arguments
+        ; test_case
+            "ollama missing correlation rejects sync and stream"
+            `Quick
+            test_ollama_missing_tool_correlation_rejected_sync_and_stream
+        ; test_case
+            "ollama conflicting correlation rejects sync and stream"
+            `Quick
+            test_ollama_conflicting_tool_correlation_rejected_sync_and_stream
+        ; test_case
+            "ollama reused tool id resolves by turn occurrence"
+            `Quick
+            test_ollama_reused_tool_id_resolves_by_turn_occurrence
+        ; test_case
+            "ollama native legacy tool shapes rejected"
+            `Quick
+            test_ollama_native_tool_role_rejects_legacy_shapes
         ; test_case
             "glm preserved reasoning replay"
             `Quick

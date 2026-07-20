@@ -77,6 +77,12 @@ let render_single_dialect_message ?assistant_tool_content_format dialect message
   dialect_messages_of_history ?assistant_tool_content_format dialect [ message ]
 ;;
 
+let ollama_messages ?model_id messages =
+  match Serialize.ollama_messages_of_history ?model_id messages with
+  | Ok messages -> messages
+  | Error error -> Alcotest.fail ("Ollama history serialization failed: " ^ error)
+;;
+
 let only label = function
   | [ x ] -> x
   | xs ->
@@ -582,15 +588,16 @@ let test_non_base64_media_source_fails_closed () =
       ]
     |> ignore);
   expect_invalid_arg "ollama image url" (fun () ->
-    Serialize.ollama_messages_of_message
-      (msg
-         User
-         [ Image
-             { media_type = "image/png"
-             ; data = "https://example.invalid/image.png"
-             ; source_type = Types.Url
-             }
-         ])
+    ollama_messages
+      [ msg
+          User
+          [ Image
+              { media_type = "image/png"
+              ; data = "https://example.invalid/image.png"
+              ; source_type = Types.Url
+              }
+          ]
+      ]
     |> ignore);
   let config =
     Provider_config.make
@@ -690,9 +697,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     "text"
     (List.nth openai_parts 0 |> member "type" |> to_string);
   let ollama =
-    Serialize.ollama_messages_of_message
-      ~model_id:"google/gemma-4-26B-A4B-it"
-      (msg User content)
+    ollama_messages ~model_id:"google/gemma-4-26B-A4B-it" [ msg User content ]
     |> only "ollama"
   in
   (* Ollama native /api/chat requires content to be a plain string and places
@@ -706,10 +711,12 @@ let test_user_multimodal_preserve_and_visual_first () =
 let test_ollama_native_multimodal_variants () =
   (* Image-only user message: content is an empty string, images carries the payload. *)
   let image_only =
-    Serialize.ollama_messages_of_message
-      (msg
-         User
-         [ Image { media_type = "image/png"; data = "png1"; source_type = Types.Base64 } ])
+    ollama_messages
+      [ msg
+          User
+          [ Image { media_type = "image/png"; data = "png1"; source_type = Types.Base64 }
+          ]
+      ]
     |> only "ollama"
   in
   check_string "image-only content empty" "" (member "content" image_only |> to_string);
@@ -718,12 +725,16 @@ let test_ollama_native_multimodal_variants () =
   check_string "image-only payload" "png1" (List.nth images 0 |> to_string);
   (* Document blocks are forwarded as images for vision-model compatibility. *)
   let doc_msg =
-    Serialize.ollama_messages_of_message
-      (msg
-         User
-         [ Document
-             { media_type = "application/pdf"; data = "pdf1"; source_type = Types.Base64 }
-         ])
+    ollama_messages
+      [ msg
+          User
+          [ Document
+              { media_type = "application/pdf"
+              ; data = "pdf1"
+              ; source_type = Types.Base64
+              }
+          ]
+      ]
     |> only "ollama"
   in
   let doc_images = member "images" doc_msg |> as_list "document images" in
@@ -732,21 +743,27 @@ let test_ollama_native_multimodal_variants () =
   (* Audio is not supported by Ollama native /api/chat and must fail closed
      instead of being silently dropped. *)
   expect_invalid_arg "ollama audio input" (fun () ->
-    Serialize.ollama_messages_of_message
-      (msg
-         User
-         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 } ])
+    ollama_messages
+      [ msg
+          User
+          [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 }
+          ]
+      ]
     |> ignore);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
-    Serialize.ollama_messages_of_message
-      (msg
-         User
-         [ Text "describe these"
-         ; Image { media_type = "image/png"; data = "png2"; source_type = Types.Base64 }
-         ; Document
-             { media_type = "application/pdf"; data = "pdf2"; source_type = Types.Base64 }
-         ])
+    ollama_messages
+      [ msg
+          User
+          [ Text "describe these"
+          ; Image { media_type = "image/png"; data = "png2"; source_type = Types.Base64 }
+          ; Document
+              { media_type = "application/pdf"
+              ; data = "pdf2"
+              ; source_type = Types.Base64
+              }
+          ]
+      ]
     |> only "ollama"
   in
   check_string "mixed content" "describe these" (member "content" mixed |> to_string);
@@ -770,7 +787,7 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "openai arguments string"
     {|{"q":"x"}|}
     (member "function" call |> member "arguments" |> to_string);
-  let ollama = Serialize.ollama_messages_of_message assistant |> only "ollama" in
+  let ollama = ollama_messages [ assistant ] |> only "ollama" in
   let ollama_call =
     member "tool_calls" ollama |> as_list "ollama tool_calls" |> only "tool_call"
   in
@@ -988,9 +1005,21 @@ let test_serializer_ignored_block_variants () =
     "openai tool_calls ignores non-tool blocks"
     0
     (Serialize.tool_calls_to_openai_json ignored_blocks |> List.length);
-  let ollama =
-    Serialize.ollama_messages_of_message (msg Assistant ignored_blocks) |> only "ollama"
+  let ollama_blocks =
+    List.filter
+      (function
+        | ToolResult _ -> false
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ -> true)
+      ignored_blocks
   in
+  let ollama = ollama_messages [ msg Assistant ollama_blocks ] |> only "ollama" in
   Alcotest.(check bool)
     "ollama has no tool_calls"
     true

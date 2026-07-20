@@ -414,6 +414,134 @@ let test_ollama_request_replays_native_thinking_field () =
     Yojson.Safe.Util.(assistant |> member "thinking" |> to_string = "native reasoning")
 ;;
 
+let ollama_native_capabilities reasoning_replay_override =
+  { Capabilities.ollama_capabilities with
+    supports_reasoning = true
+  ; reasoning_replay_override
+  }
+;;
+
+let test_ollama_native_default_replays_only_latest_user_turn_tool_thinking () =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"native-thinking-model"
+      ~base_url:"http://localhost:11434"
+      ~model_capabilities_override:(ollama_native_capabilities Default_reasoning_replay)
+      ()
+  in
+  let dialect = Reasoning_dialect.for_provider_config config in
+  check_bool
+    "native default is latest-user-turn tool replay"
+    true
+    ((Reasoning_dialect.replay_contract dialect).replay_policy
+     = Tool_call_assistant_messages_latest_user_turn);
+  let source = source_for_config config in
+  let body =
+    Backend_ollama.build_request
+      ~config
+      ~messages:
+        [ message User [ Text "old request" ]
+        ; with_source
+            source
+            Assistant
+            [ Thinking { content = "old reasoning"; signature = None }
+            ; ToolUse { id = "old-call"; name = "old_lookup"; input = `Assoc [] }
+            ]
+        ; message Tool [ tool_result "old-call" ]
+        ; message User [ Text "current request" ]
+        ; with_source
+            source
+            Assistant
+            [ Thinking { content = "current reasoning"; signature = None }
+            ; ToolUse { id = "current-call"; name = "current_lookup"; input = `Assoc [] }
+            ]
+        ; message Tool [ tool_result "current-call" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let wire_messages = Yojson.Safe.Util.(body |> member "messages" |> to_list) in
+  let expected_tool_call id name =
+    `Assoc
+      [ "id", `String id
+      ; "type", `String "function"
+      ; "function", `Assoc [ "name", `String name; "arguments", `Assoc [] ]
+      ]
+  in
+  let expected_wire_messages =
+    `List
+      [ `Assoc [ "role", `String "user"; "content", `String "old request" ]
+      ; `Assoc
+          [ "tool_calls", `List [ expected_tool_call "old-call" "old_lookup" ]
+          ; "role", `String "assistant"
+          ; "content", `Null
+          ]
+      ; `Assoc
+          [ "role", `String "tool"
+          ; "tool_name", `String "old_lookup"
+          ; "content", `String "ok"
+          ]
+      ; `Assoc [ "role", `String "user"; "content", `String "current request" ]
+      ; `Assoc
+          [ "thinking", `String "current reasoning"
+          ; "tool_calls", `List [ expected_tool_call "current-call" "current_lookup" ]
+          ; "role", `String "assistant"
+          ; "content", `Null
+          ]
+      ; `Assoc
+          [ "role", `String "tool"
+          ; "tool_name", `String "current_lookup"
+          ; "content", `String "ok"
+          ]
+      ]
+  in
+  check_bool
+    "native replay preserves exact thinking/tool/result order"
+    true
+    (Yojson.Safe.equal (`List wire_messages) expected_wire_messages);
+  let old_assistant = List.nth wire_messages 1 in
+  let current_assistant = List.nth wire_messages 4 in
+  check_bool
+    "older turn thinking dropped"
+    true
+    Yojson.Safe.Util.(old_assistant |> member "thinking" = `Null);
+  check_bool
+    "current tool turn thinking retained"
+    true
+    Yojson.Safe.Util.(
+      current_assistant |> member "thinking" |> to_string = "current reasoning")
+;;
+
+let test_ollama_native_catalog_replay_overrides_win () =
+  let cases =
+    [ Capabilities.Force_no_replay, Reasoning_replay_contract.No_replay
+    ; ( Capabilities.Force_drop_without_tool_preserve_with_tool
+      , Reasoning_replay_contract.Tool_call_assistant_messages_all_history )
+    ; ( Capabilities.Force_latest_user_turn_tool_calls
+      , Reasoning_replay_contract.Tool_call_assistant_messages_latest_user_turn )
+    ; Capabilities.Force_preserve_always, Reasoning_replay_contract.All_assistant_messages
+    ]
+  in
+  List.iteri
+    (fun index (override, expected) ->
+       let config =
+         Provider_config.make
+           ~kind:Ollama
+           ~model_id:(Printf.sprintf "native-replay-override-%d" index)
+           ~base_url:"http://localhost:11434"
+           ~model_capabilities_override:(ollama_native_capabilities override)
+           ()
+       in
+       let actual =
+         Reasoning_dialect.for_provider_config config
+         |> Reasoning_dialect.replay_contract
+         |> fun contract -> contract.replay_policy
+       in
+       check_bool "catalog replay override remains authoritative" true (actual = expected))
+    cases
+;;
+
 let test_openai_responses_replays_only_opaque_item () =
   let config =
     Provider_config.make
@@ -499,6 +627,14 @@ let () =
             "Ollama native boundary"
             `Quick
             test_ollama_request_replays_native_thinking_field
+        ; Alcotest.test_case
+            "Ollama native latest-turn default"
+            `Quick
+            test_ollama_native_default_replays_only_latest_user_turn_tool_thinking
+        ; Alcotest.test_case
+            "Ollama catalog replay override wins"
+            `Quick
+            test_ollama_native_catalog_replay_overrides_win
         ; Alcotest.test_case
             "OpenAI Responses opaque boundary"
             `Quick

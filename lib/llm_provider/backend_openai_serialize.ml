@@ -310,15 +310,18 @@ let assistant_reasoning_details_of_blocks blocks =
   | _ :: _ -> Some details
 ;;
 
+let tool_result_content_string ~content ~content_blocks =
+  match content_blocks with
+  | Some blocks ->
+    (* Both OpenAI and Ollama tool messages accept scalar string content.
+       Preserve structured canonical results as a JSON string rather than
+       dropping their blocks at either wire boundary. *)
+    Yojson.Safe.to_string (`List (List.map Api_common.content_block_to_json blocks))
+  | None -> Utf8_sanitize.sanitize content
+;;
+
 let openai_tool_message_of_result ~tool_use_id ~content ~content_blocks =
-  let content_str =
-    match content_blocks with
-    | Some blocks ->
-      (* OpenAI tool messages accept string content only; encode structured
-         blocks as a JSON string so the result is not lost. *)
-      Yojson.Safe.to_string (`List (List.map Api_common.content_block_to_json blocks))
-    | None -> Utf8_sanitize.sanitize content
-  in
+  let content_str = tool_result_content_string ~content ~content_blocks in
   `Assoc
     [ "role", `String "tool"
     ; "tool_call_id", `String tool_use_id
@@ -343,6 +346,7 @@ let openai_tool_messages_of_blocks blocks =
 
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
+      ?(tool_messages_fn = openai_tool_messages_of_blocks)
       ?(include_reasoning_content = false)
       ?(include_reasoning_details = false)
       ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
@@ -380,7 +384,7 @@ let messages_of_message_with
         let text_content = Api_common.text_blocks_to_string msg.content in
         [ `Assoc [ "role", `String "user"; "content", `String text_content ] ])
     in
-    let tool_msgs = openai_tool_messages_of_blocks msg.content in
+    let tool_msgs = tool_messages_fn msg.content in
     (* Legacy compatibility: older histories may pack ToolResult blocks and
        user text into one role:User message. Normal pipeline output records
        ToolResult blocks on role:Tool; this split keeps persisted mixed
@@ -434,7 +438,7 @@ let messages_of_message_with
     [ `Assoc [ "role", `String "system"; "content", `String text ] ]
   | Tool ->
     msg.content
-    |> openai_tool_messages_of_blocks
+    |> tool_messages_fn
     |> (function
      | [] ->
        let text = Api_common.text_blocks_to_string msg.content in
@@ -649,31 +653,134 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
           ])
 ;;
 
-let ollama_messages_of_message ?(model_id = "") msg =
-  let modality_priority = modality_priority_for_model_id model_id in
-  match msg.role with
-  | User ->
-    (* Native /api/chat: content must be a string; images go in images array. *)
-    let user_msg = ollama_native_user_message ~modality_priority msg.content in
-    let tool_msgs = openai_tool_messages_of_blocks msg.content in
-    (match user_msg with
-     | None -> tool_msgs
-     | Some m -> tool_msgs @ [ m ])
-  | Assistant ->
-    let thinking = assistant_reasoning_content_of_blocks msg.content in
-    messages_of_message_with
-      ~tool_calls_fn:tool_calls_to_ollama_json
-      ~modality_priority
-      msg
-    |> List.map (function
-      | `Assoc fields when not (Api_common.string_is_blank thinking) ->
-        `Assoc (("thinking", `String thinking) :: fields)
-      | message -> message)
-  | System | Tool ->
-    messages_of_message_with
-      ~tool_calls_fn:tool_calls_to_ollama_json
-      ~modality_priority
-      msg
+let ollama_tool_messages_of_blocks blocks =
+  let rec loop messages = function
+    | [] -> Ok (List.rev messages)
+    | (ToolResult { content; content_blocks; _ }, Some tool_name) :: rest ->
+      let content = tool_result_content_string ~content ~content_blocks in
+      let message =
+        `Assoc
+          [ "role", `String "tool"
+          ; "tool_name", `String tool_name
+          ; "content", `String content
+          ]
+      in
+      loop (message :: messages) rest
+    | (ToolResult { tool_use_id; _ }, None) :: _ ->
+      Error
+        (Printf.sprintf
+           "Ollama native ToolResult identity %S has no resolved tool name"
+           tool_use_id)
+    | ( ( Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ )
+      , None )
+      :: rest -> loop messages rest
+    | (_, Some _) :: _ ->
+      Error "Ollama native correlation annotated a non-ToolResult content block"
+  in
+  loop [] blocks
+;;
+
+let ollama_tool_block_role_contract (message : message) =
+  let rec classify has_tool_use has_tool_result has_other = function
+    | [] -> has_tool_use, has_tool_result, has_other
+    | ToolUse _ :: rest -> classify true has_tool_result has_other rest
+    | ToolResult _ :: rest -> classify has_tool_use true has_other rest
+    | ( Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | Image _
+      | Document _
+      | Audio _ )
+      :: rest -> classify has_tool_use has_tool_result true rest
+  in
+  let has_tool_use, has_tool_result, has_other =
+    classify false false false message.content
+  in
+  match message.role, message.content with
+  | Tool, [] -> Error "Ollama native role Tool requires at least one ToolResult"
+  | Tool, _ ->
+    if has_tool_use || has_other
+    then Error "Ollama native role Tool accepts only ToolResult blocks"
+    else if not has_tool_result
+    then Error "Ollama native role Tool requires at least one ToolResult"
+    else Ok ()
+  | (User | System | Assistant), _ ->
+    if has_tool_result
+    then
+      Error
+        (Printf.sprintf
+           "Ollama native ToolResult must use role Tool, got role %s"
+           (Types.role_to_string message.role))
+    else if has_tool_use && message.role <> Assistant
+    then
+      Error
+        (Printf.sprintf
+           "Ollama native ToolUse must use role Assistant, got role %s"
+           (Types.role_to_string message.role))
+    else Ok ()
+;;
+
+let ollama_messages_of_history ?(model_id = "") messages =
+  let rec validate = function
+    | [] -> Ok ()
+    | message :: rest ->
+      (match ollama_tool_block_role_contract message with
+       | Error _ as error -> error
+       | Ok () -> validate rest)
+  in
+  match validate messages with
+  | Error _ as error -> error
+  | Ok () ->
+    (match Tool_result_projection.of_messages messages with
+     | Error error -> Error (Tool_result_projection.error_to_string error)
+     | Ok projection ->
+       let modality_priority = modality_priority_for_model_id model_id in
+       let rec render rendered = function
+         | [] -> Ok (List.rev rendered |> List.concat)
+         | resolved_message :: rest ->
+           let msg = Tool_result_projection.original_message resolved_message in
+           (match
+              Tool_result_projection.content resolved_message
+              |> ollama_tool_messages_of_blocks
+            with
+            | Error _ as error -> error
+            | Ok tool_messages ->
+              let wire_messages =
+                match msg.role with
+                | User ->
+                  (* Native /api/chat: content is scalar; images are separate. *)
+                  (match ollama_native_user_message ~modality_priority msg.content with
+                   | None -> tool_messages
+                   | Some user_message -> tool_messages @ [ user_message ])
+                | Assistant ->
+                  let thinking = assistant_reasoning_content_of_blocks msg.content in
+                  messages_of_message_with
+                    ~tool_calls_fn:tool_calls_to_ollama_json
+                    ~tool_messages_fn:(fun _ -> tool_messages)
+                    ~modality_priority
+                    msg
+                  |> List.map (function
+                    | `Assoc fields when not (Api_common.string_is_blank thinking) ->
+                      `Assoc (("thinking", `String thinking) :: fields)
+                    | message -> message)
+                | System | Tool ->
+                  messages_of_message_with
+                    ~tool_calls_fn:tool_calls_to_ollama_json
+                    ~tool_messages_fn:(fun _ -> tool_messages)
+                    ~modality_priority
+                    msg
+              in
+              render (wire_messages :: rendered) rest)
+       in
+       render [] (Tool_result_projection.messages projection))
 ;;
 
 let tool_choice_to_openai_json = function

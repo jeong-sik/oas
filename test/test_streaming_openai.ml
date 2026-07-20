@@ -1522,6 +1522,42 @@ let test_ollama_idless_tool_identity_matches_final_response () =
   | Error _ -> Alcotest.fail "expected Ollama id-less tool stream to finalize"
 ;;
 
+let test_ollama_idless_complete_calls_are_distinct_across_chunks () =
+  let state = S.create_openai_stream_state ~provider:"ollama" ~model:"qwen" () in
+  let acc = Acc.create_stream_acc () in
+  Acc.accumulate_event acc (MessageStart { id = "ollama"; model = "qwen"; usage = None });
+  let feed line =
+    let chunk = parse_ollama_line_exn line in
+    let events, _ = S.ollama_chunk_to_events state chunk in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  (* Both complete provider items occupy array index 0 in their own chunk.
+     They are two call occurrences, not fragments of one call. *)
+  feed
+    {|{"model":"qwen","message":{"role":"assistant","tool_calls":[{"function":{"name":"lookup","arguments":{"city":"Seoul"}}}]},"done":false}|};
+  feed
+    {|{"model":"qwen","message":{"role":"assistant","tool_calls":[{"function":{"name":"lookup","arguments":{"city":"Seoul"}}}]},"done":true,"done_reason":"tool_calls"}|};
+  match Acc.finalize_stream_acc acc with
+  | Ok
+      { content =
+          [ ToolUse { id = first_id; name = "lookup"; input = first_input }
+          ; ToolUse { id = second_id; name = "lookup"; input = second_input }
+          ]
+      ; _
+      } ->
+    Alcotest.(check bool) "occurrence ids differ" true (first_id <> second_id);
+    Alcotest.(check bool)
+      "first input"
+      true
+      (first_input = `Assoc [ "city", `String "Seoul" ]);
+    Alcotest.(check bool)
+      "second input"
+      true
+      (second_input = `Assoc [ "city", `String "Seoul" ])
+  | Ok _ -> Alcotest.fail "expected two distinct id-less Ollama ToolUse occurrences"
+  | Error _ -> Alcotest.fail "expected complete id-less occurrences to finalize"
+;;
+
 let () =
   let open Alcotest in
   run
@@ -1671,6 +1707,10 @@ let () =
             "id-less start identity equals finalized ToolUse"
             `Quick
             test_ollama_idless_tool_identity_matches_final_response
+        ; test_case
+            "id-less complete calls stay distinct across chunks"
+            `Quick
+            test_ollama_idless_complete_calls_are_distinct_across_chunks
         ] )
     ]
 ;;

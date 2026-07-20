@@ -548,7 +548,32 @@ let base_for_provider_config (config : Provider_config.t) =
       replay_policy = Preserve_always
     ; streaming = Delta_field "thought"
     }
-  | Kimi | OpenAI_compat | Ollama | Glm ->
+  | Ollama ->
+    let caps =
+      match Provider_config.capabilities_for_config_model config with
+      | Some caps -> caps
+      | None -> provider_capabilities_of_kind config.kind
+    in
+    let dialect = of_capabilities caps in
+    (* Ollama native [/api/chat] tool-loop history must return the accumulated
+       assistant [thinking] together with its tool calls in the next request.
+       The structural latest-user-turn policy preserves exactly those active
+       tool-call artifacts without recursively replaying old-turn traces.
+
+       Official Ollama tool-calling and streaming guides, checked 2026-07-20:
+       https://docs.ollama.com/capabilities/tool-calling
+       https://docs.ollama.com/capabilities/streaming
+
+       A catalog/manifest override remains authoritative: the transport
+       default applies only when the capability row says [Default]. *)
+    (match caps.reasoning_replay_override with
+     | Default_reasoning_replay ->
+       { dialect with replay_policy = Latest_user_turn_tool_calls }
+     | Force_no_replay
+     | Force_drop_without_tool_preserve_with_tool
+     | Force_latest_user_turn_tool_calls
+     | Force_preserve_always -> dialect)
+  | Kimi | OpenAI_compat | Glm ->
     (match Provider_config.capabilities_for_config_model config with
      | Some caps -> of_capabilities caps
      | None -> provider_capabilities_of_kind config.kind |> of_capabilities)
