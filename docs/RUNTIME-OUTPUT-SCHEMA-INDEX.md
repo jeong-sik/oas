@@ -19,8 +19,6 @@ Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`
 | `oas.runtime_evidence_bundle.v1` | Runtime evidence bundle JSON artifact | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session evidence tests |
 | `oas.raw_trace_record.v1` | Raw trace JSONL rows | `lib/raw_trace.mli` | Raw trace roundtrip tests |
 | `oas.raw_trace_manifest.v1` | Raw trace manifest artifact | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session and sessions type tests |
-| `oas.harness_report.v1` | Harness report JSON/Markdown/JUnit artifacts | `lib/harness_report.mli` | Harness runner and CLI report tests |
-| `oas.eval_report.v1` | Evaluation report JSON/text section | `lib/eval_report.mli` | Eval report and CLI baseline tests |
 | `oas.structured_schema.v1` | Structured output schema helper | `lib/structured.mli`, `lib/base/types.mli` | Structured schema tests |
 
 ## Rules

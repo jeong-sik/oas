@@ -122,7 +122,6 @@ type run_metrics =
   ; timestamp : float
   ; metrics : metric list
   ; harness_verdicts : Harness.verdict list
-  ; trace_summary : Trace_eval.summary option
   }
 
 let run_metrics_to_yojson rm =
@@ -150,7 +149,6 @@ let run_metrics_to_yojson rm =
     ; "timestamp", `Float rm.timestamp
     ; "metrics", `List (List.map metric_to_yojson rm.metrics)
     ; "harness_verdicts", verdicts_json
-    ; "has_trace_summary", `Bool (Option.is_some rm.trace_summary)
     ]
 ;;
 
@@ -177,14 +175,7 @@ let run_metrics_of_yojson json =
     | Error e -> Error e
     | Ok metrics ->
       let metrics = List.rev metrics in
-      Ok
-        { run_id
-        ; agent_name
-        ; timestamp
-        ; metrics
-        ; harness_verdicts = []
-        ; trace_summary = None
-        }
+      Ok { run_id; agent_name; timestamp; metrics; harness_verdicts = [] }
   with
   | Type_error (msg, _) -> Error msg
 ;;
@@ -206,11 +197,10 @@ type collector =
   ; run_id : string
   ; mutable metrics : metric list
   ; mutable harness_verdicts : Harness.verdict list
-  ; mutable trace_summary : Trace_eval.summary option
   }
 
 let create_collector ~agent_name ~run_id =
-  { agent_name; run_id; metrics = []; harness_verdicts = []; trace_summary = None }
+  { agent_name; run_id; metrics = []; harness_verdicts = [] }
 ;;
 
 let record collector metric = collector.metrics <- metric :: collector.metrics
@@ -219,15 +209,12 @@ let add_verdict collector verdict =
   collector.harness_verdicts <- verdict :: collector.harness_verdicts
 ;;
 
-let set_trace_summary collector summary = collector.trace_summary <- Some summary
-
 let finalize collector =
   { run_id = collector.run_id
   ; agent_name = collector.agent_name
   ; timestamp = Unix.gettimeofday ()
   ; metrics = List.rev collector.metrics
   ; harness_verdicts = List.rev collector.harness_verdicts
-  ; trace_summary = collector.trace_summary
   }
 ;;
 
@@ -441,109 +428,4 @@ let find_metric (rm : run_metrics) name =
 
 let find_metric_value rm name =
   Option.map (fun (m : metric) -> m.value) (find_metric rm name)
-;;
-
-(* ── Statistical regression detection ──────────────────────── *)
-
-(** Compare two run_metrics using statistical testing.
-    Extracts float values for each metric name, applies Welch's t-test
-    across all matching metrics. Returns a comparison enhanced with
-    statistical significance. *)
-let compare_statistical ~(baselines : run_metrics list) ~(candidates : run_metrics list) =
-  (* Collect per-metric float lists *)
-  let collect_metric_values (runs : run_metrics list) name =
-    List.filter_map
-      (fun (rm : run_metrics) ->
-         match find_metric rm name with
-         | Some m -> metric_value_to_float m.value
-         | None -> None)
-      runs
-  in
-  (* Get all metric names from baselines *)
-  let metric_names =
-    List.sort_uniq
-      String.compare
-      (List.concat_map
-         (fun (rm : run_metrics) -> List.map (fun (m : metric) -> m.name) rm.metrics)
-         baselines)
-  in
-  let regressions =
-    List.filter_map
-      (fun name ->
-         let baseline_vals = collect_metric_values baselines name in
-         let candidate_vals = collect_metric_values candidates name in
-         if Eval_stats.is_regression ~baseline:baseline_vals ~current:candidate_vals
-         then (
-           let eff = Eval_stats.effect_size baseline_vals candidate_vals in
-           Some (name, eff))
-         else None)
-      metric_names
-  in
-  regressions
-;;
-
-(* ── Swiss Verdict JSON export ───────────────────────────────── *)
-
-(** Produce a JSON object conforming to swiss-verdict.schema.json (v1).
-
-    Maps [harness_verdicts] into [layer_results] and [metrics] into
-    [eval_metrics].  Each [Harness.verdict] becomes one layer_result
-    entry using ordinal naming ("verdict_0", "verdict_1", ...). *)
-let run_metrics_to_json (rm : run_metrics) : Yojson.Safe.t =
-  let layer_results =
-    List.mapi
-      (fun i (v : Harness.verdict) ->
-         `Assoc
-           [ "layer_name", `String (Printf.sprintf "verdict_%d" i)
-           ; "passed", `Bool v.passed
-           ; ( "score"
-             , match v.score with
-               | Some s -> `Float s
-               | None -> `Null )
-           ; "evidence", Util.json_of_string_list v.evidence
-           ; ( "detail"
-             , match v.detail with
-               | Some d -> `String d
-               | None -> `Null )
-           ])
-      rm.harness_verdicts
-  in
-  let all_passed =
-    List.for_all (fun (v : Harness.verdict) -> v.passed) rm.harness_verdicts
-  in
-  let coverage =
-    let total = List.length rm.harness_verdicts in
-    if total = 0
-    then 1.0
-    else (
-      let passed =
-        List.length
-          (List.filter (fun (v : Harness.verdict) -> v.passed) rm.harness_verdicts)
-      in
-      Float.of_int passed /. Float.of_int total)
-  in
-  let eval_metrics =
-    List.map
-      (fun (m : metric) ->
-         let base = [ "name", `String m.name; "value", metric_value_to_yojson m.value ] in
-         let unit_part =
-           match m.unit_ with
-           | Some u -> [ "unit", `String u ]
-           | None -> [ "unit", `Null ]
-         in
-         let tags_part =
-           match m.tags with
-           | [] -> []
-           | tags -> [ "tags", Util.json_of_string_pairs tags ]
-         in
-         `Assoc (base @ unit_part @ tags_part))
-      rm.metrics
-  in
-  `Assoc
-    [ "schema_version", `Int 1
-    ; "all_passed", `Bool all_passed
-    ; "coverage", `Float coverage
-    ; "layer_results", `List layer_results
-    ; "eval_metrics", `List eval_metrics
-    ]
 ;;

@@ -115,57 +115,6 @@ let test_swiss_verdict_to_json_partial_pass () =
   Alcotest.(check (float 0.001)) "coverage" 0.5 (get_float "coverage" json)
 ;;
 
-(* ── run_metrics_to_json ─────────────────────────────────────── *)
-
-let test_run_metrics_to_json_basic () =
-  let rm : Eval.run_metrics =
-    { run_id = "r1"
-    ; agent_name = "test"
-    ; timestamp = 100.0
-    ; metrics =
-        [ { Eval.name = "latency"
-          ; value = Float_val 42.0
-          ; unit_ = Some "ms"
-          ; tags = [ "env", "test" ]
-          }
-        ]
-    ; harness_verdicts =
-        [ { Harness.passed = true; score = Some 1.0; evidence = [ "ok" ]; detail = None }
-        ]
-    ; trace_summary = None
-    }
-  in
-  let json = Eval.run_metrics_to_json rm in
-  Alcotest.(check int) "schema_version" 1 (get_int "schema_version" json);
-  Alcotest.(check bool) "all_passed" true (get_bool "all_passed" json);
-  Alcotest.(check (float 0.001)) "coverage" 1.0 (get_float "coverage" json);
-  let layers = get_list "layer_results" json in
-  Alcotest.(check int) "layer count" 1 (List.length layers);
-  let first_layer = List.hd layers in
-  Alcotest.(check string) "layer_name" "verdict_0" (get_string "layer_name" first_layer);
-  let eval_metrics = get_list "eval_metrics" json in
-  Alcotest.(check int) "eval_metrics count" 1 (List.length eval_metrics);
-  let first_metric = List.hd eval_metrics in
-  Alcotest.(check string) "metric name" "latency" (get_string "name" first_metric)
-;;
-
-let test_run_metrics_to_json_empty () =
-  let rm : Eval.run_metrics =
-    { run_id = "r2"
-    ; agent_name = "empty"
-    ; timestamp = 0.0
-    ; metrics = []
-    ; harness_verdicts = []
-    ; trace_summary = None
-    }
-  in
-  let json = Eval.run_metrics_to_json rm in
-  Alcotest.(check bool) "all_passed vacuous" true (get_bool "all_passed" json);
-  Alcotest.(check (float 0.001)) "coverage vacuous" 1.0 (get_float "coverage" json);
-  Alcotest.(check int) "no layers" 0 (List.length (get_list "layer_results" json));
-  Alcotest.(check int) "no metrics" 0 (List.length (get_list "eval_metrics" json))
-;;
-
 (* ── Runner ───────────────────────────────────────────────────── *)
 
 let () =
@@ -178,10 +127,6 @@ let () =
     ; ( "swiss_verdict_to_json"
       , [ Alcotest.test_case "schema v1" `Quick test_swiss_verdict_to_json_schema_v1
         ; Alcotest.test_case "partial pass" `Quick test_swiss_verdict_to_json_partial_pass
-        ] )
-    ; ( "run_metrics_to_json"
-      , [ Alcotest.test_case "basic" `Quick test_run_metrics_to_json_basic
-        ; Alcotest.test_case "empty" `Quick test_run_metrics_to_json_empty
         ] )
     ]
 ;;
