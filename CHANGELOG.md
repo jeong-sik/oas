@@ -268,6 +268,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.216.7](https://github.com/jeong-sik/oas/compare/v0.216.6...v0.216.7) (2026-07-19)
+
+
+### Bug Fixes
+
+* **agent:** share exact provider turn identity ([#2709](https://github.com/jeong-sik/oas/issues/2709)) ([0615043](https://github.com/jeong-sik/oas/commit/0615043447fbd57ab647b8430f4d192535889fc3))
+
 ## [0.216.6](https://github.com/jeong-sik/oas/compare/v0.216.5...v0.216.6) (2026-07-19)
 
 
