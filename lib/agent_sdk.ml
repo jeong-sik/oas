@@ -42,6 +42,7 @@ module Sdk_version = Sdk_version
 module Base = Agent_sdk_base
 
 module Llm_provider = Llm_provider
+
 module Result_syntax = Agent_sdk_base.Result_syntax
 module Types = Agent_sdk_base.Types
 module Util = Agent_sdk_base.Util

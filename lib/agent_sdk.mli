@@ -16,6 +16,7 @@ module Sdk_version = Sdk_version
 module Base = Agent_sdk_base
 
 module Llm_provider = Llm_provider
+
 module Result_syntax = Agent_sdk_base.Result_syntax
 module Types = Agent_sdk_base.Types
 module Util = Agent_sdk_base.Util
@@ -70,6 +71,11 @@ module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Raw_trace = Raw_trace
+
+(** Typed handoff targets for {!Agent.run_with_handoffs}. Construct
+    [Handoff.handoff_target] records directly; the markdown-driven
+    [Subagent] convenience wrapper was removed in the 2026-07-21
+    test-only surface cut. *)
 module Raw_trace_query = Raw_trace_query
 
 (** Typed handoff targets for {!Agent.run_with_handoffs}. Construct
