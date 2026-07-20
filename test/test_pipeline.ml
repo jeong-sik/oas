@@ -1611,7 +1611,13 @@ let test_agent_run_uses_durable_tool_authority () =
          (List.length public_tool_events))
 ;;
 
-let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
+let test_agent_run_resumes_tool_without_duplicate_effects
+      ?(extra_restored_messages = [])
+      ?(resume_prompt = "run the tool")
+      ?(expect_reject = false)
+      ~settled
+      ()
+  =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -1794,6 +1800,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
                ; metadata = []
                }
              ]
+             @ extra_restored_messages
          ; turn_count = 1
          ; usage = Types.empty_usage
          };
@@ -1807,41 +1814,98 @@ let test_agent_run_resumes_tool_without_duplicate_effects ~settled () =
            ~resume:locator
            ()
        in
-       (match settled, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
-        | true, Ok response ->
-          Alcotest.(check string)
-            "terminal response"
-            "done-after-restart"
-            (Types.text_of_response response)
-        | true, Error error -> Alcotest.fail (Error.to_string error)
-        | false, Error (Error.Internal _) -> ()
-        | false, Error error ->
-          Alcotest.failf
-            "unknown effect changed error category: %s"
-            (Error.to_string error)
-        | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
-       Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
-       Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
-       Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
-       if settled
-       then
-         check_terminal_disposition
-           ~outcome:"succeeded"
-           ~recovery:"retire"
-           !terminal_disposition
-       else
-         check_terminal_disposition
-           ~outcome:"failed"
-           ~recovery:"operator_repair:effect_outcome_unknown"
-           !terminal_disposition)
+       let run_result = Agent.run ~sw:runtime_sw ~execution_store agent resume_prompt in
+       if expect_reject
+       then (
+         (* Fail-closed: a resume prompt that does not match the run's original
+            prompt is rejected before the durable scope reopens. The rejection
+            short-circuits [resume_user_input] ahead of any journal I/O, so the
+            settled tool effect is never rerun. *)
+         (match run_result with
+          | Error
+              (Error.Config (Error.InvalidConfig { field = "execution_store.resume"; _ }))
+            -> ()
+          | Error error ->
+            Alcotest.failf
+              "expected resume-input rejection, got: %s"
+              (Error.to_string error)
+          | Ok _ -> Alcotest.fail "expected resume-input rejection, but resume succeeded");
+         Alcotest.(check int) "rejected resume does not run tool handler" 0 !effect_count)
+       else (
+         (match settled, run_result with
+          | true, Ok response ->
+            Alcotest.(check string)
+              "terminal response"
+              "done-after-restart"
+              (Types.text_of_response response)
+          | true, Error error -> Alcotest.fail (Error.to_string error)
+          | false, Error (Error.Internal _) -> ()
+          | false, Error error ->
+            Alcotest.failf
+              "unknown effect changed error category: %s"
+              (Error.to_string error)
+          | false, Ok _ -> Alcotest.fail "unknown effect unexpectedly completed");
+         Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
+         Alcotest.(check int) "settled pre-tool hook is not rerun" 0 !pre_hook_count;
+         Alcotest.(check int) "settled post-tool hook is not rerun" 0 !post_hook_count;
+         if settled
+         then
+           check_terminal_disposition
+             ~outcome:"succeeded"
+             ~recovery:"retire"
+             !terminal_disposition
+         else
+           check_terminal_disposition
+             ~outcome:"failed"
+             ~recovery:"operator_repair:effect_outcome_unknown"
+             !terminal_disposition))
 ;;
 
-let test_agent_run_resumes_settled_tool_without_duplicate_effects =
-  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true
+let test_agent_run_resumes_settled_tool_without_duplicate_effects () =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:true ()
 ;;
 
-let test_agent_run_reports_unknown_effect_for_operator_repair =
-  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false
+let test_agent_run_reports_unknown_effect_for_operator_repair () =
+  test_agent_run_resumes_tool_without_duplicate_effects ~settled:false ()
+;;
+
+(* A context injector appends User-role messages during a turn (see
+   [Agent_turn.apply_context_injection]); after such a turn the latest User
+   message in the restored checkpoint is the injected one, not the run's
+   original prompt. Resume must match the original prompt (at the base-messages
+   boundary), so it succeeds even though a later injected User message differs.
+   Reverting [resume_user_input] to a latest-User-message scan makes this fail:
+   the injected message no longer equals the resume prompt. *)
+let test_agent_run_resume_ignores_injected_user_context_message () =
+  test_agent_run_resumes_tool_without_duplicate_effects
+    ~settled:true
+    ~extra_restored_messages:
+      [ { Types.role = User
+        ; content = [ Text "[system] git status: clean" ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    ()
+;;
+
+(* Fail-closed preserved: a genuinely different resume prompt is still
+   rejected, even with an injected User message present. *)
+let test_agent_run_resume_rejects_mismatched_prompt () =
+  test_agent_run_resumes_tool_without_duplicate_effects
+    ~settled:true
+    ~extra_restored_messages:
+      [ { Types.role = User
+        ; content = [ Text "[system] git status: clean" ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    ~resume_prompt:"a completely different prompt"
+    ~expect_reject:true
+    ()
 ;;
 
 (* Regression for #2683: a fully-settled turn interrupted between the provider
@@ -2571,6 +2635,14 @@ let () =
             "Agent.run resumes settled tool without duplicate effects"
             `Quick
             test_agent_run_resumes_settled_tool_without_duplicate_effects
+        ; Alcotest.test_case
+            "Agent.run resume matches original prompt not injected User message"
+            `Quick
+            test_agent_run_resume_ignores_injected_user_context_message
+        ; Alcotest.test_case
+            "Agent.run resume rejects mismatched prompt (fail-closed)"
+            `Quick
+            test_agent_run_resume_rejects_mismatched_prompt
         ; Alcotest.test_case
             "Agent.run resumes settled turn after provider-close crash (#2683)"
             `Quick
