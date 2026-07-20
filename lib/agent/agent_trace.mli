@@ -25,6 +25,7 @@ val record_hook_invocation
 val invoke_hook_with_trace
   :  t
   -> ?raw_trace_run:Raw_trace.active_run
+  -> turn:int
   -> hook_name:string
   -> (Hooks.hook_event -> Hooks.hook_decision) option
   -> Hooks.hook_event
@@ -38,6 +39,7 @@ val invoke_hook_with_trace
 val execute_tools_with_trace
   :  t
   -> Raw_trace.active_run option
+  -> turn:int
   -> Types.content_block list
   -> (Agent_tools.tool_execution_result list, Agent_tools.execution_failure) result
 

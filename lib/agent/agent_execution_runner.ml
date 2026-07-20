@@ -43,6 +43,8 @@ let create_runtime ~sw ~domain_mgr ~domain_count =
          }))
 ;;
 
+let runtime_codec (runtime : runtime) = runtime.codec
+
 let store ~(runtime : runtime) ~dir ?on_scope_ready ?on_terminal_disposition ?resume () =
   let mode =
     match resume with
@@ -54,6 +56,7 @@ let store ~(runtime : runtime) ~dir ?on_scope_ready ?on_terminal_disposition ?re
 
 let locator_to_yojson = Execution_agent_scope.scope_locator_to_yojson
 let locator_of_yojson = Execution_agent_scope.scope_locator_of_yojson
+let locator_run_id = Execution_agent_scope.scope_locator_run_id
 
 let execution_failure detail =
   Provider_failure_attribution.of_sdk_error

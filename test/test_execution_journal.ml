@@ -555,6 +555,16 @@ let test_hierarchy_and_lifecycle_rejections () =
   check int "rejected open is not committed" 1 (Journal.length journal);
   let agent_turn, turn = open_provider_attempt journal run in
   (match
+     Journal.open_node journal ~run ~parent:root ~kind:(Event.Agent_turn { ordinal = 0 })
+   with
+   | Error (Journal.Invariant_violation (Journal.Occurrence_already_opened existing))
+     when Event.Node_id.equal existing agent_turn -> ()
+   | Ok _ | Error _ -> fail "duplicate turn occurrence was not rejected");
+  (match Journal.open_node journal ~run ~parent:agent_turn ~kind:(provider_attempt 0) with
+   | Error (Journal.Invariant_violation (Journal.Occurrence_already_opened existing))
+     when Event.Node_id.equal existing turn -> ()
+   | Ok _ | Error _ -> fail "duplicate provider occurrence was not rejected");
+  (match
      Journal.update_node journal ~node:turn (Event.Output_delta (`String "wrong"))
    with
    | Error (Journal.Invariant_violation (Journal.Invalid_update_for_node _)) -> ()
@@ -600,6 +610,18 @@ let test_hierarchy_and_lifecycle_rejections () =
     require_opened_node
       (Journal.open_node journal ~run ~parent:turn ~kind:(tool_invocation "streamed"))
   in
+  (match
+     Journal.open_node
+       journal
+       ~run
+       ~parent:turn
+       ~kind:(tool_invocation "same-planned-index")
+   with
+   | Error
+       (Journal.Invariant_violation
+          (Journal.Tool_occurrence_conflict { parent; planned_index = 0; existing }))
+     when Event.Node_id.equal parent turn && Event.Node_id.equal existing invocation -> ()
+   | Ok _ | Error _ -> fail "duplicate Tool occurrence was not rejected");
   (match
      Journal.update_node
        journal

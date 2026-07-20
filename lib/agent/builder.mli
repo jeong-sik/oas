@@ -85,13 +85,14 @@ val without_event_bus : t -> t
     @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
 
-(** Set the total deadline applied to non-streaming HTTP completion body
-    consumption. Requires a clock to be provided to the underlying request;
-    without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Non_streaming_body; _ }] which the retry layer
-    treats as retryable. Streaming requests ignore this knob and rely on
-    [with_stream_idle_timeout] for inter-line liveness so active long
-    streams are not killed by total duration. @since 0.181.0 *)
+(** Set the per-call total deadline for non-streaming HTTP response body
+    consumption. This separately bounds a provider-native input-count
+    preflight and a non-streaming completion; it is not a combined turn
+    deadline. Requires a clock to be provided to the underlying request;
+    without one the wrapper is skipped. The streaming completion itself
+    ignores this knob and relies on [with_stream_idle_timeout] for inter-line
+    liveness; only its optional non-streaming count preflight uses this
+    deadline. @since 0.181.0 *)
 val with_body_timeout : float -> t -> t
 
 val with_elicitation : Hooks.elicitation_callback -> t -> t
@@ -114,6 +115,12 @@ val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 (** Select Agent-level provider-fit admission without changing standalone
     [Complete] compatibility behavior. *)
 val with_context_fit_admission : Agent.context_fit_admission -> t -> t
+
+(** Apply a caller-owned projection once to the complete provider-bound message
+    list. Native request measurement and actual dispatch consume that same
+    projected request; canonical Agent state and checkpoints remain unchanged.
+    [Error detail] fails the turn as a typed hook execution error. *)
+val with_model_input_projection : Agent.model_input_projection -> t -> t
 
 val with_base_url : string -> t -> t
 

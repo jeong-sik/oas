@@ -52,6 +52,7 @@ type error =
 val error_to_string : error -> string
 val start : writer:Execution_lane_writer.t -> agent_name:string -> (t, error) result
 val scope_locator : t -> scope_locator
+val scope_locator_run_id : scope_locator -> Execution_event.Run_id.t
 val scope_locator_to_yojson : scope_locator -> Yojson.Safe.t
 val scope_locator_of_yojson : Yojson.Safe.t -> (scope_locator, string) result
 
@@ -71,6 +72,12 @@ val resume_running
 
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn option, error) result
+
+(** Recover the single open turn from durable topology. This is a recovery-only
+    lookup; callers must not reconstruct its ordinal from mutable agent state. *)
+val resume_open_turn : t -> (turn option, error) result
+
+val turn_ordinal : turn -> int
 
 (** Materialize the exact binding selected for provider dispatch. *)
 val open_provider_attempt

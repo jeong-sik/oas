@@ -81,8 +81,9 @@ val build_request
   -> unit
   -> string
 
-(** Build the Anthropic Messages count-tokens request from the same canonical
-    input projection as {!build_request}. Completion-only output and sampling
+(** Build an Anthropic-compatible Messages count-tokens request from the same
+    provider-specific canonical input projection as {!build_request}.
+    Anthropic and Kimi are supported; completion-only output and sampling
     fields are omitted. *)
 val build_count_tokens_request
   :  config:Provider_config.t
