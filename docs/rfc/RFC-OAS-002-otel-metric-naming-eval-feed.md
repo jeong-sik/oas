@@ -1,6 +1,6 @@
 # RFC-OAS-002: OTel Metric Naming Convention & Eval Feed Schema
 
-**Status**: Draft
+**Status**: Draft — Part A and Part B still apply. Part C is obsolete. Phase 2 is partially superseded and Phase 3 is obsolete; see the per-phase notes below and PR #2689.
 **Date**: 2026-04-13
 **Scope**: `lib/otel_tracer.ml`, `lib/eval.ml`, `lib/harness.ml`, `lib/llm_provider/metrics.ml`
 **One sentence**: OAS가 방출하는 OTel metric/span 이름을 `oas.*` namespace로 표준화하고, harness swiss_verdict를 JSON schema로 공개하여 외부 consumer(downstream dashboards, Grafana, CI 등)가 안정적으로 소비할 수 있게 한다.
@@ -178,15 +178,33 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 - 하위호환: 1 release cycle 동안 구이름/새이름 동시 emit, deprecated 경고
 
 ### Phase 2: Swiss Verdict JSON Schema (1 PR)
+
+> **Partially superseded by PR #2689.** The `Eval.run_metrics_to_json`
+> bullet below was removed alongside the eval/harness execution stack
+> purge; `Eval.run_metrics` no longer carries a `trace_summary` field
+> and `Eval.set_trace_summary` is gone. The schema file
+> (`docs/schemas/swiss-verdict.schema.json`) and
+> `Harness.swiss_verdict_to_json` remain in place, so only the
+> `eval.ml`-side JSON export obligation is retired.
+
 - `docs/schemas/swiss-verdict.schema.json` 생성
 - `harness.ml`에 `swiss_verdict_to_json` 함수 추가 (schema 준수 보장)
-- `eval.ml`에 `run_metrics_to_json` 함수 추가
+- ~~`eval.ml`에 `run_metrics_to_json` 함수 추가~~ — removed in PR #2689
 - dune rule: `ppx_deriving_yojson`로 생성된 `to_yojson`과 schema를 cross-check하는 테스트. OCaml 타입이 source-of-truth, schema는 파생물.
 
 ### Phase 3: Eval OTel Bridge (1 PR)
-- `eval_otel_bridge.ml` 신규 모듈
-- `agent.ml`의 run 종료 시점에서 `emit_run_metrics` 호출
-- Integration test: mock tracer로 metric name/value 검증
+
+> **Obsolete as of PR #2689.** `lib/eval_otel_bridge.ml` and its
+> `.mli` were deleted with no consumers (the `oas eval` CLI entry point
+> was removed in #1814, leaving the bridge with zero production
+> callers). The `emit_run_metrics` call site in `agent.ml` was never
+> wired. Do not implement this phase as written; a future OTel export
+> path, if needed, must be re-RFC'd against the surviving
+> `Eval.create_collector` surface.
+
+- ~~`eval_otel_bridge.ml` 신규 모듈~~ — deleted in PR #2689
+- ~~`agent.ml`의 run 종료 시점에서 `emit_run_metrics` 호출~~ — never wired; deleted in PR #2689
+- ~~Integration test: mock tracer로 metric name/value 검증~~ — deleted alongside the bridge in PR #2689
 
 ## Risks
 

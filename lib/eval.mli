@@ -60,7 +60,6 @@ type run_metrics =
   ; timestamp : float
   ; metrics : metric list
   ; harness_verdicts : Harness.verdict list
-  ; trace_summary : Trace_eval.summary option
   }
 
 val run_metrics_to_yojson : run_metrics -> Yojson.Safe.t
@@ -81,9 +80,6 @@ val record : collector -> metric -> unit
 
 (** Add a harness verdict. *)
 val add_verdict : collector -> Harness.verdict -> unit
-
-(** Set the trace evaluation summary. *)
-val set_trace_summary : collector -> Trace_eval.summary -> unit
 
 (** Finalize into immutable [run_metrics]. *)
 val finalize : collector -> run_metrics
@@ -152,21 +148,3 @@ val find_metric : run_metrics -> string -> metric option
 
 (** Find a metric value by name. *)
 val find_metric_value : run_metrics -> string -> metric_value option
-
-(** {1 Statistical regression detection} *)
-
-(** Compare multiple baseline runs against candidate runs.
-    Uses Welch's t-test per metric. Returns list of regressed
-    metric names with optional Cohen's d effect sizes. *)
-val compare_statistical
-  :  baselines:run_metrics list
-  -> candidates:run_metrics list
-  -> (string * float option) list
-
-(** {1 Swiss Verdict JSON export} *)
-
-(** Produce a JSON object conforming to
-    [docs/schemas/swiss-verdict.schema.json] (schema_version 1).
-    Maps [harness_verdicts] into [layer_results] (named "verdict_0",
-    "verdict_1", ...) and [metrics] into [eval_metrics]. *)
-val run_metrics_to_json : run_metrics -> Yojson.Safe.t

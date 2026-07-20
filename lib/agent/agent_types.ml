@@ -37,6 +37,14 @@ type options =
   { base_url : string
   ; provider : Provider.config option
   ; stream_idle_timeout_s : float option
+  ; first_event_timeout_s : float option
+    (** RFC-OAS-037: separate bound for the time-to-first-event (TTFT /
+        prefill) wait, distinct from [stream_idle_timeout_s] which bounds
+        inter-token idle only AFTER the first event. When [None] the
+        first-event wait is not bounded by the short idle value; when unset it
+        falls back to [body_timeout_s], then to [stream_idle_timeout_s], and a
+        slow silent prefill is guarded by inter-token idle once the stream
+        produces. *)
   ; body_timeout_s : float option
   ; hooks : Hooks.hooks
   ; guardrails_async : Guardrails_async.t
@@ -109,6 +117,7 @@ let default_options =
   { base_url = Api.default_base_url
   ; provider = None
   ; stream_idle_timeout_s = None
+  ; first_event_timeout_s = None
   ; body_timeout_s = None
   ; hooks = Hooks.empty
   ; guardrails_async = Guardrails_async.empty

@@ -25,13 +25,10 @@
   test_capabilities
   test_agent_card
   test_agent_auto_dump
-  test_agent_config
-  test_agent_config_deep
   test_agent_lifecycle
   test_agent_pipeline
   test_agent_periodic_cleanup
   test_agent_race
-  test_agent_registry
   test_agent_sdk
   test_agent_stream
   test_agent_tool
@@ -40,7 +37,6 @@
   test_agent_typed
   test_api_http_client
   test_api_dispatch
-  test_append_instruction
   test_tool_execution
   test_artifact_service
   test_async_agent
@@ -48,7 +44,6 @@
   test_backend_openai_codec
   test_provider_agnostic_reasoning_replay
   test_backend_glm_coverage
-  test_backend_tool_call_harness
   test_backend_gemini
   test_snapshot_provider_serialization
   test_thinking_control_dialects
@@ -57,7 +52,6 @@
   test_cache
   test_canonical_tool
   test_capabilities_wiring
-  test_capability_filter
   test_checkpoint
   test_checkpoint_store
   test_clone
@@ -79,11 +73,7 @@
   test_error
   test_error_domain
   test_eval
-  test_eval_baseline
   test_eval_coverage
-  test_eval_otel_bridge
-  test_eval_report
-  test_eval_report_full
   test_eval_stats
   test_event_bus
   test_event_envelope
@@ -93,9 +83,7 @@
   test_guardrail_llm
   test_guardrail_tripwire
   test_harness
-  test_harness_case
   test_harness_deep
-  test_harness_runner
   test_hooks
   test_hooks_integration
   test_http_client
@@ -152,8 +140,6 @@
   test_skill_coverage2
   test_skill_discovery
   test_skill_registry
-  test_slot_cache_http
-  test_sse_parser
   test_stream_accumulator
   test_streaming_cov
   test_streaming_edge_cases
@@ -173,7 +159,6 @@
   test_tool_input_validation
   test_tool_middleware
   test_tool_schema_gen
-  test_trace_eval
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -191,13 +176,10 @@
   test_capabilities
   test_agent_card
   test_agent_auto_dump
-  test_agent_config
-  test_agent_config_deep
   test_agent_lifecycle
   test_agent_pipeline
   test_agent_periodic_cleanup
   test_agent_race
-  test_agent_registry
   test_agent_sdk
   test_agent_stream
   test_agent_tool
@@ -206,7 +188,6 @@
   test_agent_typed
   test_api_http_client
   test_api_dispatch
-  test_append_instruction
   test_tool_execution
   test_artifact_service
   test_async_agent
@@ -214,7 +195,6 @@
   test_backend_openai_codec
   test_provider_agnostic_reasoning_replay
   test_backend_glm_coverage
-  test_backend_tool_call_harness
   test_backend_gemini
   test_snapshot_provider_serialization
   test_thinking_control_dialects
@@ -223,7 +203,6 @@
   test_cache
   test_canonical_tool
   test_capabilities_wiring
-  test_capability_filter
   test_checkpoint
   test_checkpoint_store
   test_clone
@@ -245,11 +224,7 @@
   test_error
   test_error_domain
   test_eval
-  test_eval_baseline
   test_eval_coverage
-  test_eval_otel_bridge
-  test_eval_report
-  test_eval_report_full
   test_eval_stats
   test_event_bus
   test_event_envelope
@@ -259,9 +234,7 @@
   test_guardrail_llm
   test_guardrail_tripwire
   test_harness
-  test_harness_case
   test_harness_deep
-  test_harness_runner
   test_hooks
   test_hooks_integration
   test_http_client
@@ -318,8 +291,6 @@
   test_skill_coverage2
   test_skill_discovery
   test_skill_registry
-  test_slot_cache_http
-  test_sse_parser
   test_stream_accumulator
   test_streaming_cov
   test_streaming_edge_cases
@@ -339,7 +310,6 @@
   test_tool_input_validation
   test_tool_middleware
   test_tool_schema_gen
-  test_trace_eval
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -492,6 +462,11 @@
 (test
  (name test_stop_reason_ssot)
  (modules test_stop_reason_ssot)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_anthropic_reconcile)
+ (modules test_anthropic_reconcile)
  (libraries agent_sdk llm_provider alcotest))
 
 (test

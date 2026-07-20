@@ -1,7 +1,7 @@
 (** SSE streaming example.
 
     Demonstrates:
-    - Setting up a streaming API call
+    - Setting up a streaming API call via {!Llm_provider.Complete.complete_stream}
     - Processing events in real-time via on_event callback
     - Tracking usage statistics
 
@@ -32,17 +32,19 @@ let () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let provider : Provider.config =
-    { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "qwen3.5-35b"
-    ; api_key_env = "OAS_STREAMING_EXAMPLE_API_KEY"
-    }
+  let api_key =
+    Option.value ~default:"" (Sys.getenv_opt "OAS_STREAMING_EXAMPLE_API_KEY")
   in
   let config =
-    { (default_config ~model:provider.model_id) with
-      system_prompt = Some "You are a helpful assistant."
-    ; max_tokens = Some 1024
-    }
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"qwen3.5-35b"
+      ~base_url:"http://127.0.0.1:8085"
+      ~api_key
+      ~request_path:"/v1/chat/completions"
+      ~system_prompt:"You are a helpful assistant."
+      ~max_tokens:1024
+      ()
   in
   let messages =
     [ { role = User
@@ -53,21 +55,12 @@ let () =
       }
     ]
   in
-  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  match
-    Streaming.create_message_stream
-      ~sw
-      ~net
-      ~provider
-      ~config:state
-      ~messages
-      ~on_event
-      ()
-  with
+  match Llm_provider.Complete.complete_stream ~sw ~net ~config ~messages ~on_event () with
   | Ok response ->
     Printf.printf "\nResponse ID: %s\n" response.id;
     (match response.usage with
      | Some u -> Printf.printf "Tokens: %d in / %d out\n" u.input_tokens u.output_tokens
      | None -> ())
-  | Error e -> Printf.eprintf "Error: %s\n" (Error.to_string e)
+  | Error e ->
+    Printf.eprintf "Error: %s\n" Llm_provider.Error.(to_string (of_http_error e))
 ;;

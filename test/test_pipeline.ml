@@ -1215,6 +1215,35 @@ let test_error_domain_provider_errors () =
     errs
 ;;
 
+(* Pipeline.error_domain_of stamps the durable [Error_occurred] event's
+   [error_domain] from the actual error's typed category, not a hardcoded
+   "Api". A durable journal/store-write failure surfaces as [Error.Internal]
+   (see Pipeline_execution_scope.sdk_error), so it must be labeled "Internal",
+   not misattributed to the provider "Api" domain. The Internal->Internal
+   assertion fails if the hardcoded [error_domain = "Api"] is restored. *)
+let test_error_domain_of_persistence_not_api () =
+  Alcotest.(check string)
+    "persistence/store failure -> Internal"
+    "Internal"
+    (Internal_pipeline.error_domain_of (Error.Internal "journal write failed: disk full"));
+  Alcotest.(check bool)
+    "persistence failure is not misattributed to Api"
+    true
+    (Internal_pipeline.error_domain_of (Error.Internal "x") <> "Api");
+  (* Genuine provider errors stay "Api" so existing provider logs are stable. *)
+  Alcotest.(check string)
+    "genuine provider error -> Api"
+    "Api"
+    (Internal_pipeline.error_domain_of
+       (Error.Api (Error.Retry.AuthError { message = "bad key" })));
+  (* A third variant confirms the label is derived, not constant. *)
+  Alcotest.(check string)
+    "config error -> Config"
+    "Config"
+    (Internal_pipeline.error_domain_of
+       (Error.Config (Error.MissingEnvVar { var_name = "API_KEY" })))
+;;
+
 (* ── Provider_mock: multi-tool response ───────────────────── *)
 
 let test_mock_multi_tool_response () =
@@ -2624,6 +2653,10 @@ let () =
         ; Alcotest.test_case "with_stage" `Quick test_error_domain_with_stage
         ; Alcotest.test_case "is_retryable" `Quick test_error_domain_is_retryable
         ; Alcotest.test_case "provider errors" `Quick test_error_domain_provider_errors
+        ; Alcotest.test_case
+            "durable event: persistence not Api"
+            `Quick
+            test_error_domain_of_persistence_not_api
         ] )
     ; ( "provider_mock_extra"
       , [ Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response

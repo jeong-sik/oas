@@ -5,6 +5,15 @@
     {!Llm_provider.Streaming}.  The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling.
 
+    {2 Deprecated dispatch entry points}
+
+    {!create_message_stream} and {!create_message_stream_detailed} are the
+    legacy dispatch path: the production path has converged on
+    {!Llm_provider.Complete}. They are retained for compatibility and will be
+    removed in a future major release. The pure helpers and the
+    {!Llm_provider.Complete_stream_acc} accumulator surface are {b not}
+    deprecated and remain supported.
+
     @stability Evolving
     @since 0.93.1 *)
 
@@ -51,6 +60,9 @@ val create_message_stream_detailed
   -> on_event:(Types.sse_event -> unit)
   -> unit
   -> (Types.api_response, Provider_failure_attribution.detailed_error) result
+[@@deprecated
+  "Use Llm_provider.Complete — this legacy dispatch path is retained for compatibility \
+   and will be removed in a future major release."]
 
 val create_message_stream
   :  sw:Eio.Switch.t
@@ -64,3 +76,6 @@ val create_message_stream
   -> on_event:(Types.sse_event -> unit)
   -> unit
   -> (Types.api_response, Error.sdk_error) result
+[@@deprecated
+  "Use Llm_provider.Complete — this legacy dispatch path is retained for compatibility \
+   and will be removed in a future major release."]

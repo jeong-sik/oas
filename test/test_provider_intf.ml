@@ -1,5 +1,8 @@
 (** Provider_intf tests — module type satisfaction and dispatch. *)
 
+(* These tests intentionally exercise the deprecated legacy dispatch path. *)
+[@@@alert "-deprecated"]
+
 open Agent_sdk
 open Agent_sdk.Types
 module Retry = Llm_provider.Retry

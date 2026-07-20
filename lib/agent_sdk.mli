@@ -23,7 +23,11 @@ module Fs_result = Fs_result
 module Fs_atomic_eio = Fs_atomic_eio
 module Context = Agent_sdk_base.Context
 module Provider = Provider
+
+(** First-class-module dispatch surface. Deprecated in favor of
+    {!Llm_provider.Complete}; retained for compatibility. *)
 module Provider_intf = Provider_intf
+
 module Provider_runtime_binding = Provider_runtime_binding
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
@@ -40,7 +44,6 @@ module Tool_schema_gen = Tool_schema_gen
 module Mcp = Mcp
 module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
-module Sse_parser = Llm_provider.Sse_parser
 module Telemetry_event = Llm_provider.Telemetry_event
 module Response_shape = Llm_provider.Response_shape
 module Canonical_tool = Llm_provider.Canonical_tool
@@ -53,8 +56,17 @@ module Telemetry_sca_registry = Telemetry_sca_registry
 module Skill = Skill
 module Skill_registry = Skill_registry
 module Contract = Contract
+
+(** Request-dispatch facade. {!Api.create_message} and
+    {!Api.create_message_detailed} are deprecated in favor of
+    {!Llm_provider.Complete}; the helper re-exports remain supported. *)
 module Api = Api
+
+(** SSE streaming facade. {!Streaming.create_message_stream} and
+    {!Streaming.create_message_stream_detailed} are deprecated in favor of
+    {!Llm_provider.Complete}; the pure helpers remain supported. *)
 module Streaming = Streaming
+
 module Subagent = Subagent
 module Structured = Structured
 module Checkpoint = Checkpoint
@@ -70,12 +82,9 @@ module Agent_checkpoint = Agent_checkpoint
 module Agent = Agent
 module Builder = Builder
 module Agent_card = Agent_card
-module Agent_registry = Agent_registry
-module Agent_config = Agent_config
 module Agent_tool = Agent_tool
 module Otel_tracer = Otel_tracer
 module Otel_export = Otel_export
-module Trace_eval = Trace_eval
 module Runtime = Runtime
 module Runtime_continuation = Runtime_continuation
 module Runtime_projection = Runtime_projection
@@ -85,26 +94,17 @@ module Artifact_service = Artifact_service
 module Sessions = Sessions
 module Sessions_store = Sessions_store
 module Harness = Harness
-module Harness_case = Harness_case
-module Harness_dataset = Harness_dataset
-module Harness_report = Harness_report
-module Harness_runner = Harness_runner
 module Eval = Eval
-module Eval_collector = Eval_collector
-module Eval_otel_bridge = Eval_otel_bridge
 module Trajectory = Trajectory
 module Metric_contract = Metric_contract
 module Metrics = Metrics
 module Async_agent = Async_agent
-module Append_instruction = Append_instruction
 module Consumer = Consumer
 module Agent_typed = Agent_typed
 module Cost_tracker = Cost_tracker
 module Guardrails_async = Guardrails_async
 module Guardrail_llm = Guardrail_llm
 module Guardrail_tripwire = Guardrail_tripwire
-module Eval_baseline = Eval_baseline
-module Eval_report = Eval_report
 module Eval_stats = Eval_stats
 module Runtime_store = Runtime_store
 module Runtime_evidence = Runtime_evidence

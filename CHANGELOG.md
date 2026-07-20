@@ -185,6 +185,16 @@ original tag dates. `0.100.4` was never tagged or released.
 * **test support:** remove the production `Provider_mock` module and top-level
   re-export. Scripted provider responses remain test-only code, not an SDK
   runtime provider.
+* **eval/harness execution stack:** remove the nine unwired
+  `Agent_sdk` module re-exports — `Eval_baseline`, `Eval_report`,
+  `Eval_collector`, `Eval_otel_bridge`, `Harness_case`, `Harness_dataset`,
+  `Harness_report`, `Harness_runner`, and `Trace_eval` — along with the
+  backing modules, `Eval.run_metrics`'s `trace_summary` field, and
+  `Eval.{compare_statistical,run_metrics_to_json,set_trace_summary}`.
+  The stack's only entry point (`oas eval` CLI) was deleted in #1814; the
+  execution chain had zero production consumers since. Shared types
+  (`Agent_sdk.Harness.verdict`) and the residual `Eval.create_collector`
+  test surface stay. See PR #2689.
 
 ### Features
 
@@ -267,6 +277,30 @@ original tag dates. `0.100.4` was never tagged or released.
   fabricating a minimum turn, and fail a live fixture explicitly when its
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
+
+## [0.217.4](https://github.com/jeong-sik/oas/compare/v0.217.3...v0.217.4) (2026-07-20)
+
+
+### Bug Fixes
+
+* **api:** reject unencoded explicit thinking on the legacy openai body path too ([#2716](https://github.com/jeong-sik/oas/issues/2716)) ([#2720](https://github.com/jeong-sik/oas/issues/2720)) ([262957a](https://github.com/jeong-sik/oas/commit/262957ae2235747bcf25afef88fdbb0281ea243a))
+* **llm_provider:** reconcile EndTurn with tool blocks to StopToolUse so complete tool calls are executed, not left dangling ([#2728](https://github.com/jeong-sik/oas/issues/2728)) ([4c2abbd](https://github.com/jeong-sik/oas/commit/4c2abbd6fcddcfcd7f4d77d2044b908a69c7dd07))
+* **pipeline:** resolve context limit before measuring tokens ([#2693](https://github.com/jeong-sik/oas/issues/2693)) ([a266f7a](https://github.com/jeong-sik/oas/commit/a266f7ab24547dd30822728837d89a3b2e56436e))
+
+## [0.217.3](https://github.com/jeong-sik/oas/compare/v0.217.2...v0.217.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* **ollama:** hard-cut native tool-loop replay and correlation ([#2710](https://github.com/jeong-sik/oas/issues/2710)) ([f7754cb](https://github.com/jeong-sik/oas/commit/f7754cbf46dfbcfab746e6a34ea610cc593ccdfe))
+* **pipeline:** classify durable Error_occurred error_domain from the error, not hardcoded "Api" ([#2717](https://github.com/jeong-sik/oas/issues/2717)) ([eebb5d5](https://github.com/jeong-sik/oas/commit/eebb5d53902f91d46e8ae0b4fba08637d7c5f99d))
+
+## [0.217.2](https://github.com/jeong-sik/oas/compare/v0.217.1...v0.217.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **llm_provider:** log reasoning_replay_dropped at Info, not Warn ([#2721](https://github.com/jeong-sik/oas/issues/2721)) ([658a910](https://github.com/jeong-sik/oas/commit/658a91091154be543685840fad73bd8936f8ac1e))
 
 ## [0.217.1](https://github.com/jeong-sik/oas/compare/v0.217.0...v0.217.1) (2026-07-20)
 

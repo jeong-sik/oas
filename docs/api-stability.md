@@ -90,6 +90,23 @@ CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as
 public OCaml modules in this stability table.
 
+### Deprecated surfaces
+
+The legacy request-dispatch island is deprecated in favor of
+`Llm_provider.Complete`. It is retained for compatibility and will be removed
+in a future major release:
+
+- `Api.create_message` / `Api.create_message_detailed` (`lib/api.mli`)
+- `Streaming.create_message_stream` / `Streaming.create_message_stream_detailed` (`lib/streaming.mli`)
+- All of `Provider_intf` (`lib/provider_intf.mli`)
+
+These entry points carry OCaml `[@@deprecated]` attributes, so downstream
+builds surface alert 3 at use sites. The helper re-exports in `Api` (request
+body builders, response parsers, JSON codecs such as `content_block_to_json`
+/ `content_block_of_json`) and the pure helpers and stream accumulator
+surface in `Streaming` are **not** deprecated. Per the Evolving policy
+above, removal follows the one minor-version deprecation window.
+
 ### Internal modules
 
 Implementation-detail modules with no compatibility promise. Most entries in
@@ -105,13 +122,15 @@ and have no supported writer API. Their repository-local regression suite uses
 Dune's internal library alias; that alias is not a supported external API
 contract.
 
-This classification does not claim a runtime behavior upgrade. The current
-production durable-journal authority remains `Durable_event`. A future
-production integration must perform one explicit single-writer hard cut: the
-OAS execution path owns occurrence creation, while Event_bus, Raw_trace,
-durable persistence, and downstream dashboard data consume read projections.
-There must be no interval in which two components independently author the
-same execution history.
+This classification does not claim a runtime behavior upgrade. The single-writer
+hard cut this section used to describe as future work has landed (#2683): the
+OAS execution path (`Agent_execution_runner` / `Execution_agent_scope`) owns
+occurrence creation, surfaced through the public `Agent.execution_store` API.
+`Durable_event` remains as the journal type and idempotency-key foundation
+(`agent_execution_event_writer`, `agent_tools`) — not as an independent second
+writer. Event_bus, Raw_trace, durable persistence, and downstream dashboard
+data consume read projections. There must be no interval in which two
+components independently author the same execution history.
 
 ## Verification
 

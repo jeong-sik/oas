@@ -115,8 +115,6 @@ let test_required_surfaces_present () =
     ; "oas.runtime_evidence_bundle.v1"
     ; "oas.raw_trace_record.v1"
     ; "oas.raw_trace_manifest.v1"
-    ; "oas.harness_report.v1"
-    ; "oas.eval_report.v1"
     ; "oas.structured_schema.v1"
     ]
 ;;

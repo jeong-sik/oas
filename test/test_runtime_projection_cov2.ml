@@ -268,35 +268,6 @@ let test_apply_input_provided_resumes_running () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_apply_pending_input_update_is_not_lifecycle_state () =
-  let request = input_request () in
-  let session =
-    mk_session ~phase:Running ~pending_input:(Some request) ~turn_count:7 ()
-  in
-  let event =
-    mk_event
-      (Pending_input_updated
-         { input_id = Some "pending-1"
-         ; participant_name = Some "alice"
-         ; source = Some "dashboard"
-         ; boundary = Runtime_continuation.Provider_streaming_reasoning
-         ; policy = Runtime_continuation.Queue_until_safe_boundary
-         ; status = "queued"
-         ; message = Some "queued while reasoning"
-         ; created_at = 456.0
-         })
-  in
-  match Runtime_projection.apply_event session event with
-  | Ok s ->
-    Alcotest.(check bool) "phase unchanged" true (s.phase = Running);
-    Alcotest.(check int) "turn_count unchanged" 7 s.turn_count;
-    (match s.pending_input with
-     | Some pending ->
-       Alcotest.(check string) "pending retained" request.request_id pending.request_id
-     | None -> Alcotest.fail "pending input should be retained")
-  | Error e -> Alcotest.fail (Error.to_string e)
-;;
-
 let test_apply_input_provided_rejects_mismatch () =
   let session =
     mk_session
@@ -792,10 +763,6 @@ let () =
             "Input_provided resumes"
             `Quick
             test_apply_input_provided_resumes_running
-        ; Alcotest.test_case
-            "Pending_input_updated is not lifecycle state"
-            `Quick
-            test_apply_pending_input_update_is_not_lifecycle_state
         ; Alcotest.test_case
             "Input_provided mismatch"
             `Quick

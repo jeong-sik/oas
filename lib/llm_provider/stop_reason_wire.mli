@@ -38,7 +38,12 @@ val wire_finish_of_string : string -> wire_finish
 (** Canonical parse-time mapping for backends that know the assembled tool-block
     set at parse time (the non-streaming OpenAI parser). [Tool_calls] without a
     tool block fails closed to [UnmatchedToolCalls]. [Other] preserves the raw
-    terminal label as [Unknown] when no tool block exists. *)
+    terminal label as [Unknown] when no tool block exists. [Stop]
+    (finish_reason=stop/end_turn) with a tool block present upgrades to
+    [StopToolUse] — a provider that emits complete tool_calls but labels the
+    turn as normal completion is mislabeling a tool-request turn, and the
+    tool-block presence is authoritative. [Length] stays [MaxTokens] even with a
+    tool block, since a length-truncated tool call may be incomplete. *)
 val of_finish : wire_finish -> has_tool_blocks:bool -> Types.stop_reason
 
 (** Faithful wire claim for the streaming chunk boundary, where the accumulated
@@ -48,11 +53,15 @@ val of_finish : wire_finish -> has_tool_blocks:bool -> Types.stop_reason
 val provisional_of_string : string -> Types.stop_reason
 
 (** Enforce parse-time parity after streaming accumulation. Maps [StopToolUse]
-    with [has_tool_blocks = false] to [UnmatchedToolCalls], and maps
-    [Unknown _] with [has_tool_blocks = true] to [StopToolUse] so nonstandard
-    finish labels that carried tool blocks follow {!of_finish}. Leaves other
-    reasons unchanged. Total over {!Types.stop_reason}: no catch-all, so a new
-    [stop_reason] constructor forces a compile error here. *)
+    with [has_tool_blocks = false] to [UnmatchedToolCalls]; maps [Unknown _]
+    with [has_tool_blocks = true] to [StopToolUse]; and maps [EndTurn] with
+    [has_tool_blocks = true] to [StopToolUse] (a finish_reason=stop alongside
+    complete tool blocks is a provider mislabel of a tool-request turn) so these
+    labels follow {!of_finish}. [MaxTokens] and the other terminal reasons are
+    left unchanged even with tool blocks — a truncated or terminally-flagged
+    turn must not auto-execute a possibly-incomplete tool call. Total over
+    {!Types.stop_reason}: no catch-all, so a new [stop_reason] constructor forces
+    a compile error here. *)
 val reconcile : Types.stop_reason -> has_tool_blocks:bool -> Types.stop_reason
 
 (** [true] only for the typed fail-closed value produced when a provider

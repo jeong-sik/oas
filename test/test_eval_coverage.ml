@@ -1,4 +1,4 @@
-(** Extended coverage tests for Eval and Eval_report modules.
+(** Extended coverage tests for the Eval module.
 
     Existing tests cover:
     - metric_value yojson roundtrip, to_float
@@ -8,17 +8,12 @@
     - threshold pass/fail max/min
     - find_metric
     - run_metrics yojson
-    - eval_collector basic
 
     This file targets uncovered paths in:
     - Eval.ml: metric_value_of_yojson error path, compute_delta edge cases
       (baseline zero, non-numeric, custom threshold), pp_* formatters,
       show_run_metrics, metric_of_yojson error path, run_metrics_of_yojson
-      error path, set_trace_summary, find_metric_value
-    - Eval_report.ml: to_string with comparison diffs (Unchanged filtered),
-      generate pass/fail threshold boundary (pass_at_k exactly 0.5)
-    - Eval_baseline.ml: show_diff all variants, compare with near-zero baseline,
-      compare non-numeric metrics *)
+      error path, find_metric_value *)
 
 open Agent_sdk
 
@@ -28,25 +23,10 @@ let mk_metric ?(unit_ = None) ?(tags = []) name value : Eval.metric =
   { name; value; unit_; tags }
 ;;
 
-let mk_run
-      ?(run_id = "r1")
-      ?(agent_name = "test")
-      ?(verdicts = [])
-      ?(trace_summary = None)
-      metrics
+let mk_run ?(run_id = "r1") ?(agent_name = "test") ?(verdicts = []) metrics
   : Eval.run_metrics
   =
-  { run_id
-  ; agent_name
-  ; timestamp = 1000.0
-  ; metrics
-  ; harness_verdicts = verdicts
-  ; trace_summary
-  }
-;;
-
-let pass_verdict : Harness.verdict =
-  { passed = true; score = Some 1.0; evidence = []; detail = None }
+  { run_id; agent_name; timestamp = 1000.0; metrics; harness_verdicts = verdicts }
 ;;
 
 (* ── metric_value_of_yojson error ─────────────────────── *)
@@ -228,53 +208,6 @@ let test_run_metrics_to_yojson_score_none () =
   Alcotest.(check bool) "score null" true (v0 |> member "score" = `Null)
 ;;
 
-(* ── set_trace_summary ────────────────────────────────── *)
-
-let test_set_trace_summary () =
-  let c = Eval.create_collector ~agent_name:"a" ~run_id:"r" in
-  let summary : Trace_eval.summary =
-    { total_spans = 10
-    ; agent_runs = 2
-    ; api_calls = 5
-    ; tool_execs = 3
-    ; hook_invokes = 0
-    ; failed_spans = 1
-    ; failed_api_calls = 0
-    ; failed_tool_execs = 1
-    ; total_events = 20
-    ; average_duration_ms = Some 150.0
-    ; longest_span_name = Some "agent_run/main"
-    }
-  in
-  Eval.set_trace_summary c summary;
-  let rm = Eval.finalize c in
-  Alcotest.(check bool) "has trace summary" true (Option.is_some rm.trace_summary)
-;;
-
-let test_run_metrics_to_yojson_with_trace () =
-  let summary : Trace_eval.summary =
-    { total_spans = 5
-    ; agent_runs = 1
-    ; api_calls = 2
-    ; tool_execs = 1
-    ; hook_invokes = 0
-    ; failed_spans = 0
-    ; failed_api_calls = 0
-    ; failed_tool_execs = 0
-    ; total_events = 10
-    ; average_duration_ms = None
-    ; longest_span_name = None
-    }
-  in
-  let rm = { (mk_run []) with trace_summary = Some summary } in
-  let json = Eval.run_metrics_to_yojson rm in
-  let open Yojson.Safe.Util in
-  Alcotest.(check bool)
-    "has_trace_summary"
-    true
-    (json |> member "has_trace_summary" |> to_bool)
-;;
-
 (* ── find_metric_value ────────────────────────────────── *)
 
 let test_find_metric_value_found () =
@@ -411,191 +344,6 @@ let test_threshold_both_fail_min () =
   Alcotest.(check bool) "fail min" false v.passed
 ;;
 
-(* ── Eval_baseline: show_diff all variants ────────────── *)
-
-let test_show_diff_unchanged () =
-  let s = Eval_baseline.show_diff Unchanged in
-  Alcotest.(check string) "unchanged" "unchanged" s
-;;
-
-let test_show_diff_improved () =
-  let s =
-    Eval_baseline.show_diff
-      (Improved
-         { name = "score"; baseline_val = 0.8; current_val = 0.9; delta_pct = 12.5 })
-  in
-  Alcotest.(check bool) "contains score" true (Util.string_contains ~needle:"score" s);
-  Alcotest.(check bool) "contains +" true (Util.string_contains ~needle:"+" s)
-;;
-
-let test_show_diff_added () =
-  let s = Eval_baseline.show_diff (Added { name = "new_metric"; value = Int_val 42 }) in
-  Alcotest.(check bool) "contains NEW" true (Util.string_contains ~needle:"NEW" s)
-;;
-
-let test_show_diff_removed () =
-  let s =
-    Eval_baseline.show_diff (Removed { name = "old_metric"; value = Float_val 1.0 })
-  in
-  Alcotest.(check bool) "contains REMOVED" true (Util.string_contains ~needle:"REMOVED" s)
-;;
-
-(* ── Eval_baseline: compare near-zero baseline ────────── *)
-
-let test_compare_near_zero_baseline () =
-  let baseline_rm = mk_run [ mk_metric "x" (Float_val 0.0) ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let current = mk_run [ mk_metric "x" (Float_val 0.001) ] in
-  let c = Eval_baseline.compare ~baseline ~current () in
-  Alcotest.(check bool) "improved" true (c.improvements > 0)
-;;
-
-let test_compare_near_zero_both () =
-  let baseline_rm = mk_run [ mk_metric "x" (Float_val 0.0) ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let current = mk_run [ mk_metric "x" (Float_val 0.0) ] in
-  let c = Eval_baseline.compare ~baseline ~current () in
-  let unchanged =
-    List.filter
-      (function
-        | Eval_baseline.Unchanged -> true
-        | _ -> false)
-      c.diffs
-  in
-  Alcotest.(check int) "1 unchanged" 1 (List.length unchanged)
-;;
-
-(* ── Eval_baseline: compare non-numeric equality/inequality ── *)
-
-let test_compare_non_numeric_equal () =
-  let baseline_rm = mk_run [ mk_metric "tag" (String_val "v1") ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let current = mk_run [ mk_metric "tag" (String_val "v1") ] in
-  let c = Eval_baseline.compare ~baseline ~current () in
-  let unchanged =
-    List.filter
-      (function
-        | Eval_baseline.Unchanged -> true
-        | _ -> false)
-      c.diffs
-  in
-  Alcotest.(check int) "unchanged" 1 (List.length unchanged)
-;;
-
-let test_compare_non_numeric_changed () =
-  let baseline_rm = mk_run [ mk_metric "tag" (String_val "v1") ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let current = mk_run [ mk_metric "tag" (String_val "v2") ] in
-  let c = Eval_baseline.compare ~baseline ~current () in
-  Alcotest.(check int) "1 regression" 1 c.regressions
-;;
-
-(* ── Eval_baseline: compare with custom tolerance ─────── *)
-
-let test_compare_custom_tolerance () =
-  let baseline_rm = mk_run [ mk_metric "x" (Float_val 100.0) ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let current = mk_run [ mk_metric "x" (Float_val 102.0) ] in
-  let c1 = Eval_baseline.compare ~tolerance_pct:5.0 ~baseline ~current () in
-  Alcotest.(check int) "within 5%: no regression" 0 c1.regressions;
-  let c2 = Eval_baseline.compare ~tolerance_pct:1.0 ~baseline ~current () in
-  Alcotest.(check int) "outside 1%: improvement" 1 c2.improvements
-;;
-
-(* ── Eval_report: pass_at_k boundary ──────────────────── *)
-
-let test_report_pass_at_k_exactly_half () =
-  let baseline_rm = mk_run [ mk_metric "x" (Float_val 1.0) ] ~verdicts:[ pass_verdict ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let fail_v : Harness.verdict =
-    { passed = false; score = None; evidence = []; detail = None }
-  in
-  let runs =
-    [ mk_run [ mk_metric "x" (Float_val 1.0) ] ~verdicts:[ pass_verdict ]
-    ; mk_run [ mk_metric "x" (Float_val 1.0) ] ~verdicts:[ fail_v ]
-    ]
-  in
-  let report = Eval_report.generate ~baseline runs in
-  Alcotest.(check (float 0.01)) "pass_at_k" 0.5 report.pass_at_k;
-  (* 0.5 >= 0.5 -> Pass *)
-  match report.verdict with
-  | `Pass -> ()
-  | _ -> Alcotest.fail "expected Pass at exactly 0.5"
-;;
-
-(* ── Eval_report: to_string with comparison that has Unchanged diffs ── *)
-
-let test_report_to_string_unchanged_filtered () =
-  let baseline_rm = mk_run [ mk_metric "x" (Float_val 1.0) ] ~verdicts:[ pass_verdict ] in
-  let baseline = Eval_baseline.create ~description:"base" baseline_rm in
-  let runs = [ mk_run [ mk_metric "x" (Float_val 1.0) ] ~verdicts:[ pass_verdict ] ] in
-  let report = Eval_report.generate ~baseline runs in
-  let s = Eval_report.to_string report in
-  (* Unchanged diffs should be filtered out of to_string *)
-  Alcotest.(check bool)
-    "does not contain unchanged"
-    false
-    (Util.string_contains ~needle:"unchanged" s)
-;;
-
-(* ── Eval_collector: AgentCompleted event ─────────────── *)
-
-let test_eval_collector_agent_completed () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create () in
-  let subscription =
-    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
-    |> Result.get_ok
-  in
-  let ec = Eval_collector.wrap_run ~bus ~subscription ~agent_name:"bot" ~run_id:"r1" () in
-  let ok_response : Types.api_response =
-    { id = "r1"
-    ; model = "m"
-    ; stop_reason = EndTurn
-    ; content = [ Text "done" ]
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event
-       (AgentCompleted
-          { agent_name = "bot"; task_id = "t1"; elapsed = 2.5; result = Ok ok_response }));
-  let rm = Eval_collector.finalize ec in
-  (match Eval.find_metric_value rm "elapsed_s" with
-   | Some (Float_val f) -> Alcotest.(check (float 0.1)) "elapsed" 2.5 f
-   | _ -> Alcotest.fail "expected elapsed_s metric");
-  match Eval.find_metric_value rm "success" with
-  | Some (Bool_val true) -> ()
-  | _ -> Alcotest.fail "expected success=true"
-;;
-
-let test_eval_collector_agent_completed_error () =
-  Eio_main.run
-  @@ fun _env ->
-  let bus = Event_bus.create () in
-  let subscription =
-    Event_bus.subscription_config ~capacity:8 ~overflow:Event_bus.Drop_newest
-    |> Result.get_ok
-  in
-  let ec = Eval_collector.wrap_run ~bus ~subscription ~agent_name:"bot" ~run_id:"r1" () in
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event
-       (AgentCompleted
-          { agent_name = "bot"
-          ; task_id = "t1"
-          ; elapsed = 1.0
-          ; result = Error (Error.Internal "fail")
-          }));
-  let rm = Eval_collector.finalize ec in
-  match Eval.find_metric_value rm "success" with
-  | Some (Bool_val false) -> ()
-  | _ -> Alcotest.fail "expected success=false"
-;;
-
 (* ── Test runner ───────────────────────────────────────── *)
 
 let () =
@@ -636,13 +384,7 @@ let () =
             `Quick
             test_run_metrics_to_yojson_with_verdicts
         ; Alcotest.test_case "score None" `Quick test_run_metrics_to_yojson_score_none
-        ; Alcotest.test_case
-            "with trace summary"
-            `Quick
-            test_run_metrics_to_yojson_with_trace
         ] )
-    ; ( "trace_summary"
-      , [ Alcotest.test_case "set_trace_summary" `Quick test_set_trace_summary ] )
     ; ( "find_metric_value"
       , [ Alcotest.test_case "found" `Quick test_find_metric_value_found
         ; Alcotest.test_case "missing" `Quick test_find_metric_value_missing
@@ -670,36 +412,6 @@ let () =
         ; Alcotest.test_case "non-numeric" `Quick test_threshold_non_numeric
         ; Alcotest.test_case "both pass" `Quick test_threshold_both_pass
         ; Alcotest.test_case "both fail min" `Quick test_threshold_both_fail_min
-        ] )
-    ; ( "show_diff"
-      , [ Alcotest.test_case "unchanged" `Quick test_show_diff_unchanged
-        ; Alcotest.test_case "improved" `Quick test_show_diff_improved
-        ; Alcotest.test_case "added" `Quick test_show_diff_added
-        ; Alcotest.test_case "removed" `Quick test_show_diff_removed
-        ] )
-    ; ( "baseline_compare_extra"
-      , [ Alcotest.test_case "near zero" `Quick test_compare_near_zero_baseline
-        ; Alcotest.test_case "near zero both" `Quick test_compare_near_zero_both
-        ; Alcotest.test_case "non-numeric equal" `Quick test_compare_non_numeric_equal
-        ; Alcotest.test_case "non-numeric changed" `Quick test_compare_non_numeric_changed
-        ; Alcotest.test_case "custom tolerance" `Quick test_compare_custom_tolerance
-        ] )
-    ; ( "eval_report_extra"
-      , [ Alcotest.test_case
-            "pass_at_k boundary"
-            `Quick
-            test_report_pass_at_k_exactly_half
-        ; Alcotest.test_case
-            "to_string unchanged filtered"
-            `Quick
-            test_report_to_string_unchanged_filtered
-        ] )
-    ; ( "eval_collector_extra"
-      , [ Alcotest.test_case "agent completed" `Quick test_eval_collector_agent_completed
-        ; Alcotest.test_case
-            "agent completed error"
-            `Quick
-            test_eval_collector_agent_completed_error
         ] )
     ]
 ;;

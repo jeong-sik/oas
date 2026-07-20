@@ -382,6 +382,382 @@ let profile_headers_on_client_error ~url ~code ~resp_headers request_headers =
     Diag.warn "http_client" "%s" (Yojson.Safe.to_string json))
 ;;
 
+(* On a 4xx, the response body from a provider edge is frequently an opaque
+   "Bad Request" with no field-level cause (observed 2026-07-18 against
+   ollama.com/v1 deepseek-v4-flash: ~78% of turns rejected, empty-detail body).
+   The request that provoked it is then lost, because [HttpError] only carries
+   the RESPONSE body. This logs a STRUCTURAL profile of the REQUEST body so a
+   recurring provider 4xx can be attributed to a request shape without a repro
+   harness or a full-body dump.
+
+   Only structural facts are emitted — field presence, counts, message role
+   sequence, and enumerable option values (response_format type, reasoning
+   effort). Prompt/message TEXT and tool argument values are never logged: they
+   may carry user content and do not distinguish an accepted shape from a
+   rejected one. A body that is not JSON is reported as such rather than
+   parsed. *)
+(* Exhaustive over the closed [Yojson.Safe.t] variant — no catch-all, so a
+   future Yojson constructor forces a compile update rather than silently
+   mislabelling. The label helpers take a [Yojson.Safe.t option] so an ABSENT
+   top-level field is distinguished from a present field whose value is [`Null]
+   or the wrong type: a missing field and a malformed field are separate
+   diagnostic facts, and reporting one as the other makes the profile lie. *)
+let string_field_label : Yojson.Safe.t option -> Yojson.Safe.t = function
+  | None -> `String "<absent>"
+  | Some (`String s) -> `String s
+  | Some `Null -> `String "<null>"
+  | Some (`Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _) ->
+    `String "<non-string>"
+;;
+
+(* Tri-state length of an optional top-level list field. An empty list and an
+   absent field are separate facts (a body with no [messages] key differs from
+   one with [messages: []]); a present non-list value is a third. *)
+let list_len_field_label : Yojson.Safe.t option -> Yojson.Safe.t = function
+  | None -> `String "<absent>"
+  | Some (`List xs) -> `Int (List.length xs)
+  | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _) ->
+    `String "<non-list>"
+;;
+
+(* Some providers wrap every function declaration in a single top-level [tools]
+   element (Gemini nests them under [functionDeclarations]), so [tool_count] is
+   1 regardless of how many declarations it holds. Reveal the nested count
+   generically: if the first [tools] element is an object with a list-valued
+   field, report that list's length. No provider key is named — any object with
+   an inner list qualifies; anything else is [<n/a>]. *)
+let first_inner_list_len : Yojson.Safe.t option -> Yojson.Safe.t =
+  let inner_len fields =
+    List.find_map
+      (function
+        | _key, `List inner -> Some (List.length inner)
+        | _key, (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _)
+          -> None)
+      fields
+  in
+  function
+  | Some (`List (`Assoc first :: _)) ->
+    (match inner_len first with
+     | Some n -> `Int n
+     | None -> `String "<n/a>")
+  | Some (`List [])
+  | Some
+      (`List ((`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _) :: _))
+  | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _)
+  | None -> `String "<n/a>"
+;;
+
+let json_is_present : Yojson.Safe.t -> bool = function
+  | `Null -> false
+  | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ -> true
+;;
+
+(* A rejected POST body can embed base64 media; parsing it whole on the 4xx
+   failure path adds allocation and latency for no diagnostic gain. Above this
+   size the parse is skipped and only the byte count is reported. 64 KiB holds a
+   text-only chat request (messages, tools, options) while excluding
+   media-laden bodies. *)
+let max_profiled_body_bytes = 64 * 1024
+
+let request_body_shape_profile (body : string) : Yojson.Safe.t =
+  if String.length body > max_profiled_body_bytes
+  then
+    (* Oversized: skip the full parse. [parseable] is [false] because no parse
+       was attempted; [skipped_oversized] records the reason so a consumer does
+       not read it as a malformed body. *)
+    `Assoc
+      [ "parseable", `Bool false
+      ; "body_bytes", `Int (String.length body)
+      ; "skipped_oversized", `Bool true
+      ]
+  else (
+    match Yojson.Safe.from_string body with
+    | exception (Yojson.Json_error _ | Yojson.Safe.Util.Type_error _) ->
+      `Assoc [ "parseable", `Bool false; "body_bytes", `Int (String.length body) ]
+    | `Assoc fields ->
+      let has key = List.mem_assoc key fields in
+      (* [field] collapses absent-or-null; [List.assoc_opt] is used directly
+         where absent must be told apart from present-null (see the label
+         helpers above). *)
+      let field key = if has key then List.assoc key fields else `Null in
+      let messages_field = List.assoc_opt "messages" fields in
+      let role_of_message : Yojson.Safe.t -> Yojson.Safe.t = function
+        | `Assoc mfields ->
+          (match List.assoc_opt "role" mfields with
+           | Some (`String r) -> `String r
+           | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _)
+             -> `String "<non-string-role>"
+           | None -> `String "<no-role>")
+        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+          `String "<non-object>"
+      in
+      (* Roles are reported only when [messages] is a real list; an absent or
+         non-list [messages] carries no role sequence to report. *)
+      let message_roles_field =
+        match messages_field with
+        | Some (`List ms) -> [ "message_roles", `List (List.map role_of_message ms) ]
+        | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _)
+        | None -> []
+      in
+      let response_format_type =
+        match field "response_format" with
+        | `Assoc rf ->
+          (match List.assoc_opt "type" rf with
+           | Some (`String t) -> `String t
+           | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _)
+             -> `String "<non-string-type>"
+           | None -> `String "<no-type>")
+        | `Null -> `Null
+        | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+          `String "<non-object>"
+      in
+      let stream =
+        match field "stream" with
+        | `Bool b -> `Bool b
+        | `Null | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ -> `Null
+      in
+      (* [List.assoc]/[List.mem_assoc] keep only the first binding, so a body
+         with duplicate top-level keys — itself a rejection class — would profile
+         as if deduped. Report every key that occurs more than once. *)
+      let duplicate_keys =
+        let names = List.map fst fields in
+        `List
+          (List.filter_map
+             (fun name ->
+                let count = List.length (List.filter (String.equal name) names) in
+                if count > 1
+                then Some (`Assoc [ "name", `String name; "count", `Int count ])
+                else None)
+             (List.sort_uniq String.compare names))
+      in
+      (* Every top-level key NAME present, so a rejection caused by an
+         unrecognised or misspelled field is diagnosable even though it is not
+         one of the typed fields below. Key names are our own serialisation
+         vocabulary (schema), not request TEXT, so this leaks no user content.
+         Reporting the full key set also makes the profile schema-agnostic
+         rather than a curated per-provider key list: the typed fields are
+         richer detail on commonly-relevant keys, not the limit of what is
+         seen. *)
+      let top_level_keys =
+        `List
+          (List.map
+             (fun name -> `String name)
+             (List.sort_uniq String.compare (List.map fst fields)))
+      in
+      `Assoc
+        ([ "parseable", `Bool true
+         ; "body_bytes", `Int (String.length body)
+         ; "top_level_keys", top_level_keys
+         ; "model", string_field_label (List.assoc_opt "model" fields)
+         ; "message_count", list_len_field_label messages_field
+         ]
+         @ message_roles_field
+         @ [ "contents_count", list_len_field_label (List.assoc_opt "contents" fields)
+           ; "input_count", list_len_field_label (List.assoc_opt "input" fields)
+           ; "tool_count", list_len_field_label (List.assoc_opt "tools" fields)
+           ; ( "tool_first_inner_count"
+             , first_inner_list_len (List.assoc_opt "tools" fields) )
+           ; "response_format_type", response_format_type
+           ; ( "reasoning_effort"
+             , string_field_label (List.assoc_opt "reasoning_effort" fields) )
+           ; "thinking_present", `Bool (json_is_present (field "thinking"))
+           ; "max_tokens_present", `Bool (has "max_tokens")
+           ; "stream", stream
+           ; "duplicate_keys", duplicate_keys
+           ])
+    | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+      `Assoc
+        [ "parseable", `Bool true
+        ; "body_bytes", `Int (String.length body)
+        ; "top_level", `String "<non-object>"
+        ])
+;;
+
+(* Companion to [profile_headers_on_client_error]: names the request SHAPE on a
+   4xx so an opaque provider "Bad Request" can be diagnosed from the always-on
+   log, without enabling body-level debug or reproducing the exact turn. *)
+let profile_request_on_client_error ~url ~code ~request_body =
+  if code >= 400 && code < 500
+  then (
+    let json =
+      `Assoc
+        [ "event", `String "http_client_4xx_request_shape"
+        ; "url", `String url
+        ; "status", `Int code
+        ; "request_shape", request_body_shape_profile request_body
+        ; ( "note"
+          , `String
+              "4xx from an LLM endpoint. Structural request facts only; message and \
+               tool-argument TEXT omitted (may carry user content and does not \
+               distinguish accepted from rejected shapes)." )
+        ]
+    in
+    Diag.warn "http_client" "%s" (Yojson.Safe.to_string json))
+;;
+
+let%test "request_body_shape_profile reports non-json bodies without raising" =
+  (* Result is always an [`Assoc]; [member] yields [`Null] for a missing key,
+     so no catch-all is needed to read a field. *)
+  Yojson.Safe.Util.member "parseable" (request_body_shape_profile "Bad Request")
+  = `Bool false
+;;
+
+let%test "request_body_shape_profile extracts shape without message text" =
+  let body =
+    {|{"model":"deepseek-v4-flash","messages":[{"role":"system","content":"secret prompt"},{"role":"user","content":"private"}],"tools":[{"type":"function"}],"response_format":{"type":"json_schema"},"reasoning_effort":"high","thinking":{"type":"enabled"}}|}
+  in
+  let profile = request_body_shape_profile body in
+  let s = Yojson.Safe.to_string profile in
+  let contains ~needle haystack =
+    let nl = String.length needle
+    and hl = String.length haystack in
+    let rec loop i =
+      if i + nl > hl
+      then false
+      else if String.sub haystack i nl = needle
+      then true
+      else loop (i + 1)
+    in
+    nl = 0 || loop 0
+  in
+  let field key = Yojson.Safe.Util.member key profile in
+  (* structural facts present, message content absent *)
+  field "model" = `String "deepseek-v4-flash"
+  && field "message_count" = `Int 2
+  && field "response_format_type" = `String "json_schema"
+  && field "reasoning_effort" = `String "high"
+  && field "thinking_present" = `Bool true
+  && field "max_tokens_present" = `Bool false
+  && (not (contains ~needle:"secret prompt" s))
+  && not (contains ~needle:"private" s)
+;;
+
+(* The profile reports EVERY top-level key by NAME, so a 4xx caused by an
+   unrecognised or misspelled field is diagnosable even though that field is not
+   one of the typed fields. Key names are our own serialisation vocabulary
+   (schema), not request TEXT, so no value or user content leaks through them. *)
+let%test "shape profile surfaces unrecognised top-level keys without their values" =
+  let body =
+    {|{"model":"m","messages":[{"role":"user","content":"private"}],"unexpected_knob":"leak-me","typo_max_tokens":4}|}
+  in
+  let profile = request_body_shape_profile body in
+  let s = Yojson.Safe.to_string profile in
+  let contains ~needle haystack =
+    let nl = String.length needle
+    and hl = String.length haystack in
+    let rec loop i =
+      if i + nl > hl
+      then false
+      else if String.sub haystack i nl = needle
+      then true
+      else loop (i + 1)
+    in
+    nl = 0 || loop 0
+  in
+  let keys =
+    match Yojson.Safe.Util.member "top_level_keys" profile with
+    | `List xs ->
+      List.filter_map
+        (function
+          | `String s -> Some s
+          | _ -> None)
+        xs
+    | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+  in
+  let has_key k = List.mem k keys in
+  (* unrecognised keys are visible by NAME ... *)
+  has_key "unexpected_knob"
+  && has_key "typo_max_tokens"
+  && has_key "model"
+  && has_key "messages"
+  (* ... but their VALUES are not echoed, and message content stays absent *)
+  && (not (contains ~needle:"leak-me" s))
+  && not (contains ~needle:"private" s)
+;;
+
+(* Finding 1: an absent field, a present-null field, and a present-non-string
+   field are three distinct facts — the profile must not report an absent field
+   as a malformed one. *)
+let%test "shape profile distinguishes absent from malformed string fields" =
+  let m key j = Yojson.Safe.Util.member key j in
+  let absent = request_body_shape_profile {|{"model":"m"}|} in
+  let present_null = request_body_shape_profile {|{"reasoning_effort":null}|} in
+  let present_int = request_body_shape_profile {|{"reasoning_effort":3}|} in
+  m "reasoning_effort" absent = `String "<absent>"
+  && m "reasoning_effort" present_null = `String "<null>"
+  && m "reasoning_effort" present_int = `String "<non-string>"
+  && m "model" absent = `String "m"
+  && m "model" present_null = `String "<absent>"
+;;
+
+(* Finding 2: absent messages / non-list messages must not both read as an empty
+   array; roles are attached only for a real list. *)
+let%test "shape profile reports messages presence honestly" =
+  let m key j = Yojson.Safe.Util.member key j in
+  let absent = request_body_shape_profile {|{"model":"m"}|} in
+  let empty = request_body_shape_profile {|{"messages":[]}|} in
+  let non_list = request_body_shape_profile {|{"messages":"oops"}|} in
+  m "message_count" absent = `String "<absent>"
+  && m "message_count" empty = `Int 0
+  && m "message_count" non_list = `String "<non-list>"
+  && m "message_roles" empty = `List []
+  && m "message_roles" absent = `Null (* key omitted -> member is `Null *)
+  && m "message_roles" non_list = `Null
+;;
+
+(* Finding 3: non-chat containers ([contents] for Gemini, [input] for OpenAI
+   Responses) are reported with the same tri-state as [messages]. *)
+let%test "shape profile reports contents and input container counts" =
+  let m key j = Yojson.Safe.Util.member key j in
+  let gemini =
+    request_body_shape_profile {|{"contents":[{"role":"user"},{"role":"model"}]}|}
+  in
+  let responses = request_body_shape_profile {|{"input":[{"type":"message"}]}|} in
+  let neither = request_body_shape_profile {|{"model":"m"}|} in
+  m "contents_count" gemini = `Int 2
+  && m "input_count" gemini = `String "<absent>"
+  && m "input_count" responses = `Int 1
+  && m "contents_count" neither = `String "<absent>"
+  && m "contents_count" responses = `String "<absent>"
+;;
+
+(* Finding 4: Gemini wraps all declarations in one top-level [tools] element, so
+   [tool_count] is 1; the nested list length is surfaced generically. *)
+let%test "shape profile reveals nested function-declaration count" =
+  let m key j = Yojson.Safe.Util.member key j in
+  let gemini =
+    request_body_shape_profile
+      {|{"tools":[{"functionDeclarations":[{"name":"a"},{"name":"b"},{"name":"c"}]}]}|}
+  in
+  let flat = request_body_shape_profile {|{"tools":[{"type":"function"}]}|} in
+  let none = request_body_shape_profile {|{"model":"m"}|} in
+  m "tool_count" gemini = `Int 1
+  && m "tool_first_inner_count" gemini = `Int 3
+  && m "tool_first_inner_count" flat = `String "<n/a>"
+  && m "tool_count" none = `String "<absent>"
+  && m "tool_first_inner_count" none = `String "<n/a>"
+;;
+
+(* Finding 5: bodies over [max_profiled_body_bytes] skip the full parse. *)
+let%test "shape profile skips parsing oversized bodies" =
+  let big = {|{"x":"|} ^ String.make (max_profiled_body_bytes + 1) 'a' ^ {|"}|} in
+  let profile = request_body_shape_profile big in
+  let m key = Yojson.Safe.Util.member key profile in
+  m "skipped_oversized" = `Bool true
+  && m "parseable" = `Bool false
+  && m "body_bytes" = `Int (String.length big)
+;;
+
+(* Finding 6: duplicate top-level keys (a rejection class) are surfaced with
+   their occurrence count instead of being silently deduped. *)
+let%test "shape profile reports duplicate top-level keys" =
+  let m key j = Yojson.Safe.Util.member key j in
+  let dup = request_body_shape_profile {|{"model":"a","model":"b","stream":true}|} in
+  let clean = request_body_shape_profile {|{"model":"a","stream":true}|} in
+  m "duplicate_keys" dup = `List [ `Assoc [ "name", `String "model"; "count", `Int 2 ] ]
+  && m "duplicate_keys" clean = `List []
+;;
+
 let%test "header_line_bytes = key + value + 4 (\": \" + CRLF)" =
   (* "x-runtime-mcp" = 13, "abc" = 3, + 4 = 20 *)
   header_line_bytes ("x-runtime-mcp", "abc") = 20
@@ -1171,6 +1547,7 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
+        profile_request_on_client_error ~url ~code ~request_body:body;
         let* body_str = read_response_body resp_body in
         Ok (code, body_str))))
 ;;
@@ -1215,6 +1592,7 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       let code = Cohttp.Code.code_of_status status in
       let resp_headers = Cohttp.Response.headers resp in
       profile_headers_on_client_error ~url ~code ~resp_headers headers_with_length;
+      profile_request_on_client_error ~url ~code ~request_body:body;
       let retry_after_header = retry_after_header_of_response_headers resp_headers in
       let* body_str = read_response_body resp_body in
       Error (HttpError { code; body = body_str; retry_after_header }))
@@ -1290,6 +1668,7 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
           let code = Cohttp.Code.code_of_status status in
           let resp_headers = Cohttp.Response.headers resp in
           profile_headers_on_client_error ~url ~code ~resp_headers headers_with_length;
+          profile_request_on_client_error ~url ~code ~request_body:body;
           let retry_after_header = retry_after_header_of_response_headers resp_headers in
           (match read_response_body resp_body with
            | Ok body_str ->
@@ -1387,6 +1766,14 @@ let idle_timeout_without_clock site =
         silently disarmed (pass ?clock, or drop ?idle_timeout)")
 ;;
 
+let first_event_timeout_without_clock site =
+  invalid_arg
+    (site
+     ^ ": a first-event bound (first_event_timeout or its body_timeout fallback) is set \
+        but no clock was supplied — the first-event deadline would be silently disarmed \
+        (pass ?clock, or drop the timeout)")
+;;
+
 let require_clock_when_idle ~site ~clock ~idle_timeout =
   match clock, idle_timeout with
   | None, Some _ ->
@@ -1398,23 +1785,157 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
   | Some _, _ | None, None -> ()
 ;;
 
-let read_sse ?clock ?idle_timeout ~reader ~on_data () =
+(* RFC-OAS-037: same fail-loud contract for the first-event (TTFT/prefill)
+   deadline. Either an explicit [first_event_timeout] OR the [body_timeout]
+   fallback that now backs it (see [resolve_first_event_timeout]) would
+   silently disarm without a clock, leaving the prefill wait unbounded. The
+   all-[None] case configures no first-event deadline at all, so there is
+   nothing to disarm and nothing to reject. *)
+let require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout =
+  match clock with
+  | Some _ -> ()
+  | None ->
+    (match first_event_timeout, body_timeout with
+     | Some _, _ | None, Some _ -> first_event_timeout_without_clock site
+     | None, None -> ())
+;;
+
+(* RFC-OAS-037: the caller-supplied knob a streaming deadline came from.
+   Carried so a fired timeout can name the budget the operator must tune,
+   rather than always blaming the inter-token idle knob. *)
+type timeout_knob =
+  | First_event_timeout
+  | Body_timeout
+  | Stream_idle_timeout
+
+let timeout_knob_to_param = function
+  | First_event_timeout -> "first_event_timeout_s"
+  | Body_timeout -> "body_timeout_s"
+  | Stream_idle_timeout -> "stream_idle_timeout_s"
+;;
+
+(* Resolution outcome for the first-event wait: either a bound with the knob it
+   came from, or no bound at all. Keeping the knob attached to the value is what
+   lets attribution reuse the resolver instead of re-deriving the precedence. *)
+type first_event_bound =
+  | Bounded of
+      { knob : timeout_knob
+      ; seconds : float
+      }
+  | Unarmed
+
+(* RFC-OAS-037 §4.2: resolve the effective first-event (TTFT/prefill) bound.
+   Every arm returns a caller-supplied value — this function never invents a
+   deadline of its own:
+
+   - explicit [first_event_timeout] wins;
+   - else [body_timeout], the total body budget callers already wire, but which
+     did not reach the streaming reader before this fix (the production shape
+     the RFC exists to repair: a long prefill bounded by the long budget
+     instead of the short inter-token one);
+   - else [idle_timeout], preserving the pre-RFC bound for callers that wired
+     only an idle deadline — before this change that value also bounded the
+     first event, and silently widening it would be an unrequested behaviour
+     change;
+   - else [None]: the caller configured no deadline on any channel, so the
+     first-event wait stays unarmed exactly as it was. Inventing a default
+     here would re-introduce the provider idle defaults that were deliberately
+     removed (see [removed_provider_idle_defaults_upper_bound_s] in the
+     streaming tests) and would be a hardcoded magic number besides.
+
+   A dead connect on the all-[None] path is bounded by the connect timeout and
+   by the caller's own total-call deadline, not by a budget this layer makes
+   up. *)
+let resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout =
+  match first_event_timeout, body_timeout, idle_timeout with
+  | Some seconds, _, _ -> Bounded { knob = First_event_timeout; seconds }
+  | None, Some seconds, _ -> Bounded { knob = Body_timeout; seconds }
+  | None, None, Some seconds -> Bounded { knob = Stream_idle_timeout; seconds }
+  | None, None, None -> Unarmed
+;;
+
+let resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout =
+  match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+  | Bounded { seconds; _ } -> Some seconds
+  | Unarmed -> None
+;;
+
+(* RFC-OAS-037: name the knob whose value produced the deadline that fired, so
+   an operator tunes the budget that actually governs. Derived from the SAME
+   resolver as the armed bound — the precedence chain exists in exactly one
+   place, so the message can never drift from the behaviour. Only the
+   first-event phase can be governed by something other than the idle knob;
+   every later phase is inter-token idle by construction. *)
+let governing_timeout_knob ~state ~first_event_timeout ~body_timeout ~idle_timeout =
+  match state with
+  | Awaiting_first_event ->
+    (match resolve_first_event_bound ~first_event_timeout ~body_timeout ~idle_timeout with
+     | Bounded { knob; _ } -> knob
+     | Unarmed -> Stream_idle_timeout)
+  | Awaiting_first_delta
+  | Streaming_answer
+  | Streaming_thinking
+  | Streaming_tool_call
+  | Streaming_heartbeat
+  | Streaming_substrate
+  | Streaming_done
+  | Streaming_unknown -> Stream_idle_timeout
+;;
+
+let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
   let site = "read_sse" in
   require_clock_when_idle ~site ~clock ~idle_timeout;
+  require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
   (* SSE keepalive comments carry no payload. Skipping them inside the
-     SAME [with_timeout_exn] window preserves the idle deadline so a
-     provider that emits only keepalives still trips [idle_timeout]
-     when no real event arrives. *)
+     SAME [with_timeout_exn] window preserves the armed deadline so a
+     provider that emits only keepalives still trips it when no real event
+     arrives.
+     RFC-OAS-037: the wait for the FIRST meaningful line is the
+     time-to-first-event (TTFT / prefill) window; bound it with
+     [first_event_timeout] (a separate, larger liveness budget) rather than
+     the short [idle_timeout], which arms only AFTER the first event for
+     inter-token idle. A silent prefill on a large context is slow-but-alive,
+     not a hang, so it must not be cut by the inter-token idle value. When
+     [first_event_timeout] is [None] the first-event wait falls back to
+     [body_timeout] (the total body budget already wired by the caller), then to [idle_timeout] — the
+     pre-RFC bound, kept so callers that wired only an idle deadline keep
+     exactly their previous behaviour (see [resolve_first_event_timeout]).
+     With nothing wired the wait stays unarmed, as before. Inter-token idle
+     still guards once the stream produces. *)
+  let first_event_seen = ref false in
   let read_meaningful_line () =
     let rec inner () =
       match parse_sse_line (Eio.Buf_read.line reader) with
       | Sse_comment -> inner ()
       | (Sse_blank | Sse_field _) as parsed -> parsed
     in
-    match clock, idle_timeout with
-    | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
-    | Some _, None | None, None -> inner ()
-    | None, Some _ -> idle_timeout_without_clock site
+    let active_timeout =
+      if !first_event_seen
+      then idle_timeout
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
+    in
+    let parsed =
+      match clock, active_timeout with
+      | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
+      | Some _, None -> inner ()
+      (* No clock: nothing can be armed. Misconfiguration (an explicit
+         deadline without a clock) already failed loud at entry, so this is
+         the no-config default — best-effort read, unchanged pre-timeout
+         behaviour. *)
+      | None, _ -> inner ()
+    in
+    (* P3a (RFC-OAS-037 review): the transition to the inter-token idle budget
+       must fire on GENUINE first output — a data/event field — NOT on a bare
+       blank dispatch delimiter. A provider that emits a leading blank line
+       before real prefill would otherwise switch to the short idle budget
+       prematurely and re-introduce the very bug this RFC fixes for it.
+       [Sse_comment] is already filtered inside [inner]; the only non-field
+       line [inner] can return is [Sse_blank]. *)
+    (match parsed with
+     | Sse_field _ -> first_event_seen := true
+     | Sse_blank -> ()
+     | Sse_comment -> () (* unreachable: filtered in [inner] *));
+    parsed
   in
   let current_event_type = ref None in
   let rec loop () =
@@ -1450,15 +1971,47 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
 
     When [clock] and [idle_timeout] are both set, each line read is
     wrapped in [Eio.Time.with_timeout_exn] so a stalled stream raises
-    [Eio.Time.Timeout] after [idle_timeout] seconds of silence. *)
-let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
+    [Eio.Time.Timeout] after [idle_timeout] seconds of silence.
+
+    RFC-OAS-037: the wait for the FIRST line is the time-to-first-event
+    (TTFT / prefill) window, bounded by [first_event_timeout] when set;
+    otherwise it falls back to [body_timeout], then to [idle_timeout] (the
+    pre-RFC bound), and stays unarmed when the caller wired none of them.
+    [idle_timeout] arms only AFTER the first line for inter-token idle. *)
+let read_ndjson
+      ?clock
+      ?idle_timeout
+      ?first_event_timeout
+      ?body_timeout
+      ~reader
+      ~on_line
+      ()
+  =
   let site = "read_ndjson" in
   require_clock_when_idle ~site ~clock ~idle_timeout;
+  require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
+  let first_event_seen = ref false in
   let read_line () =
-    match clock, idle_timeout with
-    | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
-    | Some _, None | None, None -> Eio.Buf_read.line reader
-    | None, Some _ -> idle_timeout_without_clock site
+    let active_timeout =
+      if !first_event_seen
+      then idle_timeout
+      else resolve_first_event_timeout ~first_event_timeout ~body_timeout ~idle_timeout
+    in
+    let line =
+      match clock, active_timeout with
+      | Some c, Some t ->
+        Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
+      | Some _, None -> Eio.Buf_read.line reader
+      (* No clock: nothing can be armed. See [read_sse] for why this is
+         best-effort rather than a loud failure here. *)
+      | None, _ -> Eio.Buf_read.line reader
+    in
+    (* P3a (RFC-OAS-037 review): a bare blank line is a delimiter, not real
+       provider output — the [loop] below skips it. Flip to the inter-token
+       idle budget only on a non-empty line so a leading blank does not switch
+       budgets prematurely (SSE [Sse_blank] parity). *)
+    if String.length line > 0 then first_event_seen := true;
+    line
   in
   let rec loop () =
     match read_line () with
@@ -1936,4 +2489,317 @@ let%test "read_sse: idle_timeout fires when stream stalls mid-read" =
     false
   with
   | Eio.Time.Timeout -> true
+;;
+
+(* ── RFC-OAS-037: first_event_timeout (TTFT/prefill) tests ── *)
+
+(* Acceptance (a): a silent prefill that produces its first event AFTER the
+   short inter-token idle but WITHIN the first-event budget must succeed —
+   NOT be cancelled as a first-token timeout. Reverting the change (using the
+   short idle for the first event) makes this test fail: the 0.2s silent
+   prefill exceeds the 0.05s idle. *)
+let%test "read_sse: first_event_timeout admits a silent prefill past idle" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let payloads = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       (* Silent for 0.2s: longer than idle (0.05), shorter than the
+          first-event budget (1.0). Then emit the first event and close. *)
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "data: hello\n\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_sse
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_data:(fun ~event_type:_ d -> payloads := d :: !payloads)
+         ());
+  List.rev !payloads = [ "hello" ]
+;;
+
+(* Acceptance (b): no first event ever arrives — the short first-event budget
+   still guards a dead connect even though the inter-token idle budget is
+   long. *)
+let%test "read_sse: first_event_timeout fires when no first event arrives" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  (* Keep the sink open and never write: the first line read hangs. The long
+     idle budget (1.0) must NOT rescue it; the first-event budget (0.05) does
+     the guarding. *)
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:1.0
+      ~first_event_timeout:0.05
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* Acceptance (c): after the first event, inter-token idle still guards a
+   stalled active stream — unchanged behaviour. The first-event budget (1.0)
+   is long; the idle budget (0.05) is what fires once the stream has
+   produced. *)
+let%test "read_sse: idle_timeout still guards after the first event" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  (* First event arrives immediately, then the stream goes silent. *)
+  Eio.Flow.copy_string "data: hello\n" sink;
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:0.05
+      ~first_event_timeout:1.0
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* NDJSON parity for acceptance (a): the first-event budget must admit a silent
+   prefill past idle on the Ollama NDJSON path too (reverting to short idle on
+   the first line makes this fail). *)
+let%test "read_ndjson: first_event_timeout admits a silent prefill past idle" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let lines = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "{\"a\":1}\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_ndjson
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_line:(fun l -> lines := l :: !lines)
+         ());
+  List.rev !lines = [ "{\"a\":1}" ]
+;;
+
+(* ── RFC-OAS-037 review: effective first-event bound resolution ── *)
+
+(* The pure resolver is the deterministic seam for the fallback policy: one
+   test per arm of the precedence chain
+   [first_event > body > idle > unarmed], so a reordering or a re-introduced
+   built-in default fails here rather than in a timing-dependent I/O test. The
+   I/O tests below prove that a resolved bound actually arms the first-event
+   wait through [read_sse]/[read_ndjson]. *)
+let%test "resolve_first_event_timeout: explicit first_event wins over body and idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 5.0
+;;
+
+let%test "resolve_first_event_timeout: falls back to body_timeout over idle" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:(Some 3.0)
+    ~idle_timeout:(Some 0.5)
+  = Some 3.0
+;;
+
+(* Pre-RFC behaviour preservation: with only an idle deadline wired, that value
+   bounded the first event too. Widening it here would be an unrequested
+   behaviour change for every such caller. *)
+let%test "resolve_first_event_timeout: falls back to idle when it is the only bound" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Some 0.5
+;;
+
+(* Guards the removed provider idle defaults: with nothing wired the resolver
+   must stay unarmed rather than invent a bound of its own. *)
+let%test "resolve_first_event_timeout: all-None stays unarmed" =
+  resolve_first_event_timeout
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:None
+  = None
+;;
+
+(* RFC-OAS-037 attribution: a fired deadline must name the knob that supplied
+   its value. Pinning all three first-event sources plus one later phase means
+   a regression to the old "always stream_idle_timeout_s" message fails here. *)
+let%test "governing_timeout_knob: first-event names its explicit knob" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = First_event_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names body when it supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Body_timeout
+;;
+
+let%test "governing_timeout_knob: first-event names idle when idle supplied the bound" =
+  governing_timeout_knob
+    ~state:Awaiting_first_event
+    ~first_event_timeout:None
+    ~body_timeout:None
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "governing_timeout_knob: inter-token phases stay attributed to idle" =
+  governing_timeout_knob
+    ~state:Streaming_answer
+    ~first_event_timeout:(Some 5.0)
+    ~body_timeout:(Some 9.0)
+    ~idle_timeout:(Some 0.5)
+  = Stream_idle_timeout
+;;
+
+let%test "timeout_knob_to_param: names match the caller-facing parameters" =
+  String.equal (timeout_knob_to_param First_event_timeout) "first_event_timeout_s"
+  && String.equal (timeout_knob_to_param Body_timeout) "body_timeout_s"
+  && String.equal (timeout_knob_to_param Stream_idle_timeout) "stream_idle_timeout_s"
+;;
+
+(* P3b (production default): [first_event_timeout = None] + [body_timeout = Some
+   small] + a reader that never emits a first event. Pre-fix the first-event
+   wait was fully unbounded and this read hung forever (defeating RFC-OAS-037
+   acceptance point (4)); the body_timeout fallback now bounds it. The long
+   inter-token idle budget must NOT rescue it — the first-event bound does. *)
+let%test "read_sse: body_timeout bounds the first-event wait when first_event is None" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse
+      ~clock
+      ~idle_timeout:1.0
+      ~body_timeout:0.05
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+let%test "read_ndjson: body_timeout bounds the first-event wait when first_event is None" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, _sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_ndjson
+      ~clock
+      ~idle_timeout:1.0
+      ~body_timeout:0.05
+      ~reader
+      ~on_line:(fun _ -> ())
+      ();
+    false
+  with
+  | Eio.Time.Timeout -> true
+;;
+
+(* P3a (premature transition): a provider that emits a leading BARE BLANK line
+   before real prefill. The blank is a dispatch delimiter, not first output, so
+   it must NOT switch to the short inter-token idle budget. Then it is silent
+   for 0.2s (> idle 0.05, < first-event 1.0) before the real event. Reverting
+   the fix (flipping [first_event_seen] on the blank) arms the 0.05 idle for the
+   second read and this times out at 0.05s instead of admitting the prefill. *)
+let%test "read_sse: a leading blank line does not end the first-event wait" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let payloads = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Flow.copy_string "\n" sink;
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "data: hello\n\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_sse
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_data:(fun ~event_type:_ d -> payloads := d :: !payloads)
+         ());
+  List.rev !payloads = [ "hello" ]
+;;
+
+(* NDJSON parity for P3a: a leading blank line must not end the first-event
+   wait on the Ollama NDJSON path either. *)
+let%test "read_ndjson: a leading blank line does not end the first-event wait" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  let lines = ref [] in
+  Eio.Fiber.both
+    (fun () ->
+       Eio.Flow.copy_string "\n" sink;
+       Eio.Time.sleep clock 0.2;
+       Eio.Flow.copy_string "{\"a\":1}\n" sink;
+       Eio.Flow.close sink)
+    (fun () ->
+       read_ndjson
+         ~clock
+         ~idle_timeout:0.05
+         ~first_event_timeout:1.0
+         ~reader
+         ~on_line:(fun l -> lines := l :: !lines)
+         ());
+  List.rev !lines = [ "{\"a\":1}" ]
 ;;

@@ -1,3 +1,6 @@
+(* These tests intentionally exercise the deprecated legacy dispatch path. *)
+[@@@alert "-deprecated"]
+
 open Agent_sdk
 open Types
 

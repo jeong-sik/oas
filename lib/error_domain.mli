@@ -103,9 +103,6 @@ type error_ctx =
 (** Wrap an error with pipeline stage context. *)
 val with_stage : string -> sdk_error_poly -> error_ctx
 
-(** Wrap an error capturing the current backtrace. *)
-val with_backtrace : sdk_error_poly -> error_ctx
-
 (** {1 Conversion} *)
 
 val of_sdk_error : Error.sdk_error -> sdk_error_poly

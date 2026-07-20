@@ -64,9 +64,9 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 
 | Variant | Emit site | Semantic |
 |---------|-----------|---------|
-| `AgentStarted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle start |
-| `AgentCompleted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle completion |
-| `AgentFailed` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle failure |
+| `AgentStarted` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle start |
+| `AgentCompleted` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle completion (carries the `result`) |
+| `AgentFailed` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle failure (companion to `AgentCompleted` on `Error`) |
 | `TurnStarted` | `pipeline/pipeline_stage_prepare.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_stage_prepare.ml` | Exact caller-supplied tool surface serialized for this turn |
 | `TurnCompleted` | `pipeline/pipeline.ml` | End of a single agent turn |
@@ -267,7 +267,6 @@ on **two channels simultaneously**:
 | `Turn_recorded` | `runtime.turn_recorded` |
 | `Input_required` | `runtime.input_required` |
 | `Input_provided` | `runtime.input_provided` |
-| `Pending_input_updated` | `runtime.pending_input_updated` |
 | `Agent_spawn_requested` | `runtime.agent_spawn_requested` |
 | `Agent_became_live` | `runtime.agent_became_live` |
 | `Agent_output_delta` | `runtime.agent_output_delta` |
@@ -280,7 +279,7 @@ on **two channels simultaneously**:
 | `Session_failed` | `runtime.session_failed` |
 
 **Name collision note**: `Runtime.Agent_completed` (session-level
-participant lifecycle) is distinct from the reserved native
+participant lifecycle) is distinct from the native
 `Event_bus.AgentCompleted` payload. They live in different modules with
 different payload shapes. Disambiguate by Custom name prefix:
 `runtime.agent_completed` vs native `AgentCompleted`.
@@ -305,10 +304,6 @@ different payload shapes. Disambiguate by Custom name prefix:
   while phase is `Input_required`; `Provide_input` emits
   `Input_provided`, clears the payload, and returns the session to
   `Running`.
-- `Runtime.Pending_input_updated` reports ordinary input that arrived while a
-  turn was busy. Status values are `queued`, `applied`, `interrupted`, or
-  `ignored`. The event is intentionally not a lifecycle phase: ordinary queued
-  input must not imply keeper pause/stop.
 - Runtime finalization persists the operator-facing evidence set:
   `report.json`, `proof.json`, `runtime-telemetry-json`,
   `runtime-telemetry`, `runtime-raw-trace-json`, and `runtime-evidence`.
@@ -435,9 +430,12 @@ provider. Missing credentials / endpoints skip gracefully.
    - Add this doc row.
    - Update `test/test_multivendor_events.ml` golden transcript if the new event is part of the standard lifecycle.
 
-4. **Exhaustiveness**: confirm `lib/eval_collector.ml` and other `match`
-   sites on `Event_bus.payload` cover the new variant (they use explicit
-   arms, not `_`, so the compiler will flag omissions).
+4. **Exhaustiveness**: confirm `Event_bus.payload_kind` in
+   `lib/event_bus.ml` and other `match` sites on `Event_bus.payload`
+   cover the new variant (they use explicit arms, not `_`, so the
+   compiler will flag omissions under the repo's `warn-error +8` flag
+   set). `lib/eval_collector.ml` was removed in PR #2689 and is no
+   longer a match site to update.
 
 ## 10. How to add a new provider
 

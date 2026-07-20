@@ -165,6 +165,21 @@ let validate_tool_choice_request_for_resolved_config =
   PConfig.validate_tool_choice_request
 ;;
 
+(* Restore #2716's reject-before-transport invariant on the legacy public wire
+   path. [build_openai_body_unchecked] binds the request-control artifact and
+   emits [artifact.fields] but never inspects [artifact.explicit_enable_receipt],
+   so an unencoded explicit-thinking request (receipt [Explicit_enable_not_encoded]
+   on a No_thinking_control model) is silently dropped and still sent. The Complete
+   path rejects the identical config via
+   [Complete_common.validate_thinking_control_request]; reuse the same typed
+   decision here (its [string option] reason form, matching this path's string
+   rejection) so the two wire-assembly sites reject the same config identically. *)
+let validate_thinking_control_request_for_resolved_config (config : PConfig.t) =
+  match Llm_provider.Complete_common.thinking_control_request_rejection_reason config with
+  | None -> Ok ()
+  | Some reason -> Error reason
+;;
+
 let add_sampling_field dialect ~enable_thinking parameter value body_assoc =
   let field = Llm_provider.Capabilities.sampling_parameter_to_string parameter in
   if
@@ -422,16 +437,21 @@ let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id 
     (match validate_tool_choice_request_for_resolved_config serialization_config with
      | Error reason -> Error reason
      | Ok () ->
-       (try
-          Ok
-            (build_openai_body_unchecked
-               ~serialization_config
-               ~messages
-               ?tools
-               ?slot_id
-               ())
+       (match
+          validate_thinking_control_request_for_resolved_config serialization_config
         with
-        | Invalid_argument reason -> Error reason))
+        | Error reason -> Error reason
+        | Ok () ->
+          (try
+             Ok
+               (build_openai_body_unchecked
+                  ~serialization_config
+                  ~messages
+                  ?tools
+                  ?slot_id
+                  ())
+           with
+           | Invalid_argument reason -> Error reason)))
 ;;
 
 let build_openai_body_result_for_resolved_config
@@ -444,16 +464,19 @@ let build_openai_body_result_for_resolved_config
   match validate_tool_choice_request_for_resolved_config resolved_config with
   | Error reason -> Error reason
   | Ok () ->
-    (try
-       Ok
-         (build_openai_body_unchecked
-            ~serialization_config:resolved_config
-            ~messages
-            ?tools
-            ?slot_id
-            ())
-     with
-     | Invalid_argument reason -> Error reason)
+    (match validate_thinking_control_request_for_resolved_config resolved_config with
+     | Error reason -> Error reason
+     | Ok () ->
+       (try
+          Ok
+            (build_openai_body_unchecked
+               ~serialization_config:resolved_config
+               ~messages
+               ?tools
+               ?slot_id
+               ())
+        with
+        | Invalid_argument reason -> Error reason))
 ;;
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
