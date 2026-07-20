@@ -28,10 +28,7 @@ module Provider = Provider
     {!Llm_provider.Complete}; retained for compatibility. *)
 module Provider_intf = Provider_intf
 
-(** First-class-module dispatch surface. Deprecated in favor of
-    {!Llm_provider.Complete}; retained for compatibility. *)
 module Provider_runtime_binding = Provider_runtime_binding
-
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
 module Image_generation = Llm_provider.Image_generation
@@ -71,11 +68,7 @@ module Api = Api
     {!Llm_provider.Complete}; the pure helpers remain supported. *)
 module Streaming = Streaming
 
-(** SSE streaming facade. {!Streaming.create_message_stream} and
-    {!Streaming.create_message_stream_detailed} are deprecated in favor of
-    {!Llm_provider.Complete}; the pure helpers remain supported. *)
 module Subagent = Subagent
-
 module Structured = Structured
 module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
