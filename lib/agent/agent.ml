@@ -411,36 +411,36 @@ let with_periodic_callbacks ~sw ?clock agent f =
        raise exn)
 ;;
 
-let validate_run_callbacks ~on_yield ~on_resume =
-  match on_yield, on_resume with
-  | Some _, None | None, Some _ ->
-    Error
-      (Error.Config
-         (Error.InvalidConfig
-            { field = "on_yield/on_resume"
-            ; detail = "callbacks must be supplied together or both omitted"
-            }))
-  | Some _, Some _ | None, None -> Ok ()
+let with_run_lifecycle_events agent f =
+  Agent_lifecycle_events.with_run_lifecycle_events
+    ~event_bus:agent.options.event_bus
+    ~agent_name:agent.state.config.name
+    ~raw_trace:agent.options.raw_trace
+    ~current_run_id:(fun () ->
+      Option.bind (lifecycle_snapshot agent) (fun s -> s.current_run_id))
+    ~project:(fun detailed -> detailed.Provider_failure_attribution.error)
+    f
 ;;
 
 let run_blocks_detailed ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_blocks
   =
-  match validate_user_input_blocks user_blocks with
-  | Error error -> Error (detailed_error_of_sdk_error error)
-  | Ok () ->
-    (match validate_run_callbacks ~on_yield ~on_resume with
-     | Error error -> Error (detailed_error_of_sdk_error error)
-     | Ok () ->
-       with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
-         run_loop_detailed
-           ~sw
-           ?clock
-           ~api_strategy:Sync
-           ?on_yield
-           ?on_resume
-           ?execution_store
-           agent
-           user_blocks))
+  with_run_lifecycle_events agent (fun () ->
+    match validate_user_input_blocks user_blocks with
+    | Error error -> Error (detailed_error_of_sdk_error error)
+    | Ok () ->
+      (match Agent_lifecycle_events.validate_run_callbacks ~on_yield ~on_resume with
+       | Error error -> Error (detailed_error_of_sdk_error error)
+       | Ok () ->
+         with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
+           run_loop_detailed
+             ~sw
+             ?clock
+             ~api_strategy:Sync
+             ?on_yield
+             ?on_resume
+             ?execution_store
+             agent
+             user_blocks)))
 ;;
 
 let run_blocks ~sw ?clock ?on_yield ?on_resume ?execution_store agent user_blocks =
@@ -474,27 +474,28 @@ let run_stream_blocks_detailed
       agent
       user_blocks
   =
-  match validate_user_input_blocks user_blocks with
-  | Error error -> Error (detailed_error_of_sdk_error error)
-  | Ok () ->
-    (match validate_run_callbacks ~on_yield ~on_resume with
-     | Error error -> Error (detailed_error_of_sdk_error error)
-     | Ok () ->
-       let on_telemetry =
-         Option.map
-           (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
-           agent.options.event_bus
-       in
-       with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
-         run_loop_detailed
-           ~sw
-           ?clock
-           ~api_strategy:(Stream { on_event; on_telemetry })
-           ?on_yield
-           ?on_resume
-           ?execution_store
-           agent
-           user_blocks))
+  with_run_lifecycle_events agent (fun () ->
+    match validate_user_input_blocks user_blocks with
+    | Error error -> Error (detailed_error_of_sdk_error error)
+    | Ok () ->
+      (match Agent_lifecycle_events.validate_run_callbacks ~on_yield ~on_resume with
+       | Error error -> Error (detailed_error_of_sdk_error error)
+       | Ok () ->
+         let on_telemetry =
+           Option.map
+             (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
+             agent.options.event_bus
+         in
+         with_periodic_callbacks ~sw ?clock agent (fun ~sw ->
+           run_loop_detailed
+             ~sw
+             ?clock
+             ~api_strategy:(Stream { on_event; on_telemetry })
+             ?on_yield
+             ?on_resume
+             ?execution_store
+             agent
+             user_blocks)))
 ;;
 
 let run_stream_blocks
@@ -931,7 +932,7 @@ module Advanced = struct
     match validate_user_input_blocks user_blocks with
     | Error error -> Error (detailed_error_of_sdk_error error)
     | Ok () ->
-      (match validate_run_callbacks ~on_yield ~on_resume with
+      (match Agent_lifecycle_events.validate_run_callbacks ~on_yield ~on_resume with
        | Error error -> Error (detailed_error_of_sdk_error error)
        | Ok () ->
          with_periodic_callbacks ~sw ?clock agent (fun ~sw ->

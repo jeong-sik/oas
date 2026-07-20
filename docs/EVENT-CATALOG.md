@@ -64,9 +64,9 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 
 | Variant | Emit site | Semantic |
 |---------|-----------|---------|
-| `AgentStarted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle start |
-| `AgentCompleted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle completion |
-| `AgentFailed` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle failure |
+| `AgentStarted` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle start |
+| `AgentCompleted` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle completion (carries the `result`) |
+| `AgentFailed` | `agent/agent.ml` (`run`, `run_stream` — incl. `run_with_handoffs`) | Run lifecycle failure (companion to `AgentCompleted` on `Error`) |
 | `TurnStarted` | `pipeline/pipeline_stage_prepare.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_stage_prepare.ml` | Exact caller-supplied tool surface serialized for this turn |
 | `TurnCompleted` | `pipeline/pipeline.ml` | End of a single agent turn |
@@ -279,7 +279,7 @@ on **two channels simultaneously**:
 | `Session_failed` | `runtime.session_failed` |
 
 **Name collision note**: `Runtime.Agent_completed` (session-level
-participant lifecycle) is distinct from the reserved native
+participant lifecycle) is distinct from the native
 `Event_bus.AgentCompleted` payload. They live in different modules with
 different payload shapes. Disambiguate by Custom name prefix:
 `runtime.agent_completed` vs native `AgentCompleted`.
