@@ -268,6 +268,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.217.2](https://github.com/jeong-sik/oas/compare/v0.217.1...v0.217.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **llm_provider:** log reasoning_replay_dropped at Info, not Warn ([#2721](https://github.com/jeong-sik/oas/issues/2721)) ([658a910](https://github.com/jeong-sik/oas/commit/658a91091154be543685840fad73bd8936f8ac1e))
+
 ## [0.217.1](https://github.com/jeong-sik/oas/compare/v0.217.0...v0.217.1) (2026-07-20)
 
 
