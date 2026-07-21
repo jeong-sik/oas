@@ -4,6 +4,16 @@ open Agent_sdk
 module Retry = Llm_provider.Retry
 open Types
 
+(* [lib/streaming.ml]'s stream-accumulator/map_http_error surface was a
+   straight re-export of these two modules; call sites below still read
+   [Streaming.*] against that combined surface directly. *)
+module Streaming = struct
+  include Llm_provider.Streaming
+  include Llm_provider.Complete_stream_acc
+
+  let map_http_error = Provider_failure_attribution.sdk_error_of_http_error
+end
+
 (* ── Helpers ──────────────────────────────────────────────── *)
 
 let make_usage ?(cache_create = 0) ?(cache_read = 0) inp out =

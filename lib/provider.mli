@@ -264,13 +264,6 @@ type provider_impl =
   ; request_kind : request_kind
   ; request_path : string
   ; capabilities : capabilities
-  ; build_body :
-      config:Types.agent_state
-      -> messages:Types.message list
-      -> ?tools:Yojson.Safe.t list
-      -> unit
-      -> string
-  ; parse_response : string -> Types.api_response
   ; resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
   }
 

@@ -98,7 +98,10 @@ let test_content_block_roundtrip =
     ~name:"content_block JSON round-trip"
     (QCheck.make content_block_gen ~print:show_content_block)
     (fun block ->
-       match Api.content_block_of_json (Api.content_block_to_json block) with
+       match
+         Llm_provider.Api_common.content_block_of_json
+           (Llm_provider.Api_common.content_block_to_json block)
+       with
        | Some parsed -> block = parsed
        | None -> false)
 ;;
@@ -109,7 +112,7 @@ let test_message_json_shape =
     ~name:"message_to_json produces valid JSON"
     (QCheck.make message_gen ~print:show_message)
     (fun msg ->
-       let json = Api.message_to_json msg in
+       let json = Llm_provider.Api_common.message_to_json msg in
        match json with
        | `Assoc pairs ->
          List.exists (fun (k, _) -> k = "role") pairs

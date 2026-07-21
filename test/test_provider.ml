@@ -1345,16 +1345,6 @@ let test_provider_config_of_agent_runtime_only_registration () =
     ; request_kind = Provider.Anthropic_messages
     ; request_path = "/runtime-only/messages"
     ; capabilities
-    ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> "{}")
-    ; parse_response =
-        (fun _body ->
-          { Types.id = "runtime-only-response"
-          ; model = model_id
-          ; stop_reason = Types.EndTurn
-          ; content = [ Types.Text "runtime-only" ]
-          ; usage = None
-          ; telemetry = None
-          })
     ; resolve =
         (fun _cfg ->
           Ok

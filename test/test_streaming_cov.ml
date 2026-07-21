@@ -1,13 +1,21 @@
 (** Extended Streaming coverage tests — targets uncovered paths in
-    streaming.ml and llm_provider/complete.ml.
+    llm_provider/streaming.ml, llm_provider/complete_stream_acc.ml, and
+    llm_provider/complete.ml.
 
-    streaming.ml has NO .mli, so all functions are accessible.
     Focuses on:
     - stream_acc creation and accumulation
     - finalize_stream_acc with various event sequences
     - accumulate_event for each event type *)
 
 open Agent_sdk
+
+(* [lib/streaming.ml]'s stream-accumulator/SSE-parse surface was a
+   straight re-export of these two modules; call sites below still read
+   [Streaming.*] against that combined surface directly. *)
+module Streaming = struct
+  include Llm_provider.Streaming
+  include Llm_provider.Complete_stream_acc
+end
 
 let stream_error_to_string = function
   | Types.Stream_provider_error { message; _ } -> message

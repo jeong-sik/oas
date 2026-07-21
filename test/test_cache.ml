@@ -1,60 +1,7 @@
-(** Tests for prompt caching: cache_control serialization, usage parsing,
-    and add_usage with cache token fields. *)
+(** Tests for prompt caching: usage parsing and add_usage with cache token
+    fields. *)
 
 open Agent_sdk.Types
-
-(* ------------------------------------------------------------------ *)
-(* build_body_assoc: cache_control serialization                        *)
-(* ------------------------------------------------------------------ *)
-
-let make_config ?(cache = false) ?system_prompt () =
-  (* These tests inspect system-prompt serialization, so complete the Anthropic
-     request explicitly instead of consulting an ambient model catalog. *)
-  let config =
-    { (default_config ~model:"test-model") with
-      system_prompt
-    ; cache_system_prompt = cache
-    ; max_tokens = Some 1
-    }
-  in
-  { config; messages = []; turn_count = 0; usage = empty_usage }
-;;
-
-(* The caller's opt-in is serialized; Anthropic applies the model/platform
-   minimum-token rule server-side. *)
-let long_system_prompt = "You are helpful. " ^ String.make 4100 'x'
-
-let test_cache_system_prompt_enabled () =
-  let config = make_config ~cache:true ~system_prompt:long_system_prompt () in
-  let body = Agent_sdk.Api.build_body_assoc ~config ~messages:[] ~stream:false () in
-  let system_json = List.assoc "system" body in
-  match system_json with
-  | `List [ `Assoc fields ] ->
-    let typ = List.assoc "type" fields in
-    let cc = List.assoc "cache_control" fields in
-    Alcotest.(check string) "type" "text" (Yojson.Safe.Util.to_string typ);
-    (match cc with
-     | `Assoc [ ("type", `String "ephemeral") ] -> ()
-     | _ -> Alcotest.fail "cache_control should be {type: ephemeral}")
-  | _ -> Alcotest.fail "system should be a list with one assoc block"
-;;
-
-let test_cache_system_prompt_disabled () =
-  let config = make_config ~cache:false ~system_prompt:"You are helpful." () in
-  let body = Agent_sdk.Api.build_body_assoc ~config ~messages:[] ~stream:false () in
-  let system_json = List.assoc "system" body in
-  (* Should be a plain string, no cache_control *)
-  match system_json with
-  | `String s -> Alcotest.(check string) "plain system" "You are helpful." s
-  | _ -> Alcotest.fail "system should be a plain string when caching disabled"
-;;
-
-let test_no_system_prompt () =
-  let config = make_config ~cache:true () in
-  let body = Agent_sdk.Api.build_body_assoc ~config ~messages:[] ~stream:false () in
-  let has_system = List.mem_assoc "system" body in
-  Alcotest.(check bool) "no system key" false has_system
-;;
 
 (* ------------------------------------------------------------------ *)
 (* parse_response: cache token extraction                               *)
@@ -76,7 +23,7 @@ let test_parse_usage_with_cache_tokens () =
   }|}
   in
   let json = Yojson.Safe.from_string json_str in
-  let resp = Agent_sdk.Api.parse_response json in
+  let resp = Agent_sdk.Llm_provider.Backend_anthropic.parse_response json in
   match resp.usage with
   | Some u ->
     Alcotest.(check int) "input_tokens" 100 u.input_tokens;
@@ -100,7 +47,7 @@ let test_parse_usage_without_cache_tokens () =
   }|}
   in
   let json = Yojson.Safe.from_string json_str in
-  let resp = Agent_sdk.Api.parse_response json in
+  let resp = Agent_sdk.Llm_provider.Backend_anthropic.parse_response json in
   match resp.usage with
   | Some u ->
     Alcotest.(check int) "input_tokens" 80 u.input_tokens;
@@ -163,7 +110,9 @@ let test_openai_usage_with_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_openai_response_result json_str with
+    match
+      Agent_sdk.Llm_provider.Backend_openai_parse.parse_openai_response_result json_str
+    with
     | Ok r -> r
     | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
@@ -193,7 +142,9 @@ let test_openai_usage_without_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_openai_response_result json_str with
+    match
+      Agent_sdk.Llm_provider.Backend_openai_parse.parse_openai_response_result json_str
+    with
     | Ok r -> r
     | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
@@ -222,7 +173,9 @@ let test_streaming_message_delta_with_cache () =
     }
   }|}
   in
-  match Agent_sdk.Streaming.parse_sse_event (Some "message_delta") data_str with
+  match
+    Agent_sdk.Llm_provider.Streaming.parse_sse_event (Some "message_delta") data_str
+  with
   | Some (MessageDelta { stop_reason; usage }) ->
     Alcotest.(check bool) "has stop_reason" true (Option.is_some stop_reason);
     (match usage with
@@ -244,7 +197,9 @@ let test_streaming_message_delta_without_cache () =
     }
   }|}
   in
-  match Agent_sdk.Streaming.parse_sse_event (Some "message_delta") data_str with
+  match
+    Agent_sdk.Llm_provider.Streaming.parse_sse_event (Some "message_delta") data_str
+  with
   | Some (MessageDelta { usage; _ }) ->
     (match usage with
      | Some u ->
@@ -263,15 +218,7 @@ let () =
   let open Alcotest in
   run
     "prompt_caching"
-    [ ( "build_body_assoc"
-      , [ test_case "cache_system_prompt enabled" `Quick test_cache_system_prompt_enabled
-        ; test_case
-            "cache_system_prompt disabled"
-            `Quick
-            test_cache_system_prompt_disabled
-        ; test_case "no system prompt" `Quick test_no_system_prompt
-        ] )
-    ; ( "parse_response"
+    [ ( "parse_response"
       , [ test_case "usage with cache tokens" `Quick test_parse_usage_with_cache_tokens
         ; test_case
             "usage without cache tokens"

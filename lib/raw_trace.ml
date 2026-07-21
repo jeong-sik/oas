@@ -594,7 +594,7 @@ let start_run
 ;;
 
 let record_assistant_block active ~block_index block =
-  let json = Api.content_block_to_json block in
+  let json = Llm_provider.Api_common.content_block_to_json block in
   let block_kind =
     match block with
     | Text _ -> "text"

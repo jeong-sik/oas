@@ -109,9 +109,9 @@ let is_retryable = function
     limit on this path, hence [limit = None].
 
     Only the typed [ContextOverflow] value is produced here. Each caller keeps
-    its own wrapping of the result — [Api.attributed_retry_error],
-    [Provider_failure_attribution]'s [Error.Api], and the SDK boundary in
-    [Error] that flattens via [error_message] into [InvalidRequest]. Every
+    its own wrapping of the result — [Provider_failure_attribution]'s
+    [Error.Api], and the SDK boundary in [Error] that flattens via
+    [error_message] into [InvalidRequest]. Every
     other stop_reason returns [None] so callers apply their existing
     non-overflow handling. The match is exhaustive (no [_] catch-all) so adding
     a new [Types.stop_reason] forces a decision here. *)

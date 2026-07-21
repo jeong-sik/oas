@@ -90,22 +90,21 @@ CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as
 public OCaml modules in this stability table.
 
-### Deprecated surfaces
+### Removed surfaces
 
-The legacy request-dispatch island is deprecated in favor of
-`Llm_provider.Complete`. It is retained for compatibility and will be removed
-in a future major release:
+The legacy request-dispatch island — superseded by `Llm_provider.Complete` —
+was removed (2026-07-21) after its one minor-version deprecation window:
 
-- `Api.create_message` / `Api.create_message_detailed` (`lib/api.mli`)
-- `Streaming.create_message_stream` / `Streaming.create_message_stream_detailed` (`lib/streaming.mli`)
-- All of `Provider_intf` (`lib/provider_intf.mli`)
-
-These entry points carry OCaml `[@@deprecated]` attributes, so downstream
-builds surface alert 3 at use sites. The helper re-exports in `Api` (request
-body builders, response parsers, JSON codecs such as `content_block_to_json`
-/ `content_block_of_json`) and the pure helpers and stream accumulator
-surface in `Streaming` are **not** deprecated. Per the Evolving policy
-above, removal follows the one minor-version deprecation window.
+- `Api.create_message` / `Api.create_message_detailed` (was `lib/api.mli`)
+- `Streaming.create_message_stream` / `Streaming.create_message_stream_detailed` (was `lib/streaming.mli`)
+- All of `Provider_intf` (was `lib/provider_intf.mli`)
+- The rest of `Api`/`Api_anthropic`/`Api_openai`/`Api_common`/`Streaming`
+  (request body builders, response parsers, JSON codecs such as
+  `content_block_to_json` / `content_block_of_json`, the stream accumulator
+  re-export) — these were not themselves deprecated, but existed only as a
+  facade over `Llm_provider`; call sites now use the `Llm_provider` modules
+  (`Api_common`, `Backend_anthropic`, `Backend_openai`, `Backend_openai_parse`,
+  `Streaming`, `Complete_stream_acc`) directly.
 
 ### Internal modules
 

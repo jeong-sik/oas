@@ -110,13 +110,6 @@ type provider_impl =
   ; request_kind : request_kind
   ; request_path : string
   ; capabilities : capabilities
-  ; build_body :
-      config:Types.agent_state
-      -> messages:Types.message list
-      -> ?tools:Yojson.Safe.t list
-      -> unit
-      -> string
-  ; parse_response : string -> Types.api_response
   ; resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
   }
 
@@ -170,19 +163,6 @@ let kimi_provider_impl : provider_impl =
   ; request_kind = Anthropic_messages
   ; request_path = kimi_direct_request_path
   ; capabilities = Llm_provider.Capabilities.kimi_capabilities
-  ; build_body =
-      (fun ~config ~messages ?tools () ->
-        Yojson.Safe.to_string
-          (`Assoc
-              (Api_anthropic.build_body_assoc
-                 ~config
-                 ~messages
-                 ~provider_kind:Llm_provider.Provider_config.Kimi
-                 ?tools
-                 ~stream:false
-                 ())))
-  ; parse_response =
-      (fun body_str -> Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
   ; resolve =
       (fun cfg ->
         match declared_provider_defaults "kimi" with

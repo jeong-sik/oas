@@ -23,8 +23,8 @@ let test_image_round_trip () =
       ; source_type = Types.Base64
       }
   in
-  let json = Api.content_block_to_json img in
-  match Api.content_block_of_json json with
+  let json = Llm_provider.Api_common.content_block_to_json img in
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some parsed -> check_block "image round-trip" img parsed
   | None -> Alcotest.fail "content_block_of_json returned None for Image"
 ;;
@@ -41,8 +41,8 @@ let test_document_round_trip () =
       ; source_type = Types.Base64
       }
   in
-  let json = Api.content_block_to_json doc in
-  match Api.content_block_of_json json with
+  let json = Llm_provider.Api_common.content_block_to_json doc in
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some parsed -> check_block "document round-trip" doc parsed
   | None -> Alcotest.fail "content_block_of_json returned None for Document"
 ;;
@@ -55,8 +55,8 @@ let test_image_url_round_trip () =
       ; source_type = Types.Url
       }
   in
-  let json = Api.content_block_to_json img in
-  match Api.content_block_of_json json with
+  let json = Llm_provider.Api_common.content_block_to_json img in
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some parsed -> check_block "image url round-trip" img parsed
   | None -> Alcotest.fail "content_block_of_json returned None for URL Image"
 ;;
@@ -69,8 +69,8 @@ let test_document_file_id_round_trip () =
       ; source_type = Types.File_id
       }
   in
-  let json = Api.content_block_to_json doc in
-  match Api.content_block_of_json json with
+  let json = Llm_provider.Api_common.content_block_to_json doc in
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some parsed -> check_block "document file_id round-trip" doc parsed
   | None -> Alcotest.fail "content_block_of_json returned None for file_id Document"
 ;;
@@ -91,7 +91,7 @@ let test_image_parse_nested_source () =
             ] )
       ]
   in
-  match Api.content_block_of_json json with
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some (Types.Image { media_type; data; source_type }) ->
     Alcotest.(check string) "media_type" "image/jpeg" media_type;
     Alcotest.(check string) "data" "abc123" data;
@@ -119,7 +119,7 @@ let test_document_parse_nested_source () =
             ] )
       ]
   in
-  match Api.content_block_of_json json with
+  match Llm_provider.Api_common.content_block_of_json json with
   | Some (Types.Document { media_type; data; source_type }) ->
     Alcotest.(check string) "media_type" "application/pdf" media_type;
     Alcotest.(check string) "data" "pdf_data_here" data;
@@ -137,7 +137,7 @@ let test_document_parse_nested_source () =
 
 let test_malformed_image_missing_source () =
   let json = `Assoc [ "type", `String "image" ] in
-  match Api.content_block_of_json json with
+  match Llm_provider.Api_common.content_block_of_json json with
   | None -> ()
   | exception _ -> ()
   | Some _ -> Alcotest.fail "expected None or exception for malformed Image"
@@ -145,7 +145,7 @@ let test_malformed_image_missing_source () =
 
 let test_malformed_document_missing_source () =
   let json = `Assoc [ "type", `String "document" ] in
-  match Api.content_block_of_json json with
+  match Llm_provider.Api_common.content_block_of_json json with
   | None -> ()
   | exception _ -> ()
   | Some _ -> Alcotest.fail "expected None or exception for malformed Document"
@@ -163,7 +163,7 @@ let check_unknown_media_source_kind_fails_closed ~block_type ~media_type ~data =
             ] )
       ]
   in
-  match Api.content_block_of_json json with
+  match Llm_provider.Api_common.content_block_of_json json with
   | None -> ()
   | Some _ -> Alcotest.failf "unsupported %s media source kind must not parse" block_type
 ;;
@@ -202,8 +202,8 @@ let test_mixed_content_serialization () =
         { media_type = "application/pdf"; data = "pdfdata"; source_type = Types.Base64 }
     ]
   in
-  let json_list = List.map Api.content_block_to_json blocks in
-  let parsed = List.filter_map Api.content_block_of_json json_list in
+  let json_list = List.map Llm_provider.Api_common.content_block_to_json blocks in
+  let parsed = List.filter_map Llm_provider.Api_common.content_block_of_json json_list in
   Alcotest.(check int) "all 3 blocks parsed" 3 (List.length parsed);
   List.iter2
     (fun expected actual -> check_block "mixed content" expected actual)
@@ -277,7 +277,7 @@ let test_image_json_structure () =
     Types.Image
       { media_type = "image/webp"; data = "webpdata"; source_type = Types.Base64 }
   in
-  let json = Api.content_block_to_json img in
+  let json = Llm_provider.Api_common.content_block_to_json img in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "top-level type" "image" (json |> member "type" |> to_string);
   let source = json |> member "source" in
@@ -294,7 +294,7 @@ let test_document_json_structure () =
     Types.Document
       { media_type = "text/plain"; data = "textdata"; source_type = Types.Base64 }
   in
-  let json = Api.content_block_to_json doc in
+  let json = Llm_provider.Api_common.content_block_to_json doc in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "top-level type" "document" (json |> member "type" |> to_string);
   let source = json |> member "source" in
@@ -324,7 +324,9 @@ let test_tool_result_content_blocks_serialize () =
   Alcotest.(check string)
     "string content"
     "plain"
-    (Api.content_block_to_json tr_string |> member "content" |> to_string);
+    (Llm_provider.Api_common.content_block_to_json tr_string
+     |> member "content"
+     |> to_string);
   (* content_blocks = Some emits the blocks as the content array. *)
   let tr_blocks =
     Types.ToolResult
@@ -340,7 +342,9 @@ let test_tool_result_content_blocks_serialize () =
             ]
       }
   in
-  let content = Api.content_block_to_json tr_blocks |> member "content" in
+  let content =
+    Llm_provider.Api_common.content_block_to_json tr_blocks |> member "content"
+  in
   (match content with
    | `List items -> Alcotest.(check int) "two blocks" 2 (List.length items)
    | _ -> Alcotest.fail "expected content array");

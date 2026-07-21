@@ -34,7 +34,6 @@
   test_agent_tool
   test_agent_turn
   test_agent_tools_index
-  test_api_http_client
   test_api_dispatch
   test_tool_execution
   test_artifact_service
@@ -87,7 +86,6 @@
   test_integration
   test_journal_bridge
   test_llm_cache
-  test_llm_call
   test_llm_provider_error
   test_log
   test_mcp
@@ -138,7 +136,6 @@
   test_streaming_cov
   test_streaming_edge_cases
   test_streaming_coverage
-  test_streaming_e2e
   test_streaming_keepalive_idle
   test_streaming_openai
   test_streaming_summary
@@ -177,7 +174,6 @@
   test_agent_tool
   test_agent_turn
   test_agent_tools_index
-  test_api_http_client
   test_api_dispatch
   test_tool_execution
   test_artifact_service
@@ -230,7 +226,6 @@
   test_integration
   test_journal_bridge
   test_llm_cache
-  test_llm_call
   test_llm_provider_error
   test_log
   test_mcp
@@ -281,7 +276,6 @@
   test_streaming_cov
   test_streaming_edge_cases
   test_streaming_coverage
-  test_streaming_e2e
   test_streaming_keepalive_idle
   test_streaming_openai
   test_streaming_summary

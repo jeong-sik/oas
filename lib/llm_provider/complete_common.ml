@@ -501,14 +501,15 @@ let thinking_control_request_rejection
 ;;
 
 (* Operator-facing rejection reason for an unsatisfiable thinking-control
-   request, or [None] when the request is admissible. Single source of truth for
-   both the Complete path ([validate_thinking_control_request], which wraps the
-   reason in a typed [Http_client.AcceptRejected]) and the public
-   OpenAI-compatible body builder ([Api_openai.build_openai_body_result*], which
-   wraps it in that path's string rejection). Sharing one function keeps the two
-   wire-assembly sites rejecting the identical config with the identical message
-   instead of one honoring the [explicit_enable_receipt] and the other silently
-   dropping it. *)
+   request, or [None] when the request is admissible. Consumed by the Complete
+   path ([validate_thinking_control_request], which wraps the reason in a
+   typed [Http_client.AcceptRejected]). Until 2026-07-21 this was also shared
+   with the legacy public OpenAI-compatible body builder
+   ([Api_openai.build_openai_body_result*], removed with the rest of the
+   `Api`/`Api_openai`/`Streaming`/`Provider_intf` dispatch island), which kept
+   both wire-assembly sites rejecting the identical config with the identical
+   message instead of one honoring the [explicit_enable_receipt] and the
+   other silently dropping it. *)
 let thinking_control_request_rejection_reason (config : Provider_config.t) =
   let caps, _source = resolve_capabilities_for_config config in
   match thinking_control_request_rejection ~caps config with

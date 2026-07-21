@@ -19,18 +19,6 @@ let make_test_impl ?(name = "test-provider") ?(request_path = "/v1/test") ()
       ; supports_required_tool_choice = true
       ; supports_named_tool_choice = true
       }
-  ; build_body =
-      (fun ~config:_ ~messages:_ ?tools:_ () -> {|{"model":"test","messages":[]}|})
-  ; parse_response =
-      (fun body_str ->
-        let _json = Yojson.Safe.from_string body_str in
-        { Types.id = "test-id"
-        ; model = "test"
-        ; stop_reason = Types.EndTurn
-        ; content = [ Types.Text "test response" ]
-        ; usage = None
-        ; telemetry = None
-        })
   ; resolve =
       (fun _cfg ->
         Ok ("http://localhost:9999", "dummy", [ "Content-Type", "application/json" ]))
@@ -200,50 +188,6 @@ let test_lifecycle_runtime_name () =
   Alcotest.(check (option string)) "runtime name" (Some "life-test") name
 ;;
 
-(* ── API request capability wiring ─────────────────────── *)
-
-let test_openai_body_forces_parallel_disable_from_provider_capability () =
-  let provider_name = "no-parallel-tools-provider" in
-  let impl = make_test_impl ~name:provider_name () in
-  Provider.register_provider impl;
-  let provider_config =
-    Provider.custom_provider ~name:provider_name ~model_id:"custom-no-parallel" ()
-  in
-  let state =
-    { Types.config =
-        { (Types.default_config ~model:"test-model") with
-          model = provider_config.model_id
-        ; tool_choice = Some Types.Auto
-        ; disable_parallel_tool_use = false
-        }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let tool_json =
-    `Assoc
-      [ "name", `String "lookup"
-      ; "description", `String "lookup"
-      ; "input_schema", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  let json =
-    Api.build_openai_body
-      ~provider_config
-      ~config:state
-      ~messages:[]
-      ~tools:[ tool_json ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  Alcotest.(check bool)
-    "provider capability disables parallel tool calls"
-    false
-    (json |> member "parallel_tool_calls" |> to_bool)
-;;
-
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -303,11 +247,5 @@ let () =
         ] )
     ; ( "lifecycle"
       , [ Alcotest.test_case "runtime name" `Quick test_lifecycle_runtime_name ] )
-    ; ( "api"
-      , [ Alcotest.test_case
-            "parallel tool capability controls wire"
-            `Quick
-            (with_eio test_openai_body_forces_parallel_disable_from_provider_capability)
-        ] )
     ]
 ;;

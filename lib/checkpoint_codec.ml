@@ -181,7 +181,7 @@ let rec checkpoint_content_block_to_json block =
   let wire_json =
     match block with
     | ToolResult { content_blocks = Some blocks; _ } ->
-      (match Api.content_block_to_json block with
+      (match Llm_provider.Api_common.content_block_to_json block with
        | `Assoc fields ->
          `Assoc
            (List.map
@@ -199,7 +199,7 @@ let rec checkpoint_content_block_to_json block =
     | ToolUse _
     | Image _
     | Document _
-    | Audio _ -> Api.content_block_to_json block
+    | Audio _ -> Llm_provider.Api_common.content_block_to_json block
   in
   match block, wire_json with
   | ToolResult { outcome; _ }, `Assoc fields ->
@@ -281,7 +281,7 @@ let tool_result_fields json =
 
 let rec content_block_of_json_strict json =
   try
-    match Api.content_block_of_json json with
+    match Llm_provider.Api_common.content_block_of_json json with
     | Some
         (ToolResult
            { tool_use_id

@@ -163,10 +163,9 @@ val sampling_params_ignored_when_thinking : t -> Capabilities.sampling_parameter
     [enable_thinking = Some false] keeps the field. Provider-controlled
     always-suppressed parameters such as Kimi fixed sampling are represented by
     the full {!t} policy instead of this format-only helper. Keyed on
-    {!Capabilities.thinking_control_format} so both the [Provider_config]-based
-    request builder ([Backend_openai_request]) and the agent-state-based one
-    ([Api_openai.build_openai_body]) drop the same parameters; the public path
-    only has the format, not a full {!t}. *)
+    {!Capabilities.thinking_control_format} so the [Provider_config]-based
+    request builder ([Backend_openai_request]) drops the same parameters
+    consistently; the public path only has the format, not a full {!t}. *)
 val sampling_field_ignored_when_thinking
   :  thinking_control_format:Capabilities.thinking_control_format
   -> enable_thinking:bool option
