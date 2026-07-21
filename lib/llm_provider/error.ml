@@ -277,21 +277,36 @@ let of_provider_failure ?provider kind message =
           Printf.sprintf "provider response exceeded %d bytes: %s" limit_bytes message
       }
   | Http_client.Empty_completion { stop_reason } ->
-    (match Retry.overflow_of_empty_completion ~stop_reason ~message with
-     | Some overflow ->
+    (match Retry.verdict_of_empty_completion ~stop_reason ~message with
+     | Retry.Empty_overflow overflow ->
        (* Third promotion site of the #2621 misclassification fix: a
           ContextWindowExceeded empty completion is a caller-fixable context
           overflow, not provider unavailability. The overflow VALUE comes from
-          the shared [Retry.overflow_of_empty_completion] classifier; this
+          the shared [Retry.verdict_of_empty_completion] classifier; this
           deliberate SDK boundary flattens it to a string via
           [Retry.error_message] into [InvalidRequest], preserving the typed →
           string boundary that keeps the public surface source-compatible. *)
        InvalidRequest { provider; reason = Retry.error_message overflow }
-     | None ->
+     | Retry.Empty_unattributed { token } ->
+       (* An empty turn whose stop_reason token this SDK does not model is not
+          evidence of provider unavailability, and rendering it as such invites
+          the caller to retry the identical prompt — which never terminates when
+          the real condition was an overflow reported with an unmodeled token.
+          Flattened to the same [InvalidRequest] surface as the overflow case,
+          naming the token so it can be modelled. *)
+       InvalidRequest
+         { provider
+         ; reason =
+             Printf.sprintf
+               "empty completion with unmodeled stop_reason=%S: %s"
+               token
+               message
+         }
+     | Retry.Empty_attributed ->
        (* [stop_reason] stays typed until this deliberate SDK boundary.  The
           public error surface remains source-compatible: callers already handle
-          a non-overflow empty completion as provider unavailability, and no
-          control flow reparses this diagnostic rendering. *)
+          a recognized non-overflow empty completion as provider unavailability,
+          and no control flow reparses this diagnostic rendering. *)
        ProviderUnavailable
          { provider
          ; detail =

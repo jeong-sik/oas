@@ -99,26 +99,36 @@ let is_retryable = function
   | PaymentRequired _ -> false
 ;;
 
-(** [overflow_of_empty_completion ~stop_reason ~message] is the single,
-    compiler-checked source for the #2621 empty-completion overflow rule.
+(** Verdict for a provider turn that produced no content blocks.
 
-    An empty turn whose typed [stop_reason] is [ContextWindowExceeded] is a
-    context-overflow contract, not provider unavailability: retrying or
-    rotating replays the same oversized prompt, so only the consumer's context
-    recovery (compaction) can make progress. The provider does not report its
-    limit on this path, hence [limit = None].
+    An empty turn is never a normal outcome, and the correct recovery differs by
+    attribution. [Empty_overflow] can only progress through the consumer's
+    context recovery (compaction): retrying or rotating replays the same
+    oversized prompt. A recognized non-overflow stop_reason ([Empty_attributed])
+    keeps the existing provider-unavailability handling.
 
-    Only the typed [ContextOverflow] value is produced here. Each caller keeps
-    its own wrapping of the result — [Provider_failure_attribution]'s
-    [Error.Api], and the SDK boundary in [Error] that flattens via
-    [error_message] into [InvalidRequest]. Every
-    other stop_reason returns [None] so callers apply their existing
-    non-overflow handling. The match is exhaustive (no [_] catch-all) so adding
-    a new [Types.stop_reason] forces a decision here. *)
-let overflow_of_empty_completion ~(stop_reason : Types.stop_reason) ~message =
+    [Empty_unattributed] is the third case, previously folded into the second:
+    the provider ended an empty turn with a stop_reason token this SDK does not
+    model. Retrying or rotating replays the same prompt, so attributing it to
+    transient provider unavailability turns an unmodeled provider contract into
+    an invisible retry loop — an overflow signalled with an unmodeled token
+    never reaches the consumer's compaction path and no error is raised. This
+    arm exists so the condition is surfaced rather than guessed. The match is
+    exhaustive (no [_] catch-all) so a new [Types.stop_reason] forces a decision
+    here.
+
+    The verdict is derived from the typed stop_reason alone — no provider
+    identity is consulted, so every backend that reports an empty completion is
+    classified by the same rule. *)
+type empty_completion_verdict =
+  | Empty_overflow of api_error
+  | Empty_attributed
+  | Empty_unattributed of { token : string }
+
+let verdict_of_empty_completion ~(stop_reason : Types.stop_reason) ~message =
   match stop_reason with
   | Types.ContextWindowExceeded ->
-    Some
+    Empty_overflow
       (ContextOverflow
          { message =
              "empty completion (stop_reason=model_context_window_exceeded): " ^ message
@@ -133,8 +143,32 @@ let overflow_of_empty_completion ~(stop_reason : Types.stop_reason) ~message =
   | Types.RepetitionTruncation
   | Types.PauseTurn
   | Types.Compaction
-  | Types.UnmatchedToolCalls
-  | Types.Unknown _ -> None
+  | Types.UnmatchedToolCalls -> Empty_attributed
+  | Types.Unknown token -> Empty_unattributed { token }
+;;
+
+(** [overflow_of_empty_completion ~stop_reason ~message] is the single,
+    compiler-checked source for the #2621 empty-completion overflow rule.
+
+    An empty turn whose typed [stop_reason] is [ContextWindowExceeded] is a
+    context-overflow contract, not provider unavailability: retrying or
+    rotating replays the same oversized prompt, so only the consumer's context
+    recovery (compaction) can make progress. The provider does not report its
+    limit on this path, hence [limit = None].
+
+    Only the typed [ContextOverflow] value is produced here. Each caller keeps
+    its own wrapping of the result — [Provider_failure_attribution]'s
+    [Error.Api], and the SDK boundary in [Error] that flattens via
+    [error_message] into [InvalidRequest].
+
+    This is the overflow-only projection of {!verdict_of_empty_completion}: it
+    collapses both a recognized non-overflow stop_reason and an unmodeled one
+    into [None]. Callers that must not retry an unmodeled contract read the
+    verdict directly instead. *)
+let overflow_of_empty_completion ~(stop_reason : Types.stop_reason) ~message =
+  match verdict_of_empty_completion ~stop_reason ~message with
+  | Empty_overflow overflow -> Some overflow
+  | Empty_attributed | Empty_unattributed _ -> None
 ;;
 
 let%test "overflow_of_empty_completion: ContextWindowExceeded yields ContextOverflow" =
@@ -153,6 +187,48 @@ let%test "overflow_of_empty_completion: non-overflow stop_reason yields None" =
   match overflow_of_empty_completion ~stop_reason:Types.EndTurn ~message:"X" with
   | None -> true
   | Some _ -> false
+;;
+
+let%test "verdict_of_empty_completion: ContextWindowExceeded is Empty_overflow" =
+  match
+    verdict_of_empty_completion ~stop_reason:Types.ContextWindowExceeded ~message:"X"
+  with
+  | Empty_overflow (ContextOverflow { limit = None; _ }) -> true
+  | Empty_overflow _ | Empty_attributed | Empty_unattributed _ -> false
+;;
+
+(* An unmodeled stop_reason token must stay distinguishable from a recognized
+   non-overflow one: folding it into [Empty_attributed] sends the caller to
+   provider-unavailability handling, which retries the identical prompt. *)
+let%test "verdict_of_empty_completion: unmodeled token is Empty_unattributed" =
+  match
+    verdict_of_empty_completion
+      ~stop_reason:(Types.Unknown "provider_specific_overflow")
+      ~message:"X"
+  with
+  | Empty_unattributed { token = "provider_specific_overflow" } -> true
+  | Empty_unattributed _ | Empty_overflow _ | Empty_attributed -> false
+;;
+
+(* Guard against over-classification: a recognized non-overflow stop_reason must
+   not be promoted into the unattributed (fail-loud) arm. *)
+let%test "verdict_of_empty_completion: recognized non-overflow is Empty_attributed" =
+  List.for_all
+    (fun stop_reason ->
+       match verdict_of_empty_completion ~stop_reason ~message:"X" with
+       | Empty_attributed -> true
+       | Empty_overflow _ | Empty_unattributed _ -> false)
+    [ Types.EndTurn
+    ; Types.StopToolUse
+    ; Types.MaxTokens
+    ; Types.StopSequence
+    ; Types.Refusal
+    ; Types.ContentFilter
+    ; Types.RepetitionTruncation
+    ; Types.PauseTurn
+    ; Types.Compaction
+    ; Types.UnmatchedToolCalls
+    ]
 ;;
 
 (** Extract a human-readable error message from a provider error body.
