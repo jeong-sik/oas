@@ -200,7 +200,7 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 | S3 | `Tool_call` 전략 배선: `extract` 가 스키마를 툴로 싣고 `extract_tool_input` 을 되살린다 | S2 · **PR #2745 에 landed** |
 | S4 | receipt + 3분법 추출 결과 (#2751) | S2, S3 |
 | S5 | `policy` 노출, 기본값을 `Best_available` 로 | S3, S4 |
-| S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — |
+| S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — · **DeepSeek·DashScope 는 PR #2745 에 landed**; Gemini(#2747) / Cohere·Mistral·Kimi(#2752) 잔여 |
 
 각 슬라이스는 `test_structured_output_conformance.ml` (PR #2745) 에 해당 provider 케이스를 추가해 **실제 wire 로 증명한다**. capability 플래그를 바꾸는 것만으로는 이 RFC 의 어떤 주장도 증명되지 않는다.
 
@@ -222,7 +222,7 @@ S1 의 선택지는 두 가지였고 이슈 #2746 에 기록되어 있다. 채�
 
 ## 5. 미확인 사항
 
-- DashScope / Qwen 의 `response_format.json_schema` 지원 여부. `docs/provider-capabilities-spec.md:125` 는 2026-05-05 에 지원한다고 기록했으나, 2026-07-22 재확인에서는 `json_object` 만 확인되었고 json_schema 는 확정하지 못했다. **`validate_output_schema_request` 는 DashScope 를 무검사 통과시키고 있으므로** 이 항목은 실제 요청 실패로 이어질 수 있다. 실측 필요.
+- ~~DashScope / Qwen 의 `response_format.json_schema` 지원 여부.~~ **해소됨 (PR #2745).** 2026-07-22 재확인 결과 미지원이 확정되었다 — OpenAI 호환 Chat Completions 레퍼런스, 네이티브 DashScope 레퍼런스, structured-output 가이드, Responses-API 호환 페이지 **네 곳 모두에서 `json_schema` 0회**이고 `response_format.type` enum 이 `{text, json_object}` 로 닫혀 있다. 가이드가 말하는 "JSON Schema format" 은 프롬프트 안의 산문이며, 서버측 보장이 없으므로 클라이언트 검증을 지시한다. `dashscope_capabilities` 가 `supports_structured_output = false` 를 선언하고 게이트의 무검사 통과 그룹에서 빠졌다. DashScope 의 구조화 출력은 tool 전략으로 간다.
 - Anthropic 의 grammar-scope 문장(*"Grammar state resets between sections…"*) 은 검색 엔진 추출로만 확보했고 페이지 렌더에서 in-situ 확인에 실패했다. 인용 전 재확인 필요.
 - Nous 호스티드 API 가 `response_format.json_schema` 를 수용하는지 미확정. Hermes 는 당분간 `Tool_call` 또는 `Json_mode_with_prompt_schema` 로 다룬다.
 
