@@ -11,7 +11,11 @@ val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val strip_json_markdown_fences : string -> string
 val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
 val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
-val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
+
+val response_format_to_openai_json
+  :  model_id:string
+  -> Types.response_format
+  -> Yojson.Safe.t option
 
 (** Parse an OpenAI-compatible JSON response. See
     {!Backend_openai_parse.parse_openai_response_result} for the [parse_error]

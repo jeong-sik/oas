@@ -97,36 +97,79 @@ let structured_schema_of_config (config : Provider_config.t) =
   | None, JsonMode | None, Off -> None
 ;;
 
-let openai_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
-  match schema with
-  | `Assoc fields when List.mem_assoc "name" fields && List.mem_assoc "schema" fields ->
-    schema
-  | _ ->
-    `Assoc
-      [ "name", `String (Provider_config.structured_output_name_of_schema schema)
-      ; "schema", schema
-      ; "strict", `Bool true
-      ]
+(* Strict mode is a property of the schema, not a flag that can be set
+   independently of it: [strict:true] alongside a schema that misses a subset
+   requirement is rejected with HTTP 400 before the model runs (measured
+   against gpt-5.5 on 2026-07-22 — see {!Json_schema_strict}). OAS used to
+   attach [strict:true] unconditionally, so every schema built from
+   {!Types.params_to_input_schema} (which emits no [additionalProperties])
+   failed at the wire boundary. The projection decides per schema whether the
+   guarantee can honestly be requested. *)
+let strict_projection_warned : (string * string, unit) Hashtbl.t = Hashtbl.create 8
+
+let warn_strict_projection_degraded ~model_id ~violations =
+  let detail = Json_schema_strict.violations_to_string violations in
+  let key = model_id, detail in
+  if not (Hashtbl.mem strict_projection_warned key)
+  then (
+    Hashtbl.replace strict_projection_warned key ();
+    Diag.warn
+      "backend_openai"
+      "structured output for model %s cannot request the strict guarantee (%s); sending \
+       response_format=json_schema with strict=false, which the endpoint serves \
+       best-effort. Declare the missing schema detail to regain strict conformance."
+      model_id
+      detail)
 ;;
 
-let response_format_to_openai_json = function
+(* [schema] plus the strictness decision it supports, as wire fields. Shared
+   with the Responses builder so the two OpenAI wires cannot disagree about
+   whether a given schema supports the guarantee. *)
+let strict_schema_wire_fields ~model_id (schema : Yojson.Safe.t) =
+  match Json_schema_strict.project schema with
+  | Ok projected -> [ "schema", projected; "strict", `Bool true ]
+  | Error violations ->
+    warn_strict_projection_degraded ~model_id ~violations;
+    [ "schema", schema; "strict", `Bool false ]
+;;
+
+let openai_json_schema_payload ~model_id (schema : Yojson.Safe.t) : Yojson.Safe.t =
+  match schema with
+  | `Assoc fields when List.mem_assoc "name" fields && List.mem_assoc "schema" fields ->
+    (* The caller already supplied the named envelope. An explicit
+       [strict:false] is a deliberate opt-out and is preserved verbatim;
+       otherwise the inner schema goes through the same projection so the
+       envelope path cannot drift from the bare-schema path. *)
+    let keep = List.filter (fun (k, _) -> k <> "schema" && k <> "strict") fields in
+    (match List.assoc_opt "strict" fields with
+     | Some (`Bool false) -> schema
+     | Some _ | None ->
+       `Assoc (keep @ strict_schema_wire_fields ~model_id (List.assoc "schema" fields)))
+  | _ ->
+    `Assoc
+      (("name", `String (Provider_config.structured_output_name_of_schema schema))
+       :: strict_schema_wire_fields ~model_id schema)
+;;
+
+let response_format_to_openai_json ~model_id = function
   | Types.Off -> None
   | Types.JsonMode -> Some (`Assoc [ "type", `String "json_object" ])
   | Types.JsonSchema schema ->
     Some
       (`Assoc
           [ "type", `String "json_schema"
-          ; "json_schema", openai_json_schema_payload schema
+          ; "json_schema", openai_json_schema_payload ~model_id schema
           ])
 ;;
 
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let response_format_of_config (config : Provider_config.t) =
+  let model_id = config.model_id in
   match structured_schema_of_config config with
-  | Some schema -> response_format_to_openai_json (Types.JsonSchema schema)
+  | Some schema -> response_format_to_openai_json ~model_id (Types.JsonSchema schema)
   | None when config.response_format = JsonMode ->
-    response_format_to_openai_json Types.JsonMode
+    response_format_to_openai_json ~model_id Types.JsonMode
   | None -> None
 ;;
 

@@ -101,6 +101,7 @@
   test_multimodal
   test_multivendor_events
   test_multivendor_live
+  test_structured_output_conformance
   test_otel
   test_otel_export
   test_otel_tracer
@@ -241,6 +242,7 @@
   test_multimodal
   test_multivendor_events
   test_multivendor_live
+  test_structured_output_conformance
   test_otel
   test_otel_export
   test_otel_tracer

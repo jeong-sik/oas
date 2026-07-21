@@ -64,8 +64,30 @@ val add_sampling_field
     capability record). *)
 val should_emit_tool_choice : Provider_config.t -> bool
 
-val openai_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
-val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
+(** Build the OpenAI [json_schema] envelope for a caller schema.
+
+    [strict] is decided by {!Json_schema_strict.project}, not assumed: a
+    schema that misses a strict-subset requirement is sent with
+    [strict:false] plus a one-shot WARN naming [model_id] and the exact
+    violation, because attaching [strict:true] to it is a guaranteed HTTP 400
+    from the endpoint (measured 2026-07-22). An envelope that already pins
+    [strict:false] is preserved verbatim. *)
+val openai_json_schema_payload : model_id:string -> Yojson.Safe.t -> Yojson.Safe.t
+
+(** The [schema] and [strict] wire fields for one caller schema, with [strict]
+    decided by {!Json_schema_strict.project}. Exposed so the Responses wire
+    (which flattens the envelope) shares the single strictness decision with
+    the Chat Completions wire. *)
+val strict_schema_wire_fields
+  :  model_id:string
+  -> Yojson.Safe.t
+  -> (string * Yojson.Safe.t) list
+
+val response_format_to_openai_json
+  :  model_id:string
+  -> Types.response_format
+  -> Yojson.Safe.t option
+
 val response_format_of_config : Provider_config.t -> Yojson.Safe.t option
 
 (** [build_request_assoc] is {!build_request} before the final

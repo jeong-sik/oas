@@ -345,8 +345,13 @@ let tool_choice_to_responses_json = function
   | Tool name -> Some (`Assoc [ "type", `String "function"; "name", `String name ])
 ;;
 
-let responses_json_schema_payload schema =
-  match Backend_openai_request.openai_json_schema_payload schema with
+(* The Responses wire flattens the envelope one level ([text.format] carries
+   type/name/schema/strict as siblings) while Chat Completions nests it under
+   [response_format.json_schema]. Only the nesting differs, so both wires are
+   built from the same envelope; in particular the strict decision is made
+   once, in {!Backend_openai_request.openai_json_schema_payload}. *)
+let responses_json_schema_payload ~model_id schema =
+  match Backend_openai_request.openai_json_schema_payload ~model_id schema with
   | `Assoc fields ->
     let schema_fields =
       assoc_remove [ "description" ] fields
@@ -358,17 +363,20 @@ let responses_json_schema_payload schema =
     in
     `Assoc (("type", `String "json_schema") :: schema_fields)
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    (* Unreachable: the envelope builder always returns an [`Assoc]. Kept
+       total, and routed through the same strict decision so this arm cannot
+       drift into claiming a guarantee the schema does not support. *)
     `Assoc
-      [ "type", `String "json_schema"
-      ; "name", `String (Provider_config.structured_output_name_of_schema schema)
-      ; "schema", schema
-      ; "strict", `Bool true
-      ]
+      (("type", `String "json_schema")
+       :: ("name", `String (Provider_config.structured_output_name_of_schema schema))
+       :: Backend_openai_request.strict_schema_wire_fields ~model_id schema)
 ;;
 
 let response_text_config_of_config (config : Provider_config.t) =
   match Backend_openai_request.structured_schema_of_config config with
-  | Some schema -> Some (`Assoc [ "format", responses_json_schema_payload schema ])
+  | Some schema ->
+    Some
+      (`Assoc [ "format", responses_json_schema_payload ~model_id:config.model_id schema ])
   | None when config.response_format = JsonMode ->
     Some (`Assoc [ "format", `Assoc [ "type", `String "json_object" ] ])
   | None -> None

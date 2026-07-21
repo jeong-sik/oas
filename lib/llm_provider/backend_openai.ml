@@ -807,7 +807,9 @@ let%test "response_format_to_openai_json wraps raw json schema" =
       ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
       ]
   in
-  match response_format_to_openai_json (Types.JsonSchema schema) with
+  match
+    response_format_to_openai_json ~model_id:"test-model" (Types.JsonSchema schema)
+  with
   | Some json ->
     let open Yojson.Safe.Util in
     json |> member "type" |> to_string = "json_schema"
@@ -833,7 +835,9 @@ let%test "response_format_to_openai_json preserves named schema envelope" =
             ] )
       ]
   in
-  match response_format_to_openai_json (Types.JsonSchema schema) with
+  match
+    response_format_to_openai_json ~model_id:"test-model" (Types.JsonSchema schema)
+  with
   | Some json ->
     let open Yojson.Safe.Util in
     json |> member "json_schema" |> member "name" |> to_string = "math_response"
@@ -1292,12 +1296,92 @@ let%test "build_request uses json_schema response_format when output_schema is s
      |> member "name"
      |> to_string
      = "math_response"
-  && body |> member "response_format" |> member "json_schema" |> member "schema" = schema
+  (* The wire schema is the strict projection of the caller schema, not the
+     caller schema verbatim: [strict:true] without [additionalProperties:false]
+     is rejected by the endpoint with HTTP 400 before the model runs (measured
+     against gpt-5.5, 2026-07-22). Everything the caller declared is preserved;
+     the projection only adds the subset's structural requirements. *)
+  && body
+     |> member "response_format"
+     |> member "json_schema"
+     |> member "schema"
+     = Result.get_ok (Json_schema_strict.project schema)
+  && body
+     |> member "response_format"
+     |> member "json_schema"
+     |> member "schema"
+     |> member "additionalProperties"
+     = `Bool false
+  && body
+     |> member "response_format"
+     |> member "json_schema"
+     |> member "schema"
+     |> member "properties"
+     |> member "answer"
+     |> member "type"
+     = `String "string"
   && body
      |> member "response_format"
      |> member "json_schema"
      |> member "strict"
      |> to_bool
+;;
+
+let%test
+    "build_request degrades to strict:false when the schema cannot satisfy the           \
+     strict subset"
+  =
+  (* An array parameter with no declared element type is exactly what
+     {!Types.params_to_input_schema} emits for a [Types.Array] tool_param.
+     Requesting [strict:true] for it returns HTTP 400 "array schema missing
+     items"; OAS sends the same schema non-strict instead, which the endpoint
+     serves best-effort, and WARNs with the violation so the caller can
+     enrich the schema and regain the guarantee. *)
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "tags", `Assoc [ "type", `String "array" ] ]
+      ; "required", `List [ `String "tags" ]
+      ]
+  in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt"
+      ~base_url:"https://api.openai.com/v1"
+      ~output_schema:schema
+      ()
+  in
+  let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  body |> member "response_format" |> member "type" |> to_string = "json_schema"
+  && body |> member "response_format" |> member "json_schema" |> member "schema" = schema
+  && body
+     |> member "response_format"
+     |> member "json_schema"
+     |> member "strict"
+     = `Bool false
+;;
+
+let%test "an explicit strict:false envelope is preserved verbatim" =
+  let schema =
+    `Assoc
+      [ "name", `String "loose"
+      ; "strict", `Bool false
+      ; "schema", `Assoc [ "type", `String "object"; "properties", `Assoc [] ]
+      ]
+  in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt"
+      ~base_url:"https://api.openai.com/v1"
+      ~output_schema:schema
+      ()
+  in
+  let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  body |> member "response_format" |> member "json_schema" = schema
 ;;
 
 let%test "build_request prefers output_schema over json_object mode" =
