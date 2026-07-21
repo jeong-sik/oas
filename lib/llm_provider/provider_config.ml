@@ -645,7 +645,15 @@ let validate_output_schema_request (config : t) =
   | false -> Ok ()
   | true ->
     (match config.kind with
-     | Gemini | Anthropic | DashScope -> Ok ()
+     | Gemini | Anthropic -> Ok ()
+     (* DashScope was in the unchecked group on the belief that Model Studio
+        exposes response_format.json_schema. A 2026-07-22 re-read of every
+        Model Studio API reference found the type enum closed at
+        {text, json_object} with zero occurrences of json_schema, so an
+        unchecked pass here sends a field the API does not define. It now
+        follows the same per-model capability check as the other
+        OpenAI-family kinds. *)
+     | DashScope -> validate_model_structured_output_capability config
      | Ollama -> validate_model_structured_output_capability config
      | Glm ->
        Error

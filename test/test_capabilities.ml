@@ -2567,10 +2567,16 @@ reasoning_replay = "preserve_always"
 
 let test_dashscope_capabilities () =
   let c = Capabilities.dashscope_capabilities in
-  (* DashScope (DashScope) exposes response_format.json_schema on its OpenAI-compatible
-     endpoint; native schema output is supported. Ref: DashScope structured output
-     guide — checked 2026-05-05. *)
-  check bool "has structured output" true c.supports_structured_output;
+  (* The 2026-05-05 reading of this preset said Model Studio exposes
+     response_format.json_schema. A 2026-07-22 re-read of every Model Studio
+     API reference — OpenAI-compatible Chat Completions, native DashScope, the
+     structured-output guide, and the Responses-API compatibility page — found
+     the type enum closed at {text, json_object} with zero occurrences of
+     json_schema. The guide's "JSON Schema format" is prose in the prompt, and
+     it instructs callers to validate client-side precisely because there is
+     no server-side conformance guarantee. JSON mode stays true.
+     Ref: https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output *)
+  check bool "declares no native schema field" false c.supports_structured_output;
   check bool "has json mode" true c.supports_response_format_json;
   check bool "has tools" true c.supports_tools;
   check bool "has tool_choice" true c.supports_tool_choice;

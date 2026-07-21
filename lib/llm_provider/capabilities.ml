@@ -511,6 +511,23 @@ let dashscope_capabilities =
   ; supports_min_p = true
   ; thinking_control_format = Enable_thinking
   ; preserve_thinking_control_format = Top_level_preserve_thinking
+  ; (* Model Studio / DashScope documents a closed [response_format.type] enum
+       of exactly {text, json_object}. The string "json_schema" does not occur
+       in the OpenAI-compatible Chat Completions reference, the native
+       DashScope reference, the structured-output guide, or the Responses-API
+       compatibility page (checked 2026-07-22); the guide's "JSON Schema
+       format" means prose in the prompt, and it tells callers to validate
+       client-side because there is no server-side conformance guarantee.
+       Inheriting the openai_chat base's [supports_structured_output = true]
+       would make OAS send a field the API does not define.
+
+       json_object stays true, with the documented prompt requirement: "If you
+       specify {"type": "json_object"}, you must explicitly instruct the model
+       to output JSON in the prompt ... Otherwise, an error occurs." The
+       json-mode strategy in [Structured] satisfies that by naming JSON in the
+       instruction it prepends.
+       Ref: https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output *)
+    supports_structured_output = false
   }
 ;;
 

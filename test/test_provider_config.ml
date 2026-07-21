@@ -503,7 +503,15 @@ let test_validate_output_schema_glm_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_dashscope_accepted () =
+(* DashScope used to pass this gate unchecked, on the belief that Model Studio
+   exposes response_format.json_schema. It does not: the documented type enum
+   is closed at {text, json_object} (checked 2026-07-22), so an unchecked pass
+   sent a field the API does not define. DashScope now takes the same
+   per-model capability check as the other OpenAI-family kinds, and an
+   unverified model is rejected before the request rather than by the
+   provider. Structured output on DashScope goes through the tool strategy,
+   which never sets output_schema. *)
+let test_validate_output_schema_dashscope_rejects_unverified_model () =
   let cfg =
     Provider_config.make
       ~kind:DashScope
@@ -513,9 +521,9 @@ let test_validate_output_schema_dashscope_accepted () =
       ()
   in
   check_bool
-    "dashscope accepted"
+    "dashscope native schema request rejected"
     true
-    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
 let test_validate_output_schema_kimi_rejected () =
@@ -582,7 +590,12 @@ let test_validate_output_schema_supported_non_openai () =
          (Provider_config.string_of_provider_kind kind ^ " accepts schema")
          true
          (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
-    [ Anthropic; Gemini; DashScope ];
+    (* DashScope left this group on 2026-07-22: Model Studio's documented
+       response_format type enum is closed at {text, json_object}, so passing
+       a native schema request through unchecked sent a field the API does not
+       define. It now takes the per-model capability check like the other
+       OpenAI-family kinds; the dedicated case below pins the rejection. *)
+    [ Anthropic; Gemini ];
   let ollama_cfg =
     Provider_config.make
       ~kind:Ollama
@@ -2197,9 +2210,9 @@ let () =
             `Quick
             test_validate_output_schema_kimi_rejected
         ; Alcotest.test_case
-            "dashscope accepted"
+            "dashscope rejects unverified model"
             `Quick
-            test_validate_output_schema_dashscope_accepted
+            test_validate_output_schema_dashscope_rejects_unverified_model
         ; Alcotest.test_case
             "unrequested schema bypasses restrictions"
             `Quick
