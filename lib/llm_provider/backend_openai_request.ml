@@ -269,6 +269,22 @@ let build_request_assoc_artifact
     output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
+  (* oas#2744 — document admission runs before any block is serialized. A row
+     that does not declare [supports_document_input] fails here with the media
+     type named, instead of having its document quietly relabelled as an
+     [image_url] part further down. Image and audio blocks are not gated, so
+     rows that carry them today are unaffected. *)
+  (match
+     Api_common.admit_document_messages
+       ~wire_form:Api_common.Document_chat_file_part
+       ~model_id:config.model_id
+       ~supports_document_input:caps.Capabilities.supports_document_input
+       messages
+   with
+   | Ok () -> ()
+   | Error error ->
+     invalid_arg
+       ("Backend_openai_request: " ^ Api_common.document_admission_error_to_string error));
   let provider_messages =
     let history =
       match

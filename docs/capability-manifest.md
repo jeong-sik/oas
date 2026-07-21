@@ -96,6 +96,7 @@ for the full JSON Schema (draft-07).
 | `supports_image_input` | bool | from base | Image inputs. |
 | `supports_audio_input` | bool | from base | Audio inputs (native tokens). |
 | `supports_video_input` | bool | from base | Video inputs. |
+| `supports_document_input` | bool | from base | Document inputs (e.g. PDF). Not implied by `supports_image_input`: a row that omits it has its documents rejected at serialization rather than relabelled as images. |
 | `supports_native_streaming` | bool | from base | SSE streaming. |
 | `supports_system_prompt` | bool | from base | System prompt field. |
 | `supports_caching` | bool | from base | Prompt caching. |

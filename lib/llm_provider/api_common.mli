@@ -47,6 +47,65 @@ val base64_media_payload
   -> Types.media_source_kind
   -> string
 
+(** {2 Document admission}
+
+    A [Document] block must never be emitted as some other modality (oas#2744:
+    the OpenAI-compatible Chat Completions serializer used to relabel it
+    [image_url], so the model saw a picture where the caller sent a file, and
+    nothing reported it). Two typed facts decide whether a document may go out:
+    which native part the wire has ({!document_wire_form}) and whether the
+    resolved model row accepts documents
+    ([Capabilities.supports_document_input]). {!admit_document_blocks} checks
+    both before serialization, so every serializer's [Document] arm has exactly
+    one native form and no fallback. *)
+
+(** Native document representation of a request wire. No wildcard arm: a wire
+    with no document part declares {!Document_unrepresentable}. *)
+type document_wire_form =
+  | Document_source_block (** Anthropic [{"type":"document","source":{…}}]. *)
+  | Document_inline_data (** Gemini [inlineData] with the document MIME. *)
+  | Document_input_file_part (** OpenAI Responses [input_file] + [file_data]. *)
+  | Document_chat_file_part
+  (** OpenAI Chat Completions [{"type":"file","file":{"file_data":…}}]. *)
+  | Document_unrepresentable
+  (** Ollama native [/api/chat]: scalar [content] plus an [images] array
+          only. *)
+
+val document_wire_form_to_string : document_wire_form -> string
+
+type document_admission_error =
+  | Document_wire_has_no_representation of
+      { wire_form : document_wire_form
+      ; media_type : string
+      }
+  | Document_input_not_declared of
+      { model_id : string
+      ; media_type : string
+      }
+
+val document_admission_error_to_string : document_admission_error -> string
+
+(** [admit_document_blocks ~wire_form ~model_id ~supports_document_input blocks]
+    is [Ok ()] when every [Document] in [blocks] may be placed on a wire whose
+    native form is [wire_form], and [Error] naming the first one that may not.
+    Only [Document] blocks are inspected: image and audio admission is
+    unchanged, so this cannot alter what a working provider emits for them. *)
+val admit_document_blocks
+  :  wire_form:document_wire_form
+  -> model_id:string
+  -> supports_document_input:bool
+  -> Types.content_block list
+  -> (unit, document_admission_error) result
+
+(** {!admit_document_blocks} over a whole history, reporting the first
+    inadmissible document. *)
+val admit_document_messages
+  :  wire_form:document_wire_form
+  -> model_id:string
+  -> supports_document_input:bool
+  -> Types.message list
+  -> (unit, document_admission_error) result
+
 (** {2 Content block JSON conversion} *)
 
 val content_block_to_json : Types.content_block -> Yojson.Safe.t

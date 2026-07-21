@@ -154,6 +154,16 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
+    (** Whether the row accepts a [Document] block as input.
+
+        Deliberately a sibling of the image/audio/video fields rather than a
+        reading of [supports_multimodal_inputs]: document support is not
+        implied by image support (a vision row on the OpenAI-compatible Chat
+        Completions wire may accept images and have no document part at all),
+        and the catch-all cannot express the difference. Serialization consults
+        this at admission, so a document that the row cannot carry is reported
+        instead of being emitted as some other modality (oas#2744). *)
   ; modality_priority : Modality.priority
     (** Block ordering applied to multimodal user messages just before
         serialization. [Visual_first] for Gemma 4 family.
@@ -223,6 +233,7 @@ let default_capabilities =
   ; supports_image_input = false
   ; supports_audio_input = false
   ; supports_video_input = false
+  ; supports_document_input = false
   ; modality_priority = Modality.Preserve_input_order
   ; task = None
   ; supports_native_streaming = false
@@ -328,6 +339,10 @@ let anthropic_capabilities =
   ; supports_structured_output = true
   ; supports_multimodal_inputs = true
   ; supports_image_input = true
+  ; (* The Messages API has a first-class [document] content block with its own
+       [source] object (docs.anthropic.com/en/docs/build-with-claude/pdf-support);
+       {!Api_common.content_block_to_json} emits exactly that shape. *)
+    supports_document_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
   ; supports_prompt_caching = true
@@ -470,6 +485,7 @@ let mimo_capabilities =
   ; supports_image_input = false
   ; supports_audio_input = false
   ; supports_video_input = false
+  ; supports_document_input = false
   ; supports_native_streaming = true
   }
 ;;
@@ -603,6 +619,10 @@ let gemini_capabilities =
   ; supports_image_input = true
   ; supports_audio_input = true
   ; supports_video_input = true
+  ; (* [inlineData] carries an arbitrary MIME type plus base64 bytes, so a
+       document keeps its own media type on the wire — the Gemini serializer
+       does not relabel it. *)
+    supports_document_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
   ; supports_prompt_caching = false
@@ -827,6 +847,7 @@ type declarative_capability_overrides =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; modality_priority : string option
   ; task : Capability_vocab.task option
   ; supports_native_streaming : bool option
@@ -868,6 +889,7 @@ let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
   ; supports_image_input = entry.supports_image_input
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
+  ; supports_document_input = entry.supports_document_input
   ; modality_priority = None
   ; (* The JSON capability manifest carries no task field; task is
        catalog-only vocabulary. *)
@@ -975,6 +997,8 @@ let apply_declarative_capability_overrides overrides =
       override_bool base.supports_audio_input overrides.supports_audio_input
   ; supports_video_input =
       override_bool base.supports_video_input overrides.supports_video_input
+  ; supports_document_input =
+      override_bool base.supports_document_input overrides.supports_document_input
   ; modality_priority =
       (match overrides.modality_priority with
        | Some s ->
@@ -1142,6 +1166,7 @@ let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
   ; supports_image_input = entry.supports_image_input
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
+  ; supports_document_input = entry.supports_document_input
   ; modality_priority = entry.modality_priority
   ; task = entry.task
   ; supports_native_streaming = entry.supports_native_streaming
@@ -1395,6 +1420,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_image_input = None
   ; supports_audio_input = None
   ; supports_video_input = None
+  ; supports_document_input = None
   ; modality_priority = None
   ; task = None
   ; supports_native_streaming = None
@@ -1441,6 +1467,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; supports_image_input = None
   ; supports_audio_input = None
   ; supports_video_input = None
+  ; supports_document_input = None
   ; supports_native_streaming = None
   ; supports_system_prompt = None
   ; supports_caching = None

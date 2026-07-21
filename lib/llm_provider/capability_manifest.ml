@@ -43,6 +43,7 @@ type entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
@@ -310,6 +311,7 @@ let known_entry_keys =
   ; "supports_image_input"
   ; "supports_audio_input"
   ; "supports_video_input"
+  ; "supports_document_input"
   ; "supports_native_streaming"
   ; "supports_system_prompt"
   ; "supports_caching"
@@ -467,6 +469,7 @@ let parse_entry json =
   let* supports_image_input = member_bool "supports_image_input" json in
   let* supports_audio_input = member_bool "supports_audio_input" json in
   let* supports_video_input = member_bool "supports_video_input" json in
+  let* supports_document_input = member_bool "supports_document_input" json in
   let* supports_native_streaming = member_bool "supports_native_streaming" json in
   let* supports_system_prompt = member_bool "supports_system_prompt" json in
   let* supports_caching = member_bool "supports_caching" json in
@@ -497,6 +500,7 @@ let parse_entry json =
     ; supports_image_input
     ; supports_audio_input
     ; supports_video_input
+    ; supports_document_input
     ; supports_native_streaming
     ; supports_system_prompt
     ; supports_caching
