@@ -9,6 +9,14 @@ relate, and the contracts downstream consumers can rely on.
 deprecation notice.
 **Last updated**: v0.216.0.
 
+> **Note (v0.217.x)**: Surfaces 4 and 6 below reference the former
+> `Runtime_server_*` protocol cluster and `Runtime_sync.window` replay
+> surface. Those modules have been removed from `agent_sdk`; only
+> `Runtime_store` (durable event/snapshot store) and `Runtime.event`
+> remain as the live runtime surface. The entries are retained as
+> historical contract references; rows marked *removed* no longer
+> correspond to shipped code.
+
 ---
 
 ## 1. Six event surfaces at a glance

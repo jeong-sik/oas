@@ -60,7 +60,9 @@ let allowed_kinds =
   ]
 ;;
 
-let allowed_stability = [ "stable"; "evolving"; "internal"; "operator_internal" ]
+let allowed_stability =
+  [ "stable"; "evolving"; "internal"; "operator_internal"; "frozen" ]
+;;
 
 let has_prefix ~prefix value =
   let prefix_len = String.length prefix in
@@ -78,6 +80,11 @@ let test_catalog_shape () =
   List.iter
     (fun row ->
        let id = require_string "id" row in
+       let historical =
+         match member "removed_in" row with
+         | Some (`String s) when String.length s > 0 -> true
+         | _ -> false
+       in
        check
          bool
          (id ^ " kind allowed")
@@ -97,8 +104,12 @@ let test_catalog_shape () =
          bool
          (id ^ " sources present")
          true
-         (require_string_list "schema_source" row <> []);
-       check bool (id ^ " tests present") true (require_string_list "tests" row <> []))
+         (historical || require_string_list "schema_source" row <> []);
+       check
+         bool
+         (id ^ " tests present")
+         true
+         (historical || require_string_list "tests" row <> []))
     rows
 ;;
 
