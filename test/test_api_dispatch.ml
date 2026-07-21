@@ -1,45 +1,10 @@
-(** Tests for API dispatch: body shape + response parsing per provider.
-
-    Verifies that each of the 4 provider kinds produces correctly-shaped
-    request bodies and can parse mock responses. *)
+(** Tests for API dispatch: response parsing per provider, request routing,
+    and pricing. *)
 
 open Alcotest
 open Agent_sdk
 
 (* ── Helpers ─────────────────────────────────────────────────── *)
-
-let base_state =
-  { Types.config =
-      { (Types.default_config ~model:"test-model") with
-        name = "test-dispatch"
-      ; model = "test-model"
-      ; system_prompt = Some "You are a test assistant."
-      ; max_tokens = Some 1024
-      }
-  ; messages =
-      [ { Types.role = User
-        ; content = [ Text "Hello" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-  ; turn_count = 0
-  ; usage = Types.empty_usage
-  }
-;;
-
-let json_has_key key json =
-  match json with
-  | `Assoc pairs -> List.exists (fun (k, _) -> k = key) pairs
-  | _ -> false
-;;
-
-let json_get key json =
-  match json with
-  | `Assoc pairs -> List.assoc_opt key pairs
-  | _ -> None
-;;
 
 let declared_pricing model_id =
   match Provider.pricing_for_model_opt model_id with
@@ -52,33 +17,7 @@ let require_estimated_cost = function
   | Provider.Incomplete _ -> fail "expected an exact cost estimate"
 ;;
 
-(* ── Anthropic body shape ────────────────────────────────────── *)
-
-let test_anthropic_body_shape () =
-  let assoc =
-    Api.build_body_assoc ~config:base_state ~messages:base_state.messages ~stream:false ()
-  in
-  let json = `Assoc assoc in
-  check bool "has model" true (json_has_key "model" json);
-  check bool "has messages" true (json_has_key "messages" json);
-  check bool "has max_tokens" true (json_has_key "max_tokens" json);
-  check bool "has system" true (json_has_key "system" json);
-  check bool "has stream" true (json_has_key "stream" json);
-  match json_get "stream" json with
-  | Some (`Bool false) -> ()
-  | _ -> fail "stream should be false"
-;;
-
-let test_anthropic_body_stream () =
-  let assoc =
-    Api.build_body_assoc ~config:base_state ~messages:base_state.messages ~stream:true ()
-  in
-  let json = `Assoc assoc in
-  check bool "has stream" true (json_has_key "stream" json);
-  match json_get "stream" json with
-  | Some (`Bool true) -> ()
-  | _ -> fail "stream should be true"
-;;
+(* ── Anthropic parse_response ────────────────────────────────── *)
 
 let test_anthropic_parse_response () =
   let mock_json =
@@ -95,7 +34,7 @@ let test_anthropic_parse_response () =
               "cache_read_input_tokens": 0}
   }|}
   in
-  let resp = Api.parse_response mock_json in
+  let resp = Llm_provider.Backend_anthropic.parse_response mock_json in
   check string "id" "msg_test" resp.id;
   check string "model" "claude-sonnet-4-6" resp.model;
   (match resp.stop_reason with
@@ -106,36 +45,7 @@ let test_anthropic_parse_response () =
   | _ -> fail "expected single text block"
 ;;
 
-(* ── Openai body shape ───────────────────────────────────────── *)
-
-let test_openai_body_shape () =
-  let provider_config : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url = "http://test"
-          ; auth_header = None
-          ; path = "/v1/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "gpt"
-    ; api_key_env = "TEST_KEY"
-    }
-  in
-  let body_str =
-    Api.build_openai_body
-      ~provider_config
-      ~config:base_state
-      ~messages:base_state.messages
-      ()
-  in
-  let json = Yojson.Safe.from_string body_str in
-  check bool "has model" true (json_has_key "model" json);
-  check bool "has messages" true (json_has_key "messages" json);
-  (* The dispatched request is bound to the exact provider configuration. *)
-  match json_get "model" json with
-  | Some (`String "gpt") -> ()
-  | _ -> fail "model should come from provider_config"
-;;
+(* ── Openai parse_response ───────────────────────────────────── *)
 
 let test_openai_parse_response () =
   let mock_body =
@@ -156,7 +66,7 @@ let test_openai_parse_response () =
   }|}
   in
   let resp =
-    match Api.parse_openai_response_result mock_body with
+    match Llm_provider.Backend_openai_parse.parse_openai_response_result mock_body with
     | Ok r -> r
     | Error msg -> failwith (Llm_provider.Backend_openai_parse.parse_error_to_string msg)
   in
@@ -251,7 +161,7 @@ let test_anthropic_missing_usage () =
     "usage": null
   }|}
   in
-  let resp = Api.parse_response json in
+  let resp = Llm_provider.Backend_anthropic.parse_response json in
   match resp.usage with
   | None -> ()
   | Some _ -> fail "expected None usage"
@@ -270,7 +180,7 @@ let test_anthropic_empty_content () =
               "cache_read_input_tokens": 0}
   }|}
   in
-  let resp = Api.parse_response json in
+  let resp = Llm_provider.Backend_anthropic.parse_response json in
   check int "empty content" 0 (List.length resp.content)
 ;;
 
@@ -290,7 +200,7 @@ let test_anthropic_cache_usage_parsing () =
     }
   }|}
   in
-  let resp = Api.parse_response json in
+  let resp = Llm_provider.Backend_anthropic.parse_response json in
   match resp.usage with
   | None -> fail "expected usage"
   | Some u ->
@@ -361,15 +271,8 @@ let test_cache_multipliers_for_non_anthropic () =
 let () =
   run
     "api_dispatch"
-    [ ( "anthropic"
-      , [ test_case "body shape" `Quick test_anthropic_body_shape
-        ; test_case "body stream" `Quick test_anthropic_body_stream
-        ; test_case "parse response" `Quick test_anthropic_parse_response
-        ] )
-    ; ( "openai"
-      , [ test_case "body shape" `Quick test_openai_body_shape
-        ; test_case "parse response" `Quick test_openai_parse_response
-        ] )
+    [ "anthropic", [ test_case "parse response" `Quick test_anthropic_parse_response ]
+    ; "openai", [ test_case "parse response" `Quick test_openai_parse_response ]
     ; "routing", [ test_case "request_kind" `Quick test_request_kind_routing ]
     ; ( "pricing"
       , [ test_case "known models" `Quick test_pricing_known_models

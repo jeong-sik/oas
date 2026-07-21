@@ -55,9 +55,10 @@ let stage_parse = Pipeline_stage_prepare.stage_parse
 (* ── Stage 3: Route ──────────────────────────────────────── *)
 
 (** Convert [Llm_provider.Http_client.http_error] into the [sdk_error]
-    shape that legacy [Api.create_message] surfaced.  Keeps downstream
-    Pipeline/Retry/ContextOverflow handling source-compatible while the
-    Sync dispatch migrates to {!Llm_provider.Complete.complete}.
+    shape the pre-[Complete] dispatch path used to surface (that path,
+    formerly [Api.create_message], was removed 2026-07-21). Keeps
+    downstream Pipeline/Retry/ContextOverflow handling source-compatible
+    now that Sync dispatch routes through {!Llm_provider.Complete.complete}.
 
     HTTP status codes are re-classified via
     {!Llm_provider.Retry.classify_error} so

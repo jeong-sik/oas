@@ -487,9 +487,8 @@ val is_local : t -> bool
 val auth_headers_for_config : t -> (string * string) list
 
 (** Same as {!auth_headers_for_config} but takes the provider kind and raw key
-    as separate arguments.  Used by the legacy {!Api.create_message} path so it
-    does not need to construct a full [Provider_config.t] just to compute auth
-    headers. *)
+    as separate arguments, so a caller does not need to construct a full
+    [Provider_config.t] just to compute auth headers. *)
 val auth_headers_for_kind_and_key
   :  kind:provider_kind
   -> api_key:string

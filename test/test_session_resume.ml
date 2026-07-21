@@ -300,7 +300,10 @@ let test_resume_default_options () =
   @@ fun net ->
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  Alcotest.(check string) "base_url" Api.default_base_url (Agent.options agent).base_url
+  Alcotest.(check string)
+    "base_url"
+    Llm_provider.Api_common.default_base_url
+    (Agent.options agent).base_url
 ;;
 
 let test_resume_custom_options () =

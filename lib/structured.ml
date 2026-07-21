@@ -148,7 +148,9 @@ let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) 
 let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   : ('a, Error.sdk_error) result
   =
-  let base_url = Option.value ~default:Api.default_base_url base_url in
+  let base_url =
+    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
+  in
   let messages =
     [ { role = User
       ; content = [ Text prompt ]
@@ -240,7 +242,9 @@ let extract_stream
       prompt
   : ('a * api_response, Error.sdk_error) result
   =
-  let base_url = Option.value ~default:Api.default_base_url base_url in
+  let base_url =
+    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
+  in
   let messages =
     [ { role = User
       ; content = [ Text prompt ]

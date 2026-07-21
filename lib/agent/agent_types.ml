@@ -114,7 +114,7 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
 [@@deriving yojson]
 
 let default_options =
-  { base_url = Api.default_base_url
+  { base_url = Llm_provider.Api_common.default_base_url
   ; provider = None
   ; stream_idle_timeout_s = None
   ; first_event_timeout_s = None

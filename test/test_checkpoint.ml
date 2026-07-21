@@ -113,7 +113,7 @@ let checkpoint_json_with_tool_result ?(extra_fields = []) outcome =
       ; json = None
       ; content_blocks = None
       }
-    |> Api.content_block_to_json
+    |> Llm_provider.Api_common.content_block_to_json
     |> function
     | `Assoc fields -> `Assoc (fields @ extra_fields)
     | json ->
@@ -426,7 +426,7 @@ let () =
                in
                let content = Agent_turn.make_tool_results [ execution_result ] in
                let block = List.hd content in
-               let wire_json = Api.content_block_to_json block in
+               let wire_json = Llm_provider.Api_common.content_block_to_json block in
                let open Yojson.Safe.Util in
                check
                  bool

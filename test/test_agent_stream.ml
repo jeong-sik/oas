@@ -1,6 +1,7 @@
 (** Unit tests for streaming agent integration: emit_synthetic_events.
-    Tests verify event sequences produced by Streaming.emit_synthetic_events
-    for various api_response shapes. *)
+    Tests verify event sequences produced by
+    Llm_provider.Streaming.emit_synthetic_events for various api_response
+    shapes. *)
 
 open Agent_sdk
 
@@ -11,7 +12,8 @@ open Agent_sdk
 (** Collect all events emitted for a given response. *)
 let collect_events response =
   let events = ref [] in
-  Streaming.emit_synthetic_events response (fun evt -> events := evt :: !events);
+  Llm_provider.Streaming.emit_synthetic_events response (fun evt ->
+    events := evt :: !events);
   List.rev !events
 ;;
 

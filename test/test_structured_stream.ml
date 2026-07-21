@@ -95,7 +95,7 @@ let test_synthetic_events_for_tool_use () =
     make_tool_response ~tool_id:"tu_1" ~tool_name:"extract_person" ~input_json
   in
   let events = ref [] in
-  Streaming.emit_synthetic_events response (fun e -> events := e :: !events);
+  Llm_provider.Streaming.emit_synthetic_events response (fun e -> events := e :: !events);
   let events = List.rev !events in
   (* MessageStart → ContentBlockStart → ContentBlockDelta → ContentBlockStop
      → MessageDelta → MessageStop = 6 events *)
@@ -152,7 +152,7 @@ let test_on_event_callback_fires () =
     }
   in
   let event_types = ref [] in
-  Streaming.emit_synthetic_events response (fun e ->
+  Llm_provider.Streaming.emit_synthetic_events response (fun e ->
     let t =
       match e with
       | MessageStart _ -> "message_start"
@@ -185,7 +185,7 @@ let test_tool_use_json_parseable () =
     make_tool_response ~tool_id:"tu_3" ~tool_name:"extract_person" ~input_json
   in
   let json_parts = ref [] in
-  Streaming.emit_synthetic_events response (fun e ->
+  Llm_provider.Streaming.emit_synthetic_events response (fun e ->
     match e with
     | ContentBlockDelta { delta = InputJsonSnapshot s; _ } ->
       json_parts := s :: !json_parts
@@ -244,7 +244,7 @@ let test_accumulate_json_deltas () =
   List.iter
     (fun part ->
        let data = make_delta_data 0 part in
-       match Streaming.parse_sse_event None data with
+       match Llm_provider.Streaming.parse_sse_event None data with
        | Some (ContentBlockDelta { delta = InputJsonDelta s; _ }) ->
          Buffer.add_string buf s
        | _ -> Alcotest.fail "expected InputJsonDelta")
@@ -260,7 +260,7 @@ let test_accumulate_json_deltas () =
 
 let test_accumulate_empty_delta () =
   let data = make_delta_data 0 "" in
-  match Streaming.parse_sse_event None data with
+  match Llm_provider.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { delta = InputJsonDelta s; _ }) ->
     Alcotest.(check string) "empty partial" "" s
   | _ -> Alcotest.fail "expected InputJsonDelta for empty string"
@@ -274,7 +274,7 @@ let test_accumulate_partial_then_complete () =
   List.iter
     (fun part ->
        let data = make_delta_data 0 part in
-       match Streaming.parse_sse_event None data with
+       match Llm_provider.Streaming.parse_sse_event None data with
        | Some (ContentBlockDelta { delta = InputJsonDelta s; _ }) ->
          Buffer.add_string buf s
        | _ -> Alcotest.fail "expected InputJsonDelta")
@@ -298,7 +298,7 @@ let test_extract_after_accumulation () =
   let block_types : (int, string) Hashtbl.t = Hashtbl.create 4 in
   let block_tool_ids : (int, string) Hashtbl.t = Hashtbl.create 4 in
   let block_tool_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
-  Streaming.emit_synthetic_events response (fun evt ->
+  Llm_provider.Streaming.emit_synthetic_events response (fun evt ->
     match evt with
     | ContentBlockStart { index; content_type; tool_id; tool_name } ->
       Hashtbl.replace block_types index content_type;

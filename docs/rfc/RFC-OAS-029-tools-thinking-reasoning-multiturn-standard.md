@@ -5,7 +5,7 @@
 | Status | Draft |
 | Author | jeong-sik (audit: adversarial multi-agent sweep, 2026-06-29) |
 | Created | 2026-06-29 |
-| Target | `agent_sdk` (oas) — `lib/llm_provider/`, `lib/api_*.ml`, `lib/*tool*.ml`, `lib/streaming.ml`, `docs/design/provider-reasoning-dialects.md` |
+| Target | `agent_sdk` (oas) — `lib/llm_provider/`, `lib/api_*.ml` and `lib/streaming.ml` (removed 2026-07-21; see `lib/llm_provider/`), `lib/*tool*.ml`, `docs/design/provider-reasoning-dialects.md` |
 | Keystone dependency | RFC-OAS-023 (capability axis reshape) — the GLM/MiniMax dialect work lands there; see §5 |
 | Supplements | RFC-OAS-018 (catalog externalization), RFC-OAS-025 (forced-tool-use enforcement boundary) |
 | Boundary | OAS exposes typed provider facts; MASC consumes them. OAS MUST NOT depend on MASC. See §6 |

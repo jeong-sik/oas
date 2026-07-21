@@ -112,8 +112,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | Module | Role |
 |--------|------|
 | `Types` | Domain types: message, role, stop_reason, content_block, SSE events |
-| `Provider` | LLM endpoint abstraction (Local / Anthropic / OpenAICompat / Ollama) |
-| `Api` | HTTP client: `create_message` (sync) + `create_message_stream` (SSE) |
+| `Provider` | LLM endpoint abstraction (Local / Anthropic / OpenAICompat / Ollama), plus the custom-provider registry |
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
@@ -122,8 +121,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Error` / `Error_domain` | 2-level structured errors: 8 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |
 | `Mcp` | MCP client (NDJSON-over-stdio, server lifecycle, paginated tool listing) |
-| `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
-| `Pipeline` | 6-stage turn pipeline with Provider_intf routing |
+| `Pipeline` | 6-stage turn pipeline; the Route stage dispatches through `Llm_provider.Complete` |
 | `Contract` | Prompt/context composition: instruction layers, triggers, skills |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
 

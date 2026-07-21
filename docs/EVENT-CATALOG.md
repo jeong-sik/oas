@@ -333,8 +333,9 @@ different payload shapes. Disambiguate by Custom name prefix:
 **Header**: `lib/llm_provider/types.ml`. Stability: Internal.
 
 Normalized representation of provider SSE streams. Each provider's
-`api_<name>.ml` parses its wire format and produces `Types.sse_event`
-values; `streaming.ml` accumulates them into a final `Types.api_response`.
+`lib/llm_provider/backend_<name>.ml` parses its wire format and produces
+`Types.sse_event` values; `Llm_provider.Complete_stream_acc` accumulates
+them into a final `Types.api_response`.
 
 | Variant | Semantic |
 |---------|---------|
@@ -447,10 +448,12 @@ provider. Missing credentials / endpoints skip gracefully.
 
 ## 10. How to add a new provider
 
-1. **Hosted API**: create `lib/api_<name>.ml` implementing the same
-   normalized streaming interface (`Types.sse_event` output).
-   OpenAI-compatible endpoints don't need a new module — add an entry to
-   the routing table in `api_openai.ml` or via `custom:model@url`.
+1. **Hosted API**: create `lib/llm_provider/backend_<name>.ml` implementing
+   the same normalized streaming interface (`Types.sse_event` output).
+   OpenAI-compatible endpoints don't need a new backend module — declare
+   the endpoint in `Llm_provider.Provider_registry`/`Provider_catalog`, or
+   register it at runtime via `Provider.register_provider`, or route via
+   `custom:model@url`.
 2. **SSE normalization**: map the provider's wire events to
    `Types.sse_event` constructors. Document the mapping in §6.1.
 3. **Provider-specific extensions**: if the provider exposes unique

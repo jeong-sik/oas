@@ -48,7 +48,7 @@ type parse_error = Provider_error of string | Empty_completion of empty_completi
 
 streaming 경로도 `Ok content=[]`를 낼 수 있어 non-streaming과 대칭으로 fail-close가 필요했다. 초기 시도는 `complete_stream_acc.finalize_stream_acc`(구조 조립기)에 직접 가드를 넣는 것이었는데, 이때 **21개 단위 테스트가 깨졌다** — 이들은 empty acc를 finalize해 usage/stop_reason plumbing만 검증하는 최소 fixture다. 이 실패가 **경계 오배치의 신호**였다.
 
-**수정된 통찰**: deferral 당시 가설("empty-clean → Ok가 확립된 불변식이라 충돌")은 부정확했다. 그 불변식은 사실 **`finalize_stream_acc`가 순수 구조 조립기**라는 것이다 — 잘 닫힌 스트림을 `Ok content=[]`로 조립하는 건 구조적으로 정당하다(truncated 스트림만 이미 `stream_terminated_without_stop_reason`로 거부). "empty completion은 실행 불가"는 **의미 정책**이고, 실제 Agent 소비 경계는 `pipeline_stage_route`가 호출하는 `Llm_provider.Complete.complete` / `complete_stream`이다. `lib/streaming.ml`은 legacy `Provider_intf` 경로이며 Agent 경로의 SSOT가 아니다.
+**수정된 통찰**: deferral 당시 가설("empty-clean → Ok가 확립된 불변식이라 충돌")은 부정확했다. 그 불변식은 사실 **`finalize_stream_acc`가 순수 구조 조립기**라는 것이다 — 잘 닫힌 스트림을 `Ok content=[]`로 조립하는 건 구조적으로 정당하다(truncated 스트림만 이미 `stream_terminated_without_stop_reason`로 거부). "empty completion은 실행 불가"는 **의미 정책**이고, 실제 Agent 소비 경계는 `pipeline_stage_route`가 호출하는 `Llm_provider.Complete.complete` / `complete_stream`이다. `lib/streaming.ml`은 legacy `Provider_intf` 경로이며 Agent 경로의 SSOT가 아니었다 (둘 다 removed 2026-07-21).
 
 **구현**: `Complete_common.ensure_nonempty_completion`이 `content=[]`를 typed `Http_client.empty_completion_error ~stop_reason`으로 바꾸며, `Complete.complete`(cache, HTTP, injected sync transport)와 `Complete.complete_stream`(HTTP, injected stream transport)이 이 단일 정책을 적용한다. Legacy `Api.create_message`, `Provider_intf`, `Streaming.create_message_stream`도 같은 helper를 사용하므로 custom sync→synthetic fallback까지 동일하게 fail-close한다. 구조 조립기인 `finalize_stream_acc`는 순수하게 남는다.
 

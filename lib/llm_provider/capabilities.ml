@@ -490,7 +490,7 @@ let ollama_capabilities =
 (* Ollama Cloud is a distinct provider identity (its own base_url + auth) but its
    capability profile is currently identical to local Ollama. Reasoning-only
    replies still reach the user through the display path
-   ([Api.text_blocks_to_string] includes [Thinking] blocks); they are no longer
+   ([Api_common.text_blocks_to_string] includes [Thinking] blocks); they are no longer
    promoted into assistant answer text, which previously re-injected reasoning on
    replay and caused the CoT loop (#2236).
 
