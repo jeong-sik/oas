@@ -81,8 +81,29 @@ let city_facts_schema : city_facts Structured.schema =
 
 let prompt = "Seoul."
 
+(* A rejected credential says nothing about structured output, and this suite
+   runs against whatever keys happen to be present in an operator's shell.
+   Skip loudly on auth rather than reporting a red that really means "that key
+   is for a different product". Every other error still fails the case. *)
+let is_auth_failure message =
+  let lowered = String.lowercase_ascii message in
+  let contains needle =
+    let n = String.length needle in
+    let rec at i =
+      i + n <= String.length lowered
+      && (String.equal (String.sub lowered i n) needle || at (i + 1))
+    in
+    n > 0 && at 0
+  in
+  List.exists
+    contains
+    [ "auth error"; "api key is invalid"; "api key not valid"; "unauthorized" ]
+;;
+
 let assert_conforms ~label (result : (city_facts, Error.sdk_error) result) =
   match result with
+  | Error e when is_auth_failure (Error.to_string e) ->
+    skip_note label ("credential rejected by the provider: " ^ Error.to_string e)
   | Error e -> failf "[%s] structured extraction failed: %s" label (Error.to_string e)
   | Ok facts ->
     check bool (Printf.sprintf "[%s] city non-empty" label) true (facts.city <> "");
@@ -124,21 +145,22 @@ let with_env_key key label f =
 
 (* ── Providers ───────────────────────────────────────────────── *)
 
+(* Uses the catalog-registered [openai] provider rather than a bare
+   [OpenAICompat] endpoint. That is deliberate and is part of what this suite
+   pins: a raw OpenAI-compatible endpoint carries no provider identity, so its
+   capabilities resolve to [default_capabilities] (every flag false) and the
+   structured-output gate rejects the request before any bytes are sent. The
+   catalog entry is what says "this endpoint is OpenAI, serving OpenAI's own
+   model ids". *)
 let test_openai () =
   with_env_key "OPENAI_API_KEY" "openai"
   @@ fun () ->
-  let base_url = "https://api.openai.com" in
+  let base_url = "https://api.openai.com/v1" in
   let model = Option.value (Sys.getenv_opt "OAS_LIVE_OPENAI_MODEL") ~default:"gpt-5.5" in
   run_extract
     ~label:"openai"
     ~provider:
-      { Provider.provider =
-          Provider.OpenAICompat
-            { base_url
-            ; auth_header = Some "Authorization"
-            ; path = "/v1/chat/completions"
-            ; static_token = None
-            }
+      { Provider.provider = Provider.Custom_registered { name = "openai" }
       ; model_id = model
       ; api_key_env = "OPENAI_API_KEY"
       }
@@ -165,10 +187,10 @@ let test_anthropic () =
 
 (* Local Ollama is opt-in by model name rather than by credential: the server
    needs no key, so an unconditional case would fail on any machine without a
-   running daemon. This case drives Ollama's OpenAI-compatible endpoint, which
-   maps [response_format.json_schema] onto the same constrained decoding the
-   native [/api/chat] [format] field uses (both measured conforming against
-   gemma4:31b-it-q4_K_M and glm-4.7-flash:q4_K_M on 2026-07-22). *)
+   running daemon. This drives the catalog-registered [ollama] provider, i.e.
+   the native [/api/chat] wire whose top-level [format] field carries the
+   schema (measured conforming against gemma4:31b-it-q4_K_M and
+   glm-4.7-flash:q4_K_M on 2026-07-22). *)
 let test_ollama_local () =
   match Sys.getenv_opt "OAS_LIVE_OLLAMA_MODEL" with
   | None | Some "" ->
@@ -182,13 +204,7 @@ let test_ollama_local () =
     run_extract
       ~label:"ollama-local"
       ~provider:
-        { Provider.provider =
-            Provider.OpenAICompat
-              { base_url
-              ; auth_header = None
-              ; path = "/v1/chat/completions"
-              ; static_token = None
-              }
+        { Provider.provider = Provider.Custom_registered { name = "ollama" }
         ; model_id = model
         ; api_key_env = ""
         }
@@ -197,6 +213,9 @@ let test_ollama_local () =
 ;;
 
 let () =
+  (* TLS handshakes to https:// endpoints need the crypto RNG. [use_default ()]
+     is a no-op if already initialized. *)
+  Mirage_crypto_rng_unix.use_default ();
   run
     "structured-output-conformance"
     [ ( "live"

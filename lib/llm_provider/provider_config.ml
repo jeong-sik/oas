@@ -210,7 +210,15 @@ let capabilities_for_config_model (config : t) =
     let provider_label = capability_provider_label config in
     let allow_bare_fallback =
       match config.provider_id, config.kind with
-      | Some _, _ | None, OpenAI_compat -> false
+      (* An explicit provider id normally forbids bare-row leakage: an
+         aggregator's "gpt-4o" is not evidence that the row describing
+         OpenAI's gpt-4o applies to it. A provider entry may declare the
+         opposite for itself with [vendor_model_ids = true], which is exactly
+         the canonical-vendor-domain case RFC-OAS-034 §1.3 carves out, stated
+         as catalog data rather than inferred from a URL. Without that
+         declaration the behavior is unchanged. *)
+      | Some id, _ -> Capabilities.provider_declares_vendor_model_ids id
+      | None, OpenAI_compat -> false
       | None, (Anthropic | Kimi | Ollama | Gemini | Glm | DashScope) -> true
     in
     Capabilities.for_provider_model_id

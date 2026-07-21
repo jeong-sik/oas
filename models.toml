@@ -2199,6 +2199,14 @@ request_path = "/chat/completions"
 api_key_env = "SILICONFLOW_API_KEY"
 capabilities_base = "openai_chat"
 
+# vendor_model_ids = true: a local Ollama server runs whatever model was
+# pulled, under that model's own id, so the bare rows in this catalog describe
+# exactly the models it serves. This only restates for the registered path
+# what capabilities_for_config_model already grants the unregistered Ollama
+# kind. The ollama_cloud entry deliberately does NOT declare it — Cloud does
+# not support structured outputs (docs.ollama.com/capabilities/structured-
+# outputs, checked 2026-07-22) and must not inherit a bare row that says it
+# does.
 [[providers]]
 id = "ollama"
 kind = "ollama"
@@ -2206,6 +2214,7 @@ base_url = "http://127.0.0.1:11434"
 request_path = "/api/chat"
 api_key_env = ""
 capabilities_base = "ollama"
+vendor_model_ids = true
 
 [[providers]]
 id = "deepseek"
@@ -2261,6 +2270,30 @@ request_path = "/images/generations"
 api_key_env = "ZAI_API_KEY"
 capabilities_base = "glm"
 default_model = "glm-image"
+
+# The OpenAI chat identity. Declared before the image/speech entries that
+# share this base_url so an unqualified api.openai.com endpoint resolves to
+# chat, which is what an unqualified completion request means; image and
+# speech consumers resolve via provider_label_for_endpoint (request_path
+# qualified) or an explicit provider_id, the same contract already documented
+# for the zai-image / glm and gemini-image / gemini pairs below and above.
+#
+# vendor_model_ids = true: api.openai.com serves OpenAI's own models under
+# OpenAI's own ids, so the bare gpt-* rows in this catalog are authoritative
+# for them. Without this declaration an OpenAI_compat config resolves to
+# default_capabilities (every flag false) and structured output, tools and
+# reasoning are all gated off for OpenAI's own models. Aggregators that also
+# speak this wire (openrouter, groq, siliconflow) do NOT declare it and stay
+# fail-closed, because their "gpt-4o" is not evidence about OpenAI's.
+[[providers]]
+id = "openai"
+kind = "openai_compat"
+base_url = "https://api.openai.com/v1"
+request_path = "/chat/completions"
+api_key_env = "OPENAI_API_KEY"
+capabilities_base = "openai_chat_extended"
+identity_hosts = ["api.openai.com"]
+vendor_model_ids = true
 
 [[providers]]
 id = "openai-image"

@@ -233,6 +233,16 @@ val for_provider_model_id
   -> model_id:string
   -> capabilities option
 
+(** [true] when the loaded catalog has a [[providers]] entry with this id that
+    declares [vendor_model_ids = true], i.e. the provider serves its own
+    vendor's models under their own ids. Callers use it to decide whether a
+    bare (provider-independent) catalog row may answer for a provider-scoped
+    lookup. Defaults to [false] for every provider that does not declare it,
+    and for an absent catalog.
+
+    @since 0.220.0 *)
+val provider_declares_vendor_model_ids : string -> bool
+
 (** Lookup capabilities for a known model_id.
 
     Checks the globally loaded model catalog first, then the capability

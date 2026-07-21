@@ -2708,6 +2708,73 @@ let test_prefix_ordering_invariant () =
 
 (* ── Suite ───────────────────────────────────────────── *)
 
+(* ── vendor_model_ids: bare-row authority is declared, never inferred ──
+
+   Without a provider entry declaring it, an OpenAI-compatible endpoint has no
+   provider identity and its capabilities resolve to [default_capabilities] —
+   every flag false, so the structured-output gate rejects OpenAI's own models
+   before any bytes are sent. The declaration is what makes the bare gpt-*
+   rows authoritative for api.openai.com, and it must NOT leak to aggregators
+   that merely speak the same wire. *)
+
+let test_vendor_model_ids_declared_for_openai () =
+  check
+    bool
+    "openai declares vendor_model_ids"
+    true
+    (Capabilities.provider_declares_vendor_model_ids "openai")
+;;
+
+let test_vendor_model_ids_not_declared_for_aggregators () =
+  List.iter
+    (fun label ->
+       check
+         bool
+         (Printf.sprintf "%s does not declare vendor_model_ids" label)
+         false
+         (Capabilities.provider_declares_vendor_model_ids label))
+    [ "openrouter"; "groq"; "siliconflow"; "ollama_cloud"; "openai-image" ]
+;;
+
+let test_vendor_model_ids_unknown_provider_is_false () =
+  check
+    bool
+    "an undeclared provider label is false, not permissive"
+    false
+    (Capabilities.provider_declares_vendor_model_ids "no-such-provider")
+;;
+
+let test_openai_model_resolves_structured_output_through_declaration () =
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:(Capabilities.provider_declares_vendor_model_ids "openai")
+      ~provider_label:"openai"
+      ~model_id:"gpt-5.5"
+  with
+  | None -> fail "gpt-5.5 must resolve capabilities under the openai provider"
+  | Some caps ->
+    check
+      bool
+      "gpt-5.5 advertises native structured output"
+      true
+      caps.supports_structured_output
+;;
+
+let test_aggregator_stays_fail_closed_for_the_same_model_id () =
+  (* Same model id, aggregator label: no provider-scoped row and no declared
+     bare-row authority, so the lookup must miss rather than borrow OpenAI's
+     row. An aggregator's "gpt-5.5" is not evidence about OpenAI's. *)
+  check
+    bool
+    "openrouter/gpt-5.5 resolves to no capability row"
+    true
+    (Capabilities.for_provider_model_id
+       ~allow_bare_fallback:(Capabilities.provider_declares_vendor_model_ids "openrouter")
+       ~provider_label:"openrouter"
+       ~model_id:"gpt-5.5"
+     = None)
+;;
+
 let () =
   isolate_ambient_runtime_sources ();
   run
@@ -3019,6 +3086,28 @@ let () =
             "shadow pairs all resolve to specific branch (M01)"
             `Quick
             test_prefix_ordering_invariant
+        ] )
+    ; ( "vendor_model_ids"
+      , [ test_case
+            "openai declares vendor_model_ids"
+            `Quick
+            test_vendor_model_ids_declared_for_openai
+        ; test_case
+            "aggregators do not declare vendor_model_ids"
+            `Quick
+            test_vendor_model_ids_not_declared_for_aggregators
+        ; test_case
+            "undeclared provider label is false"
+            `Quick
+            test_vendor_model_ids_unknown_provider_is_false
+        ; test_case
+            "openai/gpt-5.5 resolves structured output through the declaration"
+            `Quick
+            test_openai_model_resolves_structured_output_through_declaration
+        ; test_case
+            "aggregator stays fail-closed for the same model id"
+            `Quick
+            test_aggregator_stays_fail_closed_for_the_same_model_id
         ] )
     ]
 ;;

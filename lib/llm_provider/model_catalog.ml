@@ -70,6 +70,7 @@ type provider_entry = Model_provider_catalog.entry =
   ; default_model : string option
   ; capabilities_base : string option
   ; identity_hosts : string list
+  ; vendor_model_ids : bool
   }
 
 type t =

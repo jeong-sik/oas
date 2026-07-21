@@ -1192,6 +1192,22 @@ let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string
       (Model_catalog.lookup_for_provider catalog ~provider_name:provider_label ~model_id)
 ;;
 
+(* Provider entries carry their own answer to "is a bare model row
+   authoritative for this provider's model ids?". Reading the declaration here
+   keeps the decision in catalog data instead of a kind/URL branch in OCaml
+   (RFC-OAS-034 §2 rule 1). Entry ids are normalized at parse time. *)
+let provider_declares_vendor_model_ids provider_label =
+  match Model_catalog.global () with
+  | None -> false
+  | Some catalog ->
+    let want = String.lowercase_ascii (String.trim provider_label) in
+    List.exists
+      (fun (entry : Model_catalog.provider_entry) ->
+         entry.vendor_model_ids
+         && String.equal want (String.lowercase_ascii (String.trim entry.id)))
+      (Model_catalog.provider_entries catalog)
+;;
+
 let for_provider_model_id
       ~(allow_bare_fallback : bool)
       ~(provider_label : string)

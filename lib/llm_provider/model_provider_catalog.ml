@@ -23,6 +23,7 @@ type entry =
   ; default_model : string option
   ; capabilities_base : string option
   ; identity_hosts : string list
+  ; vendor_model_ids : bool
   }
 
 let find_string_field ~entry_id key toml =
@@ -123,7 +124,16 @@ let known_keys =
   ; "default_model"
   ; "capabilities_base"
   ; "identity_hosts"
+  ; "vendor_model_ids"
   ]
+;;
+
+let bool_field ~entry_id key toml =
+  match Otoml.find_opt toml Otoml.get_boolean [ key ] with
+  | Some b -> Ok (Some b)
+  | None -> Ok None
+  | exception Otoml.Type_error _ ->
+    Error (Printf.sprintf "provider entry %S field %S expected bool" entry_id key)
 ;;
 
 let reject_unknown_keys ~entry_id entry_toml =
@@ -238,6 +248,7 @@ let parse_entry provider_toml =
   in
   let* aliases = string_list_field ~entry_id:id "aliases" provider_toml in
   let* identity_hosts = string_list_field ~entry_id:id "identity_hosts" provider_toml in
+  let* vendor_model_ids = bool_field ~entry_id:id "vendor_model_ids" provider_toml in
   Ok
     { id
     ; aliases = Option.value aliases ~default:[]
@@ -251,6 +262,7 @@ let parse_entry provider_toml =
     ; capabilities_base
     ; identity_hosts =
         Option.value identity_hosts ~default:[] |> List.map String.lowercase_ascii
+    ; vendor_model_ids = Option.value vendor_model_ids ~default:false
     }
 ;;
 

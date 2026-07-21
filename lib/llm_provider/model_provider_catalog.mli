@@ -12,6 +12,16 @@ type entry =
   ; default_model : string option
   ; capabilities_base : string option
   ; identity_hosts : string list
+  ; vendor_model_ids : bool
+    (** [true] declares that this provider serves its own vendor's models
+            under their own ids, so a bare (provider-independent) catalog row
+            for a model id is authoritative for it. Defaults to [false], which
+            keeps aggregators and generic OpenAI-compatible hosts fail-closed:
+            an aggregator's ["gpt-4o"] is not evidence that the row describing
+            OpenAI's gpt-4o applies. RFC-OAS-034 §1.3 names canonical vendor
+            domains as the one case where host and provider genuinely
+            coincide; this field is that case declared as data rather than
+            inferred from a URL. *)
   }
 
 val parse_entry : Otoml.t -> (entry, string) result
