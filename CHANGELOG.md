@@ -278,6 +278,19 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.219.0](https://github.com/jeong-sik/oas/compare/v0.218.0...v0.219.0) (2026-07-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* Agent_sdk no longer re-exports the 22 modules listed above. Handoff is exported instead; construct Handoff.handoff_target records directly where Subagent.to_handoff_target was used before.
+* Agent_sdk no longer re-exports the 22 modules listed above. Handoff is exported instead; construct Handoff.handoff_target records directly where Subagent.to_handoff_target was used before.
+
+### Code Refactoring
+
+* drop the test-only agent_sdk re-export surface (9 remaining modules) ([#2735](https://github.com/jeong-sik/oas/issues/2735)) ([2a817f8](https://github.com/jeong-sik/oas/commit/2a817f878fa1df3a91f3d90b0d91eb9c22ca5b91))
+* retire the legacy Api/Streaming/Provider_intf dispatch island ([#2738](https://github.com/jeong-sik/oas/issues/2738)) ([2bd2e07](https://github.com/jeong-sik/oas/commit/2bd2e07924d087d9047a150cc1d6b51a3b61d941))
+
 ## [0.218.0](https://github.com/jeong-sik/oas/compare/v0.217.4...v0.218.0) (2026-07-21)
 
 
