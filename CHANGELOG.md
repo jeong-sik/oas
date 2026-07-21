@@ -278,6 +278,33 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.218.0](https://github.com/jeong-sik/oas/compare/v0.217.4...v0.218.0) (2026-07-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* agent_sdk no longer re-exports Runtime_server, Runtime_sync, Runtime_projection, Runtime_evidence, Runtime_replay, Runtime_server_types, Runtime_server_resolve, Runtime_continuation, Runtime_health. The 9 modules and their dedicated tests are deleted.
+* remove Internal-declared zero-consumer modules ([#2690](https://github.com/jeong-sik/oas/issues/2690))
+* remove unwired eval/harness execution stack ([#2689](https://github.com/jeong-sik/oas/issues/2689))
+
+### Features
+
+* **agent:** publish AgentStarted/AgentCompleted/AgentFailed lifecycle events ([#2725](https://github.com/jeong-sik/oas/issues/2725)) ([658587a](https://github.com/jeong-sik/oas/commit/658587ae4babec35a6916add37fd1238ad2ef693))
+* **llm_provider:** profile request shape on client 4xx for opaque provider rejections ([#2677](https://github.com/jeong-sik/oas/issues/2677)) ([1bc962f](https://github.com/jeong-sik/oas/commit/1bc962f5bfb3d8d86677e40c7244513ec4a8c793))
+
+
+### Bug Fixes
+
+* **llm_provider:** drop coordinator name from docstrings for SDK independence ([#2733](https://github.com/jeong-sik/oas/issues/2733)) ([27d7c69](https://github.com/jeong-sik/oas/commit/27d7c697e5ddcee35bbee2496e3a34ec8de9c5ed))
+* **streaming:** bound first-event wait with a separate TTFT budget, not the inter-token idle timeout ([#2722](https://github.com/jeong-sik/oas/issues/2722)) ([#2723](https://github.com/jeong-sik/oas/issues/2723)) ([2b57090](https://github.com/jeong-sik/oas/commit/2b5709065733e83b1bd249558066a141ce5b13b6))
+
+
+### Code Refactoring
+
+* remove 9 unreachable runtime cluster modules (preserve Runtime_store/Sessions_store live surface) ([#2737](https://github.com/jeong-sik/oas/issues/2737)) ([194ec9a](https://github.com/jeong-sik/oas/commit/194ec9a93b5ed4ca34bafe6d6ee6b1dc53606268))
+* remove Internal-declared zero-consumer modules ([#2690](https://github.com/jeong-sik/oas/issues/2690)) ([541d998](https://github.com/jeong-sik/oas/commit/541d998deb97054cf47555d3fab05567a9b8b90a))
+* remove unwired eval/harness execution stack ([#2689](https://github.com/jeong-sik/oas/issues/2689)) ([132bb27](https://github.com/jeong-sik/oas/commit/132bb274c56bdfe953cbe6cb558e01b013e0d694))
+
 ## [0.217.4](https://github.com/jeong-sik/oas/compare/v0.217.3...v0.217.4) (2026-07-20)
 
 
