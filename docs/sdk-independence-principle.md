@@ -46,7 +46,7 @@ coordinator wraps these in is intentionally outside this document.
 | Module | Owner |
 |--------|-------|
 | `Contract`, `Completion_contract` | OAS |
-| `Guardrails_async`, `Guardrail_*` | OAS |
+| `Guardrails_async` | OAS |
 | `Runtime`, `Runtime_store` | OAS |
 | `Raw_trace`, `Sessions` | OAS |
 

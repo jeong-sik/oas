@@ -1,7 +1,11 @@
-(** Integration tests for cost tracking — accumulation and advisory thresholds.
+(** Integration tests for usage accumulation across turns.
 
-    Uses mock HTTP server to verify cost accumulates across turns
-    and cost thresholds remain telemetry-only.
+    Uses a mock HTTP server to verify [Agent.run] accumulates response
+    usage into [Agent.state.usage] across the multi-turn tool loop.
+    Restored from test_cost_integration.ml's accumulation section when
+    Cost_tracker was removed (2026-07-21 test-only surface cut) — these
+    cases never touched Cost_tracker and are the only end-to-end guard
+    on the run-loop usage wiring.
 
     Pattern: test_integration.ml (Anthropic Messages API mock) *)
 
@@ -10,7 +14,7 @@ open Types
 
 (* ── Mock HTTP helpers ───────────────────────────────── *)
 
-(** Build response with specific token counts for cost tracking. *)
+(** Build response with specific token counts for usage tracking. *)
 let text_body_with_usage ~input_tokens ~output_tokens text =
   Printf.sprintf
     {|{"id":"c1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d}}|}
@@ -86,7 +90,7 @@ let test_tokens_accumulate_across_turns () =
     in
     let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
-    Agent.run ~sw agent "test" |> require_run_success "cost accumulation run";
+    Agent.run ~sw agent "test" |> require_run_success "usage accumulation run";
     let st = Agent.state agent in
     (* 3 API calls: tool, tool, text — each with 100 input + 50 output *)
     Alcotest.(check int) "api calls" 3 st.usage.api_calls;
@@ -109,46 +113,11 @@ let test_single_turn_usage () =
     let agent =
       Agent.create ~config:(Types.default_config ~model:"mock-model") ~net ~options ()
     in
-    Agent.run ~sw agent "test" |> require_run_success "single-turn cost run";
+    Agent.run ~sw agent "test" |> require_run_success "single-turn usage run";
     let st = Agent.state agent in
     Alcotest.(check int) "1 api call" 1 st.usage.api_calls;
     Alcotest.(check int) "input" 200 st.usage.total_input_tokens;
     Alcotest.(check int) "output" 75 st.usage.total_output_tokens)
-;;
-
-(* ── Cost report tests ───────────────────────────────── *)
-
-let test_report_zero_division () =
-  let usage : Types.usage_stats =
-    { total_input_tokens = 0
-    ; total_output_tokens = 0
-    ; total_cache_creation_input_tokens = 0
-    ; total_cache_read_input_tokens = 0
-    ; api_calls = 0
-    ; estimated_cost_usd = 0.0
-    ; pricing_gap = None
-    }
-  in
-  let r = Cost_tracker.report usage in
-  Alcotest.(check (float 0.001)) "avg zero" 0.0 r.avg_cost_per_call
-;;
-
-let test_report_format () =
-  let usage : Types.usage_stats =
-    { total_input_tokens = 1000
-    ; total_output_tokens = 500
-    ; total_cache_creation_input_tokens = 0
-    ; total_cache_read_input_tokens = 0
-    ; api_calls = 5
-    ; estimated_cost_usd = 0.05
-    ; pricing_gap = None
-    }
-  in
-  let r = Cost_tracker.report usage in
-  let s = Cost_tracker.report_to_string r in
-  Alcotest.(check bool) "non-empty" true (String.length s > 0);
-  Alcotest.(check (float 0.001)) "total" 0.05 r.total_usd;
-  Alcotest.(check int) "calls" 5 r.api_calls
 ;;
 
 (* ── Suite ───────────────────────────────────────────── *)
@@ -156,14 +125,10 @@ let test_report_format () =
 let () =
   let open Alcotest in
   run
-    "Cost_Integration"
+    "Usage_accumulation"
     [ ( "accumulation"
       , [ test_case "tokens across turns" `Quick test_tokens_accumulate_across_turns
         ; test_case "single turn usage" `Quick test_single_turn_usage
-        ] )
-    ; ( "report"
-      , [ test_case "zero division safe" `Quick test_report_zero_division
-        ; test_case "format" `Quick test_report_format
         ] )
     ]
 ;;

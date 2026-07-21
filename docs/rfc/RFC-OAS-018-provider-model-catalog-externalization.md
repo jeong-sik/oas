@@ -34,7 +34,7 @@ Top-leak files (count per file):
 - `lib/llm_provider/model_meta.ml` — 19 literals (incl. `"qwen3.5-35b"` × 6, `"llama-4-maverick"` × 2)
 - `lib/llm_provider/transport_kimi_cli.ml` — 15 literals
 - `lib/provider.ml` — 13 literals
-- `lib/agent/agent_config.ml` — 2 literals
+- `lib/agent/agent_config.ml` — 2 literals (file removed 2026-07-21, test-only surface cut)
 - `lib/completion_contract.ml` — 2 literals (`"claude-haiku-4-5-20251001"` × 2)
 
 11 `Provider_kind.t` variants (`lib/llm_provider/provider_kind.ml:9-23`):

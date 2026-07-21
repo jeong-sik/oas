@@ -25,7 +25,7 @@ Single-agent execution engine.
 | `Hooks` | BeforeTurn, AfterTurn, PreToolUse, PostToolUse hooks |
 | `Tracing` | TRACER module type, Null/Fmt/OTel implementations |
 | `Metrics` | Counter + histogram collection, OTLP JSON export |
-| `Guardrails_async` / `Guardrail_llm` | Caller-injected content validation and LLM judgment |
+| `Guardrails_async` | Caller-injected content validation |
 | `Tool_set` | Tool registration, schema generation |
 
 ## Error model
@@ -51,8 +51,8 @@ Eio structured concurrency: every fiber runs within a `Switch.t`.
 - Switch guarantees cleanup on exit (normal or exception)
 - Parent switch cancellation propagates through the fiber tree
 - Timeout/error containment depends on the combinator contract:
-  - `Async_agent.race` and `Guardrail_tripwire` are fail-fast; the first
-    completion or trip cancels remaining siblings.
+  - `Async_agent.race` is fail-fast; the first completion cancels
+    remaining siblings.
   - `Async_agent.all` is all-settled; per-agent timeouts and ordinary
     exceptions are returned in that agent's result while sibling agents finish.
   - `Guardrails_async` keeps validator failures local to that validator result.

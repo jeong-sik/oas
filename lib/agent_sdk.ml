@@ -38,9 +38,7 @@
 (** Re-export all modules (dependency-safe order) *)
 module Sdk_version = Sdk_version
 
-(** Wrapped namespaces for the underlying libraries. The flat aliases below
-    preserve backward compatibility; these wrappers provide stable long-form
-    names and insulate consumers from the exact dependency layout. *)
+(** Wrapped namespaces for the underlying libraries. *)
 module Base = Agent_sdk_base
 
 module Llm_provider = Llm_provider
@@ -64,7 +62,6 @@ module Hooks = Agent_sdk_base.Hooks
 module Tracing = Tracing
 module Tool = Agent_sdk_base.Tool
 module Typed_tool = Typed_tool
-module Tool_schema_gen = Tool_schema_gen
 module Mcp = Mcp
 module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
@@ -76,19 +73,18 @@ module Log = Log
 module Event_envelope = Event_envelope
 module Event_bus = Event_bus
 module Telemetry_bus = Telemetry_bus
-module Telemetry_sca_registry = Telemetry_sca_registry
 module Skill = Skill
 module Skill_registry = Skill_registry
 module Contract = Contract
 module Api = Api
 module Streaming = Streaming
-module Subagent = Subagent
 module Structured = Structured
 module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Raw_trace = Raw_trace
 module Raw_trace_query = Raw_trace_query
+module Handoff = Handoff
 module Agent_types = Agent_types
 module Agent_lifecycle = Agent_lifecycle
 module Agent_turn = Agent_turn
@@ -107,23 +103,17 @@ module Sessions_store = Sessions_store
 module Harness = Harness
 module Eval = Eval
 module Trajectory = Trajectory
-module Metric_contract = Metric_contract
 module Tool_middleware = Tool_middleware
 module Metrics = Metrics
 module Async_agent = Async_agent
 module Consumer = Consumer
-module Agent_typed = Agent_typed
-module Cost_tracker = Cost_tracker
 module Guardrails_async = Guardrails_async
-module Guardrail_llm = Guardrail_llm
-module Guardrail_tripwire = Guardrail_tripwire
 module Eval_stats = Eval_stats
 module Runtime_store = Runtime_store
 module Plan = Plan
 module Tool_input_validation = Tool_input_validation
 module Durable_event = Durable_event
 module Journal_bridge = Journal_bridge
-module Vcs_graph_snapshot = Vcs_graph_snapshot
 
 (** Quick start: create an agent with default config *)
 let create_agent

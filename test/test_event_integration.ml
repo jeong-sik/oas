@@ -94,11 +94,13 @@ let test_handoff_emits_request_and_completion () =
     in
     let sub = Event_bus.subscribe ~config bus in
     let target =
-      Subagent.to_handoff_target
-        ~parent_config:(Types.default_config ~model:"test-model")
-        ~base_tools:[]
-        (Subagent.of_markdown
-           "---\nname: researcher\ndescription: Research specialist\n---\nResearch.")
+      let parent_config = Types.default_config ~model:"test-model" in
+      { Handoff.name = "researcher"
+      ; description = "Research specialist"
+      ; config =
+          { parent_config with name = "researcher"; system_prompt = Some "Research." }
+      ; tools = []
+      }
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }

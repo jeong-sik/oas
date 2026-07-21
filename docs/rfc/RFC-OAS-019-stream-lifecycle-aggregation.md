@@ -42,7 +42,7 @@ The counter increments per chunk; the emit fires synchronously. A 300-chunk comp
     }
 ```
 
-Registered in `lib/telemetry_sca_registry.ml:24` as a known signal. Serialized via `lib/telemetry_bus.ml:25` (`Event_bus.Custom("telemetry_event", json)`).
+Registered in `lib/telemetry_sca_registry.ml:24` as a known signal (registry removed 2026-07-21, test-only surface cut). Serialized via `lib/telemetry_bus.ml:25` (`Event_bus.Custom("telemetry_event", json)`).
 
 ### 1.3 Observable cost
 
@@ -96,7 +96,7 @@ Add to `lib/llm_provider/telemetry_event.ml`:
     }
 ```
 
-Register the signal in `lib/telemetry_sca_registry.ml`. Yojson derivation mirrors existing variants.
+Register the signal in `lib/telemetry_sca_registry.ml` (registry removed 2026-07-21 — a revival of this phase must reintroduce a typed registry first). Yojson derivation mirrors existing variants.
 
 ### 4.2 Accumulator in `complete.ml`
 
@@ -175,7 +175,7 @@ Existing tests that count `Event_bus` events from a completion: expected volume 
 |---|---|---|
 | 0 | This RFC | review + merge |
 | 1 | `Streaming_summary` variant + accumulator + per-chunk publish removal + tests | §6.1, §6.2, §6.3 |
-| 2 (optional, +1 release) | Remove `Streaming_chunk_n` variant entirely from `telemetry_event.ml` and `telemetry_sca_registry.ml` after consumer migration window | grep 0 hits across SDK and known consumers |
+| 2 (optional, +1 release) | Remove `Streaming_chunk_n` variant entirely from `telemetry_event.ml` after consumer migration window (`telemetry_sca_registry.ml` already removed 2026-07-21) | grep 0 hits across SDK and known consumers |
 
 Phase 2 is optional: keeping the variant declared but never published is a *string-classifier-permits-extension* shape (CLAUDE.md §Workaround Rejection Bar §2). Preference is direct removal in Phase 1 if §6.1 audit confirms zero internal reads.
 
