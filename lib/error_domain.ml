@@ -107,6 +107,7 @@ let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error
      | phase -> `Provider_timeout (phase, r.detail))
   | Llm_provider.Error.CapacityExhausted _ -> `Overloaded
   | Llm_provider.Error.InvalidRequest r -> `Invalid_request r.reason
+  | Llm_provider.Error.ContextOverflow r -> `Context_overflow (r.message, r.limit)
   | Llm_provider.Error.NotFound r -> `Not_found r.detail
   | Llm_provider.Error.MissingApiKey r ->
     `Auth_error (Printf.sprintf "missing API key: %s" r.var_name)

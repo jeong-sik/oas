@@ -65,6 +65,11 @@ type provider_error =
       { provider : string
       ; reason : string
       }
+  | ContextOverflow of
+      { provider : string
+      ; message : string
+      ; limit : int option
+      }
   | NotFound of
       { provider : string
       ; detail : string
@@ -173,6 +178,12 @@ let to_string = function
       r.detail
   | InvalidRequest r ->
     Printf.sprintf "Provider '%s' invalid request: %s" r.provider r.reason
+  | ContextOverflow r ->
+    Printf.sprintf
+      "Provider '%s' context overflow%s: %s"
+      r.provider
+      (match r.limit with Some l -> Printf.sprintf " (limit=%d)" l | None -> "")
+      r.message
   | NotFound r -> Printf.sprintf "Provider '%s' not found: %s" r.provider r.detail
   | ProviderTerminal r ->
     Printf.sprintf "Provider '%s' terminal %s: %s" r.provider r.reason r.detail
@@ -205,7 +216,7 @@ let of_retry_api_error ?provider err =
   | Retry.InvalidRequest r -> InvalidRequest { provider; reason = r.message }
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
   | Retry.ContextOverflow r ->
-    InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
+    ContextOverflow { provider; message = r.message; limit = r.limit }
   | Retry.NetworkError r ->
     NetworkError { provider; kind = r.kind; timeout_phase = None; detail = r.message }
   (* Preserve the transport phase carried by Retry.Timeout so a retried
@@ -278,15 +289,11 @@ let of_provider_failure ?provider kind message =
       }
   | Http_client.Empty_completion { stop_reason } ->
     (match Retry.overflow_of_empty_completion ~stop_reason ~message with
-     | Some overflow ->
-       (* Third promotion site of the #2621 misclassification fix: a
-          ContextWindowExceeded empty completion is a caller-fixable context
-          overflow, not provider unavailability. The overflow VALUE comes from
-          the shared [Retry.overflow_of_empty_completion] classifier; this
-          deliberate SDK boundary flattens it to a string via
-          [Retry.error_message] into [InvalidRequest], preserving the typed →
-          string boundary that keeps the public surface source-compatible. *)
-       InvalidRequest { provider; reason = Retry.error_message overflow }
+     | Some (Retry.ContextOverflow r) ->
+       (* Typed ContextOverflow: the caller-fixable overflow surfaces without
+          string flattening so downstream consumers (masc) can match it as a
+          compaction trigger rather than a generic InvalidRequest. *)
+       ContextOverflow { provider; message = r.message; limit = r.limit }
      | None ->
        (* [stop_reason] stays typed until this deliberate SDK boundary.  The
           public error surface remains source-compatible: callers already handle
@@ -299,7 +306,13 @@ let of_provider_failure ?provider kind message =
                "empty completion (stop_reason=%s): %s"
                (Types.stop_reason_to_string stop_reason)
                message
-         })
+         }
+     | Some _ ->
+       (* Unreachable: [Retry.overflow_of_empty_completion] only ever returns
+          [Some (ContextOverflow _)] (see retry.ml:118-138). Future Retry.error
+          variants that this classifier might emit must add a typed arm here,
+          not fall through. *)
+       assert false)
   | Http_client.Unknown_provider_failure { reason } ->
     let reason =
       match reason with
@@ -348,6 +361,7 @@ let is_retryable = function
   | AuthError _
   | AuthorizationError _
   | InvalidRequest _
+  | ContextOverflow _
   | NotFound _
   | ProviderTerminal _ -> false
 ;;

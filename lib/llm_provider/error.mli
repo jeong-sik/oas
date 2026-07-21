@@ -65,6 +65,11 @@ type provider_error =
       { provider : string
       ; reason : string
       }
+  | ContextOverflow of
+      { provider : string
+      ; message : string
+      ; limit : int option
+      }
   | NotFound of
       { provider : string
       ; detail : string
