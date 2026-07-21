@@ -221,6 +221,74 @@ let test_ollama_local () =
       ~model
 ;;
 
+(* ── Agent loop: structured output as a terminal step ─────────────
+
+   The case that motivated {!Structured.run_structured_schema}: an agent with
+   a real tool, on a provider with NO native schema field. The loop has to run
+   (the model calls the tool, gets a result), and the structured answer has to
+   come back from the terminal turn over the tool wire.
+
+   Carrying a schema tool through every turn of the loop would let the model
+   end the loop by calling it, and would collide with the agent's own tool, so
+   getting a conforming value here is the evidence that the terminal step
+   works and not merely that the schema reached the provider. *)
+
+let population_tool =
+  Tool.create
+    ~name:"lookup_population"
+    ~description:"Look up the population of a city, in millions."
+    ~parameters:
+      [ { Types.name = "city"
+        ; description = "City name."
+        ; param_type = Types.String
+        ; required = true
+        }
+      ]
+    (fun _args -> Ok { Types.content = "9.7"; _meta = None })
+;;
+
+let test_agent_loop_terminal_step () =
+  match Sys.getenv_opt "OAS_LIVE_OLLAMA_MODEL" with
+  | None | Some "" -> skip_note "agent-loop-terminal" "OAS_LIVE_OLLAMA_MODEL not set"
+  | Some model ->
+    let base_url =
+      Option.value
+        (Sys.getenv_opt "OAS_LIVE_OLLAMA_URL")
+        ~default:"http://127.0.0.1:11434"
+    in
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let options =
+      { Agent.default_options with
+        base_url
+      ; provider =
+          Some
+            { Provider.provider = Provider.Custom_registered { name = "ollama" }
+            ; model_id = model
+            ; api_key_env = ""
+            }
+      }
+    in
+    let config =
+      { (Types.default_config ~model) with
+        model
+      ; system_prompt =
+          Some "Use the lookup_population tool when you need a city's population."
+      }
+    in
+    let agent =
+      Agent.create ~net:env#net ~config ~tools:[ population_tool ] ~options ()
+    in
+    Structured.run_structured_schema
+      ~sw
+      agent
+      "What is the population of Seoul? Use the tool, then report the facts."
+      ~schema:city_facts_schema
+    |> assert_conforms ~label:"agent-loop-terminal"
+;;
+
 let () =
   (* TLS handshakes to https:// endpoints need the crypto RNG. [use_default ()]
      is a no-op if already initialized. *)
@@ -231,6 +299,7 @@ let () =
       , [ test_case "openai" `Slow test_openai
         ; test_case "anthropic" `Slow test_anthropic
         ; test_case "ollama-local" `Slow test_ollama_local
+        ; test_case "agent-loop-terminal" `Slow test_agent_loop_terminal_step
         ] )
     ]
 ;;

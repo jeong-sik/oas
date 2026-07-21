@@ -188,9 +188,17 @@ let strategy_for_config provider_cfg =
   Llm_provider.Structured_output_strategy.select ~capabilities
 ;;
 
-let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () =
-  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  let* base_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+(* Shape an already-resolved provider config for one structured-output turn.
+   Separated from provider resolution so the one-shot path and the agent's
+   terminal turn share exactly one definition of what each strategy puts on
+   the wire; [history] is empty for the former and the agent's accumulated
+   conversation for the latter. *)
+let shape_request
+      ~(base_cfg : Llm_provider.Provider_config.t)
+      ~(schema : _ schema)
+      ~history
+      ~prompt
+  =
   let* strategy =
     strategy_for_config base_cfg
     |> Result.map_error (fun reason ->
@@ -206,6 +214,7 @@ let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () 
   in
   let open Llm_provider.Structured_output_strategy in
   let user = text_message User prompt in
+  let turn extra = history @ extra in
   match strategy with
   | Native_json_schema ->
     Ok
@@ -216,7 +225,7 @@ let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () 
           ; output_schema = Some (schema_to_json_schema schema)
           }
       ; tools = []
-      ; messages = [ user ]
+      ; messages = turn [ user ]
       ; strategy
       }
   | Tool_call selection ->
@@ -231,8 +240,9 @@ let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () 
     in
     let messages =
       match selection with
-      | Model_choice -> [ text_message System (single_tool_instruction schema); user ]
-      | Forced_named | Forced_any -> [ user ]
+      | Model_choice ->
+        turn [ text_message System (single_tool_instruction schema); user ]
+      | Forced_named | Forced_any -> turn [ user ]
     in
     Ok
       { provider_cfg =
@@ -254,9 +264,15 @@ let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () 
           ; output_schema = None
           }
       ; tools = []
-      ; messages = [ text_message System (prompt_schema_instruction schema); user ]
+      ; messages = turn [ text_message System (prompt_schema_instruction schema); user ]
       ; strategy
       }
+;;
+
+let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () =
+  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
+  let* base_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+  shape_request ~base_cfg ~schema ~history:[] ~prompt
 ;;
 
 (* Where the structured value lives depends on the strategy, because the
@@ -264,11 +280,120 @@ let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () 
    tool-call request is the whole point of that strategy; reading response
    text there instead would silently accept a turn in which the constraint
    never applied. *)
-let extract_by_strategy ~strategy ~(schema : 'a schema) (response : api_response) =
+type extraction_failure =
+  | No_answer_text_but_tool_calls of { stop_reason : Types.stop_reason }
+  | No_answer_text of { stop_reason : Types.stop_reason }
+  | Tool_not_called of
+      { expected : string
+      ; stop_reason : Types.stop_reason
+      }
+  | Malformed_json of string
+  | Schema_mismatch of string
+
+let extraction_failure_to_string = function
+  | No_answer_text_but_tool_calls { stop_reason } ->
+    Printf.sprintf
+      "the turn emitted tool calls and no answer text (stop_reason=%s); the structured \
+       answer is produced on a later turn"
+      (Types.stop_reason_to_string stop_reason)
+  | No_answer_text { stop_reason } ->
+    Printf.sprintf
+      "the response carried no answer text (stop_reason=%s)"
+      (Types.stop_reason_to_string stop_reason)
+  | Tool_not_called { expected; stop_reason } ->
+    Printf.sprintf
+      "the response did not call the %s tool that carries the schema (stop_reason=%s); \
+       the model answered outside the constrained channel"
+      expected
+      (Types.stop_reason_to_string stop_reason)
+  | Malformed_json detail -> Printf.sprintf "answer text was not valid JSON: %s" detail
+  | Schema_mismatch detail ->
+    Printf.sprintf "answer JSON did not match the requested shape: %s" detail
+;;
+
+let sdk_error_of_extraction_failure failure =
+  Error.Serialization (JsonParseError { detail = extraction_failure_to_string failure })
+;;
+
+let has_tool_use content =
+  List.exists
+    (function
+      | ToolUse _ -> true
+      | Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | Image _
+      | Document _
+      | Audio _
+      | ToolResult _ -> false)
+    content
+;;
+
+(* Reads the answer-text channel with [visible_text_of_response] rather than
+   [text_of_response]: the latter also concatenates ToolResult payloads, so a
+   response carrying both a tool result and an answer would reach the JSON
+   parser as two documents joined by a newline. *)
+let extract_text_json_typed ~(schema : _ schema) (response : api_response) =
+  let text =
+    response
+    |> Types.visible_text_of_response
+    |> Llm_provider.Backend_openai.strip_json_markdown_fences
+    |> String.trim
+  in
+  if text = ""
+  then
+    Error
+      (if has_tool_use response.content
+       then No_answer_text_but_tool_calls { stop_reason = response.stop_reason }
+       else No_answer_text { stop_reason = response.stop_reason })
+  else (
+    match parse_json_string text with
+    | Error detail -> Error (Malformed_json detail)
+    | Ok json ->
+      (try schema.parse json |> Result.map_error (fun e -> Schema_mismatch e) with
+       | Yojson.Json_error detail -> Error (Malformed_json detail)
+       | Yojson.Safe.Util.Type_error (detail, _) -> Error (Schema_mismatch detail)))
+;;
+
+let extract_tool_input_typed ~(schema : _ schema) (response : api_response) =
+  match
+    List.find_map
+      (function
+        | ToolUse { name; input; _ } when name = schema.name -> Some input
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | Image _
+        | Document _
+        | Audio _
+        | ToolUse _
+        | ToolResult _ -> None)
+      response.content
+  with
+  | None ->
+    Error (Tool_not_called { expected = schema.name; stop_reason = response.stop_reason })
+  | Some input ->
+    (try schema.parse input |> Result.map_error (fun e -> Schema_mismatch e) with
+     | Yojson.Safe.Util.Type_error (detail, _) -> Error (Schema_mismatch detail))
+;;
+
+(* Where the structured value lives depends on the strategy, because the
+   strategies put it in different channels. Reading the tool arguments on a
+   tool-call request is the whole point of that strategy; reading response
+   text there instead would silently accept a turn in which the constraint
+   never applied. *)
+let extract_by_strategy_typed ~strategy ~(schema : 'a schema) (response : api_response) =
   match (strategy : Llm_provider.Structured_output_strategy.t) with
   | Native_json_schema | Json_mode_with_prompt_schema ->
-    extract_text_json ~schema response
-  | Tool_call _ -> extract_tool_input ~schema response.content
+    extract_text_json_typed ~schema response
+  | Tool_call _ -> extract_tool_input_typed ~schema response
+;;
+
+let extract_by_strategy ~strategy ~schema response =
+  extract_by_strategy_typed ~strategy ~schema response
+  |> Result.map_error sdk_error_of_extraction_failure
 ;;
 
 (** Extract structured output from a prompt.
@@ -356,6 +481,79 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
   let* response = Agent.run ~sw ?clock agent prompt in
   extract response
   |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
+;;
+
+(* ── Agent loop: structured output as a terminal step ────────────
+
+   The constraint cannot simply be carried by every turn of a tool loop the
+   way it can on a one-shot request. On a native-schema request that is safe —
+   a turn that calls a tool produces no answer text, and the constraint lands
+   on the turn after the tool result (measured 2026-07-22 against gpt-5.5 and
+   a local glm-4.7-flash; Anthropic documents the same: "Grammar state resets
+   between sections"). The tool strategy has no such property: a schema tool
+   exposed on every turn is a tool the model can call at any point, ending the
+   loop early, and it collides with the agent's own toolset, breaking the
+   "exactly one tool" premise that lets [Model_choice] work at all.
+
+   So the loop runs normally to its terminal response, and the structured
+   answer is requested in one additional turn that carries the schema and no
+   agent tools. This is what Vercel AI SDK 6 converged on when it retired
+   generateObject in favour of folding structured output into the tool loop as
+   a final step. The extra turn is a real cost and is deliberately explicit
+   rather than hidden inside the loop. *)
+
+let terminal_prompt =
+  "Using the conversation above, produce the final answer now. Do not call any further \
+   tools."
+;;
+
+let agent_provider_config ~agent =
+  match Agent.provider_config agent with
+  | Some cfg -> Ok cfg
+  | None ->
+    let options = Agent.options agent in
+    Provider.provider_config_of_agent
+      ~state:(Agent.state agent)
+      ~base_url:options.base_url
+      options.provider
+;;
+
+(** Run the agent's normal tool loop, then take one further turn that carries
+    the schema on whichever wire the resolved model declares.
+
+    Unlike {!run_structured}, the caller does not have to put a
+    [response_format] on the agent config and does not have to hope the
+    provider has a native schema field: a model with no native field gets the
+    schema as the terminal turn's single tool, and one with neither gets JSON
+    mode plus the schema in the prompt.
+
+    The agent's own tools are not carried on the terminal turn. That is the
+    point of running it separately — see the comment above.
+
+    @since 0.220.0 *)
+let run_structured_schema ~sw ?clock agent prompt ~(schema : 'a schema)
+  : ('a, Error.sdk_error) result
+  =
+  let* _loop_response = Agent.run ~sw ?clock agent prompt in
+  let* base_cfg = agent_provider_config ~agent in
+  let* prepared =
+    shape_request
+      ~base_cfg
+      ~schema
+      ~history:(Agent.base_messages agent)
+      ~prompt:terminal_prompt
+  in
+  let* response =
+    Llm_provider.Complete.complete
+      ~sw
+      ~net:(Agent.net agent)
+      ~config:prepared.provider_cfg
+      ~messages:prepared.messages
+      ~tools:prepared.tools
+      ()
+    |> Result.map_error sdk_error_of_http_error
+  in
+  extract_by_strategy ~strategy:prepared.strategy ~schema response
 ;;
 
 (** Extract structured output with SSE streaming.

@@ -92,6 +92,58 @@ val run_structured
   -> extract:'a extractor
   -> ('a, Error.sdk_error) result
 
+(** {1 Typed extraction failures} *)
+
+(** Why an extraction produced no value.
+
+    Collapsing these into one string made "this turn called a tool, which is
+    the normal shape of a mid-loop turn" indistinguishable from "the provider
+    ignored the schema" — the distinction an agent loop has to make, and the
+    one a caller needs to tell a contract violation from a refusal or a
+    truncation.
+
+    @since 0.220.0 *)
+type extraction_failure =
+  | No_answer_text_but_tool_calls of { stop_reason : Types.stop_reason }
+  | No_answer_text of { stop_reason : Types.stop_reason }
+  | Tool_not_called of
+      { expected : string
+      ; stop_reason : Types.stop_reason
+      }
+  | Malformed_json of string
+  | Schema_mismatch of string
+
+val extraction_failure_to_string : extraction_failure -> string
+
+(** {1 Agent loop} *)
+
+(** Run the agent's tool loop, then take one further turn carrying [schema] on
+    whichever wire the resolved model declares.
+
+    Unlike {!run_structured}, the caller neither sets a [response_format] on
+    the agent config nor needs the provider to have a native schema field: a
+    model without one gets the schema as the terminal turn's single tool, and
+    one with neither gets JSON mode plus the schema in the prompt.
+
+    The terminal turn is separate, and carries none of the agent's own tools,
+    because the tool strategy cannot be spread across a loop. A schema tool
+    exposed on every turn is one the model can call at any point, ending the
+    loop early, and it collides with the agent's toolset. Native schema output
+    does not have that problem, but the terminal turn is used uniformly so the
+    contract does not change with the provider.
+
+    The extra turn costs tokens and is deliberately visible here rather than
+    hidden inside the loop.
+
+    @since 0.220.0 *)
+val run_structured_schema
+  :  sw:Eio.Switch.t
+  -> ?clock:float Eio.Time.clock_ty Eio.Resource.t
+  -> Agent.t
+  -> string
+  -> schema:'a schema
+  -> ('a, Error.sdk_error) result
+
 (** {1 Streaming extraction} *)
 
 val extract_stream
