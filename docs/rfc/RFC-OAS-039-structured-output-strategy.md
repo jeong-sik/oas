@@ -194,8 +194,8 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 
 | 슬라이스 | 내용 | 선행 |
 |---|---|---|
-| S0 | OpenAI strict 투영 | — (PR #2745, 머지됨/대기) |
-| S1 | `#2746` OpenAI provider identity 선언 | — |
+| S0 | OpenAI strict 투영 (`Json_schema_strict`) | — · **PR #2745 에 landed** |
+| S1 | `#2746` provider entry `vendor_model_ids` 선언 | — · **PR #2745 에 landed** |
 | S2 | `structured_output_strategy.ml` + `select` + 단위 테스트 (네트워크 없음) | — |
 | S3 | `Tool_call` 전략 배선: `extract` 가 스키마를 툴로 싣고 `extract_tool_input` 을 되살린다 | S2 |
 | S4 | receipt + 3분법 추출 결과 (#2751) | S2, S3 |
@@ -203,6 +203,16 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 | S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — |
 
 각 슬라이스는 `test_structured_output_conformance.ml` (PR #2745) 에 해당 provider 케이스를 추가해 **실제 wire 로 증명한다**. capability 플래그를 바꾸는 것만으로는 이 RFC 의 어떤 주장도 증명되지 않는다.
+
+S0+S1 이 실제로 그 기준을 통과했다 — `tool_param list` 로 만든 스키마가 실제 모델에 도달해 타입화된 값으로 돌아온다:
+
+```
+[openai] conformed: city=Seoul population_millions=9.4
+[ollama-local] conformed: city=Seoul population_millions=9.7
+[SKIP] anthropic — credential rejected by the provider
+```
+
+S1 의 선택지는 두 가지였고 이슈 #2746 에 기록되어 있다. 채택하지 않은 쪽(gpt 모델마다 provider-scoped 행 추가)이 나쁜 이유는 provider-scoped 조회가 `id_prefix` **정확 일치**인 반면 bare row 는 prefix 매칭이라, dated snapshot 마다 행이 필요하고 카탈로그가 provider 릴리즈마다 뒤처지기 때문이다.
 
 ## 5. 미확인 사항
 
