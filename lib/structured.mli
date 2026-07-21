@@ -1,8 +1,10 @@
 (** Structured output helpers.
 
-    Direct extraction prefers provider-native JSON schema output via
-    {!Llm_provider.Complete}. The legacy tool-use helpers remain available
-    for callers that still want forced tool calls.
+    Direct extraction picks its wire from the resolved model's declared
+    capabilities: provider-native JSON schema output, the schema carried as a
+    single tool's [input_schema], or JSON mode with the schema in the prompt.
+    See {!Llm_provider.Structured_output_strategy}. The tool-use helpers below
+    remain available to callers driving that wire themselves.
 
     @stability Evolving
     @since 0.93.1 *)
@@ -33,8 +35,10 @@ val extract_tool_input
 
 (** {1 Direct extraction} *)
 
-(** Uses provider-native JSON schema output when the resolved provider kind
-    is wired for it. Unsupported providers fail fast. *)
+(** Sends one request on the strongest wire the resolved model declares, and
+    reads the structured value from the channel that wire uses — response text
+    for native schema output and JSON mode, tool arguments for the tool path.
+    A model declaring no structured-output wire fails before the request. *)
 val extract
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t

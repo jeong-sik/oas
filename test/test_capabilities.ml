@@ -1090,6 +1090,11 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
 type structured_contract =
   | Response_format_json_schema
   | Native_structured_output
+  | Json_mode_only
+  (** The provider can be asked for syntactically valid JSON but exposes no
+      schema field. Distinct from [No_structured_output], which claims neither.
+      Keeping them apart is what routes a model to the tool strategy rather
+      than to a request the API rejects. *)
   | No_structured_output
 
 type replay_contract =
@@ -1191,6 +1196,17 @@ let check_frontier_model
          (label ^ " supports structured output")
          true
          c.supports_structured_output
+     | Json_mode_only ->
+       check
+         bool
+         (label ^ " declares no native schema field")
+         false
+         c.supports_structured_output;
+       check
+         bool
+         (label ^ " still declares a JSON output mode")
+         true
+         c.supports_response_format_json
      | No_structured_output ->
        check bool (label ^ " no structured output") false c.supports_structured_output);
     let dialect = frontier_dialect route model_id c in
@@ -1320,18 +1336,23 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , No_structured_output
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
+      (* DeepSeek's documented response_format.type enum is [text, json_object];
+         there is no json_schema variant. Schema conformance is reachable only
+         through tools[].function.strict on the beta host
+         (api-docs.deepseek.com, checked 2026-07-22), which is what the tool
+         strategy uses. *)
     ; ( "DeepSeek V4 Pro"
       , Provider_qualified "deepseek"
       , "deepseek-v4-pro"
       , Extended_thinking
-      , Response_format_json_schema
+      , Json_mode_only
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Flash"
       , Provider_qualified "deepseek"
       , "deepseek-v4-flash"
       , Extended_thinking
-      , Response_format_json_schema
+      , Json_mode_only
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "MiniMax M3 native/openai-compatible"
@@ -2775,6 +2796,64 @@ let test_aggregator_stays_fail_closed_for_the_same_model_id () =
      = None)
 ;;
 
+(* ── Strategy routing for real catalog rows ──────────────────────
+
+   The unit tests inside Structured_output_strategy cover the selection
+   function over synthetic capability records. These pin the rows that
+   actually ship, because the value of the strategy layer is entirely in
+   which wire a real model ends up on. *)
+
+let strategy_for label model_id =
+  match
+    Capabilities.for_provider_model_id
+      ~allow_bare_fallback:(Capabilities.provider_declares_vendor_model_ids label)
+      ~provider_label:label
+      ~model_id
+  with
+  | None -> failf "no capability row for %s/%s" label model_id
+  | Some capabilities -> Structured_output_strategy.select ~capabilities
+;;
+
+let test_openai_row_selects_native () =
+  check
+    bool
+    "openai/gpt-5.5 uses the native schema wire"
+    true
+    (strategy_for "openai" "gpt-5.5" = Ok Structured_output_strategy.Native_json_schema)
+;;
+
+let test_glm_row_selects_tool_call_without_forced_choice () =
+  (* glm-4.7-flash declares tools but neither native schema output nor a
+     usable forced tool_choice (Z.AI accepts only auto). That is exactly the
+     case the tool path exists for, and it must not degrade to JSON mode:
+     json_object guarantees syntax, a tool input_schema guarantees shape. *)
+  check
+    bool
+    "glm-4.7-flash carries the schema as a single tool the model chooses"
+    true
+    (strategy_for "ollama" "glm-4.7-flash"
+     = Ok (Structured_output_strategy.Tool_call Structured_output_strategy.Model_choice))
+;;
+
+let test_deepseek_row_selects_tool_call () =
+  check
+    bool
+    "deepseek-v4-pro carries the schema as a tool rather than failing"
+    true
+    (match strategy_for "deepseek" "deepseek-v4-pro" with
+     | Ok (Structured_output_strategy.Tool_call _) -> true
+     | Ok _ | Error _ -> false)
+;;
+
+let test_no_declared_wire_is_an_error_not_a_guess () =
+  check
+    bool
+    "a capability record declaring nothing has no strategy"
+    true
+    (Structured_output_strategy.select ~capabilities:Capabilities.default_capabilities
+     = Error Structured_output_strategy.No_structured_output_path)
+;;
+
 let () =
   isolate_ambient_runtime_sources ();
   run
@@ -3108,6 +3187,24 @@ let () =
             "aggregator stays fail-closed for the same model id"
             `Quick
             test_aggregator_stays_fail_closed_for_the_same_model_id
+        ] )
+    ; ( "structured_output_strategy_routing"
+      , [ test_case
+            "openai/gpt-5.5 selects native json_schema"
+            `Quick
+            test_openai_row_selects_native
+        ; test_case
+            "glm-4.7-flash selects the model-chosen tool path"
+            `Quick
+            test_glm_row_selects_tool_call_without_forced_choice
+        ; test_case
+            "deepseek-v4-pro selects a tool path"
+            `Quick
+            test_deepseek_row_selects_tool_call
+        ; test_case
+            "a record declaring no wire is an error"
+            `Quick
+            test_no_declared_wire_is_an_error_not_a_guess
         ] )
     ]
 ;;

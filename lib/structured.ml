@@ -1,10 +1,18 @@
 (** Structured output helpers.
 
-    This module keeps exact tool-use helpers ([schema_to_tool_json],
-    [extract_tool_input]) for callers using forced tool calls,
-    but the direct extraction APIs now prefer provider-native JSON schema
-    output via {!Llm_provider.Complete}. Unsupported providers fail fast
-    instead of silently falling back to prompt-only JSON mode. *)
+    The direct extraction APIs pick their wire from the resolved model's
+    declared capabilities via
+    {!Llm_provider.Structured_output_strategy.select}: provider-native JSON
+    schema output where it exists, otherwise the schema carried as a single
+    tool's [input_schema], otherwise JSON mode with the schema in the prompt.
+    The choice is made once, before the request; OAS does not send one wire,
+    observe a rejection, and retry with another. A model that declares none of
+    the three fails before any bytes are sent.
+
+    The tool path is not a consolation prize. A tool's [input_schema] is a
+    JSON Schema the provider constrains the model against, and it is the only
+    structured-output wire that exists at all on Z.AI GLM, DeepSeek, Cohere,
+    MiniMax and Ollama Cloud. *)
 
 open Result_syntax
 open Types
@@ -132,40 +140,162 @@ let sdk_error_of_http_error =
     ~accept_rejected:(Config_invalid_config { field = "output_schema" })
 ;;
 
-let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
-  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  let* provider_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
-  Ok
-    { provider_cfg with
-      Llm_provider.Provider_config.tool_choice = None
-    ; response_format = Types.JsonSchema (schema_to_json_schema schema)
-    ; output_schema = Some (schema_to_json_schema schema)
-    }
+let text_message role text =
+  { role; content = [ Text text ]; name = None; tool_call_id = None; metadata = [] }
 ;;
 
-(** Extract structured output from a prompt using provider-native JSON
-    schema output when available. Unsupported providers fail fast. *)
+(* Only emitted on the [Model_choice] tool path, where nothing in the request
+   compels the call. A provider that honors [tool_choice] needs no prose. *)
+let single_tool_instruction (schema : _ schema) =
+  Printf.sprintf
+    "Call the %s tool exactly once with the answer. Do not reply in prose."
+    schema.name
+;;
+
+(* The [<schema>...</schema>] delimiter is Nous Research's published JSON-mode
+   convention, carried verbatim in the Hermes model cards and their reference
+   jsonmode script, which makes it the most widely trained-on framing for this
+   request. Naming JSON explicitly also satisfies providers whose JSON mode
+   documents a prompt requirement — DeepSeek's json_object mode rejects a
+   request that never mentions it. *)
+let prompt_schema_instruction (schema : _ schema) =
+  Printf.sprintf
+    "Respond with a single JSON object and nothing else. It must validate against this \
+     JSON Schema:\n\
+     <schema>\n\
+     %s\n\
+     </schema>"
+    (Yojson.Safe.pretty_to_string (schema_to_json_schema schema))
+;;
+
+(** A structured-output request as the selected strategy shapes it: the
+    provider config, the tools the request carries, and the messages. All
+    three differ per strategy, so they are decided together rather than
+    patched independently at three call sites. *)
+type prepared_request =
+  { provider_cfg : Llm_provider.Provider_config.t
+  ; tools : Yojson.Safe.t list
+  ; messages : message list
+  ; strategy : Llm_provider.Structured_output_strategy.t
+  }
+
+let strategy_for_config provider_cfg =
+  let capabilities =
+    match Llm_provider.Provider_config.capabilities_for_config_model provider_cfg with
+    | Some caps -> caps
+    | None -> Llm_provider.Capabilities.default_capabilities
+  in
+  Llm_provider.Structured_output_strategy.select ~capabilities
+;;
+
+let prepare_request ~base_url ?provider ~config ~(schema : _ schema) ~prompt () =
+  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
+  let* base_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+  let* strategy =
+    strategy_for_config base_cfg
+    |> Result.map_error (fun reason ->
+      Error.Config
+        (InvalidConfig
+           { field = "output_schema"
+           ; detail =
+               Printf.sprintf
+                 "model %s: %s"
+                 base_cfg.model_id
+                 (Llm_provider.Structured_output_strategy.unsupported_to_string reason)
+           }))
+  in
+  let open Llm_provider.Structured_output_strategy in
+  let user = text_message User prompt in
+  match strategy with
+  | Native_json_schema ->
+    Ok
+      { provider_cfg =
+          { base_cfg with
+            Llm_provider.Provider_config.tool_choice = None
+          ; response_format = Types.JsonSchema (schema_to_json_schema schema)
+          ; output_schema = Some (schema_to_json_schema schema)
+          }
+      ; tools = []
+      ; messages = [ user ]
+      ; strategy
+      }
+  | Tool_call selection ->
+    (* No [output_schema] and no [response_format]: this request never asks
+       for native schema output, so the provider gates that reject it (Glm's
+       hard reject, the per-model capability check) are not reached. The
+       schema travels as the single tool's input_schema instead. *)
+    let tool_choice =
+      match selection with
+      | Forced_named -> Some (Types.Tool schema.name)
+      | Forced_any | Model_choice -> tool_choice_of_selection selection
+    in
+    let messages =
+      match selection with
+      | Model_choice -> [ text_message System (single_tool_instruction schema); user ]
+      | Forced_named | Forced_any -> [ user ]
+    in
+    Ok
+      { provider_cfg =
+          { base_cfg with
+            Llm_provider.Provider_config.tool_choice
+          ; response_format = Types.Off
+          ; output_schema = None
+          }
+      ; tools = [ schema_to_tool_json schema ]
+      ; messages
+      ; strategy
+      }
+  | Json_mode_with_prompt_schema ->
+    Ok
+      { provider_cfg =
+          { base_cfg with
+            Llm_provider.Provider_config.tool_choice = None
+          ; response_format = Types.JsonMode
+          ; output_schema = None
+          }
+      ; tools = []
+      ; messages = [ text_message System (prompt_schema_instruction schema); user ]
+      ; strategy
+      }
+;;
+
+(* Where the structured value lives depends on the strategy, because the
+   strategies put it in different channels. Reading the tool arguments on a
+   tool-call request is the whole point of that strategy; reading response
+   text there instead would silently accept a turn in which the constraint
+   never applied. *)
+let extract_by_strategy ~strategy ~(schema : 'a schema) (response : api_response) =
+  match (strategy : Llm_provider.Structured_output_strategy.t) with
+  | Native_json_schema | Json_mode_with_prompt_schema ->
+    extract_text_json ~schema response
+  | Tool_call _ -> extract_tool_input ~schema response.content
+;;
+
+(** Extract structured output from a prompt.
+
+    The wire is chosen from the resolved model's declared capabilities by
+    {!Llm_provider.Structured_output_strategy.select}: native schema output
+    where the provider has it, otherwise the schema carried as a single tool,
+    otherwise JSON mode with the schema in the prompt. A model that declares
+    none of the three fails before the request is sent. *)
 let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   : ('a, Error.sdk_error) result
   =
   let base_url =
     Option.value ~default:Llm_provider.Api_common.default_base_url base_url
   in
-  let messages =
-    [ { role = User
-      ; content = [ Text prompt ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* prepared = prepare_request ~base_url ?provider ~config ~schema ~prompt () in
   let* response =
-    Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
+    Llm_provider.Complete.complete
+      ~sw
+      ~net
+      ~config:prepared.provider_cfg
+      ~messages:prepared.messages
+      ~tools:prepared.tools
+      ()
     |> Result.map_error sdk_error_of_http_error
   in
-  extract_text_json ~schema response
+  extract_by_strategy ~strategy:prepared.strategy ~schema response
 ;;
 
 (* ── Extractors ────────────────────────────────────────────────── *)
@@ -245,29 +375,20 @@ let extract_stream
   let base_url =
     Option.value ~default:Llm_provider.Api_common.default_base_url base_url
   in
-  let messages =
-    [ { role = User
-      ; content = [ Text prompt ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* prepared = prepare_request ~base_url ?provider ~config ~schema ~prompt () in
   let* response =
     Llm_provider.Complete.complete_stream
       ~sw
       ~net
       ?clock
-      ~config:provider_cfg
-      ~messages
-      ~tools:[]
+      ~config:prepared.provider_cfg
+      ~messages:prepared.messages
+      ~tools:prepared.tools
       ~on_event
       ()
     |> Result.map_error sdk_error_of_http_error
   in
-  let* value = extract_text_json ~schema response in
+  let* value = extract_by_strategy ~strategy:prepared.strategy ~schema response in
   Ok (value, response)
 ;;
 

@@ -315,6 +315,14 @@ supports_reasoning_budget = false
 accepted_reasoning_efforts = ["high", "max"]
 thinking_control_format = "thinking_object"
 supports_response_format_json = true
+# DeepSeek has no native json_schema response_format: the documented
+# response_format.type enum is [text, json_object] only
+# (api-docs.deepseek.com/api/create-chat-completion, checked 2026-07-22).
+# Schema-constrained output is reachable through tools[].function.strict
+# on the beta host, which the tool strategy uses. The openai_chat base
+# preset declares native support, so this row must override it or OAS
+# sends a field the API rejects.
+supports_structured_output = false
 supports_native_streaming = true
 supports_caching = true
 supports_prompt_caching = false
@@ -339,6 +347,14 @@ supports_reasoning_budget = false
 accepted_reasoning_efforts = ["high", "max"]
 thinking_control_format = "thinking_object"
 supports_response_format_json = true
+# DeepSeek has no native json_schema response_format: the documented
+# response_format.type enum is [text, json_object] only
+# (api-docs.deepseek.com/api/create-chat-completion, checked 2026-07-22).
+# Schema-constrained output is reachable through tools[].function.strict
+# on the beta host, which the tool strategy uses. The openai_chat base
+# preset declares native support, so this row must override it or OAS
+# sends a field the API rejects.
+supports_structured_output = false
 supports_native_streaming = true
 supports_caching = true
 supports_prompt_caching = false
@@ -363,6 +379,14 @@ supports_reasoning_budget = false
 accepted_reasoning_efforts = ["high", "max"]
 thinking_control_format = "thinking_object"
 supports_response_format_json = true
+# DeepSeek has no native json_schema response_format: the documented
+# response_format.type enum is [text, json_object] only
+# (api-docs.deepseek.com/api/create-chat-completion, checked 2026-07-22).
+# Schema-constrained output is reachable through tools[].function.strict
+# on the beta host, which the tool strategy uses. The openai_chat base
+# preset declares native support, so this row must override it or OAS
+# sends a field the API rejects.
+supports_structured_output = false
 supports_native_streaming = true
 supports_caching = true
 supports_prompt_caching = false
@@ -387,6 +411,14 @@ supports_reasoning_budget = false
 accepted_reasoning_efforts = ["high", "max"]
 thinking_control_format = "thinking_object"
 supports_response_format_json = true
+# DeepSeek has no native json_schema response_format: the documented
+# response_format.type enum is [text, json_object] only
+# (api-docs.deepseek.com/api/create-chat-completion, checked 2026-07-22).
+# Schema-constrained output is reachable through tools[].function.strict
+# on the beta host, which the tool strategy uses. The openai_chat base
+# preset declares native support, so this row must override it or OAS
+# sends a field the API rejects.
+supports_structured_output = false
 supports_native_streaming = true
 supports_caching = true
 supports_prompt_caching = false
