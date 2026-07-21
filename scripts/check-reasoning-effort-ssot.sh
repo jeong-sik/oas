@@ -15,7 +15,8 @@ from pathlib import Path
 repo = Path(sys.argv[1])
 
 TARGETS = [
-    "lib/api_openai.ml",
+    # lib/api_openai.ml was retired with the legacy dispatch island (2026-07-21);
+    # its reasoning-effort mapping lives on in backend_openai_request.ml below.
     "lib/llm_provider/backend_anthropic.ml",
     "lib/llm_provider/backend_gemini.ml",
     "lib/llm_provider/backend_openai_request.ml",
