@@ -196,8 +196,8 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 |---|---|---|
 | S0 | OpenAI strict 투영 (`Json_schema_strict`) | — · **PR #2745 에 landed** |
 | S1 | `#2746` provider entry `vendor_model_ids` 선언 | — · **PR #2745 에 landed** |
-| S2 | `structured_output_strategy.ml` + `select` + 단위 테스트 (네트워크 없음) | — |
-| S3 | `Tool_call` 전략 배선: `extract` 가 스키마를 툴로 싣고 `extract_tool_input` 을 되살린다 | S2 |
+| S2 | `structured_output_strategy.ml` + `select` + 단위 테스트 (네트워크 없음) | — · **PR #2745 에 landed** |
+| S3 | `Tool_call` 전략 배선: `extract` 가 스키마를 툴로 싣고 `extract_tool_input` 을 되살린다 | S2 · **PR #2745 에 landed** |
 | S4 | receipt + 3분법 추출 결과 (#2751) | S2, S3 |
 | S5 | `policy` 노출, 기본값을 `Best_available` 로 | S3, S4 |
 | S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — |
@@ -211,6 +211,12 @@ S0+S1 이 실제로 그 기준을 통과했다 — `tool_param list` 로 만든 
 [ollama-local] conformed: city=Seoul population_millions=9.7
 [SKIP] anthropic — credential rejected by the provider
 ```
+
+S3 도 같은 기준을 통과했다 — 로컬 `glm-4.7-flash` 는 `base = "glm"` 을 상속해 native 스키마 필드도 named tool_choice 도 없으므로 `Tool_call Model_choice` 로 라우팅되고, 그 wire 로 타입화된 값을 돌려줬다. GLM·Cohere 가 받는 것과 같은 wire 다.
+
+S3 구현 중 라우팅 테스트가 실제 오선언을 잡았다: DeepSeek 4개 행이 `base = "openai_chat"` 을 상속해 native structured output 을 주장하고 있었고, 그대로면 documented enum 이 `[text, json_object]` 인 API 에 `json_schema` 를 보냈을 것이다. 행을 정정하고 tool 경로로 라우팅했다. §5 의 DashScope 항목도 같은 계열의 위험이며 아직 미해결이다.
+
+또 하나 기록해 둘 것: 하네스가 값(value)에 대해 단언하면 안 된다. `population > 0` 을 요구하니 모델 품질의 flaky 판정자가 됐다. Gemini 문서가 긋는 선이 그것이다 — *"structured output guarantees syntactically correct JSON, it does not guarantee the values are semantically correct."* conformance 는 "요청한 형태로 파싱됐다" 이며, 타입화된 파서가 이미 그것을 강제한다.
 
 S1 의 선택지는 두 가지였고 이슈 #2746 에 기록되어 있다. 채택하지 않은 쪽(gpt 모델마다 provider-scoped 행 추가)이 나쁜 이유는 provider-scoped 조회가 `id_prefix` **정확 일치**인 반면 bare row 는 prefix 매칭이라, dated snapshot 마다 행이 필요하고 카탈로그가 provider 릴리즈마다 뒤처지기 때문이다.
 
