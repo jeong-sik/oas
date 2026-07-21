@@ -127,14 +127,24 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
   parse_schema_text_json schema json
 ;;
 
+type extraction_strategy =
+  | Auto
+  | Native_schema
+  | Tool_wrapper
+  | Prompt_guided
+
 let sdk_error_of_http_error =
   Http_error_sdk.of_http_error
     ~accept_rejected:(Config_invalid_config { field = "output_schema" })
 ;;
 
-let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
+let resolve_provider_config ~base_url ?provider ~config () =
   let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  let* provider_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+  Provider.provider_config_of_agent ~state ~base_url provider
+;;
+
+let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
+  let* provider_cfg = resolve_provider_config ~base_url ?provider ~config () in
   Ok
     { provider_cfg with
       Llm_provider.Provider_config.tool_choice = None
@@ -143,13 +153,14 @@ let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) 
     }
 ;;
 
-(** Extract structured output from a prompt using provider-native JSON
-    schema output when available. Unsupported providers fail fast. *)
-let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
-  : ('a, Error.sdk_error) result
-  =
-  let base_url =
-    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
+let extract_native ~sw ~net ~base_url ?provider ~config ~(schema : 'a schema) prompt =
+  let* base_cfg = resolve_provider_config ~base_url ?provider ~config () in
+  let provider_cfg =
+    { base_cfg with
+      Llm_provider.Provider_config.tool_choice = None
+    ; response_format = Types.JsonSchema (schema_to_json_schema schema)
+    ; output_schema = Some (schema_to_json_schema schema)
+    }
   in
   let messages =
     [ { role = User
@@ -160,12 +171,128 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
       }
     ]
   in
-  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
   let* response =
     Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
     |> Result.map_error sdk_error_of_http_error
   in
   extract_text_json ~schema response
+;;
+
+let extract_tool_wrapper ~sw ~net ~base_url ?provider ~config ~(schema : 'a schema) prompt =
+  let* base_cfg = resolve_provider_config ~base_url ?provider ~config () in
+  let caps =
+    Llm_provider.Provider_config.capabilities_for_config_model base_cfg
+    |> Option.value ~default:Llm_provider.Capabilities.default_capabilities
+  in
+  let tool_json = schema_to_tool_json schema in
+  let tool_choice =
+    if caps.supports_tool_choice
+    then Some (Types.Tool schema.name)
+    else None
+  in
+  let provider_cfg =
+    { base_cfg with
+      Llm_provider.Provider_config.tool_choice
+    ; response_format = Types.Off
+    ; output_schema = None
+    }
+  in
+  let prompt_text =
+    if Option.is_none tool_choice
+    then prompt ^ "\n\nPlease use the '" ^ schema.name ^ "' tool to output the structured response."
+    else prompt
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text prompt_text ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let* response =
+    Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[ tool_json ] ()
+    |> Result.map_error sdk_error_of_http_error
+  in
+  match extract_tool_input ~schema response.content with
+  | Ok v -> Ok v
+  | Error _ -> extract_text_json ~schema response
+;;
+
+let extract_prompt_guided ~sw ~net ~base_url ?provider ~config ~(schema : 'a schema) prompt =
+  let* base_cfg = resolve_provider_config ~base_url ?provider ~config () in
+  let caps =
+    Llm_provider.Provider_config.capabilities_for_config_model base_cfg
+    |> Option.value ~default:Llm_provider.Capabilities.default_capabilities
+  in
+  let response_format =
+    if caps.supports_response_format_json then Types.JsonMode else Types.Off
+  in
+  let provider_cfg =
+    { base_cfg with
+      Llm_provider.Provider_config.tool_choice = None
+    ; response_format
+    ; output_schema = None
+    }
+  in
+  let schema_json_str = Yojson.Safe.to_string (schema_to_json_schema schema) in
+  let prompt_text =
+    prompt
+    ^ "\n\nRespond ONLY with a JSON object matching this JSON Schema:\n"
+    ^ schema_json_str
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text prompt_text ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let* response =
+    Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
+    |> Result.map_error sdk_error_of_http_error
+  in
+  extract_text_json ~schema response
+;;
+
+let extract_with_strategy
+    ~sw
+    ~net
+    ?base_url
+    ?provider
+    ?(strategy = Auto)
+    ~config
+    ~(schema : 'a schema)
+    prompt
+  : ('a, Error.sdk_error) result
+  =
+  let base_url =
+    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
+  in
+  let* base_cfg = resolve_provider_config ~base_url ?provider ~config () in
+  let try_tool_then_prompt () =
+    match extract_tool_wrapper ~sw ~net ~base_url ?provider ~config ~schema prompt with
+    | Ok v -> Ok v
+    | Error _ -> extract_prompt_guided ~sw ~net ~base_url ?provider ~config ~schema prompt
+  in
+  match strategy with
+  | Native_schema -> extract_native ~sw ~net ~base_url ?provider ~config ~schema prompt
+  | Tool_wrapper -> extract_tool_wrapper ~sw ~net ~base_url ?provider ~config ~schema prompt
+  | Prompt_guided -> extract_prompt_guided ~sw ~net ~base_url ?provider ~config ~schema prompt
+  | Auto ->
+    (match Llm_provider.Provider_config.validate_output_schema_request base_cfg with
+     | Ok () ->
+       (match extract_native ~sw ~net ~base_url ?provider ~config ~schema prompt with
+        | Ok v -> Ok v
+        | Error _ -> try_tool_then_prompt ())
+     | Error _ -> try_tool_then_prompt ())
+;;
+
+let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt =
+  extract_with_strategy ~sw ~net ?base_url ?provider ~strategy:Auto ~config ~schema prompt
 ;;
 
 (* ── Extractors ────────────────────────────────────────────────── *)

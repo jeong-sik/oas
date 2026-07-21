@@ -513,6 +513,17 @@ let test_schema_extractor_parser_json_error () =
 
 (* --- Runner --- *)
 
+let test_extraction_strategy_variants () =
+  let s1 = Structured.Auto in
+  let s2 = Structured.Native_schema in
+  let s3 = Structured.Tool_wrapper in
+  let s4 = Structured.Prompt_guided in
+  Alcotest.(check bool) "auto" true (s1 = Structured.Auto);
+  Alcotest.(check bool) "native" true (s2 = Structured.Native_schema);
+  Alcotest.(check bool) "tool" true (s3 = Structured.Tool_wrapper);
+  Alcotest.(check bool) "prompt" true (s4 = Structured.Prompt_guided)
+;;
+
 let () =
   Alcotest.run
     "structured"
@@ -590,6 +601,10 @@ let () =
             "schema_extractor parser json error"
             `Quick
             test_schema_extractor_parser_json_error
+        ; Alcotest.test_case
+            "extraction_strategy variants"
+            `Quick
+            test_extraction_strategy_variants
         ] )
     ]
 ;;

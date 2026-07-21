@@ -33,13 +33,31 @@ val extract_tool_input
 
 (** {1 Direct extraction} *)
 
-(** Uses provider-native JSON schema output when the resolved provider kind
-    is wired for it. Unsupported providers fail fast. *)
+type extraction_strategy =
+  | Auto
+  | Native_schema
+  | Tool_wrapper
+  | Prompt_guided
+
+(** Uses provider-native JSON schema output when supported, with automatic
+    fallback cascade (synthetic tool wrapper -> prompt-guided extraction)
+    so unsupported providers never fail fast. *)
 val extract
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?base_url:string
   -> ?provider:Provider.config
+  -> config:agent_config
+  -> schema:'a schema
+  -> string
+  -> ('a, Error.sdk_error) result
+
+val extract_with_strategy
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> ?strategy:extraction_strategy
   -> config:agent_config
   -> schema:'a schema
   -> string
