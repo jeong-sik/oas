@@ -198,10 +198,20 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 | S1 | `#2746` provider entry `vendor_model_ids` 선언 | — · **PR #2745 에 landed** |
 | S2 | `structured_output_strategy.ml` + `select` + 단위 테스트 (네트워크 없음) | — · **PR #2745 에 landed** |
 | S3 | `Tool_call` 전략 배선: `extract` 가 스키마를 툴로 싣고 `extract_tool_input` 을 되살린다 | S2 · **PR #2745 에 landed** |
-| S4 | receipt + 3분법 추출 결과 (#2751) | S2, S3 |
+| S4 | 타입화된 추출 실패 (#2751) | S2, S3 · **PR #2745 에 landed** (receipt 는 잔여) |
 | S5 | `policy` 노출, 기본값을 `Best_available` 로 | S3, S4 |
 | S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — · **DeepSeek·DashScope 는 PR #2745 에 landed**; Gemini(#2747) / Cohere·Mistral·Kimi(#2752) 잔여 |
-| S7 | 에이전트 루프의 종단 단계 (#2756) | S4 |
+| S7 | 에이전트 루프의 종단 단계 (#2756) | S4 · **PR #2745 에 landed** |
+
+S7 도 라이브로 증명됐다 — 실제 툴을 가진 에이전트가 native 스키마 필드가 없는 provider(로컬 `glm-4.7-flash`)에서 툴 루프를 돌고 종단 턴에서 타입화된 값을 돌려줬다:
+
+```
+[agent-loop-terminal] conformed   (툴 루프 + 종단 턴)
+[ollama-local]        conformed
+[openai]              conformed
+```
+
+S4 는 타입화된 실패 합타입(`extraction_failure`)까지 landed 했다. §2.3 의 receipt 는 아직 남아 있다 — 어떤 전략이 실제로 돌았는지를 응답에 실어 §2.2 의 policy 를 검증 가능하게 만드는 부분이다.
 
 ### S7 — 왜 별도 슬라이스인가
 
