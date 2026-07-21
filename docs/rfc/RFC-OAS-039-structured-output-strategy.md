@@ -7,7 +7,7 @@
 | Created | 2026-07-22 |
 | Target | `agent_sdk` (oas) — `lib/structured.ml`, `lib/llm_provider/{provider_config,capabilities,backend_*}.ml` |
 | Supplements | RFC-OAS-023 (capability axis = model × transport), RFC-OAS-034 (capability provenance = 선언) |
-| Related issues | #2746 (OpenAI provider identity 부재), #2747 (Gemini wire drift), #2748 (dead override), #2751 (추출 경계), #2752 (Cohere/Mistral/Kimi 선언 드리프트), #1925 (Kimi 게이트 모순), #2255 (GLM forced tool_choice) |
+| Related issues | #2746 (OpenAI provider identity 부재), #2747 (Gemini wire drift), #2748 (dead override), #2751 (추출 경계), #2752 (Cohere/Mistral/Kimi 선언 드리프트), #2756 (에이전트 루프 종단 단계), #1925 (Kimi 게이트 모순), #2255 (GLM forced tool_choice) |
 | Related PR | #2745 (OpenAI strict 투영 — 본 RFC 의 전제 조건) |
 
 ## 0. Summary
@@ -201,6 +201,15 @@ Provider 별 실측·문서 확인 결과 reasoning 은 답변 채널을 오염�
 | S4 | receipt + 3분법 추출 결과 (#2751) | S2, S3 |
 | S5 | `policy` 노출, 기본값을 `Best_available` 로 | S3, S4 |
 | S6 | provider 선언 정정 (#2747, #2752) + `docs/provider-capabilities-spec.md` 날짜 갱신 | — · **DeepSeek·DashScope 는 PR #2745 에 landed**; Gemini(#2747) / Cohere·Mistral·Kimi(#2752) 잔여 |
+| S7 | 에이전트 루프의 종단 단계 (#2756) | S4 |
+
+### S7 — 왜 별도 슬라이스인가
+
+S2/S3 은 `extract` / `extract_stream` 에만 배선된다. 둘 다 툴 없는 one-shot 이라 요청을 통째로 소유하므로 스키마를 유일한 툴로 실을 수 있다. `run_structured` 는 그럴 수 없다 — 에이전트가 이미 자기 툴셋을 싣고 있어 스키마 툴을 추가하면 (a) `Tool_call Model_choice` 가 전제하는 "툴은 하나" 가 깨지고 (b) 모델이 루프 중간에 그 툴을 불러 루프를 조기 종료시킬 수 있다.
+
+`Native_json_schema` 에는 이 문제가 없다. 제약을 루프 전 구간에 걸어두어도 툴을 부르는 턴은 자연히 텍스트를 내지 않고, 제약은 툴 결과 이후 턴에 걸린다(§1.3 실측, Anthropic 문서 보증). **툴 전략에는 그 성질이 없다** — 그래서 §1.3 항목 4 의 종단 단계가 필요하다: 루프가 툴 호출을 멈춘 뒤 스키마 요청 턴을 한 번 더 돌리고, 그 턴에만 스키마 툴(또는 json-mode 지시문)을 싣는다. 추가 턴은 토큰 예산과 턴 카운트에 명시적으로 잡힌다.
+
+S4 가 선행이다. 종단 턴이 텍스트를 내지 않았을 때 "툴콜 턴이라 정상" 과 "모델이 스키마 요청을 무시함" 을 구분해야 하는데, 현재는 두 경우가 같은 문자열 에러다.
 
 각 슬라이스는 `test_structured_output_conformance.ml` (PR #2745) 에 해당 provider 케이스를 추가해 **실제 wire 로 증명한다**. capability 플래그를 바꾸는 것만으로는 이 RFC 의 어떤 주장도 증명되지 않는다.
 
