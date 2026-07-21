@@ -441,6 +441,27 @@ module Reasoning_source = struct
     && Reasoning_replay_contract.equal left.replay_contract right.replay_contract
   ;;
 
+  (* Everything except the concrete endpoint: same provider kind, same
+     canonical request model, same typed replay contract. This is the widest
+     difference a self-contained reasoning text can survive, because none of
+     those three dimensions changed — only the base URL / request path the
+     bytes travelled over. *)
+  let same_contract_and_model stored target =
+    stored.provider_kind = target.provider_kind
+    && String.equal stored.canonical_model_id target.canonical_model_id
+    && Reasoning_replay_contract.equal stored.replay_contract target.replay_contract
+  ;;
+
+  let rotation_admits
+        ~(rotation_policy : Reasoning_replay_contract.rotation_policy)
+        ~stored
+        ~target
+    =
+    match rotation_policy with
+    | Require_identical_source -> equal stored target
+    | Allow_endpoint_rotation -> same_contract_and_model stored target
+  ;;
+
   let to_json source =
     let (Provider_instance_id provider_instance_id) = source.provider_instance in
     `Assoc

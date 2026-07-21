@@ -512,10 +512,7 @@ let openai_assistant_has_wire_payload (dialect : Reasoning_dialect.t) content =
   || (include_reasoning_details && reasoning_details <> None)
 ;;
 
-let typed_history_projection ~reasoning_target dialect messages =
-  let replay_policy =
-    (Reasoning_dialect.replay_contract dialect).Reasoning_replay_contract.replay_policy
-  in
+let typed_history_projection ~replay_capability dialect messages =
   Reasoning_history_projection.project
     ~assistant_has_payload:(openai_assistant_has_wire_payload dialect)
     ~reasoning_block_supported:(function
@@ -527,8 +524,7 @@ let typed_history_projection ~reasoning_target dialect messages =
       | Image _
       | Document _
       | Audio _ -> false)
-    ~reasoning_target
-    ~replay_policy
+    ~replay_capability
     messages
 ;;
 
@@ -570,11 +566,11 @@ let render_history_projection
 
 let dialect_history_projection
       ?assistant_tool_content_format
-      ~reasoning_target
+      ~replay_capability
       dialect
       messages
   =
-  match typed_history_projection ~reasoning_target dialect messages with
+  match typed_history_projection ~replay_capability dialect messages with
   | Error _ as error -> error
   | Ok projection ->
     Ok (render_history_projection ?assistant_tool_content_format dialect projection)
@@ -582,11 +578,11 @@ let dialect_history_projection
 
 let dialect_messages_of_history
       ?assistant_tool_content_format
-      ~reasoning_target
+      ~replay_capability
       dialect
       messages
   =
-  match typed_history_projection ~reasoning_target dialect messages with
+  match typed_history_projection ~replay_capability dialect messages with
   | Error _ as error -> error
   | Ok projection ->
     Reasoning_history_projection.observe ~component:"backend_openai" projection;

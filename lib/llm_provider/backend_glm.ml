@@ -408,12 +408,13 @@ let%test
     "build_request replays reasoning via typed dialect, not serialize-time branch \
      (RFC-OAS-029 S3.1)"
   =
-  (* The reasoning-replay decision now flows from the typed
+  (* The reasoning-replay decision flows from the typed
      [Reasoning_dialect.replay_policy] resolved once in [for_provider_config],
-     not from a serialize-time [config.kind = Glm]/[glm_should_replay_reasoning]
-     branch in the request builder. A GLM config under Preserved Thinking
-     (enable_thinking + clear_thinking=false) must echo a prior assistant
-     [Thinking] block back as [reasoning_content]; the default config
+     where the branch predicate is the declared
+     [preserve_thinking_control_format], not a provider identity or a
+     serialize-time branch in the request builder. A config under Preserved
+     Thinking (enable_thinking + clear_thinking=false) must echo a prior
+     assistant [Thinking] block back as [reasoning_content]; the default config
      (clear_thinking=true) must not. Reverting the dialect resolution leaves the
      GLM dialect at the dead [No_replay] default and turns the [preserved] case
      red. *)

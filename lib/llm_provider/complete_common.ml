@@ -488,14 +488,17 @@ let thinking_control_request_rejection
       | Provider_config.Gemini
       | Provider_config.Glm
       | Provider_config.DashScope ->
-        let glm_special_case =
-          (* backend_openai_request encodes thinking for typed GLM configs even
-             under [No_thinking_control]. *)
-          Provider_config.is_zai_glm_config config
+        let preserve_wire_encodes_toggle =
+          (* backend_openai_request still encodes an explicit thinking toggle
+             for rows whose preserve wire is a provider [thinking] object, even
+             under [No_thinking_control]. Read from the typed capability, not
+             from a provider identity (RFC-OAS-029 S1.1). *)
+          Capability_vocab.preserve_wire_owns_thinking_object
+            caps.preserve_thinking_control_format
         in
         caps.supports_reasoning
         && caps.thinking_control_format = Capabilities.No_thinking_control
-        && not glm_special_case
+        && not preserve_wire_encodes_toggle
     in
     if disable_not_encodable then Some Disable_not_encodable else None
 ;;
