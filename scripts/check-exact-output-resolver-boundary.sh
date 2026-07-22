@@ -152,6 +152,9 @@ extract_named_functions() {
       }
       capture = 0
     }
+    /^let%[[:alnum:]_]+[[:space:]]/ {
+      capture = 0
+    }
     /^let[[:space:]]/ {
       declaration = $0
       sub(/^let[[:space:]]+(rec[[:space:]]+)?/, "", declaration)
