@@ -286,6 +286,48 @@ let test_tier_table_and_provider_schema_rejection () =
   | Ok _ | Error _ -> fail "JSON syntax must fail when target declares no JSON tier"
 ;;
 
+let test_deepseek_catalog_is_json_only_before_dispatch () =
+  let target_id = "deepseek-json-only-surface" in
+  let overlay : EO.catalog_overlay =
+    { source = "DeepSeek exact-output capability fixture"
+    ; contents =
+        Printf.sprintf
+          "[[targets]]\n\
+           id = %S\n\
+           provider_ref = \"deepseek\"\n\
+           model_id = \"deepseek-v4-pro\"\n"
+          target_id
+    }
+  in
+  let getenv name =
+    Ok
+      (if String.equal name "DEEPSEEK_API_KEY" then Some "deepseek-fixture-key" else None)
+  in
+  let io : EO.resolver_io = { getenv } in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error _ -> fail "DeepSeek exact-output target should resolve"
+  | Ok snapshot ->
+    let selected = target snapshot target_id in
+    (match
+       EO.admit ~target:selected ~messages:[ msg "json" ] (requirement EO.Json_syntax)
+     with
+     | Ok ready ->
+       check
+         bool
+         "DeepSeek JSON mode remains syntax-only"
+         true
+         ((EO.plan_provenance ready).actual_assurance = EO.Json_syntax_only)
+     | Error _ -> fail "DeepSeek JSON syntax requirement should admit");
+    (match
+       EO.admit
+         ~target:selected
+         ~messages:[ msg "schema" ]
+         (requirement EO.Provider_schema)
+     with
+     | Error EO.Provider_schema_unavailable -> ()
+     | Ok _ | Error _ -> fail "DeepSeek provider schema must reject before dispatch")
+;;
+
 let test_wire_envelope_and_cross_feature_injection_rejected () =
   let smuggled =
     `Assoc [ "name", `String "attacker"; "schema", schema; "strict", `Bool false ]
@@ -1275,6 +1317,10 @@ let () =
             "capability tier table"
             `Quick
             test_tier_table_and_provider_schema_rejection
+        ; test_case
+            "DeepSeek catalog is JSON-only before dispatch"
+            `Quick
+            test_deepseek_catalog_is_json_only_before_dispatch
         ; test_case
             "injection rejected"
             `Quick
