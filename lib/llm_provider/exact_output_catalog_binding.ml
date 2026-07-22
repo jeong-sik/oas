@@ -226,6 +226,12 @@ let anthropic_thinking_control_string = function
   | Some Caps.Anthropic_always_adaptive -> "always_adaptive"
 ;;
 
+let target_model_admitted (caps : Caps.capabilities) ~model_id =
+  match caps.supported_models with
+  | None -> true
+  | Some models -> List.exists (String.equal model_id) models
+;;
+
 let supported_models_string = function
   | None -> "none"
   | Some models -> "some:" ^ String.concat "," (List.sort_uniq String.compare models)

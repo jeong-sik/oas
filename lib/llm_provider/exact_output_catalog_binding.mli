@@ -32,6 +32,8 @@ val anthropic_thinking_control_string
   :  Capabilities.anthropic_thinking_control option
   -> string
 
+val target_model_admitted : Capabilities.capabilities -> model_id:string -> bool
+
 val catalog_anthropic_thinking_control
   :  Capability_vocab.anthropic_thinking_control option
   -> Capabilities.anthropic_thinking_control option

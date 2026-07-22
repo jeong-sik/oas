@@ -160,9 +160,7 @@ let selected_target_catalog_generation (target : selected_target) = target.gener
 let selected_target_catalog_evidence (target : selected_target) = target.evidence
 
 let selected_target_model_admitted (target : selected_target) =
-  match target.capabilities.supported_models with
-  | None -> true
-  | Some models -> List.exists (String.equal target.config.model_id) models
+  Binding.target_model_admitted target.capabilities ~model_id:target.config.model_id
 ;;
 
 let has_control value =
