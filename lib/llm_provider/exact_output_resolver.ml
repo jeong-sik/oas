@@ -19,10 +19,16 @@ type target_identity =
 
 type resolver_io = { getenv : string -> (string option, unit) result }
 
-type catalog_overlay =
+type catalog_document =
   { source : string
   ; contents : string
   }
+
+type resolver_catalog_input =
+  | Embedded_default
+  | Embedded_with_overlay of catalog_document
+  | Full_replacement of catalog_document
+  | Full_replacement_file of string
 
 type target_ref_error =
   | Empty_target_ref
@@ -30,6 +36,7 @@ type target_ref_error =
 
 type resolver_catalog_source =
   | Embedded_catalog
+  | Full_replacement_catalog
   | Overlay_catalog
 
 type resolver_collision =
@@ -54,6 +61,10 @@ type resolver_endpoint_error =
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
+  | Catalog_read_failed of
+      { path : string
+      ; detail : string
+      }
   | Catalog_parse_failed of
       { source : resolver_catalog_source
       ; detail : string
@@ -64,18 +75,14 @@ type resolver_snapshot_error =
       }
   | Catalog_collision of resolver_collision
   | Target_binding_missing of
-      { target_ref : target_ref
+      { target_ref : string
       ; component : resolver_binding_component
       }
   | Target_endpoint_invalid of
-      { target_ref : target_ref
+      { target_ref : string
       ; cause : resolver_endpoint_error
       }
   | Environment_read_failed of { environment_variable : string }
-  | Target_credential_invalid of
-      { target_ref : target_ref
-      ; environment_variable : string
-      }
 
 type target_declaration =
   { target_ref : target_ref
@@ -85,17 +92,30 @@ type target_declaration =
   ; body_timeout_s : float option
   }
 
+type credential_outcome =
+  | Credential_not_required
+  | Credential_available of Secret.t
+  | Credential_missing of string
+  | Credential_invalid of string
+  | Credential_read_failed of string
+
 type frozen_target =
   { config : PC.t
   ; capabilities : Caps.capabilities
   ; anthropic_thinking_control : Caps.anthropic_thinking_control option
   ; body_timeout_s : float option
-  ; missing_credential_env : string option
+  ; credential : credential_outcome
   ; identity : target_identity
   }
 
 type resolver_snapshot =
   { targets : frozen_target String_map.t
+  ; generation : catalog_generation
+  ; evidence : catalog_evidence
+  }
+
+type admitted_target =
+  { target : frozen_target
   ; generation : catalog_generation
   ; evidence : catalog_evidence
   }
@@ -111,11 +131,22 @@ type selected_target =
   }
 
 type target_selection_error =
-  | Unknown_target of string
   | Missing_target_credential of
       { target_ref : string
       ; environment_variable : string
       }
+  | Target_credential_invalid of
+      { target_ref : string
+      ; environment_variable : string
+      }
+  | Target_credential_read_failed of
+      { target_ref : string
+      ; environment_variable : string
+      }
+
+type target_catalog_admission_error =
+  | Target_ref_rejected of target_ref_error
+  | Target_not_in_catalog of string
 
 let ( let* ) = Result.bind
 let sha256 value = Digestif.SHA256.(to_hex (digest_string value))
@@ -153,7 +184,6 @@ let catalog_generation_fingerprint (Catalog_generation value) = value
 let catalog_evidence_sha256 (Catalog_evidence value) = value
 let resolver_catalog_generation (snapshot : resolver_snapshot) = snapshot.generation
 let resolver_catalog_evidence (snapshot : resolver_snapshot) = snapshot.evidence
-let target_identity_ref (identity : target_identity) = identity.target_ref
 let target_identity_fingerprint identity = identity.fingerprint
 let selected_target_identity (target : selected_target) = target.identity
 let selected_target_catalog_generation (target : selected_target) = target.generation
@@ -485,6 +515,7 @@ let%test "case-only target overlay shadow fails closed" =
 ;;
 
 let validate_base_url ~target_ref value =
+  let target_ref = target_ref_id target_ref in
   if has_control value
   then Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url })
   else if String.contains value '?'
@@ -525,6 +556,7 @@ let contains_encoded_control value =
 ;;
 
 let validate_request_path ~target_ref ~kind value =
+  let target_ref = target_ref_id target_ref in
   match kind with
   | PC.Gemini ->
     if value = ""
@@ -550,6 +582,7 @@ let validate_request_path ~target_ref ~kind value =
 ;;
 
 let validate_model_path ~target_ref kind model_id =
+  let target_ref = target_ref_id target_ref in
   match kind with
   | PC.Gemini
     when model_id = ""
@@ -671,40 +704,61 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
 
 let frozen_environment ~io names =
   String_set.fold
-    (fun name result ->
-       let* values = result in
-       match io.getenv name with
-       | Ok value -> Ok (String_map.add name value values)
-       | Error () -> Error (Environment_read_failed { environment_variable = name }))
+    (fun name values -> String_map.add name (io.getenv name) values)
     names
-    (Ok String_map.empty)
+    String_map.empty
 ;;
 
-let load_resolver_snapshot ~io ?overlay () =
+let read_full_replacement_file path =
+  let path = String.trim path in
+  if String.equal path ""
+  then Error (Catalog_read_failed { path; detail = "catalog path is empty" })
+  else (
+    try
+      Ok { source = path; contents = In_channel.with_open_bin path In_channel.input_all }
+    with
+    | exn ->
+      Reserved_exn.reraise_if_reserved exn;
+      Error (Catalog_read_failed { path; detail = Printexc.to_string exn }))
+;;
+
+let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
   let parse_model_catalog ~source ~parser_source contents =
     match Model_catalog.of_toml_string ~source:parser_source contents with
     | Ok catalog -> Ok catalog
     | Error detail -> Error (Catalog_parse_failed { source; detail })
   in
-  let embedded_contents = Model_catalog_embedded.contents in
-  let* embedded =
+  let embedded_document =
+    { source = "embedded exact-output catalog"
+    ; contents = Model_catalog_embedded.contents
+    }
+  in
+  let* base_source, base_document, overlay =
+    match catalog with
+    | Embedded_default -> Ok (Embedded_catalog, embedded_document, None)
+    | Embedded_with_overlay overlay ->
+      Ok (Embedded_catalog, embedded_document, Some overlay)
+    | Full_replacement document -> Ok (Full_replacement_catalog, document, None)
+    | Full_replacement_file path ->
+      let* document = read_full_replacement_file path in
+      Ok (Full_replacement_catalog, document, None)
+  in
+  let* base =
     parse_model_catalog
-      ~source:Embedded_catalog
-      ~parser_source:"embedded exact-output catalog"
-      embedded_contents
+      ~source:base_source
+      ~parser_source:base_document.source
+      base_document.contents
   in
-  let* embedded_targets =
-    parse_target_catalog ~source:Embedded_catalog embedded_contents
-  in
-  let* () = validate_catalog_source embedded embedded_targets in
+  let* base_targets = parse_target_catalog ~source:base_source base_document.contents in
+  let* () = validate_catalog_source base base_targets in
   let* catalog_models_and_targets =
     match overlay with
-    | None -> Ok (embedded, Model_catalog.model_entries embedded, embedded_targets)
+    | None -> Ok (base, Model_catalog.model_entries base, base_targets)
     | Some overlay ->
       let* overlay_catalog =
         parse_model_catalog
           ~source:Overlay_catalog
-          ~parser_source:"exact-output overlay"
+          ~parser_source:overlay.source
           overlay.contents
       in
       let* overlay_targets =
@@ -713,17 +767,17 @@ let load_resolver_snapshot ~io ?overlay () =
       let* () = validate_catalog_source overlay_catalog overlay_targets in
       let* () =
         validate_overlay_collisions
-          ~base:embedded
-          ~base_targets:embedded_targets
+          ~base
+          ~base_targets
           ~overlay:overlay_catalog
           ~overlay_targets
       in
       Ok
-        ( Model_catalog.merge ~base:embedded ~overlay:overlay_catalog
+        ( Model_catalog.merge ~base ~overlay:overlay_catalog
         , Binding.merge_exact_model_entries
-            ~base:(Model_catalog.model_entries embedded)
+            ~base:(Model_catalog.model_entries base)
             ~overlay:(Model_catalog.model_entries overlay_catalog)
-        , merge_target_declarations ~base:embedded_targets ~overlay:overlay_targets )
+        , merge_target_declarations ~base:base_targets ~overlay:overlay_targets )
   in
   let catalog, model_entries, target_declarations = catalog_models_and_targets in
   let* structural =
@@ -740,11 +794,13 @@ let load_resolver_snapshot ~io ?overlay () =
          | Error Binding.Provider_missing ->
            Error
              (Target_binding_missing
-                { target_ref = target.target_ref; component = Target_provider })
+                { target_ref = target_ref_id target.target_ref
+                ; component = Target_provider
+                })
          | Error Binding.Model_missing ->
            Error
              (Target_binding_missing
-                { target_ref = target.target_ref; component = Target_model })
+                { target_ref = target_ref_id target.target_ref; component = Target_model })
          | Ok (provider, model) -> Ok ((target, provider, model) :: bindings))
       (Ok [])
       target_declarations
@@ -764,11 +820,16 @@ let load_resolver_snapshot ~io ?overlay () =
       String_set.empty
       structural
   in
-  let* environment = frozen_environment ~io environment_names in
-  let getenv name =
+  let environment = frozen_environment ~io environment_names in
+  let observed_environment name =
     match String_map.find_opt name environment with
-    | Some value -> value
-    | None -> None
+    | Some observation -> observation
+    | None -> Ok None
+  in
+  let getenv name =
+    match observed_environment name with
+    | Ok value -> value
+    | Error () -> None
   in
   let* targets =
     List.fold_left
@@ -780,6 +841,15 @@ let load_resolver_snapshot ~io ?overlay () =
          let capabilities = Binding.capabilities_of_catalog_binding provider model in
          let anthropic_thinking_control =
            Binding.anthropic_thinking_control_of_model model
+         in
+         let* () =
+           match provider.base_url_env with
+           | Some name when name <> "" ->
+             (match observed_environment name with
+              | Ok _ -> Ok ()
+              | Error () ->
+                Error (Environment_read_failed { environment_variable = name }))
+           | Some _ | None -> Ok ()
          in
          let base_url = Model_provider_catalog.resolved_base_url ~getenv provider in
          let* () = validate_base_url ~target_ref:target.target_ref base_url in
@@ -839,35 +909,29 @@ let load_resolver_snapshot ~io ?overlay () =
            ; fingerprint = identity_fingerprint
            }
          in
-         let* credential, missing_credential_env =
+         let credential =
            if provider.api_key_env = ""
-           then Ok (None, None)
+           then Credential_not_required
            else (
-             match getenv provider.api_key_env with
-             | Some value when has_control value ->
-               Error
-                 (Target_credential_invalid
-                    { target_ref = target.target_ref
-                    ; environment_variable = provider.api_key_env
-                    })
-             | Some value when String.trim value <> "" -> Ok (Some value, None)
-             | Some _ | None -> Ok (None, Some provider.api_key_env))
-         in
-         let config =
-           match credential with
-           | None -> projection_config
-           | Some credential ->
-             { projection_config with api_key = Secret.of_string credential }
+             match observed_environment provider.api_key_env with
+             | Error () -> Credential_read_failed provider.api_key_env
+             | Ok (Some value) when has_control value ->
+               Credential_invalid provider.api_key_env
+             | Ok (Some value) ->
+               (match Cli_common_env.trim_non_empty value with
+                | Some credential -> Credential_available (Secret.of_string credential)
+                | None -> Credential_missing provider.api_key_env)
+             | Ok None -> Credential_missing provider.api_key_env)
          in
          let target_id = target_ref_id target.target_ref in
          Ok
            (String_map.add
               target_id
-              { config
+              { config = projection_config
               ; capabilities
               ; anthropic_thinking_control
               ; body_timeout_s = target.body_timeout_s
-              ; missing_credential_env
+              ; credential
               ; identity
               }
               targets))
@@ -888,21 +952,40 @@ let load_resolver_snapshot ~io ?overlay () =
   Ok { targets; generation; evidence }
 ;;
 
-let resolve_target snapshot (Target_ref target_ref) =
-  match String_map.find_opt target_ref snapshot.targets with
-  | None -> Error (Unknown_target target_ref)
-  | Some { missing_credential_env = Some environment_variable; _ } ->
-    Error (Missing_target_credential { target_ref; environment_variable })
-  | Some (target : frozen_target) ->
+let admit_target_ref snapshot value =
+  match target_ref value with
+  | Error error -> Error (Target_ref_rejected error)
+  | Ok (Target_ref id) ->
+    (match String_map.find_opt id snapshot.targets with
+     | None -> Error (Target_not_in_catalog id)
+     | Some target ->
+       Ok { target; generation = snapshot.generation; evidence = snapshot.evidence })
+;;
+
+let resolve_target (admitted : admitted_target) =
+  let target = admitted.target in
+  let target_ref = target_ref_id target.identity.target_ref in
+  let select frozen_api_key =
+    let config = { target.config with api_key = frozen_api_key } in
     let selected : selected_target =
-      { config = target.config
+      { config
       ; capabilities = target.capabilities
       ; anthropic_thinking_control = target.anthropic_thinking_control
       ; body_timeout_s = target.body_timeout_s
       ; identity = target.identity
-      ; generation = snapshot.generation
-      ; evidence = snapshot.evidence
+      ; generation = admitted.generation
+      ; evidence = admitted.evidence
       }
     in
     Ok selected
+  in
+  match target.credential with
+  | Credential_missing environment_variable ->
+    Error (Missing_target_credential { target_ref; environment_variable })
+  | Credential_invalid environment_variable ->
+    Error (Target_credential_invalid { target_ref; environment_variable })
+  | Credential_read_failed environment_variable ->
+    Error (Target_credential_read_failed { target_ref; environment_variable })
+  | Credential_not_required -> select Secret.empty
+  | Credential_available frozen_api_key -> select frozen_api_key
 ;;
