@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+source_list="$(mktemp)"
+trap 'rm -f "$source_list"' EXIT
+find lib -type f \( -name '*.ml' -o -name '*.mli' \) -print \
+  | LC_ALL=C sort >"$source_list"
+
 failed=0
 while IFS= read -r source; do
   case "$source" in
@@ -22,7 +27,7 @@ while IFS= read -r source; do
       failed=1
     fi
   done
-done < <(rg --files lib -g '*.ml' -g '*.mli' | LC_ALL=C sort)
+done <"$source_list"
 
 if ((failed != 0)); then
   printf '%s\n' \
