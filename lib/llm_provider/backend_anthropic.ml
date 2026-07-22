@@ -216,6 +216,7 @@ type request_mode =
 
 let build_request_payload
       ~request_mode
+      ?anthropic_thinking_control
       ~(config : Provider_config.t)
       ~(messages : message list)
       ?(tools : Yojson.Safe.t list = [])
@@ -260,9 +261,9 @@ let build_request_payload
     match config.kind with
     | Provider_config.Kimi -> Capabilities.Anthropic_manual_budget
     | Provider_config.Anthropic ->
-      (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
+      (match anthropic_thinking_control with
        | Some mode -> mode
-       | None when config.enable_thinking = Some true ->
+       | None when Option.is_some config.enable_thinking ->
          invalid_arg
            (Printf.sprintf
               "Backend_anthropic.build_request: model %S has no catalog-declared \
@@ -444,6 +445,7 @@ let build_request_payload
 let build_request_artifact_from_receipt
       ~output_token_receipt
       ?(stream = false)
+      ?anthropic_thinking_control
       ~config
       ~messages
       ?tools
@@ -452,6 +454,7 @@ let build_request_artifact_from_receipt
   let payload =
     build_request_payload
       ~request_mode:(Completion { output_token_receipt; stream })
+      ?anthropic_thinking_control
       ~config
       ~messages
       ?tools
@@ -460,7 +463,14 @@ let build_request_artifact_from_receipt
   Request_artifact_internal.create ~payload ~output_token_receipt
 ;;
 
-let build_request_artifact ?stream ~config ~messages ?tools () =
+let build_request_artifact_with_thinking_control
+      ?stream
+      ~anthropic_thinking_control
+      ~config
+      ~messages
+      ?tools
+      ()
+  =
   match required_output_token_receipt config with
   | Error _ as error -> error
   | Ok output_token_receipt ->
@@ -468,10 +478,57 @@ let build_request_artifact ?stream ~config ~messages ?tools () =
       (build_request_artifact_from_receipt
          ~output_token_receipt
          ?stream
+         ?anthropic_thinking_control
          ~config
          ~messages
          ?tools
          ())
+;;
+
+(* Legacy/non-exact boundary. Exact output never calls this resolver-backed
+   wrapper; it calls [build_request_artifact_with_thinking_control] with the
+   snapshot-frozen option, including an explicit [None]. *)
+let nonexact_anthropic_thinking_control (config : Provider_config.t) =
+  match config.kind with
+  | Provider_config.Anthropic ->
+    Capabilities.anthropic_thinking_control_for_model_id config.model_id
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope -> None
+;;
+
+let validate_nonexact_thinking_controls (config : Provider_config.t) =
+  match config.kind with
+  | Provider_config.Anthropic ->
+    (match nonexact_anthropic_thinking_control config with
+     | Some mode -> validate_thinking_controls mode config
+     | None when Option.is_some config.enable_thinking ->
+       Error
+         (Printf.sprintf
+            "model %S has no catalog-declared Anthropic thinking-control policy; an \
+             explicit enable_thinking value cannot be encoded safely"
+            config.model_id)
+     | None -> Ok ())
+  | Provider_config.Kimi ->
+    validate_thinking_controls Capabilities.Anthropic_manual_budget config
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.DashScope -> Ok ()
+;;
+
+let build_request_artifact ?stream ~config ~messages ?tools () =
+  build_request_artifact_with_thinking_control
+    ?stream
+    ~anthropic_thinking_control:(nonexact_anthropic_thinking_control config)
+    ~config
+    ~messages
+    ?tools
+    ()
 ;;
 
 let build_request ?stream ~config ~messages ?tools () =
@@ -483,7 +540,13 @@ let build_request ?stream ~config ~messages ?tools () =
 let build_count_tokens_request ~config ~messages ?tools () =
   match config.Provider_config.kind with
   | Provider_config.Anthropic | Provider_config.Kimi ->
-    build_request_payload ~request_mode:Count_tokens ~config ~messages ?tools ()
+    build_request_payload
+      ~request_mode:Count_tokens
+      ?anthropic_thinking_control:(nonexact_anthropic_thinking_control config)
+      ~config
+      ~messages
+      ?tools
+      ()
   | Provider_config.OpenAI_compat
   | Provider_config.Ollama
   | Provider_config.Gemini

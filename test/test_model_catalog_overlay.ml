@@ -47,6 +47,7 @@ let provider_entry ?(aliases = []) ~id ~base_url () =
     base_url
 ;;
 
+
 let max_context ~suite ~what = function
   | None -> failf "%s: expected %s row" suite what
   | Some (entry : Model_catalog.model_entry) -> entry.max_context_tokens
@@ -93,6 +94,58 @@ let test_merge_overlay_row_replaces_same_key () =
     "no duplicate rows for the shared key"
     2
     (List.length (Model_catalog.model_entries merged))
+;;
+
+let test_sparse_pricing_row_inherits_functional_fields () =
+  let suite = "sparse pricing merge" in
+  let base =
+    catalog_of
+      ~suite
+      (scoped_row
+         ~provider:"prov-a"
+         ~model:"model-1"
+         ~max_context:100
+         ~extra:
+           "supports_response_format_json = true\n\
+            supports_document_input = true\n\
+            input_per_million = 1.0\n"
+         ())
+  in
+  let overlay =
+    catalog_of
+      ~suite
+      "[[models]]\n\
+       id_prefix = \"model-1\"\n\
+       provider_name = \"prov-a\"\n\
+       input_per_million = 99.0\n"
+  in
+  let merged = Model_catalog.merge ~base ~overlay in
+  let entry =
+    match
+      Model_catalog.lookup_for_provider
+        merged
+        ~provider_name:"prov-a"
+        ~model_id:"model-1"
+    with
+    | None -> fail "sparse pricing merge should preserve the model row"
+    | Some entry -> entry
+  in
+  check (option int) "context limit inherited" (Some 100) entry.max_context_tokens;
+  check
+    (option bool)
+    "JSON capability inherited"
+    (Some true)
+    entry.supports_response_format_json;
+  check
+    (option bool)
+    "document capability inherited"
+    (Some true)
+    entry.supports_document_input;
+  check
+    (option (float 0.))
+    "pricing field replaced"
+    (Some 99.0)
+    entry.input_per_million
 ;;
 
 let test_merge_keeps_bare_and_scoped_rows_distinct () =
@@ -147,6 +200,7 @@ let test_merge_provider_entries_replace_by_id () =
   | Some entry ->
     check string "overlay provider entry wins" "https://overlay.example" entry.base_url
 ;;
+
 
 (* --- global composition --- *)
 
@@ -410,6 +464,10 @@ let () =
             "bare and scoped rows stay distinct"
             `Quick
             test_merge_keeps_bare_and_scoped_rows_distinct
+        ; test_case
+            "sparse pricing inherits functional fields"
+            `Quick
+            test_sparse_pricing_row_inherits_functional_fields
         ; test_case
             "provider entries replace by id"
             `Quick

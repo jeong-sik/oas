@@ -143,13 +143,13 @@ val lookup_for_provider
 (** Row-level overlay merge (RFC-OAS-036). Rows in [overlay] replace rows in
     [base] with the same identity — [(provider_name, id_prefix)] for model
     rows (a bare row and a provider-scoped row with the same [id_prefix] are
-    distinct), [id] for provider entries, compared with lookup normalization —
-    and rows unique to either side are kept. Overlay rows precede base rows in
+    distinct), and [id] for provider entries, compared with lookup normalization —
+    and rows unique to either side are kept. Same-identity overlay rows replace
+    the complete base row. Overlay rows precede base rows in
     the result, so order-sensitive provider-entry consumers
     ({!provider_label_for_base_url}, {!provider_label_for_endpoint}) prefer a
     deployment entry whose endpoint identity is also covered by an embedded
-    entry. This lets a deployment carry only its delta rows instead of forking
-    the entire catalog. *)
+    entry. *)
 val merge : base:t -> overlay:t -> t
 
 (** Return the catalog-declared provider identity for a concrete endpoint.

@@ -88,7 +88,9 @@ let build_request_artifact
   let provider_messages =
     match
       Backend_openai_serialize.ollama_messages_of_history
-        ~model_id:config.model_id
+        ~modality_priority:caps.modality_priority
+        ~supports_image_input:caps.supports_image_input
+        ~supports_document_input:caps.supports_document_input
         projected_messages
     with
     | Error error -> invalid_arg ("Backend_ollama.build_request: " ^ error)

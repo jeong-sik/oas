@@ -100,6 +100,21 @@ type structured_output_support = Capability_vocab.structured_output_support =
   | Native_json_schema
 [@@deriving show, eq]
 
+type anthropic_thinking_control =
+  | Anthropic_manual_budget
+  | Anthropic_adaptive_default
+  | Anthropic_adaptive_preferred
+  | Anthropic_adaptive_only
+  | Anthropic_always_adaptive
+
+let anthropic_thinking_control_of_vocab_value = function
+  | Capability_vocab.Manual_budget -> Anthropic_manual_budget
+  | Capability_vocab.Adaptive_default -> Anthropic_adaptive_default
+  | Capability_vocab.Adaptive_preferred -> Anthropic_adaptive_preferred
+  | Capability_vocab.Adaptive_only -> Anthropic_adaptive_only
+  | Capability_vocab.Always_adaptive -> Anthropic_always_adaptive
+;;
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -287,21 +302,6 @@ let effective_disable_parallel_tool_use
       ~tools_present
   =
   caller_disabled || (tools_present && not supports_parallel_tool_calls)
-;;
-
-type anthropic_thinking_control =
-  | Anthropic_manual_budget
-  | Anthropic_adaptive_default
-  | Anthropic_adaptive_preferred
-  | Anthropic_adaptive_only
-  | Anthropic_always_adaptive
-
-let anthropic_thinking_control_of_vocab_value = function
-  | Capability_vocab.Manual_budget -> Anthropic_manual_budget
-  | Capability_vocab.Adaptive_default -> Anthropic_adaptive_default
-  | Capability_vocab.Adaptive_preferred -> Anthropic_adaptive_preferred
-  | Capability_vocab.Adaptive_only -> Anthropic_adaptive_only
-  | Capability_vocab.Always_adaptive -> Anthropic_always_adaptive
 ;;
 
 let anthropic_thinking_control_for_model_id model_id =

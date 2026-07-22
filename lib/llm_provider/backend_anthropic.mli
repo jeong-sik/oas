@@ -27,6 +27,11 @@ val validate_thinking_controls
   -> Provider_config.t
   -> (unit, string) result
 
+(** Validate the legacy/non-exact request against the current catalog or
+    manifest policy. The resolver remains private to this backend; exact output
+    uses the separately supplied frozen policy instead. *)
+val validate_nonexact_thinking_controls : Provider_config.t -> (unit, string) result
+
 (** Optional Claude [output_config], including adaptive [effort] and native
     JSON-schema format when requested. *)
 val output_config_for_config
@@ -67,6 +72,19 @@ val required_max_output_tokens : Provider_config.t -> int
     their explicit [Invalid_argument] contract. *)
 val build_request_artifact
   :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> (request_artifact, Types.required_output_token_error) result
+
+(** Exact/private request boundary. Unlike {!build_request_artifact}, this
+    never resolves process-global catalog or manifest state: the caller must
+    provide the thinking policy frozen into its immutable target snapshot,
+    including an explicit [None]. *)
+val build_request_artifact_with_thinking_control
+  :  ?stream:bool
+  -> anthropic_thinking_control:Capabilities.anthropic_thinking_control option
   -> config:Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list

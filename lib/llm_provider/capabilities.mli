@@ -82,6 +82,13 @@ type structured_output_support = Capability_vocab.structured_output_support =
   | Native_json_schema
 [@@deriving show, eq]
 
+type anthropic_thinking_control =
+  | Anthropic_manual_budget
+  | Anthropic_adaptive_default
+  | Anthropic_adaptive_preferred
+  | Anthropic_adaptive_only
+  | Anthropic_always_adaptive
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -221,13 +228,6 @@ val effective_disable_parallel_tool_use
     override while omitting the field preserves their provider default.
     Some models require adaptive thinking, and some always run adaptive
     thinking without an explicit [thinking] request field. *)
-type anthropic_thinking_control =
-  | Anthropic_manual_budget
-  | Anthropic_adaptive_default
-  | Anthropic_adaptive_preferred
-  | Anthropic_adaptive_only
-  | Anthropic_always_adaptive
-
 (** Resolve Anthropic thinking control from the model catalog, then the
     capability manifest when the catalog has no matching row. [None] means
     neither source declares an Anthropic thinking policy. *)

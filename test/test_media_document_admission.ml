@@ -152,28 +152,21 @@ let test_openai_chat_request_degrades_undeclared_document () =
     [ "gpt-5.2"; "glm-4.6"; "glm-4-flash"; "qwen3:8b" ]
 ;;
 
-let test_ollama_native_degrades_document () =
+let test_ollama_native_rejects_document () =
   match
     Backend_openai_serialize.ollama_messages_of_history
-      ~model_id:"qwen3:8b"
+      ~modality_priority:Capabilities.default_capabilities.modality_priority
+      ~supports_image_input:false
+      ~supports_document_input:false
       [ user_message [ Types.Text "prefix"; document_block ] ]
   with
-  | Error message -> failf "expected degrade, got a rejection: %s" message
-  | Ok wire ->
-    let serialized = Yojson.Safe.to_string (`List wire) in
-    (* Native /api/chat: the pre-fix binary pushed the document into [images].
-       After degrade it must not appear there; the placeholder text carries the
-       omission in the scalar content instead. *)
+  | Error message ->
     check
-      bool
-      "no images array entry — document is not relabelled as a picture"
-      false
-      (contains ~needle:"UERG" serialized);
-    check
-      bool
-      "placeholder names the omission"
-      true
-      (contains ~needle:"document omitted" serialized)
+      string
+      "frozen document capability rejects before wire degradation"
+      "Ollama native document input is not declared by the frozen capability snapshot"
+      message
+  | Ok _ -> fail "Ollama native document must be rejected, not degraded"
 ;;
 
 (* A document sitting in an already-answered turn must not sink a later,
@@ -403,7 +396,9 @@ let test_openai_chat_request_image_and_audio_unchanged () =
 let test_ollama_native_image_unchanged () =
   match
     Backend_openai_serialize.ollama_messages_of_history
-      ~model_id:"qwen3:8b"
+      ~modality_priority:Capabilities.default_capabilities.modality_priority
+      ~supports_image_input:true
+      ~supports_document_input:false
       [ user_message [ Types.Text "prefix"; image_block ] ]
   with
   | Error message -> failf "expected serialization, got %s" message
@@ -419,6 +414,23 @@ let test_ollama_native_image_unchanged () =
               ]
           ])
       (`List wire)
+;;
+
+let test_ollama_native_image_requires_declared_capability () =
+  match
+    Backend_openai_serialize.ollama_messages_of_history
+      ~modality_priority:Capabilities.default_capabilities.modality_priority
+      ~supports_image_input:false
+      ~supports_document_input:false
+      [ user_message [ Types.Text "prefix"; image_block ] ]
+  with
+  | Error message ->
+    check
+      string
+      "frozen image capability rejects before serialization"
+      "Ollama native image input is not declared by the frozen capability snapshot"
+      message
+  | Ok _ -> fail "Ollama native image must require supports_image_input=true"
 ;;
 
 let test_gemini_image_and_audio_unchanged () =
@@ -465,9 +477,9 @@ let () =
             `Quick
             test_openai_chat_request_degrades_undeclared_document
         ; test_case
-            "ollama native degrades document, not into images"
+            "ollama native rejects unrepresentable document"
             `Quick
-            test_ollama_native_degrades_document
+            test_ollama_native_rejects_document
         ; test_case
             "history document does not sink a later turn"
             `Quick
@@ -501,6 +513,10 @@ let () =
             "openai chat request body"
             `Quick
             test_openai_chat_request_image_and_audio_unchanged
+        ; test_case
+            "ollama native image requires declared capability"
+            `Quick
+            test_ollama_native_image_requires_declared_capability
         ; test_case "ollama native images" `Quick test_ollama_native_image_unchanged
         ; test_case "gemini inlineData" `Quick test_gemini_image_and_audio_unchanged
         ] )
