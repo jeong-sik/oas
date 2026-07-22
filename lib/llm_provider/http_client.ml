@@ -1277,15 +1277,17 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
            | Eio.Cancel.Cancelled _ as exn -> raise exn
            | _ -> ())
         leftover));
-  (* Eviction fiber: reap entries past [idle_ttl_seconds] when a clock
-     is supplied. Without a clock the cache still works; stale entries
+  (* Eviction daemon: reap entries past [idle_ttl_seconds] when a clock
+     is supplied. A regular infinite fiber would prevent normal switch
+     completion, and the release hook that sets [stop] only runs after all
+     fibers finish. Without a clock the cache still works; stale entries
      are closed on switch release. *)
   (match clock with
    | Some clock ->
-     Eio.Fiber.fork ~sw (fun () ->
+     Eio.Fiber.fork_daemon ~sw (fun () ->
        let rec loop () =
          if Atomic.get cache.stop
-         then ()
+         then `Stop_daemon
          else (
            Eio.Time.sleep clock (cache.idle_ttl_seconds /. 2.0);
            let now = cache.now () in
