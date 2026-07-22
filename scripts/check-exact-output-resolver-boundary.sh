@@ -203,11 +203,91 @@ scan_named_functions() {
   fi
 }
 
+# Print every top-level definition except the explicitly named functions while
+# preserving one output line per input line. This ratchets exclusive ownership
+# of effects such as target-map lookup and Provider_config secret injection.
+exclude_named_functions() {
+  local source_file="$1"
+  local names="$2"
+  awk -v names="$names" '
+    BEGIN {
+      count = split(names, requested, /[[:space:]]+/)
+      for (i = 1; i <= count; i++) {
+        if (requested[i] != "") excluded_names[requested[i]] = 1
+      }
+      exclude = 0
+    }
+    /^let%[[:alnum:]_]+[[:space:]]/ {
+      exclude = 0
+    }
+    /^let[[:space:]]/ {
+      declaration = $0
+      sub(/^let[[:space:]]+(rec[[:space:]]+)?/, "", declaration)
+      name = declaration
+      sub(/[[:space:](].*$/, "", name)
+      exclude = (name in excluded_names)
+      if (exclude) found[name] = 1
+    }
+    {
+      if (exclude) print ""
+      else print $0
+    }
+    END {
+      missing = 0
+      for (name in excluded_names) {
+        if (!found[name]) {
+          print "exact-output ratchet function missing: " name > "/dev/stderr"
+          missing = 1
+        }
+      }
+      if (missing) exit 3
+    }
+  ' "$source_file"
+}
+
+scan_outside_named_functions() {
+  local description="$1"
+  local pattern="$2"
+  local source_file="$3"
+  local names="$4"
+  local extracted hits
+  extracted="$(mktemp)"
+  if ! exclude_named_functions "$source_file" "$names" > "$extracted"; then
+    rm -f "$extracted"
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+  hits="$(strip_ocaml_noncode < "$extracted" | grep -En -- "$pattern" || true)"
+  rm -f "$extracted"
+  if [[ -n "$hits" ]]; then
+    while IFS= read -r hit; do
+      printf '%s:%s\n' "$source_file" "$hit" >&2
+    done <<< "$hits"
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+}
+
 require_code_pattern() {
   local description="$1"
   local pattern="$2"
   local source_file="$3"
   if ! strip_ocaml_noncode < "$source_file" | grep -E -- "$pattern" >/dev/null; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+}
+
+# Match a declaration across formatting-only line breaks. The producer is
+# fully consumed by awk before grep runs, avoiding grep -q/SIGPIPE failures
+# under pipefail.
+require_code_sequence() {
+  local description="$1"
+  local pattern="$2"
+  local source_file="$3"
+  local compact
+  compact="$(strip_ocaml_noncode < "$source_file" | awk '{ printf "%s ", $0 } END { print "" }')"
+  if ! grep -E -- "$pattern" <<< "$compact" >/dev/null; then
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
@@ -374,6 +454,81 @@ scan_named_functions \
   'resolve_exact capabilities_of_catalog_binding functional_capability_projection anthropic_thinking_control_of_model'
 
 module_dir="$(dirname "$exact_output_source")"
+exact_output_interface="$module_dir/exact_output.mli"
+resolver_interface="$module_dir/exact_output_resolver.mli"
+
+# The public surface admits an exact catalog member into one opaque,
+# snapshot-bound handle. The former syntax-only constructor and overlay/path
+# convenience labels must not return under another compatibility layer.
+scan_code \
+  "legacy exact-output catalog admission surface returned" \
+  'type[[:space:]]+catalog_overlay|Unknown_target|\?overlay([[:space:]:]|$)|\?catalog_path([[:space:]:]|$)' \
+  "$exact_output_source" \
+  "$resolver_source" \
+  "$exact_output_interface" \
+  "$resolver_interface"
+scan_code \
+  "raw target_ref constructor or public type returned" \
+  '^[[:space:]]*type[[:space:]]+target_ref([[:space:]]*(=|$))|^[[:space:]]*val[[:space:]]+target_ref[[:space:]]*:' \
+  "$exact_output_interface"
+require_code_pattern \
+  "canonical facade lost its opaque admitted target handle" \
+  '^[[:space:]]*type[[:space:]]+admitted_target[[:space:]]*$' \
+  "$exact_output_interface"
+require_code_sequence \
+  "catalog admission no longer returns the opaque admitted target handle" \
+  'val[[:space:]]+admit_target_ref[[:space:]]*:[[:space:]]*resolver_snapshot[[:space:]]*->[[:space:]]*string[[:space:]]*->[[:space:]]*\(admitted_target,[[:space:]]*target_catalog_admission_error\)[[:space:]]*result' \
+  "$exact_output_interface"
+require_code_sequence \
+  "target resolution no longer consumes only the admitted target handle" \
+  'val[[:space:]]+resolve_target[[:space:]]*:[[:space:]]*admitted_target[[:space:]]*->[[:space:]]*\(selected_target,[[:space:]]*target_selection_error\)[[:space:]]*result' \
+  "$exact_output_interface"
+
+# Membership lookup is performed exactly when the admitted handle is frozen.
+# Resolution may only inspect that handle; accepting or consulting another
+# resolver snapshot would permit a same-id target to be rebound after admission.
+require_named_function_pattern \
+  "catalog admission no longer consults the frozen target map" \
+  'snapshot\.targets' \
+  "$resolver_source" \
+  'admit_target_ref'
+require_named_function_pattern \
+  "catalog admission no longer performs an exact target-map lookup" \
+  'String_map\.(find_opt|mem)' \
+  "$resolver_source" \
+  'admit_target_ref'
+scan_outside_named_functions \
+  "target-map lookup escaped catalog admission" \
+  'snapshot\.targets' \
+  "$resolver_source" \
+  'admit_target_ref'
+
+# Credential observations are frozen before admission. Resolution may inject
+# only the already-frozen Secret into Provider_config; it must never reread the
+# environment, reopen a catalog, rebuild provider config, or create a Secret
+# from ambient bytes.
+resolve_ambient_forbidden="${ambient_forbidden}|Model_catalog|Exact_output_catalog_binding|Binding\.|getenv|resolver_snapshot|snapshot|String_map\.(find_opt|mem)|PC\.make|Provider_config\.make|Secret\.of_string"
+scan_named_functions \
+  "target resolution performed ambient lookup or rebuilt frozen configuration" \
+  "$resolve_ambient_forbidden" \
+  "$resolver_source" \
+  'resolve_target'
+require_named_function_pattern \
+  "target resolution no longer consumes the frozen credential observation" \
+  'credential' \
+  "$resolver_source" \
+  'resolve_target'
+require_named_function_pattern \
+  "Provider_config secret injection disappeared from admitted target resolution" \
+  'api_key[[:space:]]*=' \
+  "$resolver_source" \
+  'resolve_target'
+scan_outside_named_functions \
+  "Provider_config secret injection escaped admitted target resolution" \
+  'api_key[[:space:]]*=' \
+  "$resolver_source" \
+  'resolve_target'
+
 require_code_pattern \
   "canonical facade no longer re-exports the private resolver" \
   'include[[:space:]]+Exact_output_resolver' \
