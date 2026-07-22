@@ -10,7 +10,8 @@
   tool_call_input
   output_token_wire_internal
   request_artifact_internal
-  prepared_completion_request)
+  prepared_completion_request
+  exact_output_plan)
  (libraries
   yojson
   otoml

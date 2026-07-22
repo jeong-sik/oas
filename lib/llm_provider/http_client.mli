@@ -357,6 +357,63 @@ val post_sync
   -> unit
   -> (int * string, http_error) result
 
+(** Observable phase of a single HTTP dispatch.
+
+    [Before_dispatch] covers request validation, URL resolution, and connection
+    establishment before the HTTP request is submitted. [Dispatch_started]
+    begins immediately before the sole [Cohttp_eio.Client.post] call.
+    [Response_received] begins once response headers and status are available;
+    response-body reads happen in this phase. *)
+type one_dispatch_phase =
+  | Before_dispatch
+  | Dispatch_started
+  | Response_received
+
+(** Raw response from {!post_sync_once}. No provider-specific body parsing or
+    retry policy has run. *)
+type raw_sync_response =
+  { status : int
+  ; body : string
+  ; retry_after_header : float option
+  }
+
+(** Failure evidence from {!post_sync_once}. The variant makes phase/status
+    combinations explicit: only a received response can carry an HTTP status. *)
+type post_sync_once_error =
+  | Before_dispatch_error of http_error
+  | Dispatch_started_error of http_error
+  | Response_received_error of
+      { status : int
+      ; error : http_error
+      }
+
+(** Submit exactly one HTTP POST and return the unparsed response.
+
+    This function never retries and invokes [Cohttp_eio.Client.post] at most
+    once. [headers] and [body] are forwarded without adding or removing request
+    headers; callers that require [Content-Length] or [Connection] must freeze
+    those headers before calling. Supplying [cache] permits connection reuse
+    only and does not change the wire request.
+
+    [connect_timeout_s] separately bounds connection establishment plus the
+    request/response-header phase. [body_timeout_s] is the caller-owned total
+    deadline across connection establishment, request/response headers, and
+    full response-body consumption. The earlier deadline wins. Each explicit
+    timeout requires [clock]. Caller-owned cancellation and a nested
+    [Eio.Time.Timeout] are re-raised only after the checked-out connection has
+    been closed. *)
+val post_sync_once
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
+  -> ?connect_timeout_s:float
+  -> ?body_timeout_s:float
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> url:string
+  -> headers:(string * string) list
+  -> body:string
+  -> unit
+  -> (raw_sync_response, post_sync_once_error) result
+
 (** POST JSON body for SSE/NDJSON streaming.
     Returns [Ok reader] on HTTP 200 (10 MB buffer).
     Returns [Error] on non-200 or network failure.

@@ -1054,7 +1054,95 @@ let retry_after_header_of_response_headers resp_headers =
   | Some raw -> parse_retry_after_seconds ~now:(Unix.gettimeofday ()) raw
 ;;
 
+let header_has_token headers name token =
+  match Http.Header.get headers name with
+  | None -> false
+  | Some value ->
+    value
+    |> String.split_on_char ','
+    |> List.exists (fun value ->
+      String.equal
+        (String.lowercase_ascii (String.trim value))
+        (String.lowercase_ascii token))
+;;
+
+let valid_single_content_length = function
+  | [ value ] ->
+    let value = String.trim value in
+    (not (String.equal value ""))
+    && String.for_all
+         (function
+           | '0' .. '9' -> true
+           | _ -> false)
+         value
+    && Option.is_some (Int64.of_string_opt value)
+  | [] | _ :: _ :: _ -> false
+;;
+
+let sync_response_connection_is_reusable ~request_headers response =
+  let response_headers = Cohttp.Response.headers response in
+  let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
+  let response_allows_persistence =
+    match Cohttp.Response.version response with
+    | `HTTP_1_1 -> true
+    | `HTTP_1_0 -> header_has_token response_headers "connection" "keep-alive"
+    | `Other _ -> false
+  in
+  let is_upgrade =
+    status = 101
+    || Option.is_some (Http.Header.get response_headers "upgrade")
+    || header_has_token response_headers "connection" "upgrade"
+  in
+  let response_has_no_body =
+    (status >= 100 && status < 200) || status = 204 || status = 304
+  in
+  let response_framing =
+    match
+      ( Http.Header.get_multi response_headers "content-length"
+      , Http.Header.get_multi response_headers "transfer-encoding" )
+    with
+    | [], [] -> `Absent
+    | content_lengths, [] when valid_single_content_length content_lengths ->
+      `Content_length
+    | [], _ :: _ ->
+      (match Cohttp.Header.get_transfer_encoding response_headers with
+       | Cohttp.Transfer.Chunked -> `Final_chunked
+       | Cohttp.Transfer.Fixed _ | Cohttp.Transfer.Unknown -> `Invalid)
+    | _ -> `Invalid
+  in
+  let response_is_self_delimited =
+    match response_framing with
+    | `Content_length | `Final_chunked -> true
+    | `Absent -> response_has_no_body
+    | `Invalid -> false
+  in
+  (not is_upgrade)
+  && response_allows_persistence
+  && response_is_self_delimited
+  && (not (header_has_token request_headers "connection" "close"))
+  && not (header_has_token response_headers "connection" "close")
+;;
+
 (* ── Public API ────────────────────────────────────────────── *)
+
+type one_dispatch_phase =
+  | Before_dispatch
+  | Dispatch_started
+  | Response_received
+
+type raw_sync_response =
+  { status : int
+  ; body : string
+  ; retry_after_header : float option
+  }
+
+type post_sync_once_error =
+  | Before_dispatch_error of http_error
+  | Dispatch_started_error of http_error
+  | Response_received_error of
+      { status : int
+      ; error : http_error
+      }
 
 type connection = [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t
 
@@ -1550,6 +1638,242 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
         profile_request_on_client_error ~url ~code ~request_body:body;
         let* body_str = read_response_body resp_body in
         Ok (code, body_str))))
+;;
+
+let post_sync_once
+      ?cache
+      ?clock
+      ?connect_timeout_s
+      ?body_timeout_s
+      ~net
+      ~url
+      ~headers
+      ~body
+      ()
+  =
+  let before_dispatch error = Error (Before_dispatch_error error) in
+  match
+    resolve_explicit_deadline
+      ~operation:"post_sync_once"
+      ~parameter:"connect_timeout_s"
+      ~clock
+      ~timeout_s:connect_timeout_s
+  with
+  | Error error -> before_dispatch error
+  | Ok connect_deadline ->
+    (match
+       resolve_explicit_deadline
+         ~operation:"post_sync_once"
+         ~parameter:"body_timeout_s"
+         ~clock
+         ~timeout_s:body_timeout_s
+     with
+     | Error error -> before_dispatch error
+     | Ok body_deadline ->
+       (match parse_uri url with
+        | Error error -> before_dispatch error
+        | Ok uri ->
+          Eio.Switch.run
+          @@ fun sw ->
+          let request_sw =
+            match cache with
+            | Some cache -> cache.sw
+            | None -> sw
+          in
+          let phase = ref Before_dispatch in
+          let status = ref None in
+          let connection = ref None in
+          let close_connection conn =
+            try Eio.Cancel.protect (fun () -> Eio.Resource.close conn) with
+            | Eio.Cancel.Cancelled _ as exn -> raise exn
+            | exn ->
+              Diag.warn
+                "http_client"
+                "post_sync_once cleanup failed: %s"
+                (Printexc.to_string exn)
+          in
+          let fail error =
+            match !phase, !status with
+            | Before_dispatch, None -> Error (Before_dispatch_error error)
+            | Dispatch_started, None -> Error (Dispatch_started_error error)
+            | Response_received, Some status ->
+              Error (Response_received_error { status; error })
+            | Before_dispatch, Some _ | Dispatch_started, Some _ | Response_received, None
+              -> invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
+          in
+          let release_connection () =
+            match !connection with
+            | None -> ()
+            | Some conn ->
+              connection := None;
+              close_connection conn
+          in
+          let fail_exn exn =
+            match classify_network_exn exn with
+            | Some error -> Error error
+            | None ->
+              (try
+                 Reserved_exn.reraise_if_reserved exn;
+                 Error (NetworkError { message = Printexc.to_string exn; kind = Unknown })
+               with
+               | reserved_exn ->
+                 release_connection ();
+                 raise reserved_exn)
+          in
+          let total_started_at =
+            match body_deadline with
+            | Unbounded -> None
+            | Bounded (clock, _) -> Some (clock, Eio.Time.now clock)
+          in
+          let total_deadline_error timeout_s =
+            TimeoutError
+              { message =
+                  Printf.sprintf
+                    "post_sync_once body_timeout_s total deadline exceeded after %.17g \
+                     seconds"
+                    timeout_s
+              ; phase = Wall_clock
+              }
+          in
+          let headers_deadline =
+            match connect_deadline, body_deadline with
+            | Unbounded, Unbounded -> None
+            | Bounded (clock, timeout_s), Unbounded -> Some (clock, timeout_s, `Connect)
+            | Unbounded, Bounded (clock, timeout_s) -> Some (clock, timeout_s, `Total)
+            | ( Bounded (connect_clock, connect_timeout_s)
+              , Bounded (body_clock, body_timeout_s) ) ->
+              if connect_timeout_s <= body_timeout_s
+              then Some (connect_clock, connect_timeout_s, `Connect)
+              else Some (body_clock, body_timeout_s, `Total)
+          in
+          let with_headers_deadline f =
+            match headers_deadline with
+            | None -> f ()
+            | Some (clock, timeout_s, owner) ->
+              (match Eio.Time.with_timeout clock timeout_s (fun () -> Ok (f ())) with
+               | Ok result -> result
+               | Error `Timeout ->
+                 Error
+                   (match owner with
+                    | `Connect ->
+                      TimeoutError
+                        { message =
+                            Printf.sprintf
+                              "post_sync_once connect_timeout_s exceeded after %.17g \
+                               seconds"
+                              timeout_s
+                        ; phase = Http_operation
+                        }
+                    | `Total -> total_deadline_error timeout_s))
+          in
+          let post_result =
+            try
+              with_headers_deadline (fun () ->
+                let* conn =
+                  match cache with
+                  | None -> make_connection ~sw:request_sw ~net ~uri
+                  | Some cache ->
+                    (match cache_take cache uri with
+                     | Some entry -> Ok entry.connection
+                     | None ->
+                       let+ conn = make_connection ~sw:cache.sw ~net ~uri in
+                       Atomic.incr cache.create_count_total;
+                       conn)
+                in
+                connection := Some conn;
+                let client =
+                  Cohttp_eio.Client.make_generic (fun ~sw:_ _uri ->
+                    (conn :> _ Eio.Flow.two_way))
+                in
+                let header = Http.Header.of_list headers in
+                phase := Dispatch_started;
+                let response, response_body =
+                  Cohttp_eio.Client.post
+                    ~sw:request_sw
+                    client
+                    ~headers:header
+                    ~body:(Cohttp_eio.Body.of_string body)
+                    uri
+                in
+                let response_status =
+                  Cohttp.Response.status response |> Cohttp.Code.code_of_status
+                in
+                phase := Response_received;
+                status := Some response_status;
+                Ok (conn, response, response_body))
+            with
+            | Eio.Time.Timeout as exn ->
+              release_connection ();
+              raise exn
+            | exn -> fail_exn exn
+          in
+          (match post_result with
+           | Error error ->
+             release_connection ();
+             fail error
+           | Ok (conn, response, response_body) ->
+             let body_result =
+               try
+                 match body_deadline, total_started_at with
+                 | Unbounded, None -> read_response_body response_body
+                 | Bounded (clock, timeout_s), Some (_, started_at) ->
+                   let elapsed = Eio.Time.now clock -. started_at in
+                   let remaining = timeout_s -. elapsed in
+                   if remaining <= 0.0
+                   then Error (total_deadline_error timeout_s)
+                   else (
+                     match
+                       Eio.Time.with_timeout clock remaining (fun () ->
+                         Ok (read_response_body response_body))
+                     with
+                     | Ok result -> result
+                     | Error `Timeout -> Error (total_deadline_error timeout_s))
+                 | Unbounded, Some _ | Bounded _, None ->
+                   invalid_arg
+                     "Http_client.post_sync_once: inconsistent total deadline state"
+               with
+               | Eio.Time.Timeout as exn ->
+                 release_connection ();
+                 raise exn
+               | exn -> fail_exn exn
+             in
+             (match body_result with
+              | Error error ->
+                release_connection ();
+                fail error
+              | Ok response_body ->
+                let retry_after_header =
+                  Cohttp.Response.headers response
+                  |> retry_after_header_of_response_headers
+                in
+                let release_result =
+                  match
+                    ( cache
+                    , sync_response_connection_is_reusable
+                        ~request_headers:(Http.Header.of_list headers)
+                        response )
+                  with
+                  | Some cache, true ->
+                    (try
+                       cache_return cache uri { connection = conn; last_used_at = 0.0 };
+                       connection := None;
+                       Ok ()
+                     with
+                     | exn -> fail_exn exn)
+                  | Some _, false | None, _ ->
+                    release_connection ();
+                    Ok ()
+                in
+                (match release_result with
+                 | Error error ->
+                   release_connection ();
+                   fail error
+                 | Ok () ->
+                   Ok
+                     { status = Option.get !status
+                     ; body = response_body
+                     ; retry_after_header
+                     })))))
 ;;
 
 let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body () =
