@@ -212,26 +212,6 @@ let derive_ms token_count tok_per_sec =
   | Some _, Some _ | Some _, None | None, Some _ | None, None -> None
 ;;
 
-let strip_json_markdown_fences text =
-  let trimmed = String.trim text in
-  if String.length trimmed < 7 || String.sub trimmed 0 3 <> "```"
-  then trimmed
-  else (
-    match String.split_on_char '\n' trimmed with
-    | [] -> trimmed
-    | first :: rest ->
-      if String.length first < 3
-      then trimmed
-      else (
-        match List.rev rest with
-        | [] -> trimmed
-        | last :: middle_rev when String.trim last = "```" ->
-          String.concat "\n" (List.rev middle_rev) |> String.trim
-        | last :: _middle_rev ->
-          let (_ : string) = last in
-          trimmed))
-;;
-
 let usage_of_openai_json json =
   let open Yojson.Safe.Util in
   let usage = json |> member "usage" in
@@ -361,17 +341,6 @@ let parse_openai_response_result_json_raw (raw_json : Yojson.Safe.t) =
       choice |> member "finish_reason" |> to_string_option |> Option.value ~default:"stop"
     in
     let text_content = text_content_of_openai_content (msg |> member "content") in
-    let text_content =
-      let stripped = strip_json_markdown_fences text_content in
-      if stripped = text_content
-      then text_content
-      else (
-        try
-          let (_ : Yojson.Safe.t) = Yojson.Safe.from_string stripped in
-          stripped
-        with
-        | Yojson.Json_error _ -> text_content)
-    in
     let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
     (* Ollama uses "reasoning"; OpenAI-compatible providers commonly use
        "reasoning_content"; MiniMax split mode may return "reasoning_details".

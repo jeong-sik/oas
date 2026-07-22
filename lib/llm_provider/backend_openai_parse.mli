@@ -5,7 +5,6 @@
     @stability Internal
     @since 0.93.1 *)
 
-val strip_json_markdown_fences : string -> string
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
 (** Identity of an all-empty completion (oas#2483): a 200 that carried no

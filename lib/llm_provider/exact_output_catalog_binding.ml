@@ -129,6 +129,7 @@ let merge_exact_model_entry
       prefer_overlay overlay.supports_document_input base.supports_document_input
   ; modality_priority = prefer_overlay overlay.modality_priority base.modality_priority
   ; task = prefer_overlay overlay.task base.task
+  ; supported_models = prefer_overlay overlay.supported_models base.supported_models
   ; supports_native_streaming =
       prefer_overlay overlay.supports_native_streaming base.supports_native_streaming
   ; supports_system_prompt =
@@ -298,7 +299,65 @@ let capabilities_of_catalog_binding
   ; supports_system_prompt =
       bool_or base.supports_system_prompt model.supports_system_prompt
   ; task = prefer_overlay model.task base.task
+  ; supported_models = prefer_overlay model.supported_models base.supported_models
   }
+;;
+
+let%test "exact pricing-only overlay preserves functional fields" =
+  let base =
+    Model_catalog.of_toml_string
+      ~source:"exact pricing base"
+      "[[providers]]\n\
+       id = \"pricing-provider\"\n\
+       kind = \"openai_compat\"\n\
+       base_url = \"https://pricing.example\"\n\
+       request_path = \"/v1/chat/completions\"\n\
+       api_key_env = \"\"\n\
+       capabilities_base = \"openai_chat\"\n\
+       [[models]]\n\
+       id_prefix = \"pricing-model\"\n\
+       provider_name = \"pricing-provider\"\n\
+       max_context_tokens = 100\n\
+       supports_response_format_json = true\n\
+       supports_document_input = true\n\
+       supported_models = [\"pricing-model\"]\n\
+       input_per_million = 1.0\n"
+  in
+  let overlay =
+    Model_catalog.of_toml_string
+      ~source:"exact pricing overlay"
+      "[[models]]\n\
+       id_prefix = \"pricing-model\"\n\
+       provider_name = \"pricing-provider\"\n\
+       input_per_million = 99.0\n"
+  in
+  match base, overlay with
+  | Ok base, Ok overlay ->
+    (match
+       ( Model_catalog.provider_entries base
+       , Model_catalog.model_entries base
+       , merge_exact_model_entries
+           ~base:(Model_catalog.model_entries base)
+           ~overlay:(Model_catalog.model_entries overlay) )
+     with
+     | [ provider ], [ base_model ], [ merged_model ] ->
+       let base_capabilities = capabilities_of_catalog_binding provider base_model in
+       let merged_capabilities = capabilities_of_catalog_binding provider merged_model in
+       functional_capability_projection
+         base_capabilities
+         ~anthropic_thinking_control:
+           (catalog_anthropic_thinking_control base_model.anthropic_thinking_control)
+       = functional_capability_projection
+           merged_capabilities
+           ~anthropic_thinking_control:
+             (catalog_anthropic_thinking_control merged_model.anthropic_thinking_control)
+       && merged_model.max_context_tokens = Some 100
+       && merged_model.supports_response_format_json = Some true
+       && merged_model.supports_document_input = Some true
+       && merged_model.supported_models = Some [ "pricing-model" ]
+       && merged_model.input_per_million = Some 99.0
+     | _ -> false)
+  | Error _, _ | _, Error _ -> false
 ;;
 
 let%test "exact functional capability projection has a stable golden" =

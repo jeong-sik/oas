@@ -852,8 +852,8 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
      production workflow: tool call -> tool_result replay -> final answer while
      reasoning may stream on a side channel. The catalog must not regress any
      one of these axes to a generic text-only profile. Structured output is
-     checked separately because the OpenAI-compatible /v1 transport does not
-     guarantee schema-shaped output for every model. *)
+     checked separately and remains fail-closed because Ollama Cloud does not
+     expose a structured-output contract. *)
   let cases =
     [ "qwen3.5:397b"
     ; "gemma4:31b"
@@ -884,7 +884,7 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
          check
            bool
            (model_id ^ " json response format")
-           true
+           false
            c.supports_response_format_json;
          check_thinking_control
            (model_id ^ " uses Ollama native think")
@@ -894,10 +894,8 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
 ;;
 
 let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
-  (* The OpenAI-compatible /v1 transport used by the ollama_cloud provider
-     identity keeps JSON response-format requests available but does not enforce
-     schema-shaped output for these models. They must preserve JSON mode while
-     not advertising native structured output. *)
+  (* Ollama Cloud exposes neither JSON response-format mode nor native schema
+     enforcement. Both exact-output capability axes must stay fail-closed. *)
   let cases =
     [ "kimi-k2.5"
     ; "kimi-k2.6"
@@ -925,7 +923,7 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
          check
            bool
            (model_id ^ " json response format")
-           true
+           false
            c.supports_response_format_json;
          check
            bool

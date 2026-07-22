@@ -35,6 +35,10 @@ type model_entry =
         speech, image/video generation). Parsed fail-closed against
         {!Capability_vocab.task_values}; [None] means the entry declares no
         task — it is never inferred from the model id. *)
+  ; supported_models : string list option
+    (** Explicit exact model identities supported by this catalog row. A
+        declaration must be a non-empty array of non-empty, exactly trimmed,
+        unique strings. *)
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
