@@ -43,6 +43,35 @@ type reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
 
+(** Structured-output tier a resolved model/provider capability advertises.
+
+    This is the typed view the request-admission decision
+    ({!Provider_config.validate_output_schema_request}) reads instead of
+    branching on provider identity. It has no wire vocabulary of its own and is
+    never parsed from a catalog/manifest string: it is projected from the two
+    independent, already-threaded capability booleans
+    [supports_structured_output] and [supports_response_format_json]
+    ({!Capabilities.structured_output_support}). Keeping the tier as a closed sum
+    lets the decision match all three cases exhaustively, so a new tier forces a
+    compile error rather than a silent identity branch.
+
+    - [Native_json_schema]: the provider exposes a native schema-constrained
+      request field; the schema is enforced provider-side.
+    - [Json_object_only]: the provider accepts JSON mode
+      ([response_format = json_object]) but documents no native json_schema
+      field, so a caller-supplied output schema cannot be honored on the wire.
+    - [No_structured_output]: neither JSON mode nor native schema output. *)
+type structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+
+let structured_output_support_to_string = function
+  | No_structured_output -> "none"
+  | Json_object_only -> "json_object_only"
+  | Native_json_schema -> "native_json_schema"
+;;
+
 type reasoning_streaming_format =
   | Default_reasoning_streaming
   | No_reasoning_streaming

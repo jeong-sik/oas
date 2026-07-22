@@ -88,6 +88,15 @@ type task = Capability_vocab.task =
   | Image_generation
   | Video_generation
 
+(** Structured-output tier, projected from the two capability booleans below by
+    {!structured_output_support}. The request-admission decision reads this typed
+    view rather than provider identity. See {!Capability_vocab.structured_output_support}. *)
+type structured_output_support = Capability_vocab.structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+[@@deriving show, eq]
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -232,6 +241,30 @@ let default_capabilities =
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
   ; supported_models = None
   }
+;;
+
+(** Structured-output tier a resolved capability record advertises.
+
+    Single typed view the request-admission decision
+    ({!Provider_config.validate_output_schema_request}) reads instead of
+    branching on provider identity. It is a total projection of the two
+    independent, catalog-sourced booleans — [supports_structured_output] (native
+    json_schema) and [supports_response_format_json] (json_object mode) — which
+    the provider catalog, model catalog, capability manifest, and public view
+    already thread. It is deliberately not a stored field: the two booleans stay
+    the single source of truth (they are separate, non-interchangeable contracts
+    per docs/provider-capabilities-spec.md), so this projection cannot drift.
+
+    A native schema guarantee is the top tier regardless of the JSON-mode flag,
+    so both [(structured=true, json=true)] and [(structured=true, json=false)]
+    map to [Native_json_schema]. JSON mode without a native schema field is
+    [Json_object_only]; neither flag is [No_structured_output]. *)
+let structured_output_support (caps : capabilities) : structured_output_support =
+  if caps.supports_structured_output
+  then Native_json_schema
+  else if caps.supports_response_format_json
+  then Json_object_only
+  else No_structured_output
 ;;
 
 let effective_disable_parallel_tool_use
