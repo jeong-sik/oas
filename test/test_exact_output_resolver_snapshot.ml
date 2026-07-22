@@ -154,6 +154,13 @@ let ready target =
   | Error _ -> fail "exact target should admit"
 ;;
 
+let attempt ready =
+  match EO.start_attempt ready with
+  | Ok attempt -> attempt
+  | Error (EO.Call_id_generation_failed detail) ->
+    failf "exact attempt identity allocation failed: %s" detail
+;;
+
 let generation snapshot =
   EO.resolver_catalog_generation snapshot |> EO.catalog_generation_fingerprint
 ;;
@@ -182,7 +189,7 @@ type frozen_observation =
 let frozen_observation snapshot target =
   let plan = ready target in
   let provenance = EO.plan_provenance plan in
-  let receipt = EO.attempt_receipt plan in
+  let receipt = EO.attempt_receipt (attempt plan) in
   { snapshot_generation = generation snapshot
   ; snapshot_evidence = evidence snapshot
   ; selected_generation =

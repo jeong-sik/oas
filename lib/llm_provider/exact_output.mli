@@ -18,7 +18,9 @@ type target_identity
 type selected_target
 type output_requirement
 type ready_plan
+type attempt
 type receipt
+type call_id
 type schema_fingerprint
 type resolver_io = { getenv : string -> (string option, unit) result }
 
@@ -172,13 +174,15 @@ type execution_error_cause =
   | Internal_non_json_output
 
 type execution_error =
-  { receipt : receipt
+  { call_id : call_id
+  ; receipt : receipt
   ; cause : execution_error_cause
   ; raw_response : raw_response option
   }
 
 type success =
-  { receipt : receipt
+  { call_id : call_id
+  ; receipt : receipt
   ; output : Yojson.Safe.t
   ; provenance : plan_provenance
   ; raw_response : raw_response
@@ -245,7 +249,17 @@ val admit
 val plan_provenance : ready_plan -> plan_provenance
 val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
-val attempt_receipt : ready_plan -> receipt
+
+type start_attempt_error = Call_id_generation_failed of string
+
+(** Allocate a fresh, independent execution attempt for an admitted plan.
+    [admit] remains pure and the same immutable plan may start multiple attempts.
+    Each attempt owns an opaque call identity and affine execution state. *)
+val start_attempt : ready_plan -> (attempt, start_attempt_error) result
+
+val call_id_to_string : call_id -> string
+val attempt_receipt : attempt -> receipt
+val receipt_call_id : receipt -> call_id
 val receipt_phase : receipt -> effect_phase
 val receipt_dispatch_count : receipt -> int
 val receipt_http_status : receipt -> int option
@@ -255,8 +269,8 @@ val receipt_catalog_generation : receipt -> catalog_generation
 val receipt_catalog_evidence : receipt -> catalog_evidence
 val receipt_target_identity : receipt -> target_identity
 
-(** Execute the frozen request once. The plan is a single-use attempt:
-    duplicate or concurrent invocation is rejected before a second dispatch.
+(** Execute the frozen request once. The attempt is single-use: duplicate or
+    concurrent invocation of the same attempt is rejected before a second dispatch.
     Obtain {!attempt_receipt} before entering a cancellation scope; its phase is
     monotonic and remains queryable if cancellation escapes this function. The
     sole invocation performs at most one outward completion POST and never
@@ -264,5 +278,5 @@ val receipt_target_identity : receipt -> target_identity
 val execute_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
-  -> ready_plan
+  -> attempt
   -> (success, execution_error) result
