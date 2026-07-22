@@ -50,6 +50,7 @@ module Fs_atomic_eio = Fs_atomic_eio
 module Context = Agent_sdk_base.Context
 module Provider = Provider
 module Provider_runtime_binding = Provider_runtime_binding
+module Exact_output = Llm_provider.Exact_output
 module Binding_identity = Binding_identity
 module Provider_failure_attribution = Provider_failure_attribution
 module Image_generation = Llm_provider.Image_generation

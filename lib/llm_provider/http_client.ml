@@ -1787,6 +1787,8 @@ let post_sync_once
                 in
                 let header = Http.Header.of_list headers in
                 phase := Dispatch_started;
+                Http_client_phase_observer.observe
+                  Http_client_phase_observer.Dispatch_started;
                 let response, response_body =
                   Cohttp_eio.Client.post
                     ~sw:request_sw
@@ -1800,6 +1802,8 @@ let post_sync_once
                 in
                 phase := Response_received;
                 status := Some response_status;
+                Http_client_phase_observer.observe
+                  (Http_client_phase_observer.Response_received response_status);
                 Ok (conn, response, response_body))
             with
             | Eio.Time.Timeout as exn ->

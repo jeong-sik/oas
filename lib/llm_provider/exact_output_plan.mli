@@ -7,6 +7,13 @@
 type t
 type fingerprint
 
+type admission =
+  | Measured of Prepared_completion_request.admitted
+  | Unmeasured of
+      { config : Provider_config.t
+      ; messages : Types.message list
+      }
+
 type output_admission_error =
   | Explicit_capability_snapshot_required
   | Contradictory_output_state
@@ -41,7 +48,7 @@ type output_normalization_error =
   | Unexpected_structured_content
   | Invalid_json of string
 
-val admit : Prepared_completion_request.admitted -> (t, output_admission_error) result
+val admit : admission -> (t, output_admission_error) result
 val fingerprint : t -> fingerprint
 val fingerprint_to_string : fingerprint -> string
 val response_format : t -> Types.response_format

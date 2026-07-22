@@ -11,6 +11,8 @@
   output_token_wire_internal
   request_artifact_internal
   prepared_completion_request
+  http_client_phase_observer
+  exact_output_execution
   exact_output_plan)
  (libraries
   yojson

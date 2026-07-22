@@ -418,8 +418,8 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
- (name test_exact_output)
- (modules test_exact_output)
+ (name test_exact_output_single_surface)
+ (modules test_exact_output_single_surface)
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
