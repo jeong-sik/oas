@@ -418,8 +418,7 @@ let parse_optional_delta_string ~position ~field json =
   match assoc_field_opt field json with
   | None | Some `Null -> Ok None
   | Some (`String value) when not (Api_common.string_is_blank value) -> Ok (Some value)
-  | Some (`String _) ->
-    Error (Printf.sprintf "malformed_delta_tool_call:position:%d:blank_%s" position field)
+  | Some (`String _) -> Ok None
   | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _) ->
     Error
       (Printf.sprintf
