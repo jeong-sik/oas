@@ -1128,9 +1128,12 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_separates_j
 ;;
 
 let test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so () =
-  (* minimax-m3 catalog row explicitly does not guarantee schema-shaped output.
-     The named-provider path must reject the request with the model capability
-     error, not silently inherit the provider default. *)
+  (* The ollama_cloud minimax-m3 catalog row declares json_object mode but no
+     native schema guarantee (supports_response_format_json = true,
+     supports_structured_output = false). The named-provider path must reject a
+     schema request with the capability reason, and the reason must name the
+     precise tier — json_object-only — rather than the coarse
+     "no structured output" the identity gate used to emit. *)
   with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-test-key") (fun () ->
     let schema = `Assoc [ "type", `String "object" ] in
     let cfg : Provider.config =
@@ -1152,11 +1155,11 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_row_rejects_so 
       (match Llm_provider.Provider_config.validate_output_schema_request pc with
        | Error msg ->
          Alcotest.(check bool)
-           "rejected with model capability reason"
+           "rejected with the json_object-only capability reason"
            true
            (Util.contains_substring_ci
               ~haystack:msg
-              ~needle:"does not advertise native structured output")
+              ~needle:"JSON mode (json_object) only")
        | Ok () -> Alcotest.fail "expected rejection for ollama_cloud/minimax-m3")
     | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e)))
 ;;

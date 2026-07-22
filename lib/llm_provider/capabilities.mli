@@ -70,6 +70,15 @@ type task = Capability_vocab.task =
   | Image_generation
   | Video_generation
 
+(** Structured-output tier a resolved capability advertises, projected from the
+    two capability booleans by {!structured_output_support}. The request-admission
+    decision reads this typed view rather than provider identity. *)
+type structured_output_support = Capability_vocab.structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+[@@deriving show, eq]
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -146,6 +155,15 @@ type capabilities =
   }
 
 val default_capabilities : capabilities
+
+(** Structured-output tier a resolved capability record advertises. Total
+    projection of [supports_structured_output] and [supports_response_format_json]:
+    native schema support is the top tier regardless of the JSON-mode flag,
+    JSON mode alone is [Json_object_only], neither is [No_structured_output]. This
+    is the typed capability {!Provider_config.validate_output_schema_request}
+    reads instead of branching on provider identity. *)
+val structured_output_support : capabilities -> structured_output_support
+
 val anthropic_capabilities : capabilities
 val kimi_capabilities : capabilities
 val mimo_capabilities : capabilities

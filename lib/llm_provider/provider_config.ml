@@ -595,21 +595,6 @@ let structured_schema_requested (config : t) : bool =
   | None, (Types.JsonMode | Types.Off) -> false
 ;;
 
-let validate_model_structured_output_capability (config : t) =
-  let caps =
-    match capabilities_for_config_model config with
-    | Some c -> c
-    | None -> Capabilities.default_capabilities
-  in
-  if not caps.supports_structured_output
-  then
-    Error
-      (Printf.sprintf
-         "model %s does not advertise native structured output"
-         config.model_id)
-  else Ok ()
-;;
-
 let request_path_targets_responses_api request_path =
   let lower = String.lowercase_ascii (String.trim request_path) in
   let path =
@@ -632,19 +617,44 @@ let validate_request_path (config : t) =
   else Ok ()
 ;;
 
+(* Structured-output tier admission (OAS #2744 / masc#25550 audit finding P4).
+   The tier is read from the resolved model/provider capability, never from
+   provider identity. [config.kind] used to gate this (GLM hard-denied, three
+   kinds hard-allowed), so a capability-driven fact was decided by a vendor
+   name. Now the two catalog-sourced booleans project to a typed tier
+   ([Capabilities.structured_output_support]) matched exhaustively here: a
+   provider that declares native json_schema is admitted and one that declares
+   json_object-only is denied regardless of which vendor it is.
+
+   Capabilities are resolved through [request_capabilities_for_config], the same
+   function the request serializers use, so this decision and the wire it gates
+   read one capability record. That matters when a config names no catalog row:
+   the previous inline fallback dropped to [default_capabilities] (structured =
+   false) and would have denied an Anthropic/Gemini/DashScope config that names
+   an off-catalog model, whereas the wire path resolves it to the provider's
+   base record via the [config.kind] arm below. The old kind gate admitted those
+   unconditionally; routing through the shared resolver keeps that behaviour
+   (their base records declare native schema) without reading identity here —
+   identity selects the base capability record, it does not decide the tier. GLM
+   and Kimi base records are json_object-only and stay denied. *)
 let validate_output_schema_request (config : t) =
   match structured_schema_requested config with
   | false -> Ok ()
   | true ->
-    (match config.kind with
-     | Gemini | Anthropic | DashScope -> Ok ()
-     | Ollama -> validate_model_structured_output_capability config
-     | Glm ->
+    let caps = request_capabilities_for_config config in
+    (match Capabilities.structured_output_support caps with
+     | Capabilities.Native_json_schema -> Ok ()
+     | Capabilities.Json_object_only ->
        Error
-         "Glm supports JSON mode (json_object) only; native json_schema output is not \
-          documented in the current Z.AI API"
-     | Kimi -> validate_model_structured_output_capability config
-     | OpenAI_compat -> validate_model_structured_output_capability config)
+         (Printf.sprintf
+            "model %s advertises JSON mode (json_object) only; native json_schema output \
+             is not supported by its declared capability"
+            config.model_id)
+     | Capabilities.No_structured_output ->
+       Error
+         (Printf.sprintf
+            "model %s does not advertise native structured output"
+            config.model_id))
 ;;
 
 let has_host_prefix ~url ~prefix =
