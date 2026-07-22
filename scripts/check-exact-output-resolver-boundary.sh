@@ -397,7 +397,7 @@ for private_module in \
   exact_output_catalog_binding
 do
   if ! sed -n '/(private_modules/,/)/p' "$module_dir/dune" \
-    | grep -E "^[[:space:]]*$private_module([[:space:]]|\))" >/dev/null; then
+    | grep -E "^[[:space:]]*$private_module([[:space:]]|\)|$)" >/dev/null; then
     echo "exact-output public facade violation: $private_module is not private" >&2
     exit 1
   fi
