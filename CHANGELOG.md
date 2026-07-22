@@ -278,6 +278,19 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.221.0](https://github.com/jeong-sik/oas/compare/v0.220.5...v0.221.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* bind exact-output admission to immutable catalog snapshots ([#2777](https://github.com/jeong-sik/oas/issues/2777))
+* remove JSON fence stripping APIs, add supported_models to Model_catalog.model_entry, and add Unsupported_target_model admission errors.
+
+### Code Refactoring
+
+* bind exact-output admission to immutable catalog snapshots ([#2777](https://github.com/jeong-sik/oas/issues/2777)) ([52c265f](https://github.com/jeong-sik/oas/commit/52c265fb7dc03cf9324bd576587fada5f01f544c))
+* hard-cut exact-output admission and repair HTTP cache lifecycle ([#2778](https://github.com/jeong-sik/oas/issues/2778)) ([d1aa21e](https://github.com/jeong-sik/oas/commit/d1aa21eab0cdcdb6f72aef2fb2837f88d119d566))
+
 ## [0.220.5](https://github.com/jeong-sik/oas/compare/v0.220.4...v0.220.5) (2026-07-22)
 
 
