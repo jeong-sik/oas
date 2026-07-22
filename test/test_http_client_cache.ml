@@ -753,11 +753,12 @@ let test_one_dispatch_body_timeout_covers_response_headers () =
     with_raw_one_dispatch_server
       ~before_response:(fun ~clock ~request_index:_ -> Eio.Time.sleep clock 0.25)
       ~response_body:"ok"
-    @@ fun ~sw ~net ~clock:_ ~url ->
+    @@ fun ~sw ~net ~clock ~url ->
     let cache = Http_client.create_cache ~sw () in
     let outcome =
       Http_client.post_sync_once
         ~cache
+        ~clock
         ~net
         ~url
         ~headers:[ "Content-Type", "application/json"; "Content-Length", "2" ]
