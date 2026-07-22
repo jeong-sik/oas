@@ -316,8 +316,18 @@ require_code_pattern \
   'Complete_common\.serialize_http_request_with_thinking_control' \
   "$exact_output_plan_source"
 require_named_function_pattern \
-  "Complete_common exact serializer no longer calls the frozen Anthropic artifact entrypoint" \
+  "Complete_common serialization policy lost the frozen Anthropic artifact entrypoint" \
   'Backend_anthropic\.build_request_artifact_with_thinking_control' \
+  "$(dirname "$exact_output_source")/complete_common.ml" \
+  'serialize_http_request_with_policy'
+require_named_function_pattern \
+  "Complete_common exact serializer no longer delegates to the serialization policy" \
+  'serialize_http_request_with_policy' \
+  "$(dirname "$exact_output_source")/complete_common.ml" \
+  'serialize_http_request_with_thinking_control'
+require_named_function_pattern \
+  "Complete_common exact serializer no longer selects the frozen Anthropic policy" \
+  'Frozen_anthropic_thinking_control[[:space:]]+anthropic_thinking_control' \
   "$(dirname "$exact_output_source")/complete_common.ml" \
   'serialize_http_request_with_thinking_control'
 require_named_function_pattern \
