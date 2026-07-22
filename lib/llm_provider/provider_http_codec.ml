@@ -6,6 +6,15 @@ type t =
   | Gemini_generate_content
   | Glm_chat
 
+let fingerprint_tag = function
+  | Anthropic_messages -> "anthropic-messages"
+  | Openai_chat -> "openai-chat"
+  | Openai_responses -> "openai-responses"
+  | Ollama_chat -> "ollama-chat"
+  | Gemini_generate_content -> "gemini-generate-content"
+  | Glm_chat -> "glm-chat"
+;;
+
 let of_config (config : Provider_config.t) =
   (* [kind] owns the wire contract. In particular, Kimi remains Anthropic
      Messages through custom proxy paths; callers targeting Kimi's OpenAI-
