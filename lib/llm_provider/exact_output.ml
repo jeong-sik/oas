@@ -487,11 +487,11 @@ let receipt_http_status receipt =
   | Not_started_state | Before_dispatch_state | Dispatch_started_state -> None
 ;;
 
-let receipt_plan_fingerprint receipt = receipt.plan_fingerprint
-let receipt_request_body_sha256 receipt = receipt.request_body_sha256
-let receipt_catalog_generation receipt = receipt.catalog_generation
-let receipt_catalog_evidence receipt = receipt.catalog_evidence
-let receipt_target_identity receipt = receipt.target_identity
+let receipt_plan_fingerprint (receipt : receipt) = receipt.plan_fingerprint
+let receipt_request_body_sha256 (receipt : receipt) = receipt.request_body_sha256
+let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
+let receipt_catalog_evidence (receipt : receipt) = receipt.catalog_evidence
+let receipt_target_identity (receipt : receipt) = receipt.target_identity
 
 let state_rank = function
   | Not_started_state -> 0

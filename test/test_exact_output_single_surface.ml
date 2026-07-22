@@ -557,7 +557,7 @@ let test_no_measure_one_post_and_wire_authority () =
       ];
     inspect provenance body;
     match result with
-    | Ok success ->
+    | Ok (success : EO.success) ->
       check
         bool
         (id ^ " output")
