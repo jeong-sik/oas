@@ -278,6 +278,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.220.5](https://github.com/jeong-sik/oas/compare/v0.220.4...v0.220.5) (2026-07-22)
+
+
+### Bug Fixes
+
+* **agent-sdk:** restore exact-output public compile ([#2773](https://github.com/jeong-sik/oas/issues/2773)) ([ea03a7d](https://github.com/jeong-sik/oas/commit/ea03a7d85080431a0809beebfe2c613fceafb963))
+
 ## [0.220.4](https://github.com/jeong-sik/oas/compare/v0.220.3...v0.220.4) (2026-07-22)
 
 
