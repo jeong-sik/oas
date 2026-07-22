@@ -9,6 +9,14 @@ let check_int = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
 let check_float = Alcotest.(check (float 0.0001))
 
+(* Local substring search: this suite links no shared string util. *)
+let contains ~needle haystack =
+  let nl = String.length needle
+  and hl = String.length haystack in
+  let rec at i = i + nl <= hl && (String.sub haystack i nl = needle || at (i + 1)) in
+  nl = 0 || at 0
+;;
+
 let msg role content : message =
   { role; content; name = None; tool_call_id = None; metadata = [] }
 ;;
@@ -730,7 +738,9 @@ let test_ollama_native_multimodal_variants () =
   (* oas#2744: documents used to be appended to [images] "for vision-model
      compatibility", which made the server read a PDF as a picture with nothing
      reporting the substitution. The native wire has no document part, so a
-     document is now rejected by name. *)
+     document is degraded to a named text placeholder — it is not sent as a
+     picture, and it does not reject the turn (which would retroactively sink
+     any conversation holding a document in its history). *)
   (match
      Serialize.ollama_messages_of_history
        [ msg
@@ -743,13 +753,17 @@ let test_ollama_native_multimodal_variants () =
            ]
        ]
    with
-   | Ok _ -> Alcotest.fail "expected the document to be rejected, not serialized"
-   | Error error ->
-     check_string
-       "document rejected by the native wire"
-       "document block (media_type \"application/pdf\") cannot be placed on this wire: \
-        it has no document part"
-       error);
+   | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
+   | Ok wire ->
+     let serialized = Yojson.Safe.to_string (`List wire) in
+     check_bool
+       "document not relabelled into the images array"
+       false
+       (contains ~needle:"pdf1" serialized);
+     check_bool
+       "placeholder names the omission"
+       true
+       (contains ~needle:"document omitted" serialized));
   (* Audio is not supported by Ollama native /api/chat and must fail closed
      instead of being silently dropped. *)
   expect_invalid_arg "ollama audio input" (fun () ->
@@ -775,8 +789,9 @@ let test_ollama_native_multimodal_variants () =
   let mixed_images = member "images" mixed |> as_list "mixed images" in
   check_int "mixed images count" 1 (List.length mixed_images);
   check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string);
-  (* A document alongside admissible media is still rejected: admission looks at
-     every block, not just the first. *)
+  (* A document alongside admissible media degrades in place: the image is kept
+     (it is representable), the document becomes a named placeholder, and the
+     turn is not rejected. Degrade looks at every block, not just the first. *)
   match
     Serialize.ollama_messages_of_history
       [ msg
@@ -791,13 +806,21 @@ let test_ollama_native_multimodal_variants () =
           ]
       ]
   with
-  | Ok _ -> Alcotest.fail "expected the mixed document to be rejected"
-  | Error error ->
-    check_string
-      "mixed document rejected"
-      "document block (media_type \"application/pdf\") cannot be placed on this wire: it \
-       has no document part"
-      error
+  | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
+  | Ok wire ->
+    let serialized = Yojson.Safe.to_string (`List wire) in
+    check_bool
+      "admissible image survives alongside the degraded document"
+      true
+      (contains ~needle:"png2" serialized);
+    check_bool
+      "document not relabelled into images"
+      false
+      (contains ~needle:"pdf2" serialized);
+    check_bool
+      "document degraded to a named placeholder"
+      true
+      (contains ~needle:"document omitted" serialized)
 ;;
 
 let test_assistant_tool_calls_openai_ollama_and_glm () =

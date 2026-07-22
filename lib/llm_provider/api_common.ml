@@ -177,6 +177,78 @@ let admit_document_messages ~wire_form ~model_id ~supports_document_input messag
   loop messages
 ;;
 
+(* oas#2744 — degrade, not reject.
+   [admit_document_*] answers "may this document reach the wire"; when it may
+   not, the earlier design raised [Invalid_argument], which
+   [Complete.complete]'s wrapper turned into a rejected turn. That is right for
+   a document the caller is introducing now, but the same functions walk the
+   ENTIRE message history every turn, so a document resident in an
+   already-answered turn permanently sank every later turn of that conversation
+   against a model without the capability — retroactively, for state written
+   before this behaviour existed.
+
+   The wire still must not carry a document as some other modality (the audit's
+   actual defect: a PDF relabelled [image_url]). So instead of relabelling or
+   rejecting, an unrepresentable document is replaced with a visible text block
+   that names what was dropped. This is not silent: the model — and through it
+   the user — sees that a document was omitted and why, which is the honest
+   degraded outcome for a conversation whose model cannot read documents. A
+   model that CAN carry the document (capability declared, wire has a document
+   part) keeps its native block untouched. *)
+let document_omitted_placeholder ~media_type =
+  Text
+    (Printf.sprintf
+       "[document omitted: this model does not accept document input (media_type %s)]"
+       media_type)
+;;
+
+let degrade_document_block ~wire_form ~supports_document_input block =
+  match block with
+  | Document { media_type; _ } ->
+    let representable =
+      match wire_form with
+      | Document_unrepresentable -> false
+      | Document_source_block
+      | Document_inline_data
+      | Document_input_file_part
+      | Document_chat_file_part -> supports_document_input
+    in
+    if representable then block else document_omitted_placeholder ~media_type
+  | Text _
+  | Thinking _
+  | ReasoningDetails _
+  | RedactedThinking _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Audio _ -> block
+;;
+
+(* Replace every unrepresentable document across the whole history with the
+   placeholder, leaving all other blocks (and representable documents) intact.
+   Returns the rewritten messages and the count of documents degraded, so a
+   caller may log or surface the degradation without re-walking. *)
+let degrade_document_messages ~wire_form ~supports_document_input messages =
+  let degraded = ref 0 in
+  let rewrite (message : Types.message) =
+    let content =
+      List.map
+        (fun block ->
+           let block' =
+             degrade_document_block ~wire_form ~supports_document_input block
+           in
+           (match block, block' with
+            | Document _, Text _ -> incr degraded
+            | _ -> ());
+           block')
+        message.content
+    in
+    { message with content }
+  in
+  let messages = List.map rewrite messages in
+  messages, !degraded
+;;
+
 type tool_result_content_style =
   | Tool_result_content_string
   | Tool_result_content_text_blocks

@@ -762,19 +762,19 @@ let ollama_messages_of_history ?(model_id = "") messages =
        | Ok () -> validate rest)
   in
   (* oas#2744 — the native /api/chat wire has no document part, so a document
-     is rejected here with its media type named rather than being pushed into
-     the [images] array as if it were a picture. The capability flag is read
-     from the resolved row for a uniform error message; the wire form alone is
-     already decisive. *)
-  let admit_documents () =
-    Api_common.admit_document_messages
+     cannot be sent as one. Rather than pushing it into the [images] array as if
+     it were a picture (the audit's defect) or rejecting the whole request
+     (which retroactively sank every later turn of a conversation holding a
+     document in its history), degrade each document to a named text placeholder
+     before rendering. [Document_unrepresentable] means the wire form alone is
+     decisive, so the capability flag does not gate this. *)
+  let messages, _documents_degraded =
+    Api_common.degrade_document_messages
       ~wire_form:Api_common.Document_unrepresentable
-      ~model_id
       ~supports_document_input:(document_input_supported_for_model_id model_id)
       messages
-    |> Result.map_error Api_common.document_admission_error_to_string
   in
-  match Result.bind (validate messages) admit_documents with
+  match validate messages with
   | Error _ as error -> error
   | Ok () ->
     (match Tool_result_projection.of_messages messages with

@@ -119,48 +119,89 @@ let test_admission_ignores_image_and_audio () =
        [ Types.Text "prefix"; image_block; audio_block ])
 ;;
 
-let test_openai_chat_request_rejects_undeclared_document () =
-  (* End-to-end through the request builder: the pre-fix binary produced
-     {"type":"image_url",...} here for every one of these rows. *)
+let test_openai_chat_request_degrades_undeclared_document () =
+  (* End-to-end through the request builder. The pre-fix binary produced
+     {"type":"image_url",...} here (a PDF as a picture); the reject-era binary
+     raised and sank the whole request. Now an unrepresentable document is
+     replaced with a named text placeholder: the request succeeds, carries no
+     image_url, and the omission is legible. *)
   List.iter
     (fun model_id ->
        let config = openai_config model_id in
        let messages = [ user_message [ Types.Text "prefix"; document_block ] ] in
        match Backend_openai_request.build_request_assoc ~config ~messages () with
        | exception Invalid_argument message ->
-         check
-           bool
-           (Printf.sprintf "%s: rejection names the media type" model_id)
-           true
-           (contains ~needle:"application/pdf" message);
-         check
-           bool
-           (Printf.sprintf "%s: rejection names the capability" model_id)
-           true
-           (contains ~needle:"supports_document_input" message)
+         failf "%s: expected degrade, got a rejection: %s" model_id message
        | body ->
-         failf
-           "%s: expected a typed rejection, serialized %s"
-           model_id
-           (Yojson.Safe.to_string body))
+         let serialized = Yojson.Safe.to_string body in
+         check
+           bool
+           (Printf.sprintf "%s: no image_url — document is not relabelled" model_id)
+           false
+           (contains ~needle:"image_url" serialized);
+         check
+           bool
+           (Printf.sprintf "%s: placeholder names the omission" model_id)
+           true
+           (contains ~needle:"document omitted" serialized);
+         check
+           bool
+           (Printf.sprintf "%s: placeholder names the media type" model_id)
+           true
+           (contains ~needle:"application/pdf" serialized))
     [ "gpt-5.2"; "glm-4.6"; "glm-4-flash"; "qwen3:8b" ]
 ;;
 
-let test_ollama_native_rejects_document () =
+let test_ollama_native_degrades_document () =
   match
     Backend_openai_serialize.ollama_messages_of_history
       ~model_id:"qwen3:8b"
       [ user_message [ Types.Text "prefix"; document_block ] ]
   with
+  | Error message -> failf "expected degrade, got a rejection: %s" message
   | Ok wire ->
-    failf "expected a rejection, serialized %s" (Yojson.Safe.to_string (`List wire))
-  | Error message ->
-    check bool "names the media type" true (contains ~needle:"application/pdf" message);
+    let serialized = Yojson.Safe.to_string (`List wire) in
+    (* Native /api/chat: the pre-fix binary pushed the document into [images].
+       After degrade it must not appear there; the placeholder text carries the
+       omission in the scalar content instead. *)
     check
       bool
-      "names the missing wire representation"
+      "no images array entry — document is not relabelled as a picture"
+      false
+      (contains ~needle:"UERG" serialized);
+    check
+      bool
+      "placeholder names the omission"
       true
-      (contains ~needle:"no document part" message)
+      (contains ~needle:"document omitted" serialized)
+;;
+
+(* A document sitting in an already-answered turn must not sink a later,
+   unrelated turn. This is the retroactive-liveness regression the reject era
+   introduced (a document in history rejected every subsequent request). *)
+let test_history_document_does_not_sink_later_turn () =
+  let config = openai_config "gpt-5.2" in
+  let messages =
+    [ user_message [ Types.Text "here is a doc"; document_block ]
+    ; { (user_message [ Types.Text "(assistant replied)" ]) with role = Types.Assistant }
+    ; user_message [ Types.Text "unrelated follow-up question" ]
+    ]
+  in
+  match Backend_openai_request.build_request_assoc ~config ~messages () with
+  | exception Invalid_argument message ->
+    failf "a history document sank a later turn (the regression): %s" message
+  | body ->
+    let serialized = Yojson.Safe.to_string body in
+    check
+      bool
+      "later turn succeeds, no image_url"
+      false
+      (contains ~needle:"image_url" serialized);
+    check
+      bool
+      "history document degraded to a placeholder"
+      true
+      (contains ~needle:"document omitted" serialized)
 ;;
 
 (* ── (b) wires that carry documents emit their own native form ────────── *)
@@ -420,13 +461,17 @@ let () =
             `Quick
             test_admission_ignores_image_and_audio
         ; test_case
-            "openai chat request rejects instead of emitting image_url"
+            "openai chat request degrades document to a placeholder, not image_url"
             `Quick
-            test_openai_chat_request_rejects_undeclared_document
+            test_openai_chat_request_degrades_undeclared_document
         ; test_case
-            "ollama native rejects instead of appending to images"
+            "ollama native degrades document, not into images"
             `Quick
-            test_ollama_native_rejects_document
+            test_ollama_native_degrades_document
+        ; test_case
+            "history document does not sink a later turn"
+            `Quick
+            test_history_document_does_not_sink_later_turn
         ] )
     ; ( "wires that carry documents keep their native form"
       , [ test_case
