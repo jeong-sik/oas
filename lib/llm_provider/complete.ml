@@ -130,9 +130,7 @@ let receipt_phase = function
 
 let receipt_dispatch_count = function
   | Before_dispatch_receipt _ -> 0
-  | Dispatch_started_receipt _
-  | Response_received_receipt _
-  | Terminal_receipt _ -> 1
+  | Dispatch_started_receipt _ | Response_received_receipt _ | Terminal_receipt _ -> 1
 ;;
 
 let receipt_http_status = function
@@ -403,9 +401,9 @@ let execute_once ~net ?clock ?connection_cache plan =
   then error (before_dispatch_receipt ()) Frozen_request_mismatch
   else (
     match
-      Exact_output_plan.connect_timeout_s plan,
-      Exact_output_plan.body_timeout_s plan,
-      clock
+      ( Exact_output_plan.connect_timeout_s plan
+      , Exact_output_plan.body_timeout_s plan
+      , clock )
     with
     | connect_timeout_s, body_timeout_s, None
       when Option.is_some connect_timeout_s || Option.is_some body_timeout_s ->
@@ -443,9 +441,7 @@ let execute_once ~net ?clock ?connection_cache plan =
               raw.body
           with
           | Error provider_error ->
-            error
-              (response_received_receipt raw.status)
-              (Provider_error provider_error)
+            error (response_received_receipt raw.status) (Provider_error provider_error)
           | Ok response ->
             (match Exact_output_plan.normalize plan response with
              | Error normalization_error ->

@@ -54,4 +54,8 @@ val provider_kind : t -> Provider_config.provider_kind
 val connect_timeout_s : t -> float option
 val body_timeout_s : t -> float option
 val verify_frozen_request : t -> bool
-val normalize : t -> Types.api_response -> (normalized_output, output_normalization_error) result
+
+val normalize
+  :  t
+  -> Types.api_response
+  -> (normalized_output, output_normalization_error) result

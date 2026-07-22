@@ -93,26 +93,19 @@ let parse_sync_response ~http_codec ~provider_kind body =
   | Backend_gemini.Gemini_api_error message ->
     Error
       (Http_client.HttpError
-         { code = 400
-         ; body = "Gemini API error: " ^ message
-         ; retry_after_header = None
-         })
+         { code = 400; body = "Gemini API error: " ^ message; retry_after_header = None })
   | Backend_glm.Glm_api_error error ->
     (match error.origin with
-     | Backend_glm.Response_parse ->
-       provider_parse_failure ~parser:"glm" error.message
+     | Backend_glm.Response_parse -> provider_parse_failure ~parser:"glm" error.message
      | Backend_glm.Provider_response ->
-       let semantic_code =
-         Backend_glm.http_code_of_glm_error_class error.error_class
-       in
+       let semantic_code = Backend_glm.http_code_of_glm_error_class error.error_class in
        let body =
          match error.code with
          | Some code -> Printf.sprintf "Glm error %s: %s" code error.message
          | None -> Printf.sprintf "Glm error without code: %s" error.message
        in
        Error
-         (Http_client.HttpError
-            { code = semantic_code; body; retry_after_header = None }))
+         (Http_client.HttpError { code = semantic_code; body; retry_after_header = None }))
   | exn ->
     Reserved_exn.reraise_if_reserved exn;
     let message = Printexc.to_string exn in

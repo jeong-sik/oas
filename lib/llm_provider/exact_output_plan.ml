@@ -117,9 +117,7 @@ let content_uses_exact_cross_feature = function
   | Types.Text _ | Types.Image _ | Types.Document _ | Types.Audio _ -> false
 ;;
 
-let request_uses_exact_cross_feature
-      (request : Llm_transport.completion_request)
-  =
+let request_uses_exact_cross_feature (request : Llm_transport.completion_request) =
   let config = request.config in
   request.tools <> []
   || config.tool_stream
@@ -159,9 +157,7 @@ let forbidden_framing_headers =
 
 let caller_supplied_framing_header headers =
   List.find_map
-    (fun (name, _) ->
-       forbidden_framing_headers
-       |> List.find_opt (header_name_equal name))
+    (fun (name, _) -> forbidden_framing_headers |> List.find_opt (header_name_equal name))
     headers
 ;;
 
@@ -193,8 +189,8 @@ let plan_fingerprint
     ; wire.url
     ; wire.body_sha256
     ; Yojson.Safe.to_string (Types.response_format_to_json config.response_format)
-    ; if capabilities.supports_response_format_json then "1" else "0"
-    ; if capabilities.supports_structured_output then "1" else "0"
+    ; (if capabilities.supports_response_format_json then "1" else "0")
+    ; (if capabilities.supports_structured_output then "1" else "0")
     ; string_of_int fit.input_tokens
     ; string_of_int fit.reserved_output_tokens
     ; string_of_int fit.max_context_tokens
@@ -254,11 +250,9 @@ let admit admitted =
     then
       Error
         (Unsupported_output_contract
-           { provider_kind = config.kind
-           ; model_id = config.model_id
-           ; response_format
-           })
-    else if Option.is_some (caller_supplied_framing_header (config.headers @ auth_headers))
+           { provider_kind = config.kind; model_id = config.model_id; response_format })
+    else if
+      Option.is_some (caller_supplied_framing_header (config.headers @ auth_headers))
     then
       Error
         (Caller_supplied_framing_header_not_allowed
@@ -362,8 +356,7 @@ let normalize_response response_format (response : Types.api_response) =
             let validation =
               match response_format with
               | Types.JsonMode -> Json_syntax_validated
-              | Types.JsonSchema _ ->
-                Provider_schema_requested_client_validation_required
+              | Types.JsonSchema _ -> Provider_schema_requested_client_validation_required
               | Types.Off -> assert false
             in
             Ok (Json_output { value; validation })
@@ -386,7 +379,7 @@ let%test "JsonMode records syntax-only validation provenance" =
   match normalize_response Types.JsonMode response with
   | Ok
       (Json_output
-         { value = `Assoc [ "accepted", `Bool true ]
+         { value = `Assoc [ ("accepted", `Bool true) ]
          ; validation = Json_syntax_validated
          }) -> true
   | Ok _ | Error _ -> false

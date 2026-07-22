@@ -1070,7 +1070,11 @@ let valid_single_content_length = function
   | [ value ] ->
     let value = String.trim value in
     (not (String.equal value ""))
-    && String.for_all (function '0' .. '9' -> true | _ -> false) value
+    && String.for_all
+         (function
+           | '0' .. '9' -> true
+           | _ -> false)
+         value
     && Option.is_some (Int64.of_string_opt value)
   | [] | _ :: _ :: _ -> false
 ;;
@@ -1094,8 +1098,8 @@ let sync_response_connection_is_reusable ~request_headers response =
   in
   let response_framing =
     match
-      Http.Header.get_multi response_headers "content-length",
-      Http.Header.get_multi response_headers "transfer-encoding"
+      ( Http.Header.get_multi response_headers "content-length"
+      , Http.Header.get_multi response_headers "transfer-encoding" )
     with
     | [], [] -> `Absent
     | content_lengths, [] when valid_single_content_length content_lengths ->
@@ -1115,7 +1119,7 @@ let sync_response_connection_is_reusable ~request_headers response =
   (not is_upgrade)
   && response_allows_persistence
   && response_is_self_delimited
-  && not (header_has_token request_headers "connection" "close")
+  && (not (header_has_token request_headers "connection" "close"))
   && not (header_has_token response_headers "connection" "close")
 ;;
 
@@ -1647,9 +1651,7 @@ let post_sync_once
       ~body
       ()
   =
-  let before_dispatch error =
-    Error (Before_dispatch_error error)
-  in
+  let before_dispatch error = Error (Before_dispatch_error error) in
   match
     resolve_explicit_deadline
       ~operation:"post_sync_once"
@@ -1696,10 +1698,8 @@ let post_sync_once
             | Dispatch_started, None -> Error (Dispatch_started_error error)
             | Response_received, Some status ->
               Error (Response_received_error { status; error })
-            | Before_dispatch, Some _
-            | Dispatch_started, Some _
-            | Response_received, None ->
-              invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
+            | Before_dispatch, Some _ | Dispatch_started, Some _ | Response_received, None
+              -> invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
           in
           let release_connection () =
             match !connection with
@@ -1714,11 +1714,7 @@ let post_sync_once
             | None ->
               (try
                  Reserved_exn.reraise_if_reserved exn;
-                 Error
-                   (NetworkError
-                      { message = Printexc.to_string exn
-                      ; kind = Unknown
-                      })
+                 Error (NetworkError { message = Printexc.to_string exn; kind = Unknown })
                with
                | reserved_exn ->
                  release_connection ();
@@ -1742,12 +1738,10 @@ let post_sync_once
           let headers_deadline =
             match connect_deadline, body_deadline with
             | Unbounded, Unbounded -> None
-            | Bounded (clock, timeout_s), Unbounded ->
-              Some (clock, timeout_s, `Connect)
-            | Unbounded, Bounded (clock, timeout_s) ->
-              Some (clock, timeout_s, `Total)
-            | Bounded (connect_clock, connect_timeout_s),
-              Bounded (body_clock, body_timeout_s) ->
+            | Bounded (clock, timeout_s), Unbounded -> Some (clock, timeout_s, `Connect)
+            | Unbounded, Bounded (clock, timeout_s) -> Some (clock, timeout_s, `Total)
+            | ( Bounded (connect_clock, connect_timeout_s)
+              , Bounded (body_clock, body_timeout_s) ) ->
               if connect_timeout_s <= body_timeout_s
               then Some (connect_clock, connect_timeout_s, `Connect)
               else Some (body_clock, body_timeout_s, `Total)
@@ -1854,10 +1848,10 @@ let post_sync_once
                 in
                 let release_result =
                   match
-                    cache,
-                    sync_response_connection_is_reusable
-                      ~request_headers:(Http.Header.of_list headers)
-                      response
+                    ( cache
+                    , sync_response_connection_is_reusable
+                        ~request_headers:(Http.Header.of_list headers)
+                        response )
                   with
                   | Some cache, true ->
                     (try

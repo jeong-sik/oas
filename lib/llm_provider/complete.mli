@@ -94,6 +94,7 @@ val admitted_fit : admitted_request -> context_fit
 (** Opaque immutable and reusable plan for one already selected provider slot.
     Each execution is an independent attempt with at most one dispatch. *)
 type exact_output_plan
+
 type plan_fingerprint
 
 type output_admission_error =
