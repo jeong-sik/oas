@@ -246,31 +246,6 @@ let string_contains ~haystack ~needle =
   needle_length = 0 || loop 0
 ;;
 
-let test_embedded_target_is_json_mode_not_fake_schema () =
-  let io : EO.resolver_io =
-    { getenv =
-        (fun name ->
-          Ok (if String.equal name "OLLAMA_CLOUD_API_KEY" then Some "fixture" else None))
-    }
-  in
-  let snapshot =
-    match EO.load_resolver_snapshot ~io () with
-    | Ok snapshot -> snapshot
-    | Error _ -> fail "embedded snapshot should load"
-  in
-  let target = resolve snapshot "ollama-cloud-minimax-m3-json" in
-  let provenance = ready target |> EO.plan_provenance in
-  check
-    bool
-    "Ollama Cloud minimax target promises JSON syntax only"
-    true
-    (provenance.actual_assurance = EO.Json_syntax_only);
-  let strict = EO.make_output_requirement ~schema ~minimum_guarantee:EO.Provider_schema in
-  match EO.admit ~target ~messages:[ message ] strict with
-  | Error EO.Provider_schema_unavailable -> ()
-  | Ok _ | Error _ -> fail "embedded target must not invent native schema support"
-;;
-
 let test_exact_target_id_has_no_alias_or_default () =
   let snapshot =
     snapshot
@@ -424,54 +399,6 @@ let test_pricing_and_formatting_are_nonfunctional () =
     "TOML formatting preserves canonical evidence"
     true
     (evidence first = evidence formatted)
-;;
-
-let test_sparse_pricing_overlay_preserves_embedded_functional_snapshot () =
-  let io : EO.resolver_io =
-    { getenv =
-        (fun name ->
-          Ok
-            (if String.equal name "OLLAMA_CLOUD_API_KEY"
-             then Some "sparse-price-fixture"
-             else None))
-    }
-  in
-  let load ?overlay () =
-    match EO.load_resolver_snapshot ~io ?overlay () with
-    | Ok snapshot -> snapshot
-    | Error _ -> fail "embedded sparse-pricing snapshot should load"
-  in
-  let baseline = load () in
-  let overlay : EO.catalog_overlay =
-    { source = "sparse pricing-only delta"
-    ; contents =
-        "[[models]]\n\
-         id_prefix = \"minimax-m3\"\n\
-         provider_name = \"ollama_cloud\"\n\
-         input_per_million = 123456.0\n\
-         output_per_million = 654321.0\n"
-    }
-  in
-  let repriced = load ~overlay () in
-  let baseline_observation =
-    frozen_observation baseline (resolve baseline "ollama-cloud-minimax-m3-json")
-  in
-  let repriced_observation =
-    frozen_observation repriced (resolve repriced "ollama-cloud-minimax-m3-json")
-  in
-  check_observation_is_coherent "embedded baseline" baseline_observation;
-  check_observation_is_coherent "sparse repricing" repriced_observation;
-  check
-    bool
-    "sparse pricing changes no functional selected/provenance/receipt field"
-    true
-    (functional_observation baseline_observation
-     = functional_observation repriced_observation);
-  check
-    bool
-    "sparse pricing remains distinct raw catalog evidence"
-    true
-    (baseline_observation.snapshot_evidence <> repriced_observation.snapshot_evidence)
 ;;
 
 let test_every_functional_projection_field_changes_generation () =
@@ -745,11 +672,7 @@ let () =
   run
     "exact-output-resolver-snapshot"
     [ ( "resolver"
-      , [ test_case
-            "embedded JSON-mode target"
-            `Quick
-            test_embedded_target_is_json_mode_not_fake_schema
-        ; test_case "exact id only" `Quick test_exact_target_id_has_no_alias_or_default
+      , [ test_case "exact id only" `Quick test_exact_target_id_has_no_alias_or_default
         ; test_case
             "environment consumed once"
             `Quick
@@ -766,10 +689,6 @@ let () =
             "pricing and formatting nonfunctional"
             `Quick
             test_pricing_and_formatting_are_nonfunctional
-        ; test_case
-            "sparse pricing preserves functional snapshot"
-            `Quick
-            test_sparse_pricing_overlay_preserves_embedded_functional_snapshot
         ; test_case
             "functional projection sensitivity"
             `Quick

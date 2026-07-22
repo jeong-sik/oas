@@ -20,22 +20,8 @@ let () =
         "embedded model catalog: %d models, %d providers\n"
         model_count
         provider_count;
-      let io : EO.resolver_io =
-        { getenv =
-            (fun name ->
-              Ok
-                (if String.equal name "OLLAMA_CLOUD_API_KEY"
-                 then Some "standalone-probe-only"
-                 else None))
-        }
-      in
+      let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
       match EO.load_resolver_snapshot ~io () with
       | Error _ -> fail "embedded resolver snapshot failed"
-      | Ok snapshot ->
-        (match EO.target_ref "ollama-cloud-minimax-m3-json" with
-         | Error _ -> fail "embedded exact target id was rejected"
-         | Ok target_ref ->
-           (match EO.resolve_target snapshot target_ref with
-            | Error _ -> fail "embedded exact target did not resolve"
-            | Ok _ -> ())))
+      | Ok _ -> ())
 ;;

@@ -50,6 +50,7 @@ type resolver_endpoint_error =
   | Base_url_query_not_allowed
   | Base_url_fragment_not_allowed
   | Invalid_request_path
+  | Unsupported_gemini_request_path
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
@@ -430,21 +431,29 @@ let contains_encoded_control value =
     [ "%00"; "%0a"; "%0d" ]
 ;;
 
-let validate_request_path ~target_ref value =
-  let path_segments = String.split_on_char '/' value in
-  if
-    value = ""
-    || value.[0] <> '/'
-    || has_control value
-    || contains_encoded_control value
-    || String.contains value '%'
-    || String.contains value '\\'
-    || String.contains value '?'
-    || String.contains value '#'
-    || List.exists (fun segment -> segment = "." || segment = "..") path_segments
-    || List.exists (fun segment -> segment = "") (List.tl path_segments)
-  then Error (Target_endpoint_invalid { target_ref; cause = Invalid_request_path })
-  else Ok ()
+let validate_request_path ~target_ref ~kind value =
+  match kind with
+  | PC.Gemini ->
+    if value = ""
+    then Ok ()
+    else
+      Error
+        (Target_endpoint_invalid { target_ref; cause = Unsupported_gemini_request_path })
+  | PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope ->
+    let path_segments = String.split_on_char '/' value in
+    if
+      value = ""
+      || value.[0] <> '/'
+      || has_control value
+      || contains_encoded_control value
+      || String.contains value '%'
+      || String.contains value '\\'
+      || String.contains value '?'
+      || String.contains value '#'
+      || List.exists (fun segment -> segment = "." || segment = "..") path_segments
+      || List.exists (fun segment -> segment = "") (List.tl path_segments)
+    then Error (Target_endpoint_invalid { target_ref; cause = Invalid_request_path })
+    else Ok ()
 ;;
 
 let validate_model_path ~target_ref kind model_id =
@@ -676,7 +685,10 @@ let load_resolver_snapshot ~io ?overlay () =
          let base_url = Model_provider_catalog.resolved_base_url ~getenv provider in
          let* () = validate_base_url ~target_ref:target.target_ref base_url in
          let* () =
-           validate_request_path ~target_ref:target.target_ref provider.request_path
+           validate_request_path
+             ~target_ref:target.target_ref
+             ~kind:provider.kind
+             provider.request_path
          in
          let* () =
            validate_model_path ~target_ref:target.target_ref provider.kind target.model_id

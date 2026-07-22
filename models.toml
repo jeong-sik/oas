@@ -2248,11 +2248,6 @@ api_key_env = "OLLAMA_CLOUD_API_KEY"
 capabilities_base = "ollama_cloud"
 identity_hosts = ["ollama.com"]
 
-[[targets]]
-id = "ollama-cloud-minimax-m3-json"
-provider_ref = "ollama_cloud"
-model_id = "minimax-m3"
-
 [[providers]]
 id = "glm"
 kind = "glm"

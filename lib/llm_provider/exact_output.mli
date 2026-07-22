@@ -113,6 +113,9 @@ type wire_admission_error =
 type admission_error =
   | Provider_schema_unavailable
   | Json_syntax_unavailable
+  | Unsupported_schema_keyword of string
+  | Unsupported_schema_type of string
+  | Invalid_schema
   | Wire_admission_rejected of wire_admission_error
 
 type plan_provenance =

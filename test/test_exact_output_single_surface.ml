@@ -1191,6 +1191,82 @@ let test_identity_survives_success_error_and_cancellation () =
   check_receipt_provenance "cancellation" cancel_provenance cancel_receipt
 ;;
 
+let gemini_exact_entry ~id ~request_path =
+  catalog_entry
+    ~id
+    ~kind:Provider_config.Gemini
+    ~base_url:"https://surface.invalid/v1beta/models"
+    ~request_path
+    ~capabilities:(capabilities ~native:true ~json:true)
+    ()
+;;
+
+let test_gemini_nullable_schema_admitted () =
+  let id = "gemini-nullable-surface" in
+  let nullable_schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc
+            [ "nickname", `Assoc [ "type", `List [ `String "null"; `String "string" ] ] ]
+        )
+      ; "required", `List [ `String "nickname" ]
+      ]
+  in
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  @@ fun snapshot ->
+  match
+    EO.admit
+      ~target:(target snapshot id)
+      ~messages:[ msg "nullable" ]
+      (EO.make_output_requirement
+         ~schema:nullable_schema
+         ~minimum_guarantee:EO.Provider_schema)
+  with
+  | Ok _ -> ()
+  | Error _ -> fail "Gemini generateContent must admit nullable type arrays"
+;;
+
+let test_gemini_nested_unsupported_schema_keyword_rejected () =
+  let id = "gemini-unsupported-keyword-surface" in
+  let unsupported_schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc [ "name", `Assoc [ "type", `String "string"; "pattern", `String ".+" ] ]
+        )
+      ]
+  in
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  @@ fun snapshot ->
+  match
+    EO.admit
+      ~target:(target snapshot id)
+      ~messages:[ msg "unsupported keyword" ]
+      (EO.make_output_requirement
+         ~schema:unsupported_schema
+         ~minimum_guarantee:EO.Provider_schema)
+  with
+  | Error (EO.Unsupported_schema_keyword "$.properties.name.pattern") -> ()
+  | Ok _ | Error _ -> fail "Gemini unsupported schema keyword must remain typed"
+;;
+
+let test_gemini_nonempty_request_path_rejected_before_resolution () =
+  let id = "gemini-interactions-surface" in
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let overlay : EO.catalog_overlay =
+    { source = "Gemini endpoint surface fixture"
+    ; contents = gemini_exact_entry ~id ~request_path:"/interactions"
+    }
+  in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error
+      (EO.Target_endpoint_invalid
+         { target_ref; cause = EO.Unsupported_gemini_request_path }) ->
+    check string "rejected Gemini target" id (EO.target_ref_id target_ref)
+  | Ok _ | Error _ -> fail "nonempty Gemini request_path must fail before resolution"
+;;
+
 let () =
   run
     "exact-output-single-surface"
@@ -1207,6 +1283,18 @@ let () =
             "Anthropic schema prefill rejected before dispatch"
             `Quick
             test_anthropic_schema_prefill_rejected_before_dispatch
+        ; test_case
+            "Gemini nullable schema admitted"
+            `Quick
+            test_gemini_nullable_schema_admitted
+        ; test_case
+            "Gemini nested unsupported schema keyword rejected"
+            `Quick
+            test_gemini_nested_unsupported_schema_keyword_rejected
+        ; test_case
+            "Gemini nonempty request path rejected before resolution"
+            `Quick
+            test_gemini_nonempty_request_path_rejected_before_resolution
         ; test_case
             "no measure and one post"
             `Quick
