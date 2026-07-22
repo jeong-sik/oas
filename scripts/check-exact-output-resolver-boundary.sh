@@ -204,7 +204,7 @@ require_code_pattern() {
   local description="$1"
   local pattern="$2"
   local source_file="$3"
-  if ! strip_ocaml_noncode < "$source_file" | grep -Eq -- "$pattern"; then
+  if ! strip_ocaml_noncode < "$source_file" | grep -E -- "$pattern" >/dev/null; then
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
@@ -222,7 +222,7 @@ require_named_function_pattern() {
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
-  if ! strip_ocaml_noncode < "$extracted" | grep -Eq -- "$pattern"; then
+  if ! strip_ocaml_noncode < "$extracted" | grep -E -- "$pattern" >/dev/null; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
@@ -384,7 +384,7 @@ for private_module in \
   exact_output_catalog_binding
 do
   if ! sed -n '/(private_modules/,/)/p' "$module_dir/dune" \
-    | grep -Eq "^[[:space:]]*$private_module([[:space:]]|\))"; then
+    | grep -E "^[[:space:]]*$private_module([[:space:]]|\))" >/dev/null; then
     echo "exact-output public facade violation: $private_module is not private" >&2
     exit 1
   fi
