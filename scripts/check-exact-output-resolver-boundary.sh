@@ -137,6 +137,38 @@ scan_code() {
   fi
 }
 
+# [Cli_common_env.trim_non_empty] is a pure normalization SSOT, not an ambient
+# environment read. Permit only that exact identifier; every other
+# [Cli_common_env.*] use remains a boundary violation. The token boundary keeps
+# similarly prefixed helpers from inheriting the exception.
+scan_cli_common_env_usage() {
+  local failed=false
+  local source_file hits
+  for source_file in "$@"; do
+    hits="$(
+      strip_ocaml_noncode < "$source_file" \
+        | awk '{
+            gsub(/Cli_common_env[.]trim_non_empty([^[:alnum:]_]|$)/, "")
+            print
+          }' \
+        | grep -En -- 'Cli_common_env[.][[:alnum:]_]+' \
+        || true
+    )"
+    if [[ -n "$hits" ]]; then
+      while IFS= read -r hit; do
+        printf '%s:%s\n' "$source_file" "$hit" >&2
+      done <<< "$hits"
+      failed=true
+    fi
+  done
+  if [[ "$failed" == true ]]; then
+    echo \
+      "exact-output boundary violation: ambient Cli_common_env lookup found" \
+      >&2
+    return 1
+  fi
+}
+
 # Print only explicitly named top-level OCaml [let] definitions while keeping
 # one output line per input line. This lets a boundary rule follow a concrete
 # exact-output call path without granting a file-wide exemption to a legacy
@@ -335,10 +367,15 @@ done
 
 # Provider_config.capabilities_for_config_model is deliberately allowed: it
 # reads only the capability snapshot already frozen into the selected config.
-ambient_forbidden='Provider_catalog|Provider_runtime_binding|Provider_registry\.default|Model_catalog\.(global|set_global|set_global_overlay|clear_global|load_default|load_file)|Capability_manifest|(Capabilities|Caps)\.(for_[[:alnum:]_]+|[[:alnum:]_]+_for_(model_id|provider_id|config_model))|Cli_common_env|Sys\.getenv(_opt)?|Unix\.getenv(_opt)?|select_target|Marshal'
+ambient_forbidden='Provider_catalog|Provider_runtime_binding|Provider_registry\.default|Model_catalog\.(global|set_global|set_global_overlay|clear_global|load_default|load_file)|Capability_manifest|(Capabilities|Caps)\.(for_[[:alnum:]_]+|[[:alnum:]_]+_for_(model_id|provider_id|config_model))|Sys\.getenv(_opt)?|Unix\.getenv(_opt)?|select_target|Marshal'
 scan_code \
   "global, legacy, ambient, or representation-dependent lookup found" \
   "$ambient_forbidden" \
+  "$exact_output_source" \
+  "$resolver_source" \
+  "$catalog_binding_source" \
+  "${downstream_sources[@]}"
+scan_cli_common_env_usage \
   "$exact_output_source" \
   "$resolver_source" \
   "$catalog_binding_source" \
@@ -507,12 +544,17 @@ scan_outside_named_functions \
 # only the already-frozen Secret into Provider_config; it must never reread the
 # environment, reopen a catalog, rebuild provider config, or create a Secret
 # from ambient bytes.
-resolve_ambient_forbidden="${ambient_forbidden}|Model_catalog|Exact_output_catalog_binding|Binding\.|getenv|resolver_snapshot|snapshot|String_map\.(find_opt|mem)|PC\.make|Provider_config\.make|Secret\.of_string"
+resolve_ambient_forbidden="${ambient_forbidden}|Cli_common_env\.|Model_catalog|Exact_output_catalog_binding|Binding\.|getenv|resolver_snapshot|snapshot|String_map\.(find_opt|mem)|PC\.make|Provider_config\.make|Secret\.of_string"
 scan_named_functions \
   "target resolution performed ambient lookup or rebuilt frozen configuration" \
   "$resolve_ambient_forbidden" \
   "$resolver_source" \
   'resolve_target'
+scan_named_functions \
+  "catalog admission performed environment lookup or normalization" \
+  'Cli_common_env\.' \
+  "$resolver_source" \
+  'admit_target_ref'
 require_named_function_pattern \
   "target resolution no longer consumes the frozen credential observation" \
   'credential' \
