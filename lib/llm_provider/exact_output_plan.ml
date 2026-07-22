@@ -132,6 +132,23 @@ let contains_reserved_response_phase_metadata metadata =
     metadata
 ;;
 
+let uses_anthropic_schema_prefill (config : Provider_config.t) messages =
+  match config.kind, config.response_format, List.rev messages with
+  | ( Provider_config.Anthropic
+    , Types.JsonSchema _
+    , ({ role = Types.Assistant; _ } : Types.message) :: _ ) -> true
+  | Provider_config.Anthropic, Types.JsonSchema _, _ -> false
+  | Provider_config.Anthropic, (Types.Off | Types.JsonMode), _
+  | ( ( Provider_config.Kimi
+      | Provider_config.OpenAI_compat
+      | Provider_config.Ollama
+      | Provider_config.Gemini
+      | Provider_config.Glm
+      | Provider_config.DashScope )
+    , _
+    , _ ) -> false
+;;
+
 let request_uses_exact_cross_feature (request : Llm_transport.completion_request) =
   let config = request.config in
   request.tools <> []
@@ -145,6 +162,7 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
   || Option.is_some config.thinking_budget
   || Option.is_some config.reasoning_effort
   || Option.is_some config.clear_thinking
+  || uses_anthropic_schema_prefill config request.messages
   || List.exists
        (fun (message : Types.message) ->
           message.role = Types.Tool

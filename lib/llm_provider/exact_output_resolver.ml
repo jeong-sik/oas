@@ -765,7 +765,8 @@ let load_resolver_snapshot ~io ?overlay () =
   in
   let generation =
     String_map.bindings targets
-    |> List.concat_map (fun (id, target) -> [ id; target.identity.fingerprint ])
+    |> List.concat_map (fun (id, (target : frozen_target)) ->
+      [ id; target.identity.fingerprint ])
     |> fun material ->
     Catalog_generation (hash_parts ("oas-catalog-generation-v1" :: material))
   in
@@ -781,8 +782,8 @@ let resolve_target snapshot (Target_ref target_ref) =
   | None -> Error (Unknown_target target_ref)
   | Some { missing_credential_env = Some environment_variable; _ } ->
     Error (Missing_target_credential { target_ref; environment_variable })
-  | Some target ->
-    Ok
+  | Some (target : frozen_target) ->
+    let selected : selected_target =
       { config = target.config
       ; capabilities = target.capabilities
       ; anthropic_thinking_control = target.anthropic_thinking_control
@@ -791,4 +792,6 @@ let resolve_target snapshot (Target_ref target_ref) =
       ; generation = snapshot.generation
       ; evidence = snapshot.evidence
       }
+    in
+    Ok selected
 ;;

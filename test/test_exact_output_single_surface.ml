@@ -361,6 +361,35 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
   | Ok _ | Error _ -> fail "tool history must reject before exact dispatch"
 ;;
 
+let test_anthropic_schema_prefill_rejected_before_dispatch () =
+  let admission, completion_posts, token_posts, captures =
+    with_server ~response:(anthropic_response {|[{"type":"text","text":"{}"}]|})
+    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+    let entry =
+      catalog_entry
+        ~id:"anthropic-prefill"
+        ~kind:Provider_config.Anthropic
+        ~base_url
+        ~request_path:"/v1/messages"
+        ~capabilities:(capabilities ~native:true ~json:false)
+        ()
+    in
+    with_catalog [ entry ]
+    @@ fun snapshot ->
+    let prefill = { (msg "prefill") with role = Types.Assistant } in
+    EO.admit
+      ~target:(target snapshot "anthropic-prefill")
+      ~messages:[ msg "return JSON"; prefill ]
+      (requirement EO.Provider_schema)
+  in
+  (match admission with
+   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
+   | Ok _ | Error _ -> fail "Anthropic schema prefill must reject during admission");
+  check int "Anthropic prefill completion posts" 0 completion_posts;
+  check int "Anthropic prefill token posts" 0 token_posts;
+  check int "Anthropic prefill captures" 0 (List.length captures)
+;;
+
 let assert_absent json field =
   match json with
   | `Assoc fields -> check bool (field ^ " absent") false (List.mem_assoc field fields)
@@ -891,9 +920,12 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
     let ready = plan snapshot "cancel-surface" EO.Json_syntax in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
-      match Eio.Time.with_timeout clock 0.01 (fun () -> EO.execute_once ~net ready) with
+      match
+        Eio.Time.with_timeout clock 0.01 (fun () -> Ok (EO.execute_once ~net ready))
+      with
       | Error `Timeout -> true
-      | Ok (Ok _ | Error _) -> false
+      | Ok (Ok (Ok _ | Error _)) -> false
+      | Ok (Error _) -> fail "unexpected inner timeout wrapper error"
     in
     let phase = EO.receipt_phase receipt in
     let duplicate = EO.execute_once ~net ready in
@@ -1171,6 +1203,10 @@ let () =
             "injection rejected"
             `Quick
             test_wire_envelope_and_cross_feature_injection_rejected
+        ; test_case
+            "Anthropic schema prefill rejected before dispatch"
+            `Quick
+            test_anthropic_schema_prefill_rejected_before_dispatch
         ; test_case
             "no measure and one post"
             `Quick
