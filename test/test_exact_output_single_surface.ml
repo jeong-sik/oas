@@ -24,7 +24,7 @@ let schema =
     ]
 ;;
 
-let capabilities ?supported_models ~native ~json =
+let capabilities_with_supported_models ~supported_models ~native ~json =
   { Capabilities.default_capabilities with
     max_context_tokens = Some 8192
   ; max_output_tokens = Some 1024
@@ -32,6 +32,10 @@ let capabilities ?supported_models ~native ~json =
   ; supports_structured_output = native
   ; supported_models
   }
+;;
+
+let capabilities ~native ~json =
+  capabilities_with_supported_models ~supported_models:None ~native ~json
 ;;
 
 type catalog_fixture =
@@ -362,7 +366,11 @@ let test_supported_models_membership_is_exact_and_pre_dispatch () =
         ~kind:Provider_config.OpenAI_compat
         ~base_url
         ~request_path:"/v1/chat/completions"
-        ~capabilities:(capabilities ~native:true ~json:true ~supported_models)
+        ~capabilities:
+          (capabilities_with_supported_models
+             ~native:true
+             ~json:true
+             ~supported_models:(Some supported_models))
         ()
     in
     with_catalog

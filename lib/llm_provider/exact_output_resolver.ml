@@ -582,6 +582,11 @@ let option_bool = function
   | Some value -> "some:" ^ Binding.bool_string value
 ;;
 
+let canonical_supported_models = function
+  | None -> "none"
+  | Some models -> "some:" ^ String.concat "," (List.sort_uniq String.compare models)
+;;
+
 let option_price = function
   | None -> "none"
   | Some value -> Printf.sprintf "some:%.17g" value
@@ -634,7 +639,7 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
       ; (match model.task with
          | None -> "none"
          | Some task -> Binding.task_string (Some task))
-      ; "supported_models=" ^ Binding.supported_models_string model.supported_models
+      ; "supported_models=" ^ canonical_supported_models model.supported_models
       ; option_bool model.supports_system_prompt
       ; Binding.anthropic_thinking_control_string
           (Binding.catalog_anthropic_thinking_control model.anthropic_thinking_control)
