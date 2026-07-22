@@ -46,14 +46,14 @@ type history_projection =
 
 val dialect_history_projection
   :  ?assistant_tool_content_format:Capability_vocab.assistant_tool_content_format
-  -> reasoning_target:Types.Reasoning_source.t
+  -> replay_capability:Reasoning_dialect.replay_capability
   -> Reasoning_dialect.t
   -> Types.message list
   -> (history_projection, Reasoning_history_projection.error) result
 
 val dialect_messages_of_history
   :  ?assistant_tool_content_format:Capability_vocab.assistant_tool_content_format
-  -> reasoning_target:Types.Reasoning_source.t
+  -> replay_capability:Reasoning_dialect.replay_capability
   -> Reasoning_dialect.t
   -> Types.message list
   -> (Yojson.Safe.t list, Reasoning_history_projection.error) result

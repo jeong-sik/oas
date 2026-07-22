@@ -190,7 +190,7 @@ The `capabilities` object accepts the same capability field names used by
 - `thinking_control_format`, `preserve_thinking_control_format`
 - `reasoning_output_format`, `reasoning_streaming_format`
 - `supports_response_format_json`, `supports_structured_output`
-- `supports_image_input`, `supports_audio_input`, `supports_video_input`
+- `supports_image_input`, `supports_audio_input`, `supports_video_input`, `supports_document_input`
 - `modality_priority`
 - `supports_native_streaming`, `supports_system_prompt`
 - `supports_top_k`, `supports_min_p`, `supports_seed`

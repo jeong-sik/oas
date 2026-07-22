@@ -234,10 +234,12 @@ module Conversation_metadata : sig
   val is_mergeable_followup : metadata -> bool
 end
 
-(** Exact producer binding for stored reasoning artifacts. Replay requires the
-    same concrete provider instance, canonical request model, and typed replay
-    contract. A fallback, endpoint change, or dialect override therefore drops
-    foreign reasoning instead of cross-injecting it. *)
+(** Producer binding stamped on stored reasoning artifacts: provider kind,
+    concrete endpoint instance, canonical request model, and typed replay
+    contract. Whether a difference in any of those dimensions still admits
+    replay is decided by the target dialect's declared
+    {!Reasoning_replay_contract.rotation_policy} through {!rotation_admits} —
+    not by a bare equality test at the consuming site. *)
 module Reasoning_source : sig
   type provider_instance [@@deriving show]
 
@@ -266,6 +268,18 @@ module Reasoning_source : sig
     -> (t, string) result
 
   val equal : t -> t -> bool
+
+  (** [rotation_admits ~rotation_policy ~stored ~target] decides whether a
+      stored reasoning artifact may still be replayed when the request now
+      targets [target]. The answer comes from the declared
+      {!Reasoning_replay_contract.rotation_policy} of the target dialect, never
+      from an ad-hoc comparison at the call site. *)
+  val rotation_admits
+    :  rotation_policy:Reasoning_replay_contract.rotation_policy
+    -> stored:t
+    -> target:t
+    -> bool
+
   val entry : t -> string * Yojson.Safe.t
   val metadata : t -> metadata
   val add : t -> metadata -> (metadata, string) result

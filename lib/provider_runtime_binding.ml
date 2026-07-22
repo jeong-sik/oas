@@ -73,6 +73,7 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   ; supports_image_input = caps.supports_image_input
   ; supports_audio_input = caps.supports_audio_input
   ; supports_video_input = caps.supports_video_input
+  ; supports_document_input = caps.supports_document_input
   ; modality_priority = caps.modality_priority
   ; task = caps.task
   ; supports_native_streaming = caps.supports_native_streaming

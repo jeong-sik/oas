@@ -81,6 +81,7 @@ type entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option

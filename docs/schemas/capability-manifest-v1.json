@@ -145,6 +145,10 @@
           "type": "boolean",
           "description": "Whether the model accepts video inputs."
         },
+        "supports_document_input": {
+          "type": "boolean",
+          "description": "Whether the model accepts document inputs (e.g. PDF). Independent of supports_image_input: serialization rejects a document on a row that does not declare this instead of emitting it as an image."
+        },
         "supports_native_streaming": {
           "type": "boolean",
           "description": "Whether the model/provider supports server-sent event streaming."

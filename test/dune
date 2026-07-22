@@ -537,3 +537,8 @@
   mirage-crypto-rng.unix
   domain-name
   ptime))
+
+(test
+ (name test_media_document_admission)
+ (modules test_media_document_admission)
+ (libraries agent_sdk llm_provider alcotest fmt yojson))

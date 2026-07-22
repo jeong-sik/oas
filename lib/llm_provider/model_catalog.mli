@@ -28,6 +28,7 @@ type model_entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; modality_priority : string option
   ; task : Capability_vocab.task option
     (** Catalog-declared inference task for non-chat models (transcription,

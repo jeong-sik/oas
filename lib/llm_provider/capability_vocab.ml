@@ -27,6 +27,13 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** A provider [thinking] request object whose [clear_thinking] member both
+          carries the toggle and gates prior-turn reasoning replay: the server
+          only echoes prior reasoning back under "preserved thinking", i.e.
+          thinking active AND [clear_thinking = false]. Declaring this wire is
+          what makes replay conditional; no consumer re-derives the condition
+          from a provider identity. *)
 
 type reasoning_replay_override =
   | Default_reasoning_replay
@@ -42,6 +49,35 @@ type assistant_tool_content_format =
 type reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
+
+(** Structured-output tier a resolved model/provider capability advertises.
+
+    This is the typed view the request-admission decision
+    ({!Provider_config.validate_output_schema_request}) reads instead of
+    branching on provider identity. It has no wire vocabulary of its own and is
+    never parsed from a catalog/manifest string: it is projected from the two
+    independent, already-threaded capability booleans
+    [supports_structured_output] and [supports_response_format_json]
+    ({!Capabilities.structured_output_support}). Keeping the tier as a closed sum
+    lets the decision match all three cases exhaustively, so a new tier forces a
+    compile error rather than a silent identity branch.
+
+    - [Native_json_schema]: the provider exposes a native schema-constrained
+      request field; the schema is enforced provider-side.
+    - [Json_object_only]: the provider accepts JSON mode
+      ([response_format = json_object]) but documents no native json_schema
+      field, so a caller-supplied output schema cannot be honored on the wire.
+    - [No_structured_output]: neither JSON mode nor native schema output. *)
+type structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+
+let structured_output_support_to_string = function
+  | No_structured_output -> "none"
+  | Json_object_only -> "json_object_only"
+  | Native_json_schema -> "native_json_schema"
+;;
 
 type reasoning_streaming_format =
   | Default_reasoning_streaming
@@ -258,7 +294,22 @@ let preserve_thinking_control_format_table =
   ; "chat_template_kwargs_preserve_thinking", Chat_template_kwargs_preserve_thinking
   ; "top_level_preserve_thinking", Top_level_preserve_thinking
   ; "always_preserved", Always_preserved_thinking
+  ; "thinking_object_clear_thinking", Thinking_object_clear_thinking
   ]
+;;
+
+(* [true] when the preserve wire is a provider [thinking] request object that
+   carries the thinking toggle itself. Such a row encodes an explicit
+   enable/disable on the wire even when its [thinking_control_format] is
+   [No_thinking_control], so admission must not report the request as
+   unencodable. Exhaustive: a new preserve wire has to state its answer. *)
+let preserve_wire_owns_thinking_object = function
+  | Thinking_object_clear_thinking -> true
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking -> false
 ;;
 
 let preserve_thinking_control_format_values =

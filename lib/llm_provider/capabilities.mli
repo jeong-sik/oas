@@ -29,6 +29,9 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** Provider [thinking] object whose [clear_thinking] member gates prior-turn
+      reasoning replay. See {!Capability_vocab.preserve_thinking_control_format}. *)
 
 type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
@@ -70,6 +73,15 @@ type task = Capability_vocab.task =
   | Image_generation
   | Video_generation
 
+(** Structured-output tier a resolved capability advertises, projected from the
+    two capability booleans by {!structured_output_support}. The request-admission
+    decision reads this typed view rather than provider identity. *)
+type structured_output_support = Capability_vocab.structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+[@@deriving show, eq]
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -103,6 +115,12 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
+    (** Whether the row accepts a {!Types.Document} block as input. Independent
+        of [supports_multimodal_inputs]: a row can be multimodal for images and
+        still have no document representation on its wire. Serialization
+        consults this at admission so a document is never re-labelled as
+        another modality (oas#2744). *)
   ; modality_priority : Modality.priority
   ; (* Inference task *)
     task : task option
@@ -146,6 +164,15 @@ type capabilities =
   }
 
 val default_capabilities : capabilities
+
+(** Structured-output tier a resolved capability record advertises. Total
+    projection of [supports_structured_output] and [supports_response_format_json]:
+    native schema support is the top tier regardless of the JSON-mode flag,
+    JSON mode alone is [Json_object_only], neither is [No_structured_output]. This
+    is the typed capability {!Provider_config.validate_output_schema_request}
+    reads instead of branching on provider identity. *)
+val structured_output_support : capabilities -> structured_output_support
+
 val anthropic_capabilities : capabilities
 val kimi_capabilities : capabilities
 val mimo_capabilities : capabilities

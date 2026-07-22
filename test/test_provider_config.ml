@@ -378,7 +378,8 @@ let test_validate_output_schema_native_ollama_ministral_rejected () =
   | Error msg ->
     check_string
       "rejection"
-      "model ministral-3:8b does not advertise native structured output"
+      "model ministral-3:8b advertises JSON mode (json_object) only; native json_schema \
+       output is not supported by its declared capability"
       msg
   | Ok () -> Alcotest.fail "expected native Ollama model capability rejection"
 ;;
@@ -449,7 +450,8 @@ let test_validate_output_schema_native_ollama_rejects_unverified_model () =
   | Error msg ->
     check_string
       "reason"
-      "model ministral-3:8b does not advertise native structured output"
+      "model ministral-3:8b advertises JSON mode (json_object) only; native json_schema \
+       output is not supported by its declared capability"
       msg
   | Ok () -> Alcotest.fail "expected native Ollama model capability rejection"
 ;;
@@ -597,6 +599,92 @@ let test_validate_output_schema_supported_non_openai () =
     "ollama accepts schema only for models with a native SO guarantee"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request ollama_cfg))
+;;
+
+(* The tier is a projection of the two capability booleans, not the provider
+   name. Prove the identity left the predicate from both sides: a GLM-kind
+   config that declares native schema is admitted, and a non-GLM (OpenAI-compat)
+   config that declares json_object-only is denied. Reintroducing a
+   [match config.kind] gate would flip both. *)
+let test_validate_output_schema_is_capability_not_identity () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let glm_declaring_native =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-native-probe"
+      ~base_url:"https://open.bigmodel.cn/api/paas/v4"
+      ~output_schema:schema
+      ~model_capabilities_override:
+        { Capabilities.glm_capabilities with supports_structured_output = true }
+      ()
+  in
+  check_bool
+    "GLM kind is admitted when its declared capability is native json_schema"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request glm_declaring_native));
+  let compat_declaring_json_object_only =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"compat-json-object-probe"
+      ~base_url:"https://api.example.test/v1"
+      ~response_format_json:true
+      ~output_schema:schema
+      ~model_capabilities_override:
+        { Capabilities.default_capabilities with
+          supports_response_format_json = true
+        ; supports_structured_output = false
+        }
+      ()
+  in
+  check_bool
+    "a non-GLM kind is denied when its declared capability is json_object-only"
+    true
+    (Result.is_error
+       (Provider_config.validate_output_schema_request compat_declaring_json_object_only))
+;;
+
+(* Pin the projection: native schema is the top tier regardless of the JSON-mode
+   flag, so both (structured=true) rows admit; json-mode-without-schema is
+   json_object-only and denies; neither flag denies. Off-catalog configs resolve
+   through request_capabilities_for_config, so a kind whose base record declares
+   native schema (Anthropic here) is admitted even when the model id names no
+   catalog row — identity selects the base record, it does not decide the tier. *)
+let test_validate_output_schema_projection_matrix () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let outcome ~structured ~json =
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"matrix-probe"
+        ~base_url:"https://api.example.test/v1"
+        ~response_format_json:json
+        ~output_schema:schema
+        ~model_capabilities_override:
+          { Capabilities.default_capabilities with
+            supports_structured_output = structured
+          ; supports_response_format_json = json
+          }
+        ()
+    in
+    Result.is_ok (Provider_config.validate_output_schema_request cfg)
+  in
+  check_bool "native+json admits" true (outcome ~structured:true ~json:true);
+  check_bool "native only admits" true (outcome ~structured:true ~json:false);
+  check_bool "json-object only denies" false (outcome ~structured:false ~json:true);
+  check_bool "neither denies" false (outcome ~structured:false ~json:false);
+  (* off-catalog Anthropic model still admits via its base record *)
+  let anthropic_off_catalog =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-not-in-catalog-probe"
+      ~base_url:"https://api.anthropic.com"
+      ~output_schema:schema
+      ()
+  in
+  check_bool
+    "off-catalog Anthropic model resolves to its native-schema base record"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request anthropic_off_catalog))
 ;;
 
 let test_validate_output_schema_capability_rejected () =
@@ -1234,21 +1322,22 @@ let test_validate_reasoning_effort_fails_closed_without_declaration () =
   | Ok () -> Alcotest.fail "undeclared effort capability must fail closed"
 ;;
 
-let test_zai_glm_clear_thinking_request_field () =
+let test_clear_thinking_object_request_field () =
   let resolve
-        ?(thinking_control_format = Capabilities.No_thinking_control)
-        ?(is_zai_glm = true)
+        ?(preserve_thinking_control_format = Capabilities.Thinking_object_clear_thinking)
         ?clear_thinking
         ?preserve_thinking
         ()
     =
-    Provider_config.zai_glm_clear_thinking_request_field
-      ~thinking_control_format
-      ~is_zai_glm
+    Provider_config.clear_thinking_object_request_field
+      ~preserve_thinking_control_format
       ~clear_thinking
       ~preserve_thinking
   in
-  Alcotest.(check (option bool)) "default GLM clears" (Some true) (resolve ());
+  Alcotest.(check (option bool))
+    "declared wire clears by default"
+    (Some true)
+    (resolve ());
   Alcotest.(check (option bool))
     "preserve disables clear"
     (Some false)
@@ -1257,11 +1346,20 @@ let test_zai_glm_clear_thinking_request_field () =
     "explicit clear wins"
     (Some true)
     (resolve ~clear_thinking:true ~preserve_thinking:true ());
-  Alcotest.(check (option bool)) "non-GLM omits" None (resolve ~is_zai_glm:false ());
-  Alcotest.(check (option bool))
-    "typed thinking control omits"
-    None
-    (resolve ~thinking_control_format:Capabilities.Thinking_object ())
+  (* The field is gated on the declared preserve wire alone: every other wire
+     omits it, whatever the provider kind or model id is. *)
+  List.iter
+    (fun (label, preserve_thinking_control_format) ->
+       Alcotest.(check (option bool))
+         label
+         None
+         (resolve ~preserve_thinking_control_format ()))
+    [ "no preserve wire omits", Capabilities.No_preserve_thinking_control
+    ; "thinking_object_keep_all omits", Capabilities.Thinking_object_keep_all
+    ; "chat_template_kwargs omits", Capabilities.Chat_template_kwargs_preserve_thinking
+    ; "top_level omits", Capabilities.Top_level_preserve_thinking
+    ; "always_preserved omits", Capabilities.Always_preserved_thinking
+    ]
 ;;
 
 let test_structured_output_name_of_schema () =
@@ -1373,7 +1471,8 @@ let test_validate_output_schema_native_ollama_catalog_rejects_model_without_so (
     | Error msg ->
       check_string
         "rejection reason"
-        "model ministral-3:8b does not advertise native structured output"
+        "model ministral-3:8b advertises JSON mode (json_object) only; native \
+         json_schema output is not supported by its declared capability"
         msg
     | Ok () -> Alcotest.fail "expected native Ollama model capability rejection")
 ;;
@@ -2213,6 +2312,14 @@ let () =
             `Quick
             test_validate_output_schema_supported_non_openai
         ; Alcotest.test_case
+            "tier is capability not identity"
+            `Quick
+            test_validate_output_schema_is_capability_not_identity
+        ; Alcotest.test_case
+            "tier projection matrix"
+            `Quick
+            test_validate_output_schema_projection_matrix
+        ; Alcotest.test_case
             "openai capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
@@ -2332,9 +2439,9 @@ let () =
             `Quick
             test_validate_reasoning_effort_fails_closed_without_declaration
         ; Alcotest.test_case
-            "zai glm clear_thinking request field"
+            "clear_thinking object request field"
             `Quick
-            test_zai_glm_clear_thinking_request_field
+            test_clear_thinking_object_request_field
         ; Alcotest.test_case
             "structured output names"
             `Quick

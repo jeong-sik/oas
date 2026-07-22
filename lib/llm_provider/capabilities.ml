@@ -41,6 +41,9 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** Provider [thinking] object whose [clear_thinking] member gates prior-turn
+      reasoning replay. See {!Capability_vocab.preserve_thinking_control_format}. *)
 
 (** Optional override for the multi-turn reasoning replay policy. Most providers
     inherit the policy implied by [thinking_control_format]; catalog entries set
@@ -87,6 +90,15 @@ type task = Capability_vocab.task =
   | Speech
   | Image_generation
   | Video_generation
+
+(** Structured-output tier, projected from the two capability booleans below by
+    {!structured_output_support}. The request-admission decision reads this typed
+    view rather than provider identity. See {!Capability_vocab.structured_output_support}. *)
+type structured_output_support = Capability_vocab.structured_output_support =
+  | No_structured_output
+  | Json_object_only
+  | Native_json_schema
+[@@deriving show, eq]
 
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
@@ -145,6 +157,16 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
+    (** Whether the row accepts a [Document] block as input.
+
+        Deliberately a sibling of the image/audio/video fields rather than a
+        reading of [supports_multimodal_inputs]: document support is not
+        implied by image support (a vision row on the OpenAI-compatible Chat
+        Completions wire may accept images and have no document part at all),
+        and the catch-all cannot express the difference. Serialization consults
+        this at admission, so a document that the row cannot carry is reported
+        instead of being emitted as some other modality (oas#2744). *)
   ; modality_priority : Modality.priority
     (** Block ordering applied to multimodal user messages just before
         serialization. [Visual_first] for Gemma 4 family.
@@ -214,6 +236,7 @@ let default_capabilities =
   ; supports_image_input = false
   ; supports_audio_input = false
   ; supports_video_input = false
+  ; supports_document_input = false
   ; modality_priority = Modality.Preserve_input_order
   ; task = None
   ; supports_native_streaming = false
@@ -232,6 +255,30 @@ let default_capabilities =
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
   ; supported_models = None
   }
+;;
+
+(** Structured-output tier a resolved capability record advertises.
+
+    Single typed view the request-admission decision
+    ({!Provider_config.validate_output_schema_request}) reads instead of
+    branching on provider identity. It is a total projection of the two
+    independent, catalog-sourced booleans — [supports_structured_output] (native
+    json_schema) and [supports_response_format_json] (json_object mode) — which
+    the provider catalog, model catalog, capability manifest, and public view
+    already thread. It is deliberately not a stored field: the two booleans stay
+    the single source of truth (they are separate, non-interchangeable contracts
+    per docs/provider-capabilities-spec.md), so this projection cannot drift.
+
+    A native schema guarantee is the top tier regardless of the JSON-mode flag,
+    so both [(structured=true, json=true)] and [(structured=true, json=false)]
+    map to [Native_json_schema]. JSON mode without a native schema field is
+    [Json_object_only]; neither flag is [No_structured_output]. *)
+let structured_output_support (caps : capabilities) : structured_output_support =
+  if caps.supports_structured_output
+  then Native_json_schema
+  else if caps.supports_response_format_json
+  then Json_object_only
+  else No_structured_output
 ;;
 
 let effective_disable_parallel_tool_use
@@ -295,6 +342,10 @@ let anthropic_capabilities =
   ; supports_structured_output = true
   ; supports_multimodal_inputs = true
   ; supports_image_input = true
+  ; (* The Messages API has a first-class [document] content block with its own
+       [source] object (docs.anthropic.com/en/docs/build-with-claude/pdf-support);
+       {!Api_common.content_block_to_json} emits exactly that shape. *)
+    supports_document_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
   ; supports_prompt_caching = true
@@ -437,6 +488,7 @@ let mimo_capabilities =
   ; supports_image_input = false
   ; supports_audio_input = false
   ; supports_video_input = false
+  ; supports_document_input = false
   ; supports_native_streaming = true
   }
 ;;
@@ -550,6 +602,14 @@ let glm_capabilities =
      Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
     supports_structured_output = false
   ; supports_native_streaming = true
+  ; (* Z.AI's chat-completion API carries the thinking toggle in a top-level
+       [thinking] object and only echoes prior-turn [reasoning_content] under
+       "preserved thinking" ([clear_thinking = false]). Declaring the wire here
+       is what makes the replay conditional typed capability data: the dialect
+       resolver reads [preserve_thinking_control_format], not a provider
+       identity predicate (RFC-OAS-029 S1.1/S3.1).
+       Ref: https://docs.z.ai/api-reference/llm/chat-completion *)
+    preserve_thinking_control_format = Thinking_object_clear_thinking
   }
 ;;
 
@@ -570,6 +630,10 @@ let gemini_capabilities =
   ; supports_image_input = true
   ; supports_audio_input = true
   ; supports_video_input = true
+  ; (* [inlineData] carries an arbitrary MIME type plus base64 bytes, so a
+       document keeps its own media type on the wire — the Gemini serializer
+       does not relabel it. *)
+    supports_document_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
   ; supports_prompt_caching = false
@@ -794,6 +858,7 @@ type declarative_capability_overrides =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; modality_priority : string option
   ; task : Capability_vocab.task option
   ; supports_native_streaming : bool option
@@ -835,6 +900,7 @@ let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
   ; supports_image_input = entry.supports_image_input
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
+  ; supports_document_input = entry.supports_document_input
   ; modality_priority = None
   ; (* The JSON capability manifest carries no task field; task is
        catalog-only vocabulary. *)
@@ -942,6 +1008,8 @@ let apply_declarative_capability_overrides overrides =
       override_bool base.supports_audio_input overrides.supports_audio_input
   ; supports_video_input =
       override_bool base.supports_video_input overrides.supports_video_input
+  ; supports_document_input =
+      override_bool base.supports_document_input overrides.supports_document_input
   ; modality_priority =
       (match overrides.modality_priority with
        | Some s ->
@@ -1109,6 +1177,7 @@ let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
   ; supports_image_input = entry.supports_image_input
   ; supports_audio_input = entry.supports_audio_input
   ; supports_video_input = entry.supports_video_input
+  ; supports_document_input = entry.supports_document_input
   ; modality_priority = entry.modality_priority
   ; task = entry.task
   ; supports_native_streaming = entry.supports_native_streaming
@@ -1362,6 +1431,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_image_input = None
   ; supports_audio_input = None
   ; supports_video_input = None
+  ; supports_document_input = None
   ; modality_priority = None
   ; task = None
   ; supports_native_streaming = None
@@ -1408,6 +1478,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; supports_image_input = None
   ; supports_audio_input = None
   ; supports_video_input = None
+  ; supports_document_input = None
   ; supports_native_streaming = None
   ; supports_system_prompt = None
   ; supports_caching = None

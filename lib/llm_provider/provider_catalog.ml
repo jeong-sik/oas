@@ -359,6 +359,7 @@ let capability_fields =
   ; "supports_image_input"
   ; "supports_audio_input"
   ; "supports_video_input"
+  ; "supports_document_input"
   ; "modality_priority"
   ; "supports_native_streaming"
   ; "supports_system_prompt"
@@ -697,6 +698,7 @@ let parse_capabilities provider_json =
   let* supports_image_input = member_bool "supports_image_input" cap_json in
   let* supports_audio_input = member_bool "supports_audio_input" cap_json in
   let* supports_video_input = member_bool "supports_video_input" cap_json in
+  let* supports_document_input = member_bool "supports_document_input" cap_json in
   let* supports_native_streaming = member_bool "supports_native_streaming" cap_json in
   let* supports_system_prompt = member_bool "supports_system_prompt" cap_json in
   let* supports_caching = member_bool "supports_caching" cap_json in
@@ -772,6 +774,9 @@ let parse_capabilities provider_json =
     |> fun caps ->
     override supports_video_input caps (fun caps value ->
       { caps with Capabilities.supports_video_input = value })
+    |> fun caps ->
+    override supports_document_input caps (fun caps value ->
+      { caps with Capabilities.supports_document_input = value })
     |> fun caps ->
     (match modality_priority with
      | Some modality_priority -> { caps with Capabilities.modality_priority }
