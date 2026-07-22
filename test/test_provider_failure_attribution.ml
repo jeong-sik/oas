@@ -594,6 +594,58 @@ let test_empty_completion_end_turn_stays_provider_unavailable () =
     Alcotest.failf "expected Provider unavailable, got %s" (Error.to_string other)
 ;;
 
+(* Regression guard: an empty turn whose stop_reason token the SDK does not
+   model must not be attributed to provider unavailability. That attribution is
+   retried / rotated with the identical prompt, so an overflow reported with an
+   unmodeled token would loop without ever raising an error or reaching the
+   consumer's compaction path. The failure must name the token and must not be
+   retryable. *)
+let test_empty_completion_unmodeled_stop_reason_fails_loud () =
+  let token = "provider_specific_overflow" in
+  match
+    Attribution.sdk_error_of_http_error
+      (Http.ProviderFailure
+         { kind = Http.Empty_completion { stop_reason = Types.Unknown token }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Error.Api
+      (Llm_provider.Retry.InvalidRequest
+         { message; reason = Llm_provider.Retry.Unknown_invalid_request } as api) ->
+    check_bool
+      "names the unmodeled stop_reason token"
+      true
+      (Util.string_contains ~needle:token message);
+    check_bool "not retryable" false (Llm_provider.Retry.is_retryable api)
+  | other ->
+    Alcotest.failf
+      "expected Api InvalidRequest naming the unmodeled token, got %s"
+      (Error.to_string other)
+;;
+
+(* The SDK error boundary is the second promotion site for the same rule. If it
+   keeps rendering an unmodeled empty completion as provider unavailability, the
+   retry loop reappears one layer below the attribution fix. *)
+let test_error_boundary_unmodeled_stop_reason_is_invalid_request () =
+  let token = "provider_specific_overflow" in
+  match
+    Llm_provider.Error.of_http_error
+      (Http.ProviderFailure
+         { kind = Http.Empty_completion { stop_reason = Types.Unknown token }
+         ; message = "provider returned an empty assistant turn"
+         })
+  with
+  | Llm_provider.Error.InvalidRequest { reason; _ } ->
+    check_bool
+      "names the unmodeled stop_reason token"
+      true
+      (Util.string_contains ~needle:token reason)
+  | other ->
+    Alcotest.failf
+      "expected InvalidRequest naming the unmodeled token, got %s"
+      (Llm_provider.Error.to_string other)
+;;
+
 let test_stream_finalization_keeps_empty_completion_evidence () =
   Eio_main.run
   @@ fun env ->
@@ -702,6 +754,14 @@ let () =
             "EndTurn stays provider unavailable"
             `Quick
             test_empty_completion_end_turn_stays_provider_unavailable
+        ; Alcotest.test_case
+            "unmodeled stop_reason fails loud instead of retrying"
+            `Quick
+            test_empty_completion_unmodeled_stop_reason_fails_loud
+        ; Alcotest.test_case
+            "error boundary renders unmodeled stop_reason as invalid request"
+            `Quick
+            test_error_boundary_unmodeled_stop_reason_is_invalid_request
         ] )
     ; ( "agent detailed API"
       , [ Alcotest.test_case

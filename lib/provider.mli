@@ -71,6 +71,7 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
 
 type reasoning_replay_override = Llm_provider.Capabilities.reasoning_replay_override =
   | Default_reasoning_replay
@@ -145,6 +146,7 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
   ; modality_priority : Llm_provider.Modality.priority
   ; task : task option
   ; supports_native_streaming : bool

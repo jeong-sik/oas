@@ -505,10 +505,13 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
    a final step. The extra turn is a real cost and is deliberately explicit
    rather than hidden inside the loop. *)
 
-let terminal_prompt =
-  "Using the conversation above, produce the final answer now. Do not call any further \
-   tools."
-;;
+(* Neutral on how the answer is delivered, because that is the strategy's job:
+   on the tool path the final answer IS a call to the schema tool, so an
+   instruction not to call tools would contradict the single-tool instruction
+   shape_request prepends and leave the model with no legal move (observed:
+   stop_reason=end_turn, no text, no tool call). The terminal turn carries none
+   of the agent's own tools regardless, so there is nothing else to suppress. *)
+let terminal_prompt = "Based on the conversation above, produce the final answer now."
 
 (* The provider config the terminal turn should run on — the same one each
    loop turn runs on, not the raw stored carrier. The agent's stored

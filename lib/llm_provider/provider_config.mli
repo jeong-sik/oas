@@ -317,39 +317,34 @@ val all_reasoning_efforts : reasoning_effort list
 val reasoning_effort_to_string : reasoning_effort -> string
 val reasoning_effort_of_string : string -> reasoning_effort option
 
-(** Resolve GLM [clear_thinking]: the explicit field, else the inverse of
-    [preserve_thinking], else the API default [true]. SSOT for both request
-    builders' clear_thinking handling. *)
-val glm_clear_thinking_value
+(** Resolve the [thinking.clear_thinking] member: the explicit field, else the
+    inverse of [preserve_thinking], else the wire default [true]. SSOT for both
+    request builders. *)
+val clear_thinking_value
   :  clear_thinking:bool option
   -> preserve_thinking:bool option
   -> bool
 
-val glm_clear_thinking : t -> bool
-
-(** Top-level GLM [thinking.clear_thinking] request-field resolver for
-    OpenAI-compatible ZAI GLM rows that do not expose a normal thinking control
-    capability. Non-GLM rows and rows with an explicit thinking control format
-    omit the compatibility field. *)
-val zai_glm_clear_thinking_request_field
-  :  thinking_control_format:Capabilities.thinking_control_format
-  -> is_zai_glm:bool
-  -> clear_thinking:bool option
-  -> preserve_thinking:bool option
-  -> bool option
-
-(** [true] iff GLM should replay prior-turn [reasoning_content] into request
-    history: thinking active AND [clear_thinking] false (Preserved Thinking).
-    Under the default [clear_thinking=true] the server discards prior reasoning,
-    so replaying it violates the GLM contract and bloats the request. SSOT for
-    every GLM message-serializer routing site. *)
-val glm_should_replay_reasoning_fields
+(** [true] iff the request is under Preserved Thinking: thinking active AND
+    [clear_thinking] false. Rows whose
+    {!Capabilities.preserve_thinking_control_format} is
+    [Thinking_object_clear_thinking] replay prior-turn reasoning exactly then;
+    under the wire default [clear_thinking = true] the server discards prior
+    reasoning, so replaying it violates the contract and bloats the request. *)
+val preserved_thinking_active
   :  enable_thinking:bool option
   -> clear_thinking:bool option
   -> preserve_thinking:bool option
   -> bool
 
-val glm_should_replay_reasoning : t -> bool
+(** Top-level [thinking.clear_thinking] request-field resolver, gated purely on
+    the declared preserve wire. Rows with any other preserve wire omit the
+    field. No provider identity, endpoint, or model id participates. *)
+val clear_thinking_object_request_field
+  :  preserve_thinking_control_format:Capabilities.preserve_thinking_control_format
+  -> clear_thinking:bool option
+  -> preserve_thinking:bool option
+  -> bool option
 
 (** Capability catalog provider identity for [config]. Uses the explicitly
     carried [provider_id], otherwise the typed wire kind. Endpoint URLs and
@@ -371,12 +366,6 @@ val capabilities_for_config_model : t -> Capabilities.capabilities option
     with the gate that would then reject it. Falls back to a kind-appropriate
     preset rather than [None] when no catalog row matches. *)
 val tool_choice_capabilities_for_config : t -> Capabilities.capabilities
-
-(** [true] exactly when [config.kind = Glm]. An [OpenAI_compat] config is never
-    promoted to GLM semantics from its provider id, endpoint URL, or model id;
-    callers targeting the native Z.AI contract must select the typed [Glm]
-    kind explicitly. *)
-val is_zai_glm_config : t -> bool
 
 (** Derive a provider-safe schema name for native structured-output APIs
     that require one (for example Openai's [json_schema.name]). *)

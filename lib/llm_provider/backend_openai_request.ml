@@ -284,12 +284,6 @@ let should_emit_tool_choice (config : Provider_config.t) =
      | None -> (capabilities_of_config config).supports_tool_choice)
 ;;
 
-(* Resolution delegated to [Provider_config.glm_clear_thinking] (SSOT) so the
-   request-body clear_thinking field below and the reasoning-replay gate cannot
-   diverge. *)
-let glm_clear_thinking_of_config = Provider_config.glm_clear_thinking
-let is_zai_glm_request = Provider_config.is_zai_glm_config
-
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request_assoc_artifact
@@ -302,9 +296,9 @@ let build_request_assoc_artifact
   let tools = effective_tools config tools in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
-  let reasoning_target =
-    match Reasoning_dialect.reasoning_source_for_provider_config config with
-    | Ok source -> source
+  let replay_capability =
+    match Reasoning_dialect.replay_capability_for_provider_config config with
+    | Ok capability -> capability
     | Error detail ->
       invalid_arg ("Backend_openai_request: invalid reasoning target: " ^ detail)
   in
@@ -312,12 +306,26 @@ let build_request_assoc_artifact
     output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
+  (* oas#2744 — degrade an unrepresentable document to a named text placeholder
+     before serialization, rather than relabelling it [image_url] (the audit's
+     defect) or rejecting the whole request. Rejection retroactively broke every
+     later turn of any conversation that already held a document in its history
+     against a model without the capability; degrading keeps the turn live while
+     still refusing to send a document as some other modality. A row that
+     declares [supports_document_input] and whose wire has a document part keeps
+     its native block. Image and audio blocks are untouched. *)
+  let messages, _documents_degraded =
+    Api_common.degrade_document_messages
+      ~wire_form:Api_common.Document_chat_file_part
+      ~supports_document_input:caps.Capabilities.supports_document_input
+      messages
+  in
   let provider_messages =
     let history =
       match
         Backend_openai_serialize.dialect_messages_of_history
           ~assistant_tool_content_format
-          ~reasoning_target
+          ~replay_capability
           dialect
           messages
       with
@@ -397,10 +405,12 @@ let build_request_assoc_artifact
     | None -> body
   in
   let body =
-    let zai_glm_clear_thinking =
-      Provider_config.zai_glm_clear_thinking_request_field
-        ~thinking_control_format:caps.thinking_control_format
-        ~is_zai_glm:(is_zai_glm_request config)
+    (* Gated on the declared preserve wire (SSOT:
+       [Provider_config.clear_thinking_object_request_field]), so the request
+       body and the reasoning-replay gate read the same typed capability. *)
+    let clear_thinking_object =
+      Provider_config.clear_thinking_object_request_field
+        ~preserve_thinking_control_format:caps.preserve_thinking_control_format
         ~clear_thinking:config.clear_thinking
         ~preserve_thinking:config.preserve_thinking
     in
@@ -418,7 +428,7 @@ let build_request_assoc_artifact
           ~preserve_thinking:config.preserve_thinking
           ~thinking_budget:config.thinking_budget
           ~reasoning_effort:config.reasoning_effort
-          ?zai_glm_clear_thinking
+          ?clear_thinking_object
           ()
       with
       | Ok artifact -> artifact

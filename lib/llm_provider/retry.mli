@@ -46,14 +46,41 @@ type api_error =
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
 
-(** [overflow_of_empty_completion ~stop_reason ~message] classifies an empty
-    provider completion into [Some (ContextOverflow …)] when [stop_reason] is
-    [ContextWindowExceeded], else [None]. Single compiler-checked source for the
-    #2621 empty-completion overflow rule shared by [Api],
-    [Provider_failure_attribution], and the SDK boundary in [Error]; each caller
-    keeps its own wrapping of the returned value. The message prefix
+(** Verdict for a provider turn that produced no content blocks.
+
+    [Empty_overflow] carries the typed [ContextOverflow]: only the consumer's
+    context recovery (compaction) can make progress, because retrying or
+    rotating replays the same oversized prompt. [Empty_attributed] means a
+    recognized non-overflow stop_reason, for which the caller's existing
+    provider-unavailability handling applies. [Empty_unattributed] carries the
+    raw stop_reason token the SDK does not model: the caller must surface it
+    instead of folding it into transient provider unavailability, which would
+    retry the identical prompt forever and hide an overflow reported with an
+    unmodeled token. Derived from the typed stop_reason alone — no provider
+    identity is consulted. *)
+type empty_completion_verdict =
+  | Empty_overflow of api_error
+  | Empty_attributed
+  | Empty_unattributed of { token : string }
+
+(** [verdict_of_empty_completion ~stop_reason ~message] is the single,
+    compiler-checked classification of an empty provider completion. The match
+    is exhaustive, so a new [Types.stop_reason] forces a decision here. *)
+val verdict_of_empty_completion
+  :  stop_reason:Types.stop_reason
+  -> message:string
+  -> empty_completion_verdict
+
+(** [overflow_of_empty_completion ~stop_reason ~message] is the overflow-only
+    projection of {!verdict_of_empty_completion}: [Some (ContextOverflow …)]
+    when [stop_reason] is [ContextWindowExceeded], else [None]. Single
+    compiler-checked source for the #2621 empty-completion overflow rule; the
+    message prefix
     ["empty completion (stop_reason=model_context_window_exceeded): "] and
-    [limit = None] live here so all three call sites stay byte-identical. *)
+    [limit = None] live there so all call sites stay byte-identical. Callers
+    that must distinguish an unmodeled stop_reason from a recognized
+    non-overflow one use {!verdict_of_empty_completion} instead — this
+    projection collapses both into [None]. *)
 val overflow_of_empty_completion
   :  stop_reason:Types.stop_reason
   -> message:string

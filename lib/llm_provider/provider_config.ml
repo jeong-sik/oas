@@ -275,20 +275,21 @@ let all_reasoning_efforts = Reasoning_effort.all
 let reasoning_effort_to_string = Reasoning_effort.to_string
 let reasoning_effort_of_string = Reasoning_effort.of_string
 
-(* GLM (Z.AI) Preserved-Thinking gate (SSOT).
+(* Preserved-Thinking gate for the [Thinking_object_clear_thinking] preserve
+   wire (SSOT).
 
-   The GLM Chat Completion API replays prior-turn [reasoning_content] from the
-   request history only under Preserved Thinking — that is, when thinking is
-   active AND [clear_thinking] is false. With the default [clear_thinking=true]
-   the server ignores/removes prior-turn reasoning, so sending it back violates
-   the documented contract and grows the request every turn. [clear_thinking]
-   resolves from the explicit field, else the inverse of [preserve_thinking],
-   else the API default [true].
+   Rows declaring that wire carry the thinking toggle in a top-level [thinking]
+   object and only echo prior-turn [reasoning_content] under Preserved
+   Thinking — that is, when thinking is active AND [clear_thinking] is false.
+   With the wire default [clear_thinking = true] the server ignores/removes
+   prior-turn reasoning, so sending it back violates the documented contract and
+   grows the request every turn. [clear_thinking] resolves from the explicit
+   field, else the inverse of [preserve_thinking], else the wire default [true].
 
-   Exposed on raw fields as well as on [t] because the two request builders
-   carry different config records ([Provider_config.t] vs [Types.agent_config]);
-   both route through this one resolver so the gate cannot drift between them. *)
-let glm_clear_thinking_value ~clear_thinking ~preserve_thinking =
+   Exposed on raw fields rather than on [t] because the request builders carry
+   different config records ([Provider_config.t] vs [Types.agent_config]); both
+   route through this one resolver so the gate cannot drift between them. *)
+let clear_thinking_value ~clear_thinking ~preserve_thinking =
   match clear_thinking with
   | Some clear -> clear
   | None ->
@@ -297,49 +298,24 @@ let glm_clear_thinking_value ~clear_thinking ~preserve_thinking =
      | None -> true)
 ;;
 
-let glm_should_replay_reasoning_fields ~enable_thinking ~clear_thinking ~preserve_thinking
-  =
+let preserved_thinking_active ~enable_thinking ~clear_thinking ~preserve_thinking =
   enable_thinking = Some true
-  && not (glm_clear_thinking_value ~clear_thinking ~preserve_thinking)
+  && not (clear_thinking_value ~clear_thinking ~preserve_thinking)
 ;;
 
-let glm_clear_thinking (config : t) =
-  glm_clear_thinking_value
-    ~clear_thinking:config.clear_thinking
-    ~preserve_thinking:config.preserve_thinking
-;;
-
-let zai_glm_clear_thinking_request_field
-      ~thinking_control_format
-      ~is_zai_glm
+let clear_thinking_object_request_field
+      ~(preserve_thinking_control_format : Capabilities.preserve_thinking_control_format)
       ~clear_thinking
       ~preserve_thinking
   =
-  match thinking_control_format with
-  | Capabilities.No_thinking_control when is_zai_glm ->
-    Some (glm_clear_thinking_value ~clear_thinking ~preserve_thinking)
-  | Capabilities.No_thinking_control
-  | Capabilities.Thinking_object
-  | Capabilities.Thinking_object_adaptive
-  | Capabilities.Thinking_object_only
-  | Capabilities.Chat_template_kwargs
-  | Capabilities.Chat_template_token _
-  | Capabilities.Ollama_think
-  | Capabilities.Reasoning_effort
-  | Capabilities.Enable_thinking -> None
-;;
-
-let glm_should_replay_reasoning (config : t) =
-  glm_should_replay_reasoning_fields
-    ~enable_thinking:config.enable_thinking
-    ~clear_thinking:config.clear_thinking
-    ~preserve_thinking:config.preserve_thinking
-;;
-
-let is_zai_glm_config (config : t) =
-  match config.kind with
-  | Glm -> true
-  | OpenAI_compat | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
+  match preserve_thinking_control_format with
+  | Capabilities.Thinking_object_clear_thinking ->
+    Some (clear_thinking_value ~clear_thinking ~preserve_thinking)
+  | Capabilities.No_preserve_thinking_control
+  | Capabilities.Thinking_object_keep_all
+  | Capabilities.Chat_template_kwargs_preserve_thinking
+  | Capabilities.Top_level_preserve_thinking
+  | Capabilities.Always_preserved_thinking -> None
 ;;
 
 type tool_choice_request_rejection =
@@ -603,21 +579,6 @@ let structured_schema_requested (config : t) : bool =
   | None, (Types.JsonMode | Types.Off) -> false
 ;;
 
-let validate_model_structured_output_capability (config : t) =
-  let caps =
-    match capabilities_for_config_model config with
-    | Some c -> c
-    | None -> Capabilities.default_capabilities
-  in
-  if not caps.supports_structured_output
-  then
-    Error
-      (Printf.sprintf
-         "model %s does not advertise native structured output"
-         config.model_id)
-  else Ok ()
-;;
-
 let request_path_targets_responses_api request_path =
   let lower = String.lowercase_ascii (String.trim request_path) in
   let path =
@@ -640,27 +601,50 @@ let validate_request_path (config : t) =
   else Ok ()
 ;;
 
+(* Structured-output tier admission (OAS #2744 / masc#25550 audit finding P4).
+   The tier is read from the resolved model/provider capability, never from
+   provider identity. [config.kind] used to gate this (GLM hard-denied, three
+   kinds hard-allowed), so a capability-driven fact was decided by a vendor
+   name. Now the two catalog-sourced booleans project to a typed tier
+   ([Capabilities.structured_output_support]) matched exhaustively here: a
+   provider that declares native json_schema is admitted and one that declares
+   json_object-only is denied regardless of which vendor it is.
+
+   Capabilities are resolved through [request_capabilities_for_config], the same
+   function the request serializers use, so this decision and the wire it gates
+   read one capability record. That matters when a config names no catalog row:
+   the previous inline fallback dropped to [default_capabilities] (structured =
+   false) and would have denied an Anthropic/Gemini/DashScope config that names
+   an off-catalog model, whereas the wire path resolves it to the provider's
+   base record via the [config.kind] arm below. The old kind gate admitted those
+   unconditionally; routing through the shared resolver keeps that behaviour
+   (their base records declare native schema) without reading identity here —
+   identity selects the base capability record, it does not decide the tier. GLM
+   and Kimi base records are json_object-only and stay denied. *)
 let validate_output_schema_request (config : t) =
   match structured_schema_requested config with
   | false -> Ok ()
   | true ->
-    (match config.kind with
-     | Gemini | Anthropic -> Ok ()
-     (* DashScope was in the unchecked group on the belief that Model Studio
-        exposes response_format.json_schema. A 2026-07-22 re-read of every
-        Model Studio API reference found the type enum closed at
-        {text, json_object} with zero occurrences of json_schema, so an
-        unchecked pass here sends a field the API does not define. It now
-        follows the same per-model capability check as the other
-        OpenAI-family kinds. *)
-     | DashScope -> validate_model_structured_output_capability config
-     | Ollama -> validate_model_structured_output_capability config
-     | Glm ->
+    (* #2758 replaced the kind-based match with a capability-tier decision
+       (identity no longer decides the tier). This branch takes that version;
+       the DashScope correction this PR made in the old kind arm now lives
+       where it belongs — dashscope_capabilities declares
+       supports_structured_output = false, so DashScope projects to
+       [Json_object_only] and is denied here without a kind branch. *)
+    let caps = request_capabilities_for_config config in
+    (match Capabilities.structured_output_support caps with
+     | Capabilities.Native_json_schema -> Ok ()
+     | Capabilities.Json_object_only ->
        Error
-         "Glm supports JSON mode (json_object) only; native json_schema output is not \
-          documented in the current Z.AI API"
-     | Kimi -> validate_model_structured_output_capability config
-     | OpenAI_compat -> validate_model_structured_output_capability config)
+         (Printf.sprintf
+            "model %s advertises JSON mode (json_object) only; native json_schema output \
+             is not supported by its declared capability"
+            config.model_id)
+     | Capabilities.No_structured_output ->
+       Error
+         (Printf.sprintf
+            "model %s does not advertise native structured output"
+            config.model_id))
 ;;
 
 let has_host_prefix ~url ~prefix =

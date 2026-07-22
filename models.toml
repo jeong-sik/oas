@@ -1740,6 +1740,10 @@ cache_read_multiplier = 0.18333333333333332
 [[models]]
 id_prefix = "glm-4-flash"
 provider_name = "glm"
+# Z.AI chat completions carries the thinking toggle in a top-level [thinking]
+# object and only replays prior reasoning under clear_thinking = false. These
+# rows declare no capability [base], so the wire fact has to be stated here.
+preserve_thinking_control_format = "thinking_object_clear_thinking"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true
@@ -1748,6 +1752,10 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "glm-4v"
 provider_name = "glm"
+# Z.AI chat completions carries the thinking toggle in a top-level [thinking]
+# object and only replays prior reasoning under clear_thinking = false. These
+# rows declare no capability [base], so the wire fact has to be stated here.
+preserve_thinking_control_format = "thinking_object_clear_thinking"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true
@@ -1758,6 +1766,10 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "glm-4"
 provider_name = "glm"
+# Z.AI chat completions carries the thinking toggle in a top-level [thinking]
+# object and only replays prior reasoning under clear_thinking = false. These
+# rows declare no capability [base], so the wire fact has to be stated here.
+preserve_thinking_control_format = "thinking_object_clear_thinking"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true

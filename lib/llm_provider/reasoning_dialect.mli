@@ -37,20 +37,25 @@ type sampling_policy =
   ; ignored_when_thinking : Capabilities.sampling_parameter list
   }
 
-type replay_policy =
+(** The reasoning-replay vocabulary is the leaf
+    {!Reasoning_replay_contract} one, re-exported here as a type equation
+    rather than restated. There is no dialect-level synonym set and therefore
+    no dialect-to-contract translation table to keep in sync: a new policy is
+    added in exactly one module and every consumer sees the same constructor. *)
+type replay_policy = Reasoning_replay_contract.replay_policy =
   | No_replay
-  | Drop_without_tool_preserve_with_tool
-  | Latest_user_turn_tool_calls
-  | Preserve_always
-  | Provider_hidden_replay
+  | Tool_call_assistant_messages_all_history
+  | Tool_call_assistant_messages_latest_user_turn
+  | All_assistant_messages
+  | Provider_opaque_state
 
-type streaming_reasoning =
+type streaming_reasoning = Reasoning_replay_contract.streaming_reasoning =
   | No_streaming_reasoning
   | Delta_field of string
   | Delta_reasoning_details
   | Template_parser
 
-type output_wire =
+type output_wire = Reasoning_replay_contract.output_wire =
   | No_output_control
   | Reasoning_split
 
@@ -104,13 +109,44 @@ type t =
 
 val default : t
 val of_capabilities : Capabilities.capabilities -> t
+
+(** Request-local dialect: the capability base, then the [preserve_thinking]
+    knob, then the declared clear-thinking replay gate, then the transport
+    override. *)
 val for_provider_config : Provider_config.t -> t
+
 val replay_contract : t -> Reasoning_replay_contract.t
 
-(** Exact source binding for a response produced by [config]. *)
+(** Declared rotation rule for [dialect], derived from its typed wire facts
+    only. See {!Reasoning_replay_contract.rotation_policy}. *)
+val rotation_policy : t -> Reasoning_replay_contract.rotation_policy
+
+(** Provenance stamped on a response produced by [config]. Derived from the
+    stable provider/model/transport shape, so request-local knobs never change
+    the identity of an already-produced artifact. *)
 val reasoning_source_for_provider_config
   :  Provider_config.t
   -> (Types.Reasoning_source.t, string) result
+
+(** Everything the reasoning-replay path needs for one request, resolved once.
+
+    Provider identity is consulted while building this record and nowhere
+    downstream: the projection, the serializer and the request builder read
+    [target], [contract] and [rotation] instead of re-deriving a provider kind,
+    an endpoint, or a model name. *)
+type replay_capability =
+  { target : Types.Reasoning_source.t
+    (** Provenance this request replays into, and the stamp its own response
+        carries. *)
+  ; contract : Reasoning_replay_contract.t
+    (** Request-local replay/streaming/output contract. *)
+  ; rotation : Reasoning_replay_contract.rotation_policy
+    (** What a stored artifact from a different source may still do. *)
+  }
+
+val replay_capability_for_provider_config
+  :  Provider_config.t
+  -> (replay_capability, string) result
 
 val with_preserve_thinking : preserve_thinking:bool option -> t -> t
 val thinking_enabled : enable_thinking:bool option -> bool
@@ -139,9 +175,12 @@ val ignores_sampling_param
     This is the single source of truth for both request-body fields and typed
     admission receipts. The low-level [Provider_config]-based builder, the
     high-level Agent API builder, the Responses builder, and Complete preflight
-    all consume projections of this artifact. [zai_glm_clear_thinking] is only
-    used for ZAI GLM's historical [No_toggle] Chat transport, where GLM still
-    accepts a provider-specific [thinking] object. *)
+    all consume projections of this artifact. [clear_thinking_object] carries
+    the resolved [thinking.clear_thinking] member for rows whose
+    {!Capabilities.preserve_thinking_control_format} is
+    [Thinking_object_clear_thinking]: those rows have no ordinary thinking
+    control yet still accept a provider [thinking] object. The caller resolves
+    it from that typed capability, never from a provider identity. *)
 val request_control_fields
   :  openai_request_wire
   -> t
@@ -149,7 +188,7 @@ val request_control_fields
   -> preserve_thinking:bool option
   -> thinking_budget:int option
   -> reasoning_effort:Reasoning_effort.t option
-  -> ?zai_glm_clear_thinking:bool
+  -> ?clear_thinking_object:bool
   -> unit
   -> (request_control_artifact, request_control_rejection) result
 

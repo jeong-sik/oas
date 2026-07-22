@@ -156,6 +156,7 @@ let test_catalog_entry ?provider_name ?input ?output ?cache_write ?cache_read id
   ; supports_image_input = None
   ; supports_audio_input = None
   ; supports_video_input = None
+  ; supports_document_input = None
   ; modality_priority = None
   ; task = None
   ; supports_native_streaming = None
