@@ -145,6 +145,7 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
   ; modality_priority : Llm_provider.Modality.priority
   ; task : task option
   ; supports_native_streaming : bool

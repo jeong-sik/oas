@@ -228,7 +228,16 @@ let openai_content_parts_of_blocks blocks =
         (`Assoc
             [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
     | Document { media_type; data; source_type } ->
-      let url =
+      (* oas#2744 — a document is not an image. This arm used to emit an
+         [image_url] part, so a PDF reached the model as a picture and no layer
+         reported the substitution. Chat Completions carries a document in its
+         own [file] part; the payload is the same base64 data URL the sibling
+         Responses serializer puts in [input_file.file_data], and like that
+         serializer no [filename] is sent because a [Document] block carries no
+         name. Rows that cannot carry a document are stopped earlier by
+         [Api_common.admit_document_blocks], so there is one native form here
+         and no fallback. *)
+      let file_data =
         Api_common.base64_media_data_url
           ~backend:"openai_chat"
           ~block:"document"
@@ -238,7 +247,7 @@ let openai_content_parts_of_blocks blocks =
       in
       Some
         (`Assoc
-            [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
+            [ "type", `String "file"; "file", `Assoc [ "file_data", `String file_data ] ])
     | Audio { media_type; data; source_type } ->
       let data =
         Api_common.base64_media_payload
@@ -593,6 +602,14 @@ let modality_priority_for_model_id model_id =
   | None -> Modality.Preserve_input_order
 ;;
 
+(* An unresolved model id declares nothing, so it does not declare document
+   support either. *)
+let document_input_supported_for_model_id model_id =
+  match Capabilities.for_model_id model_id with
+  | Some c -> c.supports_document_input
+  | None -> false
+;;
+
 (** Ollama native [/api/chat] user message serialization.
     Unlike OpenAI-compatible endpoints where [content] may be a string or an
     array of content parts, Ollama's native chat API requires [content] to be a
@@ -610,22 +627,30 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
       (fun (texts, images) block ->
          match block with
          | Text s -> Utf8_sanitize.sanitize s :: texts, images
-         | Image { data; source_type = Base64; _ }
-         | Document { data; source_type = Base64; _ } ->
+         | Image { data; source_type = Base64; _ } ->
            (* Ollama native /api/chat accepts base64 image payloads in the
-              images field. Document blocks are forwarded the same way so
-              vision models can attempt to process them as pages. *)
+              images field. *)
            texts, data :: images
          | Image { source_type; _ } ->
            Api_common.unsupported_media_source
              ~backend:"ollama_native"
              ~block:"image"
              source_type
-         | Document { source_type; _ } ->
-           Api_common.unsupported_media_source
-             ~backend:"ollama_native"
-             ~block:"document"
-             source_type
+         | Document { media_type; _ } ->
+           (* oas#2744 — documents used to be appended to [images] "so vision
+              models can attempt to process them as pages". The server has no
+              way to tell the two apart, so that was a silent modality change.
+              [ollama_messages_of_history] rejects documents at admission
+              because the native wire declares [Document_unrepresentable];
+              reaching this arm means a caller bypassed admission. *)
+           invalid_arg
+             (Printf.sprintf
+                "Backend_openai_serialize.ollama_native_user_message: document block \
+                 (media_type %S) reached serialization; %s"
+                media_type
+                (Api_common.document_admission_error_to_string
+                   (Api_common.Document_wire_has_no_representation
+                      { wire_form = Api_common.Document_unrepresentable; media_type })))
          | Audio { source_type; _ } ->
            Api_common.unsupported_media_source
              ~backend:"ollama_native"
@@ -735,6 +760,19 @@ let ollama_messages_of_history ?(model_id = "") messages =
       (match ollama_tool_block_role_contract message with
        | Error _ as error -> error
        | Ok () -> validate rest)
+  in
+  (* oas#2744 — the native /api/chat wire has no document part, so a document
+     cannot be sent as one. Rather than pushing it into the [images] array as if
+     it were a picture (the audit's defect) or rejecting the whole request
+     (which retroactively sank every later turn of a conversation holding a
+     document in its history), degrade each document to a named text placeholder
+     before rendering. [Document_unrepresentable] means the wire form alone is
+     decisive, so the capability flag does not gate this. *)
+  let messages, _documents_degraded =
+    Api_common.degrade_document_messages
+      ~wire_form:Api_common.Document_unrepresentable
+      ~supports_document_input:(document_input_supported_for_model_id model_id)
+      messages
   in
   match validate messages with
   | Error _ as error -> error

@@ -112,6 +112,12 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; supports_document_input : bool
+    (** Whether the row accepts a {!Types.Document} block as input. Independent
+        of [supports_multimodal_inputs]: a row can be multimodal for images and
+        still have no document representation on its wire. Serialization
+        consults this at admission so a document is never re-labelled as
+        another modality (oas#2744). *)
   ; modality_priority : Modality.priority
   ; (* Inference task *)
     task : task option

@@ -9,6 +9,14 @@ let check_int = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
 let check_float = Alcotest.(check (float 0.0001))
 
+(* Local substring search: this suite links no shared string util. *)
+let contains ~needle haystack =
+  let nl = String.length needle
+  and hl = String.length haystack in
+  let rec at i = i + nl <= hl && (String.sub haystack i nl = needle || at (i + 1)) in
+  nl = 0 || at 0
+;;
+
 let msg role content : message =
   { role; content; name = None; tool_call_id = None; metadata = [] }
 ;;
@@ -565,10 +573,14 @@ let test_content_parts_cover_modalities () =
     "data:image/png;base64,img"
     (member "image_url" image |> member "url" |> to_string);
   let document = List.nth parts 2 in
+  (* oas#2744: a document is emitted as the Chat Completions [file] part. It
+     used to be relabelled [image_url], which silently retyped the block as an
+     image. *)
+  check_string "document type" "file" (member "type" document |> to_string);
   check_string
-    "document url"
+    "document file_data"
     "data:application/pdf;base64,doc"
-    (member "image_url" document |> member "url" |> to_string);
+    (member "file" document |> member "file_data" |> to_string);
   let audio = List.nth parts 3 in
   check_string "audio type" "input_audio" (member "type" audio |> to_string);
   check_string
@@ -723,23 +735,35 @@ let test_ollama_native_multimodal_variants () =
   let images = member "images" image_only |> as_list "image-only images" in
   check_int "image-only images count" 1 (List.length images);
   check_string "image-only payload" "png1" (List.nth images 0 |> to_string);
-  (* Document blocks are forwarded as images for vision-model compatibility. *)
-  let doc_msg =
-    ollama_messages
-      [ msg
-          User
-          [ Document
-              { media_type = "application/pdf"
-              ; data = "pdf1"
-              ; source_type = Types.Base64
-              }
-          ]
-      ]
-    |> only "ollama"
-  in
-  let doc_images = member "images" doc_msg |> as_list "document images" in
-  check_int "document images count" 1 (List.length doc_images);
-  check_string "document payload" "pdf1" (List.nth doc_images 0 |> to_string);
+  (* oas#2744: documents used to be appended to [images] "for vision-model
+     compatibility", which made the server read a PDF as a picture with nothing
+     reporting the substitution. The native wire has no document part, so a
+     document is degraded to a named text placeholder — it is not sent as a
+     picture, and it does not reject the turn (which would retroactively sink
+     any conversation holding a document in its history). *)
+  (match
+     Serialize.ollama_messages_of_history
+       [ msg
+           User
+           [ Document
+               { media_type = "application/pdf"
+               ; data = "pdf1"
+               ; source_type = Types.Base64
+               }
+           ]
+       ]
+   with
+   | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
+   | Ok wire ->
+     let serialized = Yojson.Safe.to_string (`List wire) in
+     check_bool
+       "document not relabelled into the images array"
+       false
+       (contains ~needle:"pdf1" serialized);
+     check_bool
+       "placeholder names the omission"
+       true
+       (contains ~needle:"document omitted" serialized));
   (* Audio is not supported by Ollama native /api/chat and must fail closed
      instead of being silently dropped. *)
   expect_invalid_arg "ollama audio input" (fun () ->
@@ -750,9 +774,26 @@ let test_ollama_native_multimodal_variants () =
           ]
       ]
     |> ignore);
-  (* Mixed text + image + document preserves text in content and both payloads in images. *)
+  (* Mixed text + image preserves text in content and the payload in images. *)
   let mixed =
     ollama_messages
+      [ msg
+          User
+          [ Text "describe these"
+          ; Image { media_type = "image/png"; data = "png2"; source_type = Types.Base64 }
+          ]
+      ]
+    |> only "ollama"
+  in
+  check_string "mixed content" "describe these" (member "content" mixed |> to_string);
+  let mixed_images = member "images" mixed |> as_list "mixed images" in
+  check_int "mixed images count" 1 (List.length mixed_images);
+  check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string);
+  (* A document alongside admissible media degrades in place: the image is kept
+     (it is representable), the document becomes a named placeholder, and the
+     turn is not rejected. Degrade looks at every block, not just the first. *)
+  match
+    Serialize.ollama_messages_of_history
       [ msg
           User
           [ Text "describe these"
@@ -764,13 +805,22 @@ let test_ollama_native_multimodal_variants () =
               }
           ]
       ]
-    |> only "ollama"
-  in
-  check_string "mixed content" "describe these" (member "content" mixed |> to_string);
-  let mixed_images = member "images" mixed |> as_list "mixed images" in
-  check_int "mixed images count" 2 (List.length mixed_images);
-  check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string);
-  check_string "mixed second image" "pdf2" (List.nth mixed_images 1 |> to_string)
+  with
+  | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
+  | Ok wire ->
+    let serialized = Yojson.Safe.to_string (`List wire) in
+    check_bool
+      "admissible image survives alongside the degraded document"
+      true
+      (contains ~needle:"png2" serialized);
+    check_bool
+      "document not relabelled into images"
+      false
+      (contains ~needle:"pdf2" serialized);
+    check_bool
+      "document degraded to a named placeholder"
+      true
+      (contains ~needle:"document omitted" serialized)
 ;;
 
 let test_assistant_tool_calls_openai_ollama_and_glm () =
@@ -1006,16 +1056,19 @@ let test_serializer_ignored_block_variants () =
     0
     (Serialize.tool_calls_to_openai_json ignored_blocks |> List.length);
   let ollama_blocks =
+    (* Documents are excluded here because the Ollama native wire has no
+       document part and rejects them at admission (oas#2744); this case is
+       about tool-call blocks, and the rejection has its own coverage in
+       [test_ollama_native_multimodal_variants]. *)
     List.filter
       (function
-        | ToolResult _ -> false
+        | ToolResult _ | Document _ -> false
         | Text _
         | Thinking _
         | ReasoningDetails _
         | RedactedThinking _
         | ToolUse _
         | Image _
-        | Document _
         | Audio _ -> true)
       ignored_blocks
   in

@@ -269,6 +269,20 @@ let build_request_assoc_artifact
     output_token_receipt ~envelope:Types.Openai_chat_max_tokens config
   in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
+  (* oas#2744 — degrade an unrepresentable document to a named text placeholder
+     before serialization, rather than relabelling it [image_url] (the audit's
+     defect) or rejecting the whole request. Rejection retroactively broke every
+     later turn of any conversation that already held a document in its history
+     against a model without the capability; degrading keeps the turn live while
+     still refusing to send a document as some other modality. A row that
+     declares [supports_document_input] and whose wire has a document part keeps
+     its native block. Image and audio blocks are untouched. *)
+  let messages, _documents_degraded =
+    Api_common.degrade_document_messages
+      ~wire_form:Api_common.Document_chat_file_part
+      ~supports_document_input:caps.Capabilities.supports_document_input
+      messages
+  in
   let provider_messages =
     let history =
       match

@@ -28,6 +28,7 @@ type model_entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; supports_document_input : bool option
   ; modality_priority : string option
   ; task : Capability_vocab.task option
   ; supports_native_streaming : bool option
@@ -282,6 +283,7 @@ let known_entry_keys =
   ; "supports_image_input"
   ; "supports_audio_input"
   ; "supports_video_input"
+  ; "supports_document_input"
   ; "modality_priority"
   ; "task"
   ; "supports_native_streaming"
@@ -406,6 +408,9 @@ let parse_entry entry_toml =
   let* supports_video_input =
     bool_field ~entry_id:id_prefix "supports_video_input" entry_toml
   in
+  let* supports_document_input =
+    bool_field ~entry_id:id_prefix "supports_document_input" entry_toml
+  in
   let* modality_priority =
     canonical_string_opt
       ~entry_id:id_prefix
@@ -519,6 +524,7 @@ let parse_entry entry_toml =
     ; supports_image_input
     ; supports_audio_input
     ; supports_video_input
+    ; supports_document_input
     ; modality_priority
     ; task
     ; supports_native_streaming

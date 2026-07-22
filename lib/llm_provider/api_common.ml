@@ -74,6 +74,181 @@ let base64_media_payload ~backend ~block ~data = function
   | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
 ;;
 
+(* ── Document admission (oas#2744) ───────────────────────────────────────
+
+   A [Document] block used to be re-labelled as an [image_url] part on the
+   OpenAI-compatible Chat Completions wire. Serializing the same typed block
+   differently per wire is the legitimate serialization boundary; changing
+   *which modality it is* is not — the model received a picture where the
+   caller sent a file, and nothing reported it.
+
+   The two facts that decide whether a document may go out are now separate and
+   both typed: [document_wire_form] says which native part the wire has (there
+   is no wildcard: a wire with no document part says so), and
+   [Capabilities.supports_document_input] says whether the resolved model row
+   accepts one. Admission runs before serialization, so each serializer arm has
+   exactly one native form and never needs a fallback. *)
+
+type document_wire_form =
+  | Document_source_block (** Anthropic Messages: [{"type":"document","source":{…}}]. *)
+  | Document_inline_data (** Gemini: [inlineData] carrying the document MIME. *)
+  | Document_input_file_part
+  (** OpenAI Responses: [{"type":"input_file","file_data":…}]. *)
+  | Document_chat_file_part
+  (** OpenAI Chat Completions: [{"type":"file","file":{"file_data":…}}]. *)
+  | Document_unrepresentable
+  (** The wire has no document part. Ollama's native [/api/chat] carries only
+        a scalar [content] plus an [images] array; a document placed in
+        [images] is an image as far as the server is concerned. *)
+
+let document_wire_form_to_string = function
+  | Document_source_block -> "an Anthropic document source block"
+  | Document_inline_data -> "a Gemini inlineData part"
+  | Document_input_file_part -> "an OpenAI Responses input_file part"
+  | Document_chat_file_part -> "an OpenAI Chat Completions file part"
+  | Document_unrepresentable -> "no document part"
+;;
+
+type document_admission_error =
+  | Document_wire_has_no_representation of
+      { wire_form : document_wire_form
+      ; media_type : string
+      }
+  | Document_input_not_declared of
+      { model_id : string
+      ; media_type : string
+      }
+
+let document_admission_error_to_string = function
+  | Document_wire_has_no_representation { wire_form; media_type } ->
+    Printf.sprintf
+      "document block (media_type %S) cannot be placed on this wire: it has %s"
+      media_type
+      (document_wire_form_to_string wire_form)
+  | Document_input_not_declared { model_id; media_type } ->
+    Printf.sprintf
+      "document block (media_type %S) rejected: model %S does not declare \
+       supports_document_input"
+      media_type
+      model_id
+;;
+
+let admit_document_blocks ~wire_form ~model_id ~supports_document_input blocks =
+  let rec loop = function
+    | [] -> Ok ()
+    | Document { media_type; _ } :: rest ->
+      (match wire_form with
+       | Document_unrepresentable ->
+         Error (Document_wire_has_no_representation { wire_form; media_type })
+       | Document_source_block
+       | Document_inline_data
+       | Document_input_file_part
+       | Document_chat_file_part ->
+         if supports_document_input
+         then loop rest
+         else Error (Document_input_not_declared { model_id; media_type }))
+    | ( Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | ToolUse _
+      | ToolResult _
+      | Image _
+      | Audio _ )
+      :: rest -> loop rest
+  in
+  loop blocks
+;;
+
+let admit_document_messages ~wire_form ~model_id ~supports_document_input messages =
+  let rec loop = function
+    | [] -> Ok ()
+    | (message : Types.message) :: rest ->
+      (match
+         admit_document_blocks
+           ~wire_form
+           ~model_id
+           ~supports_document_input
+           message.content
+       with
+       | Error _ as error -> error
+       | Ok () -> loop rest)
+  in
+  loop messages
+;;
+
+(* oas#2744 — degrade, not reject.
+   [admit_document_*] answers "may this document reach the wire"; when it may
+   not, the earlier design raised [Invalid_argument], which
+   [Complete.complete]'s wrapper turned into a rejected turn. That is right for
+   a document the caller is introducing now, but the same functions walk the
+   ENTIRE message history every turn, so a document resident in an
+   already-answered turn permanently sank every later turn of that conversation
+   against a model without the capability — retroactively, for state written
+   before this behaviour existed.
+
+   The wire still must not carry a document as some other modality (the audit's
+   actual defect: a PDF relabelled [image_url]). So instead of relabelling or
+   rejecting, an unrepresentable document is replaced with a visible text block
+   that names what was dropped. This is not silent: the model — and through it
+   the user — sees that a document was omitted and why, which is the honest
+   degraded outcome for a conversation whose model cannot read documents. A
+   model that CAN carry the document (capability declared, wire has a document
+   part) keeps its native block untouched. *)
+let document_omitted_placeholder ~media_type =
+  Text
+    (Printf.sprintf
+       "[document omitted: this model does not accept document input (media_type %s)]"
+       media_type)
+;;
+
+let degrade_document_block ~wire_form ~supports_document_input block =
+  match block with
+  | Document { media_type; _ } ->
+    let representable =
+      match wire_form with
+      | Document_unrepresentable -> false
+      | Document_source_block
+      | Document_inline_data
+      | Document_input_file_part
+      | Document_chat_file_part -> supports_document_input
+    in
+    if representable then block else document_omitted_placeholder ~media_type
+  | Text _
+  | Thinking _
+  | ReasoningDetails _
+  | RedactedThinking _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Audio _ -> block
+;;
+
+(* Replace every unrepresentable document across the whole history with the
+   placeholder, leaving all other blocks (and representable documents) intact.
+   Returns the rewritten messages and the count of documents degraded, so a
+   caller may log or surface the degradation without re-walking. *)
+let degrade_document_messages ~wire_form ~supports_document_input messages =
+  let degraded = ref 0 in
+  let rewrite (message : Types.message) =
+    let content =
+      List.map
+        (fun block ->
+           let block' =
+             degrade_document_block ~wire_form ~supports_document_input block
+           in
+           (match block, block' with
+            | Document _, Text _ -> incr degraded
+            | _ -> ());
+           block')
+        message.content
+    in
+    { message with content }
+  in
+  let messages = List.map rewrite messages in
+  messages, !degraded
+;;
+
 type tool_result_content_style =
   | Tool_result_content_string
   | Tool_result_content_text_blocks
