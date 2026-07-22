@@ -377,10 +377,9 @@ let wire_admission_error = function
 
 let admit ~target ~messages requirement =
   let* () =
-    match target.capabilities.supported_models with
-    | None -> Ok ()
-    | Some models when List.exists (String.equal target.config.model_id) models -> Ok ()
-    | Some _ ->
+    if Resolver.selected_target_model_admitted target
+    then Ok ()
+    else
       Error
         (Wire_admission_rejected
            (Unsupported_target_model { model_id = target.config.model_id }))

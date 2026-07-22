@@ -159,6 +159,12 @@ let selected_target_identity (target : selected_target) = target.identity
 let selected_target_catalog_generation (target : selected_target) = target.generation
 let selected_target_catalog_evidence (target : selected_target) = target.evidence
 
+let selected_target_model_admitted (target : selected_target) =
+  match target.capabilities.supported_models with
+  | None -> true
+  | Some models -> List.exists (String.equal target.config.model_id) models
+;;
+
 let has_control value =
   String.exists
     (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
