@@ -924,7 +924,7 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
         Eio.Time.with_timeout clock 0.01 (fun () -> Ok (EO.execute_once ~net ready))
       with
       | Error `Timeout -> true
-      | Ok (Ok (Ok _ | Error _)) -> false
+      | Ok (Ok _ | Error _) -> false
       | Ok (Error _) -> fail "unexpected inner timeout wrapper error"
     in
     let phase = EO.receipt_phase receipt in

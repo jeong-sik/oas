@@ -53,6 +53,7 @@ type resolver_endpoint_error =
   | Base_url_query_not_allowed
   | Base_url_fragment_not_allowed
   | Invalid_request_path
+  | Unsupported_gemini_request_path
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
