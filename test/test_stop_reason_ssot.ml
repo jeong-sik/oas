@@ -94,17 +94,43 @@ let test_metric_label () =
     (Types.stop_reason_to_metric_label (Types.Unknown "anything_at_all"))
 ;;
 
+let test_dialects_mapped_to_canonical () =
+  let cases =
+    [ "context_window_exceeded", Types.ContextWindowExceeded
+    ; "context_length_exceeded", Types.ContextWindowExceeded
+    ; "max_context_length", Types.ContextWindowExceeded
+    ; "context_limit_exceeded", Types.ContextWindowExceeded
+    ; "length_limit", Types.MaxTokens
+    ; "length", Types.MaxTokens
+    ]
+  in
+  List.iter
+    (fun (raw, expected) ->
+       check
+         stop_reason_testable
+         (Printf.sprintf "dialect %S maps to %s" raw (Types.show_stop_reason expected))
+         expected
+         (Types.stop_reason_of_string raw);
+       check
+         stop_reason_testable
+         (Printf.sprintf
+            "wire_finish_of_string %S maps to %s"
+            raw
+            (Types.show_stop_reason expected))
+         expected
+         (Stop_reason_wire.provisional_of_string raw))
+    cases
+;;
+
 let () =
   run
     "stop_reason_ssot"
     [ ( "canonical"
-      , [ test_case "roundtrip known variants" `Quick test_roundtrip_known
-        ; test_case
-            "unknown passthrough roundtrip"
-            `Quick
-            test_roundtrip_unknown_passthrough
-        ; test_case "pinned canonical strings" `Quick test_canonical_strings_pinned
-        ; test_case "metric label semantics" `Quick test_metric_label
+      , [ test_case "roundtrip known" `Quick test_roundtrip_known
+        ; test_case "roundtrip unknown" `Quick test_roundtrip_unknown_passthrough
+        ; test_case "pinned strings" `Quick test_canonical_strings_pinned
+        ; test_case "metric label" `Quick test_metric_label
+        ; test_case "dialect aliases" `Quick test_dialects_mapped_to_canonical
         ] )
     ]
 ;;

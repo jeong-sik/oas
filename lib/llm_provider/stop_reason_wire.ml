@@ -11,16 +11,20 @@ type wire_finish =
 let wire_finish_of_string s =
   match String.lowercase_ascii s with
   | "tool_calls" -> Tool_calls
-  | "length" -> Length
+  | "length" | "max_tokens" | "length_limit" -> Length
   | "stop" | "end_turn" -> Stop
   | "refusal" -> Refusal
   | "content_filter" -> Content_filter
   | "repetition_truncation" -> Repetition_truncation
   (* SSOT parity with [Types.stop_reason_of_string]: the OpenAI/GLM finish-reason
-     decoder must recognize the canonical overflow token so an empty completion
-     that reports it reaches [Retry.overflow_of_empty_completion] as
-     [ContextWindowExceeded] instead of the [Unknown _] dead arm. *)
-  | "model_context_window_exceeded" -> Context_window_exceeded
+     decoder must recognize canonical and provider-dialect overflow tokens so an
+     empty completion that reports it reaches [Retry.overflow_of_empty_completion]
+     as [ContextWindowExceeded] instead of the [Unknown _] dead arm. *)
+  | "model_context_window_exceeded"
+  | "context_window_exceeded"
+  | "context_length_exceeded"
+  | "max_context_length"
+  | "context_limit_exceeded" -> Context_window_exceeded
   | other -> Other other
 ;;
 
