@@ -37,8 +37,11 @@ type attempt_state =
   | Response_received_state of int option
   | Terminal_state of int
 
+type call_id = Call_id of string
+
 type receipt =
   { state : attempt_state Atomic.t
+  ; call_id : call_id
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; catalog_generation : catalog_generation
@@ -49,6 +52,15 @@ type receipt =
 type ready_plan =
   { plan : Plan.t
   ; provenance : plan_provenance
+  ; plan_fingerprint : string
+  ; request_body_sha256 : string
+  ; catalog_generation : catalog_generation
+  ; catalog_evidence : catalog_evidence
+  ; target_identity : target_identity
+  }
+
+type attempt =
+  { ready : ready_plan
   ; receipt : receipt
   }
 
@@ -102,13 +114,15 @@ type execution_error_cause =
   | Internal_non_json_output
 
 type execution_error =
-  { receipt : receipt
+  { call_id : call_id
+  ; receipt : receipt
   ; cause : execution_error_cause
   ; raw_response : raw_response option
   }
 
 type success =
-  { receipt : receipt
+  { call_id : call_id
+  ; receipt : receipt
   ; output : Yojson.Safe.t
   ; provenance : plan_provenance
   ; raw_response : raw_response
@@ -417,20 +431,39 @@ let admit ~target ~messages requirement =
         ; catalog_evidence = target.evidence
         ; target_identity = target.identity
         }
-    ; receipt =
-        { state = Atomic.make Not_started_state
-        ; plan_fingerprint
-        ; request_body_sha256
-        ; catalog_generation = target.generation
-        ; catalog_evidence = target.evidence
-        ; target_identity = target.identity
-        }
+    ; plan_fingerprint
+    ; request_body_sha256
+    ; catalog_generation = target.generation
+    ; catalog_evidence = target.evidence
+    ; target_identity = target.identity
     })
 ;;
 
 let plan_provenance (ready : ready_plan) = ready.provenance
-let plan_fingerprint (ready : ready_plan) = ready.receipt.plan_fingerprint
-let attempt_receipt (ready : ready_plan) = ready.receipt
+let plan_fingerprint (ready : ready_plan) = ready.plan_fingerprint
+
+type start_attempt_error = Call_id_generation_failed of string
+
+let start_attempt (ready : ready_plan) =
+  match Exact_output_call_id.create () with
+  | Error detail -> Error (Call_id_generation_failed detail)
+  | Ok id ->
+    let receipt =
+      { state = Atomic.make Not_started_state
+      ; call_id = Call_id id
+      ; plan_fingerprint = ready.plan_fingerprint
+      ; request_body_sha256 = ready.request_body_sha256
+      ; catalog_generation = ready.catalog_generation
+      ; catalog_evidence = ready.catalog_evidence
+      ; target_identity = ready.target_identity
+      }
+    in
+    Ok { ready; receipt }
+;;
+
+let call_id_to_string (Call_id id) = id
+let attempt_receipt (attempt : attempt) = attempt.receipt
+let receipt_call_id (receipt : receipt) = receipt.call_id
 
 let receipt_phase receipt =
   match Atomic.get receipt.state with
@@ -519,43 +552,50 @@ let execution_error_cause = function
   | Exec.Output_normalization_failed (Exec.Invalid_json _) -> Invalid_json_output
 ;;
 
-let execute_once ~net ?clock (ready : ready_plan) =
-  if
-    not
-      (Atomic.compare_and_set ready.receipt.state Not_started_state Before_dispatch_state)
+let execute_once ~net ?clock (attempt : attempt) =
+  let ready = attempt.ready in
+  let receipt = attempt.receipt in
+  if not (Atomic.compare_and_set receipt.state Not_started_state Before_dispatch_state)
   then
     Error
-      { receipt = ready.receipt; cause = Attempt_already_started; raw_response = None }
+      { call_id = receipt.call_id
+      ; receipt
+      ; cause = Attempt_already_started
+      ; raw_response = None
+      }
   else (
     match
       Exec.execute_once_with_evidence
         ~net
         ?clock
-        ~on_phase:(observe_phase ready.receipt)
+        ~on_phase:(observe_phase receipt)
         ready.plan
     with
     | Error
-        ({ receipt; cause; raw_response = evidence } :
+        ({ receipt = complete_receipt; cause; raw_response = evidence } :
           Exec.execute_once_error_with_evidence) ->
-      synchronize_receipt ready.receipt receipt;
+      synchronize_receipt receipt complete_receipt;
       Error
-        { receipt = ready.receipt
+        { call_id = receipt.call_id
+        ; receipt
         ; cause = execution_error_cause cause
         ; raw_response = Option.map raw_response evidence
         }
     | Ok { outcome; raw_response = evidence } ->
-      synchronize_receipt ready.receipt outcome.receipt;
+      synchronize_receipt receipt outcome.receipt;
       (match outcome.output with
        | Exec.Json_output { value; _ } ->
          Ok
-           { receipt = ready.receipt
+           { call_id = receipt.call_id
+           ; receipt
            ; output = value
            ; provenance = ready.provenance
            ; raw_response = raw_response evidence
            }
        | Exec.Text_output _ ->
          Error
-           { receipt = ready.receipt
+           { call_id = receipt.call_id
+           ; receipt
            ; cause = Internal_non_json_output
            ; raw_response = Some (raw_response evidence)
            }))
