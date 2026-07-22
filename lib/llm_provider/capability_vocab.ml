@@ -444,6 +444,52 @@ let modality_priority_values =
   ]
 ;;
 
+let capability_fields =
+  [ "max_context_tokens"
+  ; "max_output_tokens"
+  ; "supports_tools"
+  ; "supports_tool_choice"
+  ; "supports_required_tool_choice"
+  ; "supports_named_tool_choice"
+  ; "supports_parallel_tool_calls"
+  ; "assistant_tool_content_format"
+  ; "supports_reasoning"
+  ; "supports_extended_thinking"
+  ; "supports_reasoning_budget"
+  ; "accepted_reasoning_efforts"
+  ; "thinking_control_format"
+  ; "thinking_control_token"
+  ; "preserve_thinking_control_format"
+  ; "reasoning_output_format"
+  ; "reasoning_streaming_format"
+  ; "reasoning_replay"
+  ; "supports_response_format_json"
+  ; "supports_structured_output"
+  ; "supports_multimodal_inputs"
+  ; "supports_image_input"
+  ; "supports_audio_input"
+  ; "supports_video_input"
+  ; "supports_document_input"
+  ; "modality_priority"
+  ; "supports_native_streaming"
+  ; "supports_system_prompt"
+  ; "supports_caching"
+  ; "supports_prompt_caching"
+  ; "prompt_cache_alignment"
+  ; "supports_top_k"
+  ; "supports_min_p"
+  ; "supports_seed"
+  ; "supports_seed_with_images"
+  ; "ignored_sampling_parameters"
+  ; "supports_computer_use"
+  ; "supports_code_execution"
+  ; "emits_usage_tokens"
+  ; "supported_models"
+  ; "supports_runtime_mcp_tools"
+  ; "supports_runtime_tool_events"
+  ]
+;;
+
 let task_table =
   [ "transcription", Transcription
   ; "speech", Speech
