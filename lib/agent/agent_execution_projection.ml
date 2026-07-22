@@ -1,7 +1,7 @@
 open Result_syntax
 module Event = Execution_event
 module Journal = Execution_journal
-module Store = Execution_event_store
+module Durable = Journal.Durable_read
 module Sequence_map = Map.Make (Int)
 
 module type ID = sig
@@ -119,7 +119,7 @@ type event =
   }
 
 type cursor =
-  { scope_id : Store.Scope_id.t
+  { scope_id : Durable.Scope_id.t
   ; seq : int
   }
 
@@ -142,7 +142,7 @@ type cursor_decode_error =
       ; actual : int
       }
 
-type unexpected_store_error =
+type unexpected_store_error = Durable.unexpected_store_error =
   | Writer_already_active
   | Store_already_attached
   | Store_released
@@ -158,7 +158,7 @@ type unexpected_store_error =
   | Store_poisoned
   | Commit_outcome_unknown
 
-type storage_failure =
+type storage_failure = Durable.storage_failure =
   | Invalid_store_argument of string
   | Store_identity_failure of string
   | Store_io_failure of
@@ -217,7 +217,7 @@ type page =
   }
 
 type validated_snapshot =
-  { durable : Store.read_only_snapshot
+  { durable : Durable.snapshot
   ; reducer : Journal.Reducer.t
   ; events : event Sequence_map.t
   }
@@ -239,7 +239,7 @@ type t =
   { codec : Execution_codec_executor.t
   ; dir : Eio.Fs.dir_ty Eio.Path.t
   ; locator_run_id : Run_id.t
-  ; scope_id : Store.Scope_id.t
+  ; scope_id : Durable.Scope_id.t
   ; mu : Eio.Mutex.t
   ; mutable snapshot : validated_snapshot
   ; mutable in_flight_refresh : in_flight_refresh option
@@ -250,7 +250,7 @@ let cursor_version = 1
 let cursor_to_yojson (cursor : cursor) =
   `Assoc
     [ "version", `Int cursor_version
-    ; "scope_id", `String (Store.Scope_id.to_string cursor.scope_id)
+    ; "scope_id", `String (Durable.Scope_id.to_string cursor.scope_id)
     ; "sequence", `Int cursor.seq
     ]
 ;;
@@ -327,7 +327,7 @@ let cursor_of_yojson json =
     match scope_id with
     | None -> Error (Missing_cursor_field Scope_id)
     | Some (`String value) ->
-      Store.Scope_id.of_string value
+      Durable.Scope_id.of_string value
       |> Result.map_error (fun detail ->
         Invalid_cursor_field { field = Scope_id; detail })
     | Some _ ->
@@ -437,62 +437,6 @@ let event value =
   }
 ;;
 
-let unexpected_store_failure kind error =
-  Unexpected_store_failure { kind; detail = Store.error_to_string error }
-;;
-
-let storage_failure error =
-  match error with
-  | Store.Invalid_argument detail -> Invalid_store_argument detail
-  | Store.Identity_failure detail -> Store_identity_failure detail
-  | Store.Io_failure { operation; detail } -> Store_io_failure { operation; detail }
-  | Store.Codec_failure failure ->
-    Store_codec_failure (Execution_codec_executor.failure_to_string failure)
-  | Store.Store_not_found -> Store_not_found
-  | Store.Store_initialization_incomplete -> Store_initialization_incomplete
-  | Store.Store_initialization_conflict -> Store_initialization_conflict
-  | Store.Unsupported_store_version { expected; actual } ->
-    Unsupported_store_version { expected; actual }
-  | Store.Corrupt_store { offset; detail } -> Corrupt_store { offset; detail }
-  | Store.Commit_authority_identity_changed -> Commit_authority_identity_changed
-  | Store.Commit_authority_regressed
-      { previous_committed_offset
-      ; actual_committed_offset
-      ; previous_last_seq
-      ; actual_last_seq
-      } ->
-    Commit_authority_regressed
-      { previous_committed_offset
-      ; actual_committed_offset
-      ; previous_last_seq
-      ; actual_last_seq
-      }
-  | Store.Writer_already_active as error ->
-    unexpected_store_failure Writer_already_active error
-  | Store.Store_already_attached as error ->
-    unexpected_store_failure Store_already_attached error
-  | Store.Store_released as error -> unexpected_store_failure Store_released error
-  | Store.Store_release_forbidden as error ->
-    unexpected_store_failure Store_release_forbidden error
-  | Store.Resource_cleanup_failed _ as error ->
-    unexpected_store_failure Resource_cleanup_failed error
-  | Store.Construction_cleanup_failed _ as error ->
-    unexpected_store_failure Construction_cleanup_failed error
-  | Store.Store_already_exists as error ->
-    unexpected_store_failure Store_already_exists error
-  | Store.Correlation_mismatch as error ->
-    unexpected_store_failure Correlation_mismatch error
-  | Store.Sequence_conflict _ as error -> unexpected_store_failure Sequence_conflict error
-  | Store.Committed_content_conflict _ as error ->
-    unexpected_store_failure Committed_content_conflict error
-  | Store.Cursor_scope_mismatch as error ->
-    unexpected_store_failure Cursor_scope_mismatch error
-  | Store.Cursor_ahead _ as error -> unexpected_store_failure Cursor_ahead error
-  | Store.Store_poisoned _ as error -> unexpected_store_failure Store_poisoned error
-  | Store.Commit_outcome_unknown _ as error ->
-    unexpected_store_failure Commit_outcome_unknown error
-;;
-
 let storage_failure_to_string = function
   | Invalid_store_argument detail -> "invalid store argument: " ^ detail
   | Store_identity_failure detail -> "store identity failure: " ^ detail
@@ -547,7 +491,7 @@ let error_to_string = function
   | Storage_failure failure -> storage_failure_to_string failure
 ;;
 
-let validate_snapshot ~locator_run_id ?previous (durable : Store.read_only_snapshot) =
+let validate_snapshot ~locator_run_id ?previous (durable : Durable.snapshot) =
   let reducer, events =
     match previous with
     | None -> Journal.Reducer.empty, Sequence_map.empty
@@ -573,7 +517,7 @@ let validate_snapshot ~locator_run_id ?previous (durable : Store.read_only_snaps
               ; detail = Journal.show_invariant_violation violation
               }))
   in
-  let* reducer, events = reduce reducer events durable.Store.appended_events in
+  let* reducer, events = reduce reducer events (Durable.appended_events durable) in
   let* () =
     match Journal.Reducer.find_run reducer locator_run_id with
     | None -> Error (Locator_not_found locator_run_id)
@@ -582,12 +526,12 @@ let validate_snapshot ~locator_run_id ?previous (durable : Store.read_only_snaps
        | None -> Ok ()
        | Some _ -> Error (Locator_not_top_level locator_run_id))
   in
-  if Journal.Reducer.last_seq reducer = durable.last_seq
+  if Journal.Reducer.last_seq reducer = Durable.last_seq durable
   then Ok { durable; reducer; events }
   else
     Error
       (Semantic_failure
-         { seq = durable.last_seq
+         { seq = Durable.last_seq durable
          ; detail = "committed sequence does not equal the projected event count"
          })
 ;;
@@ -595,11 +539,11 @@ let validate_snapshot ~locator_run_id ?previous (durable : Store.read_only_snaps
 let load_snapshot ~codec ~dir ~locator_run_id ?previous () =
   let previous_durable = Option.map (fun value -> value.durable) previous in
   let* durable =
-    Store.read_only_snapshot ~codec ~dir ?previous:previous_durable ()
-    |> Result.map_error (fun error -> Storage_failure (storage_failure error))
+    Durable.read_snapshot ~codec ~dir ?previous:previous_durable ()
+    |> Result.map_error (fun failure -> Storage_failure failure)
   in
   match previous with
-  | Some previous when previous.durable == durable -> Ok previous
+  | Some previous when Durable.same_snapshot previous.durable durable -> Ok previous
   | None -> validate_snapshot ~locator_run_id durable
   | Some previous -> validate_snapshot ~locator_run_id ~previous durable
 ;;
@@ -610,7 +554,7 @@ let open_durable ~codec ~dir ~locator_run_id () =
     { codec
     ; dir
     ; locator_run_id
-    ; scope_id = snapshot.durable.scope_id
+    ; scope_id = Durable.scope_id snapshot.durable
     ; mu = Eio.Mutex.create ()
     ; snapshot
     ; in_flight_refresh = None
@@ -646,10 +590,10 @@ let publish_snapshot t ~base candidate =
       t.snapshot <- candidate;
       Ok candidate)
     else (
-      let current_offset = current.durable.committed_offset in
-      let candidate_offset = candidate.durable.committed_offset in
-      let current_seq = current.durable.last_seq in
-      let candidate_seq = candidate.durable.last_seq in
+      let current_offset = Durable.committed_offset current.durable in
+      let candidate_offset = Durable.committed_offset candidate.durable in
+      let current_seq = Durable.last_seq current.durable in
+      let candidate_seq = Durable.last_seq candidate.durable in
       let offset_order = Int64.compare candidate_offset current_offset in
       if offset_order <= 0 && candidate_seq <= current_seq
       then Ok current
@@ -702,11 +646,11 @@ let beginning_cursor t = { scope_id = t.scope_id; seq = 0 }
 
 let current_cursor t =
   let+ snapshot = refresh t in
-  { scope_id = t.scope_id; seq = snapshot.durable.last_seq }
+  { scope_id = t.scope_id; seq = Durable.last_seq snapshot.durable }
 ;;
 
 let cursor_matches scope_id (cursor : cursor) =
-  Store.Scope_id.equal scope_id cursor.scope_id
+  Durable.Scope_id.equal scope_id cursor.scope_id
 ;;
 
 let events_slice events ~first_seq ~count =
@@ -739,21 +683,21 @@ let read_page t ~after ?through ~limit () =
       match through with
       | Some cursor ->
         let cached = cached_snapshot t in
-        if cursor.seq <= cached.durable.last_seq then Ok cached else refresh t
+        if cursor.seq <= Durable.last_seq cached.durable then Ok cached else refresh t
       | None -> refresh t
     in
     let high_watermark =
       match through with
-      | None -> snapshot.durable.last_seq
+      | None -> Durable.last_seq snapshot.durable
       | Some cursor -> cursor.seq
     in
-    if high_watermark > snapshot.durable.last_seq
+    if high_watermark > Durable.last_seq snapshot.durable
     then
       Error
         (Cursor_ahead
            { cursor_role = Through
            ; cursor_seq = high_watermark
-           ; high_watermark = snapshot.durable.last_seq
+           ; high_watermark = Durable.last_seq snapshot.durable
            })
     else if after.seq > high_watermark
     then

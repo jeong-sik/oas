@@ -195,6 +195,80 @@ type commit_error_disposition =
     callers never inspect store errors or error strings. *)
 val commit_error_disposition : error -> commit_error_disposition
 
+(** Narrow read-only durable source for execution projections. Physical store
+    ownership and store-error translation remain inside this journal boundary. *)
+module Durable_read : sig
+  module Scope_id : sig
+    type t
+
+    val of_string : string -> (t, string) result
+    val to_string : t -> string
+    val equal : t -> t -> bool
+  end
+
+  type unexpected_store_error =
+    | Writer_already_active
+    | Store_already_attached
+    | Store_released
+    | Store_release_forbidden
+    | Resource_cleanup_failed
+    | Construction_cleanup_failed
+    | Store_already_exists
+    | Correlation_mismatch
+    | Sequence_conflict
+    | Committed_content_conflict
+    | Cursor_scope_mismatch
+    | Cursor_ahead
+    | Store_poisoned
+    | Commit_outcome_unknown
+
+  type storage_failure =
+    | Invalid_store_argument of string
+    | Store_identity_failure of string
+    | Store_io_failure of
+        { operation : string
+        ; detail : string
+        }
+    | Store_codec_failure of string
+    | Store_not_found
+    | Store_initialization_incomplete
+    | Store_initialization_conflict
+    | Unsupported_store_version of
+        { expected : int
+        ; actual : int
+        }
+    | Corrupt_store of
+        { offset : int64
+        ; detail : string
+        }
+    | Commit_authority_identity_changed
+    | Commit_authority_regressed of
+        { previous_committed_offset : int64
+        ; actual_committed_offset : int64
+        ; previous_last_seq : int
+        ; actual_last_seq : int
+        }
+    | Unexpected_store_failure of
+        { kind : unexpected_store_error
+        ; detail : string
+        }
+
+  type snapshot
+
+  val read_snapshot
+    :  codec:Execution_codec_executor.t
+    -> dir:Eio.Fs.dir_ty Eio.Path.t
+    -> ?previous:snapshot
+    -> unit
+    -> (snapshot, storage_failure) result
+
+  val same_snapshot : snapshot -> snapshot -> bool
+  val scope_id : snapshot -> Scope_id.t
+  val committed_offset : snapshot -> int64
+  val last_seq : snapshot -> int
+  val appended_events : snapshot -> Execution_event.t list
+end
+
 (** Pure immutable reducer used to validate and project the event stream. *)
 module Reducer : sig
   type t
