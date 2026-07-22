@@ -29,6 +29,9 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** Provider [thinking] object whose [clear_thinking] member gates prior-turn
+      reasoning replay. See {!Capability_vocab.preserve_thinking_control_format}. *)
 
 type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay

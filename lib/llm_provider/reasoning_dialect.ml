@@ -27,20 +27,20 @@ type sampling_policy =
   ; ignored_when_thinking : Capabilities.sampling_parameter list
   }
 
-type replay_policy =
+type replay_policy = Reasoning_replay_contract.replay_policy =
   | No_replay
-  | Drop_without_tool_preserve_with_tool
-  | Latest_user_turn_tool_calls
-  | Preserve_always
-  | Provider_hidden_replay
+  | Tool_call_assistant_messages_all_history
+  | Tool_call_assistant_messages_latest_user_turn
+  | All_assistant_messages
+  | Provider_opaque_state
 
-type streaming_reasoning =
+type streaming_reasoning = Reasoning_replay_contract.streaming_reasoning =
   | No_streaming_reasoning
   | Delta_field of string
   | Delta_reasoning_details
   | Template_parser
 
-type output_wire =
+type output_wire = Reasoning_replay_contract.output_wire =
   | No_output_control
   | Reasoning_split
 
@@ -137,12 +137,13 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     (match preserve_wire with
      | Always_preserved_thinking ->
        { dialect with
-         replay_policy = Preserve_always
+         replay_policy = All_assistant_messages
        ; streaming = Delta_field "reasoning_content"
        }
      | No_preserve_thinking_control
      | Thinking_object_keep_all
      | Chat_template_kwargs_preserve_thinking
+     | Thinking_object_clear_thinking
      | Top_level_preserve_thinking -> dialect)
   | Thinking_object ->
     { toggle_default = Enabled
@@ -153,7 +154,7 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
         { ignored_always = caps.ignored_sampling_parameters
         ; ignored_when_thinking = deepseek_ignored_sampling_params
         }
-    ; replay_policy = Drop_without_tool_preserve_with_tool
+    ; replay_policy = Tool_call_assistant_messages_all_history
     ; streaming = Delta_field "reasoning_content"
     ; output_wire
     }
@@ -171,9 +172,10 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
   | Thinking_object_only ->
     let replay_policy =
       match preserve_wire with
-      | Thinking_object_keep_all -> Drop_without_tool_preserve_with_tool
+      | Thinking_object_keep_all -> Tool_call_assistant_messages_all_history
       | No_preserve_thinking_control
       | Chat_template_kwargs_preserve_thinking
+      | Thinking_object_clear_thinking
       | Top_level_preserve_thinking
       | Always_preserved_thinking -> default.replay_policy
     in
@@ -227,10 +229,10 @@ let apply_replay_override caps dialect =
   | Default_reasoning_replay -> dialect
   | Force_no_replay -> { dialect with replay_policy = No_replay }
   | Force_drop_without_tool_preserve_with_tool ->
-    { dialect with replay_policy = Drop_without_tool_preserve_with_tool }
+    { dialect with replay_policy = Tool_call_assistant_messages_all_history }
   | Force_latest_user_turn_tool_calls ->
-    { dialect with replay_policy = Latest_user_turn_tool_calls }
-  | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
+    { dialect with replay_policy = Tool_call_assistant_messages_latest_user_turn }
+  | Force_preserve_always -> { dialect with replay_policy = All_assistant_messages }
 ;;
 
 let apply_streaming_format caps dialect =
@@ -247,14 +249,16 @@ let of_capabilities caps =
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match dialect.preserve_wire, preserve_thinking with
-  | Always_preserved_thinking, _ -> { dialect with replay_policy = Preserve_always }
+  | Always_preserved_thinking, _ ->
+    { dialect with replay_policy = All_assistant_messages }
   | ( ( Thinking_object_keep_all
       | Chat_template_kwargs_preserve_thinking
       | Top_level_preserve_thinking )
-    , Some true ) -> { dialect with replay_policy = Preserve_always }
+    , Some true ) -> { dialect with replay_policy = All_assistant_messages }
   | ( ( No_preserve_thinking_control
       | Thinking_object_keep_all
       | Chat_template_kwargs_preserve_thinking
+      | Thinking_object_clear_thinking
       | Top_level_preserve_thinking )
     , _ ) -> dialect
 ;;
@@ -274,6 +278,7 @@ let thinking_object_only_control dialect ~enable_thinking ~preserve_thinking =
        | Some true, Some false | Some false, _ | None, _ -> false)
     | No_preserve_thinking_control
     | Chat_template_kwargs_preserve_thinking
+    | Thinking_object_clear_thinking
     | Top_level_preserve_thinking
     | Always_preserved_thinking -> false
   in
@@ -291,6 +296,7 @@ let chat_template_kwargs_preserve_field dialect ~preserve_thinking =
   | Chat_template_kwargs_preserve_thinking -> preserve_thinking
   | No_preserve_thinking_control
   | Thinking_object_keep_all
+  | Thinking_object_clear_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking -> None
 ;;
@@ -301,6 +307,7 @@ let top_level_preserve_field dialect ~preserve_thinking =
   | No_preserve_thinking_control
   | Thinking_object_keep_all
   | Chat_template_kwargs_preserve_thinking
+  | Thinking_object_clear_thinking
   | Always_preserved_thinking -> None
 ;;
 
@@ -371,7 +378,7 @@ let request_control_fields
       ~preserve_thinking
       ~thinking_budget
       ~reasoning_effort
-      ?zai_glm_clear_thinking
+      ?clear_thinking_object
       ()
   =
   match
@@ -502,7 +509,7 @@ let request_control_fields
               | fields -> [ "thinking", `Assoc fields ])
            , explicit_field_encoding )
          | Chat_completions, No_toggle ->
-           (match zai_glm_clear_thinking, enable_thinking with
+           (match clear_thinking_object, enable_thinking with
             | Some clear_thinking, Some true ->
               ( [ ( "thinking"
                   , `Assoc
@@ -537,7 +544,7 @@ let base_for_provider_config (config : Provider_config.t) =
   | Anthropic ->
     { default with
       toggle_wire = Anthropic_thinking
-    ; replay_policy = Preserve_always
+    ; replay_policy = All_assistant_messages
     ; streaming = Delta_field "thinking_delta"
     }
   | Gemini ->
@@ -545,7 +552,7 @@ let base_for_provider_config (config : Provider_config.t) =
       toggle_wire = Gemini_thinking_config
     ; (* GenerateContent is stateless. Signed parts must remain attached to the
          exact model response part and be returned unchanged. *)
-      replay_policy = Preserve_always
+      replay_policy = All_assistant_messages
     ; streaming = Delta_field "thought"
     }
   | Ollama ->
@@ -568,7 +575,7 @@ let base_for_provider_config (config : Provider_config.t) =
        default applies only when the capability row says [Default]. *)
     (match caps.reasoning_replay_override with
      | Default_reasoning_replay ->
-       { dialect with replay_policy = Latest_user_turn_tool_calls }
+       { dialect with replay_policy = Tool_call_assistant_messages_latest_user_turn }
      | Force_no_replay
      | Force_drop_without_tool_preserve_with_tool
      | Force_latest_user_turn_tool_calls
@@ -583,81 +590,107 @@ let base_for_provider_config (config : Provider_config.t) =
     of_capabilities Capabilities.dashscope_capabilities
 ;;
 
-let for_provider_config (config : Provider_config.t) =
-  let dialect =
-    base_for_provider_config config
-    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-  in
-  let dialect =
-    match config.kind with
-    | Kimi | OpenAI_compat | Ollama | Glm ->
-      (* RFC-OAS-029 S3.1: GLM reasoning replay is
-       clear_thinking-conditional (Preserved Thinking = thinking active AND
-       clear_thinking=false). The GLM capability profile carries
-       [No_thinking_control]/[No_preserve_thinking_control], so it resolves to
-       the default [No_replay] dialect and the typed [replay_policy] is a dead
-       value. Resolve the GLM conditional to a typed [replay_policy] here, at
-       the single dialect boundary, so the request serializer consumes only the
-       typed policy (via [should_replay_reasoning]) instead of re-deriving
-       GLM-ness with [is_glm_request]/[glm_should_replay_reasoning] at
-       serialize time (S3.1: replay is typed, one source). *)
-      if Provider_config.is_zai_glm_config config
-      then
-        { dialect with
-          replay_policy =
-            (if Provider_config.glm_should_replay_reasoning config
-             then Preserve_always
-             else No_replay)
-        }
-      else dialect
-    | Anthropic | Gemini | DashScope -> dialect
-  in
+(* Replay activation for the [Thinking_object_clear_thinking] preserve wire.
+   That wire declares that the provider only echoes prior-turn reasoning under
+   "preserved thinking": thinking active AND [clear_thinking = false]. Under the
+   wire default [clear_thinking = true] the server discards prior reasoning, so
+   sending it back violates the contract and grows the request every turn.
+
+   RFC-OAS-029 S1.1/S3.1: the branch predicate is the typed capability the
+   catalog row declares, exactly like the [Thinking_object] arm of
+   [base_of_capabilities]. No provider identity participates, so an operator can
+   move this contract onto another row without touching OCaml. *)
+let apply_clear_thinking_replay_gate (config : Provider_config.t) dialect =
+  match dialect.preserve_wire with
+  | Thinking_object_clear_thinking ->
+    { dialect with
+      replay_policy =
+        (if
+           Provider_config.preserved_thinking_active
+             ~enable_thinking:config.enable_thinking
+             ~clear_thinking:config.clear_thinking
+             ~preserve_thinking:config.preserve_thinking
+         then All_assistant_messages
+         else No_replay)
+    }
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking -> dialect
+;;
+
+(* The OpenAI Responses envelope keeps reasoning as provider-held state rather
+   than as replayable content. This is the transport fact owned by
+   {!Provider_http_codec} (the single kind-keyed dispatch this module is allowed
+   to consult), applied identically to the stable and the request-local dialect
+   so the stamped contract and the consuming contract cannot disagree. *)
+let apply_transport_replay_override (config : Provider_config.t) dialect =
   match Provider_http_codec.of_config config with
   | Provider_http_codec.Openai_responses ->
-    { dialect with replay_policy = Provider_hidden_replay }
+    { dialect with replay_policy = Provider_opaque_state }
   | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat ->
     dialect
 ;;
 
+let for_provider_config (config : Provider_config.t) =
+  base_for_provider_config config
+  |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+  |> apply_clear_thinking_replay_gate config
+  |> apply_transport_replay_override config
+;;
+
+(* Field projection, not a translation table: {!replay_policy},
+   {!streaming_reasoning} and {!output_wire} are the leaf
+   {!Reasoning_replay_contract} types by type equation. *)
 let replay_contract dialect : Reasoning_replay_contract.t =
-  let replay_policy =
-    match dialect.replay_policy with
-    | No_replay -> Reasoning_replay_contract.No_replay
-    | Drop_without_tool_preserve_with_tool -> Tool_call_assistant_messages_all_history
-    | Latest_user_turn_tool_calls -> Tool_call_assistant_messages_latest_user_turn
-    | Preserve_always -> All_assistant_messages
-    | Provider_hidden_replay -> Provider_opaque_state
-  in
-  let streaming =
-    match dialect.streaming with
-    | No_streaming_reasoning -> Reasoning_replay_contract.No_streaming_reasoning
-    | Delta_field field -> Delta_field field
-    | Delta_reasoning_details -> Delta_reasoning_details
-    | Template_parser -> Template_parser
-  in
-  let output_wire =
-    match dialect.output_wire with
-    | No_output_control -> Reasoning_replay_contract.No_output_control
-    | Reasoning_split -> Reasoning_split
-  in
-  { replay_policy; streaming; output_wire }
+  { replay_policy = dialect.replay_policy
+  ; streaming = dialect.streaming
+  ; output_wire = dialect.output_wire
+  }
+;;
+
+(* Which stored reasoning a rotation may still carry, decided from the dialect's
+   own typed wire facts.
+
+   [Require_identical_source] is for artifacts the producing endpoint has to
+   validate: [Provider_opaque_state] is a handle to state the provider holds,
+   and the Anthropic/Gemini thinking wires return signed blocks whose signature
+   is checked on replay. Every other wire carries reasoning as self-contained
+   text in a side channel, which the same model on a rotated endpoint accepts
+   unchanged.
+
+   Both matches are exhaustive: a new replay policy or toggle wire has to state
+   its rotation answer instead of inheriting one. *)
+let rotation_policy dialect : Reasoning_replay_contract.rotation_policy =
+  match dialect.replay_policy with
+  | Provider_opaque_state -> Require_identical_source
+  | No_replay
+  | Tool_call_assistant_messages_all_history
+  | Tool_call_assistant_messages_latest_user_turn
+  | All_assistant_messages ->
+    (match dialect.toggle_wire with
+     | Anthropic_thinking | Gemini_thinking_config -> Require_identical_source
+     | No_toggle
+     | Thinking_object _
+     | Thinking_object_adaptive
+     | Thinking_object_only
+     | Chat_template_kwargs
+     | Chat_template_token
+     | Ollama_think
+     | Reasoning_effort
+     | Enable_thinking -> Allow_endpoint_rotation)
+;;
+
+(* Artifact provenance is derived from the stable provider/model/transport
+   shape. Request-local replay selection (for example [preserve_thinking] or the
+   clear-thinking gate) is applied by [for_provider_config] at the consuming
+   boundary and must not rewrite the identity of an already-produced artifact. *)
+let stable_dialect_for_provider_config config =
+  base_for_provider_config config |> apply_transport_replay_override config
 ;;
 
 let reasoning_source_for_provider_config config =
-  (* Artifact compatibility is derived from the stable provider/model codec.
-     Request-local replay selection (for example [preserve_thinking] or GLM
-     [clear_thinking]) is applied by [for_provider_config] at the consuming
-     boundary and must not rewrite the identity of an already-produced
-     artifact. The HTTP codec is part of the stable shape, hence the explicit
-     Responses override below. *)
-  let dialect = base_for_provider_config config in
-  let dialect =
-    match Provider_http_codec.of_config config with
-    | Provider_http_codec.Openai_responses ->
-      { dialect with replay_policy = Provider_hidden_replay }
-    | Anthropic_messages | Openai_chat | Ollama_chat | Gemini_generate_content | Glm_chat
-      -> dialect
-  in
   Types.Reasoning_source.create
     ~provider_kind:config.Provider_config.kind
     ~provider_instance:
@@ -665,7 +698,21 @@ let reasoning_source_for_provider_config config =
          ~base_url:config.base_url
          ~request_path:config.request_path)
     ~canonical_model_id:config.model_id
-    ~replay_contract:(replay_contract dialect)
+    ~replay_contract:(replay_contract (stable_dialect_for_provider_config config))
+;;
+
+type replay_capability =
+  { target : Types.Reasoning_source.t
+  ; contract : Reasoning_replay_contract.t
+  ; rotation : Reasoning_replay_contract.rotation_policy
+  }
+
+let replay_capability_for_provider_config config =
+  Result.map
+    (fun target ->
+       let dialect = for_provider_config config in
+       { target; contract = replay_contract dialect; rotation = rotation_policy dialect })
+    (reasoning_source_for_provider_config config)
 ;;
 
 let sampling_params_ignored_when_thinking dialect =
@@ -712,10 +759,10 @@ let sampling_field_ignored_when_thinking
 
 let should_replay_reasoning dialect ~assistant_had_tool_call =
   match dialect.replay_policy with
-  | No_replay | Provider_hidden_replay -> false
-  | Preserve_always -> true
-  | Drop_without_tool_preserve_with_tool | Latest_user_turn_tool_calls ->
-    assistant_had_tool_call
+  | No_replay | Provider_opaque_state -> false
+  | All_assistant_messages -> true
+  | Tool_call_assistant_messages_all_history
+  | Tool_call_assistant_messages_latest_user_turn -> assistant_had_tool_call
 ;;
 
 let requires_reasoning_replay_on_tool_call dialect =
@@ -740,10 +787,10 @@ let toggle_wire_to_string = function
 
 let replay_policy_to_string = function
   | No_replay -> "no_replay"
-  | Drop_without_tool_preserve_with_tool -> "drop_without_tool_preserve_with_tool"
-  | Latest_user_turn_tool_calls -> "latest_user_turn_tool_calls"
-  | Preserve_always -> "preserve_always"
-  | Provider_hidden_replay -> "provider_hidden_replay"
+  | Tool_call_assistant_messages_all_history -> "drop_without_tool_preserve_with_tool"
+  | Tool_call_assistant_messages_latest_user_turn -> "latest_user_turn_tool_calls"
+  | All_assistant_messages -> "preserve_always"
+  | Provider_opaque_state -> "provider_hidden_replay"
 ;;
 
 [@@@coverage off]
@@ -757,7 +804,7 @@ let%test "reasoning_replay_override Force_preserve_always lifts base no_replay" 
     }
   in
   let dialect = of_capabilities caps in
-  (* base Reasoning_effort yields No_replay; the override lifts it to Preserve_always
+  (* base Reasoning_effort yields No_replay; the override lifts it to All_assistant_messages
      so reasoning is replayed on both plain and tool turns. *)
   should_replay_reasoning dialect ~assistant_had_tool_call:false
   && should_replay_reasoning dialect ~assistant_had_tool_call:true
@@ -878,7 +925,7 @@ let%test "request_control_fields keeps zai glm no-toggle exception explicit" =
     ~preserve_thinking:(Some true)
     ~thinking_budget:None
     ~reasoning_effort:None
-    ~zai_glm_clear_thinking:false
+    ~clear_thinking_object:false
     ()
   = Ok
       { fields =

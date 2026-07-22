@@ -44,6 +44,13 @@ let reasoning_source_for_dialect dialect =
   | Error detail -> Alcotest.failf "invalid codec-test reasoning source: %s" detail
 ;;
 
+let replay_capability_for_dialect dialect : Reasoning_dialect.replay_capability =
+  { target = reasoning_source_for_dialect dialect
+  ; contract = Reasoning_dialect.replay_contract dialect
+  ; rotation = Reasoning_dialect.rotation_policy dialect
+  }
+;;
+
 let reasoning_source_for_config config =
   match Reasoning_dialect.reasoning_source_for_provider_config config with
   | Ok source -> source
@@ -65,12 +72,12 @@ let dialect_messages_of_history
       dialect
       (messages : message list)
   =
-  let reasoning_target = reasoning_source_for_dialect dialect in
-  let messages = stamp_reasoning_history reasoning_target messages in
+  let replay_capability = replay_capability_for_dialect dialect in
+  let messages = stamp_reasoning_history replay_capability.target messages in
   match
     Serialize.dialect_messages_of_history
       ?assistant_tool_content_format
-      ~reasoning_target
+      ~replay_capability
       dialect
       messages
   with
@@ -399,7 +406,7 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
    | _ -> Alcotest.fail "expected one visible adjacent reasoning block");
   let minimax_dialect =
     { Reasoning_dialect.default with
-      replay_policy = Preserve_always
+      replay_policy = All_assistant_messages
     ; output_wire = Reasoning_split
     }
   in
@@ -888,7 +895,9 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "empty-string capability still emits reasoning_content"
     "because"
     (member "reasoning_content" replay_empty |> to_string);
-  let glm_dialect = { Reasoning_dialect.default with replay_policy = Preserve_always } in
+  let glm_dialect =
+    { Reasoning_dialect.default with replay_policy = All_assistant_messages }
+  in
   let glm =
     render_single_dialect_message
       ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
@@ -1086,7 +1095,9 @@ let test_serializer_ignored_block_variants () =
     "assistant has no tool_calls"
     true
     (member "tool_calls" assistant = `Null);
-  let glm_dialect = { Reasoning_dialect.default with replay_policy = Preserve_always } in
+  let glm_dialect =
+    { Reasoning_dialect.default with replay_policy = All_assistant_messages }
+  in
   let glm =
     render_single_dialect_message
       glm_dialect

@@ -53,12 +53,13 @@ val error_to_string : error -> string
 
 (** [assistant_has_payload] states whether an Assistant message still has a
     representable wire payload after projection. [reasoning_block_supported]
-    is the codec's exhaustive declaration of retained reasoning variants. *)
+    is the codec's exhaustive declaration of retained reasoning variants.
+    [replay_capability] is the one record resolved from the provider config:
+    replay target, replay contract, and the declared rotation policy. *)
 val project
   :  assistant_has_payload:(Types.content_block list -> bool)
   -> reasoning_block_supported:(Types.content_block -> bool)
-  -> reasoning_target:Types.Reasoning_source.t
-  -> replay_policy:Reasoning_replay_contract.replay_policy
+  -> replay_capability:Reasoning_dialect.replay_capability
   -> Types.message list
   -> (t, error) result
 

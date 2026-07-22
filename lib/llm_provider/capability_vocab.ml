@@ -27,6 +27,13 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** A provider [thinking] request object whose [clear_thinking] member both
+          carries the toggle and gates prior-turn reasoning replay: the server
+          only echoes prior reasoning back under "preserved thinking", i.e.
+          thinking active AND [clear_thinking = false]. Declaring this wire is
+          what makes replay conditional; no consumer re-derives the condition
+          from a provider identity. *)
 
 type reasoning_replay_override =
   | Default_reasoning_replay
@@ -287,7 +294,22 @@ let preserve_thinking_control_format_table =
   ; "chat_template_kwargs_preserve_thinking", Chat_template_kwargs_preserve_thinking
   ; "top_level_preserve_thinking", Top_level_preserve_thinking
   ; "always_preserved", Always_preserved_thinking
+  ; "thinking_object_clear_thinking", Thinking_object_clear_thinking
   ]
+;;
+
+(* [true] when the preserve wire is a provider [thinking] request object that
+   carries the thinking toggle itself. Such a row encodes an explicit
+   enable/disable on the wire even when its [thinking_control_format] is
+   [No_thinking_control], so admission must not report the request as
+   unencodable. Exhaustive: a new preserve wire has to state its answer. *)
+let preserve_wire_owns_thinking_object = function
+  | Thinking_object_clear_thinking -> true
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking -> false
 ;;
 
 let preserve_thinking_control_format_values =

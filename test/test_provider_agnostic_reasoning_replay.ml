@@ -40,12 +40,29 @@ let reasoning_supported = function
   | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> false
 ;;
 
-let project ~target ~policy messages =
+(* Rotation defaults to the strictest declared rule so existing expectations
+   keep exercising exact-source matching; the rotation-specific cases pass
+   [~rotation] explicitly. *)
+let project
+      ?(rotation = Reasoning_replay_contract.Require_identical_source)
+      ~target
+      ~policy
+      messages
+  =
+  let replay_capability : Reasoning_dialect.replay_capability =
+    { target
+    ; contract =
+        { Reasoning_replay_contract.replay_policy = policy
+        ; streaming = Reasoning_replay_contract.No_streaming_reasoning
+        ; output_wire = Reasoning_replay_contract.No_output_control
+        }
+    ; rotation
+    }
+  in
   Reasoning_history_projection.project
     ~assistant_has_payload:(fun content -> content <> [])
     ~reasoning_block_supported:reasoning_supported
-    ~reasoning_target:target
-    ~replay_policy:policy
+    ~replay_capability
     messages
 ;;
 
@@ -246,8 +263,15 @@ let test_selected_unsupported_block_fails_closed () =
     Reasoning_history_projection.project
       ~assistant_has_payload:(fun content -> content <> [])
       ~reasoning_block_supported:(fun _ -> false)
-      ~reasoning_target:target
-      ~replay_policy:All_assistant_messages
+      ~replay_capability:
+        { target
+        ; contract =
+            { Reasoning_replay_contract.replay_policy = All_assistant_messages
+            ; streaming = Reasoning_replay_contract.No_streaming_reasoning
+            ; output_wire = Reasoning_replay_contract.No_output_control
+            }
+        ; rotation = Reasoning_replay_contract.Require_identical_source
+        }
       [ with_source target Assistant [ Thinking { content = "x"; signature = None } ] ]
   in
   match result with
@@ -583,11 +607,348 @@ let test_openai_responses_replays_only_opaque_item () =
     Yojson.Safe.Util.(List.hd input |> member "type" |> to_string = "reasoning")
 ;;
 
+(* ── RFC-OAS-029 S1.1/S3.1: identity read once, replay read from the record ── *)
+
+let resolved_replay_policy config =
+  (Reasoning_dialect.for_provider_config config).replay_policy
+;;
+
+let clear_thinking_capabilities preserve_thinking_control_format =
+  { Capabilities.default_capabilities with
+    supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; preserve_thinking_control_format
+  }
+;;
+
+(* Pins the resolved replay policy for one config per provider kind, plus every
+   clear-thinking knob combination. The same matrix was captured from the
+   pre-refactor tree and compared byte for byte; a regression in dialect
+   resolution now shows up here as a changed constructor rather than as a silent
+   history drop in production. *)
+let test_provider_replay_policy_matrix_pinned () =
+  let cfg
+        ?request_path
+        ?enable_thinking
+        ?preserve_thinking
+        ?clear_thinking
+        ~kind
+        ~model_id
+        ~base_url
+        ()
+    =
+    Provider_config.make
+      ?request_path
+      ?enable_thinking
+      ?preserve_thinking
+      ?clear_thinking
+      ~kind
+      ~model_id
+      ~base_url
+      ()
+  in
+  let check label expected config =
+    check_bool
+      (Printf.sprintf
+         "%s resolves %s (got %s)"
+         label
+         (Reasoning_replay_contract.show_replay_policy expected)
+         (Reasoning_replay_contract.show_replay_policy (resolved_replay_policy config)))
+      true
+      (resolved_replay_policy config = expected)
+  in
+  check
+    "anthropic"
+    Reasoning_replay_contract.All_assistant_messages
+    (cfg
+       ~kind:Provider_config.Anthropic
+       ~model_id:"claude-sonnet-4-6"
+       ~base_url:"https://api.anthropic.com"
+       ());
+  check
+    "gemini"
+    Reasoning_replay_contract.All_assistant_messages
+    (cfg
+       ~kind:Provider_config.Gemini
+       ~model_id:"gemini-3-pro"
+       ~base_url:"https://generativelanguage.googleapis.com"
+       ());
+  check
+    "ollama"
+    Reasoning_replay_contract.Tool_call_assistant_messages_latest_user_turn
+    (cfg
+       ~kind:Provider_config.Ollama
+       ~model_id:"qwen3"
+       ~base_url:"http://localhost:11434"
+       ());
+  check
+    "kimi"
+    Reasoning_replay_contract.Tool_call_assistant_messages_all_history
+    (cfg
+       ~kind:Provider_config.Kimi
+       ~model_id:"kimi-k2.6"
+       ~base_url:"https://api.moonshot.ai"
+       ());
+  check
+    "openai chat"
+    Reasoning_replay_contract.No_replay
+    (cfg
+       ~kind:Provider_config.OpenAI_compat
+       ~model_id:"gpt-5.4"
+       ~base_url:"https://api.openai.com"
+       ());
+  check
+    "openai responses"
+    Reasoning_replay_contract.Provider_opaque_state
+    (cfg
+       ~request_path:"/v1/responses"
+       ~kind:Provider_config.OpenAI_compat
+       ~model_id:"gpt-5.4"
+       ~base_url:"https://api.openai.com"
+       ());
+  check
+    "dashscope"
+    Reasoning_replay_contract.No_replay
+    (cfg
+       ~kind:Provider_config.DashScope
+       ~model_id:"qwen-max"
+       ~base_url:"https://dashscope.aliyuncs.com"
+       ());
+  List.iter
+    (fun model_id ->
+       let base_url = "https://api.z.ai" in
+       let label suffix = Printf.sprintf "glm/%s %s" model_id suffix in
+       check
+         (label "default")
+         Reasoning_replay_contract.No_replay
+         (cfg ~kind:Provider_config.Glm ~model_id ~base_url ());
+       check
+         (label "enable_thinking only")
+         Reasoning_replay_contract.No_replay
+         (cfg ~enable_thinking:true ~kind:Provider_config.Glm ~model_id ~base_url ());
+       check
+         (label "preserve only")
+         Reasoning_replay_contract.No_replay
+         (cfg ~preserve_thinking:true ~kind:Provider_config.Glm ~model_id ~base_url ());
+       check
+         (label "enable + preserve")
+         Reasoning_replay_contract.All_assistant_messages
+         (cfg
+            ~enable_thinking:true
+            ~preserve_thinking:true
+            ~kind:Provider_config.Glm
+            ~model_id
+            ~base_url
+            ());
+       check
+         (label "enable + clear_thinking=false")
+         Reasoning_replay_contract.All_assistant_messages
+         (cfg
+            ~enable_thinking:true
+            ~clear_thinking:false
+            ~kind:Provider_config.Glm
+            ~model_id
+            ~base_url
+            ()))
+    [ "glm-5"; "glm-5.2"; "glm-4-flash"; "glm-4v"; "glm-4"; "glm-unlisted" ]
+;;
+
+(* The preserved-thinking replay gate is selected by the declared
+   [preserve_thinking_control_format], not by the provider kind. Both directions
+   are asserted: the gate turns on for a non-GLM kind that declares the wire and
+   stays off for the GLM kind that does not. Reverting to a [config.kind = Glm]
+   predicate turns both red. *)
+let test_clear_thinking_gate_is_capability_not_identity () =
+  let preserved kind capabilities =
+    Provider_config.make
+      ~kind
+      ~model_id:"gate-probe"
+      ~base_url:"https://gate.example"
+      ~model_capabilities_override:capabilities
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let cleared kind capabilities =
+    Provider_config.make
+      ~kind
+      ~model_id:"gate-probe"
+      ~base_url:"https://gate.example"
+      ~model_capabilities_override:capabilities
+      ~enable_thinking:true
+      ()
+  in
+  let declared =
+    clear_thinking_capabilities Capabilities.Thinking_object_clear_thinking
+  in
+  let undeclared =
+    clear_thinking_capabilities Capabilities.No_preserve_thinking_control
+  in
+  check_bool
+    "non-GLM kind declaring the wire gets conditional replay"
+    true
+    (resolved_replay_policy (preserved Provider_config.OpenAI_compat declared)
+     = Reasoning_replay_contract.All_assistant_messages);
+  check_bool
+    "non-GLM kind declaring the wire honours the clear_thinking default"
+    true
+    (resolved_replay_policy (cleared Provider_config.OpenAI_compat declared)
+     = Reasoning_replay_contract.No_replay);
+  check_bool
+    "GLM kind without the declared wire does not get the gate"
+    true
+    (resolved_replay_policy (preserved Provider_config.Glm undeclared)
+     = Reasoning_replay_contract.No_replay);
+  check_bool
+    "GLM kind declaring the wire still gets conditional replay"
+    true
+    (resolved_replay_policy (preserved Provider_config.Glm declared)
+     = Reasoning_replay_contract.All_assistant_messages)
+;;
+
+(* ── RFC-OAS-029 S3.1: the rotation drop is a declared policy ── *)
+
+let test_rotation_policy_is_declared_per_dialect () =
+  let rotation ?request_path ~kind ~model_id ~base_url () =
+    Provider_config.make ?request_path ~kind ~model_id ~base_url ()
+    |> Reasoning_dialect.for_provider_config
+    |> Reasoning_dialect.rotation_policy
+  in
+  let check label expected actual =
+    check_bool
+      (Printf.sprintf
+         "%s declares %s"
+         label
+         (Reasoning_replay_contract.show_rotation_policy expected))
+      true
+      (actual = expected)
+  in
+  check
+    "anthropic signed thinking blocks"
+    Reasoning_replay_contract.Require_identical_source
+    (rotation
+       ~kind:Provider_config.Anthropic
+       ~model_id:"claude-sonnet-4-6"
+       ~base_url:"https://api.anthropic.com"
+       ());
+  check
+    "gemini thought signatures"
+    Reasoning_replay_contract.Require_identical_source
+    (rotation
+       ~kind:Provider_config.Gemini
+       ~model_id:"gemini-3-pro"
+       ~base_url:"https://generativelanguage.googleapis.com"
+       ());
+  check
+    "openai responses opaque state"
+    Reasoning_replay_contract.Require_identical_source
+    (rotation
+       ~request_path:"/v1/responses"
+       ~kind:Provider_config.OpenAI_compat
+       ~model_id:"gpt-5.4"
+       ~base_url:"https://api.openai.com"
+       ());
+  check
+    "glm reasoning_content side channel"
+    Reasoning_replay_contract.Allow_endpoint_rotation
+    (rotation ~kind:Provider_config.Glm ~model_id:"glm-5" ~base_url:"https://api.z.ai" ());
+  check
+    "ollama thinking side channel"
+    Reasoning_replay_contract.Allow_endpoint_rotation
+    (rotation
+       ~kind:Provider_config.Ollama
+       ~model_id:"qwen3"
+       ~base_url:"http://localhost:11434"
+       ());
+  check
+    "kimi reasoning_content side channel"
+    Reasoning_replay_contract.Allow_endpoint_rotation
+    (rotation
+       ~kind:Provider_config.Kimi
+       ~model_id:"kimi-k2.6"
+       ~base_url:"https://api.moonshot.ai"
+       ())
+;;
+
+let incompatible_drop_count (projection : Reasoning_history_projection.t) =
+  List.length
+    (List.filter
+       (fun (drop : Reasoning_history_projection.reasoning_replay_drop) ->
+          match drop.reason with
+          | Incompatible_reasoning_source _ -> true
+          | Replay_policy_excluded _
+          | Missing_reasoning_source
+          | Reasoning_on_non_assistant -> false)
+       projection.reasoning_replay_drops)
+;;
+
+(* Continuity across a rotation follows the declared rule, not a bare identity
+   comparison: the same stored artifact and the same target are dropped under
+   [Require_identical_source] and kept under [Allow_endpoint_rotation], while a
+   model or replay-contract change is dropped under both. *)
+let test_rotation_policy_drives_incompatible_drop () =
+  let target = source All_assistant_messages in
+  let rotated_endpoint =
+    source ~base_url:"https://rotated.example" All_assistant_messages
+  in
+  let other_model = source ~model_id:"model-b" All_assistant_messages in
+  let other_contract = source ~base_url:"https://rotated.example" No_replay in
+  let history stored =
+    [ with_source stored Assistant [ Thinking { content = "prior"; signature = None } ]
+    ; message User [ Text "next" ]
+    ]
+  in
+  let run ~rotation stored =
+    match project ~rotation ~target ~policy:All_assistant_messages (history stored) with
+    | Error error -> Alcotest.fail (Reasoning_history_projection.error_to_string error)
+    | Ok projection -> projection
+  in
+  check_int
+    "identical-source rule drops an endpoint rotation"
+    1
+    (incompatible_drop_count
+       (run ~rotation:Reasoning_replay_contract.Require_identical_source rotated_endpoint));
+  let kept =
+    run ~rotation:Reasoning_replay_contract.Allow_endpoint_rotation rotated_endpoint
+  in
+  check_int "endpoint-rotation rule keeps the artifact" 0 (incompatible_drop_count kept);
+  check_bool
+    "rotated reasoning survives into the projection"
+    true
+    (content_has_reasoning (List.hd kept.messages).content);
+  check_int
+    "endpoint-rotation rule still drops a model change"
+    1
+    (incompatible_drop_count
+       (run ~rotation:Reasoning_replay_contract.Allow_endpoint_rotation other_model));
+  check_int
+    "endpoint-rotation rule still drops a replay-contract change"
+    1
+    (incompatible_drop_count
+       (run ~rotation:Reasoning_replay_contract.Allow_endpoint_rotation other_contract))
+;;
+
 let () =
   Alcotest.run
     "provider_agnostic_reasoning_replay"
     [ ( "typed replay projection"
       , [ Alcotest.test_case
+            "provider replay policy matrix"
+            `Quick
+            test_provider_replay_policy_matrix_pinned
+        ; Alcotest.test_case
+            "clear-thinking gate is capability not identity"
+            `Quick
+            test_clear_thinking_gate_is_capability_not_identity
+        ; Alcotest.test_case
+            "rotation policy declared per dialect"
+            `Quick
+            test_rotation_policy_is_declared_per_dialect
+        ; Alcotest.test_case
+            "rotation policy drives incompatible drop"
+            `Quick
+            test_rotation_policy_drives_incompatible_drop
+        ; Alcotest.test_case
             "source exactness"
             `Quick
             test_source_exactness_and_classification

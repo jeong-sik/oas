@@ -41,6 +41,9 @@ type preserve_thinking_control_format =
   | Chat_template_kwargs_preserve_thinking
   | Top_level_preserve_thinking
   | Always_preserved_thinking
+  | Thinking_object_clear_thinking
+  (** Provider [thinking] object whose [clear_thinking] member gates prior-turn
+      reasoning replay. See {!Capability_vocab.preserve_thinking_control_format}. *)
 
 (** Optional override for the multi-turn reasoning replay policy. Most providers
     inherit the policy implied by [thinking_control_format]; catalog entries set
@@ -599,6 +602,14 @@ let glm_capabilities =
      Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
     supports_structured_output = false
   ; supports_native_streaming = true
+  ; (* Z.AI's chat-completion API carries the thinking toggle in a top-level
+       [thinking] object and only echoes prior-turn [reasoning_content] under
+       "preserved thinking" ([clear_thinking = false]). Declaring the wire here
+       is what makes the replay conditional typed capability data: the dialect
+       resolver reads [preserve_thinking_control_format], not a provider
+       identity predicate (RFC-OAS-029 S1.1/S3.1).
+       Ref: https://docs.z.ai/api-reference/llm/chat-completion *)
+    preserve_thinking_control_format = Thinking_object_clear_thinking
   }
 ;;
 

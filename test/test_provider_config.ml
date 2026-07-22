@@ -1322,21 +1322,22 @@ let test_validate_reasoning_effort_fails_closed_without_declaration () =
   | Ok () -> Alcotest.fail "undeclared effort capability must fail closed"
 ;;
 
-let test_zai_glm_clear_thinking_request_field () =
+let test_clear_thinking_object_request_field () =
   let resolve
-        ?(thinking_control_format = Capabilities.No_thinking_control)
-        ?(is_zai_glm = true)
+        ?(preserve_thinking_control_format = Capabilities.Thinking_object_clear_thinking)
         ?clear_thinking
         ?preserve_thinking
         ()
     =
-    Provider_config.zai_glm_clear_thinking_request_field
-      ~thinking_control_format
-      ~is_zai_glm
+    Provider_config.clear_thinking_object_request_field
+      ~preserve_thinking_control_format
       ~clear_thinking
       ~preserve_thinking
   in
-  Alcotest.(check (option bool)) "default GLM clears" (Some true) (resolve ());
+  Alcotest.(check (option bool))
+    "declared wire clears by default"
+    (Some true)
+    (resolve ());
   Alcotest.(check (option bool))
     "preserve disables clear"
     (Some false)
@@ -1345,11 +1346,20 @@ let test_zai_glm_clear_thinking_request_field () =
     "explicit clear wins"
     (Some true)
     (resolve ~clear_thinking:true ~preserve_thinking:true ());
-  Alcotest.(check (option bool)) "non-GLM omits" None (resolve ~is_zai_glm:false ());
-  Alcotest.(check (option bool))
-    "typed thinking control omits"
-    None
-    (resolve ~thinking_control_format:Capabilities.Thinking_object ())
+  (* The field is gated on the declared preserve wire alone: every other wire
+     omits it, whatever the provider kind or model id is. *)
+  List.iter
+    (fun (label, preserve_thinking_control_format) ->
+       Alcotest.(check (option bool))
+         label
+         None
+         (resolve ~preserve_thinking_control_format ()))
+    [ "no preserve wire omits", Capabilities.No_preserve_thinking_control
+    ; "thinking_object_keep_all omits", Capabilities.Thinking_object_keep_all
+    ; "chat_template_kwargs omits", Capabilities.Chat_template_kwargs_preserve_thinking
+    ; "top_level omits", Capabilities.Top_level_preserve_thinking
+    ; "always_preserved omits", Capabilities.Always_preserved_thinking
+    ]
 ;;
 
 let test_structured_output_name_of_schema () =
@@ -2429,9 +2439,9 @@ let () =
             `Quick
             test_validate_reasoning_effort_fails_closed_without_declaration
         ; Alcotest.test_case
-            "zai glm clear_thinking request field"
+            "clear_thinking object request field"
             `Quick
-            test_zai_glm_clear_thinking_request_field
+            test_clear_thinking_object_request_field
         ; Alcotest.test_case
             "structured output names"
             `Quick

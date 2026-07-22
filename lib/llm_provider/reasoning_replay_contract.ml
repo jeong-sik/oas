@@ -18,6 +18,18 @@ type streaming_reasoning =
   | Template_parser
 [@@deriving show, eq, yojson]
 
+(* Declared decision for prior-turn reasoning whose recorded source differs
+   from the source the next request targets (endpoint rotation, model swap,
+   provider change). This replaces an incidental [stored <> target] inequality
+   with a named rule, so a continuity drop is a policy outcome rather than a
+   side effect of comparing hashes. It is deliberately NOT a field of {!t}:
+   {!t} is embedded in the persisted reasoning-source stamp, and adding a
+   member there would invalidate every already-stored artifact. *)
+type rotation_policy =
+  | Require_identical_source
+  | Allow_endpoint_rotation
+[@@deriving show, eq, yojson]
+
 type t =
   { replay_policy : replay_policy
   ; streaming : streaming_reasoning

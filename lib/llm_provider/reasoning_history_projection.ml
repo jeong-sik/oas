@@ -204,10 +204,14 @@ let replay_selected
 let project
       ~assistant_has_payload
       ~reasoning_block_supported
-      ~reasoning_target
-      ~replay_policy
+      ~(replay_capability : Reasoning_dialect.replay_capability)
       (messages : Types.message list)
   =
+  let reasoning_target = replay_capability.target in
+  let replay_policy =
+    replay_capability.contract.Reasoning_replay_contract.replay_policy
+  in
+  let rotation_policy = replay_capability.rotation in
   match validate_and_classify messages with
   | Error _ as error -> error
   | Ok classified_messages ->
@@ -227,8 +231,16 @@ let project
           | _, false -> Ok (message.content, None)
           | Assistant, true ->
             (match source_classification with
+             (* Continuity across a source change is a declared decision, not an
+                incidental hash comparison: the target dialect's typed
+                [rotation_policy] says which differences a stored artifact may
+                survive (RFC-OAS-029 S3.1). *)
              | Types.Reasoning_source.Present source
-               when not (Types.Reasoning_source.equal source reasoning_target) ->
+               when not
+                      (Types.Reasoning_source.rotation_admits
+                         ~rotation_policy
+                         ~stored:source
+                         ~target:reasoning_target) ->
                Ok
                  ( without_reasoning message.content
                  , Some { message_index; reason = Incompatible_reasoning_source source }
@@ -306,19 +318,10 @@ let project_for_provider_config
       config
       messages
   =
-  let dialect = Reasoning_dialect.for_provider_config config in
-  match Reasoning_dialect.reasoning_source_for_provider_config config with
+  match Reasoning_dialect.replay_capability_for_provider_config config with
   | Error detail -> Error (Invalid_reasoning_target detail)
-  | Ok reasoning_target ->
-    let replay_policy =
-      (Reasoning_dialect.replay_contract dialect).Reasoning_replay_contract.replay_policy
-    in
-    project
-      ~assistant_has_payload
-      ~reasoning_block_supported
-      ~reasoning_target
-      ~replay_policy
-      messages
+  | Ok replay_capability ->
+    project ~assistant_has_payload ~reasoning_block_supported ~replay_capability messages
 ;;
 
 let summarize_drops drops =
