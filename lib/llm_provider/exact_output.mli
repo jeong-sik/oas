@@ -10,8 +10,8 @@
     tools, reasoning controls, token measurement, and retry/fallback are
     deliberately absent from this interface. *)
 
-type target_ref
 type resolver_snapshot
+type admitted_target
 type catalog_generation
 type catalog_evidence
 type target_identity
@@ -26,8 +26,6 @@ type catalog_document =
   { source : string
   ; contents : string
   }
-
-type catalog_overlay = catalog_document
 
 type resolver_catalog_input =
   | Embedded_default
@@ -80,18 +78,14 @@ type resolver_snapshot_error =
       }
   | Catalog_collision of resolver_collision
   | Target_binding_missing of
-      { target_ref : target_ref
+      { target_ref : string
       ; component : resolver_binding_component
       }
   | Target_endpoint_invalid of
-      { target_ref : target_ref
+      { target_ref : string
       ; cause : resolver_endpoint_error
       }
   | Environment_read_failed of { environment_variable : string }
-  | Target_credential_invalid of
-      { target_ref : target_ref
-      ; environment_variable : string
-      }
 
 type minimum_guarantee =
   | Json_syntax
@@ -102,8 +96,15 @@ type actual_assurance =
   | Provider_schema_requested
 
 type target_selection_error =
-  | Unknown_target of string
   | Missing_target_credential of
+      { target_ref : string
+      ; environment_variable : string
+      }
+  | Target_credential_invalid of
+      { target_ref : string
+      ; environment_variable : string
+      }
+  | Target_credential_read_failed of
       { target_ref : string
       ; environment_variable : string
       }
@@ -183,21 +184,18 @@ type success =
   ; raw_response : raw_response
   }
 
-(** Brand an exact target identifier. Path/query delimiters, whitespace,
-    controls, and non-ASCII bytes are rejected before lookup. *)
-val target_ref : string -> (target_ref, target_ref_error) result
-
-val target_ref_id : target_ref -> string
-
 (** Parse exactly one typed catalog input and freeze a private immutable target
     map. The default input is the embedded OAS catalog. [Embedded_with_overlay]
     applies the existing sparse exact-output overlay precedence to that
     embedded base. A full replacement, supplied as owned bytes or a file path,
     suppresses every embedded and overlay row; the input type provides no way
     to combine a full replacement with an overlay.
-    [io.getenv] is consumed during this call and is never retained. Invalid
-    paths, syntax, bindings, collisions, and endpoint declarations fail closed;
-    no source falls back to the embedded catalog. *)
+    [io.getenv] is observed exactly once per referenced environment name during
+    this call and is never retained. Invalid paths, syntax, bindings,
+    collisions, base-URL environment reads, and endpoint declarations fail
+    closed; missing, invalid, or read-failed credentials are instead frozen as
+    per-target outcomes for [resolve_target]. No source falls back to the
+    embedded catalog. *)
 val load_resolver_snapshot
   :  io:resolver_io
   -> ?catalog:resolver_catalog_input
@@ -208,26 +206,25 @@ val resolver_catalog_generation : resolver_snapshot -> catalog_generation
 val resolver_catalog_evidence : resolver_snapshot -> catalog_evidence
 val catalog_generation_fingerprint : catalog_generation -> string
 val catalog_evidence_sha256 : catalog_evidence -> string
-val target_identity_ref : target_identity -> target_ref
+val target_identity_id : target_identity -> string
 val target_identity_fingerprint : target_identity -> string
 val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
 val selected_target_catalog_evidence : selected_target -> catalog_evidence
 
-(** Brand [value] and prove that its exact identity exists in [resolver_snapshot].
-    This does not inspect or require the target credential. *)
+(** Validate [value], prove that its exact identity exists in [resolver_snapshot],
+    and capture that frozen target together with its catalog generation and
+    evidence. Credential outcomes are intentionally deferred to [resolve_target]. *)
 val admit_target_ref
   :  resolver_snapshot
   -> string
-  -> (target_ref, target_catalog_admission_error) result
+  -> (admitted_target, target_catalog_admission_error) result
 
-(** Resolve exactly one frozen binding. This performs no environment, global,
-    alias, default-model, ranking, probing, or fallback lookup. A missing frozen
-    credential is reported here, after catalog membership admission. *)
-val resolve_target
-  :  resolver_snapshot
-  -> target_ref
-  -> (selected_target, target_selection_error) result
+(** Resolve the binding captured by [admit_target_ref]. This performs no map,
+    environment, global, alias, default-model, ranking, probing, or fallback
+    lookup. It injects an available frozen secret into a fresh provider config,
+    or reports the frozen missing, invalid, or read-failed credential outcome. *)
+val resolve_target : admitted_target -> (selected_target, target_selection_error) result
 
 (** Brand an opaque domain JSON schema. OAS never interprets domain keys as a
     provider wire envelope; it always constructs the selected target's wire
