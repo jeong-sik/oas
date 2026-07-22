@@ -420,6 +420,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_exact_output)
+ (modules test_exact_output)
+ (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
  (name test_complete_http)
  (modules test_complete_http)
  (libraries agent_sdk llm_provider alcotest eio_main eio.mock))
