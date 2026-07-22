@@ -278,6 +278,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.220.2](https://github.com/jeong-sik/oas/compare/v0.220.1...v0.220.2) (2026-07-22)
+
+
+### Bug Fixes
+
+* **llm_provider:** support stop_reason provider dialects and preserve empty completion stop_reason in GLM parser ([#2766](https://github.com/jeong-sik/oas/issues/2766)) ([ca7a02b](https://github.com/jeong-sik/oas/commit/ca7a02b7da5be364aeeae1f2a873cd73959aae43))
+
 ## [0.220.1](https://github.com/jeong-sik/oas/compare/v0.220.0...v0.220.1) (2026-07-22)
 
 
