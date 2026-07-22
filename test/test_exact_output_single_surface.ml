@@ -51,6 +51,7 @@ let catalog_entry
       ~base_url
       ~request_path
       ~capabilities
+      ()
   =
   { id; kind; base_url; base_url_env; request_path; api_key_env; capabilities }
 ;;
@@ -61,18 +62,15 @@ let catalog_fixture_toml entry =
      id = %S\n\
      kind = %S\n\
      base_url = %S\n\
-     %s\
-     request_path = %S\n\
-     api_key_env = %S\n\
-     \n\
+     %srequest_path = %S\n\
+     api_key_env = %S\n\n\
      [[models]]\n\
      id_prefix = %S\n\
      provider_name = %S\n\
      max_context_tokens = 8192\n\
      max_output_tokens = 1024\n\
      supports_response_format_json = %b\n\
-     supports_structured_output = %b\n\
-     \n\
+     supports_structured_output = %b\n\n\
      [[targets]]\n\
      id = %S\n\
      provider_ref = %S\n\
@@ -237,6 +235,7 @@ let test_tier_table_and_provider_schema_rejection () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native ~json)
+      ()
   in
   with_catalog
     [ entry "native" true true; entry "json-only" false true; entry "none" false false ]
@@ -278,7 +277,10 @@ let test_tier_table_and_provider_schema_rejection () =
    | Error EO.Provider_schema_unavailable -> ()
    | Ok _ | Error _ -> fail "provider-schema minimum must fail on JSON-only target");
   match
-    EO.admit ~target:(target snapshot "none") ~messages:[ msg "json" ] (requirement EO.Json_syntax)
+    EO.admit
+      ~target:(target snapshot "none")
+      ~messages:[ msg "json" ]
+      (requirement EO.Json_syntax)
   with
   | Error EO.Json_syntax_unavailable -> ()
   | Ok _ | Error _ -> fail "JSON syntax must fail when target declares no JSON tier"
@@ -295,6 +297,7 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native:true ~json:true)
+      ()
   in
   with_catalog [ entry ]
   @@ fun snapshot ->
@@ -376,6 +379,7 @@ let test_no_measure_one_post_and_wire_authority () =
           ~base_url
           ~request_path:path
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
@@ -488,9 +492,11 @@ let test_response_received_error_evidence_matrix () =
           ~base_url
           ~request_path:"/v1/chat/completions"
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
-      @@ fun snapshot -> EO.execute_once ~net (plan snapshot "error-surface" EO.Json_syntax)
+      @@ fun snapshot ->
+      EO.execute_once ~net (plan snapshot "error-surface" EO.Json_syntax)
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -542,9 +548,11 @@ let test_public_receipt_phase_matrix () =
         ~base_url:"ftp://surface.invalid"
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun snapshot -> EO.execute_once ~net (plan snapshot "pre-dispatch-surface" EO.Json_syntax)
+    @@ fun snapshot ->
+    EO.execute_once ~net (plan snapshot "pre-dispatch-surface" EO.Json_syntax)
   in
   check int "pre-dispatch has zero POSTs" 0 pre_posts;
   (match pre_result with
@@ -566,6 +574,7 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot -> EO.execute_once ~net (plan snapshot "abort-surface" EO.Json_syntax)
@@ -590,6 +599,7 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot -> EO.execute_once ~net (plan snapshot "rate-surface" EO.Json_syntax)
@@ -618,6 +628,7 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
@@ -657,9 +668,11 @@ let test_reasoning_response_bytes_do_not_enter_json_output () =
         ~base_url
         ~request_path:"/v1/messages"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun snapshot -> EO.execute_once ~net (plan snapshot "reasoning-response-surface" EO.Json_syntax)
+    @@ fun snapshot ->
+    EO.execute_once ~net (plan snapshot "reasoning-response-surface" EO.Json_syntax)
   in
   check int "reasoning response dispatches once" 1 posts;
   match result with
@@ -681,6 +694,7 @@ let test_public_unmeasured_plan_fingerprint_contract () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native ~json)
+      ()
   in
   with_catalog
     [ entry "golden-target" ~native:false ~json:true
@@ -777,9 +791,11 @@ let test_normalization_error_classes () =
           ~base_url
           ~request_path:"/v1/messages"
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
-      @@ fun snapshot -> EO.execute_once ~net (plan snapshot "normalization-surface" EO.Json_syntax)
+      @@ fun snapshot ->
+      EO.execute_once ~net (plan snapshot "normalization-surface" EO.Json_syntax)
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -830,6 +846,7 @@ let test_plan_rejects_concurrent_duplicate_before_second_dispatch () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
@@ -867,6 +884,7 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
@@ -961,6 +979,7 @@ let test_body_cancellation_retains_response_status () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
@@ -1029,6 +1048,7 @@ let test_overlay_endpoint_and_credential_are_materialized () =
         ~api_key_env:"EXACT_SURFACE_API_KEY"
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     let getenv name =
       Ok
@@ -1086,6 +1106,7 @@ let test_identity_survives_success_error_and_cancellation () =
           ~base_url
           ~request_path:"/v1/chat/completions"
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
@@ -1095,9 +1116,7 @@ let test_identity_survives_success_error_and_cancellation () =
     check int "identity path dispatches once" 1 posts;
     provenance, result
   in
-  let success_provenance, success =
-    run (openai_response {|{"name":"accepted"}|})
-  in
+  let success_provenance, success = run (openai_response {|{"name":"accepted"}|}) in
   (match success with
    | Ok success ->
      check_receipt_provenance "success" success_provenance success.receipt;
@@ -1112,9 +1131,7 @@ let test_identity_survives_success_error_and_cancellation () =
    | Error error -> check_receipt_provenance "error" error_provenance error.receipt
    | Ok _ -> fail "identity error fixture should fail");
   let (cancel_provenance, cancel_receipt, timed_out), posts, _, _ =
-    with_server
-      ~response_delay_s:0.1
-      ~response:(openai_response {|{"name":"accepted"}|})
+    with_server ~response_delay_s:0.1 ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock ~base_url ->
     let entry =
       catalog_entry
@@ -1123,6 +1140,7 @@ let test_identity_survives_success_error_and_cancellation () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
     @@ fun snapshot ->

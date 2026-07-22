@@ -746,7 +746,8 @@ let ollama_messages_of_history
     | Image _ :: _ when not supports_image_input ->
       Error "Ollama native image input is not declared by the frozen capability snapshot"
     | Document _ :: _ when not supports_document_input ->
-      Error "Ollama native document input is not declared by the frozen capability snapshot"
+      Error
+        "Ollama native document input is not declared by the frozen capability snapshot"
     | Document _ :: _ -> Error "Ollama native wire cannot represent document input"
     | ToolResult { content_blocks = Some blocks; _ } :: rest ->
       (match validate_content blocks with
@@ -756,7 +757,7 @@ let ollama_messages_of_history
   in
   let rec validate = function
     | [] -> Ok ()
-    | message :: rest ->
+    | (message : Types.message) :: rest ->
       (match validate_content message.content with
        | Error _ as error -> error
        | Ok () ->

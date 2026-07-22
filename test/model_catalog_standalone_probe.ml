@@ -23,10 +23,10 @@ let () =
       let io : EO.resolver_io =
         { getenv =
             (fun name ->
-               Ok
-                 (if String.equal name "OLLAMA_CLOUD_API_KEY"
-                  then Some "standalone-probe-only"
-                  else None))
+              Ok
+                (if String.equal name "OLLAMA_CLOUD_API_KEY"
+                 then Some "standalone-probe-only"
+                 else None))
         }
       in
       match EO.load_resolver_snapshot ~io () with

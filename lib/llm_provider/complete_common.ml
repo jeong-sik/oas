@@ -552,7 +552,10 @@ let thinking_control_request_rejection_reason
          config.model_id)
 ;;
 
-let validate_thinking_control_request ?anthropic_thinking_control (config : Provider_config.t) =
+let validate_thinking_control_request
+      ?anthropic_thinking_control
+      (config : Provider_config.t)
+  =
   match thinking_control_request_rejection_reason ?anthropic_thinking_control config with
   | None -> Ok ()
   | Some reason -> Error (Http_client.AcceptRejected { reason })
@@ -582,8 +585,7 @@ let validate_common (config : Provider_config.t) =
      | Ok () ->
        (match validate_tool_choice_request config with
         | Error _ as e -> e
-        | Ok () ->
-          validate_reasoning_effort_request config))
+        | Ok () -> validate_reasoning_effort_request config))
 ;;
 
 let validate_all_with_thinking_control
@@ -619,8 +621,7 @@ let validate_all (config : Provider_config.t) =
 ;;
 
 type anthropic_serialization_policy =
-  | Frozen_anthropic_thinking_control of
-      Capabilities.anthropic_thinking_control option
+  | Frozen_anthropic_thinking_control of Capabilities.anthropic_thinking_control option
   | Resolve_nonexact_anthropic_thinking_control
 
 let serialize_http_request_with_policy
@@ -636,22 +637,17 @@ let serialize_http_request_with_policy
       match http_codec with
       | Provider_http_codec.Anthropic_messages ->
         (match
-           (match anthropic_serialization_policy with
-            | Frozen_anthropic_thinking_control anthropic_thinking_control ->
-              Backend_anthropic.build_request_artifact_with_thinking_control
-                ~anthropic_thinking_control
-                ~stream
-                ~config
-                ~messages
-                ~tools
-                ()
-            | Resolve_nonexact_anthropic_thinking_control ->
-              Backend_anthropic.build_request_artifact
-                ~stream
-                ~config
-                ~messages
-                ~tools
-                ())
+           match anthropic_serialization_policy with
+           | Frozen_anthropic_thinking_control anthropic_thinking_control ->
+             Backend_anthropic.build_request_artifact_with_thinking_control
+               ~anthropic_thinking_control
+               ~stream
+               ~config
+               ~messages
+               ~tools
+               ()
+           | Resolve_nonexact_anthropic_thinking_control ->
+             Backend_anthropic.build_request_artifact ~stream ~config ~messages ~tools ()
          with
          | Ok artifact -> Ok (Backend_anthropic.request_payload artifact)
          | Error rejection ->

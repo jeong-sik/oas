@@ -3,6 +3,8 @@ set -euo pipefail
 
 required_basenames=(
   exact_output.ml
+  exact_output_resolver.ml
+  exact_output_catalog_binding.ml
   exact_output_plan.ml
   complete_common.ml
   backend_anthropic.ml
@@ -229,12 +231,16 @@ require_named_function_pattern() {
 }
 
 exact_output_source=""
+resolver_source=""
+catalog_binding_source=""
 exact_output_plan_source=""
 anthropic_source=""
 downstream_sources=()
 for source_file in "${source_files[@]}"; do
   case "$(basename "$source_file")" in
     exact_output.ml) exact_output_source="$source_file" ;;
+    exact_output_resolver.ml) resolver_source="$source_file" ;;
+    exact_output_catalog_binding.ml) catalog_binding_source="$source_file" ;;
     exact_output_plan.ml)
       exact_output_plan_source="$source_file"
       downstream_sources+=("$source_file")
@@ -246,21 +252,43 @@ done
 
 # Provider_config.capabilities_for_config_model is deliberately allowed: it
 # reads only the capability snapshot already frozen into the selected config.
-ambient_forbidden='Provider_catalog|Provider_runtime_binding|Provider_registry\.default|Capability_manifest|(Capabilities|Caps)\.(for_[[:alnum:]_]+|[[:alnum:]_]+_for_(model_id|provider_id|config_model))|Cli_common_env|Sys\.getenv(_opt)?|Unix\.getenv(_opt)?|select_target|Marshal'
+ambient_forbidden='Provider_catalog|Provider_runtime_binding|Provider_registry\.default|Model_catalog\.(global|set_global|set_global_overlay|clear_global|load_default|load_file)|Capability_manifest|(Capabilities|Caps)\.(for_[[:alnum:]_]+|[[:alnum:]_]+_for_(model_id|provider_id|config_model))|Cli_common_env|Sys\.getenv(_opt)?|Unix\.getenv(_opt)?|select_target|Marshal'
 scan_code \
   "global, legacy, ambient, or representation-dependent lookup found" \
   "$ambient_forbidden" \
   "$exact_output_source" \
+  "$resolver_source" \
+  "$catalog_binding_source" \
   "${downstream_sources[@]}"
-
 # Only the canonical resolver loader may parse the private structural catalog.
 # Admission and every Complete_common serializer descendant consume frozen
 # Provider_config values.
 scan_code \
   "downstream structural catalog lookup found" \
   'Model_catalog' \
+  "$exact_output_source" \
   "${downstream_sources[@]}"
 
+model_identity_classifier='String\.(lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal).*model(_id)?|model(_id)?.*String\.(lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal)'
+scan_code \
+  "provider/model identity classification escaped the private catalog boundary" \
+  "$model_identity_classifier" \
+  "$exact_output_source" \
+  "$resolver_source"
+require_code_pattern \
+  "private catalog boundary lost exact model identity matching" \
+  'String\.equal.*model_id|model_id.*String\.equal' \
+  "$catalog_binding_source"
+
+scan_code \
+  "resolver or catalog binding depends on the public facade or execution plan" \
+  'Exact_output\.|Exact_output_plan|Exact_output_execution|Plan\.|Exec\.' \
+  "$resolver_source" \
+  "$catalog_binding_source"
+require_code_pattern \
+  "resolver no longer delegates identity binding to its private catalog boundary" \
+  'Exact_output_catalog_binding' \
+  "$resolver_source"
 # Anthropic intentionally retains one legacy/non-exact wrapper that resolves
 # the historical ambient thinking policy. Do not whitelist that symbol across
 # the module. Instead, ratchet the exact entrypoints and every private helper
@@ -321,8 +349,22 @@ scan_code \
   "$exact_output_source" \
   "$anthropic_source" \
   "${downstream_sources[@]}"
+scan_named_functions \
+  "pricing entered resolver generation, identity, or resolution" \
+  'Pricing|input_per_million|output_per_million|cache_write_multiplier|cache_read_multiplier' \
+  "$resolver_source" \
+  'load_resolver_snapshot resolve_target'
+scan_named_functions \
+  "pricing entered exact catalog binding or functional capability projection" \
+  'Pricing|input_per_million|output_per_million|cache_write_multiplier|cache_read_multiplier' \
+  "$catalog_binding_source" \
+  'resolve_exact capabilities_of_catalog_binding functional_capability_projection anthropic_thinking_control_of_model'
 
 module_dir="$(dirname "$exact_output_source")"
+require_code_pattern \
+  "canonical facade no longer re-exports the private resolver" \
+  'include[[:space:]]+Exact_output_resolver' \
+  "$exact_output_source"
 scan_code \
   "secondary target projection exposed by the canonical facade" \
   'type[[:space:]]+(resolver_snapshot|selected_target|target_identity)[[:space:]]*=|val[[:space:]]+(target_(identity_id|provider_id|model_id|base_url|request_path)|selected_target_(provider_id|model_id|base_url|request_path)|target_identity_(provider_id|model_id|base_url|request_path))|Invalid_target_ref[[:space:]]+of[[:space:]]+string' \
@@ -336,8 +378,14 @@ scan_code \
   'type[[:space:]]+target_entry|val[[:space:]]+(target_entries|lookup_target_exact|exact_output_[[:alnum:]_]+)' \
   "$module_dir/model_catalog.mli"
 
-if ! sed -n '/(private_modules/,/)/p' "$module_dir/dune" \
-  | grep -Eq '^[[:space:]]*exact_output_plan([[:space:]]|\))'; then
-  echo "exact-output public facade violation: exact_output_plan is not private" >&2
-  exit 1
-fi
+for private_module in \
+  exact_output_plan \
+  exact_output_resolver \
+  exact_output_catalog_binding
+do
+  if ! sed -n '/(private_modules/,/)/p' "$module_dir/dune" \
+    | grep -Eq "^[[:space:]]*$private_module([[:space:]]|\))"; then
+    echo "exact-output public facade violation: $private_module is not private" >&2
+    exit 1
+  fi
+done

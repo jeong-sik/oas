@@ -20,10 +20,7 @@ type output_requirement
 type ready_plan
 type receipt
 type schema_fingerprint
-
-type resolver_io =
-  { getenv : string -> (string option, unit) result
-  }
+type resolver_io = { getenv : string -> (string option, unit) result }
 
 type catalog_overlay =
   { source : string
@@ -76,9 +73,7 @@ type resolver_snapshot_error =
       { target_ref : target_ref
       ; cause : resolver_endpoint_error
       }
-  | Environment_read_failed of
-      { environment_variable : string
-      }
+  | Environment_read_failed of { environment_variable : string }
   | Target_credential_invalid of
       { target_ref : target_ref
       ; environment_variable : string
@@ -169,6 +164,7 @@ type success =
 (** Brand an exact target identifier. Path/query delimiters, whitespace,
     controls, and non-ASCII bytes are rejected before lookup. *)
 val target_ref : string -> (target_ref, target_ref_error) result
+
 val target_ref_id : target_ref -> string
 
 (** Parse the embedded catalog plus an optional OAS-owned overlay and freeze a
@@ -186,10 +182,8 @@ val resolver_catalog_generation : resolver_snapshot -> catalog_generation
 val resolver_catalog_evidence : resolver_snapshot -> catalog_evidence
 val catalog_generation_fingerprint : catalog_generation -> string
 val catalog_evidence_sha256 : catalog_evidence -> string
-
 val target_identity_ref : target_identity -> target_ref
 val target_identity_fingerprint : target_identity -> string
-
 val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
 val selected_target_catalog_evidence : selected_target -> catalog_evidence

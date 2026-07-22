@@ -194,9 +194,11 @@ let request_capability_rejection
     | None -> false
   in
   if
-    not capabilities.supports_system_prompt
+    (not capabilities.supports_system_prompt)
     && (has_system_prompt
-        || List.exists (fun (message : Types.message) -> message.role = Types.System) messages)
+        || List.exists
+             (fun (message : Types.message) -> message.role = Types.System)
+             messages)
   then Some Unsupported_system_prompt
   else
     List.find_map
@@ -322,45 +324,45 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
         (match caller_supplied_header_name config.headers with
          | Some name -> Error (Caller_supplied_header_not_allowed name)
          | None ->
-        (match
-           Complete_common.validate_all_with_thinking_control
-             ~anthropic_thinking_control
-             config
-         with
-         | Error error -> Error (Provider_request_rejected error)
-         | Ok () ->
            (match
-              Complete_common.serialize_http_request_with_thinking_control
-                ~stream:false
+              Complete_common.validate_all_with_thinking_control
                 ~anthropic_thinking_control
-                ~config
-                ~messages:request.messages
-                ~tools:request.tools
+                config
             with
-            | Error error -> Error (Request_serialization_rejected error)
-            | Ok (response_codec, body) ->
-              let body_sha256 = sha256 body in
-              let headers =
-                auth_headers
-                @ [ "Content-Type", "application/json"
-                  ; "Content-Length", string_of_int (String.length body)
-                  ]
-              in
-              let wire =
-                { response_codec
-                ; provider_kind = config.kind
-                ; url = request_url config
-                ; headers
-                ; body
-                ; body_sha256
-                ; connect_timeout_s = config.connect_timeout_s
-                ; body_timeout_s = request.body_timeout_s
-                }
-              in
-              let fingerprint =
-                plan_fingerprint ~config ~capabilities ~wire ~admission_basis
-              in
-              Ok { response_format; wire; fingerprint }))))
+            | Error error -> Error (Provider_request_rejected error)
+            | Ok () ->
+              (match
+                 Complete_common.serialize_http_request_with_thinking_control
+                   ~stream:false
+                   ~anthropic_thinking_control
+                   ~config
+                   ~messages:request.messages
+                   ~tools:request.tools
+               with
+               | Error error -> Error (Request_serialization_rejected error)
+               | Ok (response_codec, body) ->
+                 let body_sha256 = sha256 body in
+                 let headers =
+                   auth_headers
+                   @ [ "Content-Type", "application/json"
+                     ; "Content-Length", string_of_int (String.length body)
+                     ]
+                 in
+                 let wire =
+                   { response_codec
+                   ; provider_kind = config.kind
+                   ; url = request_url config
+                   ; headers
+                   ; body
+                   ; body_sha256
+                   ; connect_timeout_s = config.connect_timeout_s
+                   ; body_timeout_s = request.body_timeout_s
+                   }
+                 in
+                 let fingerprint =
+                   plan_fingerprint ~config ~capabilities ~wire ~admission_basis
+                 in
+                 Ok { response_format; wire; fingerprint }))))
 ;;
 
 let admit = function
@@ -372,7 +374,9 @@ let admit = function
       (Prepared_completion_request.admitted_request admitted)
   | Unmeasured { config; messages; body_timeout_s; anthropic_thinking_control } ->
     Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
-    |> admit_prepared ~admission_basis:Token_measurement_not_required ~anthropic_thinking_control
+    |> admit_prepared
+         ~admission_basis:Token_measurement_not_required
+         ~anthropic_thinking_control
 ;;
 
 let fingerprint plan = plan.fingerprint

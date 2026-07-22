@@ -614,7 +614,8 @@ let test_non_base64_media_source_fails_closed () =
       ]
     |> ignore);
   expect_invalid_arg "ollama image url" (fun () ->
-    ollama_messages ~supports_image_input:true
+    ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Image
@@ -723,8 +724,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     "text"
     (List.nth openai_parts 0 |> member "type" |> to_string);
   let ollama =
-    ollama_messages ~supports_image_input:true [ msg User content ]
-    |> only "ollama"
+    ollama_messages ~supports_image_input:true [ msg User content ] |> only "ollama"
   in
   (* Ollama native /api/chat requires content to be a plain string and places
      base64 image payloads in a separate images array. *)
@@ -737,7 +737,8 @@ let test_user_multimodal_preserve_and_visual_first () =
 let test_ollama_native_multimodal_variants () =
   (* Image-only user message: content is an empty string, images carries the payload. *)
   let image_only =
-    ollama_messages ~supports_image_input:true
+    ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Image { media_type = "image/png"; data = "png1"; source_type = Types.Base64 }
@@ -752,7 +753,8 @@ let test_ollama_native_multimodal_variants () =
   (* Audio is not supported by Ollama native /api/chat and must fail closed
      instead of being silently dropped. *)
   expect_invalid_arg "ollama audio input" (fun () ->
-    ollama_messages ~supports_image_input:false
+    ollama_messages
+      ~supports_image_input:false
       [ msg
           User
           [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 }
@@ -761,7 +763,8 @@ let test_ollama_native_multimodal_variants () =
     |> ignore);
   (* Mixed text + image preserves text in content and the payload in images. *)
   let mixed =
-    ollama_messages ~supports_image_input:true
+    ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Text "describe these"

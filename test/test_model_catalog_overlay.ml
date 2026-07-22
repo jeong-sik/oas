@@ -47,7 +47,6 @@ let provider_entry ?(aliases = []) ~id ~base_url () =
     base_url
 ;;
 
-
 let max_context ~suite ~what = function
   | None -> failf "%s: expected %s row" suite what
   | Some (entry : Model_catalog.model_entry) -> entry.max_context_tokens
@@ -122,10 +121,7 @@ let test_sparse_pricing_row_inherits_functional_fields () =
   let merged = Model_catalog.merge ~base ~overlay in
   let entry =
     match
-      Model_catalog.lookup_for_provider
-        merged
-        ~provider_name:"prov-a"
-        ~model_id:"model-1"
+      Model_catalog.lookup_for_provider merged ~provider_name:"prov-a" ~model_id:"model-1"
     with
     | None -> fail "sparse pricing merge should preserve the model row"
     | Some entry -> entry
@@ -141,11 +137,7 @@ let test_sparse_pricing_row_inherits_functional_fields () =
     "document capability inherited"
     (Some true)
     entry.supports_document_input;
-  check
-    (option (float 0.))
-    "pricing field replaced"
-    (Some 99.0)
-    entry.input_per_million
+  check (option (float 0.)) "pricing field replaced" (Some 99.0) entry.input_per_million
 ;;
 
 let test_merge_keeps_bare_and_scoped_rows_distinct () =
@@ -200,7 +192,6 @@ let test_merge_provider_entries_replace_by_id () =
   | Some entry ->
     check string "overlay provider entry wins" "https://overlay.example" entry.base_url
 ;;
-
 
 (* --- global composition --- *)
 

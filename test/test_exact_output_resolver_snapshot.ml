@@ -68,8 +68,7 @@ let target_catalog
      base_url = %S\n\
      %srequest_path = %S\n\
      api_key_env = %S\n\
-     %s\
-     \n\
+     %s\n\
      [[models]]\n\
      id_prefix = %S\n\
      provider_name = %S\n\
@@ -78,8 +77,7 @@ let target_catalog
      supports_response_format_json = %b\n\
      supports_structured_output = %b\n\
      input_per_million = %s\n\
-     %s\
-     \n\
+     %s\n\
      [[targets]]\n\
      id = %S\n\
      provider_ref = %S\n\
@@ -143,9 +141,7 @@ let evidence snapshot =
   EO.resolver_catalog_evidence snapshot |> EO.catalog_evidence_sha256
 ;;
 
-let identity target =
-  EO.selected_target_identity target |> EO.target_identity_fingerprint
-;;
+let identity target = EO.selected_target_identity target |> EO.target_identity_fingerprint
 
 type frozen_observation =
   { snapshot_generation : string
@@ -169,8 +165,7 @@ let frozen_observation snapshot target =
   { snapshot_generation = generation snapshot
   ; snapshot_evidence = evidence snapshot
   ; selected_generation =
-      EO.selected_target_catalog_generation target
-      |> EO.catalog_generation_fingerprint
+      EO.selected_target_catalog_generation target |> EO.catalog_generation_fingerprint
   ; selected_evidence =
       EO.selected_target_catalog_evidence target |> EO.catalog_evidence_sha256
   ; selected_identity = identity target
@@ -181,7 +176,8 @@ let frozen_observation snapshot target =
   ; receipt_generation =
       EO.receipt_catalog_generation receipt |> EO.catalog_generation_fingerprint
   ; receipt_evidence = EO.receipt_catalog_evidence receipt |> EO.catalog_evidence_sha256
-  ; receipt_identity = EO.receipt_target_identity receipt |> EO.target_identity_fingerprint
+  ; receipt_identity =
+      EO.receipt_target_identity receipt |> EO.target_identity_fingerprint
   ; plan_fingerprint = EO.plan_fingerprint plan
   }
 ;;
@@ -254,10 +250,7 @@ let test_embedded_target_is_json_mode_not_fake_schema () =
   let io : EO.resolver_io =
     { getenv =
         (fun name ->
-           Ok
-             (if String.equal name "OLLAMA_CLOUD_API_KEY"
-              then Some "fixture"
-              else None))
+          Ok (if String.equal name "OLLAMA_CLOUD_API_KEY" then Some "fixture" else None))
     }
   in
   let snapshot =
@@ -281,10 +274,7 @@ let test_embedded_target_is_json_mode_not_fake_schema () =
 let test_exact_target_id_has_no_alias_or_default () =
   let snapshot =
     snapshot
-      (target_catalog
-         ~aliases:[ "snapshot-alias" ]
-         ~default_model:"different-default"
-         ())
+      (target_catalog ~aliases:[ "snapshot-alias" ] ~default_model:"different-default" ())
   in
   ignore (resolve snapshot "snapshot-target" : EO.selected_target);
   List.iter
@@ -311,20 +301,17 @@ let test_environment_is_consumed_once_and_snapshot_is_immutable () =
   let snapshot =
     snapshot
       ~getenv
-      (target_catalog
-         ~base_url_env:"SNAPSHOT_BASE"
-         ~api_key_env:"SNAPSHOT_KEY"
-         ())
+      (target_catalog ~base_url_env:"SNAPSHOT_BASE" ~api_key_env:"SNAPSHOT_KEY" ())
   in
   let before = resolve snapshot "snapshot-target" in
   let before_plan_fingerprint = ready before |> EO.plan_fingerprint in
   check int "base URL read once" 1 (Hashtbl.find reads "SNAPSHOT_BASE");
   check int "credential read once" 1 (Hashtbl.find reads "SNAPSHOT_KEY");
-  values :=
-    [ "SNAPSHOT_BASE", "https://rotated.example"
-    ; "SNAPSHOT_KEY", "rotated-secret"
-    ; "OLLAMA_CLOUD_API_KEY", "rotated-embedded"
-    ];
+  values
+  := [ "SNAPSHOT_BASE", "https://rotated.example"
+     ; "SNAPSHOT_KEY", "rotated-secret"
+     ; "OLLAMA_CLOUD_API_KEY", "rotated-embedded"
+     ];
   Fun.protect
     ~finally:(fun () ->
       Model_catalog.clear_global ();
@@ -340,7 +327,11 @@ let test_environment_is_consumed_once_and_snapshot_is_immutable () =
          before_plan_fingerprint
          after_plan_fingerprint;
        check string "identity remains frozen" (identity before) (identity after);
-       check int "resolve/admit do not reread URL env" 1 (Hashtbl.find reads "SNAPSHOT_BASE");
+       check
+         int
+         "resolve/admit do not reread URL env"
+         1
+         (Hashtbl.find reads "SNAPSHOT_BASE");
        check
          int
          "resolve/admit do not reread credential env"
@@ -353,8 +344,8 @@ let test_missing_credential_is_per_target_typed_error () =
   match EO.resolve_target snapshot (target_ref "snapshot-target") with
   | Error
       (EO.Missing_target_credential
-         { target_ref = "snapshot-target"; environment_variable = "MISSING_FIXTURE_KEY" }) ->
-    ()
+         { target_ref = "snapshot-target"; environment_variable = "MISSING_FIXTURE_KEY" })
+    -> ()
   | Ok _ | Error _ -> fail "missing credential must not invalidate the whole snapshot"
 ;;
 
@@ -375,8 +366,16 @@ let test_credential_rotation_is_not_functional_identity () =
   let second = load "second-secret" in
   let first_target = resolve first "snapshot-target" in
   let second_target = resolve second "snapshot-target" in
-  check string "secret rotation leaves generation stable" (generation first) (generation second);
-  check string "secret rotation leaves target identity stable" (identity first_target) (identity second_target);
+  check
+    string
+    "secret rotation leaves generation stable"
+    (generation first)
+    (generation second);
+  check
+    string
+    "secret rotation leaves target identity stable"
+    (identity first_target)
+    (identity second_target);
   check
     string
     "secret rotation leaves public plan fingerprint stable"
@@ -394,8 +393,16 @@ let test_pricing_and_formatting_are_nonfunctional () =
   let first_target = resolve first "snapshot-target" in
   let second_target = resolve second "snapshot-target" in
   let formatted_target = resolve formatted "snapshot-target" in
-  check string "pricing leaves generation unchanged" (generation first) (generation second);
-  check string "pricing leaves identity unchanged" (identity first_target) (identity second_target);
+  check
+    string
+    "pricing leaves generation unchanged"
+    (generation first)
+    (generation second);
+  check
+    string
+    "pricing leaves identity unchanged"
+    (identity first_target)
+    (identity second_target);
   check
     string
     "pricing leaves plan fingerprint unchanged"
@@ -407,7 +414,11 @@ let test_pricing_and_formatting_are_nonfunctional () =
     "TOML formatting leaves generation unchanged"
     (generation first)
     (generation formatted);
-  check string "TOML formatting leaves identity unchanged" (identity first_target) (identity formatted_target);
+  check
+    string
+    "TOML formatting leaves identity unchanged"
+    (identity first_target)
+    (identity formatted_target);
   check
     bool
     "TOML formatting preserves canonical evidence"
@@ -419,10 +430,10 @@ let test_sparse_pricing_overlay_preserves_embedded_functional_snapshot () =
   let io : EO.resolver_io =
     { getenv =
         (fun name ->
-           Ok
-             (if String.equal name "OLLAMA_CLOUD_API_KEY"
-              then Some "sparse-price-fixture"
-              else None))
+          Ok
+            (if String.equal name "OLLAMA_CLOUD_API_KEY"
+             then Some "sparse-price-fixture"
+             else None))
     }
   in
   let load ?overlay () =
@@ -473,25 +484,28 @@ let test_every_functional_projection_field_changes_generation () =
     ; "capability", target_catalog ~structured:true ()
     ; ( "document capability"
       , target_catalog ~model_extra:"supports_document_input = true\n" () )
-    ; ( "audio capability"
-      , target_catalog ~model_extra:"supports_audio_input = true\n" () )
+    ; "audio capability", target_catalog ~model_extra:"supports_audio_input = true\n" ()
     ; ( "supported-model restriction"
       , target_catalog ~model_extra:"supported_models = [\"snapshot-model\"]\n" () )
-    ; ( "codec"
-      , target_catalog ~kind:"ollama" ~request_path:"/api/chat" () )
+    ; "codec", target_catalog ~kind:"ollama" ~request_path:"/api/chat" ()
     ]
   in
   List.iter
     (fun (label, contents) ->
        let changed = snapshot contents in
-       check bool (label ^ " changes functional generation") true (generation base <> generation changed))
+       check
+         bool
+         (label ^ " changes functional generation")
+         true
+         (generation base <> generation changed))
     variants;
   let endpoint_changed = snapshot (target_catalog ~base_url:"https://other.example" ()) in
   check
     bool
     "functional target change reaches plan fingerprint"
     true
-    (ready (resolve base "snapshot-target") |> EO.plan_fingerprint
+    (ready (resolve base "snapshot-target")
+     |> EO.plan_fingerprint
      <> (ready (resolve endpoint_changed "snapshot-target") |> EO.plan_fingerprint))
 ;;
 
@@ -511,10 +525,9 @@ let test_old_and_new_whole_tuples_never_mix_across_fibers () =
     frozen_observation snapshot target
   in
   let old_observation, new_observation =
-    Fun.protect
-      ~finally:(fun () ->
-        Model_catalog.clear_global ();
-        Provider_catalog.clear_global ())
+    Fun.protect ~finally:(fun () ->
+      Model_catalog.clear_global ();
+      Provider_catalog.clear_global ())
     @@ fun () ->
     Eio_main.run
     @@ fun _env ->
@@ -609,11 +622,8 @@ let test_endpoint_error_cause_table () =
       , target_catalog ~request_path:"/v1/chat\r\nX-Secret: hidden" () )
     ; ( "Gemini slash segment"
       , EO.Invalid_gemini_model_path
-      , target_catalog
-          ~kind:"gemini"
-          ~request_path:"/v1beta/models"
-          ~model:"bad/model"
-          () )
+      , target_catalog ~kind:"gemini" ~request_path:"/v1beta/models" ~model:"bad/model" ()
+      )
     ; ( "Gemini encoded segment"
       , EO.Invalid_gemini_model_path
       , target_catalog
@@ -631,8 +641,7 @@ let test_endpoint_error_cause_table () =
 let test_caller_headers_and_crlf_credential_fail_closed () =
   let header_secret = "must-not-appear-in-diagnostic" in
   let contents =
-    target_catalog ()
-    ^ Printf.sprintf "headers = [\"Authorization: %s\"]\n" header_secret
+    target_catalog () ^ Printf.sprintf "headers = [\"Authorization: %s\"]\n" header_secret
   in
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay = { source = "caller header"; contents } in
@@ -693,17 +702,14 @@ let test_same_primary_id_overlay_replacement_is_allowed () =
   let io : EO.resolver_io =
     { getenv =
         (fun name ->
-           Ok
-             (if String.equal name "OLLAMA_CLOUD_API_KEY"
-              then Some "fixture"
-              else None))
+          Ok (if String.equal name "OLLAMA_CLOUD_API_KEY" then Some "fixture" else None))
     }
   in
-let baseline =
-  match EO.load_resolver_snapshot ~io () with
-  | Ok snapshot -> snapshot
-  | Error _ -> fail "embedded baseline should load"
-in
+  let baseline =
+    match EO.load_resolver_snapshot ~io () with
+    | Ok snapshot -> snapshot
+    | Error _ -> fail "embedded baseline should load"
+  in
   let overlay : EO.catalog_overlay =
     { source = "same-primary replacement"
     ; contents =
@@ -739,17 +745,35 @@ let () =
   run
     "exact-output-resolver-snapshot"
     [ ( "resolver"
-      , [ test_case "embedded JSON-mode target" `Quick test_embedded_target_is_json_mode_not_fake_schema
+      , [ test_case
+            "embedded JSON-mode target"
+            `Quick
+            test_embedded_target_is_json_mode_not_fake_schema
         ; test_case "exact id only" `Quick test_exact_target_id_has_no_alias_or_default
-        ; test_case "environment consumed once" `Quick test_environment_is_consumed_once_and_snapshot_is_immutable
-        ; test_case "typed missing credential" `Quick test_missing_credential_is_per_target_typed_error
-        ; test_case "credential rotation is nonfunctional" `Quick test_credential_rotation_is_not_functional_identity
-        ; test_case "pricing and formatting nonfunctional" `Quick test_pricing_and_formatting_are_nonfunctional
+        ; test_case
+            "environment consumed once"
+            `Quick
+            test_environment_is_consumed_once_and_snapshot_is_immutable
+        ; test_case
+            "typed missing credential"
+            `Quick
+            test_missing_credential_is_per_target_typed_error
+        ; test_case
+            "credential rotation is nonfunctional"
+            `Quick
+            test_credential_rotation_is_not_functional_identity
+        ; test_case
+            "pricing and formatting nonfunctional"
+            `Quick
+            test_pricing_and_formatting_are_nonfunctional
         ; test_case
             "sparse pricing preserves functional snapshot"
             `Quick
             test_sparse_pricing_overlay_preserves_embedded_functional_snapshot
-        ; test_case "functional projection sensitivity" `Quick test_every_functional_projection_field_changes_generation
+        ; test_case
+            "functional projection sensitivity"
+            `Quick
+            test_every_functional_projection_field_changes_generation
         ; test_case
             "old/new whole-tuple concurrent separation"
             `Quick
@@ -759,8 +783,14 @@ let () =
             "caller headers and CRLF credential rejected"
             `Quick
             test_caller_headers_and_crlf_credential_fail_closed
-        ; test_case "collision and input hardening" `Quick test_collision_and_input_hardening
-        ; test_case "same primary replacement" `Quick test_same_primary_id_overlay_replacement_is_allowed
+        ; test_case
+            "collision and input hardening"
+            `Quick
+            test_collision_and_input_hardening
+        ; test_case
+            "same primary replacement"
+            `Quick
+            test_same_primary_id_overlay_replacement_is_allowed
         ] )
     ]
 ;;
