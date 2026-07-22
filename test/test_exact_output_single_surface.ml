@@ -1306,7 +1306,8 @@ let test_gemini_nonempty_request_path_rejected_before_resolution () =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay =
     { source = "Gemini endpoint surface fixture"
-    ; contents = gemini_exact_entry ~id ~request_path:"/interactions"
+    ; contents =
+        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions")
     }
   in
   match EO.load_resolver_snapshot ~io ~overlay () with
