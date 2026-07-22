@@ -389,7 +389,9 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
 ;;
 
 let test_openai_blank_id_and_name_accepted_as_none () =
-  let raw = {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"name":"","arguments":"\"argv\": "}}]}}]}|} in
+  let raw =
+    {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"name":"","arguments":"\"argv\": "}}]}}]}|}
+  in
   let parsed = S.parse_openai_sse_chunk raw in
   match parsed with
   | S.Openai_chunk { delta_tool_calls = [ call ]; _ } ->
