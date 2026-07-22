@@ -1226,9 +1226,13 @@ let test_identity_survives_success_error_and_cancellation () =
     let provenance = EO.plan_provenance ready in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
-      match Eio.Time.with_timeout clock 0.01 (fun () -> EO.execute_once ~net ready) with
-      | Error `Timeout -> true
-      | Ok (Ok _ | Error _) -> false
+      try
+        match
+          Eio.Time.with_timeout_exn clock 0.01 (fun () -> EO.execute_once ~net ready)
+        with
+        | Ok _ | Error _ -> false
+      with
+      | Eio.Time.Timeout -> true
     in
     provenance, receipt, timed_out
   in
