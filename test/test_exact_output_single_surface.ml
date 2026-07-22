@@ -967,7 +967,6 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
       with
       | Error `Timeout -> true
       | Ok (Ok _ | Error _) -> false
-      | Ok (Error _) -> fail "unexpected inner timeout wrapper error"
     in
     let phase = EO.receipt_phase receipt in
     let duplicate = EO.execute_once ~net ready in
