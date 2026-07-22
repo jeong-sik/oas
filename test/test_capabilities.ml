@@ -1086,6 +1086,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
 
 type structured_contract =
   | Response_format_json_schema
+  | Response_format_json
   | Native_structured_output
   | No_structured_output
 
@@ -1180,6 +1181,13 @@ let check_frontier_model
        check
          bool
          (label ^ " supports response_format/json_schema")
+         true
+         c.supports_response_format_json
+     | Response_format_json ->
+       check bool (label ^ " no structured output") false c.supports_structured_output;
+       check
+         bool
+         (label ^ " supports response_format/json")
          true
          c.supports_response_format_json
      | Native_structured_output ->
