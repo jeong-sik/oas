@@ -65,6 +65,7 @@ type wire_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
+  | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
   | Request_serialization_rejected
 
@@ -375,6 +376,14 @@ let wire_admission_error = function
 ;;
 
 let admit ~target ~messages requirement =
+  let* () =
+    if Exact_output_resolver.selected_target_model_admitted target
+    then Ok ()
+    else
+      Error
+        (Wire_admission_rejected
+           (Unsupported_target_model { model_id = target.config.model_id }))
+  in
   let* response_format, actual_assurance, effective_schema_fingerprint =
     response_format target requirement
   in

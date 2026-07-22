@@ -31,6 +31,7 @@ type model_entry =
   ; supports_document_input : bool option
   ; modality_priority : string option
   ; task : Capability_vocab.task option
+  ; supported_models : string list option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
@@ -141,6 +142,49 @@ let float_field ~entry_id = optional_field ~entry_id ~expected:"float" Otoml.get
 
 let string_list_field ~entry_id =
   optional_field ~entry_id ~expected:"string array" (Otoml.get_array Otoml.get_string)
+;;
+
+let exact_non_empty_string_list_opt ~entry_id key toml =
+  match string_list_field ~entry_id key toml with
+  | Error _ as error -> error
+  | Ok None -> Ok None
+  | Ok (Some []) ->
+    Error
+      (Printf.sprintf
+         "model entry %S field %S must contain at least one value"
+         entry_id
+         key)
+  | Ok (Some values) ->
+    let rec validate seen = function
+      | [] -> Ok (Some values)
+      | raw :: rest ->
+        let trimmed = String.trim raw in
+        if trimmed = ""
+        then
+          Error
+            (Printf.sprintf
+               "model entry %S field %S values must not be empty"
+               entry_id
+               key)
+        else if raw <> trimmed
+        then
+          Error
+            (Printf.sprintf
+               "model entry %S field %S values must not have leading or trailing \
+                whitespace"
+               entry_id
+               key)
+        else if List.mem raw seen
+        then
+          Error
+            (Printf.sprintf
+               "model entry %S field %S contains duplicate value %S"
+               entry_id
+               key
+               raw)
+        else validate (raw :: seen) rest
+    in
+    validate [] values
 ;;
 
 let canonical_string_list_opt ~entry_id key ~allowed toml =
@@ -286,6 +330,7 @@ let known_entry_keys =
   ; "supports_document_input"
   ; "modality_priority"
   ; "task"
+  ; "supported_models"
   ; "supports_native_streaming"
   ; "supports_system_prompt"
   ; "supports_caching"
@@ -419,6 +464,9 @@ let parse_entry entry_toml =
       entry_toml
   in
   let* task = task_opt ~entry_id:id_prefix "task" entry_toml in
+  let* supported_models =
+    exact_non_empty_string_list_opt ~entry_id:id_prefix "supported_models" entry_toml
+  in
   let* supports_native_streaming =
     bool_field ~entry_id:id_prefix "supports_native_streaming" entry_toml
   in
@@ -527,6 +575,7 @@ let parse_entry entry_toml =
     ; supports_document_input
     ; modality_priority
     ; task
+    ; supported_models
     ; supports_native_streaming
     ; supports_system_prompt
     ; supports_caching
@@ -564,6 +613,32 @@ let%test "parse_entry accepts an entry whose fields are all known" =
   match parse_entry entry with
   | Ok _ -> true
   | Error _ -> false
+;;
+
+let%test "parse_entry rejects empty supported_models list" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\nsupported_models = []" in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "parse_entry rejects whitespace-only supported_models item" =
+  let entry =
+    Otoml.Parser.from_string "id_prefix = \"m\"\nsupported_models = [\"   \"]"
+  in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "parse_entry rejects duplicate supported_models" =
+  let entry =
+    Otoml.Parser.from_string
+      "id_prefix = \"m\"\nsupported_models = [\"model-a\", \"model-a\"]"
+  in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "parse_entry parses a canonical task value into the closed variant" =

@@ -108,6 +108,7 @@ type wire_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
+  | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
   | Request_serialization_rejected
 

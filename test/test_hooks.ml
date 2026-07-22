@@ -344,6 +344,82 @@ let contains_substring ~needle haystack =
   n = 0 || loop 0
 ;;
 
+let capture_traceln f =
+  Eio_main.run
+  @@ fun env ->
+  let buffer = Buffer.create 256 in
+  let captured_traceln =
+    { Eio.Debug.traceln =
+        (fun ?__POS__:_ format ->
+          Format.kasprintf
+            (fun message ->
+               Buffer.add_string buffer message;
+               Buffer.add_char buffer '\n')
+            format)
+    }
+  in
+  Eio.Fiber.with_binding (Eio.Stdenv.debug env)#traceln captured_traceln (fun () ->
+    let result = f () in
+    result, Buffer.contents buffer)
+;;
+
+let test_invoke_validated_raising_hook_returns_hook_failed () =
+  let event = Hooks.BeforeTurn { turn = 0; messages = [] } in
+  let raising _ = failwith "kaboom" in
+  let semantic_ok, diagnostic =
+    capture_traceln (fun () ->
+      match Hooks.invoke_validated (Some raising) event with
+      | Hooks.HookFailed { stage = Hooks.Before_turn; detail } -> String.length detail > 0
+      | _ -> false)
+  in
+  check bool "raising hook returns before_turn HookFailed" true semantic_ok;
+  check
+    string
+    "raising hook warning"
+    {|[warn] [hooks] user hook for before_turn raised Failure("kaboom")|}
+    (String.trim diagnostic)
+;;
+
+let test_invoke_validated_raising_hook_skips_on_illegal () =
+  let event = Hooks.BeforeTurn { turn = 0; messages = [] } in
+  let raising _ = failwith "kaboom" in
+  let illegal_called = ref false in
+  let on_illegal ~stage:_ ~decision:_ ~msg:_ = illegal_called := true in
+  let semantic_ok, diagnostic =
+    capture_traceln (fun () ->
+      let _ = Hooks.invoke_validated ~on_illegal (Some raising) event in
+      not !illegal_called)
+  in
+  check bool "raising hook does not call on_illegal" true semantic_ok;
+  check
+    string
+    "raising hook warning"
+    {|[warn] [hooks] user hook for before_turn raised Failure("kaboom")|}
+    (String.trim diagnostic)
+;;
+
+let test_invoke_validated_illegal_block_returns_hook_failed_with_warning () =
+  let event = Hooks.BeforeTurn { turn = 0; messages = [] } in
+  let blocking _ = Hooks.Block "forbidden" in
+  let semantic_ok, diagnostic =
+    capture_traceln (fun () ->
+      match Hooks.invoke_validated (Some blocking) event with
+      | Hooks.HookFailed { stage = Hooks.Before_turn; detail } -> String.length detail > 0
+      | Hooks.HookFailed _
+      | Hooks.Continue
+      | Hooks.AdjustParams _
+      | Hooks.ElicitInput _
+      | Hooks.Nudge _
+      | Hooks.Block _ -> false)
+  in
+  check bool "illegal Block returns before_turn HookFailed" true semantic_ok;
+  check
+    string
+    "illegal Block warning"
+    {|[warn] [hooks] illegal hook decision Block at stage before_turn; legal: [Continue, ElicitInput, Nudge]|}
+    (String.trim diagnostic)
+;;
+
 (** Test invoke_validated returns HookFailed on illegal decision. *)
 let test_invoke_validated_illegal_returns_hook_failed () =
   let hook _event = Hooks.Block "blocked" in
@@ -504,6 +580,18 @@ let () =
             "illegal returns HookFailed"
             `Quick
             test_invoke_validated_illegal_returns_hook_failed
+        ; test_case
+            "raising hook returns HookFailed"
+            `Quick
+            test_invoke_validated_raising_hook_returns_hook_failed
+        ; test_case
+            "raising hook skips on_illegal"
+            `Quick
+            test_invoke_validated_raising_hook_skips_on_illegal
+        ; test_case
+            "illegal Block logs and returns HookFailed"
+            `Quick
+            test_invoke_validated_illegal_block_returns_hook_failed_with_warning
         ; test_case "None returns Continue" `Quick test_invoke_validated_none
         ; test_case
             "observe-only Continue passes"

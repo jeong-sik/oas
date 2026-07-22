@@ -159,6 +159,10 @@ let selected_target_identity (target : selected_target) = target.identity
 let selected_target_catalog_generation (target : selected_target) = target.generation
 let selected_target_catalog_evidence (target : selected_target) = target.evidence
 
+let selected_target_model_admitted (target : selected_target) =
+  Binding.target_model_admitted target.capabilities ~model_id:target.config.model_id
+;;
+
 let has_control value =
   String.exists
     (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
@@ -391,6 +395,95 @@ let merge_target_declarations ~base ~overlay =
       base
 ;;
 
+let%test "exact target id overlay replaces the complete base declaration" =
+  let fixture ~model_id ~target_id =
+    Printf.sprintf
+      "[[providers]]\n\
+       id = \"inline-provider\"\n\
+       kind = \"openai_compat\"\n\
+       base_url = \"https://inline.example\"\n\
+       request_path = \"/v1/chat/completions\"\n\
+       api_key_env = \"\"\n\n\
+       [[models]]\n\
+       id_prefix = %S\n\
+       provider_name = \"inline-provider\"\n\
+       supports_response_format_json = true\n\n\
+       [[targets]]\n\
+       id = %S\n\
+       provider_ref = \"inline-provider\"\n\
+       model_id = %S\n"
+      model_id
+      target_id
+      model_id
+  in
+  let parse source contents =
+    match
+      ( Model_catalog.of_toml_string
+          ~source:"exact target replacement inline test"
+          contents
+      , parse_target_catalog ~source contents )
+    with
+    | Ok catalog, Ok targets ->
+      (match validate_catalog_source catalog targets with
+       | Ok () -> Some (catalog, targets)
+       | Error _ -> None)
+    | Error _, _ | _, Error _ -> None
+  in
+  match
+    ( parse Embedded_catalog (fixture ~model_id:"base-model" ~target_id:"inline-target")
+    , parse Overlay_catalog (fixture ~model_id:"overlay-model" ~target_id:"inline-target")
+    )
+  with
+  | Some (base, base_targets), Some (overlay, overlay_targets) ->
+    (match validate_overlay_collisions ~base ~base_targets ~overlay ~overlay_targets with
+     | Ok () ->
+       merge_target_declarations ~base:base_targets ~overlay:overlay_targets
+       = overlay_targets
+     | Error _ -> false)
+  | None, _ | _, None -> false
+;;
+
+let%test "case-only target overlay shadow fails closed" =
+  let fixture target_id =
+    Printf.sprintf
+      "[[providers]]\n\
+       id = \"inline-provider\"\n\
+       kind = \"openai_compat\"\n\
+       base_url = \"https://inline.example\"\n\
+       request_path = \"/v1/chat/completions\"\n\
+       api_key_env = \"\"\n\n\
+       [[models]]\n\
+       id_prefix = \"inline-model\"\n\
+       provider_name = \"inline-provider\"\n\
+       supports_response_format_json = true\n\n\
+       [[targets]]\n\
+       id = %S\n\
+       provider_ref = \"inline-provider\"\n\
+       model_id = \"inline-model\"\n"
+      target_id
+  in
+  let parse source contents =
+    match
+      ( Model_catalog.of_toml_string ~source:"target shadow inline test" contents
+      , parse_target_catalog ~source contents )
+    with
+    | Ok catalog, Ok targets ->
+      (match validate_catalog_source catalog targets with
+       | Ok () -> Some (catalog, targets)
+       | Error _ -> None)
+    | Error _, _ | _, Error _ -> None
+  in
+  match
+    ( parse Embedded_catalog (fixture "inline-target")
+    , parse Overlay_catalog (fixture "INLINE-TARGET") )
+  with
+  | Some (base, base_targets), Some (overlay, overlay_targets) ->
+    (match validate_overlay_collisions ~base ~base_targets ~overlay ~overlay_targets with
+     | Error (Catalog_collision Target_identity_shadow) -> true
+     | Ok () | Error _ -> false)
+  | None, _ | _, None -> false
+;;
+
 let validate_base_url ~target_ref value =
   if has_control value
   then Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url })
@@ -493,6 +586,11 @@ let option_bool = function
   | Some value -> "some:" ^ Binding.bool_string value
 ;;
 
+let canonical_supported_models = function
+  | None -> "none"
+  | Some models -> "some:" ^ String.concat "," (List.sort_uniq String.compare models)
+;;
+
 let option_price = function
   | None -> "none"
   | Some value -> Printf.sprintf "some:%.17g" value
@@ -545,6 +643,7 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
       ; (match model.task with
          | None -> "none"
          | Some task -> Binding.task_string (Some task))
+      ; "supported_models=" ^ canonical_supported_models model.supported_models
       ; option_bool model.supports_system_prompt
       ; Binding.anthropic_thinking_control_string
           (Binding.catalog_anthropic_thinking_control model.anthropic_thinking_control)

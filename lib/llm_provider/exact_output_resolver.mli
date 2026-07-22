@@ -91,6 +91,7 @@ val target_identity_fingerprint : target_identity -> string
 val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
 val selected_target_catalog_evidence : selected_target -> catalog_evidence
+val selected_target_model_admitted : selected_target -> bool
 val hash_parts : string list -> string
 val option_float : float option -> string
 

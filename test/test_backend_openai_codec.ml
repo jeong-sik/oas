@@ -1140,18 +1140,6 @@ let test_tool_schema_defaults_and_legacy_edge_params () =
     (member "required" params |> as_list "required" |> List.length)
 ;;
 
-let test_strip_json_markdown_fences_variants () =
-  check_string "plain" "plain" (Parse.strip_json_markdown_fences " plain ");
-  check_string
-    "json fence"
-    {|{"a":1}|}
-    (Parse.strip_json_markdown_fences "```json\n{\"a\":1}\n```");
-  check_string
-    "unterminated fence"
-    "```\n{\"a\":1}"
-    (Parse.strip_json_markdown_fences "```\n{\"a\":1}")
-;;
-
 let test_usage_openai_fallbacks () =
   let usage =
     Parse.usage_of_openai_json
@@ -1246,7 +1234,7 @@ let test_parse_text_list_reasoning_and_reported_telemetry () =
   | _ -> Alcotest.fail "expected telemetry"
 ;;
 
-let test_parse_reasoning_without_reported_tokens_and_fenced_json () =
+let test_parse_reasoning_without_reported_tokens_preserves_fenced_json () =
   let json =
     response_json
       ~content:(`String "```json\n{\"ok\":true}\n```")
@@ -1255,8 +1243,8 @@ let test_parse_reasoning_without_reported_tokens_and_fenced_json () =
   in
   let response = parse_ok json in
   (match response.content with
-   | [ Thinking { content = "abcdefghij"; _ }; Text {|{"ok":true}|} ] -> ()
-   | _ -> Alcotest.fail "expected reasoning and stripped JSON text");
+   | [ Thinking { content = "abcdefghij"; _ }; Text "```json\n{\"ok\":true}\n```" ] -> ()
+   | _ -> Alcotest.fail "expected reasoning and lossless fenced JSON text");
   match response.telemetry with
   | Some { timings = None; reasoning_tokens = None; _ } -> ()
   | _ -> Alcotest.fail "reasoning tokens must remain absent when provider omits them"
@@ -2259,19 +2247,15 @@ let () =
             test_parallel_tool_calls_fields
         ] )
     ; ( "parse"
-      , [ Alcotest.test_case
-            "strip markdown fences variants"
-            `Quick
-            test_strip_json_markdown_fences_variants
-        ; Alcotest.test_case "usage fallbacks" `Quick test_usage_openai_fallbacks
+      , [ Alcotest.test_case "usage fallbacks" `Quick test_usage_openai_fallbacks
         ; Alcotest.test_case
             "text list reasoning and reported telemetry"
             `Quick
             test_parse_text_list_reasoning_and_reported_telemetry
         ; Alcotest.test_case
-            "reasoning without token estimate and fenced JSON"
+            "reasoning without token estimate preserves fenced JSON"
             `Quick
-            test_parse_reasoning_without_reported_tokens_and_fenced_json
+            test_parse_reasoning_without_reported_tokens_preserves_fenced_json
         ; Alcotest.test_case
             "tool calls reject malformed"
             `Quick

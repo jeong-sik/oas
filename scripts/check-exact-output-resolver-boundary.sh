@@ -152,12 +152,15 @@ extract_named_functions() {
       }
       capture = 0
     }
+    /^let%[[:alnum:]_]+[[:space:]]/ {
+      capture = 0
+    }
     /^let[[:space:]]/ {
       declaration = $0
       sub(/^let[[:space:]]+(rec[[:space:]]+)?/, "", declaration)
       name = declaration
       sub(/[[:space:](].*$/, "", name)
-      capture = required[name]
+      capture = (name in required)
       if (capture) found[name] = 1
     }
     {
@@ -204,7 +207,7 @@ require_code_pattern() {
   local description="$1"
   local pattern="$2"
   local source_file="$3"
-  if ! strip_ocaml_noncode < "$source_file" | grep -Eq -- "$pattern"; then
+  if ! strip_ocaml_noncode < "$source_file" | grep -E -- "$pattern" >/dev/null; then
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
@@ -222,7 +225,7 @@ require_named_function_pattern() {
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
-  if ! strip_ocaml_noncode < "$extracted" | grep -Eq -- "$pattern"; then
+  if ! strip_ocaml_noncode < "$extracted" | grep -E -- "$pattern" >/dev/null; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
@@ -316,8 +319,18 @@ require_code_pattern \
   'Complete_common\.serialize_http_request_with_thinking_control' \
   "$exact_output_plan_source"
 require_named_function_pattern \
-  "Complete_common exact serializer no longer calls the frozen Anthropic artifact entrypoint" \
+  "Complete_common serialization policy lost the frozen Anthropic artifact entrypoint" \
   'Backend_anthropic\.build_request_artifact_with_thinking_control' \
+  "$(dirname "$exact_output_source")/complete_common.ml" \
+  'serialize_http_request_with_policy'
+require_named_function_pattern \
+  "Complete_common exact serializer no longer delegates to the serialization policy" \
+  'serialize_http_request_with_policy' \
+  "$(dirname "$exact_output_source")/complete_common.ml" \
+  'serialize_http_request_with_thinking_control'
+require_named_function_pattern \
+  "Complete_common exact serializer no longer selects the frozen Anthropic policy" \
+  'Frozen_anthropic_thinking_control[[:space:]]+anthropic_thinking_control' \
   "$(dirname "$exact_output_source")/complete_common.ml" \
   'serialize_http_request_with_thinking_control'
 require_named_function_pattern \
@@ -380,11 +393,12 @@ scan_code \
 
 for private_module in \
   exact_output_plan \
+  exact_output_execution \
   exact_output_resolver \
   exact_output_catalog_binding
 do
   if ! sed -n '/(private_modules/,/)/p' "$module_dir/dune" \
-    | grep -Eq "^[[:space:]]*$private_module([[:space:]]|\))"; then
+    | grep -E "^[[:space:]]*$private_module([[:space:]]|\)|$)" >/dev/null; then
     echo "exact-output public facade violation: $private_module is not private" >&2
     exit 1
   fi

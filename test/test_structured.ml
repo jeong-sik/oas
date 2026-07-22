@@ -427,14 +427,12 @@ let test_response_json_extractor_object_success () =
   | Error e -> Alcotest.fail e
 ;;
 
-let test_response_json_extractor_fenced_object () =
+let test_response_json_extractor_rejects_fenced_object () =
   let extract = Structured.response_json_extractor ~shape:Structured.Object_json () in
   let resp = make_response [ Text "```json\n{\"ok\":true}\n```" ] in
   match extract resp with
-  | Ok (`Assoc fields) ->
-    Alcotest.(check bool) "ok field present" true (List.mem_assoc "ok" fields)
-  | Ok _ -> Alcotest.fail "expected JSON object"
-  | Error e -> Alcotest.fail e
+  | Error e -> Alcotest.(check bool) "has parse error text" true (String.length e > 0)
+  | Ok _ -> Alcotest.fail "expected fenced JSON rejection"
 ;;
 
 let test_response_json_extractor_any_accepts_array () =
@@ -475,7 +473,7 @@ let test_text_extractor_none () =
 
 let test_schema_extractor_success () =
   let extract = Structured.schema_extractor person_schema in
-  let resp = make_response [ Text "```json\n{\"name\":\"Dana\",\"age\":42}\n```" ] in
+  let resp = make_response [ Text "{\"name\":\"Dana\",\"age\":42}" ] in
   match extract resp with
   | Ok (name, age) ->
     Alcotest.(check string) "name" "Dana" name;
@@ -565,9 +563,9 @@ let () =
             `Quick
             test_response_json_extractor_object_success
         ; Alcotest.test_case
-            "response_json_extractor fenced object"
+            "response_json_extractor rejects fenced object"
             `Quick
-            test_response_json_extractor_fenced_object
+            test_response_json_extractor_rejects_fenced_object
         ; Alcotest.test_case
             "response_json_extractor any array"
             `Quick

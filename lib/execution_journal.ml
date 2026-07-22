@@ -344,6 +344,126 @@ let commit_error_disposition = function
   | Invariant_violation _ -> Final_failure
 ;;
 
+module Durable_read = struct
+  module Scope_id = Store.Scope_id
+
+  type unexpected_store_error =
+    | Writer_already_active
+    | Store_already_attached
+    | Store_released
+    | Store_release_forbidden
+    | Resource_cleanup_failed
+    | Construction_cleanup_failed
+    | Store_already_exists
+    | Correlation_mismatch
+    | Sequence_conflict
+    | Committed_content_conflict
+    | Cursor_scope_mismatch
+    | Cursor_ahead
+    | Store_poisoned
+    | Commit_outcome_unknown
+
+  type storage_failure =
+    | Invalid_store_argument of string
+    | Store_identity_failure of string
+    | Store_io_failure of
+        { operation : string
+        ; detail : string
+        }
+    | Store_codec_failure of string
+    | Store_not_found
+    | Store_initialization_incomplete
+    | Store_initialization_conflict
+    | Unsupported_store_version of
+        { expected : int
+        ; actual : int
+        }
+    | Corrupt_store of
+        { offset : int64
+        ; detail : string
+        }
+    | Commit_authority_identity_changed
+    | Commit_authority_regressed of
+        { previous_committed_offset : int64
+        ; actual_committed_offset : int64
+        ; previous_last_seq : int
+        ; actual_last_seq : int
+        }
+    | Unexpected_store_failure of
+        { kind : unexpected_store_error
+        ; detail : string
+        }
+
+  type snapshot = Store.read_only_snapshot
+
+  let unexpected_store_failure (kind : unexpected_store_error) error =
+    Unexpected_store_failure { kind; detail = Store.error_to_string error }
+  ;;
+
+  let storage_failure (error : Store.error) : storage_failure =
+    match error with
+    | Store.Invalid_argument detail -> Invalid_store_argument detail
+    | Store.Identity_failure detail -> Store_identity_failure detail
+    | Store.Io_failure { operation; detail } -> Store_io_failure { operation; detail }
+    | Store.Codec_failure failure ->
+      Store_codec_failure (Execution_codec_executor.failure_to_string failure)
+    | Store.Store_not_found -> Store_not_found
+    | Store.Store_initialization_incomplete -> Store_initialization_incomplete
+    | Store.Store_initialization_conflict -> Store_initialization_conflict
+    | Store.Unsupported_store_version { expected; actual } ->
+      Unsupported_store_version { expected; actual }
+    | Store.Corrupt_store { offset; detail } -> Corrupt_store { offset; detail }
+    | Store.Commit_authority_identity_changed -> Commit_authority_identity_changed
+    | Store.Commit_authority_regressed
+        { previous_committed_offset
+        ; actual_committed_offset
+        ; previous_last_seq
+        ; actual_last_seq
+        } ->
+      Commit_authority_regressed
+        { previous_committed_offset
+        ; actual_committed_offset
+        ; previous_last_seq
+        ; actual_last_seq
+        }
+    | Store.Writer_already_active as error ->
+      unexpected_store_failure Writer_already_active error
+    | Store.Store_already_attached as error ->
+      unexpected_store_failure Store_already_attached error
+    | Store.Store_released as error -> unexpected_store_failure Store_released error
+    | Store.Store_release_forbidden as error ->
+      unexpected_store_failure Store_release_forbidden error
+    | Store.Resource_cleanup_failed _ as error ->
+      unexpected_store_failure Resource_cleanup_failed error
+    | Store.Construction_cleanup_failed _ as error ->
+      unexpected_store_failure Construction_cleanup_failed error
+    | Store.Store_already_exists as error ->
+      unexpected_store_failure Store_already_exists error
+    | Store.Correlation_mismatch as error ->
+      unexpected_store_failure Correlation_mismatch error
+    | Store.Sequence_conflict _ as error ->
+      unexpected_store_failure Sequence_conflict error
+    | Store.Committed_content_conflict _ as error ->
+      unexpected_store_failure Committed_content_conflict error
+    | Store.Cursor_scope_mismatch as error ->
+      unexpected_store_failure Cursor_scope_mismatch error
+    | Store.Cursor_ahead _ as error -> unexpected_store_failure Cursor_ahead error
+    | Store.Store_poisoned _ as error -> unexpected_store_failure Store_poisoned error
+    | Store.Commit_outcome_unknown _ as error ->
+      unexpected_store_failure Commit_outcome_unknown error
+  ;;
+
+  let read_snapshot ~codec ~dir ?previous () =
+    Store.read_only_snapshot ~codec ~dir ?previous () |> Result.map_error storage_failure
+  ;;
+
+  let same_snapshot left right = left == right
+  let scope_id (snapshot : snapshot) = snapshot.scope_id
+  let committed_offset (snapshot : snapshot) = snapshot.committed_offset
+  let last_seq (snapshot : snapshot) = snapshot.last_seq
+  let appended_events (snapshot : snapshot) = snapshot.appended_events
+end
+
 module Reducer = struct
   type node_record =
     { node : Event.node

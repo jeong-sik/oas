@@ -255,7 +255,7 @@ let test_parse_response_unknown_stop () =
   | sr -> fail (Printf.sprintf "expected Unknown, got %s" (Types.show_stop_reason sr))
 ;;
 
-let test_parse_openai_response_strips_fenced_json () =
+let test_parse_openai_response_preserves_fenced_json () =
   let json_str =
     {|{
     "id": "chatcmpl_test",
@@ -278,10 +278,10 @@ let test_parse_openai_response_strips_fenced_json () =
     (match resp.content with
      | [ Types.Text text ] ->
        Alcotest.(check string)
-         "stripped json"
-         "{\"engine\":\"default\",\"tool_calling\":false}"
+         "fenced JSON preserved"
+         "```json\n{\"engine\":\"default\",\"tool_calling\":false}\n```"
          text
-     | _ -> Alcotest.fail "expected stripped text block")
+     | _ -> Alcotest.fail "expected raw fenced text block")
 ;;
 
 let test_parse_openai_response_reasoning_content () =
@@ -859,9 +859,9 @@ let () =
         ; test_case "tool_use response" `Quick test_parse_response_tool_use
         ; test_case "unknown stop_reason" `Quick test_parse_response_unknown_stop
         ; test_case
-            "strip fenced json"
+            "preserve fenced json"
             `Quick
-            test_parse_openai_response_strips_fenced_json
+            test_parse_openai_response_preserves_fenced_json
         ; test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens
         ; test_case
             "reasoning_content"
