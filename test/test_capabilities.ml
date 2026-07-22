@@ -856,14 +856,14 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
   let cases =
     [ "qwen3.5:397b", false
     ; "gemma4:31b", true
-    ; "kimi-k2.7-code", true
+    ; "kimi-k2.7-code", false
     ; "minimax-m3", true
-    ; "nemotron-3-ultra", true
-    ; "deepseek-v4-flash", true
-    ; "deepseek-v4-pro", true
-    ; "glm-5.2", true
-    ; "gpt-oss:20b", true
-    ; "gpt-oss:120b", true
+    ; "nemotron-3-ultra", false
+    ; "deepseek-v4-flash", false
+    ; "deepseek-v4-pro", false
+    ; "glm-5.2", false
+    ; "gpt-oss:20b", false
+    ; "gpt-oss:120b", false
     ]
   in
   List.iter
@@ -893,24 +893,24 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
 ;;
 
 let test_ollama_cloud_grouped_rows_follow_exact_output_contract () =
-  (* Exact-output support is model-specific. Rows without affirmative evidence
-     stay fail-closed; supported rows retain both catalog capability axes. *)
+  (* JSON response-format support is model-specific. Native structured output
+     remains disabled by the Ollama Cloud provider contract. *)
   let cases =
-    [ "kimi-k2.5", false, false
-    ; "kimi-k2.6", true, true
-    ; "kimi-k2.7-code", true, true
-    ; "minimax-m3", true, true
-    ; "deepseek-v4-pro", true, true
-    ; "deepseek-v4-flash", true, true
-    ; "glm-5.2", true, true
-    ; "gpt-oss:20b", true, true
-    ; "gpt-oss:120b", true, true
-    ; "nemotron-3-ultra", true, true
-    ; "qwen3.5:397b", false, false
+    [ "kimi-k2.5", false
+    ; "kimi-k2.6", true
+    ; "kimi-k2.7-code", false
+    ; "minimax-m3", true
+    ; "deepseek-v4-pro", false
+    ; "deepseek-v4-flash", false
+    ; "glm-5.2", false
+    ; "gpt-oss:20b", false
+    ; "gpt-oss:120b", false
+    ; "nemotron-3-ultra", false
+    ; "qwen3.5:397b", false
     ]
   in
   List.iter
-    (fun (model_id, expected_json, expected_so) ->
+    (fun (model_id, expected_json) ->
        match
          Capabilities.for_provider_model_id
            ~allow_bare_fallback:false
@@ -924,11 +924,7 @@ let test_ollama_cloud_grouped_rows_follow_exact_output_contract () =
            (model_id ^ " json response format")
            expected_json
            c.supports_response_format_json;
-         check
-           bool
-           (model_id ^ " structured output")
-           expected_so
-           c.supports_structured_output)
+         check bool (model_id ^ " structured output") false c.supports_structured_output)
     cases
 ;;
 
@@ -1399,63 +1395,63 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , Provider_qualified "ollama_cloud"
       , "gemma4:31b"
       , Extended_thinking
-      , Response_format_json_schema
+      , Response_format_json
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Kimi K2.7 Code"
       , Provider_qualified "ollama_cloud"
       , "kimi-k2.7-code"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_every_turn
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud MiniMax M3"
       , Provider_qualified "ollama_cloud"
       , "minimax-m3"
       , Extended_thinking
-      , Response_format_json_schema
+      , Response_format_json
       , Replay_not_required
       , Delta_stream "reasoning" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
       , Provider_qualified "ollama_cloud"
       , "nemotron-3-ultra"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Pro"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-pro"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Flash"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-flash"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GLM 5.2"
       , Provider_qualified "ollama_cloud"
       , "glm-5.2"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GPT-OSS 20B"
       , Provider_qualified "ollama_cloud"
       , "gpt-oss:20b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud GPT-OSS 120B"
       , Provider_qualified "ollama_cloud"
       , "gpt-oss:120b"
       , Extended_thinking
-      , Response_format_json_schema
+      , No_structured_output
       , Replay_not_required
       , Delta_stream "thinking" )
     ]
