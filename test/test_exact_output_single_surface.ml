@@ -286,6 +286,48 @@ let test_tier_table_and_provider_schema_rejection () =
   | Ok _ | Error _ -> fail "JSON syntax must fail when target declares no JSON tier"
 ;;
 
+let test_deepseek_catalog_is_json_only_before_dispatch () =
+  let target_id = "deepseek-json-only-surface" in
+  let overlay : EO.catalog_overlay =
+    { source = "DeepSeek exact-output capability fixture"
+    ; contents =
+        Printf.sprintf
+          "[[targets]]\n\
+           id = %S\n\
+           provider_ref = \"deepseek\"\n\
+           model_id = \"deepseek-v4-pro\"\n"
+          target_id
+    }
+  in
+  let getenv name =
+    Ok
+      (if String.equal name "DEEPSEEK_API_KEY" then Some "deepseek-fixture-key" else None)
+  in
+  let io : EO.resolver_io = { getenv } in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error _ -> fail "DeepSeek exact-output target should resolve"
+  | Ok snapshot ->
+    let selected = target snapshot target_id in
+    (match
+       EO.admit ~target:selected ~messages:[ msg "json" ] (requirement EO.Json_syntax)
+     with
+     | Ok ready ->
+       check
+         bool
+         "DeepSeek JSON mode remains syntax-only"
+         true
+         ((EO.plan_provenance ready).actual_assurance = EO.Json_syntax_only)
+     | Error _ -> fail "DeepSeek JSON syntax requirement should admit");
+    (match
+       EO.admit
+         ~target:selected
+         ~messages:[ msg "schema" ]
+         (requirement EO.Provider_schema)
+     with
+     | Error EO.Provider_schema_unavailable -> ()
+     | Ok _ | Error _ -> fail "DeepSeek provider schema must reject before dispatch")
+;;
+
 let test_wire_envelope_and_cross_feature_injection_rejected () =
   let smuggled =
     `Assoc [ "name", `String "attacker"; "schema", schema; "strict", `Bool false ]
@@ -924,8 +966,7 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
         Eio.Time.with_timeout clock 0.01 (fun () -> Ok (EO.execute_once ~net ready))
       with
       | Error `Timeout -> true
-      | Ok (Ok (Ok _ | Error _)) -> false
-      | Ok (Error _) -> fail "unexpected inner timeout wrapper error"
+      | Ok (Ok _ | Error _) -> false
     in
     let phase = EO.receipt_phase receipt in
     let duplicate = EO.execute_once ~net ready in
@@ -1018,9 +1059,13 @@ let test_body_cancellation_retains_response_status () =
     let ready = plan snapshot "body-cancel-surface" EO.Json_syntax in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
-      match Eio.Time.with_timeout clock 0.05 (fun () -> EO.execute_once ~net ready) with
-      | Error `Timeout -> true
-      | Ok (Ok _ | Error _) -> false
+      try
+        match
+          Eio.Time.with_timeout_exn clock 0.05 (fun () -> EO.execute_once ~net ready)
+        with
+        | Ok _ | Error _ -> false
+      with
+      | Eio.Time.Timeout -> true
     in
     timed_out, EO.receipt_phase receipt, EO.receipt_http_status receipt
   in
@@ -1180,9 +1225,13 @@ let test_identity_survives_success_error_and_cancellation () =
     let provenance = EO.plan_provenance ready in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
-      match Eio.Time.with_timeout clock 0.01 (fun () -> EO.execute_once ~net ready) with
-      | Error `Timeout -> true
-      | Ok (Ok _ | Error _) -> false
+      try
+        match
+          Eio.Time.with_timeout_exn clock 0.01 (fun () -> EO.execute_once ~net ready)
+        with
+        | Ok _ | Error _ -> false
+      with
+      | Eio.Time.Timeout -> true
     in
     provenance, receipt, timed_out
   in
@@ -1256,7 +1305,8 @@ let test_gemini_nonempty_request_path_rejected_before_resolution () =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay =
     { source = "Gemini endpoint surface fixture"
-    ; contents = gemini_exact_entry ~id ~request_path:"/interactions"
+    ; contents =
+        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions")
     }
   in
   match EO.load_resolver_snapshot ~io ~overlay () with
@@ -1275,6 +1325,10 @@ let () =
             "capability tier table"
             `Quick
             test_tier_table_and_provider_schema_rejection
+        ; test_case
+            "DeepSeek catalog is JSON-only before dispatch"
+            `Quick
+            test_deepseek_catalog_is_json_only_before_dispatch
         ; test_case
             "injection rejected"
             `Quick
