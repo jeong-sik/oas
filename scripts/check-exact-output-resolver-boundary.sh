@@ -157,7 +157,7 @@ extract_named_functions() {
       sub(/^let[[:space:]]+(rec[[:space:]]+)?/, "", declaration)
       name = declaration
       sub(/[[:space:](].*$/, "", name)
-      capture = required[name]
+      capture = (name in required)
       if (capture) found[name] = 1
     }
     {
