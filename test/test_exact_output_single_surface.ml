@@ -119,7 +119,7 @@ let catalog_fixture_toml entry =
 ;;
 
 let with_catalog ?(getenv = fun _ -> Ok None) entries f =
-  let overlay : EO.catalog_overlay =
+  let overlay : EO.catalog_document =
     { source = "exact-output single-surface fixture"
     ; contents = String.concat "\n" (List.map catalog_fixture_toml entries)
     }
@@ -131,12 +131,12 @@ let with_catalog ?(getenv = fun _ -> Ok None) entries f =
 ;;
 
 let target snapshot selector =
-  let target_ref =
-    match EO.target_ref selector with
-    | Ok target_ref -> target_ref
-    | Error _ -> failf "target ref %s was invalid" selector
+  let admitted =
+    match EO.admit_target_ref snapshot selector with
+    | Ok admitted -> admitted
+    | Error _ -> failf "target ref %s was not admitted" selector
   in
-  match EO.resolve_target snapshot target_ref with
+  match EO.resolve_target admitted with
   | Ok target -> target
   | Error _ -> failf "target %s did not resolve" selector
 ;;
@@ -314,7 +314,7 @@ let test_tier_table_and_provider_schema_rejection () =
 
 let test_deepseek_catalog_is_json_only_before_dispatch () =
   let target_id = "deepseek-json-only-surface" in
-  let overlay : EO.catalog_overlay =
+  let overlay : EO.catalog_document =
     { source = "DeepSeek exact-output capability fixture"
     ; contents =
         Printf.sprintf
@@ -1199,16 +1199,20 @@ let test_overlay_endpoint_and_credential_are_materialized () =
         ~capabilities:(capabilities ~native:true ~json:true)
         ()
     in
+    let frozen_base_url = ref base_url in
+    let frozen_credential = ref "  frozen-surface-secret  " in
     let getenv name =
       Ok
         (if String.equal name "EXACT_SURFACE_BASE_URL"
-         then Some base_url
+         then Some !frozen_base_url
          else if String.equal name "EXACT_SURFACE_API_KEY"
-         then Some "frozen-surface-secret"
+         then Some !frozen_credential
          else None)
     in
     with_catalog ~getenv [ entry ]
     @@ fun snapshot ->
+    frozen_base_url := "https://rotated.invalid";
+    frozen_credential := "rotated-surface-secret";
     let selected = target snapshot "environment-surface" in
     let ready =
       match
@@ -1241,6 +1245,101 @@ let test_overlay_endpoint_and_credential_are_materialized () =
     "exact request owns exactly one JSON content type"
     [ "application/json" ]
     (header_values "content-type" capture.headers)
+;;
+
+let test_credential_rotation_keeps_snapshot_bound_wire_authority () =
+  let response = openai_response {|{"name":"accepted"}|} in
+  let (result_a, result_b), posts, token_posts, captures =
+    with_server ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    let entry =
+      catalog_entry
+        ~id:"credential-rotation-surface"
+        ~kind:Provider_config.OpenAI_compat
+        ~base_url
+        ~api_key_env:"ROTATING_SURFACE_API_KEY"
+        ~request_path:"/v1/chat/completions"
+        ~capabilities:(capabilities ~native:true ~json:true)
+        ()
+    in
+    let credential = ref "snapshot-secret-a" in
+    let getenv name =
+      Ok (if String.equal name "ROTATING_SURFACE_API_KEY" then Some !credential else None)
+    in
+    let snapshot_a = with_catalog ~getenv [ entry ] Fun.id in
+    let handle_a =
+      match EO.admit_target_ref snapshot_a "credential-rotation-surface" with
+      | Ok admitted -> admitted
+      | Error _ -> fail "snapshot A target should admit"
+    in
+    credential := "snapshot-secret-b";
+    let snapshot_b = with_catalog ~getenv [ entry ] Fun.id in
+    let handle_b =
+      match EO.admit_target_ref snapshot_b "credential-rotation-surface" with
+      | Ok admitted -> admitted
+      | Error _ -> fail "snapshot B target should admit"
+    in
+    check
+      string
+      "credential rotation leaves catalog generation unchanged"
+      (EO.resolver_catalog_generation snapshot_a |> EO.catalog_generation_fingerprint)
+      (EO.resolver_catalog_generation snapshot_b |> EO.catalog_generation_fingerprint);
+    check
+      string
+      "credential rotation leaves catalog evidence unchanged"
+      (EO.resolver_catalog_evidence snapshot_a |> EO.catalog_evidence_sha256)
+      (EO.resolver_catalog_evidence snapshot_b |> EO.catalog_evidence_sha256);
+    let domain_a = Domain.spawn (fun () -> EO.resolve_target handle_a) in
+    let domain_b = Domain.spawn (fun () -> EO.resolve_target handle_b) in
+    let target_a =
+      match Domain.join domain_a with
+      | Ok target -> target
+      | Error _ -> fail "snapshot A handle should resolve across a Domain"
+    in
+    let target_b =
+      match Domain.join domain_b with
+      | Ok target -> target
+      | Error _ -> fail "snapshot B handle should resolve across a Domain"
+    in
+    check
+      string
+      "credential rotation leaves target identity unchanged"
+      (EO.selected_target_identity target_a |> EO.target_identity_fingerprint)
+      (EO.selected_target_identity target_b |> EO.target_identity_fingerprint);
+    let ready target =
+      match
+        EO.admit
+          ~target
+          ~messages:[ msg "credential rotation" ]
+          (requirement EO.Json_syntax)
+      with
+      | Ok ready -> ready
+      | Error _ -> fail "credential rotation target should admit a request"
+    in
+    let result_a = EO.execute_once ~net (ready target_a) in
+    let result_b = EO.execute_once ~net (ready target_b) in
+    result_a, result_b
+  in
+  check int "two frozen credential plans dispatch once each" 2 posts;
+  check int "credential rotation performs no token measurement" 0 token_posts;
+  List.iter
+    (function
+      | Ok _ -> ()
+      | Error _ -> fail "both frozen credential plans should execute")
+    [ result_a; result_b ];
+  match captures with
+  | [ capture_a; capture_b ] ->
+    check
+      (option string)
+      "snapshot A retains credential A after snapshot B exists"
+      (Some "Bearer snapshot-secret-a")
+      (header_value "authorization" capture_a.headers);
+    check
+      (option string)
+      "snapshot B retains credential B"
+      (Some "Bearer snapshot-secret-b")
+      (header_value "authorization" capture_b.headers)
+  | _ -> fail "credential rotation should produce exactly two ordered captures"
 ;;
 
 let test_identity_survives_success_error_and_cancellation () =
@@ -1375,7 +1474,7 @@ let test_gemini_nested_unsupported_schema_keyword_rejected () =
 let test_gemini_nonempty_request_path_rejected_before_resolution () =
   let id = "gemini-interactions-surface" in
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlay : EO.catalog_overlay =
+  let overlay : EO.catalog_document =
     { source = "Gemini endpoint surface fixture"
     ; contents =
         catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions")
@@ -1385,7 +1484,7 @@ let test_gemini_nonempty_request_path_rejected_before_resolution () =
   | Error
       (EO.Target_endpoint_invalid
          { target_ref; cause = EO.Unsupported_gemini_request_path }) ->
-    check string "rejected Gemini target" id (EO.target_ref_id target_ref)
+    check string "rejected Gemini target" id target_ref
   | Ok _ | Error _ -> fail "nonempty Gemini request_path must fail before resolution"
 ;;
 
@@ -1463,6 +1562,10 @@ let () =
             "overlay endpoint and credential"
             `Quick
             test_overlay_endpoint_and_credential_are_materialized
+        ; test_case
+            "credential rotation keeps snapshot-bound wire authority"
+            `Quick
+            test_credential_rotation_keeps_snapshot_bound_wire_authority
         ] )
     ]
 ;;

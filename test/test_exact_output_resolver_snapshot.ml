@@ -2,6 +2,23 @@ open Alcotest
 open Llm_provider
 module EO = Agent_sdk.Exact_output
 
+let _load_resolver_snapshot_contract
+  :  io:EO.resolver_io
+  -> ?catalog:EO.resolver_catalog_input
+  -> unit
+  -> (EO.resolver_snapshot, EO.resolver_snapshot_error) result
+  =
+  EO.load_resolver_snapshot
+;;
+
+let _catalog_input_contract : EO.resolver_catalog_input -> unit = function
+  | EO.Embedded_default
+  | EO.Embedded_with_overlay _
+  | EO.Full_replacement _
+  | EO.Full_replacement_file _ -> ()
+[@@warning "+8"]
+;;
+
 let schema =
   `Assoc
     [ "type", `String "object"
@@ -106,23 +123,27 @@ let target_catalog
 
 let snapshot ?(getenv = fun _ -> Ok None) contents =
   let io : EO.resolver_io = { getenv } in
-  let overlay : EO.catalog_overlay = { source = "resolver snapshot fixture"; contents } in
+  let overlay : EO.catalog_document =
+    { source = "resolver snapshot fixture"; contents }
+  in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Ok snapshot -> snapshot
   | Error _ -> fail "snapshot should load"
 ;;
 
-let target_ref id =
-  match EO.target_ref id with
-  | Ok target_ref -> target_ref
-  | Error _ -> failf "target ref %S should be valid" id
+let admit snapshot id =
+  match EO.admit_target_ref snapshot id with
+  | Ok admitted -> admitted
+  | Error _ -> failf "target ref %S should be admitted" id
 ;;
 
-let resolve snapshot id =
-  match EO.resolve_target snapshot (target_ref id) with
+let resolve_admitted admitted =
+  match EO.resolve_target admitted with
   | Ok target -> target
-  | Error _ -> failf "target %S should resolve" id
+  | Error _ -> fail "admitted target should resolve"
 ;;
+
+let resolve snapshot id = resolve_admitted (admit snapshot id)
 
 let ready target =
   let requirement =
@@ -254,8 +275,8 @@ let test_exact_target_id_has_no_alias_or_default () =
   ignore (resolve snapshot "snapshot-target" : EO.selected_target);
   List.iter
     (fun id ->
-       match EO.resolve_target snapshot (target_ref id) with
-       | Error (EO.Unknown_target unknown) -> check string "exact miss" id unknown
+       match EO.admit_target_ref snapshot id with
+       | Error (EO.Target_not_in_catalog unknown) -> check string "exact miss" id unknown
        | Ok _ | Error _ -> failf "%S must not alias or default to a target" id)
     [ "snapshot-alias"; "snapshot-fixture"; "different-default" ]
 ;;
@@ -314,23 +335,164 @@ let test_environment_is_consumed_once_and_snapshot_is_immutable () =
          (Hashtbl.find reads "SNAPSHOT_KEY"))
 ;;
 
-let test_missing_credential_is_per_target_typed_error () =
-  let snapshot = snapshot (target_catalog ~api_key_env:"MISSING_FIXTURE_KEY" ()) in
-  let admitted =
-    match EO.admit_target_ref snapshot "snapshot-target" with
-    | Ok target_ref -> target_ref
-    | Error _ -> fail "catalog membership must not require a credential"
+let test_credential_outcomes_are_frozen_per_target () =
+  let contents =
+    String.concat
+      "\n"
+      [ target_catalog
+          ~provider:"credential-no-auth-provider"
+          ~model:"credential-no-auth-model"
+          ~target:"credential-no-auth"
+          ()
+      ; target_catalog
+          ~provider:"credential-available-provider"
+          ~api_key_env:"AVAILABLE_FIXTURE_KEY"
+          ~model:"credential-available-model"
+          ~target:"credential-available"
+          ()
+      ; target_catalog
+          ~provider:"credential-shared-provider"
+          ~api_key_env:"AVAILABLE_FIXTURE_KEY"
+          ~model:"credential-shared-model"
+          ~target:"credential-shared"
+          ()
+      ; target_catalog
+          ~provider:"credential-missing-provider"
+          ~api_key_env:"MISSING_FIXTURE_KEY"
+          ~model:"credential-missing-model"
+          ~target:"credential-missing"
+          ()
+      ; target_catalog
+          ~provider:"credential-invalid-provider"
+          ~api_key_env:"INVALID_FIXTURE_KEY"
+          ~model:"credential-invalid-model"
+          ~target:"credential-invalid"
+          ()
+      ; target_catalog
+          ~provider:"credential-read-failed-provider"
+          ~api_key_env:"READ_FAILED_FIXTURE_KEY"
+          ~model:"credential-read-failed-model"
+          ~target:"credential-read-failed"
+          ()
+      ]
   in
-  (match EO.resolve_target snapshot admitted with
-   | Error
-       (EO.Missing_target_credential
-          { target_ref = "snapshot-target"; environment_variable = "MISSING_FIXTURE_KEY" })
-     -> ()
-   | Ok _ | Error _ -> fail "missing credential must remain a typed resolution error");
-  (match EO.admit_target_ref snapshot "missing-target" with
+  let values =
+    ref
+      [ "AVAILABLE_FIXTURE_KEY", Ok (Some "first-secret")
+      ; "MISSING_FIXTURE_KEY", Ok None
+      ; "INVALID_FIXTURE_KEY", Ok (Some "secret\r\nX-Leak: yes")
+      ; "READ_FAILED_FIXTURE_KEY", Error ()
+      ]
+  in
+  let reads = Hashtbl.create 8 in
+  let getenv name =
+    Hashtbl.replace reads name (1 + Option.value (Hashtbl.find_opt reads name) ~default:0);
+    Option.value (List.assoc_opt name !values) ~default:(Ok None)
+  in
+  let frozen = snapshot ~getenv contents in
+  let no_auth = admit frozen "credential-no-auth" in
+  let available = admit frozen "credential-available" in
+  let shared_available = admit frozen "credential-shared" in
+  let missing = admit frozen "credential-missing" in
+  let invalid = admit frozen "credential-invalid" in
+  let read_failed = admit frozen "credential-read-failed" in
+  ignore (resolve_admitted no_auth : EO.selected_target);
+  let available_target = resolve_admitted available in
+  ignore (resolve_admitted shared_available : EO.selected_target);
+  let expect_missing admitted =
+    match EO.resolve_target admitted with
+    | Error
+        (EO.Missing_target_credential
+           { target_ref = "credential-missing"
+           ; environment_variable = "MISSING_FIXTURE_KEY"
+           }) -> ()
+    | Ok _ | Error _ -> fail "missing credential must remain a typed target outcome"
+  in
+  let expect_invalid admitted =
+    match EO.resolve_target admitted with
+    | Error
+        (EO.Target_credential_invalid
+           { target_ref = "credential-invalid"
+           ; environment_variable = "INVALID_FIXTURE_KEY"
+           }) -> ()
+    | Ok _ | Error _ -> fail "invalid credential must remain a typed target outcome"
+  in
+  let expect_read_failed admitted =
+    match EO.resolve_target admitted with
+    | Error
+        (EO.Target_credential_read_failed
+           { target_ref = "credential-read-failed"
+           ; environment_variable = "READ_FAILED_FIXTURE_KEY"
+           }) -> ()
+    | Ok _ | Error _ -> fail "credential read failure must remain a typed target outcome"
+  in
+  expect_missing missing;
+  expect_invalid invalid;
+  expect_read_failed read_failed;
+  List.iter
+    (fun name ->
+       check
+         int
+         (name ^ " observed once while freezing")
+         1
+         (Option.value (Hashtbl.find_opt reads name) ~default:0))
+    [ "AVAILABLE_FIXTURE_KEY"
+    ; "MISSING_FIXTURE_KEY"
+    ; "INVALID_FIXTURE_KEY"
+    ; "READ_FAILED_FIXTURE_KEY"
+    ];
+  values
+  := [ "AVAILABLE_FIXTURE_KEY", Ok (Some "rotated-secret")
+     ; "MISSING_FIXTURE_KEY", Ok (Some "now-present")
+     ; "INVALID_FIXTURE_KEY", Ok (Some "now-valid")
+     ; "READ_FAILED_FIXTURE_KEY", Ok (Some "read-now-works")
+     ];
+  ignore (resolve_admitted available : EO.selected_target);
+  ignore (resolve_admitted shared_available : EO.selected_target);
+  expect_missing missing;
+  expect_invalid invalid;
+  expect_read_failed read_failed;
+  List.iter
+    (fun name ->
+       check
+         int
+         (name ^ " is not reread while resolving")
+         1
+         (Option.value (Hashtbl.find_opt reads name) ~default:0))
+    [ "AVAILABLE_FIXTURE_KEY"
+    ; "MISSING_FIXTURE_KEY"
+    ; "INVALID_FIXTURE_KEY"
+    ; "READ_FAILED_FIXTURE_KEY"
+    ];
+  let rotated = snapshot ~getenv contents in
+  List.iter
+    (fun id -> ignore (resolve rotated id : EO.selected_target))
+    [ "credential-no-auth"
+    ; "credential-available"
+    ; "credential-shared"
+    ; "credential-missing"
+    ; "credential-invalid"
+    ; "credential-read-failed"
+    ];
+  check
+    string
+    "credential rotation does not change catalog generation"
+    (generation frozen)
+    (generation rotated);
+  check
+    string
+    "credential rotation does not change catalog evidence"
+    (evidence frozen)
+    (evidence rotated);
+  check
+    string
+    "credential rotation does not change target identity"
+    (identity available_target)
+    (identity (resolve rotated "credential-available"));
+  (match EO.admit_target_ref frozen "missing-target" with
    | Error (EO.Target_not_in_catalog "missing-target") -> ()
    | Ok _ | Error _ -> fail "unknown catalog membership must remain typed");
-  match EO.admit_target_ref snapshot "../invalid-target" with
+  match EO.admit_target_ref frozen "../invalid-target" with
   | Error (EO.Target_ref_rejected EO.Invalid_target_ref) -> ()
   | Ok _ | Error _ -> fail "target syntax rejection must remain typed"
 ;;
@@ -356,73 +518,72 @@ let replacement_snapshot contents =
 ;;
 
 let test_full_replacement_path_is_frozen_and_suppresses_embedded () =
-  let contents =
+  let first_contents =
     target_catalog
-      ~provider:"replacement-provider"
-      ~model:"replacement-model"
-      ~target:"replacement-only-target"
+      ~provider:"replacement-a-provider"
+      ~base_url:"https://replacement-a.example"
+      ~model:"replacement-a-model"
+      ~target:"replacement-a-target"
       ()
   in
-  with_temp_catalog contents
+  let second_contents =
+    target_catalog
+      ~provider:"replacement-b-provider"
+      ~base_url:"https://replacement-b.example"
+      ~model:"replacement-b-model"
+      ~target:"replacement-b-target"
+      ()
+  in
+  with_temp_catalog first_contents
   @@ fun path ->
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let snapshot =
+  let load () =
     match EO.load_resolver_snapshot ~io ~catalog:(EO.Full_replacement_file path) () with
     | Ok snapshot -> snapshot
     | Error _ -> fail "full replacement path should load"
   in
-  let admitted =
-    match EO.admit_target_ref snapshot "replacement-only-target" with
-    | Ok target_ref -> target_ref
-    | Error _ -> fail "replacement-only target must be admitted"
+  let first_snapshot = load () in
+  let first_handle = admit first_snapshot "replacement-a-target" in
+  let first_expected =
+    frozen_observation first_snapshot (resolve_admitted first_handle)
   in
-  ignore (EO.resolve_target snapshot admitted : (EO.selected_target, _) result);
-  match EO.admit_target_ref snapshot "ollama-cloud-minimax-m3-json" with
-  | Error (EO.Target_not_in_catalog "ollama-cloud-minimax-m3-json") -> ()
-  | Ok _ | Error _ -> fail "full replacement must suppress embedded targets"
-;;
-
-let test_catalog_input_keeps_overlay_and_replacement_mutually_exclusive () =
-  let base =
-    target_catalog
-      ~provider:"replacement-provider"
-      ~base_url:"https://base.example"
-      ~model:"replacement-model"
-      ~target:"replacement-target"
-      ()
-  in
-  let overlay : EO.catalog_overlay =
-    { source = "replacement overlay"
-    ; contents =
-        target_catalog
-          ~provider:"replacement-provider"
-          ~base_url:"https://overlay.example"
-          ~model:"replacement-model"
-          ~target:"replacement-target"
-          ()
-    }
-  in
-  let baseline = replacement_snapshot base in
-  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlaid =
-    match
-      EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) ()
-    with
-    | Ok snapshot -> snapshot
-    | Error _ -> fail "embedded overlay snapshot should load"
-  in
-  let baseline_target = resolve baseline "replacement-target" in
-  let overlaid_target = resolve overlaid "replacement-target" in
+  Out_channel.with_open_bin path (fun channel ->
+    Out_channel.output_string channel second_contents);
   check
     bool
-    "embedded overlay and full replacement remain separate generations"
+    "first handle remains coherent after source overwrite"
     true
-    (not (String.equal (generation baseline) (generation overlaid)));
+    (first_expected = frozen_observation first_snapshot (resolve_admitted first_handle));
+  let second_snapshot = load () in
+  let second_handle = admit second_snapshot "replacement-b-target" in
+  let second_expected =
+    frozen_observation second_snapshot (resolve_admitted second_handle)
+  in
+  Sys.remove path;
   check
     bool
-    "embedded overlay cannot mutate the full replacement identity"
+    "first handle remains coherent after source deletion"
     true
-    (not (String.equal (identity baseline_target) (identity overlaid_target)))
+    (first_expected = frozen_observation first_snapshot (resolve_admitted first_handle));
+  check
+    bool
+    "second handle remains coherent after source deletion"
+    true
+    (second_expected = frozen_observation second_snapshot (resolve_admitted second_handle));
+  check
+    bool
+    "separately loaded file snapshots remain distinct"
+    true
+    (first_expected <> second_expected);
+  let expect_absent snapshot id =
+    match EO.admit_target_ref snapshot id with
+    | Error (EO.Target_not_in_catalog actual) -> check string "exact absence" id actual
+    | Ok _ | Error _ -> failf "%S must not belong to this frozen snapshot" id
+  in
+  expect_absent first_snapshot "replacement-b-target";
+  expect_absent second_snapshot "replacement-a-target";
+  expect_absent first_snapshot "ollama-cloud-minimax-m3-json";
+  expect_absent second_snapshot "ollama-cloud-minimax-m3-json"
 ;;
 
 let test_invalid_full_replacement_inputs_fail_without_fallback () =
@@ -591,17 +752,58 @@ let test_every_functional_projection_field_changes_generation () =
      <> (ready (resolve endpoint_changed "snapshot-target") |> EO.plan_fingerprint))
 ;;
 
-let test_old_and_new_whole_tuples_never_mix_across_fibers () =
+let test_one_fresh_handle_is_immutably_shareable_across_domains () =
+  let snapshot = snapshot (target_catalog ~base_url:"https://shared.example" ()) in
+  let handle = admit snapshot "snapshot-target" in
+  let first_domain =
+    Domain.spawn (fun () -> frozen_observation snapshot (resolve_admitted handle))
+  in
+  let second_domain =
+    Domain.spawn (fun () -> frozen_observation snapshot (resolve_admitted handle))
+  in
+  let first_observation = Domain.join first_domain in
+  let second_observation = Domain.join second_domain in
+  check_observation_is_coherent "shared handle first Domain" first_observation;
+  check_observation_is_coherent "shared handle second Domain" second_observation;
+  check
+    bool
+    "one freshly admitted handle yields identical immutable Domain observations"
+    true
+    (first_observation = second_observation)
+;;
+
+let test_old_and_new_whole_tuples_never_mix_across_domains_and_fibers () =
   let old_snapshot = snapshot (target_catalog ~base_url:"https://old.example" ()) in
   let new_snapshot = snapshot (target_catalog ~base_url:"https://new.example" ()) in
-  let expected_old =
-    frozen_observation old_snapshot (resolve old_snapshot "snapshot-target")
+  let old_handle = admit old_snapshot "snapshot-target" in
+  let new_handle = admit new_snapshot "snapshot-target" in
+  let expected_old = frozen_observation old_snapshot (resolve_admitted old_handle) in
+  let expected_new = frozen_observation new_snapshot (resolve_admitted new_handle) in
+  let old_domain =
+    Domain.spawn (fun () -> frozen_observation old_snapshot (resolve_admitted old_handle))
   in
-  let expected_new =
-    frozen_observation new_snapshot (resolve new_snapshot "snapshot-target")
+  let new_domain =
+    Domain.spawn (fun () -> frozen_observation new_snapshot (resolve_admitted new_handle))
   in
-  let observe snapshot signal_arrived gate =
-    let target = resolve snapshot "snapshot-target" in
+  let old_domain_observation = Domain.join old_domain in
+  let new_domain_observation = Domain.join new_domain in
+  check
+    bool
+    "immutable handle A crosses a Domain without rebinding"
+    true
+    (old_domain_observation = expected_old);
+  check
+    bool
+    "immutable handle B crosses a Domain without rebinding"
+    true
+    (new_domain_observation = expected_new);
+  check
+    bool
+    "cross-Domain handles preserve distinct whole tuples"
+    true
+    (old_domain_observation <> new_domain_observation);
+  let observe snapshot admitted signal_arrived gate =
+    let target = resolve_admitted admitted in
     Eio.Promise.resolve signal_arrived ();
     Eio.Promise.await gate;
     frozen_observation snapshot target
@@ -621,10 +823,10 @@ let test_old_and_new_whole_tuples_never_mix_across_fibers () =
     let old_result, resolve_old_result = Eio.Promise.create () in
     let new_result, resolve_new_result = Eio.Promise.create () in
     Eio.Fiber.fork ~sw (fun () ->
-      observe old_snapshot signal_old_arrived gate
+      observe old_snapshot old_handle signal_old_arrived gate
       |> Eio.Promise.resolve resolve_old_result);
     Eio.Fiber.fork ~sw (fun () ->
-      observe new_snapshot signal_new_arrived gate
+      observe new_snapshot new_handle signal_new_arrived gate
       |> Eio.Promise.resolve resolve_new_result);
     Eio.Promise.await old_arrived;
     Eio.Promise.await new_arrived;
@@ -650,7 +852,7 @@ let test_old_and_new_whole_tuples_never_mix_across_fibers () =
 
 let expect_endpoint_error label expected_cause contents =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlay : EO.catalog_overlay = { source = label; contents } in
+  let overlay : EO.catalog_document = { source = label; contents } in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Error (EO.Target_endpoint_invalid { cause; _ }) ->
     check bool (label ^ " exact typed cause") true (cause = expected_cause)
@@ -707,44 +909,27 @@ let test_endpoint_error_cause_table () =
     cases
 ;;
 
-let test_caller_headers_and_crlf_credential_fail_closed () =
+let test_caller_headers_fail_closed () =
   let header_secret = "must-not-appear-in-diagnostic" in
   let contents =
     target_catalog () ^ Printf.sprintf "headers = [\"Authorization: %s\"]\n" header_secret
   in
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlay : EO.catalog_overlay = { source = "caller header"; contents } in
-  (match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
-   | Error (EO.Target_catalog_invalid { detail; _ }) ->
-     check
-       bool
-       "rejected caller-header diagnostic omits its value"
-       false
-       (string_contains ~haystack:detail ~needle:header_secret)
-   | Error _ -> fail "caller target headers returned the wrong resolver error class"
-   | Ok _ -> fail "caller target headers must be rejected");
-  let credential = "secret\r\nX-Leak: yes" in
-  let io : EO.resolver_io =
-    { getenv =
-        (fun name ->
-          Ok (if String.equal name "CRLF_FIXTURE_KEY" then Some credential else None))
-    }
-  in
-  let overlay : EO.catalog_overlay =
-    { source = "CRLF credential"
-    ; contents = target_catalog ~api_key_env:"CRLF_FIXTURE_KEY" ()
-    }
-  in
+  let overlay : EO.catalog_document = { source = "caller header"; contents } in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
-  | Error (EO.Target_credential_invalid { environment_variable = "CRLF_FIXTURE_KEY"; _ })
-    -> ()
-  | Error _ -> fail "CRLF credential returned the wrong resolver error class"
-  | Ok _ -> fail "CRLF credential must be rejected while freezing the snapshot"
+  | Error (EO.Target_catalog_invalid { detail; _ }) ->
+    check
+      bool
+      "rejected caller-header diagnostic omits its value"
+      false
+      (string_contains ~haystack:detail ~needle:header_secret)
+  | Error _ -> fail "caller target headers returned the wrong resolver error class"
+  | Ok _ -> fail "caller target headers must be rejected"
 ;;
 
 let expect_collision_error label expected contents =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlay : EO.catalog_overlay = { source = label; contents } in
+  let overlay : EO.catalog_document = { source = label; contents } in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Error (EO.Catalog_collision collision) ->
     check bool (label ^ " exact collision") true (collision = expected)
@@ -769,11 +954,13 @@ let test_collision_and_input_hardening () =
     "target case shadow"
     EO.Duplicate_target_identity
     duplicate_target;
+  let hardening_snapshot = snapshot (target_catalog ()) in
   List.iter
     (fun malicious ->
-       match EO.target_ref malicious with
-       | Error _ -> ()
-       | Ok _ -> failf "malicious target ref %S must be rejected" malicious)
+       match EO.admit_target_ref hardening_snapshot malicious with
+       | Error (EO.Target_ref_rejected EO.Invalid_target_ref) -> ()
+       | Ok _ | Error _ ->
+         failf "malicious target ref %S must have the exact typed rejection" malicious)
     [ "../target"; "target?key=secret"; "target\nheader"; "target/child" ]
 ;;
 
@@ -787,17 +974,13 @@ let () =
             `Quick
             test_environment_is_consumed_once_and_snapshot_is_immutable
         ; test_case
-            "typed missing credential"
+            "credential outcomes frozen per target"
             `Quick
-            test_missing_credential_is_per_target_typed_error
+            test_credential_outcomes_are_frozen_per_target
         ; test_case
             "full replacement path suppresses embedded"
             `Quick
             test_full_replacement_path_is_frozen_and_suppresses_embedded
-        ; test_case
-            "overlay and replacement inputs are mutually exclusive"
-            `Quick
-            test_catalog_input_keeps_overlay_and_replacement_mutually_exclusive
         ; test_case
             "invalid full replacement has no fallback"
             `Quick
@@ -819,14 +1002,15 @@ let () =
             `Quick
             test_every_functional_projection_field_changes_generation
         ; test_case
-            "old/new whole-tuple concurrent separation"
+            "one fresh handle is immutable across Domains"
             `Quick
-            test_old_and_new_whole_tuples_never_mix_across_fibers
-        ; test_case "endpoint exact-cause table" `Quick test_endpoint_error_cause_table
+            test_one_fresh_handle_is_immutably_shareable_across_domains
         ; test_case
-            "caller headers and CRLF credential rejected"
+            "old/new whole-tuple Domain and fiber separation"
             `Quick
-            test_caller_headers_and_crlf_credential_fail_closed
+            test_old_and_new_whole_tuples_never_mix_across_domains_and_fibers
+        ; test_case "endpoint exact-cause table" `Quick test_endpoint_error_cause_table
+        ; test_case "caller headers rejected" `Quick test_caller_headers_fail_closed
         ; test_case
             "collision and input hardening"
             `Quick
