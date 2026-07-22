@@ -5,10 +5,18 @@ type target_identity
 type resolver_snapshot
 type resolver_io = { getenv : string -> (string option, unit) result }
 
-type catalog_overlay =
+type catalog_document =
   { source : string
   ; contents : string
   }
+
+type catalog_overlay = catalog_document
+
+type resolver_catalog_input =
+  | Embedded_default
+  | Embedded_with_overlay of catalog_document
+  | Full_replacement of catalog_document
+  | Full_replacement_file of string
 
 type target_ref_error =
   | Empty_target_ref
@@ -16,6 +24,7 @@ type target_ref_error =
 
 type resolver_catalog_source =
   | Embedded_catalog
+  | Full_replacement_catalog
   | Overlay_catalog
 
 type resolver_collision =
@@ -40,6 +49,10 @@ type resolver_endpoint_error =
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
+  | Catalog_read_failed of
+      { path : string
+      ; detail : string
+      }
   | Catalog_parse_failed of
       { source : resolver_catalog_source
       ; detail : string
@@ -80,6 +93,10 @@ type target_selection_error =
       ; environment_variable : string
       }
 
+type target_catalog_admission_error =
+  | Target_ref_rejected of target_ref_error
+  | Target_not_in_catalog of string
+
 val target_ref : string -> (target_ref, target_ref_error) result
 val target_ref_id : target_ref -> string
 val catalog_generation_fingerprint : catalog_generation -> string
@@ -97,9 +114,14 @@ val option_float : float option -> string
 
 val load_resolver_snapshot
   :  io:resolver_io
-  -> ?overlay:catalog_overlay
+  -> ?catalog:resolver_catalog_input
   -> unit
   -> (resolver_snapshot, resolver_snapshot_error) result
+
+val admit_target_ref
+  :  resolver_snapshot
+  -> string
+  -> (target_ref, target_catalog_admission_error) result
 
 val resolve_target
   :  resolver_snapshot

@@ -22,10 +22,18 @@ type receipt
 type schema_fingerprint
 type resolver_io = { getenv : string -> (string option, unit) result }
 
-type catalog_overlay =
+type catalog_document =
   { source : string
   ; contents : string
   }
+
+type catalog_overlay = catalog_document
+
+type resolver_catalog_input =
+  | Embedded_default
+  | Embedded_with_overlay of catalog_document
+  | Full_replacement of catalog_document
+  | Full_replacement_file of string
 
 type target_ref_error =
   | Empty_target_ref
@@ -33,6 +41,7 @@ type target_ref_error =
 
 type resolver_catalog_source =
   | Embedded_catalog
+  | Full_replacement_catalog
   | Overlay_catalog
 
 type resolver_collision =
@@ -57,6 +66,10 @@ type resolver_endpoint_error =
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
+  | Catalog_read_failed of
+      { path : string
+      ; detail : string
+      }
   | Catalog_parse_failed of
       { source : resolver_catalog_source
       ; detail : string
@@ -94,6 +107,10 @@ type target_selection_error =
       { target_ref : string
       ; environment_variable : string
       }
+
+type target_catalog_admission_error =
+  | Target_ref_rejected of target_ref_error
+  | Target_not_in_catalog of string
 
 type wire_admission_error =
   | Capability_snapshot_missing
@@ -172,14 +189,18 @@ val target_ref : string -> (target_ref, target_ref_error) result
 
 val target_ref_id : target_ref -> string
 
-(** Parse the embedded catalog plus an optional OAS-owned overlay and freeze a
-    private immutable target map. [io.getenv] is consumed during this call and
-    is never retained. Overlay replacement is permitted only for the same
-    primary id; alias shadowing and ambiguous normalized identities fail
-    closed. *)
+(** Parse exactly one typed catalog input and freeze a private immutable target
+    map. The default input is the embedded OAS catalog. [Embedded_with_overlay]
+    applies the existing sparse exact-output overlay precedence to that
+    embedded base. A full replacement, supplied as owned bytes or a file path,
+    suppresses every embedded and overlay row; the input type provides no way
+    to combine a full replacement with an overlay.
+    [io.getenv] is consumed during this call and is never retained. Invalid
+    paths, syntax, bindings, collisions, and endpoint declarations fail closed;
+    no source falls back to the embedded catalog. *)
 val load_resolver_snapshot
   :  io:resolver_io
-  -> ?overlay:catalog_overlay
+  -> ?catalog:resolver_catalog_input
   -> unit
   -> (resolver_snapshot, resolver_snapshot_error) result
 
@@ -193,8 +214,16 @@ val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
 val selected_target_catalog_evidence : selected_target -> catalog_evidence
 
+(** Brand [value] and prove that its exact identity exists in [resolver_snapshot].
+    This does not inspect or require the target credential. *)
+val admit_target_ref
+  :  resolver_snapshot
+  -> string
+  -> (target_ref, target_catalog_admission_error) result
+
 (** Resolve exactly one frozen binding. This performs no environment, global,
-    alias, default-model, ranking, probing, or fallback lookup. *)
+    alias, default-model, ranking, probing, or fallback lookup. A missing frozen
+    credential is reported here, after catalog membership admission. *)
 val resolve_target
   :  resolver_snapshot
   -> target_ref

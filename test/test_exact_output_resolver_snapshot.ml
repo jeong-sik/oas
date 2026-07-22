@@ -107,7 +107,7 @@ let target_catalog
 let snapshot ?(getenv = fun _ -> Ok None) contents =
   let io : EO.resolver_io = { getenv } in
   let overlay : EO.catalog_overlay = { source = "resolver snapshot fixture"; contents } in
-  match EO.load_resolver_snapshot ~io ~overlay () with
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Ok snapshot -> snapshot
   | Error _ -> fail "snapshot should load"
 ;;
@@ -316,12 +316,131 @@ let test_environment_is_consumed_once_and_snapshot_is_immutable () =
 
 let test_missing_credential_is_per_target_typed_error () =
   let snapshot = snapshot (target_catalog ~api_key_env:"MISSING_FIXTURE_KEY" ()) in
-  match EO.resolve_target snapshot (target_ref "snapshot-target") with
-  | Error
-      (EO.Missing_target_credential
-         { target_ref = "snapshot-target"; environment_variable = "MISSING_FIXTURE_KEY" })
-    -> ()
-  | Ok _ | Error _ -> fail "missing credential must not invalidate the whole snapshot"
+  let admitted =
+    match EO.admit_target_ref snapshot "snapshot-target" with
+    | Ok target_ref -> target_ref
+    | Error _ -> fail "catalog membership must not require a credential"
+  in
+  (match EO.resolve_target snapshot admitted with
+   | Error
+       (EO.Missing_target_credential
+          { target_ref = "snapshot-target"; environment_variable = "MISSING_FIXTURE_KEY" })
+     -> ()
+   | Ok _ | Error _ -> fail "missing credential must remain a typed resolution error");
+  (match EO.admit_target_ref snapshot "missing-target" with
+   | Error (EO.Target_not_in_catalog "missing-target") -> ()
+   | Ok _ | Error _ -> fail "unknown catalog membership must remain typed");
+  match EO.admit_target_ref snapshot "../invalid-target" with
+  | Error (EO.Target_ref_rejected EO.Invalid_target_ref) -> ()
+  | Ok _ | Error _ -> fail "target syntax rejection must remain typed"
+;;
+
+let with_temp_catalog contents f =
+  let path = Filename.temp_file "exact-output-full-replacement-" ".toml" in
+  Fun.protect
+    ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
+    (fun () ->
+       Out_channel.with_open_bin path (fun channel ->
+         Out_channel.output_string channel contents);
+       f path)
+;;
+
+let replacement_snapshot contents =
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let document : EO.catalog_document =
+    { source = "in-memory full replacement"; contents }
+  in
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Full_replacement document) () with
+  | Ok snapshot -> snapshot
+  | Error _ -> fail "full replacement snapshot should load"
+;;
+
+let test_full_replacement_path_is_frozen_and_suppresses_embedded () =
+  let contents =
+    target_catalog
+      ~provider:"replacement-provider"
+      ~model:"replacement-model"
+      ~target:"replacement-only-target"
+      ()
+  in
+  with_temp_catalog contents
+  @@ fun path ->
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let snapshot =
+    match EO.load_resolver_snapshot ~io ~catalog:(EO.Full_replacement_file path) () with
+    | Ok snapshot -> snapshot
+    | Error _ -> fail "full replacement path should load"
+  in
+  let admitted =
+    match EO.admit_target_ref snapshot "replacement-only-target" with
+    | Ok target_ref -> target_ref
+    | Error _ -> fail "replacement-only target must be admitted"
+  in
+  ignore (EO.resolve_target snapshot admitted : (EO.selected_target, _) result);
+  match EO.admit_target_ref snapshot "ollama-cloud-minimax-m3-json" with
+  | Error (EO.Target_not_in_catalog "ollama-cloud-minimax-m3-json") -> ()
+  | Ok _ | Error _ -> fail "full replacement must suppress embedded targets"
+;;
+
+let test_catalog_input_keeps_overlay_and_replacement_mutually_exclusive () =
+  let base =
+    target_catalog
+      ~provider:"replacement-provider"
+      ~base_url:"https://base.example"
+      ~model:"replacement-model"
+      ~target:"replacement-target"
+      ()
+  in
+  let overlay : EO.catalog_overlay =
+    { source = "replacement overlay"
+    ; contents =
+        target_catalog
+          ~provider:"replacement-provider"
+          ~base_url:"https://overlay.example"
+          ~model:"replacement-model"
+          ~target:"replacement-target"
+          ()
+    }
+  in
+  let baseline = replacement_snapshot base in
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let overlaid =
+    match
+      EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) ()
+    with
+    | Ok snapshot -> snapshot
+    | Error _ -> fail "embedded overlay snapshot should load"
+  in
+  let baseline_target = resolve baseline "replacement-target" in
+  let overlaid_target = resolve overlaid "replacement-target" in
+  check
+    bool
+    "embedded overlay and full replacement remain separate generations"
+    true
+    (not (String.equal (generation baseline) (generation overlaid)));
+  check
+    bool
+    "embedded overlay cannot mutate the full replacement identity"
+    true
+    (not (String.equal (identity baseline_target) (identity overlaid_target)))
+;;
+
+let test_invalid_full_replacement_inputs_fail_without_fallback () =
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let invalid : EO.catalog_document =
+    { source = "invalid full replacement"; contents = "[[providers]" }
+  in
+  (match EO.load_resolver_snapshot ~io ~catalog:(EO.Full_replacement invalid) () with
+   | Error (EO.Catalog_parse_failed { source = EO.Full_replacement_catalog; _ }) -> ()
+   | Ok _ | Error _ -> fail "invalid replacement must not fall back to embedded");
+  let missing_path = Filename.temp_file "missing-exact-output-catalog-" ".toml" in
+  Sys.remove missing_path;
+  match
+    EO.load_resolver_snapshot ~io ~catalog:(EO.Full_replacement_file missing_path) ()
+  with
+  | Error (EO.Catalog_read_failed { path; _ }) ->
+    check string "missing replacement path is preserved" missing_path path
+  | Ok _ | Error _ -> fail "missing replacement file must fail without fallback"
 ;;
 
 let test_credential_rotation_is_not_functional_identity () =
@@ -532,7 +651,7 @@ let test_old_and_new_whole_tuples_never_mix_across_fibers () =
 let expect_endpoint_error label expected_cause contents =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay = { source = label; contents } in
-  match EO.load_resolver_snapshot ~io ~overlay () with
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Error (EO.Target_endpoint_invalid { cause; _ }) ->
     check bool (label ^ " exact typed cause") true (cause = expected_cause)
   | Error _ -> fail (label ^ " returned the wrong resolver error class")
@@ -595,7 +714,7 @@ let test_caller_headers_and_crlf_credential_fail_closed () =
   in
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay = { source = "caller header"; contents } in
-  (match EO.load_resolver_snapshot ~io ~overlay () with
+  (match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
    | Error (EO.Target_catalog_invalid { detail; _ }) ->
      check
        bool
@@ -616,7 +735,7 @@ let test_caller_headers_and_crlf_credential_fail_closed () =
     ; contents = target_catalog ~api_key_env:"CRLF_FIXTURE_KEY" ()
     }
   in
-  match EO.load_resolver_snapshot ~io ~overlay () with
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Error (EO.Target_credential_invalid { environment_variable = "CRLF_FIXTURE_KEY"; _ })
     -> ()
   | Error _ -> fail "CRLF credential returned the wrong resolver error class"
@@ -626,7 +745,7 @@ let test_caller_headers_and_crlf_credential_fail_closed () =
 let expect_collision_error label expected contents =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay = { source = label; contents } in
-  match EO.load_resolver_snapshot ~io ~overlay () with
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
   | Error (EO.Catalog_collision collision) ->
     check bool (label ^ " exact collision") true (collision = expected)
   | Error _ -> fail (label ^ " returned the wrong resolver error class")
@@ -671,6 +790,18 @@ let () =
             "typed missing credential"
             `Quick
             test_missing_credential_is_per_target_typed_error
+        ; test_case
+            "full replacement path suppresses embedded"
+            `Quick
+            test_full_replacement_path_is_frozen_and_suppresses_embedded
+        ; test_case
+            "overlay and replacement inputs are mutually exclusive"
+            `Quick
+            test_catalog_input_keeps_overlay_and_replacement_mutually_exclusive
+        ; test_case
+            "invalid full replacement has no fallback"
+            `Quick
+            test_invalid_full_replacement_inputs_fail_without_fallback
         ; test_case
             "credential rotation is nonfunctional"
             `Quick

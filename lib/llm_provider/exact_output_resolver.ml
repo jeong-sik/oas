@@ -19,10 +19,18 @@ type target_identity =
 
 type resolver_io = { getenv : string -> (string option, unit) result }
 
-type catalog_overlay =
+type catalog_document =
   { source : string
   ; contents : string
   }
+
+type catalog_overlay = catalog_document
+
+type resolver_catalog_input =
+  | Embedded_default
+  | Embedded_with_overlay of catalog_document
+  | Full_replacement of catalog_document
+  | Full_replacement_file of string
 
 type target_ref_error =
   | Empty_target_ref
@@ -30,6 +38,7 @@ type target_ref_error =
 
 type resolver_catalog_source =
   | Embedded_catalog
+  | Full_replacement_catalog
   | Overlay_catalog
 
 type resolver_collision =
@@ -54,6 +63,10 @@ type resolver_endpoint_error =
   | Invalid_gemini_model_path
 
 type resolver_snapshot_error =
+  | Catalog_read_failed of
+      { path : string
+      ; detail : string
+      }
   | Catalog_parse_failed of
       { source : resolver_catalog_source
       ; detail : string
@@ -116,6 +129,10 @@ type target_selection_error =
       { target_ref : string
       ; environment_variable : string
       }
+
+type target_catalog_admission_error =
+  | Target_ref_rejected of target_ref_error
+  | Target_not_in_catalog of string
 
 let ( let* ) = Result.bind
 let sha256 value = Digestif.SHA256.(to_hex (digest_string value))
@@ -680,31 +697,56 @@ let frozen_environment ~io names =
     (Ok String_map.empty)
 ;;
 
-let load_resolver_snapshot ~io ?overlay () =
+let read_full_replacement_file path =
+  let path = String.trim path in
+  if String.equal path ""
+  then Error (Catalog_read_failed { path; detail = "catalog path is empty" })
+  else (
+    try
+      Ok { source = path; contents = In_channel.with_open_bin path In_channel.input_all }
+    with
+    | exn ->
+      Reserved_exn.reraise_if_reserved exn;
+      Error (Catalog_read_failed { path; detail = Printexc.to_string exn }))
+;;
+
+let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
   let parse_model_catalog ~source ~parser_source contents =
     match Model_catalog.of_toml_string ~source:parser_source contents with
     | Ok catalog -> Ok catalog
     | Error detail -> Error (Catalog_parse_failed { source; detail })
   in
-  let embedded_contents = Model_catalog_embedded.contents in
-  let* embedded =
+  let embedded_document =
+    { source = "embedded exact-output catalog"
+    ; contents = Model_catalog_embedded.contents
+    }
+  in
+  let* base_source, base_document, overlay =
+    match catalog with
+    | Embedded_default -> Ok (Embedded_catalog, embedded_document, None)
+    | Embedded_with_overlay overlay ->
+      Ok (Embedded_catalog, embedded_document, Some overlay)
+    | Full_replacement document -> Ok (Full_replacement_catalog, document, None)
+    | Full_replacement_file path ->
+      let* document = read_full_replacement_file path in
+      Ok (Full_replacement_catalog, document, None)
+  in
+  let* base =
     parse_model_catalog
-      ~source:Embedded_catalog
-      ~parser_source:"embedded exact-output catalog"
-      embedded_contents
+      ~source:base_source
+      ~parser_source:base_document.source
+      base_document.contents
   in
-  let* embedded_targets =
-    parse_target_catalog ~source:Embedded_catalog embedded_contents
-  in
-  let* () = validate_catalog_source embedded embedded_targets in
+  let* base_targets = parse_target_catalog ~source:base_source base_document.contents in
+  let* () = validate_catalog_source base base_targets in
   let* catalog_models_and_targets =
     match overlay with
-    | None -> Ok (embedded, Model_catalog.model_entries embedded, embedded_targets)
+    | None -> Ok (base, Model_catalog.model_entries base, base_targets)
     | Some overlay ->
       let* overlay_catalog =
         parse_model_catalog
           ~source:Overlay_catalog
-          ~parser_source:"exact-output overlay"
+          ~parser_source:overlay.source
           overlay.contents
       in
       let* overlay_targets =
@@ -713,17 +755,17 @@ let load_resolver_snapshot ~io ?overlay () =
       let* () = validate_catalog_source overlay_catalog overlay_targets in
       let* () =
         validate_overlay_collisions
-          ~base:embedded
-          ~base_targets:embedded_targets
+          ~base
+          ~base_targets
           ~overlay:overlay_catalog
           ~overlay_targets
       in
       Ok
-        ( Model_catalog.merge ~base:embedded ~overlay:overlay_catalog
+        ( Model_catalog.merge ~base ~overlay:overlay_catalog
         , Binding.merge_exact_model_entries
-            ~base:(Model_catalog.model_entries embedded)
+            ~base:(Model_catalog.model_entries base)
             ~overlay:(Model_catalog.model_entries overlay_catalog)
-        , merge_target_declarations ~base:embedded_targets ~overlay:overlay_targets )
+        , merge_target_declarations ~base:base_targets ~overlay:overlay_targets )
   in
   let catalog, model_entries, target_declarations = catalog_models_and_targets in
   let* structural =
@@ -886,6 +928,15 @@ let load_resolver_snapshot ~io ?overlay () =
   in
   let evidence = Catalog_evidence (hash_parts evidence_material) in
   Ok { targets; generation; evidence }
+;;
+
+let admit_target_ref snapshot value =
+  match target_ref value with
+  | Error error -> Error (Target_ref_rejected error)
+  | Ok (Target_ref id as admitted) ->
+    if String_map.mem id snapshot.targets
+    then Ok admitted
+    else Error (Target_not_in_catalog id)
 ;;
 
 let resolve_target snapshot (Target_ref target_ref) =
