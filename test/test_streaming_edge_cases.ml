@@ -343,9 +343,6 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
     ; ( "non-string id"
       , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":42}]}}]}|}
       , "malformed_delta_tool_call:position:0:id_not_string" )
-    ; ( "blank id"
-      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":" "}]}}]}|}
-      , "malformed_delta_tool_call:position:0:blank_id" )
     ; ( "unsupported type"
       , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"custom"}]}}]}|}
       , "malformed_delta_tool_call:position:0:unsupported_type" )
@@ -358,9 +355,6 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
     ; ( "non-string name"
       , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":42}}]}}]}|}
       , "malformed_delta_tool_call:position:0:name_not_string" )
-    ; ( "blank name"
-      , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":" "}}]}}]}|}
-      , "malformed_delta_tool_call:position:0:blank_name" )
     ; ( "scalar arguments"
       , {|{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":true}}]}}]}|}
       , "malformed_delta_tool_call:position:0:arguments_invalid_type" )
@@ -392,6 +386,23 @@ let test_openai_malformed_tool_call_shapes_fail_closed () =
          check string (label ^ " event raw") raw observed_raw
        | _ -> fail (label ^ ": expected exactly one SSEParseFailed event"))
     cases
+;;
+
+let test_openai_blank_id_and_name_accepted_as_none () =
+  let raw =
+    {|{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"name":"","arguments":"\"argv\": "}}]}}]}|}
+  in
+  let parsed = S.parse_openai_sse_chunk raw in
+  match parsed with
+  | S.Openai_chunk { delta_tool_calls = [ call ]; _ } ->
+    check int "index" 0 call.tc_index;
+    (match call.tc_id with
+     | None -> ()
+     | Some _ -> fail "expected tc_id to be None for blank string");
+    (match call.tc_name with
+     | None -> ()
+     | Some _ -> fail "expected tc_name to be None for blank string")
+  | _ -> fail "expected valid Openai_chunk with tool call"
 ;;
 
 let test_openai_tool_route_conflict_is_transactional () =
@@ -754,6 +765,10 @@ let () =
     ; ( "openai_sse"
       , [ test_case "parse edge shapes" `Quick test_openai_parse_edge_shapes
         ; test_case "object-form tool arguments" `Quick test_openai_object_arguments
+        ; test_case
+            "blank id and name accepted as none"
+            `Quick
+            test_openai_blank_id_and_name_accepted_as_none
         ; test_case
             "malformed tool-call shapes fail closed"
             `Quick

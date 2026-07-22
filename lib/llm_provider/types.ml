@@ -589,14 +589,18 @@ type stop_reason =
 let stop_reason_of_string = function
   | "end_turn" -> EndTurn
   | "tool_use" -> StopToolUse
-  | "max_tokens" -> MaxTokens
+  | "max_tokens" | "length" | "length_limit" -> MaxTokens
   | "stop_sequence" -> StopSequence
   | "refusal" -> Refusal
   | "content_filter" -> ContentFilter
   | "repetition_truncation" -> RepetitionTruncation
   | "pause_turn" -> PauseTurn
   | "compaction" -> Compaction
-  | "model_context_window_exceeded" -> ContextWindowExceeded
+  | "model_context_window_exceeded"
+  | "context_window_exceeded"
+  | "context_length_exceeded"
+  | "max_context_length"
+  | "context_limit_exceeded" -> ContextWindowExceeded
   | "unmatched_tool_calls" -> UnmatchedToolCalls
   | other -> Unknown other
 ;;

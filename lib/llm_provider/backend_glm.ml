@@ -284,10 +284,13 @@ let parse_response body =
   match parse_response_result body with
   | Ok resp -> resp
   | Error (Backend_openai_parse.Provider_error msg) -> raise (glm_parse_error msg)
-  | Error (Backend_openai_parse.Empty_completion _) ->
+  | Error (Backend_openai_parse.Empty_completion empty_comp) ->
+    let stop_reason_str = Types.stop_reason_to_string empty_comp.stop_reason in
     raise
       (glm_parse_error
-         "provider returned an empty assistant turn (no thinking, text, or tool calls)")
+         (Printf.sprintf
+            "empty completion (stop_reason=%s): provider returned an empty assistant turn"
+            stop_reason_str))
 ;;
 
 (* ── Streaming ───────────────────────────────────── *)
