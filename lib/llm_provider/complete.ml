@@ -15,85 +15,6 @@ include Complete_stream
 type prepared_request = Prepared_completion_request.t
 type measured_request = Prepared_completion_request.measured
 type admitted_request = Prepared_completion_request.admitted
-type exact_output_plan = Exact_output_plan.t
-type plan_fingerprint = Exact_output_plan.fingerprint
-
-type output_admission_error = Exact_output_plan.output_admission_error =
-  | Explicit_capability_snapshot_required
-  | Contradictory_output_state
-  | Unsupported_output_contract of
-      { provider_kind : Provider_config.provider_kind
-      ; model_id : string
-      ; response_format : Types.response_format
-      }
-  | Unsupported_exact_cross_feature
-  | Global_admission_not_allowed
-  | Invalid_connect_timeout of float
-  | Invalid_body_timeout of float
-  | Caller_supplied_framing_header_not_allowed of string
-  | Provider_request_rejected of Http_client.http_error
-  | Request_serialization_rejected of Http_client.http_error
-
-type json_validation_provenance = Exact_output_plan.json_validation_provenance =
-  | Json_syntax_validated
-  | Provider_schema_requested_client_validation_required
-
-type normalized_output = Exact_output_plan.normalized_output =
-  | Text_output of string
-  | Json_output of
-      { value : Yojson.Safe.t
-      ; validation : json_validation_provenance
-      }
-
-type output_normalization_error = Exact_output_plan.output_normalization_error =
-  | Incomplete_structured_response of Types.stop_reason
-  | Missing_structured_text
-  | Ambiguous_structured_text of int
-  | Unexpected_structured_content
-  | Invalid_json of string
-
-type effect_phase =
-  | Before_dispatch
-  | Dispatch_started
-  | Response_received
-  | Terminal
-
-type receipt_identity =
-  { fingerprint : plan_fingerprint
-  ; request_body_sha256 : string
-  }
-
-type response_receipt =
-  { identity : receipt_identity
-  ; http_status : int
-  }
-
-type one_dispatch_receipt =
-  | Before_dispatch_receipt of receipt_identity
-  | Dispatch_started_receipt of receipt_identity
-  | Response_received_receipt of response_receipt
-  | Terminal_receipt of response_receipt
-
-type execute_once_error_cause =
-  | Clock_required_for_timeout
-  | Frozen_request_mismatch
-  | Provider_error of Http_client.http_error
-  | Output_normalization_failed of output_normalization_error
-
-type execute_once_error =
-  { receipt : one_dispatch_receipt
-  ; cause : execute_once_error_cause
-  }
-
-type pricing_provenance = Pricing_annotation_omitted
-
-type normalized_outcome =
-  { receipt : one_dispatch_receipt
-  ; response_format : Types.response_format
-  ; response : Types.api_response
-  ; output : normalized_output
-  ; pricing : pricing_provenance
-  }
 
 type context_fit = Prepared_completion_request.context_fit =
   { input_tokens : int
@@ -116,36 +37,6 @@ let request_measurement = Prepared_completion_request.measurement
 let resolve_context_limit = Prepared_completion_request.resolve_context_limit
 let admit_request = Prepared_completion_request.admit
 let admitted_fit = Prepared_completion_request.admitted_fit
-let admit_exact_output = Exact_output_plan.admit
-let plan_fingerprint = Exact_output_plan.fingerprint
-let plan_fingerprint_to_string = Exact_output_plan.fingerprint_to_string
-let plan_request_body_sha256 = Exact_output_plan.request_body_sha256
-
-let receipt_phase = function
-  | Before_dispatch_receipt _ -> Before_dispatch
-  | Dispatch_started_receipt _ -> Dispatch_started
-  | Response_received_receipt _ -> Response_received
-  | Terminal_receipt _ -> Terminal
-;;
-
-let receipt_dispatch_count = function
-  | Before_dispatch_receipt _ -> 0
-  | Dispatch_started_receipt _ | Response_received_receipt _ | Terminal_receipt _ -> 1
-;;
-
-let receipt_http_status = function
-  | Before_dispatch_receipt _ | Dispatch_started_receipt _ -> None
-  | Response_received_receipt receipt | Terminal_receipt receipt ->
-    Some receipt.http_status
-;;
-
-let receipt_identity = function
-  | Before_dispatch_receipt identity | Dispatch_started_receipt identity -> identity
-  | Response_received_receipt receipt | Terminal_receipt receipt -> receipt.identity
-;;
-
-let receipt_fingerprint receipt = (receipt_identity receipt).fingerprint
-let receipt_request_body_sha256 receipt = (receipt_identity receipt).request_body_sha256
 
 let complete_prepared_sync
       ~sw
@@ -376,86 +267,6 @@ let complete_admitted
     ?metrics
     ?body_timeout_s
     ()
-;;
-
-let execute_once ~net ?clock ?connection_cache plan =
-  let fingerprint = plan_fingerprint plan in
-  let request_body_sha256 = plan_request_body_sha256 plan in
-  let identity = { fingerprint; request_body_sha256 } in
-  let before_dispatch_receipt () = Before_dispatch_receipt identity in
-  let dispatch_started_receipt () = Dispatch_started_receipt identity in
-  let response_received_receipt http_status =
-    Response_received_receipt { identity; http_status }
-  in
-  let terminal_receipt http_status = Terminal_receipt { identity; http_status } in
-  let error receipt cause = Error { receipt; cause } in
-  let transport_error_receipt = function
-    | Http_client.Before_dispatch_error provider_error ->
-      before_dispatch_receipt (), provider_error
-    | Http_client.Dispatch_started_error provider_error ->
-      dispatch_started_receipt (), provider_error
-    | Http_client.Response_received_error { status; error = provider_error } ->
-      response_received_receipt status, provider_error
-  in
-  if not (Exact_output_plan.verify_frozen_request plan)
-  then error (before_dispatch_receipt ()) Frozen_request_mismatch
-  else (
-    match
-      ( Exact_output_plan.connect_timeout_s plan
-      , Exact_output_plan.body_timeout_s plan
-      , clock )
-    with
-    | connect_timeout_s, body_timeout_s, None
-      when Option.is_some connect_timeout_s || Option.is_some body_timeout_s ->
-      error (before_dispatch_receipt ()) Clock_required_for_timeout
-    | connect_timeout_s, body_timeout_s, _ ->
-      (match
-         Http_client.post_sync_once
-           ?cache:connection_cache
-           ?clock
-           ?connect_timeout_s
-           ?body_timeout_s
-           ~net
-           ~url:(Exact_output_plan.request_url plan)
-           ~headers:(Exact_output_plan.request_headers plan)
-           ~body:(Exact_output_plan.request_body plan)
-           ()
-       with
-       | Error transport_error ->
-         let receipt, provider_error = transport_error_receipt transport_error in
-         error receipt (Provider_error provider_error)
-       | Ok raw when raw.status < 200 || raw.status >= 300 ->
-         error
-           (response_received_receipt raw.status)
-           (Provider_error
-              (Http_client.HttpError
-                 { code = raw.status
-                 ; body = raw.body
-                 ; retry_after_header = raw.retry_after_header
-                 }))
-       | Ok raw ->
-         (match
-            Complete_sync.parse_sync_response
-              ~http_codec:(Exact_output_plan.response_codec plan)
-              ~provider_kind:(Exact_output_plan.provider_kind plan)
-              raw.body
-          with
-          | Error provider_error ->
-            error (response_received_receipt raw.status) (Provider_error provider_error)
-          | Ok response ->
-            (match Exact_output_plan.normalize plan response with
-             | Error normalization_error ->
-               error
-                 (response_received_receipt raw.status)
-                 (Output_normalization_failed normalization_error)
-             | Ok output ->
-               Ok
-                 { receipt = terminal_receipt raw.status
-                 ; response_format = Exact_output_plan.response_format plan
-                 ; response
-                 ; output
-                 ; pricing = Pricing_annotation_omitted
-                 }))))
 ;;
 
 (* ── Streaming ───────────────────────────────────────── *)

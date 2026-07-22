@@ -53,6 +53,17 @@ type t =
   ; fingerprint : fingerprint
   }
 
+type admission =
+  | Measured of Prepared_completion_request.admitted
+  | Unmeasured of
+      { config : Provider_config.t
+      ; messages : Types.message list
+      }
+
+type admission_basis =
+  | Measured_context_fit of Prepared_completion_request.context_fit
+  | Token_measurement_not_required
+
 let fingerprint_to_string (Fingerprint value) = value
 let sha256 value = Sha256.(to_hex (digest_string value))
 
@@ -82,15 +93,6 @@ let response_format_state_is_consistent
   | Types.Off, Some _ | Types.JsonMode, Some _ | Types.JsonSchema _, None -> false
 ;;
 
-let json_mode_has_wire_serializer = function
-  | Provider_config.OpenAI_compat
-  | Provider_config.Ollama
-  | Provider_config.Gemini
-  | Provider_config.Glm
-  | Provider_config.DashScope -> true
-  | Provider_config.Anthropic | Provider_config.Kimi -> false
-;;
-
 let contract_is_supported
       (config : Provider_config.t)
       (capabilities : Capabilities.capabilities)
@@ -99,7 +101,7 @@ let contract_is_supported
   | Types.Off -> true
   | Types.JsonMode ->
     capabilities.supports_response_format_json
-    && json_mode_has_wire_serializer config.kind
+    && Provider_http_codec.supports_json_mode (Provider_http_codec.of_config config)
   | Types.JsonSchema _ -> capabilities.supports_structured_output
 ;;
 
@@ -117,6 +119,13 @@ let content_uses_exact_cross_feature = function
   | Types.Text _ | Types.Image _ | Types.Document _ | Types.Audio _ -> false
 ;;
 
+let contains_reserved_response_phase_metadata metadata =
+  List.exists
+    (fun (key, _) ->
+       String.equal key Backend_openai_responses.response_phase_metadata_key)
+    metadata
+;;
+
 let request_uses_exact_cross_feature (request : Llm_transport.completion_request) =
   let config = request.config in
   request.tools <> []
@@ -132,7 +141,9 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
   || Option.is_some config.clear_thinking
   || List.exists
        (fun (message : Types.message) ->
-          List.exists content_uses_exact_cross_feature message.content)
+          message.role = Types.Tool
+          || contains_reserved_response_phase_metadata message.metadata
+          || List.exists content_uses_exact_cross_feature message.content)
        request.messages
 ;;
 
@@ -176,28 +187,37 @@ let plan_fingerprint
       ~(config : Provider_config.t)
       ~(capabilities : Capabilities.capabilities)
       ~(wire : frozen_wire_request)
-      ~(fit : Prepared_completion_request.context_fit)
+      ~admission_basis
   =
   let material = Buffer.create 512 in
+  let version, admission_material =
+    match admission_basis with
+    | Measured_context_fit fit ->
+      ( "oas-exact-output-plan-v2"
+      , [ string_of_int fit.input_tokens
+        ; string_of_int fit.reserved_output_tokens
+        ; string_of_int fit.max_context_tokens
+        ] )
+    | Token_measurement_not_required -> "oas-exact-output-plan-unmeasured-v1", []
+  in
   List.iter
     (add_part material)
-    [ "oas-exact-output-plan-v2"
-    ; Provider_http_codec.fingerprint_tag wire.response_codec
-    ; Provider_config.string_of_provider_kind wire.provider_kind
-    ; Option.value config.provider_id ~default:""
-    ; config.model_id
-    ; wire.url
-    ; wire.body_sha256
-    ; Yojson.Safe.to_string (Types.response_format_to_json config.response_format)
-    ; (if capabilities.supports_response_format_json then "1" else "0")
-    ; (if capabilities.supports_structured_output then "1" else "0")
-    ; string_of_int fit.input_tokens
-    ; string_of_int fit.reserved_output_tokens
-    ; string_of_int fit.max_context_tokens
-    ; option_float wire.connect_timeout_s
-    ; option_float wire.body_timeout_s
-    ; string_of_int (List.length wire.headers)
-    ];
+    ([ version
+     ; Provider_http_codec.fingerprint_tag wire.response_codec
+     ; Provider_config.string_of_provider_kind wire.provider_kind
+     ; Option.value config.provider_id ~default:""
+     ; config.model_id
+     ; wire.url
+     ; wire.body_sha256
+     ; Yojson.Safe.to_string (Types.response_format_to_json config.response_format)
+     ; (if capabilities.supports_response_format_json then "1" else "0")
+     ; (if capabilities.supports_structured_output then "1" else "0")
+     ]
+     @ admission_material
+     @ [ option_float wire.connect_timeout_s
+       ; option_float wire.body_timeout_s
+       ; string_of_int (List.length wire.headers)
+       ]);
   List.iter
     (fun (name, value) ->
        add_part material name;
@@ -226,8 +246,7 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
-let admit admitted =
-  let prepared = Prepared_completion_request.admitted_request admitted in
+let admit_prepared ~admission_basis prepared =
   let request = Prepared_completion_request.request prepared in
   let original_config = request.config in
   match original_config.model_capabilities_override with
@@ -287,9 +306,21 @@ let admit admitted =
              ; body_timeout_s = request.body_timeout_s
              }
            in
-           let fit = Prepared_completion_request.admitted_fit admitted in
-           let fingerprint = plan_fingerprint ~config ~capabilities ~wire ~fit in
+           let fingerprint =
+             plan_fingerprint ~config ~capabilities ~wire ~admission_basis
+           in
            Ok { response_format; wire; fingerprint }))
+;;
+
+let admit = function
+  | Measured admitted ->
+    admit_prepared
+      ~admission_basis:
+        (Measured_context_fit (Prepared_completion_request.admitted_fit admitted))
+      (Prepared_completion_request.admitted_request admitted)
+  | Unmeasured { config; messages } ->
+    Prepared_completion_request.prepare ~config ~messages ()
+    |> admit_prepared ~admission_basis:Token_measurement_not_required
 ;;
 
 let fingerprint plan = plan.fingerprint
@@ -412,8 +443,15 @@ let%test "canonical fingerprint is sensitive to the frozen response codec" =
     }
   in
   let fingerprint response_codec =
-    plan_fingerprint ~config ~capabilities ~wire:(wire response_codec) ~fit
+    plan_fingerprint
+      ~config
+      ~capabilities
+      ~wire:(wire response_codec)
+      ~admission_basis:(Measured_context_fit fit)
     |> fingerprint_to_string
+  in
+  let v0_220_anthropic_fingerprint =
+    "d59eee4e9e01296bdea6b695c0e2d9ad1fcfd1ee5779777124a4379e4bc6d598"
   in
   let anthropic_codec = Provider_http_codec.of_config config in
   let openai_codec =
@@ -424,4 +462,5 @@ let%test "canonical fingerprint is sensitive to the frozen response codec" =
       }
   in
   fingerprint anthropic_codec <> fingerprint openai_codec
+  && String.equal (fingerprint anthropic_codec) v0_220_anthropic_fingerprint
 ;;
