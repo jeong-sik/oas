@@ -2258,7 +2258,11 @@ kind = "openai_compat"
 base_url = "https://api.deepseek.com"
 request_path = "/chat/completions"
 api_key_env = "DEEPSEEK_API_KEY"
-capabilities_base = "openai_chat"
+# deepseek preset overrides the openai_chat base's supports_structured_output
+# to false: DeepSeek's response_format enum has no json_schema variant, so an
+# uncataloged deepseek model must not inherit native-schema support and send a
+# field the API does not define (checked 2026-07-22).
+capabilities_base = "deepseek"
 identity_hosts = ["api.deepseek.com"]
 
 [[providers]]

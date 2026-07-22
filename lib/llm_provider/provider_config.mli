@@ -364,6 +364,14 @@ val capability_provider_label : t -> string
     [model_capabilities_override] or an exact [provider_id]. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
+(** The capability view with the caller's [supports_tool_choice_override]
+    applied to the tool-choice fields (supports_tool_choice / required / named).
+    Both the tool-choice request gate and structured-output strategy selection
+    read this, so the strategy that picks a forced tool_choice cannot disagree
+    with the gate that would then reject it. Falls back to a kind-appropriate
+    preset rather than [None] when no catalog row matches. *)
+val tool_choice_capabilities_for_config : t -> Capabilities.capabilities
+
 (** [true] exactly when [config.kind = Glm]. An [OpenAI_compat] config is never
     promoted to GLM semantics from its provider id, endpoint URL, or model id;
     callers targeting the native Z.AI contract must select the typed [Glm]

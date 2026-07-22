@@ -30,15 +30,20 @@
     Two documented subset rules are applied as rewrites rather than
     rejections, because both are lossless for consumers:
 
-    - [additionalProperties: false] is added to every object. The subset
-      requires it, and it only forbids keys the caller never declared.
-    - Properties absent from [required] are promoted into [required] and their
-      declared type is widened to a [null] union. This is the optional-field
-      emulation OpenAI documents ("it is possible to emulate an optional
-      parameter by using a union type with null"). Consumers reading the
-      payload with [Yojson.Safe.Util.member] observe [`Null] for both an
-      absent key and an explicit null, so the promotion does not change what a
-      parser sees.
+    - [additionalProperties: false] is injected on an object only when the
+      caller left the keyword unset — the caller declared no extra keys, so
+      forbidding them changes nothing. An explicit [false] is kept; an explicit
+      [true] or schema value is an open-object declaration the subset cannot
+      express and is reported as {!Object_open_additional_properties} rather
+      than overwritten.
+    - Properties absent from [required] are promoted into [required] and made
+      nullable, the optional-field emulation OpenAI documents ("it is possible
+      to emulate an optional parameter by using a union type with null"). A
+      property with a top-level [type] gets [null] added to it; one without a
+      usable [type] ([enum]/[const]/[$ref]/[anyOf]) is wrapped so a [null]
+      branch is reachable. Consumers reading the payload with
+      [Yojson.Safe.Util.member] observe [`Null] for both an absent key and an
+      explicit null, so the promotion does not change what a parser sees.
 
     Requirements that cannot be met by rewriting are reported as
     {!violation}s. OAS never invents the missing information — an array whose
@@ -74,6 +79,12 @@ type violation =
   (** The schema root is not [{"type":"object"}]. Verbatim from the guide:
       "the root level object of a schema must be an object, and not use
       anyOf". *)
+  | Object_open_additional_properties of path
+  (** An object declares [additionalProperties] that permits extra keys —
+      [true], or a schema value. The strict subset requires
+      [additionalProperties:false], so this cannot be honored strictly; rather
+      than silently overwriting the caller's open-object intent, the request
+      degrades to non-strict with the schema left as the caller wrote it. *)
 
 val violation_to_string : violation -> string
 

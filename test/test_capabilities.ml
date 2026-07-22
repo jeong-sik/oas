@@ -2916,8 +2916,13 @@ let test_no_native_schema_provider_label_resolves_true () =
 ;;
 
 let test_no_native_schema_provider_scoped_catalog_row_resolves_true () =
-  (* Belt-and-suspenders over the label check: a provider-scoped catalog row
-     could override the preset back to true. Sweep the shipped catalog. *)
+  (* Belt-and-suspenders over the label check. Resolves the EFFECTIVE
+     capability of each provider-scoped row (base preset merged with the row's
+     overrides), not the row's raw supports_structured_output field. A row that
+     omits the field but inherits a native-schema-true base (e.g. openai_chat)
+     resolves to true while its raw field is None; checking the raw field alone
+     would miss exactly that inheritance — the hole that let the DeepSeek
+     provider entry ship true. *)
   match Model_catalog.global () with
   | None -> ()
   | Some catalog ->
@@ -2928,16 +2933,21 @@ let test_no_native_schema_provider_scoped_catalog_row_resolves_true () =
            when List.mem
                   (String.lowercase_ascii (String.trim prov))
                   providers_without_native_json_schema ->
-           (match entry.supports_structured_output with
-            | Some true ->
+           (match
+              Capabilities.for_provider_model_id
+                ~allow_bare_fallback:false
+                ~provider_label:prov
+                ~model_id:entry.id_prefix
+            with
+            | Some caps when caps.supports_structured_output ->
               failf
-                "catalog row %s (provider_name=%s) declares supports_structured_output \
-                 =                  true, but that provider's docs expose no native \
-                 json_schema field as of                  2026-07-22; route it through \
-                 the tool strategy instead"
+                "catalog row %s (provider_name=%s) resolves to \
+                 supports_structured_output = true, but that provider's docs expose no \
+                 native json_schema field as of 2026-07-22; route it through the tool \
+                 strategy instead"
                 entry.id_prefix
                 prov
-            | Some false | None -> ())
+            | Some _ | None -> ())
          | Some _ | None -> ())
       (Model_catalog.model_entries catalog)
 ;;

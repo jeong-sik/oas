@@ -180,10 +180,12 @@ type prepared_request =
   }
 
 let strategy_for_config provider_cfg =
+  (* The override-aware capability view, so a config that declares its endpoint
+     has no forced tool_choice (supports_tool_choice_override = Some false) does
+     not get routed to a forced-choice tool strategy the request gate would then
+     reject. Same view the gate reads (Provider_config.validate_tool_choice_request). *)
   let capabilities =
-    match Llm_provider.Provider_config.capabilities_for_config_model provider_cfg with
-    | Some caps -> caps
-    | None -> Llm_provider.Capabilities.default_capabilities
+    Llm_provider.Provider_config.tool_choice_capabilities_for_config provider_cfg
   in
   Llm_provider.Structured_output_strategy.select ~capabilities
 ;;
@@ -376,6 +378,7 @@ let extract_tool_input_typed ~(schema : _ schema) (response : api_response) =
     Error (Tool_not_called { expected = schema.name; stop_reason = response.stop_reason })
   | Some input ->
     (try schema.parse input |> Result.map_error (fun e -> Schema_mismatch e) with
+     | Yojson.Json_error detail -> Error (Malformed_json detail)
      | Yojson.Safe.Util.Type_error (detail, _) -> Error (Schema_mismatch detail))
 ;;
 
@@ -507,9 +510,19 @@ let terminal_prompt =
    tools."
 ;;
 
+(* The provider config the terminal turn should run on — the same one each
+   loop turn runs on, not the raw stored carrier. The agent's stored
+   provider_config is a transport carrier (endpoint, credential, headers,
+   capabilities) whose model_id / system_prompt / sampling are placeholders;
+   the loop merges the live agent_config over it every turn via
+   provider_config_with_agent_config (see pipeline_stage_route). Skipping that
+   merge here would run the terminal structured turn on the carrier's model
+   with no system prompt — a different model and a persona-stripped final
+   answer than the loop the caller just ran. *)
 let agent_provider_config ~agent =
+  let config = (Agent.state agent).config in
   match Agent.provider_config agent with
-  | Some cfg -> Ok cfg
+  | Some cfg -> Ok (Provider.provider_config_with_agent_config ~config cfg)
   | None ->
     let options = Agent.options agent in
     Provider.provider_config_of_agent
@@ -553,6 +566,20 @@ let run_structured_schema ~sw ?clock agent prompt ~(schema : 'a schema)
       ()
     |> Result.map_error sdk_error_of_http_error
   in
+  (* The terminal turn is a real turn and its tokens are real cost. The loop
+     folds each turn's usage into agent state; this out-of-loop turn must too,
+     or [Agent.state agent |> usage] under-reports the run by exactly this
+     turn. Mirrors the loop's fold in pipeline stage_collect. *)
+  Agent.update_state agent (fun st ->
+    { st with
+      usage =
+        Agent_turn.accumulate_usage
+          ~current_usage:st.usage
+          ~provider_config:(Some prepared.provider_cfg)
+          ~provider:(Agent.options agent).provider
+          ~response_model:(Some response.model)
+          ~response_usage:response.usage
+    });
   extract_by_strategy ~strategy:prepared.strategy ~schema response
 ;;
 

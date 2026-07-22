@@ -4,12 +4,15 @@ type violation =
   | Array_without_items of path
   | Object_without_properties of path
   | Root_not_object of path
+  | Object_open_additional_properties of path
 
 let violation_to_string = function
   | Array_without_items p -> Printf.sprintf "%s: array schema has no \"items\"" p
   | Object_without_properties p ->
     Printf.sprintf "%s: object schema has no \"properties\"" p
   | Root_not_object p -> Printf.sprintf "%s: schema root is not an object schema" p
+  | Object_open_additional_properties p ->
+    Printf.sprintf "%s: object allows extra keys, which strict mode forbids" p
 ;;
 
 let violations_to_string vs = String.concat ", " (List.map violation_to_string vs)
@@ -40,11 +43,21 @@ let declared_type_of fields =
 ;;
 
 (* Widen a property's declared [type] with "null" so the property can be
-   promoted into [required] without forcing the model to invent a value. A
-   [type] that is already a union containing "null", or that is absent /
-   non-string, is left untouched: in the absent case there is no declared type
-   to widen, and inventing one would constrain a schema the caller left open. *)
-let widen_type_with_null (schema : Yojson.Safe.t) : Yojson.Safe.t =
+   promoted into [required] without forcing the model to invent a value.
+
+   Where the property declares a top-level [type], null is added to it. Where
+   it does not — [enum]-only, [const], [$ref], [anyOf]/[oneOf]/[allOf] — there
+   is no [type] to widen, so nullability is expressed the only other way the
+   subset allows: an [anyOf] carrying the original schema and a [null] branch.
+   The earlier version returned such schemas unchanged, which combined with
+   the unconditional [required] promotion below to silently convert an
+   optional [enum]/[$ref] property into a mandatory one. *)
+let make_nullable (schema : Yojson.Safe.t) : Yojson.Safe.t =
+  let anyof_null branches =
+    if List.exists (fun b -> b = `Assoc [ "type", `String "null" ]) branches
+    then None (* already reachable *)
+    else Some (branches @ [ `Assoc [ "type", `String "null" ] ])
+  in
   match schema with
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
@@ -63,7 +76,20 @@ let widen_type_with_null (schema : Yojson.Safe.t) : Yojson.Safe.t =
             (fun (k, v) ->
                if k = "type" then k, `List (members @ [ `String "null" ]) else k, v)
             fields)
-     | Some _ | None -> schema)
+     | Some _ | None ->
+       (* No usable top-level [type]. If the schema is already an [anyOf], add
+          the null branch to it rather than nesting; otherwise wrap. *)
+       (match List.assoc_opt "anyOf" fields with
+        | Some (`List branches) ->
+          (match anyof_null branches with
+           | None -> schema
+           | Some widened ->
+             `Assoc
+               (List.map
+                  (fun (k, v) -> if k = "anyOf" then k, `List widened else k, v)
+                  fields))
+        | Some _ | None ->
+          `Assoc [ "anyOf", `List [ schema; `Assoc [ "type", `String "null" ] ] ]))
   | `Bool _ | `Null | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> schema
 ;;
 
@@ -104,9 +130,7 @@ and project_object ~path ~acc fields =
         (fun (out, acc) (name, prop_schema) ->
            let projected, acc = project_at ~path:(child path name) ~acc prop_schema in
            let projected =
-             if List.mem name already_required
-             then projected
-             else widen_type_with_null projected
+             if List.mem name already_required then projected else make_nullable projected
            in
            (name, projected) :: out, acc)
         ([], acc)
@@ -118,7 +142,21 @@ and project_object ~path ~acc fields =
     let fields =
       set_field fields "required" (`List (List.map (fun n -> `String n) all_names))
     in
-    let fields = set_field fields "additionalProperties" (`Bool false) in
+    (* Only inject [additionalProperties: false] when the caller left it
+       unset — that is the lossless case, since the caller declared no extra
+       keys. An explicit [false] is kept. An explicit [true], or a schema-valued
+       [additionalProperties], is an open-object declaration the strict subset
+       cannot express; overwriting it to [false] would silently forbid keys the
+       caller permitted, so it is reported as a violation and the request
+       degrades to non-strict with the caller's schema intact. *)
+    let fields, acc =
+      match List.assoc_opt "additionalProperties" fields with
+      | None -> set_field fields "additionalProperties" (`Bool false), acc
+      | Some (`Bool false) -> fields, acc
+      | Some (`Bool true | `Assoc _) ->
+        fields, Object_open_additional_properties path :: acc
+      | Some _ -> set_field fields "additionalProperties" (`Bool false), acc
+    in
     let projected, acc = project_defs ~path ~acc fields in
     projected, acc
   | Some _ | None -> `Assoc fields, Object_without_properties path :: acc
@@ -365,4 +403,95 @@ let%test "$defs and anyOf branches are projected too" =
     |> member "address"
     |> member "additionalProperties"
     = `Bool false
+;;
+
+let%test "optional enum property is made nullable via anyOf, not silently forced required"
+  =
+  let schema =
+    obj
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc [ "status", `Assoc [ "enum", `List [ `String "a"; `String "b" ] ] ] )
+      ]
+  in
+  match project schema with
+  | Error _ -> false
+  | Ok projected ->
+    let open Yojson.Safe.Util in
+    (* promoted to required (strict subset) ... *)
+    projected |> member "required" = `List [ `String "status" ]
+    (* ... but nullability preserved through an anyOf null branch, so an absent
+       value is still expressible — the enum was not turned into a mandatory choice *)
+    &&
+    let st = projected |> member "properties" |> member "status" in
+    (match st |> member "anyOf" with
+     | `List branches ->
+       List.exists (fun b -> b = `Assoc [ "type", `String "null" ]) branches
+     | _ -> false)
+;;
+
+let%test "optional $ref property is made nullable via anyOf" =
+  let schema =
+    obj
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "addr", `Assoc [ "$ref", `String "#/$defs/a" ] ]
+      ]
+  in
+  match project schema with
+  | Error _ -> false
+  | Ok projected ->
+    let open Yojson.Safe.Util in
+    (match projected |> member "properties" |> member "addr" |> member "anyOf" with
+     | `List branches ->
+       List.exists (fun b -> b = `Assoc [ "type", `String "null" ]) branches
+       && List.exists (fun b -> b = `Assoc [ "$ref", `String "#/$defs/a" ]) branches
+     | _ -> false)
+;;
+
+let%test "caller additionalProperties:true is a violation, not a silent overwrite" =
+  let schema =
+    obj
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "a", str ]
+      ; "required", `List [ `String "a" ]
+      ; "additionalProperties", `Bool true
+      ]
+  in
+  match project schema with
+  | Error [ Object_open_additional_properties "<root>" ] -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "caller additionalProperties:false is preserved and stays strict-eligible" =
+  let schema =
+    obj
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "a", str ]
+      ; "required", `List [ `String "a" ]
+      ; "additionalProperties", `Bool false
+      ]
+  in
+  match project schema with
+  | Error _ -> false
+  | Ok projected -> Yojson.Safe.Util.member "additionalProperties" projected = `Bool false
+;;
+
+let%test "an already-nullable optional (type includes null) is not double-wrapped" =
+  let schema =
+    obj
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc [ "note", `Assoc [ "type", `List [ `String "string"; `String "null" ] ] ]
+        )
+      ]
+  in
+  match project schema with
+  | Error _ -> false
+  | Ok projected ->
+    let open Yojson.Safe.Util in
+    projected
+    |> member "properties"
+    |> member "note"
+    |> member "type"
+    = `List [ `String "string"; `String "null" ]
 ;;

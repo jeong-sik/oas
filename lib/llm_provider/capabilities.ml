@@ -505,6 +505,19 @@ let ollama_cloud_capabilities =
   { ollama_capabilities with supports_structured_output = false }
 ;;
 
+(* DeepSeek's OpenAI-compatible endpoint documents a response_format enum
+   closed at {text, json_object}; there is no json_schema variant. Schema
+   conformance is reachable only through tools[].function.strict on the beta
+   host, which the tool strategy uses. The provider entry and the label must
+   carry this, not only the per-model rows: an uncataloged DeepSeek model would
+   otherwise inherit the openai_chat base's supports_structured_output = true
+   and OAS would send a field the API does not define.
+   Ref: https://api-docs.deepseek.com/api/create-chat-completion, checked
+   2026-07-22. *)
+let deepseek_capabilities =
+  { openai_compat_chat_capabilities with supports_structured_output = false }
+;;
+
 (* Cohere's OpenAI-compatible endpoint speaks the openai_compat chat wire, but
    its response_format enum is closed at {text, json_object}: there is no
    json_schema type. The v2 Chat API carries a schema INSIDE the json_object
@@ -681,6 +694,7 @@ let capabilities_for_provider_label label =
        Some openai_compat_chat_extended_capabilities
      | "xai" | "mistral" -> Some openai_compat_chat_extended_capabilities
      | "cohere" -> Some cohere_capabilities
+     | "deepseek" -> Some deepseek_capabilities
      | "mimo" -> Some mimo_capabilities
      | "ollama_cloud" -> Some ollama_cloud_capabilities
      | "nvidia" -> Some provider_l_capabilities

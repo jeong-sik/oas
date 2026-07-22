@@ -575,6 +575,7 @@ let base_label_values =
   ; "xai"
   ; "mistral"
   ; "cohere"
+  ; "deepseek"
   ; "mimo"
   ; "ollama_cloud"
   ; "nvidia"
