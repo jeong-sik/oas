@@ -108,32 +108,37 @@ let reraise_after_abort_failure exn backtrace abort_detail =
     Printexc.raise_with_backtrace reserved backtrace
 ;;
 
-let%test "abort failure preserves cancellation class" =
-  try
-    match
-      reraise_after_abort_failure
-        (Eio.Cancel.Cancelled Exit)
-        (Printexc.get_callstack 8)
-        "injected abort failure"
-    with
-    | () -> false
-  with
-  | Eio.Cancel.Cancelled Exit -> true
-  | Eio.Cancel.Cancelled _ | Abort_failed_after_exception _ -> false
+let%expect_test "abort failure preserves cancellation class" =
+  (try
+     match
+       reraise_after_abort_failure
+         (Eio.Cancel.Cancelled Exit)
+         (Printexc.get_callstack 8)
+         "injected abort failure"
+     with
+     | () -> failwith "expected cancellation to be re-raised"
+   with
+   | Eio.Cancel.Cancelled Exit -> ()
+   | Eio.Cancel.Cancelled _ | Abort_failed_after_exception _ ->
+     failwith "expected the original cancellation class");
+  [%expect
+    {| durable execution cleanup failed while preserving reserved exception: injected abort failure |}]
 ;;
 
-let%test "abort failure preserves reserved runtime exception" =
-  try
-    match
-      reraise_after_abort_failure
-        Sys.Break
-        (Printexc.get_callstack 8)
-        "injected abort failure"
-    with
-    | () -> false
-  with
-  | Sys.Break -> true
-  | Abort_failed_after_exception _ -> false
+let%expect_test "abort failure preserves reserved runtime exception" =
+  (try
+     match
+       reraise_after_abort_failure
+         Sys.Break
+         (Printexc.get_callstack 8)
+         "injected abort failure"
+     with
+     | () -> failwith "expected Sys.Break to be re-raised"
+   with
+   | Sys.Break -> ()
+   | Abort_failed_after_exception _ -> failwith "expected the original Sys.Break");
+  [%expect
+    {| durable execution cleanup failed while preserving reserved exception: injected abort failure |}]
 ;;
 
 let abort_after_exception scope on_terminal_disposition exn backtrace =
