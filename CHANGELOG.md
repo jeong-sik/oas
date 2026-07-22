@@ -278,6 +278,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.220.1](https://github.com/jeong-sik/oas/compare/v0.220.0...v0.220.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **streaming:** allow empty delta id and name strings as Ok None in SSE parser ([#2764](https://github.com/jeong-sik/oas/issues/2764)) ([c1eaa88](https://github.com/jeong-sik/oas/commit/c1eaa88bf72e680a61f7f4e3eafae627d916b4c4))
+
 ## [0.220.0](https://github.com/jeong-sik/oas/compare/v0.219.0...v0.220.0) (2026-07-22)
 
 
