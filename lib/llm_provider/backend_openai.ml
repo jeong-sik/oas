@@ -23,7 +23,6 @@ let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
-let strip_json_markdown_fences = Backend_openai_parse.strip_json_markdown_fences
 let usage_of_openai_json = Backend_openai_parse.usage_of_openai_json
 let parse_openai_response_result = Backend_openai_parse.parse_openai_response_result
 
@@ -232,24 +231,6 @@ let%test "ollama preserves min_p (llama.cpp supports it)" =
   match json |> member "min_p" with
   | `Float f -> Float.abs (f -. 0.05) < 1e-6
   | _ -> false
-;;
-
-let%test "strip_json_markdown_fences plain text unchanged" =
-  strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"
-;;
-
-let%test "strip_json_markdown_fences strips json fences" =
-  let input = "```json\n{\"key\":\"value\"}\n```" in
-  strip_json_markdown_fences input = "{\"key\":\"value\"}"
-;;
-
-let%test "strip_json_markdown_fences strips plain fences" =
-  let input = "```\n{\"key\":\"value\"}\n```" in
-  strip_json_markdown_fences input = "{\"key\":\"value\"}"
-;;
-
-let%test "strip_json_markdown_fences short string unchanged" =
-  strip_json_markdown_fences "hi" = "hi"
 ;;
 
 let%test "tool_calls_to_openai_json extracts ToolUse blocks" =
@@ -846,13 +827,6 @@ let%test "response_format_to_openai_json preserves named schema envelope" =
        = "object"
   | None -> false
 ;;
-
-let%test "strip_json_markdown_fences no closing fence" =
-  let input = "```json\n{\"key\":\"value\"}" in
-  strip_json_markdown_fences input = input
-;;
-
-let%test "strip_json_markdown_fences empty content" = strip_json_markdown_fences "" = ""
 
 let%test "parse_openai_response_result unknown finish_reason" =
   let json_str =

@@ -108,32 +108,67 @@ let reraise_after_abort_failure exn backtrace abort_detail =
     Printexc.raise_with_backtrace reserved backtrace
 ;;
 
+let capture_traceln_for_inline_test f =
+  Eio_main.run
+  @@ fun env ->
+  let buffer = Buffer.create 256 in
+  let captured_traceln =
+    { Eio.Debug.traceln =
+        (fun ?__POS__:_ format ->
+          Format.kasprintf
+            (fun message ->
+               Buffer.add_string buffer message;
+               Buffer.add_char buffer '\n')
+            format)
+    }
+  in
+  Eio.Fiber.with_binding (Eio.Stdenv.debug env)#traceln captured_traceln (fun () ->
+    let result = f () in
+    result, Buffer.contents buffer)
+;;
+
 let%test "abort failure preserves cancellation class" =
-  try
-    match
-      reraise_after_abort_failure
-        (Eio.Cancel.Cancelled Exit)
-        (Printexc.get_callstack 8)
-        "injected abort failure"
-    with
-    | () -> false
-  with
-  | Eio.Cancel.Cancelled Exit -> true
-  | Eio.Cancel.Cancelled _ | Abort_failed_after_exception _ -> false
+  let preserved, diagnostic =
+    capture_traceln_for_inline_test (fun () ->
+      try
+        match
+          reraise_after_abort_failure
+            (Eio.Cancel.Cancelled Exit)
+            (Printexc.get_callstack 8)
+            "injected abort failure"
+        with
+        | () -> false
+      with
+      | Eio.Cancel.Cancelled Exit -> true
+      | Eio.Cancel.Cancelled _ | Abort_failed_after_exception _ -> false)
+  in
+  preserved
+  && String.equal
+       (String.trim diagnostic)
+       "durable execution cleanup failed while preserving reserved exception: injected \
+        abort failure"
 ;;
 
 let%test "abort failure preserves reserved runtime exception" =
-  try
-    match
-      reraise_after_abort_failure
-        Sys.Break
-        (Printexc.get_callstack 8)
-        "injected abort failure"
-    with
-    | () -> false
-  with
-  | Sys.Break -> true
-  | Abort_failed_after_exception _ -> false
+  let preserved, diagnostic =
+    capture_traceln_for_inline_test (fun () ->
+      try
+        match
+          reraise_after_abort_failure
+            Sys.Break
+            (Printexc.get_callstack 8)
+            "injected abort failure"
+        with
+        | () -> false
+      with
+      | Sys.Break -> true
+      | Abort_failed_after_exception _ -> false)
+  in
+  preserved
+  && String.equal
+       (String.trim diagnostic)
+       "durable execution cleanup failed while preserving reserved exception: injected \
+        abort failure"
 ;;
 
 let abort_after_exception scope on_terminal_disposition exn backtrace =

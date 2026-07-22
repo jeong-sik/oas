@@ -24,13 +24,18 @@ let schema =
     ]
 ;;
 
-let capabilities ~native ~json =
+let capabilities_with_supported_models ~supported_models ~native ~json =
   { Capabilities.default_capabilities with
     max_context_tokens = Some 8192
   ; max_output_tokens = Some 1024
   ; supports_response_format_json = json
   ; supports_structured_output = native
+  ; supported_models
   }
+;;
+
+let capabilities ~native ~json =
+  capabilities_with_supported_models ~supported_models:None ~native ~json
 ;;
 
 type catalog_fixture =
@@ -41,11 +46,13 @@ type catalog_fixture =
   ; request_path : string
   ; api_key_env : string
   ; capabilities : Capabilities.capabilities
+  ; body_timeout_s : float option
   }
 
 let catalog_entry
       ?base_url_env
       ?(api_key_env = "")
+      ?body_timeout_s
       ~id
       ~kind
       ~base_url
@@ -53,7 +60,15 @@ let catalog_entry
       ~capabilities
       ()
   =
-  { id; kind; base_url; base_url_env; request_path; api_key_env; capabilities }
+  { id
+  ; kind
+  ; base_url
+  ; base_url_env
+  ; request_path
+  ; api_key_env
+  ; capabilities
+  ; body_timeout_s
+  }
 ;;
 
 let catalog_fixture_toml entry =
@@ -70,11 +85,13 @@ let catalog_fixture_toml entry =
      max_context_tokens = 8192\n\
      max_output_tokens = 1024\n\
      supports_response_format_json = %b\n\
-     supports_structured_output = %b\n\n\
+     supports_structured_output = %b\n\
+     %s\n\
      [[targets]]\n\
      id = %S\n\
      provider_ref = %S\n\
-     model_id = %S\n"
+     model_id = %S\n\
+     %s"
     entry.id
     (Provider_config.string_of_provider_kind entry.kind)
     entry.base_url
@@ -87,9 +104,18 @@ let catalog_fixture_toml entry =
     entry.id
     entry.capabilities.supports_response_format_json
     entry.capabilities.supports_structured_output
+    (match entry.capabilities.supported_models with
+     | None -> ""
+     | Some models ->
+       Printf.sprintf
+         "supported_models = [%s]\n"
+         (String.concat ", " (List.map (Printf.sprintf "%S") models)))
     entry.id
     entry.id
     (entry.id ^ "-model")
+    (match entry.body_timeout_s with
+     | None -> ""
+     | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
 ;;
 
 let with_catalog ?(getenv = fun _ -> Ok None) entries f =
@@ -326,6 +352,51 @@ let test_deepseek_catalog_is_json_only_before_dispatch () =
      with
      | Error EO.Provider_schema_unavailable -> ()
      | Ok _ | Error _ -> fail "DeepSeek provider schema must reject before dispatch")
+;;
+
+let test_supported_models_membership_is_exact_and_pre_dispatch () =
+  let allowed_id = "membership-allowed" in
+  let rejected_id = "membership-rejected" in
+  let (allowed, rejected), completion_posts, token_posts, captures =
+    with_server ~response:(openai_response {|{"name":"unused"}|})
+    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+    let entry id supported_models =
+      catalog_entry
+        ~id
+        ~kind:Provider_config.OpenAI_compat
+        ~base_url
+        ~request_path:"/v1/chat/completions"
+        ~capabilities:
+          (capabilities_with_supported_models
+             ~native:true
+             ~json:true
+             ~supported_models:(Some supported_models))
+        ()
+    in
+    with_catalog
+      [ entry allowed_id [ allowed_id ^ "-model" ]
+      ; entry rejected_id [ "MEMBERSHIP-REJECTED-MODEL" ]
+      ]
+    @@ fun snapshot ->
+    let admit id =
+      EO.admit
+        ~target:(target snapshot id)
+        ~messages:[ msg "membership" ]
+        (requirement EO.Json_syntax)
+    in
+    admit allowed_id, admit rejected_id
+  in
+  (match allowed with
+   | Ok _ -> ()
+   | Error _ -> fail "exact supported model must admit");
+  (match rejected with
+   | Error
+       (EO.Wire_admission_rejected
+          (EO.Unsupported_target_model { model_id = "membership-rejected-model" })) -> ()
+   | Ok _ | Error _ -> fail "case-only non-member must return the typed rejection");
+  check int "membership rejection completion posts" 0 completion_posts;
+  check int "membership rejection token posts" 0 token_posts;
+  check int "membership rejection captures" 0 (List.length captures)
 ;;
 
 let test_wire_envelope_and_cross_feature_injection_rejected () =
@@ -611,14 +682,15 @@ let check_receipt label ~phase ~dispatch_count ~http_status receipt =
 let test_public_receipt_phase_matrix () =
   let pre_result, pre_posts, _, _ =
     with_server ~response:"unused"
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url:_ ->
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     let entry =
       catalog_entry
         ~id:"pre-dispatch-surface"
         ~kind:Provider_config.OpenAI_compat
-        ~base_url:"ftp://surface.invalid"
+        ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ~body_timeout_s:1.0
         ()
     in
     with_catalog [ entry ]
@@ -627,7 +699,7 @@ let test_public_receipt_phase_matrix () =
   in
   check int "pre-dispatch has zero POSTs" 0 pre_posts;
   (match pre_result with
-   | Error { EO.receipt; cause = EO.Completion_failed; raw_response = None } ->
+   | Error { EO.receipt; cause = EO.Clock_required_for_timeout; raw_response = None } ->
      check_receipt
        "pre-dispatch"
        ~phase:EO.Before_dispatch
@@ -1329,6 +1401,10 @@ let () =
             "DeepSeek catalog is JSON-only before dispatch"
             `Quick
             test_deepseek_catalog_is_json_only_before_dispatch
+        ; test_case
+            "supported_models exact membership"
+            `Quick
+            test_supported_models_membership_is_exact_and_pre_dispatch
         ; test_case
             "injection rejected"
             `Quick

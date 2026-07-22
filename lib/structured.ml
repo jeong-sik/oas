@@ -88,10 +88,7 @@ type response_json_shape =
   | Object_json
 
 let text_json_of_response (response : api_response) =
-  response
-  |> Types.text_of_response
-  |> Llm_provider.Backend_openai.strip_json_markdown_fences
-  |> String.trim
+  response |> Types.text_of_response |> String.trim
 ;;
 
 let extract_response_json ?(shape = Any_json) (response : api_response)

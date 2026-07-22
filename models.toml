@@ -365,7 +365,7 @@ supports_reasoning_budget = false
 accepted_reasoning_efforts = ["high", "max"]
 thinking_control_format = "thinking_object"
 supports_response_format_json = true
-supports_structured_output = false
+supports_structured_output = true
 supports_native_streaming = true
 supports_caching = true
 supports_prompt_caching = false
@@ -618,6 +618,7 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
 thinking_control_format = "ollama_think"
+supports_response_format_json = true
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
@@ -748,6 +749,7 @@ thinking_control_format = "ollama_think"
 # Kimi K2 docs: reasoning content must be replayed (hard-required on tool turns,
 # recommended on all turns). Without this, the base replay policy is no_replay.
 reasoning_replay = "preserve_always"
+supports_response_format_json = true
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"

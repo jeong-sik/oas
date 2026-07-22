@@ -1436,6 +1436,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_document_input = None
   ; modality_priority = None
   ; task = None
+  ; supported_models = None
   ; supports_native_streaming = None
   ; supports_system_prompt = None
   ; supports_caching = None

@@ -6,6 +6,13 @@
 open Agent_sdk
 open Llm_provider
 
+exception Lifecycle_watchdog
+
+let await_promise ~clock ~label promise =
+  try Eio.Time.with_timeout_exn clock 1.0 (fun () -> Eio.Promise.await promise) with
+  | Eio.Time.Timeout -> Alcotest.failf "%s timed out after 1 second" label
+;;
+
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -216,8 +223,6 @@ let start_one_shot_lifecycle_server ~sw ~net ~clock ?body_delay_s body =
   let handler flow _addr =
     let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
     drain_request_headers reader;
-    Eio.Fiber.fork ~sw (fun () ->
-      observe_client_eof reader disconnected notify_disconnected);
     let response_headers =
       Printf.sprintf
         "HTTP/1.1 200 OK\r\n\
@@ -232,7 +237,8 @@ let start_one_shot_lifecycle_server ~sw ~net ~clock ?body_delay_s body =
       (match body_delay_s with
        | Some delay_s -> Eio.Time.sleep clock delay_s
        | None -> ());
-      Eio.Flow.copy_string body flow
+      Eio.Flow.copy_string body flow;
+      observe_client_eof reader disconnected notify_disconnected
     with
     | End_of_file | Eio.Io _ | Unix.Unix_error _ ->
       resolve_once disconnected notify_disconnected
@@ -250,10 +256,52 @@ let start_one_shot_lifecycle_server ~sw ~net ~clock ?body_delay_s body =
   Printf.sprintf "http://127.0.0.1:%d/one-shot" port, disconnected
 ;;
 
+let with_lifecycle_watchdog ~clock ~label f =
+  try
+    Eio.Fiber.first f (fun () ->
+      Eio.Time.sleep clock 1.0;
+      raise Lifecycle_watchdog)
+  with
+  | Lifecycle_watchdog -> Alcotest.failf "%s did not complete within 1 second" label
+;;
+
 let await_client_disconnect ~clock ~label disconnected =
-  try Eio.Time.with_timeout_exn clock 1.0 (fun () -> Eio.Promise.await disconnected) with
-  | Eio.Time.Timeout ->
-    Alcotest.failf "%s: one-shot client did not close before parent switch release" label
+  with_lifecycle_watchdog ~clock ~label (fun () -> Eio.Promise.await disconnected)
+;;
+
+let test_cache_switch_releases_idle_connection () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun server_sw ->
+  let url, disconnected =
+    start_one_shot_lifecycle_server ~sw:server_sw ~net:env#net ~clock:env#clock "cached"
+  in
+  let cache =
+    with_lifecycle_watchdog ~clock:env#clock ~label:"cache-owning switch" (fun () ->
+      Eio.Switch.run
+      @@ fun cache_sw ->
+      let cache = Http_client.create_cache ~sw:cache_sw ~clock:env#clock () in
+      (match
+         Http_client.get_sync ~cache ~sw:cache_sw ~net:env#net ~url ~headers:[] ()
+       with
+       | Ok (200, "cached") -> ()
+       | Ok (code, body) -> Alcotest.failf "expected 200/cached, got %d/%S" code body
+       | Error _ -> Alcotest.fail "expected cached response");
+      Alcotest.(check int)
+        "one idle connection before cache switch release"
+        1
+        (Http_client.cache_stats cache).total_idle;
+      cache)
+  in
+  Alcotest.(check int)
+    "cache switch release drains idle connections"
+    0
+    (Http_client.cache_stats cache).total_idle;
+  await_client_disconnect
+    ~clock:env#clock
+    ~label:"cache switch release closes idle connection"
+    disconnected
 ;;
 
 let test_stream_reuses_connection () =
@@ -362,7 +410,7 @@ let test_one_shot_get_timeout_closes_connection () =
         ~sw
         ~net:env#net
         ~clock:env#clock
-        ~body_delay_s:1.0
+        ~body_delay_s:0.2
         "ok"
     in
     (match
@@ -452,76 +500,91 @@ let with_raw_one_dispatch_server
       ~response_body
       f
   =
+  let exception Raw_server_complete in
   let posts = Atomic.make 0 in
+  let result = ref None in
+  Eio_main.run
+  @@ fun env ->
+  (try
+     Eio.Switch.run
+     @@ fun sw ->
+     let net = Eio.Stdenv.net env in
+     let clock = Eio.Stdenv.clock env in
+     let port = fresh_port () in
+     let socket =
+       Eio.Net.listen
+         net
+         ~sw
+         ~backlog:8
+         ~reuse_addr:true
+         (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+     in
+     let read_request reader =
+       ignore (Eio.Buf_read.line reader : string);
+       let rec read_headers content_length =
+         let line = Eio.Buf_read.line reader |> String.trim in
+         if String.equal line ""
+         then content_length
+         else (
+           let content_length =
+             match String.index_opt line ':' with
+             | None -> content_length
+             | Some separator ->
+               let name = String.sub line 0 separator |> String.lowercase_ascii in
+               if String.equal name "content-length"
+               then
+                 String.sub line (separator + 1) (String.length line - separator - 1)
+                 |> String.trim
+                 |> int_of_string
+               else content_length
+           in
+           read_headers content_length)
+       in
+       ignore (Eio.Buf_read.take (read_headers 0) reader : string)
+     in
+     let handle flow _addr =
+       let reader = Eio.Buf_read.of_flow ~max_size:max_int flow in
+       let rec serve () =
+         read_request reader;
+         Atomic.incr posts;
+         let request_index = Atomic.get posts in
+         on_request ~request_index;
+         before_response ~clock ~request_index;
+         let encoded_body = encode_body response_body in
+         let headers =
+           "Content-Type: text/plain" :: response_headers (String.length response_body)
+         in
+         Eio.Flow.copy_string
+           (Printf.sprintf
+              "%s %s\r\n%s\r\n\r\n%s"
+              http_version
+              status
+              (String.concat "\r\n" headers)
+              encoded_body)
+           flow;
+         if keep_connection then serve ()
+       in
+       try serve () with
+       | End_of_file | Eio.Io _ | Unix.Unix_error _ -> ()
+     in
+     Eio.Fiber.fork_daemon ~sw (fun () ->
+       while true do
+         Eio.Net.accept_fork socket ~sw ~on_error:(fun _ -> ()) handle
+       done);
+     result
+     := Some
+          (f
+             ~sw
+             ~net
+             ~clock
+             ~url:(Printf.sprintf "http://127.0.0.1:%d/one-dispatch" port));
+     Eio.Switch.fail sw Raw_server_complete
+   with
+   | Raw_server_complete -> ());
   let result =
-    Eio_main.run
-    @@ fun env ->
-    Eio.Switch.run
-    @@ fun sw ->
-    let net = Eio.Stdenv.net env in
-    let clock = Eio.Stdenv.clock env in
-    let port = fresh_port () in
-    let socket =
-      Eio.Net.listen
-        net
-        ~sw
-        ~backlog:8
-        ~reuse_addr:true
-        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
-    in
-    let read_request reader =
-      ignore (Eio.Buf_read.line reader : string);
-      let rec read_headers content_length =
-        let line = Eio.Buf_read.line reader |> String.trim in
-        if String.equal line ""
-        then content_length
-        else (
-          let content_length =
-            match String.index_opt line ':' with
-            | None -> content_length
-            | Some separator ->
-              let name = String.sub line 0 separator |> String.lowercase_ascii in
-              if String.equal name "content-length"
-              then
-                String.sub line (separator + 1) (String.length line - separator - 1)
-                |> String.trim
-                |> int_of_string
-              else content_length
-          in
-          read_headers content_length)
-      in
-      ignore (Eio.Buf_read.take (read_headers 0) reader : string)
-    in
-    let handle flow _addr =
-      let reader = Eio.Buf_read.of_flow ~max_size:max_int flow in
-      let rec serve () =
-        read_request reader;
-        Atomic.incr posts;
-        let request_index = Atomic.get posts in
-        on_request ~request_index;
-        before_response ~clock ~request_index;
-        let encoded_body = encode_body response_body in
-        let headers =
-          "Content-Type: text/plain" :: response_headers (String.length response_body)
-        in
-        Eio.Flow.copy_string
-          (Printf.sprintf
-             "%s %s\r\n%s\r\n\r\n%s"
-             http_version
-             status
-             (String.concat "\r\n" headers)
-             encoded_body)
-          flow;
-        if keep_connection then serve ()
-      in
-      try serve () with
-      | End_of_file | Eio.Io _ | Unix.Unix_error _ -> ()
-    in
-    Eio.Fiber.fork_daemon ~sw (fun () ->
-      while true do
-        Eio.Net.accept_fork socket ~sw ~on_error:(fun _ -> ()) handle
-      done);
-    f ~sw ~net ~url:(Printf.sprintf "http://127.0.0.1:%d/one-dispatch" port)
+    match !result with
+    | Some result -> result
+    | None -> Alcotest.fail "raw one-dispatch server completed without a result"
   in
   result, Atomic.get posts
 ;;
@@ -542,7 +605,7 @@ let exercise_raw_one_dispatch_cache
     ?encode_body
     ?keep_connection
     ~response_body
-  @@ fun ~sw ~net ~url ->
+  @@ fun ~sw ~net ~clock:_ ~url ->
   let cache = Http_client.create_cache ~sw () in
   let post () =
     Http_client.post_sync_once
@@ -690,11 +753,12 @@ let test_one_dispatch_body_timeout_covers_response_headers () =
     with_raw_one_dispatch_server
       ~before_response:(fun ~clock ~request_index:_ -> Eio.Time.sleep clock 0.25)
       ~response_body:"ok"
-    @@ fun ~sw ~net ~url ->
+    @@ fun ~sw ~net ~clock ~url ->
     let cache = Http_client.create_cache ~sw () in
     let outcome =
       Http_client.post_sync_once
         ~cache
+        ~clock
         ~net
         ~url
         ~headers:[ "Content-Type", "application/json"; "Content-Length", "2" ]
@@ -726,7 +790,7 @@ let test_one_dispatch_caller_cancellation_identity_and_cache () =
       ~before_response:(fun ~clock ~request_index ->
         if request_index = 1 then Eio.Time.sleep clock 0.25)
       ~response_body:"ok"
-    @@ fun ~sw ~net ~url ->
+    @@ fun ~sw ~net ~clock ~url ->
     let cache = Http_client.create_cache ~sw () in
     let post () =
       Http_client.post_sync_once
@@ -752,10 +816,10 @@ let test_one_dispatch_caller_cancellation_identity_and_cache () =
         | _ -> `Wrong_exception
       in
       Eio.Promise.resolve notify_client_outcome outcome);
-    let context = Eio.Promise.await cancel_context in
-    Eio.Promise.await request_seen;
+    let context = await_promise ~clock ~label:"cancel context" cancel_context in
+    await_promise ~clock ~label:"first request dispatch" request_seen;
     Eio.Cancel.cancel context Caller_cancelled;
-    let outcome = Eio.Promise.await client_outcome in
+    let outcome = await_promise ~clock ~label:"cancelled client outcome" client_outcome in
     let after_cancel = Http_client.cache_stats cache in
     let fresh = post () in
     outcome, after_cancel, fresh, Http_client.cache_stats cache
@@ -802,6 +866,10 @@ let () =
             "eviction fiber closes idle"
             `Quick
             test_eviction_fiber_closes_idle
+        ; Alcotest.test_case
+            "cache switch releases idle connection"
+            `Quick
+            test_cache_switch_releases_idle_connection
         ; Alcotest.test_case
             "one-shot closes after response"
             `Quick

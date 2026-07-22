@@ -401,6 +401,42 @@ let test_pricing_and_formatting_are_nonfunctional () =
     (evidence first = evidence formatted)
 ;;
 
+let test_supported_models_order_is_canonical () =
+  let first =
+    snapshot
+      (target_catalog
+         ~model_extra:"supported_models = [\"snapshot-model\", \"secondary-model\"]\n"
+         ())
+  in
+  let reordered =
+    snapshot
+      (target_catalog
+         ~model_extra:"supported_models = [\"secondary-model\", \"snapshot-model\"]\n"
+         ())
+  in
+  let changed =
+    snapshot
+      (target_catalog
+         ~model_extra:"supported_models = [\"snapshot-model\", \"different-model\"]\n"
+         ())
+  in
+  check
+    string
+    "supported_models order leaves generation unchanged"
+    (generation first)
+    (generation reordered);
+  check
+    string
+    "supported_models order leaves canonical evidence unchanged"
+    (evidence first)
+    (evidence reordered);
+  check
+    bool
+    "supported_models value changes canonical evidence"
+    true
+    (evidence first <> evidence changed)
+;;
+
 let test_every_functional_projection_field_changes_generation () =
   let base = snapshot (target_catalog ()) in
   let variants =
@@ -412,7 +448,7 @@ let test_every_functional_projection_field_changes_generation () =
     ; ( "document capability"
       , target_catalog ~model_extra:"supports_document_input = true\n" () )
     ; "audio capability", target_catalog ~model_extra:"supports_audio_input = true\n" ()
-    ; ( "supported-model restriction"
+    ; ( "supported models"
       , target_catalog ~model_extra:"supported_models = [\"snapshot-model\"]\n" () )
     ; "codec", target_catalog ~kind:"ollama" ~request_path:"/api/chat" ()
     ]
@@ -493,14 +529,6 @@ let test_old_and_new_whole_tuples_never_mix_across_fibers () =
   check bool "A and B whole tuples differ" true (old_observation <> new_observation)
 ;;
 
-let expect_load_error label contents =
-  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
-  let overlay : EO.catalog_overlay = { source = label; contents } in
-  match EO.load_resolver_snapshot ~io ~overlay () with
-  | Error _ -> ()
-  | Ok _ -> fail (label ^ " must fail closed")
-;;
-
 let expect_endpoint_error label expected_cause contents =
   let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
   let overlay : EO.catalog_overlay = { source = label; contents } in
@@ -549,15 +577,10 @@ let test_endpoint_error_cause_table () =
       , target_catalog ~request_path:"/v1/chat\r\nX-Secret: hidden" () )
     ; ( "Gemini slash segment"
       , EO.Invalid_gemini_model_path
-      , target_catalog ~kind:"gemini" ~request_path:"/v1beta/models" ~model:"bad/model" ()
-      )
+      , target_catalog ~kind:"gemini" ~request_path:"" ~model:"bad/model" () )
     ; ( "Gemini encoded segment"
       , EO.Invalid_gemini_model_path
-      , target_catalog
-          ~kind:"gemini"
-          ~request_path:"/v1beta/models"
-          ~model:"bad%2Fmodel"
-          () )
+      , target_catalog ~kind:"gemini" ~request_path:"" ~model:"bad%2Fmodel" () )
     ]
   in
   List.iter
@@ -582,90 +605,57 @@ let test_caller_headers_and_crlf_credential_fail_closed () =
    | Error _ -> fail "caller target headers returned the wrong resolver error class"
    | Ok _ -> fail "caller target headers must be rejected");
   let credential = "secret\r\nX-Leak: yes" in
-  let snapshot =
-    snapshot
-      ~getenv:(fun name ->
-        Ok (if String.equal name "CRLF_FIXTURE_KEY" then Some credential else None))
-      (target_catalog ~api_key_env:"CRLF_FIXTURE_KEY" ())
+  let io : EO.resolver_io =
+    { getenv =
+        (fun name ->
+          Ok (if String.equal name "CRLF_FIXTURE_KEY" then Some credential else None))
+    }
   in
-  let target = resolve snapshot "snapshot-target" in
-  let requirement =
-    EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax
+  let overlay : EO.catalog_overlay =
+    { source = "CRLF credential"
+    ; contents = target_catalog ~api_key_env:"CRLF_FIXTURE_KEY" ()
+    }
   in
-  (match EO.admit ~target ~messages:[ message ] requirement with
-   | Error (EO.Wire_admission_rejected EO.Target_request_rejected) -> ()
-   | Error _ -> fail "CRLF credential returned the wrong typed admission cause"
-   | Ok _ -> fail "CRLF credential must fail before dispatch");
-  List.iter
-    (fun public_fingerprint ->
-       check
-         bool
-         "CRLF credential is absent from public fingerprints"
-         false
-         (string_contains ~haystack:public_fingerprint ~needle:credential))
-    [ generation snapshot; evidence snapshot; identity target ]
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error (EO.Target_credential_invalid { environment_variable = "CRLF_FIXTURE_KEY"; _ })
+    -> ()
+  | Error _ -> fail "CRLF credential returned the wrong resolver error class"
+  | Ok _ -> fail "CRLF credential must be rejected while freezing the snapshot"
+;;
+
+let expect_collision_error label expected contents =
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let overlay : EO.catalog_overlay = { source = label; contents } in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error (EO.Catalog_collision collision) ->
+    check bool (label ^ " exact collision") true (collision = expected)
+  | Error _ -> fail (label ^ " returned the wrong resolver error class")
+  | Ok _ -> fail (label ^ " must fail closed")
 ;;
 
 let test_collision_and_input_hardening () =
-  expect_load_error
+  expect_collision_error
     "alias shadow"
+    EO.Provider_alias_shadow
     (target_catalog ~provider:"attacker" ~aliases:[ "ollama_cloud" ] ());
-  expect_load_error
+  let duplicate_target =
+    target_catalog ~provider:"case-provider" ~model:"case-model" ~target:"case-target" ()
+    ^ "\n\
+       [[targets]]\n\
+       id = \"CASE-TARGET\"\n\
+       provider_ref = \"case-provider\"\n\
+       model_id = \"case-model\"\n"
+  in
+  expect_collision_error
     "target case shadow"
-    (target_catalog
-       ~provider:"case-provider"
-       ~model:"minimax-m3"
-       ~target:"OLLAMA-CLOUD-MINIMAX-M3-JSON"
-       ());
+    EO.Duplicate_target_identity
+    duplicate_target;
   List.iter
     (fun malicious ->
        match EO.target_ref malicious with
        | Error _ -> ()
        | Ok _ -> failf "malicious target ref %S must be rejected" malicious)
     [ "../target"; "target?key=secret"; "target\nheader"; "target/child" ]
-;;
-
-let test_same_primary_id_overlay_replacement_is_allowed () =
-  let io : EO.resolver_io =
-    { getenv =
-        (fun name ->
-          Ok (if String.equal name "OLLAMA_CLOUD_API_KEY" then Some "fixture" else None))
-    }
-  in
-  let baseline =
-    match EO.load_resolver_snapshot ~io () with
-    | Ok snapshot -> snapshot
-    | Error _ -> fail "embedded baseline should load"
-  in
-  let overlay : EO.catalog_overlay =
-    { source = "same-primary replacement"
-    ; contents =
-        target_catalog
-          ~provider:"ollama_cloud"
-          ~kind:"ollama"
-          ~base_url:"https://replacement.example"
-          ~request_path:"/api/chat"
-          ~api_key_env:"OLLAMA_CLOUD_API_KEY"
-          ~model:"minimax-m3"
-          ~target:"ollama-cloud-minimax-m3-json"
-          ()
-    }
-  in
-  match EO.load_resolver_snapshot ~io ~overlay () with
-  | Error _ -> fail "same primary id replacement should load"
-  | Ok snapshot ->
-    let baseline_target = resolve baseline "ollama-cloud-minimax-m3-json" in
-    let target = resolve snapshot "ollama-cloud-minimax-m3-json" in
-    check
-      bool
-      "replacement changes functional generation"
-      true
-      (generation baseline <> generation snapshot);
-    check
-      bool
-      "replacement changes frozen identity"
-      true
-      (identity baseline_target <> identity target)
 ;;
 
 let () =
@@ -690,6 +680,10 @@ let () =
             `Quick
             test_pricing_and_formatting_are_nonfunctional
         ; test_case
+            "supported_models canonical order"
+            `Quick
+            test_supported_models_order_is_canonical
+        ; test_case
             "functional projection sensitivity"
             `Quick
             test_every_functional_projection_field_changes_generation
@@ -706,10 +700,6 @@ let () =
             "collision and input hardening"
             `Quick
             test_collision_and_input_hardening
-        ; test_case
-            "same primary replacement"
-            `Quick
-            test_same_primary_id_overlay_replacement_is_allowed
         ] )
     ]
 ;;

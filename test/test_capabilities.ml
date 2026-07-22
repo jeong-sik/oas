@@ -851,24 +851,23 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
   (* Live grouped smokes for these Ollama Cloud rows exercise the same
      production workflow: tool call -> tool_result replay -> final answer while
      reasoning may stream on a side channel. The catalog must not regress any
-     one of these axes to a generic text-only profile. Structured output is
-     checked separately because the OpenAI-compatible /v1 transport does not
-     guarantee schema-shaped output for every model. *)
+     one of these axes to a generic text-only profile. JSON response-format
+     support is an exact per-model contract rather than a provider-wide rule. *)
   let cases =
-    [ "qwen3.5:397b"
-    ; "gemma4:31b"
-    ; "kimi-k2.7-code"
-    ; "minimax-m3"
-    ; "nemotron-3-ultra"
-    ; "deepseek-v4-flash"
-    ; "deepseek-v4-pro"
-    ; "glm-5.2"
-    ; "gpt-oss:20b"
-    ; "gpt-oss:120b"
+    [ "qwen3.5:397b", false
+    ; "gemma4:31b", true
+    ; "kimi-k2.7-code", false
+    ; "minimax-m3", true
+    ; "nemotron-3-ultra", false
+    ; "deepseek-v4-flash", false
+    ; "deepseek-v4-pro", false
+    ; "glm-5.2", false
+    ; "gpt-oss:20b", false
+    ; "gpt-oss:120b", false
     ]
   in
   List.iter
-    (fun model_id ->
+    (fun (model_id, expected_json) ->
        match
          Capabilities.for_provider_model_id
            ~allow_bare_fallback:false
@@ -884,7 +883,7 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
          check
            bool
            (model_id ^ " json response format")
-           true
+           expected_json
            c.supports_response_format_json;
          check_thinking_control
            (model_id ^ " uses Ollama native think")
@@ -893,27 +892,25 @@ let test_ollama_cloud_grouped_rows_have_required_axes () =
     cases
 ;;
 
-let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
-  (* The OpenAI-compatible /v1 transport used by the ollama_cloud provider
-     identity keeps JSON response-format requests available but does not enforce
-     schema-shaped output for these models. They must preserve JSON mode while
-     not advertising native structured output. *)
+let test_ollama_cloud_grouped_rows_follow_exact_output_contract () =
+  (* JSON response-format support is model-specific. Native structured output
+     remains disabled by the Ollama Cloud provider contract. *)
   let cases =
-    [ "kimi-k2.5"
-    ; "kimi-k2.6"
-    ; "kimi-k2.7-code"
-    ; "minimax-m3"
-    ; "deepseek-v4-pro"
-    ; "deepseek-v4-flash"
-    ; "glm-5.2"
-    ; "gpt-oss:20b"
-    ; "gpt-oss:120b"
-    ; "nemotron-3-ultra"
-    ; "qwen3.5:397b"
+    [ "kimi-k2.5", false
+    ; "kimi-k2.6", true
+    ; "kimi-k2.7-code", false
+    ; "minimax-m3", true
+    ; "deepseek-v4-pro", false
+    ; "deepseek-v4-flash", false
+    ; "glm-5.2", false
+    ; "gpt-oss:20b", false
+    ; "gpt-oss:120b", false
+    ; "nemotron-3-ultra", false
+    ; "qwen3.5:397b", false
     ]
   in
   List.iter
-    (fun model_id ->
+    (fun (model_id, expected_json) ->
        match
          Capabilities.for_provider_model_id
            ~allow_bare_fallback:false
@@ -925,13 +922,9 @@ let test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so () =
          check
            bool
            (model_id ^ " json response format")
-           true
+           expected_json
            c.supports_response_format_json;
-         check
-           bool
-           (model_id ^ " no structured output")
-           false
-           c.supports_structured_output)
+         check bool (model_id ^ " structured output") false c.supports_structured_output)
     cases
 ;;
 
@@ -1089,6 +1082,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
 
 type structured_contract =
   | Response_format_json_schema
+  | Response_format_json
   | Native_structured_output
   | No_structured_output
 
@@ -1183,6 +1177,13 @@ let check_frontier_model
        check
          bool
          (label ^ " supports response_format/json_schema")
+         true
+         c.supports_response_format_json
+     | Response_format_json ->
+       check bool (label ^ " no structured output") false c.supports_structured_output;
+       check
+         bool
+         (label ^ " supports response_format/json")
          true
          c.supports_response_format_json
      | Native_structured_output ->
@@ -1324,7 +1325,7 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , Provider_qualified "deepseek"
       , "deepseek-v4-pro"
       , Extended_thinking
-      , Response_format_json_schema
+      , Response_format_json
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Flash"
@@ -1394,7 +1395,7 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , Provider_qualified "ollama_cloud"
       , "gemma4:31b"
       , Extended_thinking
-      , No_structured_output
+      , Response_format_json
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Kimi K2.7 Code"
@@ -1408,7 +1409,7 @@ let test_frontier_grouped_tool_thinking_provider_contracts () =
       , Provider_qualified "ollama_cloud"
       , "minimax-m3"
       , Extended_thinking
-      , No_structured_output
+      , Response_format_json
       , Replay_not_required
       , Delta_stream "reasoning" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
@@ -2778,9 +2779,9 @@ let () =
             `Quick
             test_ollama_cloud_grouped_rows_have_required_axes
         ; test_case
-            "ollama cloud grouped non-SO rows do not advertise SO"
+            "ollama cloud grouped rows follow exact-output contract"
             `Quick
-            test_ollama_cloud_grouped_non_so_rows_do_not_advertise_so
+            test_ollama_cloud_grouped_rows_follow_exact_output_contract
         ; test_case
             "ollama cloud Kimi preserves historical reasoning"
             `Quick

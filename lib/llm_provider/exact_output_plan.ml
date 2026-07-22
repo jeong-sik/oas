@@ -432,9 +432,38 @@ let structured_text content =
   loop [] content
 ;;
 
-let stop_is_terminal = function
-  | Types.EndTurn | Types.StopSequence -> true
-  | Types.StopToolUse
+let normalize_text response_format text =
+  match response_format with
+  | Types.Off -> Ok (Text_output text)
+  | (Types.JsonMode | Types.JsonSchema _) as response_format ->
+    (try
+       let value = Yojson.Safe.from_string text in
+       let validation =
+         match response_format with
+         | Types.JsonMode -> Json_syntax_validated
+         | Types.JsonSchema _ -> Provider_schema_requested_client_validation_required
+         | Types.Off -> assert false
+       in
+       Ok (Json_output { value; validation })
+     with
+     | Yojson.Json_error detail -> Error (Invalid_json detail))
+;;
+
+let normalize_response response_format (response : Types.api_response) =
+  match response.stop_reason with
+  | Types.EndTurn | Types.StopSequence ->
+    (match structured_text response.content with
+     | Error _ as error -> error
+     | Ok text -> normalize_text response_format text)
+  | Types.StopToolUse ->
+    (match structured_text response.content with
+     | Error Unexpected_structured_content as error -> error
+     | Ok _
+     | Error Missing_structured_text
+     | Error (Ambiguous_structured_text _)
+     | Error (Incomplete_structured_response _)
+     | Error (Invalid_json _) ->
+       Error (Incomplete_structured_response response.stop_reason))
   | Types.MaxTokens
   | Types.Refusal
   | Types.ContentFilter
@@ -443,30 +472,7 @@ let stop_is_terminal = function
   | Types.Compaction
   | Types.ContextWindowExceeded
   | Types.UnmatchedToolCalls
-  | Types.Unknown _ -> false
-;;
-
-let normalize_response response_format (response : Types.api_response) =
-  if not (stop_is_terminal response.stop_reason)
-  then Error (Incomplete_structured_response response.stop_reason)
-  else (
-    match structured_text response.content with
-    | Error _ as error -> error
-    | Ok text ->
-      (match response_format with
-       | Types.Off -> Ok (Text_output text)
-       | (Types.JsonMode | Types.JsonSchema _) as response_format ->
-         (try
-            let value = Yojson.Safe.from_string text in
-            let validation =
-              match response_format with
-              | Types.JsonMode -> Json_syntax_validated
-              | Types.JsonSchema _ -> Provider_schema_requested_client_validation_required
-              | Types.Off -> assert false
-            in
-            Ok (Json_output { value; validation })
-          with
-          | Yojson.Json_error detail -> Error (Invalid_json detail))))
+  | Types.Unknown _ -> Error (Incomplete_structured_response response.stop_reason)
 ;;
 
 let normalize plan response = normalize_response plan.response_format response
