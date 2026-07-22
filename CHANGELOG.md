@@ -278,6 +278,23 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.220.0](https://github.com/jeong-sik/oas/compare/v0.219.0...v0.220.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm_provider:** a Document block sent to an OpenAI-compatible Chat Completions row that does not declare `supports_document_input`, or to the Ollama native wire, now fails with a named error instead of silently going out as an image. Declare `supports_document_input = true` on the catalog row to opt in.
+
+### Features
+
+* **llm:** add exact output admission surface ([#2761](https://github.com/jeong-sik/oas/issues/2761)) ([0bb8101](https://github.com/jeong-sik/oas/commit/0bb8101516b7d1b20d852e55f5b16996d547e545))
+
+
+### Bug Fixes
+
+* **llm_provider:** stop emitting Document blocks as image_url ([#2755](https://github.com/jeong-sik/oas/issues/2755)) ([abc60cb](https://github.com/jeong-sik/oas/commit/abc60cba24d760c88f687fa24b5f2e39ae531bda))
+* **llm_provider:** surface unmodeled empty-completion stop_reason ([#2743](https://github.com/jeong-sik/oas/issues/2743)) ([10df33e](https://github.com/jeong-sik/oas/commit/10df33e94f1dcc72f563a298a6ec7ad40216e3ec))
+
 ## [0.219.0](https://github.com/jeong-sik/oas/compare/v0.218.0...v0.219.0) (2026-07-21)
 
 
