@@ -109,25 +109,22 @@ let reraise_after_abort_failure exn backtrace abort_detail =
 ;;
 
 let capture_traceln_for_inline_test f =
+  Eio_main.run
+  @@ fun env ->
   let buffer = Buffer.create 256 in
-  let original_out, original_flush =
-    Format.pp_get_formatter_output_functions Format.err_formatter ()
+  let captured_traceln =
+    { Eio.Debug.traceln =
+        (fun ?__POS__:_ format ->
+          Format.kasprintf
+            (fun message ->
+               Buffer.add_string buffer message;
+               Buffer.add_char buffer '\n')
+            format)
+    }
   in
-  Format.pp_set_formatter_output_functions
-    Format.err_formatter
-    (fun text offset length -> Buffer.add_substring buffer text offset length)
-    (fun () -> ());
-  Fun.protect
-    ~finally:(fun () ->
-      Format.pp_print_flush Format.err_formatter ();
-      Format.pp_set_formatter_output_functions
-        Format.err_formatter
-        original_out
-        original_flush)
-    (fun () ->
-       let result = f () in
-       Format.pp_print_flush Format.err_formatter ();
-       result, Buffer.contents buffer)
+  Eio.Fiber.with_binding (Eio.Stdenv.debug env)#traceln captured_traceln (fun () ->
+    let result = f () in
+    result, Buffer.contents buffer)
 ;;
 
 let%test "abort failure preserves cancellation class" =

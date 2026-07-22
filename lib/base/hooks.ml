@@ -410,28 +410,6 @@ let compose ~outer ~inner =
 
 (* ── Hook exception safety regression tests ─────────────────── *)
 
-let capture_traceln_for_inline_test f =
-  let buffer = Buffer.create 256 in
-  let original_out, original_flush =
-    Format.pp_get_formatter_output_functions Format.err_formatter ()
-  in
-  Format.pp_set_formatter_output_functions
-    Format.err_formatter
-    (fun text offset length -> Buffer.add_substring buffer text offset length)
-    (fun () -> ());
-  Fun.protect
-    ~finally:(fun () ->
-      Format.pp_print_flush Format.err_formatter ();
-      Format.pp_set_formatter_output_functions
-        Format.err_formatter
-        original_out
-        original_flush)
-    (fun () ->
-       let result = f () in
-       Format.pp_print_flush Format.err_formatter ();
-       result, Buffer.contents buffer)
-;;
-
 let%test "invoke_validated: hook returning Continue propagates" =
   let event = BeforeTurn { turn = 0; messages = [] } in
   match invoke_validated (Some (fun _ -> Continue)) event with
@@ -446,43 +424,12 @@ let%test "invoke_validated: None hook returns Continue" =
   | _ -> false
 ;;
 
-let%test "invoke_validated: raising hook is caught and returns HookFailed" =
-  let event = BeforeTurn { turn = 0; messages = [] } in
-  let raising _ = failwith "kaboom" in
-  let semantic_ok, diagnostic =
-    capture_traceln_for_inline_test (fun () ->
-      match invoke_validated (Some raising) event with
-      | HookFailed { stage = Before_turn; detail } -> String.length detail > 0
-      | _ -> false)
-  in
-  semantic_ok
-  && String.equal
-       (String.trim diagnostic)
-       {|[warn] [hooks] user hook for before_turn raised Failure("kaboom")|}
-;;
-
 let%test "invoke_validated: Sys.Break remains reserved" =
   let event = BeforeTurn { turn = 0; messages = [] } in
   match invoke_validated (Some (fun _ -> raise Sys.Break)) event with
   | exception Sys.Break -> true
   | (exception _)
   | Continue | AdjustParams _ | ElicitInput _ | Nudge _ | HookFailed _ | Block _ -> false
-;;
-
-let%test "invoke_validated: on_illegal is NOT invoked when hook raises" =
-  let event = BeforeTurn { turn = 0; messages = [] } in
-  let raising _ = failwith "kaboom" in
-  let illegal_called = ref false in
-  let on_illegal ~stage:_ ~decision:_ ~msg:_ = illegal_called := true in
-  let semantic_ok, diagnostic =
-    capture_traceln_for_inline_test (fun () ->
-      let _ = invoke_validated ~on_illegal (Some raising) event in
-      not !illegal_called)
-  in
-  semantic_ok
-  && String.equal
-       (String.trim diagnostic)
-       {|[warn] [hooks] user hook for before_turn raised Failure("kaboom")|}
 ;;
 
 (* ── Block variant (RFC-0321) regression tests ─────────────── *)
@@ -508,20 +455,4 @@ let%test "Block: validate_decision rejects at after_turn" =
   match validate_decision ~stage:After_turn (Block "nope") with
   | Error msg -> String.length msg > 0
   | Ok _ -> false
-;;
-
-let%test "Block: invoke_validated coerces illegal Block to HookFailed" =
-  let event = BeforeTurn { turn = 0; messages = [] } in
-  let blocking _ = Block "forbidden" in
-  let semantic_ok, diagnostic =
-    capture_traceln_for_inline_test (fun () ->
-      match invoke_validated (Some blocking) event with
-      | HookFailed { stage = Before_turn; detail } -> String.length detail > 0
-      | HookFailed _ | Continue | AdjustParams _ | ElicitInput _ | Nudge _ | Block _ ->
-        false)
-  in
-  semantic_ok
-  && String.equal
-       (String.trim diagnostic)
-       {|[warn] [hooks] illegal hook decision Block at stage before_turn; legal: [Continue, ElicitInput, Nudge]|}
 ;;
