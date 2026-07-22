@@ -278,6 +278,14 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.220.4](https://github.com/jeong-sik/oas/compare/v0.220.3...v0.220.4) (2026-07-22)
+
+
+### Bug Fixes
+
+* **agent-sdk:** freeze exact-output resolver snapshot ([#2772](https://github.com/jeong-sik/oas/issues/2772)) ([c653e8b](https://github.com/jeong-sik/oas/commit/c653e8bc43fb4245586824fa8a6b33aaf25ce3db))
+* **exact_output:** add explicit ready_plan type annotations for mli contract match ([#2770](https://github.com/jeong-sik/oas/issues/2770)) ([b25a420](https://github.com/jeong-sik/oas/commit/b25a420ad0407755fe570f748a39be0c8be378fd))
+
 ## [0.220.3](https://github.com/jeong-sik/oas/compare/v0.220.2...v0.220.3) (2026-07-22)
 
 
