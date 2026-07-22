@@ -184,7 +184,6 @@ let catalog_generation_fingerprint (Catalog_generation value) = value
 let catalog_evidence_sha256 (Catalog_evidence value) = value
 let resolver_catalog_generation (snapshot : resolver_snapshot) = snapshot.generation
 let resolver_catalog_evidence (snapshot : resolver_snapshot) = snapshot.evidence
-let target_identity_id (identity : target_identity) = target_ref_id identity.target_ref
 let target_identity_fingerprint identity = identity.fingerprint
 let selected_target_identity (target : selected_target) = target.identity
 let selected_target_catalog_generation (target : selected_target) = target.generation

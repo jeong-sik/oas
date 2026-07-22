@@ -206,7 +206,6 @@ val resolver_catalog_generation : resolver_snapshot -> catalog_generation
 val resolver_catalog_evidence : resolver_snapshot -> catalog_evidence
 val catalog_generation_fingerprint : catalog_generation -> string
 val catalog_evidence_sha256 : catalog_evidence -> string
-val target_identity_id : target_identity -> string
 val target_identity_fingerprint : target_identity -> string
 val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
