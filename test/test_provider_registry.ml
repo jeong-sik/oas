@@ -309,7 +309,17 @@ let test_default_ollama_cloud_entry () =
       bool
       "ollama_cloud uses ollama_cloud_capabilities"
       true
-      (e.capabilities.thinking_control_format = Capabilities.Ollama_think)
+      (e.capabilities.thinking_control_format = Capabilities.Ollama_think);
+    check
+      bool
+      "ollama_cloud does not support JSON mode"
+      false
+      e.capabilities.supports_response_format_json;
+    check
+      bool
+      "ollama_cloud does not support provider schema"
+      false
+      e.capabilities.supports_structured_output
   | None -> fail "ollama_cloud should exist"
 ;;
 

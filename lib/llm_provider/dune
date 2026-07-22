@@ -12,6 +12,8 @@
   request_artifact_internal
   prepared_completion_request
   http_client_phase_observer
+  exact_output_catalog_binding
+  exact_output_resolver
   exact_output_execution
   exact_output_plan)
  (libraries

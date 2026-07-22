@@ -592,20 +592,6 @@ let dialect_messages_of_history
     Ok rendered.messages
 ;;
 
-let modality_priority_for_model_id model_id =
-  match Capabilities.for_model_id model_id with
-  | Some c -> c.modality_priority
-  | None -> Modality.Preserve_input_order
-;;
-
-(* An unresolved model id declares nothing, so it does not declare document
-   support either. *)
-let document_input_supported_for_model_id model_id =
-  match Capabilities.for_model_id model_id with
-  | Some c -> c.supports_document_input
-  | None -> false
-;;
-
 (** Ollama native [/api/chat] user message serialization.
     Unlike OpenAI-compatible endpoints where [content] may be a string or an
     array of content parts, Ollama's native chat API requires [content] to be a
@@ -749,26 +735,35 @@ let ollama_tool_block_role_contract (message : message) =
     else Ok ()
 ;;
 
-let ollama_messages_of_history ?(model_id = "") messages =
+let ollama_messages_of_history
+      ~modality_priority
+      ~supports_image_input
+      ~supports_document_input
+      messages
+  =
+  let rec validate_content = function
+    | [] -> Ok ()
+    | Image _ :: _ when not supports_image_input ->
+      Error "Ollama native image input is not declared by the frozen capability snapshot"
+    | Document _ :: _ when not supports_document_input ->
+      Error
+        "Ollama native document input is not declared by the frozen capability snapshot"
+    | Document _ :: _ -> Error "Ollama native wire cannot represent document input"
+    | ToolResult { content_blocks = Some blocks; _ } :: rest ->
+      (match validate_content blocks with
+       | Error _ as error -> error
+       | Ok () -> validate_content rest)
+    | _ :: rest -> validate_content rest
+  in
   let rec validate = function
     | [] -> Ok ()
-    | message :: rest ->
-      (match ollama_tool_block_role_contract message with
+    | (message : Types.message) :: rest ->
+      (match validate_content message.content with
        | Error _ as error -> error
-       | Ok () -> validate rest)
-  in
-  (* oas#2744 — the native /api/chat wire has no document part, so a document
-     cannot be sent as one. Rather than pushing it into the [images] array as if
-     it were a picture (the audit's defect) or rejecting the whole request
-     (which retroactively sank every later turn of a conversation holding a
-     document in its history), degrade each document to a named text placeholder
-     before rendering. [Document_unrepresentable] means the wire form alone is
-     decisive, so the capability flag does not gate this. *)
-  let messages, _documents_degraded =
-    Api_common.degrade_document_messages
-      ~wire_form:Api_common.Document_unrepresentable
-      ~supports_document_input:(document_input_supported_for_model_id model_id)
-      messages
+       | Ok () ->
+         (match ollama_tool_block_role_contract message with
+          | Error _ as error -> error
+          | Ok () -> validate rest))
   in
   match validate messages with
   | Error _ as error -> error
@@ -776,7 +771,7 @@ let ollama_messages_of_history ?(model_id = "") messages =
     (match Tool_result_projection.of_messages messages with
      | Error error -> Error (Tool_result_projection.error_to_string error)
      | Ok projection ->
-       let modality_priority = modality_priority_for_model_id model_id in
+       let modality_priority = modality_priority in
        let rec render rendered = function
          | [] -> Ok (List.rev rendered |> List.concat)
          | resolved_message :: rest ->

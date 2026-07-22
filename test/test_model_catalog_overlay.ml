@@ -95,6 +95,51 @@ let test_merge_overlay_row_replaces_same_key () =
     (List.length (Model_catalog.model_entries merged))
 ;;
 
+let test_sparse_pricing_row_inherits_functional_fields () =
+  let suite = "sparse pricing merge" in
+  let base =
+    catalog_of
+      ~suite
+      (scoped_row
+         ~provider:"prov-a"
+         ~model:"model-1"
+         ~max_context:100
+         ~extra:
+           "supports_response_format_json = true\n\
+            supports_document_input = true\n\
+            input_per_million = 1.0\n"
+         ())
+  in
+  let overlay =
+    catalog_of
+      ~suite
+      "[[models]]\n\
+       id_prefix = \"model-1\"\n\
+       provider_name = \"prov-a\"\n\
+       input_per_million = 99.0\n"
+  in
+  let merged = Model_catalog.merge ~base ~overlay in
+  let entry =
+    match
+      Model_catalog.lookup_for_provider merged ~provider_name:"prov-a" ~model_id:"model-1"
+    with
+    | None -> fail "sparse pricing merge should preserve the model row"
+    | Some entry -> entry
+  in
+  check (option int) "context limit inherited" (Some 100) entry.max_context_tokens;
+  check
+    (option bool)
+    "JSON capability inherited"
+    (Some true)
+    entry.supports_response_format_json;
+  check
+    (option bool)
+    "document capability inherited"
+    (Some true)
+    entry.supports_document_input;
+  check (option (float 0.)) "pricing field replaced" (Some 99.0) entry.input_per_million
+;;
+
 let test_merge_keeps_bare_and_scoped_rows_distinct () =
   let suite = "merge bare vs scoped" in
   let base = catalog_of ~suite (bare_row ~model:"model-1" ~max_context:100) in
@@ -410,6 +455,10 @@ let () =
             "bare and scoped rows stay distinct"
             `Quick
             test_merge_keeps_bare_and_scoped_rows_distinct
+        ; test_case
+            "sparse pricing inherits functional fields"
+            `Quick
+            test_sparse_pricing_row_inherits_functional_fields
         ; test_case
             "provider entries replace by id"
             `Quick

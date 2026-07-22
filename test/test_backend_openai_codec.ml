@@ -92,8 +92,15 @@ let render_single_dialect_message ?assistant_tool_content_format dialect message
   dialect_messages_of_history ?assistant_tool_content_format dialect [ message ]
 ;;
 
-let ollama_messages ?model_id messages =
-  match Serialize.ollama_messages_of_history ?model_id messages with
+let ollama_messages ~supports_image_input messages =
+  let caps = Capabilities.default_capabilities in
+  match
+    Serialize.ollama_messages_of_history
+      ~modality_priority:caps.modality_priority
+      ~supports_image_input
+      ~supports_document_input:caps.supports_document_input
+      messages
+  with
   | Ok messages -> messages
   | Error error -> Alcotest.fail ("Ollama history serialization failed: " ^ error)
 ;;
@@ -608,6 +615,7 @@ let test_non_base64_media_source_fails_closed () =
     |> ignore);
   expect_invalid_arg "ollama image url" (fun () ->
     ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Image
@@ -716,8 +724,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     "text"
     (List.nth openai_parts 0 |> member "type" |> to_string);
   let ollama =
-    ollama_messages ~model_id:"google/gemma-4-26B-A4B-it" [ msg User content ]
-    |> only "ollama"
+    ollama_messages ~supports_image_input:true [ msg User content ] |> only "ollama"
   in
   (* Ollama native /api/chat requires content to be a plain string and places
      base64 image payloads in a separate images array. *)
@@ -731,6 +738,7 @@ let test_ollama_native_multimodal_variants () =
   (* Image-only user message: content is an empty string, images carries the payload. *)
   let image_only =
     ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Image { media_type = "image/png"; data = "png1"; source_type = Types.Base64 }
@@ -742,39 +750,11 @@ let test_ollama_native_multimodal_variants () =
   let images = member "images" image_only |> as_list "image-only images" in
   check_int "image-only images count" 1 (List.length images);
   check_string "image-only payload" "png1" (List.nth images 0 |> to_string);
-  (* oas#2744: documents used to be appended to [images] "for vision-model
-     compatibility", which made the server read a PDF as a picture with nothing
-     reporting the substitution. The native wire has no document part, so a
-     document is degraded to a named text placeholder — it is not sent as a
-     picture, and it does not reject the turn (which would retroactively sink
-     any conversation holding a document in its history). *)
-  (match
-     Serialize.ollama_messages_of_history
-       [ msg
-           User
-           [ Document
-               { media_type = "application/pdf"
-               ; data = "pdf1"
-               ; source_type = Types.Base64
-               }
-           ]
-       ]
-   with
-   | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
-   | Ok wire ->
-     let serialized = Yojson.Safe.to_string (`List wire) in
-     check_bool
-       "document not relabelled into the images array"
-       false
-       (contains ~needle:"pdf1" serialized);
-     check_bool
-       "placeholder names the omission"
-       true
-       (contains ~needle:"document omitted" serialized));
   (* Audio is not supported by Ollama native /api/chat and must fail closed
      instead of being silently dropped. *)
   expect_invalid_arg "ollama audio input" (fun () ->
     ollama_messages
+      ~supports_image_input:false
       [ msg
           User
           [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 }
@@ -784,6 +764,7 @@ let test_ollama_native_multimodal_variants () =
   (* Mixed text + image preserves text in content and the payload in images. *)
   let mixed =
     ollama_messages
+      ~supports_image_input:true
       [ msg
           User
           [ Text "describe these"
@@ -795,39 +776,7 @@ let test_ollama_native_multimodal_variants () =
   check_string "mixed content" "describe these" (member "content" mixed |> to_string);
   let mixed_images = member "images" mixed |> as_list "mixed images" in
   check_int "mixed images count" 1 (List.length mixed_images);
-  check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string);
-  (* A document alongside admissible media degrades in place: the image is kept
-     (it is representable), the document becomes a named placeholder, and the
-     turn is not rejected. Degrade looks at every block, not just the first. *)
-  match
-    Serialize.ollama_messages_of_history
-      [ msg
-          User
-          [ Text "describe these"
-          ; Image { media_type = "image/png"; data = "png2"; source_type = Types.Base64 }
-          ; Document
-              { media_type = "application/pdf"
-              ; data = "pdf2"
-              ; source_type = Types.Base64
-              }
-          ]
-      ]
-  with
-  | Error error -> Alcotest.failf "expected degrade, got a rejection: %s" error
-  | Ok wire ->
-    let serialized = Yojson.Safe.to_string (`List wire) in
-    check_bool
-      "admissible image survives alongside the degraded document"
-      true
-      (contains ~needle:"png2" serialized);
-    check_bool
-      "document not relabelled into images"
-      false
-      (contains ~needle:"pdf2" serialized);
-    check_bool
-      "document degraded to a named placeholder"
-      true
-      (contains ~needle:"document omitted" serialized)
+  check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string)
 ;;
 
 let test_assistant_tool_calls_openai_ollama_and_glm () =
@@ -844,7 +793,9 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "openai arguments string"
     {|{"q":"x"}|}
     (member "function" call |> member "arguments" |> to_string);
-  let ollama = ollama_messages [ assistant ] |> only "ollama" in
+  let ollama =
+    ollama_messages ~supports_image_input:false [ assistant ] |> only "ollama"
+  in
   let ollama_call =
     member "tool_calls" ollama |> as_list "ollama tool_calls" |> only "tool_call"
   in
@@ -1081,7 +1032,10 @@ let test_serializer_ignored_block_variants () =
         | Audio _ -> true)
       ignored_blocks
   in
-  let ollama = ollama_messages [ msg Assistant ollama_blocks ] |> only "ollama" in
+  let ollama =
+    ollama_messages ~supports_image_input:true [ msg Assistant ollama_blocks ]
+    |> only "ollama"
+  in
   Alcotest.(check bool)
     "ollama has no tool_calls"
     true

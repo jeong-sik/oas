@@ -12,6 +12,8 @@ type admission =
   | Unmeasured of
       { config : Provider_config.t
       ; messages : Types.message list
+      ; body_timeout_s : float option
+      ; anthropic_thinking_control : Capabilities.anthropic_thinking_control option
       }
 
 type output_admission_error =
@@ -26,7 +28,11 @@ type output_admission_error =
   | Global_admission_not_allowed
   | Invalid_connect_timeout of float
   | Invalid_body_timeout of float
-  | Caller_supplied_framing_header_not_allowed of string
+  | Caller_supplied_header_not_allowed of string
+  | Unsupported_image_input
+  | Unsupported_document_input
+  | Unsupported_audio_input
+  | Unsupported_system_prompt
   | Provider_request_rejected of Http_client.http_error
   | Request_serialization_rejected of Http_client.http_error
 

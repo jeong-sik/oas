@@ -100,6 +100,21 @@ type structured_output_support = Capability_vocab.structured_output_support =
   | Native_json_schema
 [@@deriving show, eq]
 
+type anthropic_thinking_control =
+  | Anthropic_manual_budget
+  | Anthropic_adaptive_default
+  | Anthropic_adaptive_preferred
+  | Anthropic_adaptive_only
+  | Anthropic_always_adaptive
+
+let anthropic_thinking_control_of_vocab_value = function
+  | Capability_vocab.Manual_budget -> Anthropic_manual_budget
+  | Capability_vocab.Adaptive_default -> Anthropic_adaptive_default
+  | Capability_vocab.Adaptive_preferred -> Anthropic_adaptive_preferred
+  | Capability_vocab.Adaptive_only -> Anthropic_adaptive_only
+  | Capability_vocab.Always_adaptive -> Anthropic_always_adaptive
+;;
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -287,21 +302,6 @@ let effective_disable_parallel_tool_use
       ~tools_present
   =
   caller_disabled || (tools_present && not supports_parallel_tool_calls)
-;;
-
-type anthropic_thinking_control =
-  | Anthropic_manual_budget
-  | Anthropic_adaptive_default
-  | Anthropic_adaptive_preferred
-  | Anthropic_adaptive_only
-  | Anthropic_always_adaptive
-
-let anthropic_thinking_control_of_vocab_value = function
-  | Capability_vocab.Manual_budget -> Anthropic_manual_budget
-  | Capability_vocab.Adaptive_default -> Anthropic_adaptive_default
-  | Capability_vocab.Adaptive_preferred -> Anthropic_adaptive_preferred
-  | Capability_vocab.Adaptive_only -> Anthropic_adaptive_only
-  | Capability_vocab.Always_adaptive -> Anthropic_always_adaptive
 ;;
 
 let anthropic_thinking_control_for_model_id model_id =
@@ -539,22 +539,24 @@ let ollama_capabilities =
   }
 ;;
 
-(* Ollama Cloud is a distinct provider identity (its own base_url + auth) but its
-   capability profile is currently identical to local Ollama. Reasoning-only
-   replies still reach the user through the display path
+(* Ollama Cloud is a distinct provider identity (its own base_url + auth).
+   Reasoning-only replies still reach the user through the display path
    ([Api_common.text_blocks_to_string] includes [Thinking] blocks); they are no longer
    promoted into assistant answer text, which previously re-injected reasoning on
    replay and caused the CoT loop (#2236).
 
-   IMPORTANT: do not inherit [supports_structured_output] from local Ollama.
+   IMPORTANT: do not inherit either exact-output capability from local Ollama.
    The official Ollama structured-output documentation currently states that
    Ollama Cloud does not support structured outputs
    (https://docs.ollama.com/capabilities/structured-outputs, checked
-   2026-07-10). JSON mode and the native local [/api/chat] schema path are
-   separate contracts; a Cloud model row must remain schema-disabled until the
+   2026-07-22). This covers both JSON mode and the native local [/api/chat]
+   schema path; Cloud must remain fail-closed for both contracts until the
    official Cloud contract changes. *)
 let ollama_cloud_capabilities =
-  { ollama_capabilities with supports_structured_output = false }
+  { ollama_capabilities with
+    supports_response_format_json = false
+  ; supports_structured_output = false
+  }
 ;;
 
 let dashscope_capabilities =

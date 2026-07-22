@@ -434,6 +434,7 @@ let openai_compat_request_control_artifact
 ;;
 
 let thinking_control_request_rejection
+      ?anthropic_thinking_control
       ~(caps : Capabilities.capabilities)
       (config : Provider_config.t)
   =
@@ -472,7 +473,7 @@ let thinking_control_request_rejection
     let disable_not_encodable =
       match config.kind with
       | Provider_config.Anthropic ->
-        (match Capabilities.anthropic_thinking_control_for_model_id config.model_id with
+        (match anthropic_thinking_control with
          | Some Capabilities.Anthropic_always_adaptive -> true
          | Some
              ( Capabilities.Anthropic_manual_budget
@@ -513,9 +514,12 @@ let thinking_control_request_rejection
    both wire-assembly sites rejecting the identical config with the identical
    message instead of one honoring the [explicit_enable_receipt] and the
    other silently dropping it. *)
-let thinking_control_request_rejection_reason (config : Provider_config.t) =
+let thinking_control_request_rejection_reason
+      ?anthropic_thinking_control
+      (config : Provider_config.t)
+  =
   let caps, _source = resolve_capabilities_for_config config in
-  match thinking_control_request_rejection ~caps config with
+  match thinking_control_request_rejection ?anthropic_thinking_control ~caps config with
   | None -> None
   | Some Enable_not_declared ->
     Some
@@ -548,8 +552,11 @@ let thinking_control_request_rejection_reason (config : Provider_config.t) =
          config.model_id)
 ;;
 
-let validate_thinking_control_request (config : Provider_config.t) =
-  match thinking_control_request_rejection_reason config with
+let validate_thinking_control_request
+      ?anthropic_thinking_control
+      (config : Provider_config.t)
+  =
+  match thinking_control_request_rejection_reason ?anthropic_thinking_control config with
   | None -> Ok ()
   | Some reason -> Error (Http_client.AcceptRejected { reason })
 ;;
@@ -569,7 +576,7 @@ let validate_admission_declaration (config : Provider_config.t) =
          })
 ;;
 
-let validate_all (config : Provider_config.t) =
+let validate_common (config : Provider_config.t) =
   match validate_request_path config with
   | Error _ as e -> e
   | Ok () ->
@@ -578,23 +585,69 @@ let validate_all (config : Provider_config.t) =
      | Ok () ->
        (match validate_tool_choice_request config with
         | Error _ as e -> e
-        | Ok () ->
-          (match validate_reasoning_effort_request config with
-           | Error _ as e -> e
-           | Ok () ->
-             (match validate_thinking_control_request config with
-              | Error _ as e -> e
-              | Ok () -> validate_admission_declaration config))))
+        | Ok () -> validate_reasoning_effort_request config))
 ;;
 
-let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tools =
+let validate_all_with_thinking_control
+      ~anthropic_thinking_control
+      (config : Provider_config.t)
+  =
+  match validate_common config with
+  | Error _ as e -> e
+  | Ok () ->
+    (match validate_thinking_control_request ?anthropic_thinking_control config with
+     | Error _ as e -> e
+     | Ok () -> validate_admission_declaration config)
+;;
+
+let validate_all (config : Provider_config.t) =
+  match validate_common config with
+  | Error _ as e -> e
+  | Ok () ->
+    (match config.kind with
+     | Provider_config.Anthropic ->
+       (match Backend_anthropic.validate_nonexact_thinking_controls config with
+        | Error reason -> Error (Http_client.AcceptRejected { reason })
+        | Ok () -> validate_admission_declaration config)
+     | Provider_config.Kimi
+     | Provider_config.OpenAI_compat
+     | Provider_config.Ollama
+     | Provider_config.Gemini
+     | Provider_config.Glm
+     | Provider_config.DashScope ->
+       (match validate_thinking_control_request config with
+        | Error _ as e -> e
+        | Ok () -> validate_admission_declaration config))
+;;
+
+type anthropic_serialization_policy =
+  | Frozen_anthropic_thinking_control of Capabilities.anthropic_thinking_control option
+  | Resolve_nonexact_anthropic_thinking_control
+
+let serialize_http_request_with_policy
+      ~stream
+      ~anthropic_serialization_policy
+      ~(config : Provider_config.t)
+      ~messages
+      ~tools
+  =
   let http_codec = Provider_http_codec.of_config config in
   let body_result =
     try
       match http_codec with
       | Provider_http_codec.Anthropic_messages ->
         (match
-           Backend_anthropic.build_request_artifact ~stream ~config ~messages ~tools ()
+           match anthropic_serialization_policy with
+           | Frozen_anthropic_thinking_control anthropic_thinking_control ->
+             Backend_anthropic.build_request_artifact_with_thinking_control
+               ~anthropic_thinking_control
+               ~stream
+               ~config
+               ~messages
+               ~tools
+               ()
+           | Resolve_nonexact_anthropic_thinking_control ->
+             Backend_anthropic.build_request_artifact ~stream ~config ~messages ~tools ()
          with
          | Ok artifact -> Ok (Backend_anthropic.request_payload artifact)
          | Error rejection ->
@@ -617,6 +670,31 @@ let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tool
     | Invalid_argument reason -> Error (Http_client.AcceptRejected { reason })
   in
   Result.map (fun body -> http_codec, body) body_result
+;;
+
+let serialize_http_request_with_thinking_control
+      ~stream
+      ~anthropic_thinking_control
+      ~config
+      ~messages
+      ~tools
+  =
+  serialize_http_request_with_policy
+    ~stream
+    ~anthropic_serialization_policy:
+      (Frozen_anthropic_thinking_control anthropic_thinking_control)
+    ~config
+    ~messages
+    ~tools
+;;
+
+let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tools =
+  serialize_http_request_with_policy
+    ~stream
+    ~anthropic_serialization_policy:Resolve_nonexact_anthropic_thinking_control
+    ~config
+    ~messages
+    ~tools
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in

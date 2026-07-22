@@ -29,6 +29,8 @@
     "lib/llm_provider/capabilities.mli",
     "lib/llm_provider/capability_manifest.ml",
     "lib/llm_provider/capability_manifest.mli",
+    "lib/llm_provider/exact_output_catalog_binding.ml",
+    "lib/llm_provider/exact_output_catalog_binding.mli",
     "lib/llm_provider/model_catalog.ml",
     "lib/llm_provider/model_catalog.mli",
     "lib/llm_provider/model_id.ml",

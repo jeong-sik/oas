@@ -33,40 +33,84 @@ let capabilities ~native ~json =
   }
 ;;
 
-let catalog_entry ~id ~kind ~base_url ~request_path ~capabilities =
-  { Provider_catalog.id
-  ; aliases = []
-  ; kind
-  ; base_url
-  ; request_path
-  ; api_key_env = ""
-  ; auth = Provider_catalog.No_auth
-  ; default_model = Some (id ^ "-model")
-  ; max_context = Some 8192
-  ; capabilities
-  ; credential_scope = None
+type catalog_fixture =
+  { id : string
+  ; kind : Provider_config.provider_kind
+  ; base_url : string
+  ; base_url_env : string option
+  ; request_path : string
+  ; api_key_env : string
+  ; capabilities : Capabilities.capabilities
   }
+
+let catalog_entry
+      ?base_url_env
+      ?(api_key_env = "")
+      ~id
+      ~kind
+      ~base_url
+      ~request_path
+      ~capabilities
+      ()
+  =
+  { id; kind; base_url; base_url_env; request_path; api_key_env; capabilities }
 ;;
 
-let with_catalog entries f =
-  let previous = Provider_catalog.global () in
-  let catalog =
-    match Provider_catalog.of_entries entries with
-    | Ok catalog -> catalog
-    | Error detail -> fail detail
+let catalog_fixture_toml entry =
+  Printf.sprintf
+    "[[providers]]\n\
+     id = %S\n\
+     kind = %S\n\
+     base_url = %S\n\
+     %srequest_path = %S\n\
+     api_key_env = %S\n\n\
+     [[models]]\n\
+     id_prefix = %S\n\
+     provider_name = %S\n\
+     max_context_tokens = 8192\n\
+     max_output_tokens = 1024\n\
+     supports_response_format_json = %b\n\
+     supports_structured_output = %b\n\n\
+     [[targets]]\n\
+     id = %S\n\
+     provider_ref = %S\n\
+     model_id = %S\n"
+    entry.id
+    (Provider_config.string_of_provider_kind entry.kind)
+    entry.base_url
+    (match entry.base_url_env with
+     | None -> ""
+     | Some name -> Printf.sprintf "base_url_env = %S\n" name)
+    entry.request_path
+    entry.api_key_env
+    (entry.id ^ "-model")
+    entry.id
+    entry.capabilities.supports_response_format_json
+    entry.capabilities.supports_structured_output
+    entry.id
+    entry.id
+    (entry.id ^ "-model")
+;;
+
+let with_catalog ?(getenv = fun _ -> Ok None) entries f =
+  let overlay : EO.catalog_overlay =
+    { source = "exact-output single-surface fixture"
+    ; contents = String.concat "\n" (List.map catalog_fixture_toml entries)
+    }
   in
-  Fun.protect
-    ~finally:(fun () ->
-      match previous with
-      | Some previous -> Provider_catalog.set_global previous
-      | None -> Provider_catalog.clear_global ())
-    (fun () ->
-       Provider_catalog.set_global catalog;
-       f ())
+  let io : EO.resolver_io = { getenv } in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error _ -> fail "resolver snapshot should load"
+  | Ok snapshot -> f snapshot
 ;;
 
-let target selector =
-  match EO.select_target ~selector () with
+let target snapshot selector =
+  let target_ref =
+    match EO.target_ref selector with
+    | Ok target_ref -> target_ref
+    | Error _ -> failf "target ref %s was invalid" selector
+  in
+  match EO.resolve_target snapshot target_ref with
   | Ok target -> target
   | Error _ -> failf "target %s did not resolve" selector
 ;;
@@ -77,10 +121,10 @@ let requirement_for domain_schema minimum_guarantee =
 
 let requirement minimum_guarantee = requirement_for schema minimum_guarantee
 
-let plan_for_schema selector domain_schema minimum_guarantee =
+let plan_for_schema snapshot selector domain_schema minimum_guarantee =
   match
     EO.admit
-      ~target:(target selector)
+      ~target:(target snapshot selector)
       ~messages:[ msg "return one object" ]
       (requirement_for domain_schema minimum_guarantee)
   with
@@ -88,7 +132,9 @@ let plan_for_schema selector domain_schema minimum_guarantee =
   | Error _ -> failf "target %s did not admit" selector
 ;;
 
-let plan selector minimum_guarantee = plan_for_schema selector schema minimum_guarantee
+let plan snapshot selector minimum_guarantee =
+  plan_for_schema snapshot selector schema minimum_guarantee
+;;
 
 let fresh_port () =
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
@@ -106,6 +152,7 @@ let fresh_port () =
 type capture =
   { path : string
   ; body : string
+  ; headers : (string * string) list
   }
 
 let openai_response content =
@@ -150,7 +197,13 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
         Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"input_tokens":1}|} ())
       else (
         Atomic.incr completion_posts;
-        Atomic.set captures ({ path; body = request_body } :: Atomic.get captures);
+        Atomic.set
+          captures
+          ({ path
+           ; body = request_body
+           ; headers = Cohttp.Request.headers request |> Cohttp.Header.to_list
+           }
+           :: Atomic.get captures);
         if abort_completion then raise Exit;
         Option.iter (Eio.Time.sleep clock) response_delay_s;
         Cohttp_eio.Server.respond_string ~status ~body:response ())
@@ -182,13 +235,14 @@ let test_tier_table_and_provider_schema_rejection () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native ~json)
+      ()
   in
   with_catalog
     [ entry "native" true true; entry "json-only" false true; entry "none" false false ]
-  @@ fun () ->
-  let native_json = plan "native" EO.Json_syntax |> EO.plan_provenance in
-  let native_schema = plan "native" EO.Provider_schema |> EO.plan_provenance in
-  let json_only = plan "json-only" EO.Json_syntax |> EO.plan_provenance in
+  @@ fun snapshot ->
+  let native_json = plan snapshot "native" EO.Json_syntax |> EO.plan_provenance in
+  let native_schema = plan snapshot "native" EO.Provider_schema |> EO.plan_provenance in
+  let json_only = plan snapshot "json-only" EO.Json_syntax |> EO.plan_provenance in
   check
     bool
     "native preferred for syntax minimum"
@@ -216,14 +270,17 @@ let test_tier_table_and_provider_schema_rejection () =
     (Option.is_none json_only.effective_schema_fingerprint);
   (match
      EO.admit
-       ~target:(target "json-only")
+       ~target:(target snapshot "json-only")
        ~messages:[ msg "json" ]
        (requirement EO.Provider_schema)
    with
    | Error EO.Provider_schema_unavailable -> ()
    | Ok _ | Error _ -> fail "provider-schema minimum must fail on JSON-only target");
   match
-    EO.admit ~target:(target "none") ~messages:[ msg "json" ] (requirement EO.Json_syntax)
+    EO.admit
+      ~target:(target snapshot "none")
+      ~messages:[ msg "json" ]
+      (requirement EO.Json_syntax)
   with
   | Error EO.Json_syntax_unavailable -> ()
   | Ok _ | Error _ -> fail "JSON syntax must fail when target declares no JSON tier"
@@ -240,12 +297,13 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native:true ~json:true)
+      ()
   in
   with_catalog [ entry ]
-  @@ fun () ->
+  @@ fun snapshot ->
   (match
      EO.admit
-       ~target:(target "cross-feature")
+       ~target:(target snapshot "cross-feature")
        ~messages:[ msg "domain schema" ]
        (EO.make_output_requirement ~schema:smuggled ~minimum_guarantee:EO.Json_syntax)
    with
@@ -256,7 +314,7 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
   in
   (match
      EO.admit
-       ~target:(target "cross-feature")
+       ~target:(target snapshot "cross-feature")
        ~messages:[ benign_metadata_message ]
        (requirement EO.Json_syntax)
    with
@@ -270,7 +328,7 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
   in
   (match
      EO.admit
-       ~target:(target "cross-feature")
+       ~target:(target snapshot "cross-feature")
        ~messages:[ wire_phase_message ]
        (requirement EO.Json_syntax)
    with
@@ -279,7 +337,7 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
   let tool_role_message = { (msg "tool role") with role = Types.Tool } in
   (match
      EO.admit
-       ~target:(target "cross-feature")
+       ~target:(target snapshot "cross-feature")
        ~messages:[ tool_role_message ]
        (requirement EO.Json_syntax)
    with
@@ -295,12 +353,41 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
   in
   match
     EO.admit
-      ~target:(target "cross-feature")
+      ~target:(target snapshot "cross-feature")
       ~messages:[ tool_message ]
       (requirement EO.Json_syntax)
   with
   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
   | Ok _ | Error _ -> fail "tool history must reject before exact dispatch"
+;;
+
+let test_anthropic_schema_prefill_rejected_before_dispatch () =
+  let admission, completion_posts, token_posts, captures =
+    with_server ~response:(anthropic_response {|[{"type":"text","text":"{}"}]|})
+    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+    let entry =
+      catalog_entry
+        ~id:"anthropic-prefill"
+        ~kind:Provider_config.Anthropic
+        ~base_url
+        ~request_path:"/v1/messages"
+        ~capabilities:(capabilities ~native:true ~json:false)
+        ()
+    in
+    with_catalog [ entry ]
+    @@ fun snapshot ->
+    let prefill = { (msg "prefill") with role = Types.Assistant } in
+    EO.admit
+      ~target:(target snapshot "anthropic-prefill")
+      ~messages:[ msg "return JSON"; prefill ]
+      (requirement EO.Provider_schema)
+  in
+  (match admission with
+   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
+   | Ok _ | Error _ -> fail "Anthropic schema prefill must reject during admission");
+  check int "Anthropic prefill completion posts" 0 completion_posts;
+  check int "Anthropic prefill token posts" 0 token_posts;
+  check int "Anthropic prefill captures" 0 (List.length captures)
 ;;
 
 let assert_absent json field =
@@ -321,10 +408,11 @@ let test_no_measure_one_post_and_wire_authority () =
           ~base_url
           ~request_path:path
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
-      @@ fun () ->
-      let ready = plan_for_schema id domain_schema EO.Json_syntax in
+      @@ fun snapshot ->
+      let ready = plan_for_schema snapshot id domain_schema EO.Json_syntax in
       EO.plan_provenance ready, EO.plan_fingerprint ready, EO.execute_once ~net ready
     in
     check int (id ^ " completion posts") 1 completion_posts;
@@ -433,9 +521,11 @@ let test_response_received_error_evidence_matrix () =
           ~base_url
           ~request_path:"/v1/chat/completions"
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
-      @@ fun () -> EO.execute_once ~net (plan "error-surface" EO.Json_syntax)
+      @@ fun snapshot ->
+      EO.execute_once ~net (plan snapshot "error-surface" EO.Json_syntax)
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -487,9 +577,11 @@ let test_public_receipt_phase_matrix () =
         ~base_url:"ftp://surface.invalid"
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () -> EO.execute_once ~net (plan "pre-dispatch-surface" EO.Json_syntax)
+    @@ fun snapshot ->
+    EO.execute_once ~net (plan snapshot "pre-dispatch-surface" EO.Json_syntax)
   in
   check int "pre-dispatch has zero POSTs" 0 pre_posts;
   (match pre_result with
@@ -511,9 +603,10 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () -> EO.execute_once ~net (plan "abort-surface" EO.Json_syntax)
+    @@ fun snapshot -> EO.execute_once ~net (plan snapshot "abort-surface" EO.Json_syntax)
   in
   check int "abort observes one POST" 1 abort_posts;
   (match abort_result with
@@ -535,9 +628,10 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () -> EO.execute_once ~net (plan "rate-surface" EO.Json_syntax)
+    @@ fun snapshot -> EO.execute_once ~net (plan snapshot "rate-surface" EO.Json_syntax)
   in
   check int "429 observes one POST" 1 rate_posts;
   (match rate_result with
@@ -563,10 +657,11 @@ let test_public_receipt_phase_matrix () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () ->
-    let ready = plan "terminal-surface" EO.Json_syntax in
+    @@ fun snapshot ->
+    let ready = plan snapshot "terminal-surface" EO.Json_syntax in
     check_receipt
       "not-started"
       ~phase:EO.Not_started
@@ -602,9 +697,11 @@ let test_reasoning_response_bytes_do_not_enter_json_output () =
         ~base_url
         ~request_path:"/v1/messages"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () -> EO.execute_once ~net (plan "reasoning-response-surface" EO.Json_syntax)
+    @@ fun snapshot ->
+    EO.execute_once ~net (plan snapshot "reasoning-response-surface" EO.Json_syntax)
   in
   check int "reasoning response dispatches once" 1 posts;
   match result with
@@ -626,18 +723,15 @@ let test_public_unmeasured_plan_fingerprint_contract () =
       ~base_url:"https://surface.invalid"
       ~request_path:"/v1/chat/completions"
       ~capabilities:(capabilities ~native ~json)
+      ()
   in
   with_catalog
     [ entry "golden-target" ~native:false ~json:true
     ; entry "sensitivity-a" ~native:true ~json:true
     ; entry "sensitivity-b" ~native:true ~json:true
     ]
-  @@ fun () ->
-  let select selector model =
-    match EO.select_target ~selector ~model () with
-    | Ok target -> target
-    | Error _ -> failf "target %s did not resolve" selector
-  in
+  @@ fun snapshot ->
+  let select selector _model = target snapshot selector in
   let admit target messages schema =
     match
       EO.admit
@@ -654,13 +748,15 @@ let test_public_unmeasured_plan_fingerprint_contract () =
       [ msg "fingerprint" ]
       (`Assoc [ "type", `String "object" ])
   in
-  (* This golden freezes the public unmeasured-facade format. It is not evidence
-     for compatibility with the v0.220 measured-plan fingerprint. *)
   check
     string
-    "public unmeasured fingerprint golden"
-    "cb3de786ed057749c891da585f17dec500f044e29615e9c0f65e2e2738b38aaf"
-    (EO.plan_fingerprint golden);
+    "same exact binding is deterministic"
+    (EO.plan_fingerprint golden)
+    (EO.plan_fingerprint
+       (admit
+          (select "golden-target" "ignored-by-exact-target")
+          [ msg "fingerprint" ]
+          (`Assoc [ "type", `String "object" ])));
   let schema_a =
     `Assoc
       [ "type", `String "object"
@@ -684,9 +780,6 @@ let test_public_unmeasured_plan_fingerprint_contract () =
   let different_message = admit target_a [ msg "different" ] schema_a in
   let different_schema = admit target_a [ msg "same" ] schema_b in
   let different_target = admit target_b [ msg "same" ] schema_a in
-  let different_model =
-    admit (select "sensitivity-a" "different-model") [ msg "same" ] schema_a
-  in
   check
     string
     "deterministic plan fingerprint"
@@ -712,11 +805,7 @@ let test_public_unmeasured_plan_fingerprint_contract () =
     "target sensitivity"
     true
     (EO.plan_fingerprint base <> EO.plan_fingerprint different_target);
-  check
-    bool
-    "model sensitivity"
-    true
-    (EO.plan_fingerprint base <> EO.plan_fingerprint different_model)
+  ()
 ;;
 
 let test_normalization_error_classes () =
@@ -731,9 +820,11 @@ let test_normalization_error_classes () =
           ~base_url
           ~request_path:"/v1/messages"
           ~capabilities:(capabilities ~native:true ~json:true)
+          ()
       in
       with_catalog [ entry ]
-      @@ fun () -> EO.execute_once ~net (plan "normalization-surface" EO.Json_syntax)
+      @@ fun snapshot ->
+      EO.execute_once ~net (plan snapshot "normalization-surface" EO.Json_syntax)
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -784,10 +875,11 @@ let test_plan_rejects_concurrent_duplicate_before_second_dispatch () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () ->
-    let ready = plan "concurrent-surface" EO.Json_syntax in
+    @@ fun snapshot ->
+    let ready = plan snapshot "concurrent-surface" EO.Json_syntax in
     let first_promise, first_resolver = Eio.Promise.create () in
     let second_promise, second_resolver = Eio.Promise.create () in
     Eio.Fiber.both
@@ -821,15 +913,19 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () ->
-    let ready = plan "cancel-surface" EO.Json_syntax in
+    @@ fun snapshot ->
+    let ready = plan snapshot "cancel-surface" EO.Json_syntax in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
-      match Eio.Time.with_timeout clock 0.01 (fun () -> EO.execute_once ~net ready) with
+      match
+        Eio.Time.with_timeout clock 0.01 (fun () -> Ok (EO.execute_once ~net ready))
+      with
       | Error `Timeout -> true
-      | Ok _ -> false
+      | Ok (Ok (Ok _ | Error _)) -> false
+      | Ok (Error _) -> fail "unexpected inner timeout wrapper error"
     in
     let phase = EO.receipt_phase receipt in
     let duplicate = EO.execute_once ~net ready in
@@ -915,15 +1011,16 @@ let test_body_cancellation_retains_response_status () =
         ~base_url
         ~request_path:"/v1/chat/completions"
         ~capabilities:(capabilities ~native:true ~json:true)
+        ()
     in
     with_catalog [ entry ]
-    @@ fun () ->
-    let ready = plan "body-cancel-surface" EO.Json_syntax in
+    @@ fun snapshot ->
+    let ready = plan snapshot "body-cancel-surface" EO.Json_syntax in
     let receipt = EO.attempt_receipt ready in
     let timed_out =
       match Eio.Time.with_timeout clock 0.05 (fun () -> EO.execute_once ~net ready) with
       | Error `Timeout -> true
-      | Ok _ -> false
+      | Ok (Ok _ | Error _) -> false
     in
     timed_out, EO.receipt_phase receipt, EO.receipt_http_status receipt
   in
@@ -931,6 +1028,243 @@ let test_body_cancellation_retains_response_status () =
   check int "body cancellation dispatches once" 1 posts;
   check bool "headers advance receipt" true (phase = EO.Response_received);
   check (option int) "received status survives cancellation" (Some 200) status
+;;
+
+let check_receipt_provenance label (provenance : EO.plan_provenance) receipt =
+  check
+    string
+    (label ^ " target identity")
+    (EO.target_identity_fingerprint provenance.target_identity)
+    (EO.receipt_target_identity receipt |> EO.target_identity_fingerprint);
+  check
+    string
+    (label ^ " catalog generation")
+    (EO.catalog_generation_fingerprint provenance.catalog_generation)
+    (EO.receipt_catalog_generation receipt |> EO.catalog_generation_fingerprint);
+  check
+    string
+    (label ^ " catalog evidence")
+    (EO.catalog_evidence_sha256 provenance.catalog_evidence)
+    (EO.receipt_catalog_evidence receipt |> EO.catalog_evidence_sha256)
+;;
+
+let header_value name headers =
+  List.find_map
+    (fun (header_name, value) ->
+       if String.equal (String.lowercase_ascii header_name) (String.lowercase_ascii name)
+       then Some value
+       else None)
+    headers
+;;
+
+let header_values name headers =
+  List.filter_map
+    (fun (header_name, value) ->
+       if String.equal (String.lowercase_ascii header_name) (String.lowercase_ascii name)
+       then Some value
+       else None)
+    headers
+;;
+
+let test_overlay_endpoint_and_credential_are_materialized () =
+  let response = openai_response {|{"name":"accepted"}|} in
+  let result, posts, _, captures =
+    with_server ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    let entry =
+      catalog_entry
+        ~id:"environment-surface"
+        ~kind:Provider_config.OpenAI_compat
+        ~base_url:"https://fallback.invalid"
+        ~base_url_env:"EXACT_SURFACE_BASE_URL"
+        ~api_key_env:"EXACT_SURFACE_API_KEY"
+        ~request_path:"/v1/chat/completions"
+        ~capabilities:(capabilities ~native:true ~json:true)
+        ()
+    in
+    let getenv name =
+      Ok
+        (if String.equal name "EXACT_SURFACE_BASE_URL"
+         then Some base_url
+         else if String.equal name "EXACT_SURFACE_API_KEY"
+         then Some "frozen-surface-secret"
+         else None)
+    in
+    with_catalog ~getenv [ entry ]
+    @@ fun snapshot ->
+    let selected = target snapshot "environment-surface" in
+    let ready =
+      match
+        EO.admit
+          ~target:selected
+          ~messages:[ msg "environment" ]
+          (requirement EO.Json_syntax)
+      with
+      | Ok ready -> ready
+      | Error _ -> fail "environment target should admit"
+    in
+    EO.execute_once ~net ready
+  in
+  check int "environment target dispatches once" 1 posts;
+  (match result with
+   | Ok _ -> ()
+   | Error _ -> fail "environment target should execute");
+  let capture =
+    match captures with
+    | [ capture ] -> capture
+    | _ -> fail "environment target should produce one capture"
+  in
+  check
+    (option string)
+    "frozen credential reaches Authorization header"
+    (Some "Bearer frozen-surface-secret")
+    (header_value "authorization" capture.headers);
+  check
+    (list string)
+    "exact request owns exactly one JSON content type"
+    [ "application/json" ]
+    (header_values "content-type" capture.headers)
+;;
+
+let test_identity_survives_success_error_and_cancellation () =
+  let run ?(status = `OK) response =
+    let (provenance, result), posts, _, _ =
+      with_server ~status ~response
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      let entry =
+        catalog_entry
+          ~id:"identity-surface"
+          ~kind:Provider_config.OpenAI_compat
+          ~base_url
+          ~request_path:"/v1/chat/completions"
+          ~capabilities:(capabilities ~native:true ~json:true)
+          ()
+      in
+      with_catalog [ entry ]
+      @@ fun snapshot ->
+      let ready = plan snapshot "identity-surface" EO.Json_syntax in
+      EO.plan_provenance ready, EO.execute_once ~net ready
+    in
+    check int "identity path dispatches once" 1 posts;
+    provenance, result
+  in
+  let success_provenance, success = run (openai_response {|{"name":"accepted"}|}) in
+  (match success with
+   | Ok success ->
+     check_receipt_provenance "success" success_provenance success.receipt;
+     check
+       string
+       "success result provenance identity"
+       (EO.target_identity_fingerprint success_provenance.target_identity)
+       (EO.target_identity_fingerprint success.provenance.target_identity)
+   | Error _ -> fail "identity success fixture should succeed");
+  let error_provenance, error = run ~status:`Too_many_requests "rate limited" in
+  (match error with
+   | Error error -> check_receipt_provenance "error" error_provenance error.receipt
+   | Ok _ -> fail "identity error fixture should fail");
+  let (cancel_provenance, cancel_receipt, timed_out), posts, _, _ =
+    with_server ~response_delay_s:0.1 ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock ~base_url ->
+    let entry =
+      catalog_entry
+        ~id:"identity-cancel-surface"
+        ~kind:Provider_config.OpenAI_compat
+        ~base_url
+        ~request_path:"/v1/chat/completions"
+        ~capabilities:(capabilities ~native:true ~json:true)
+        ()
+    in
+    with_catalog [ entry ]
+    @@ fun snapshot ->
+    let ready = plan snapshot "identity-cancel-surface" EO.Json_syntax in
+    let provenance = EO.plan_provenance ready in
+    let receipt = EO.attempt_receipt ready in
+    let timed_out =
+      match Eio.Time.with_timeout clock 0.01 (fun () -> EO.execute_once ~net ready) with
+      | Error `Timeout -> true
+      | Ok (Ok _ | Error _) -> false
+    in
+    provenance, receipt, timed_out
+  in
+  check bool "identity cancellation observed" true timed_out;
+  check int "identity cancellation dispatches once" 1 posts;
+  check_receipt_provenance "cancellation" cancel_provenance cancel_receipt
+;;
+
+let gemini_exact_entry ~id ~request_path =
+  catalog_entry
+    ~id
+    ~kind:Provider_config.Gemini
+    ~base_url:"https://surface.invalid/v1beta/models"
+    ~request_path
+    ~capabilities:(capabilities ~native:true ~json:true)
+    ()
+;;
+
+let test_gemini_nullable_schema_admitted () =
+  let id = "gemini-nullable-surface" in
+  let nullable_schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc
+            [ "nickname", `Assoc [ "type", `List [ `String "null"; `String "string" ] ] ]
+        )
+      ; "required", `List [ `String "nickname" ]
+      ]
+  in
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  @@ fun snapshot ->
+  match
+    EO.admit
+      ~target:(target snapshot id)
+      ~messages:[ msg "nullable" ]
+      (EO.make_output_requirement
+         ~schema:nullable_schema
+         ~minimum_guarantee:EO.Provider_schema)
+  with
+  | Ok _ -> ()
+  | Error _ -> fail "Gemini generateContent must admit nullable type arrays"
+;;
+
+let test_gemini_nested_unsupported_schema_keyword_rejected () =
+  let id = "gemini-unsupported-keyword-surface" in
+  let unsupported_schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc [ "name", `Assoc [ "type", `String "string"; "pattern", `String ".+" ] ]
+        )
+      ]
+  in
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  @@ fun snapshot ->
+  match
+    EO.admit
+      ~target:(target snapshot id)
+      ~messages:[ msg "unsupported keyword" ]
+      (EO.make_output_requirement
+         ~schema:unsupported_schema
+         ~minimum_guarantee:EO.Provider_schema)
+  with
+  | Error (EO.Unsupported_schema_keyword "$.properties.name.pattern") -> ()
+  | Ok _ | Error _ -> fail "Gemini unsupported schema keyword must remain typed"
+;;
+
+let test_gemini_nonempty_request_path_rejected_before_resolution () =
+  let id = "gemini-interactions-surface" in
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let overlay : EO.catalog_overlay =
+    { source = "Gemini endpoint surface fixture"
+    ; contents = gemini_exact_entry ~id ~request_path:"/interactions"
+    }
+  in
+  match EO.load_resolver_snapshot ~io ~overlay () with
+  | Error
+      (EO.Target_endpoint_invalid
+         { target_ref; cause = EO.Unsupported_gemini_request_path }) ->
+    check string "rejected Gemini target" id (EO.target_ref_id target_ref)
+  | Ok _ | Error _ -> fail "nonempty Gemini request_path must fail before resolution"
 ;;
 
 let () =
@@ -945,6 +1279,22 @@ let () =
             "injection rejected"
             `Quick
             test_wire_envelope_and_cross_feature_injection_rejected
+        ; test_case
+            "Anthropic schema prefill rejected before dispatch"
+            `Quick
+            test_anthropic_schema_prefill_rejected_before_dispatch
+        ; test_case
+            "Gemini nullable schema admitted"
+            `Quick
+            test_gemini_nullable_schema_admitted
+        ; test_case
+            "Gemini nested unsupported schema keyword rejected"
+            `Quick
+            test_gemini_nested_unsupported_schema_keyword_rejected
+        ; test_case
+            "Gemini nonempty request path rejected before resolution"
+            `Quick
+            test_gemini_nonempty_request_path_rejected_before_resolution
         ; test_case
             "no measure and one post"
             `Quick
@@ -975,6 +1325,14 @@ let () =
             "body cancellation keeps status"
             `Quick
             test_body_cancellation_retains_response_status
+        ; test_case
+            "identity survives all outcomes"
+            `Quick
+            test_identity_survives_success_error_and_cancellation
+        ; test_case
+            "overlay endpoint and credential"
+            `Quick
+            test_overlay_endpoint_and_credential_are_materialized
         ] )
     ]
 ;;

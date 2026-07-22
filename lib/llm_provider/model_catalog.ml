@@ -687,8 +687,8 @@ let parse_catalog ~source parse =
       Error (Printf.sprintf "cannot read model catalog %s: %s" source msg)
     | Otoml.Parse_error (_pos, msg) ->
       Error (Printf.sprintf "model catalog TOML parse error in %s: %s" source msg)
-    | Failure msg ->
-      Error (Printf.sprintf "model catalog TOML failure in %s: %s" source msg)
+    | Otoml.Type_error _ ->
+      Error (Printf.sprintf "model catalog TOML type error in %s" source)
   in
   match parse_res with
   | Error _ as e -> e

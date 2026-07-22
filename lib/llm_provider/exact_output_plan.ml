@@ -14,7 +14,11 @@ type output_admission_error =
   | Global_admission_not_allowed
   | Invalid_connect_timeout of float
   | Invalid_body_timeout of float
-  | Caller_supplied_framing_header_not_allowed of string
+  | Caller_supplied_header_not_allowed of string
+  | Unsupported_image_input
+  | Unsupported_document_input
+  | Unsupported_audio_input
+  | Unsupported_system_prompt
   | Provider_request_rejected of Http_client.http_error
   | Request_serialization_rejected of Http_client.http_error
 
@@ -58,6 +62,8 @@ type admission =
   | Unmeasured of
       { config : Provider_config.t
       ; messages : Types.message list
+      ; body_timeout_s : float option
+      ; anthropic_thinking_control : Capabilities.anthropic_thinking_control option
       }
 
 type admission_basis =
@@ -126,6 +132,23 @@ let contains_reserved_response_phase_metadata metadata =
     metadata
 ;;
 
+let uses_anthropic_schema_prefill (config : Provider_config.t) messages =
+  match config.kind, config.response_format, List.rev messages with
+  | ( Provider_config.Anthropic
+    , Types.JsonSchema _
+    , ({ role = Types.Assistant; _ } : Types.message) :: _ ) -> true
+  | Provider_config.Anthropic, Types.JsonSchema _, _ -> false
+  | Provider_config.Anthropic, (Types.Off | Types.JsonMode), _
+  | ( ( Provider_config.Kimi
+      | Provider_config.OpenAI_compat
+      | Provider_config.Ollama
+      | Provider_config.Gemini
+      | Provider_config.Glm
+      | Provider_config.DashScope )
+    , _
+    , _ ) -> false
+;;
+
 let request_uses_exact_cross_feature (request : Llm_transport.completion_request) =
   let config = request.config in
   request.tools <> []
@@ -139,6 +162,7 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
   || Option.is_some config.thinking_budget
   || Option.is_some config.reasoning_effort
   || Option.is_some config.clear_thinking
+  || uses_anthropic_schema_prefill config request.messages
   || List.exists
        (fun (message : Types.message) ->
           message.role = Types.Tool
@@ -147,29 +171,58 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
        request.messages
 ;;
 
-let header_name_equal left right =
-  String.equal (String.lowercase_ascii left) (String.lowercase_ascii right)
+let caller_supplied_header_name = function
+  | [] -> None
+  | (name, _) :: _ -> Some name
 ;;
 
-let forbidden_framing_headers =
-  [ "connection"
-  ; "content-length"
-  ; "expect"
-  ; "keep-alive"
-  ; "proxy-authenticate"
-  ; "proxy-authorization"
-  ; "proxy-connection"
-  ; "te"
-  ; "trailer"
-  ; "transfer-encoding"
-  ; "upgrade"
-  ]
+let rec content_capability_rejection capabilities = function
+  | [] -> None
+  | Types.Image _ :: _ when not capabilities.Capabilities.supports_image_input ->
+    Some Unsupported_image_input
+  | Types.Document _ :: _ when not capabilities.Capabilities.supports_document_input ->
+    Some Unsupported_document_input
+  | Types.Audio _ :: _ ->
+    (* No provider-neutral audio representability contract is frozen into an
+       exact plan yet. Generic audio capability alone is insufficient. *)
+    Some Unsupported_audio_input
+  | Types.ToolResult { content_blocks = Some blocks; _ } :: rest ->
+    (match content_capability_rejection capabilities blocks with
+     | Some _ as rejection -> rejection
+     | None -> content_capability_rejection capabilities rest)
+  | ( Types.Text _
+    | Types.Thinking _
+    | Types.ReasoningDetails _
+    | Types.RedactedThinking _
+    | Types.ToolUse _
+    | Types.ToolResult _
+    | Types.Image _
+    | Types.Document _ )
+    :: rest -> content_capability_rejection capabilities rest
 ;;
 
-let caller_supplied_framing_header headers =
-  List.find_map
-    (fun (name, _) -> forbidden_framing_headers |> List.find_opt (header_name_equal name))
-    headers
+let request_capability_rejection
+      (config : Provider_config.t)
+      (capabilities : Capabilities.capabilities)
+      messages
+  =
+  let has_system_prompt =
+    match config.system_prompt with
+    | Some value -> not (Api_common.string_is_blank value)
+    | None -> false
+  in
+  if
+    (not capabilities.supports_system_prompt)
+    && (has_system_prompt
+        || List.exists
+             (fun (message : Types.message) -> message.role = Types.System)
+             messages)
+  then Some Unsupported_system_prompt
+  else
+    List.find_map
+      (fun (message : Types.message) ->
+         content_capability_rejection capabilities message.content)
+      messages
 ;;
 
 let add_part buffer value =
@@ -181,6 +234,18 @@ let add_part buffer value =
 let option_float = function
   | None -> "none"
   | Some value -> Printf.sprintf "some:%.17g" value
+;;
+
+let credential_header name =
+  List.mem
+    (String.lowercase_ascii name)
+    [ "authorization"
+    ; "proxy-authorization"
+    ; "x-api-key"
+    ; "x-goog-api-key"
+    ; "cookie"
+    ; "set-cookie"
+    ]
 ;;
 
 let plan_fingerprint
@@ -221,7 +286,7 @@ let plan_fingerprint
   List.iter
     (fun (name, value) ->
        add_part material name;
-       add_part material value)
+       add_part material (if credential_header name then "<redacted>" else value))
     wire.headers;
   Fingerprint (sha256 (Buffer.contents material))
 ;;
@@ -246,7 +311,7 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
-let admit_prepared ~admission_basis prepared =
+let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
   let request = Prepared_completion_request.request prepared in
   let original_config = request.config in
   match original_config.model_capabilities_override with
@@ -270,46 +335,52 @@ let admit_prepared ~admission_basis prepared =
       Error
         (Unsupported_output_contract
            { provider_kind = config.kind; model_id = config.model_id; response_format })
-    else if
-      Option.is_some (caller_supplied_framing_header (config.headers @ auth_headers))
-    then
-      Error
-        (Caller_supplied_framing_header_not_allowed
-           (Option.get (caller_supplied_framing_header (config.headers @ auth_headers))))
     else (
-      match Complete_common.validate_all config with
-      | Error error -> Error (Provider_request_rejected error)
-      | Ok () ->
-        (match
-           Complete_common.serialize_http_request
-             ~stream:false
-             ~config
-             ~messages:request.messages
-             ~tools:request.tools
-         with
-         | Error error -> Error (Request_serialization_rejected error)
-         | Ok (response_codec, body) ->
-           let body_sha256 = sha256 body in
-           let headers =
-             config.headers
-             @ auth_headers
-             @ [ "Content-Length", string_of_int (String.length body) ]
-           in
-           let wire =
-             { response_codec
-             ; provider_kind = config.kind
-             ; url = request_url config
-             ; headers
-             ; body
-             ; body_sha256
-             ; connect_timeout_s = config.connect_timeout_s
-             ; body_timeout_s = request.body_timeout_s
-             }
-           in
-           let fingerprint =
-             plan_fingerprint ~config ~capabilities ~wire ~admission_basis
-           in
-           Ok { response_format; wire; fingerprint }))
+      match request_capability_rejection config capabilities request.messages with
+      | Some rejection -> Error rejection
+      | None ->
+        (match caller_supplied_header_name config.headers with
+         | Some name -> Error (Caller_supplied_header_not_allowed name)
+         | None ->
+           (match
+              Complete_common.validate_all_with_thinking_control
+                ~anthropic_thinking_control
+                config
+            with
+            | Error error -> Error (Provider_request_rejected error)
+            | Ok () ->
+              (match
+                 Complete_common.serialize_http_request_with_thinking_control
+                   ~stream:false
+                   ~anthropic_thinking_control
+                   ~config
+                   ~messages:request.messages
+                   ~tools:request.tools
+               with
+               | Error error -> Error (Request_serialization_rejected error)
+               | Ok (response_codec, body) ->
+                 let body_sha256 = sha256 body in
+                 let headers =
+                   auth_headers
+                   @ [ "Content-Type", "application/json"
+                     ; "Content-Length", string_of_int (String.length body)
+                     ]
+                 in
+                 let wire =
+                   { response_codec
+                   ; provider_kind = config.kind
+                   ; url = request_url config
+                   ; headers
+                   ; body
+                   ; body_sha256
+                   ; connect_timeout_s = config.connect_timeout_s
+                   ; body_timeout_s = request.body_timeout_s
+                   }
+                 in
+                 let fingerprint =
+                   plan_fingerprint ~config ~capabilities ~wire ~admission_basis
+                 in
+                 Ok { response_format; wire; fingerprint }))))
 ;;
 
 let admit = function
@@ -317,10 +388,13 @@ let admit = function
     admit_prepared
       ~admission_basis:
         (Measured_context_fit (Prepared_completion_request.admitted_fit admitted))
+      ~anthropic_thinking_control:None
       (Prepared_completion_request.admitted_request admitted)
-  | Unmeasured { config; messages } ->
-    Prepared_completion_request.prepare ~config ~messages ()
-    |> admit_prepared ~admission_basis:Token_measurement_not_required
+  | Unmeasured { config; messages; body_timeout_s; anthropic_thinking_control } ->
+    Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
+    |> admit_prepared
+         ~admission_basis:Token_measurement_not_required
+         ~anthropic_thinking_control
 ;;
 
 let fingerprint plan = plan.fingerprint

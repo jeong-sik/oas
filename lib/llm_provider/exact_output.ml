@@ -2,6 +2,7 @@ module Plan = Exact_output_plan
 module Exec = Exact_output_execution
 module Caps = Capabilities
 module PC = Provider_config
+include Exact_output_resolver
 
 type schema_fingerprint = Schema_fingerprint of string
 type domain_schema = Domain_schema of Yojson.Safe.t
@@ -14,11 +15,6 @@ type actual_assurance =
   | Json_syntax_only
   | Provider_schema_requested
 
-type selected_target =
-  { config : PC.t
-  ; capabilities : Caps.capabilities
-  }
-
 type output_requirement =
   { schema : domain_schema
   ; source_schema_fingerprint : schema_fingerprint
@@ -29,6 +25,9 @@ type plan_provenance =
   { source_schema_fingerprint : schema_fingerprint
   ; effective_schema_fingerprint : schema_fingerprint option
   ; actual_assurance : actual_assurance
+  ; catalog_generation : catalog_generation
+  ; catalog_evidence : catalog_evidence
+  ; target_identity : target_identity
   }
 
 type attempt_state =
@@ -42,6 +41,9 @@ type receipt =
   { state : attempt_state Atomic.t
   ; plan_fingerprint : string
   ; request_body_sha256 : string
+  ; catalog_generation : catalog_generation
+  ; catalog_evidence : catalog_evidence
+  ; target_identity : target_identity
   }
 
 type ready_plan =
@@ -49,14 +51,6 @@ type ready_plan =
   ; provenance : plan_provenance
   ; receipt : receipt
   }
-
-type target_selection_error =
-  | Unknown_target of string
-  | Missing_target_model of { selector : string }
-  | Missing_target_credential of
-      { selector : string
-      ; environment_variable : string
-      }
 
 type wire_admission_error =
   | Capability_snapshot_missing
@@ -66,13 +60,20 @@ type wire_admission_error =
   | Global_admission_not_allowed
   | Invalid_connect_timeout
   | Invalid_body_timeout
-  | Framing_header_not_allowed
+  | Caller_supplied_header_not_allowed
+  | Unsupported_image_input
+  | Unsupported_document_input
+  | Unsupported_audio_input
+  | Unsupported_system_prompt
   | Target_request_rejected
   | Request_serialization_rejected
 
 type admission_error =
   | Provider_schema_unavailable
   | Json_syntax_unavailable
+  | Unsupported_schema_keyword of string
+  | Unsupported_schema_type of string
+  | Invalid_schema
   | Wire_admission_rejected of wire_admission_error
 
 type effect_phase =
@@ -141,67 +142,159 @@ let make_output_requirement ~schema ~minimum_guarantee =
   }
 ;;
 
-let credential_for_entry ~selector (entry : Provider_catalog.entry) =
-  match entry.auth with
-  | Provider_catalog.No_auth -> Ok ""
-  | Provider_catalog.Api_key_env environment_variable
-  | Provider_catalog.Setup_token_env environment_variable ->
-    (match Cli_common_env.get environment_variable with
-     | Some value -> Ok value
-     | None -> Error (Missing_target_credential { selector; environment_variable }))
+let gemini_schema_keywords =
+  [ "type"
+  ; "title"
+  ; "description"
+  ; "properties"
+  ; "required"
+  ; "additionalProperties"
+  ; "enum"
+  ; "format"
+  ; "minimum"
+  ; "maximum"
+  ; "items"
+  ; "prefixItems"
+  ; "minItems"
+  ; "maxItems"
+  ]
 ;;
 
-let trimmed_nonempty value =
-  let value = String.trim value in
-  if String.equal value "" then None else Some value
+let gemini_keywords_for_type = function
+  | "object" ->
+    [ "type"; "title"; "description"; "properties"; "required"; "additionalProperties" ]
+  | "string" -> [ "type"; "title"; "description"; "enum"; "format" ]
+  | "number" | "integer" ->
+    [ "type"; "title"; "description"; "enum"; "minimum"; "maximum" ]
+  | "array" ->
+    [ "type"; "title"; "description"; "items"; "prefixItems"; "minItems"; "maxItems" ]
+  | "boolean" | "null" -> [ "type"; "title"; "description" ]
+  | type_name -> raise_notrace (Invalid_argument type_name)
 ;;
 
-let select_target ~selector ?model () =
-  match Provider_catalog.global () with
-  | None -> Error (Unknown_target selector)
-  | Some catalog ->
-    (match Provider_catalog.lookup catalog selector with
-     | None -> Error (Unknown_target selector)
-     | Some entry ->
-       let model_id =
-         match Option.bind model trimmed_nonempty with
-         | Some model_id -> Some model_id
-         | None -> Option.bind entry.default_model trimmed_nonempty
-       in
-       (match model_id with
-        | None -> Error (Missing_target_model { selector })
-        | Some model_id ->
-          let* credential = credential_for_entry ~selector entry in
-          let capabilities =
-            match
-              Caps.for_provider_model_id
-                ~allow_bare_fallback:false
-                ~provider_label:entry.id
-                ~model_id
-            with
-            | Some capabilities -> capabilities
-            | None -> entry.capabilities
-          in
-          let request_path = Option.bind (Some entry.request_path) trimmed_nonempty in
-          let max_context = entry.max_context in
-          let config =
-            PC.make
-              ~kind:entry.kind
-              ~provider_id:entry.id
-              ~model_id
-              ~base_url:entry.base_url
-              ?request_path
-              ?max_context
-              ()
-          in
-          Ok
-            { config =
-                { config with
-                  api_key = Secret.of_string credential
-                ; model_capabilities_override = Some capabilities
-                }
-            ; capabilities
-            }))
+let assoc_keys_are_unique fields =
+  let keys = List.map fst fields in
+  List.length keys = List.length (List.sort_uniq String.compare keys)
+;;
+
+let json_number = function
+  | `Int _ | `Intlit _ | `Float _ -> true
+  | `Null | `Bool _ | `String _ | `Assoc _ | `List _ -> false
+;;
+
+let json_integer = function
+  | `Int _ | `Intlit _ -> true
+  | `Null | `Bool _ | `Float _ | `String _ | `Assoc _ | `List _ -> false
+;;
+
+let gemini_non_null_schema_types =
+  [ "string"; "number"; "integer"; "boolean"; "object"; "array" ]
+;;
+
+let gemini_schema_base_type = function
+  | Some (`String type_name)
+    when String.equal type_name "null" || List.mem type_name gemini_non_null_schema_types
+    -> Ok type_name
+  | Some (`String type_name) -> Error (Unsupported_schema_type type_name)
+  | Some (`List [ `String left; `String right ])
+    when String.equal left "null" && List.mem right gemini_non_null_schema_types ->
+    Ok right
+  | Some (`List [ `String left; `String right ])
+    when String.equal right "null" && List.mem left gemini_non_null_schema_types ->
+    Ok left
+  | Some (`List _) | Some _ | None -> Error Invalid_schema
+;;
+
+let rec validate_gemini_schema ~path = function
+  | `Assoc fields when assoc_keys_are_unique fields ->
+    (match
+       List.find_opt
+         (fun (keyword, _) -> not (List.mem keyword gemini_schema_keywords))
+         fields
+     with
+     | Some (keyword, _) -> Error (Unsupported_schema_keyword (path ^ "." ^ keyword))
+     | None ->
+       (match gemini_schema_base_type (List.assoc_opt "type" fields) with
+        | Ok type_name ->
+          let supported = gemini_keywords_for_type type_name in
+          (match
+             List.find_opt (fun (keyword, _) -> not (List.mem keyword supported)) fields
+           with
+           | Some (keyword, _) ->
+             Error (Unsupported_schema_keyword (path ^ "." ^ keyword))
+           | None -> validate_gemini_schema_fields ~path ~type_name fields)
+        | Error _ as error -> error))
+  | `Assoc _ | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+    Error Invalid_schema
+
+and validate_gemini_schema_fields ~path ~type_name fields =
+  let rec validate_all = function
+    | [] -> Ok ()
+    | field :: rest ->
+      let* () = validate_gemini_schema_field ~path ~type_name field in
+      validate_all rest
+  in
+  validate_all fields
+
+and validate_gemini_schema_field ~path ~type_name = function
+  | "type", (`String _ | `List _) -> Ok ()
+  | ("title" | "description"), `String _ -> Ok ()
+  | "properties", `Assoc properties
+    when String.equal type_name "object" && assoc_keys_are_unique properties ->
+    let rec validate = function
+      | [] -> Ok ()
+      | (name, schema) :: rest ->
+        let* () = validate_gemini_schema ~path:(path ^ ".properties." ^ name) schema in
+        validate rest
+    in
+    validate properties
+  | "required", `List names
+    when String.equal type_name "object"
+         && List.for_all
+              (function
+                | `String _ -> true
+                | _ -> false)
+              names -> Ok ()
+  | "additionalProperties", `Bool _ when String.equal type_name "object" -> Ok ()
+  | "additionalProperties", schema when String.equal type_name "object" ->
+    validate_gemini_schema ~path:(path ^ ".additionalProperties") schema
+  | "enum", `List values
+    when values <> []
+         && String.equal type_name "string"
+         && List.for_all
+              (function
+                | `String _ -> true
+                | _ -> false)
+              values -> Ok ()
+  | "enum", `List values
+    when values <> []
+         && String.equal type_name "number"
+         && List.for_all json_number values -> Ok ()
+  | "enum", `List values
+    when values <> []
+         && String.equal type_name "integer"
+         && List.for_all json_integer values -> Ok ()
+  | "format", `String _ when String.equal type_name "string" -> Ok ()
+  | ("minimum" | "maximum"), value
+    when (String.equal type_name "number" || String.equal type_name "integer")
+         && json_number value -> Ok ()
+  | "items", schema when String.equal type_name "array" ->
+    validate_gemini_schema ~path:(path ^ ".items") schema
+  | "prefixItems", `List schemas when String.equal type_name "array" ->
+    let rec validate index = function
+      | [] -> Ok ()
+      | schema :: rest ->
+        let* () =
+          validate_gemini_schema
+            ~path:(Printf.sprintf "%s.prefixItems[%d]" path index)
+            schema
+        in
+        validate (index + 1) rest
+    in
+    validate 0 schemas
+  | ("minItems" | "maxItems"), `Int value
+    when String.equal type_name "array" && value >= 0 -> Ok ()
+  | _ -> Error Invalid_schema
 ;;
 
 let schema_for_wire target (Domain_schema domain_schema) =
@@ -220,6 +313,12 @@ let response_format target requirement =
     Caps.structured_output_support target.capabilities, requirement.minimum_guarantee
   with
   | Caps.Native_json_schema, (Json_syntax | Provider_schema) ->
+    let* () =
+      match target.config.kind, requirement.schema with
+      | PC.Gemini, Domain_schema schema -> validate_gemini_schema ~path:"$" schema
+      | ( (PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope)
+        , Domain_schema _ ) -> Ok ()
+    in
     let wire_schema = schema_for_wire target requirement.schema in
     Ok
       ( Types.JsonSchema wire_schema
@@ -266,7 +365,11 @@ let wire_admission_error = function
   | Plan.Global_admission_not_allowed -> Global_admission_not_allowed
   | Plan.Invalid_connect_timeout _ -> Invalid_connect_timeout
   | Plan.Invalid_body_timeout _ -> Invalid_body_timeout
-  | Plan.Caller_supplied_framing_header_not_allowed _ -> Framing_header_not_allowed
+  | Plan.Caller_supplied_header_not_allowed _ -> Caller_supplied_header_not_allowed
+  | Plan.Unsupported_image_input -> Unsupported_image_input
+  | Plan.Unsupported_document_input -> Unsupported_document_input
+  | Plan.Unsupported_audio_input -> Unsupported_audio_input
+  | Plan.Unsupported_system_prompt -> Unsupported_system_prompt
   | Plan.Provider_request_rejected _ -> Target_request_rejected
   | Plan.Request_serialization_rejected _ -> Request_serialization_rejected
 ;;
@@ -275,20 +378,43 @@ let admit ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     response_format target requirement
   in
-  Plan.admit (Plan.Unmeasured { config = exact_config target response_format; messages })
+  Plan.admit
+    (Plan.Unmeasured
+       { config = exact_config target response_format
+       ; messages
+       ; body_timeout_s = target.body_timeout_s
+       ; anthropic_thinking_control = target.anthropic_thinking_control
+       })
   |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
   |> Result.map (fun plan ->
-    let plan_fingerprint = Plan.fingerprint plan |> Plan.fingerprint_to_string in
+    let request_body_sha256 = Plan.request_body_sha256 plan in
+    let plan_fingerprint =
+      hash_parts
+        [ "oas-exact-output-ready-plan-v2"
+        ; request_body_sha256
+        ; catalog_generation_fingerprint target.generation
+        ; target_identity_fingerprint target.identity
+        ; Provider_http_codec.fingerprint_tag (Plan.response_codec plan)
+        ; option_float (Plan.connect_timeout_s plan)
+        ; option_float (Plan.body_timeout_s plan)
+        ]
+    in
     { plan
     ; provenance =
         { source_schema_fingerprint = requirement.source_schema_fingerprint
         ; effective_schema_fingerprint
         ; actual_assurance
+        ; catalog_generation = target.generation
+        ; catalog_evidence = target.evidence
+        ; target_identity = target.identity
         }
     ; receipt =
         { state = Atomic.make Not_started_state
         ; plan_fingerprint
-        ; request_body_sha256 = Plan.request_body_sha256 plan
+        ; request_body_sha256
+        ; catalog_generation = target.generation
+        ; catalog_evidence = target.evidence
+        ; target_identity = target.identity
         }
     })
 ;;
@@ -321,6 +447,9 @@ let receipt_http_status receipt =
 
 let receipt_plan_fingerprint receipt = receipt.plan_fingerprint
 let receipt_request_body_sha256 receipt = receipt.request_body_sha256
+let receipt_catalog_generation receipt = receipt.catalog_generation
+let receipt_catalog_evidence receipt = receipt.catalog_evidence
+let receipt_target_identity receipt = receipt.target_identity
 
 let state_rank = function
   | Not_started_state -> 0

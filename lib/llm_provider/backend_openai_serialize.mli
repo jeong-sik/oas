@@ -64,7 +64,9 @@ val dialect_messages_of_history
     ambiguous correlation is returned explicitly so the HTTP serialization
     boundary can reject it. *)
 val ollama_messages_of_history
-  :  ?model_id:string
+  :  modality_priority:Modality.priority
+  -> supports_image_input:bool
+  -> supports_document_input:bool
   -> Types.message list
   -> (Yojson.Safe.t list, string) result
 
