@@ -1948,7 +1948,11 @@ max_output_tokens = 32000
 supports_tools = true
 supports_tool_choice = true
 supports_response_format_json = true
-supports_structured_output = true
+# Cohere's response_format enum is closed at {text, json_object}; there is no
+# json_schema type (docs.cohere.com Chat API v2, checked 2026-07-22). Declaring
+# native support would make OAS send a field Cohere does not define. Structured
+# output goes through the tool strategy, which sets no response_format.
+supports_structured_output = false
 supports_native_streaming = true
 
 # DashScope / Alibaba Models

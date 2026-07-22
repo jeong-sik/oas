@@ -505,6 +505,20 @@ let ollama_cloud_capabilities =
   { ollama_capabilities with supports_structured_output = false }
 ;;
 
+(* Cohere's OpenAI-compatible endpoint speaks the openai_compat chat wire, but
+   its response_format enum is closed at {text, json_object}: there is no
+   json_schema type. The v2 Chat API carries a schema INSIDE the json_object
+   variant, and it forbids response_format together with tools/documents.
+   Neither is the openai json_schema field the base preset advertises, so
+   inheriting supports_structured_output = true would make OAS send a field
+   Cohere does not define. Structured output on Cohere goes through the tool
+   strategy, which sets no response_format and so avoids the prohibition.
+   Ref: https://docs.cohere.com structured outputs + Chat API v2, checked
+   2026-07-22. *)
+let cohere_capabilities =
+  { openai_compat_chat_capabilities with supports_structured_output = false }
+;;
+
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
@@ -666,7 +680,7 @@ let capabilities_for_provider_label label =
      | "openai_compat_chat_extended" | "openai_chat_extended" ->
        Some openai_compat_chat_extended_capabilities
      | "xai" | "mistral" -> Some openai_compat_chat_extended_capabilities
-     | "cohere" -> Some openai_compat_chat_capabilities
+     | "cohere" -> Some cohere_capabilities
      | "mimo" -> Some mimo_capabilities
      | "ollama_cloud" -> Some ollama_cloud_capabilities
      | "nvidia" -> Some provider_l_capabilities

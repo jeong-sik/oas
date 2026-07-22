@@ -2841,6 +2841,19 @@ let test_glm_row_selects_tool_call_without_forced_choice () =
      = Ok (Structured_output_strategy.Tool_call Structured_output_strategy.Model_choice))
 ;;
 
+let test_cohere_selects_tool_call () =
+  (* Cohere has no native json_schema field and its compat endpoint carries
+     tools. The tool strategy sets no response_format, which also sidesteps
+     Cohere's documented "response_format not with tools" prohibition. *)
+  check
+    bool
+    "command-r-plus carries the schema as a tool, not a nonexistent json_schema field"
+    true
+    (match strategy_for "cohere" "command-r-plus" with
+     | Ok (Structured_output_strategy.Tool_call _) -> true
+     | Ok _ | Error _ -> false)
+;;
+
 let test_deepseek_row_selects_tool_call () =
   check
     bool
@@ -2858,6 +2871,75 @@ let test_no_declared_wire_is_an_error_not_a_guess () =
     true
     (Structured_output_strategy.select ~capabilities:Capabilities.default_capabilities
      = Error Structured_output_strategy.No_structured_output_path)
+;;
+
+(* ── Guard: vendor APIs with no native json_schema field ─────────
+
+   DeepSeek, DashScope, and Cohere each shipped a catalog row that resolved to
+   supports_structured_output = true while their official docs enumerate a
+   closed response_format.type set with no json_schema variant. Each was fixed
+   after the fact. This is the harness-level guard that turns a fourth
+   occurrence into a red test rather than a request that sends a field the API
+   does not define (CLAUDE.md: on the second fix of one root cause, move the
+   fix to the harness).
+
+   The list is the set of VENDOR-API provider labels whose first-party docs, as
+   of 2026-07-22, expose no native JSON-schema request field — verified by the
+   provider-docs sweep recorded in the RFC-OAS-039 evidence. It is not the set
+   of providers without structured output: all of these reach it through the
+   tool strategy, which sets no response_format. A self-hosted runtime (vLLM,
+   SGLang) serving one of these model families CAN add guided decoding, so this
+   guards provider-LABEL resolution, not bare model rows.
+
+   If a provider genuinely gains a native json_schema field, remove it from the
+   list with the doc link and date — do not add an override to route around
+   this test. *)
+let providers_without_native_json_schema =
+  [ "cohere"; "deepseek"; "dashscope"; "glm"; "zhipu"; "mimo"; "minimax"; "ollama_cloud" ]
+;;
+
+let test_no_native_schema_provider_label_resolves_true () =
+  List.iter
+    (fun label ->
+       match Capabilities.capabilities_for_provider_label label with
+       | None -> () (* label not recognized here is fine; it cannot claim true *)
+       | Some caps ->
+         check
+           bool
+           (Printf.sprintf
+              "%s must not advertise native structured output (docs enumerate \
+               no                json_schema field as of 2026-07-22)"
+              label)
+           false
+           caps.supports_structured_output)
+    providers_without_native_json_schema
+;;
+
+let test_no_native_schema_provider_scoped_catalog_row_resolves_true () =
+  (* Belt-and-suspenders over the label check: a provider-scoped catalog row
+     could override the preset back to true. Sweep the shipped catalog. *)
+  match Model_catalog.global () with
+  | None -> ()
+  | Some catalog ->
+    List.iter
+      (fun (entry : Model_catalog.model_entry) ->
+         match entry.provider_name with
+         | Some prov
+           when List.mem
+                  (String.lowercase_ascii (String.trim prov))
+                  providers_without_native_json_schema ->
+           (match entry.supports_structured_output with
+            | Some true ->
+              failf
+                "catalog row %s (provider_name=%s) declares supports_structured_output \
+                 =                  true, but that provider's docs expose no native \
+                 json_schema field as of                  2026-07-22; route it through \
+                 the tool strategy instead"
+                entry.id_prefix
+                prov
+            | Some false | None -> ())
+         | Some _ | None -> ())
+      (Model_catalog.model_entries catalog)
 ;;
 
 let () =
@@ -3194,6 +3276,16 @@ let () =
             `Quick
             test_aggregator_stays_fail_closed_for_the_same_model_id
         ] )
+    ; ( "native_schema_absence_guard"
+      , [ test_case
+            "no doc-absent provider label resolves to structured_output=true"
+            `Quick
+            test_no_native_schema_provider_label_resolves_true
+        ; test_case
+            "no doc-absent provider-scoped catalog row resolves to true"
+            `Quick
+            test_no_native_schema_provider_scoped_catalog_row_resolves_true
+        ] )
     ; ( "structured_output_strategy_routing"
       , [ test_case
             "openai/gpt-5.5 selects native json_schema"
@@ -3203,6 +3295,10 @@ let () =
             "glm-4.7-flash selects the model-chosen tool path"
             `Quick
             test_glm_row_selects_tool_call_without_forced_choice
+        ; test_case
+            "command-r-plus selects a tool path"
+            `Quick
+            test_cohere_selects_tool_call
         ; test_case
             "deepseek-v4-pro selects a tool path"
             `Quick

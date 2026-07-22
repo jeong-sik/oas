@@ -154,6 +154,7 @@ val openai_compat_chat_extended_capabilities : capabilities
 val gemini_capabilities : capabilities
 val ollama_capabilities : capabilities
 val ollama_cloud_capabilities : capabilities
+val cohere_capabilities : capabilities
 val dashscope_capabilities : capabilities
 val glm_capabilities : capabilities
 
