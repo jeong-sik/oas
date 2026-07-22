@@ -18,3 +18,6 @@ type t = private
     [Provider_config.OpenAI_compat]. Model and provider-name strings never
     select the codec. *)
 val of_config : Provider_config.t -> t
+
+(** Version-stable identifier for canonical request fingerprints. *)
+val fingerprint_tag : t -> string

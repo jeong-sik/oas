@@ -37,6 +37,93 @@ let%test "with_body_deadline does not relabel a nested timeout exception" =
   | (exception _) | Ok _ | Error _ -> false
 ;;
 
+let provider_parse_failure ?parser message =
+  Error
+    (Http_client.ProviderFailure
+       { kind = Http_client.Provider_parse_error { parser }; message })
+;;
+
+(** Parse one successful HTTP response using only the frozen wire codec and
+    provider kind. This function performs no request serialization, provider
+    lookup, pricing lookup, dispatch, or retry. *)
+let parse_sync_response ~http_codec ~provider_kind body =
+  try
+    match http_codec with
+    | Provider_http_codec.Anthropic_messages ->
+      Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
+    | Provider_http_codec.Ollama_chat ->
+      (match Backend_ollama.parse_ollama_response body with
+       | Ok response -> Ok response
+       | Error message ->
+         Error
+           (Http_client.HttpError
+              { code = 400; body = message; retry_after_header = None }))
+    | Provider_http_codec.Openai_responses ->
+      (match Backend_openai_responses.parse_response_result body with
+       | Ok response -> Ok response
+       | Error message ->
+         Error
+           (Http_client.HttpError
+              { code = 400; body = message; retry_after_header = None }))
+    | Provider_http_codec.Openai_chat ->
+      (match Backend_openai_parse.parse_openai_response_result body with
+       | Ok response -> Ok response
+       | Error (Backend_openai_parse.Provider_error message) ->
+         Error
+           (Http_client.HttpError
+              { code = 400; body = message; retry_after_header = None })
+       | Error (Backend_openai_parse.Empty_completion empty) ->
+         Error (Http_client.empty_completion_error ~stop_reason:empty.stop_reason))
+    | Provider_http_codec.Gemini_generate_content ->
+      Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
+    | Provider_http_codec.Glm_chat ->
+      (match Backend_glm.parse_response_result body with
+       | Ok response -> Ok response
+       | Error (Backend_openai_parse.Empty_completion empty) ->
+         Error (Http_client.empty_completion_error ~stop_reason:empty.stop_reason)
+       | Error (Backend_openai_parse.Provider_error message) ->
+         provider_parse_failure ~parser:"glm" message)
+  with
+  | Yojson.Json_error message
+  | Yojson.Safe.Util.Type_error (message, _)
+  | Yojson.Safe.Util.Undefined (message, _) ->
+    provider_parse_failure
+      ~parser:(Provider_config.string_of_provider_kind provider_kind)
+      message
+  | Backend_gemini.Gemini_api_error message ->
+    Error
+      (Http_client.HttpError
+         { code = 400
+         ; body = "Gemini API error: " ^ message
+         ; retry_after_header = None
+         })
+  | Backend_glm.Glm_api_error error ->
+    (match error.origin with
+     | Backend_glm.Response_parse ->
+       provider_parse_failure ~parser:"glm" error.message
+     | Backend_glm.Provider_response ->
+       let semantic_code =
+         Backend_glm.http_code_of_glm_error_class error.error_class
+       in
+       let body =
+         match error.code with
+         | Some code -> Printf.sprintf "Glm error %s: %s" code error.message
+         | None -> Printf.sprintf "Glm error without code: %s" error.message
+       in
+       Error
+         (Http_client.HttpError
+            { code = semantic_code; body; retry_after_header = None }))
+  | exn ->
+    Reserved_exn.reraise_if_reserved exn;
+    let message = Printexc.to_string exn in
+    Error
+      (Http_client.HttpError
+         { code = 500
+         ; body = "Unexpected parsing exception: " ^ message
+         ; retry_after_header = None
+         })
+;;
+
 let complete_http
       ~sw
       ~net
@@ -87,11 +174,6 @@ let complete_http
         match on_http_status with
         | Some cb -> cb ~provider:provider_name ~model_id:config.model_id ~status:code
         | None -> ()
-      in
-      let provider_parse_failure ?parser message =
-        Error
-          (Http_client.ProviderFailure
-             { kind = Http_client.Provider_parse_error { parser }; message })
       in
       let url =
         match config.kind with
@@ -177,118 +259,7 @@ let complete_http
            internal retries or body-parse fallbacks. *)
             emit_status code;
             if code >= 200 && code < 300
-            then (
-              try
-                match http_codec with
-                | Provider_http_codec.Anthropic_messages ->
-                  Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
-                | Provider_http_codec.Ollama_chat ->
-                  (match Backend_ollama.parse_ollama_response body with
-                   | Ok resp -> Ok resp
-                   | Error msg ->
-                     Error
-                       (Http_client.HttpError
-                          { code = 400; body = msg; retry_after_header = None }))
-                | Provider_http_codec.Openai_responses ->
-                  (match Backend_openai_responses.parse_response_result body with
-                   | Ok resp -> Ok resp
-                   | Error msg ->
-                     Error
-                       (Http_client.HttpError
-                          { code = 400; body = msg; retry_after_header = None }))
-                | Provider_http_codec.Openai_chat ->
-                  (match Backend_openai_parse.parse_openai_response_result body with
-                   | Ok resp -> Ok resp
-                   | Error (Backend_openai_parse.Provider_error msg) ->
-                     Error
-                       (Http_client.HttpError
-                          { code = 400; body = msg; retry_after_header = None })
-                   | Error (Backend_openai_parse.Empty_completion e) ->
-                     (* oas#2483: fail closed through the same typed transport
-                        fact as streaming. Policy remains downstream of the
-                        preserved [stop_reason]. *)
-                     Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason))
-                | Provider_http_codec.Gemini_generate_content ->
-                  Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
-                | Provider_http_codec.Glm_chat ->
-                  (match Backend_glm.parse_response_result body with
-                   | Ok resp -> Ok resp
-                   | Error (Backend_openai_parse.Empty_completion e) ->
-                     (* oas#2621 P1#2: mirror the Openai_chat seam so a GLM empty
-                        completion carries its typed [stop_reason] to the shared
-                        overflow classifier instead of collapsing to a
-                        stop_reason-less glm_parse_error. Policy stays downstream
-                        of the preserved [stop_reason]. *)
-                     Error (Http_client.empty_completion_error ~stop_reason:e.stop_reason)
-                   | Error (Backend_openai_parse.Provider_error msg) ->
-                     (* GLM attributes a response-body parse failure to the "glm"
-                        parser, identical to the prior Glm_api_error
-                        Response_parse routing. *)
-                     provider_parse_failure ~parser:"glm" msg)
-              with
-              | Yojson.Json_error msg ->
-                Diag.error "complete" "JSON parse error: %s" msg;
-                provider_parse_failure
-                  ~parser:(Provider_config.string_of_provider_kind config.kind)
-                  msg
-              | Yojson.Safe.Util.Type_error (msg, _) ->
-                Diag.error "complete" "JSON type error: %s" msg;
-                provider_parse_failure
-                  ~parser:(Provider_config.string_of_provider_kind config.kind)
-                  msg
-              | Yojson.Safe.Util.Undefined (msg, _) ->
-                Diag.error "complete" "JSON undefined field error: %s" msg;
-                provider_parse_failure
-                  ~parser:(Provider_config.string_of_provider_kind config.kind)
-                  msg
-              | Backend_gemini.Gemini_api_error msg ->
-                Diag.error "complete" "Gemini API error: %s" msg;
-                Error
-                  (Http_client.HttpError
-                     { code = 400
-                     ; body = "Gemini API error: " ^ msg
-                     ; retry_after_header = None
-                     })
-              | Backend_glm.Glm_api_error err ->
-                (match err.origin with
-                 | Backend_glm.Response_parse ->
-                   Diag.error "complete" "Glm parse error: %s" err.message;
-                   provider_parse_failure ~parser:"glm" err.message
-                 | Backend_glm.Provider_response ->
-                   let semantic_code =
-                     Backend_glm.http_code_of_glm_error_class err.error_class
-                   in
-                   let body =
-                     match err.code with
-                     | Some code -> Printf.sprintf "Glm error %s: %s" code err.message
-                     | None -> Printf.sprintf "Glm error without code: %s" err.message
-                   in
-                   (match err.code with
-                    | Some code ->
-                      Diag.error
-                        "complete"
-                        "Glm API error (code=%s class=%d): %s"
-                        code
-                        semantic_code
-                        err.message
-                    | None ->
-                      Diag.error
-                        "complete"
-                        "Glm API error (code absent class=%d): %s"
-                        semantic_code
-                        err.message);
-                   Error
-                     (Http_client.HttpError
-                        { code = semantic_code; body; retry_after_header = None }))
-              | exn ->
-                let exn_str = Printexc.to_string exn in
-                Diag.error "complete" "Unexpected parsing exception: %s" exn_str;
-                Error
-                  (Http_client.HttpError
-                     { code = 500
-                     ; body = "Unexpected parsing exception: " ^ exn_str
-                     ; retry_after_header = None
-                     }))
+            then parse_sync_response ~http_codec ~provider_kind:config.kind body
             else (
               (* Log request body diagnostics on error responses to help debug
              Ollama "closing '}' symbol" and similar body-rejection errors. *)
