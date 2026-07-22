@@ -377,7 +377,7 @@ let wire_admission_error = function
 
 let admit ~target ~messages requirement =
   let* () =
-    if Resolver.selected_target_model_admitted target
+    if Exact_output_resolver.selected_target_model_admitted target
     then Ok ()
     else
       Error
