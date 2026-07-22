@@ -1094,7 +1094,7 @@ let test_parallel_attempts_from_one_plan_do_not_share_identity_or_state () =
   in
   check int "parallel attempts dispatch independently" 2 posts;
   let check_success label expected_id = function
-    | Ok success ->
+    | Ok (success : EO.success) ->
       check string label expected_id (EO.call_id_to_string success.call_id);
       check
         string
