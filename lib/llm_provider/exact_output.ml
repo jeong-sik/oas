@@ -293,9 +293,9 @@ let admit ~target ~messages requirement =
     })
 ;;
 
-let plan_provenance ready = ready.provenance
-let plan_fingerprint ready = ready.receipt.plan_fingerprint
-let attempt_receipt ready = ready.receipt
+let plan_provenance (ready : ready_plan) = ready.provenance
+let plan_fingerprint (ready : ready_plan) = ready.receipt.plan_fingerprint
+let attempt_receipt (ready : ready_plan) = ready.receipt
 
 let receipt_phase receipt =
   match Atomic.get receipt.state with
