@@ -23,9 +23,17 @@ matches_pattern() {
     if [[ "$case_mode" == "insensitive" ]]; then
       args+=(-i)
     fi
-    rg "${args[@]}" "$pattern" "$@"
+    if rg "${args[@]}" "$pattern" "$@"; then
+      return 0
+    else
+      local status=$?
+      if [[ $status -eq 1 ]]; then
+        return 1
+      fi
+      fail "rg failed while evaluating the boundary"
+    fi
   elif command -v perl >/dev/null 2>&1; then
-    perl -0 -e '
+    if perl -0 -e '
       my ($case_mode, $pattern, @files) = @ARGV;
       my $matched = 0;
       for my $file (@files) {
@@ -41,7 +49,15 @@ matches_pattern() {
         }
       }
       exit($matched ? 0 : 1);
-    ' "$case_mode" "$pattern" "$@"
+    ' "$case_mode" "$pattern" "$@"; then
+      return 0
+    else
+      local status=$?
+      if [[ $status -eq 1 ]]; then
+        return 1
+      fi
+      fail "perl failed while evaluating the boundary"
+    fi
   else
     fail "requires either rg or perl; refusing to skip the boundary check"
   fi

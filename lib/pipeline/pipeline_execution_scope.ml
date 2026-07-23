@@ -120,7 +120,7 @@ let invocations t =
     Execution_agent_scope.provider_invocations provider |> Result.map_error sdk_error
 ;;
 
-let settled_invocations_with_results t =
+let settled_invocations_with_results (t : t) =
   match t.provider with
   | None ->
     Error
