@@ -1,5 +1,5 @@
 type tool_execution_result =
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -8,10 +8,10 @@ type tool_execution_result =
 
 type batch_completion =
   | Continue_after_batch
-  | Terminal_completed of Tool.Invocation.t
+  | Terminal_completed of Tool_contract.Invocation.t
   | Terminal_failed of
-      { invocation : Tool.Invocation.t
-      ; effect_disposition : Tool.failure_effect_disposition
+      { invocation : Tool_contract.Invocation.t
+      ; effect_disposition : Tool_contract.failure_effect_disposition
       ; detail : string
       }
 
@@ -25,18 +25,18 @@ type execution_error =
       { hook_name : string
       ; stage : Hooks.hook_stage
       ; tool_name : string
-      ; invocation : Tool.Invocation.t
+      ; invocation : Tool_contract.Invocation.t
       ; detail : string
       }
 
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Durability_failure of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; detail : string
       }
   | Observer_failure of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
@@ -50,7 +50,7 @@ type execution_failure =
 type deferred_failure =
   | Deferred_hook_failure of execution_error
   | Deferred_observer_failure of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
@@ -81,15 +81,19 @@ let prefer_failure current candidate =
 ;;
 
 let%test "durability failure dominates an earlier observer failure" =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let invocation =
-    Tool.Invocation.create
+    Tool_contract.Invocation.create
       ~tool_use_id:"priority"
       ~turn:0
       ~schedule
-      ~completion:Tool.Continue_after_success
+      ~completion:Tool_contract.Continue_after_success
   in
   let observer =
     Observer_failure

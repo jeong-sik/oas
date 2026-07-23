@@ -62,8 +62,8 @@ type node_kind =
   | Tool_invocation of
       { provider_tool_use_id : string option
       ; tool_name : string
-      ; schedule : Hooks.tool_schedule
-      ; completion : Tool.completion
+      ; schedule : Tool_contract.schedule
+      ; completion : Tool_contract.completion
       }
   | Tool_attempt
 
@@ -97,9 +97,9 @@ let pp_node_kind formatter = function
       schedule.planned_index
       schedule.batch_index
       schedule.batch_size
-      Tool.pp_execution_mode
+      Tool_contract.pp_execution_mode
       schedule.execution_mode
-      Tool.pp_completion
+      Tool_contract.pp_completion
       completion
   | Tool_attempt -> Format.pp_print_string formatter "Tool_attempt"
 ;;
@@ -136,7 +136,7 @@ let validate_node_kind = function
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
   | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
     let* () = validate_non_blank "tool_name" tool_name in
-    Execution_tool_schedule.validate_completion ~completion schedule
+    Execution_tool_schedule.validate_completion_message ~completion schedule
   | Tool_attempt -> Ok ()
 ;;
 
@@ -561,7 +561,7 @@ let node_kind_to_yojson_unchecked = function
         , option_json (Option.map (fun v -> `String v) provider_tool_use_id) )
       ; "tool_name", `String tool_name
       ; "schedule", schedule_to_yojson schedule
-      ; "completion", Tool.completion_to_yojson completion
+      ; "completion", Tool_contract.completion_to_yojson completion
       ]
   | Tool_attempt -> `Assoc [ "type", `String "tool_attempt" ]
 ;;
@@ -633,7 +633,7 @@ let node_kind_of_yojson json =
            let* schedule_json = field "schedule" fields in
            let* schedule = schedule_of_yojson schedule_json in
            let* completion_json = field "completion" fields in
-           let+ completion = Tool.completion_of_yojson completion_json in
+           let+ completion = Tool_contract.completion_of_yojson completion_json in
            Tool_invocation { provider_tool_use_id; tool_name; schedule; completion })
     | "tool_attempt" -> decode ~required:[] ~optional:[] (fun _ -> Ok Tool_attempt)
     | value -> Error ("unknown node kind: " ^ value)

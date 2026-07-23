@@ -95,7 +95,7 @@ type record =
   ; tool_planned_index : int option
   ; tool_batch_index : int option
   ; tool_batch_size : int option
-  ; tool_execution_mode : Tool.execution_mode option
+  ; tool_execution_mode : Tool_contract.execution_mode option
   ; tool_result : string option
   ; tool_error : bool option
   ; hook_name : string option
@@ -190,7 +190,7 @@ let execution_mode_of_json_opt json =
   match Yojson.Safe.Util.member "tool_execution_mode" json with
   | `Null -> Ok None
   | value ->
-    (match Tool.execution_mode_of_yojson value with
+    (match Tool_contract.execution_mode_of_yojson value with
      | Ok mode -> Ok (Some mode)
      | Error detail -> Error (Error.Serialization (JsonParseError { detail })))
 ;;
@@ -281,7 +281,7 @@ let record_to_json (record : record) =
      @ option_int "tool_batch_size" record.tool_batch_size
      @ option_json
          "tool_execution_mode"
-         (Option.map Tool.execution_mode_to_yojson record.tool_execution_mode)
+         (Option.map Tool_contract.execution_mode_to_yojson record.tool_execution_mode)
      @ option_string "tool_result" record.tool_result
      @ option_bool "tool_error" record.tool_error
      @ option_string "hook_name" record.hook_name
@@ -618,14 +618,14 @@ let record_assistant_block active ~block_index block =
 ;;
 
 let record_tool_execution_started active ~invocation ~tool_name ~tool_input =
-  let schedule = Tool.Invocation.schedule invocation in
+  let schedule = Tool_contract.Invocation.schedule invocation in
   append_record
     active
     ~record_type:Tool_execution_started
-    ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
+    ~tool_use_id:(Tool_contract.Invocation.tool_use_id invocation)
     ~tool_name
     ~tool_input
-    ~tool_turn:(Tool.Invocation.turn invocation)
+    ~tool_turn:(Tool_contract.Invocation.turn invocation)
     ~tool_planned_index:schedule.planned_index
     ~tool_batch_index:schedule.batch_index
     ~tool_batch_size:schedule.batch_size
@@ -645,9 +645,9 @@ let record_tool_execution_finished
   append_record
     active
     ~record_type:Tool_execution_finished
-    ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
-    ~tool_turn:(Tool.Invocation.turn invocation)
-    ~tool_planned_index:(Tool.Invocation.planned_index invocation)
+    ~tool_use_id:(Tool_contract.Invocation.tool_use_id invocation)
+    ~tool_turn:(Tool_contract.Invocation.turn invocation)
+    ~tool_planned_index:(Tool_contract.Invocation.planned_index invocation)
     ~tool_name
     ~tool_result
     ~tool_error
@@ -670,9 +670,9 @@ let record_hook_invoked active ?invocation ~hook_name ~hook_decision ?hook_detai
       append_record
         active
         ~record_type:Hook_invoked
-        ~tool_use_id:(Tool.Invocation.tool_use_id invocation)
-        ~tool_turn:(Tool.Invocation.turn invocation)
-        ~tool_planned_index:(Tool.Invocation.planned_index invocation)
+        ~tool_use_id:(Tool_contract.Invocation.tool_use_id invocation)
+        ~tool_turn:(Tool_contract.Invocation.turn invocation)
+        ~tool_planned_index:(Tool_contract.Invocation.planned_index invocation)
         ~hook_name
         ~hook_decision
         ?hook_detail

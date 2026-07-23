@@ -15,7 +15,7 @@
     events and [None] for turn-level events. Returns the hook's decision. *)
 val invoke_hook
   :  ?on_hook_invoked:
-       (invocation:Tool.Invocation.t option
+       (invocation:Tool_contract.Invocation.t option
         -> hook_name:string
         -> decision:Hooks.hook_decision
         -> detail:string option
@@ -50,7 +50,7 @@ type tool_failure_kind = Types.tool_failure_kind =
   | Unattributed_tool_error
 
 type tool_execution_result =
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
     (** Exact input received from the typed [ToolUse] block. Validation never
@@ -61,10 +61,10 @@ type tool_execution_result =
 
 type batch_completion =
   | Continue_after_batch
-  | Terminal_completed of Tool.Invocation.t
+  | Terminal_completed of Tool_contract.Invocation.t
   | Terminal_failed of
-      { invocation : Tool.Invocation.t
-      ; effect_disposition : Tool.failure_effect_disposition
+      { invocation : Tool_contract.Invocation.t
+      ; effect_disposition : Tool_contract.failure_effect_disposition
       ; detail : string
       }
 
@@ -78,7 +78,7 @@ type execution_error =
       { hook_name : string
       ; stage : Hooks.hook_stage
       ; tool_name : string
-      ; invocation : Tool.Invocation.t
+      ; invocation : Tool_contract.Invocation.t
       ; detail : string
       }
 
@@ -93,11 +93,12 @@ type execution_error =
 type execution_failure_cause =
   | Hook_failure of execution_error
   | Durability_failure of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; detail : string
       }
   | Observer_failure of
-      { invocation : Tool.Invocation.t (** Exact occurrence whose observer failed. *)
+      { invocation : Tool_contract.Invocation.t
+        (** Exact occurrence whose observer failed. *)
       ; exception_ : exn
       ; backtrace : Printexc.raw_backtrace
       }
@@ -128,12 +129,12 @@ val find_and_execute_tool
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_hook_invoked:
-       (invocation:Tool.Invocation.t option
+       (invocation:Tool_contract.Invocation.t option
         -> hook_name:string
         -> decision:Hooks.hook_decision
         -> detail:string option
         -> unit)
-  -> invocation:Tool.Invocation.t
+  -> invocation:Tool_contract.Invocation.t
   -> string
   -> Yojson.Safe.t
   -> (tool_execution_result, execution_error) result
@@ -146,10 +147,10 @@ val find_and_execute_tool
     execution — only [ToolUse] blocks produce result triples.
 
     Scheduling is deterministic:
-    - [Tool.Concurrent] calls in the same contiguous batch may overlap.
-    - [Tool.Serial] calls run one-at-a-time in input order and separate
+    - [Tool_contract.Concurrent] calls in the same contiguous batch may overlap.
+    - [Tool_contract.Serial] calls run one-at-a-time in input order and separate
       concurrent batches.
-    - Tools without a declared descriptor default to [Tool.Serial].
+    - Tools without a declared descriptor default to [Tool_contract.Serial].
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
     OAS does not adjudicate external effects; an embedding application must
@@ -199,15 +200,18 @@ val execute_tools
   -> ?run_id:string
   -> ?before_tool_execution:(unit -> unit)
   -> ?on_tool_execution_started:
-       (invocation:Tool.Invocation.t -> tool_name:string -> input:Yojson.Safe.t -> unit)
+       (invocation:Tool_contract.Invocation.t
+        -> tool_name:string
+        -> input:Yojson.Safe.t
+        -> unit)
   -> ?on_tool_execution_finished:
-       (invocation:Tool.Invocation.t
+       (invocation:Tool_contract.Invocation.t
         -> tool_name:string
         -> content:string
         -> is_error:bool
         -> unit)
   -> ?on_hook_invoked:
-       (invocation:Tool.Invocation.t option
+       (invocation:Tool_contract.Invocation.t option
         -> hook_name:string
         -> decision:Hooks.hook_decision
         -> detail:string option
@@ -219,6 +223,6 @@ val execute_tools
     invocations and their exact durable results. The current tool catalog is
     deliberately absent from this boundary. *)
 val recovered_batch_completion
-  :  invocations:Tool.Invocation.t list
+  :  invocations:Tool_contract.Invocation.t list
   -> Types.content_block list
   -> (batch_completion, Error.sdk_error) result

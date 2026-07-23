@@ -7,6 +7,12 @@ PLANNER="$ROOT/lib/agent/agent_tool_batch_plan.ml"
 BOUNDARY="$ROOT/lib/agent/agent_tool_terminal_boundary.ml"
 PIPELINE="$ROOT/lib/pipeline/pipeline_terminal_tool.ml"
 TOOL_MLI="$ROOT/lib/base/tool.mli"
+CONTRACT_MLI="$ROOT/lib/base/tool_contract.mli"
+ERROR_MLI="$ROOT/lib/base/error.mli"
+HOOKS_MLI="$ROOT/lib/base/hooks.mli"
+RECEIPT_MLI="$ROOT/lib/terminal_tool_receipt.mli"
+PIPELINE_MLI="$ROOT/lib/pipeline/pipeline.mli"
+AGENT_MLI="$ROOT/lib/agent/agent.mli"
 EVENT="$ROOT/lib/execution_event.ml"
 
 fail() {
@@ -139,18 +145,56 @@ check_boundary() {
 
   require_pattern \
     'Terminal_after_success of failure_effect_disposition' \
-    "$TOOL_MLI" \
+    "$CONTRACT_MLI" \
     "terminal completion and failure-effect disposition must remain one closed value"
   require_pattern \
-    'terminal_descriptor : failure_effect_disposition -> descriptor' \
+    'terminal_descriptor : Tool_contract\.failure_effect_disposition -> descriptor' \
     "$TOOL_MLI" \
     "terminal descriptors must require an explicit failure-effect disposition"
   require_pattern \
     'completion:completion[[:space:]]*->[[:space:]]*t' \
-    "$TOOL_MLI" \
+    "$CONTRACT_MLI" \
     "immutable invocations must require completion at construction"
   require_pattern \
-    '; completion : Tool\.completion' \
+    'invocation : Tool_contract\.Invocation\.t' \
+    "$ERROR_MLI" \
+    "terminal durability errors must depend on the canonical invocation leaf"
+  require_pattern \
+    'type closed_terminal_effect' \
+    "$ERROR_MLI" \
+    "terminal errors must carry an opaque closed-effect proof"
+  if matches_pattern sensitive \
+    'type (execution_mode|failure_effect_disposition|completion|schedule)|module Invocation' \
+    "$TOOL_MLI"; then
+    fail "Tool must not expose a second invocation-contract type family"
+  fi
+  if matches_pattern sensitive \
+    'type terminal_effect_disposition|invocation : Tool\.Invocation\.t' \
+    "$ERROR_MLI"; then
+    fail "Error must not duplicate disposition or depend on the Tool handler module"
+  fi
+  if matches_pattern sensitive 'type tool_schedule' "$HOOKS_MLI"; then
+    fail "Hooks must use the canonical schedule without a second type alias"
+  fi
+  require_pattern \
+    'invocation : Tool_contract\.Invocation\.t' \
+    "$RECEIPT_MLI" \
+    "terminal success receipts must carry the canonical invocation"
+  require_pattern \
+    'TerminalToolCompleted of Terminal_tool_receipt\.t' \
+    "$PIPELINE_MLI" \
+    "Pipeline must expose the canonical terminal receipt"
+  require_pattern \
+    'TerminalToolCompleted of Terminal_tool_receipt\.t' \
+    "$AGENT_MLI" \
+    "Agent must expose the canonical terminal receipt"
+  if matches_pattern sensitive \
+    'type terminal_tool_(turn_)?completion' \
+    "$ROOT/lib"; then
+    fail "terminal success receipts must not be redeclared"
+  fi
+  require_pattern \
+    '; completion : Tool_contract\.completion' \
     "$EVENT" \
     "Tool_invocation events must persist completion"
   require_pattern \
@@ -166,7 +210,7 @@ check_boundary() {
     "$EVENT" \
     "execution events must reject pre-completion schema versions"
   require_pattern \
-    'Tool\.Invocation\.completion invocation' \
+    'Tool_contract\.Invocation\.completion invocation' \
     "$BOUNDARY" \
     "durable terminal recovery must use persisted invocation completion"
 
@@ -201,6 +245,12 @@ self_test() {
   cp "$BOUNDARY" "$fixture/lib/agent/agent_tool_terminal_boundary.ml"
   cp "$PIPELINE" "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
   cp "$TOOL_MLI" "$fixture/lib/base/tool.mli"
+  cp "$CONTRACT_MLI" "$fixture/lib/base/tool_contract.mli"
+  cp "$ERROR_MLI" "$fixture/lib/base/error.mli"
+  cp "$HOOKS_MLI" "$fixture/lib/base/hooks.mli"
+  cp "$RECEIPT_MLI" "$fixture/lib/terminal_tool_receipt.mli"
+  cp "$PIPELINE_MLI" "$fixture/lib/pipeline/pipeline.mli"
+  cp "$AGENT_MLI" "$fixture/lib/agent/agent.mli"
   cp "$EVENT" "$fixture/lib/execution_event.ml"
 
   printf '\nlet _forbidden = Tool_set.to_list\n' \

@@ -214,16 +214,20 @@ let test_effect_attempt_and_settlement_survive_restart () =
         value (Tx.open_node ~run ~parent:turn ~kind:(provider_attempt 0) ())
       in
       let open_invocation planned_index =
-        let schedule : Tool.schedule =
-          { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
+        let schedule : Tool_contract.schedule =
+          { planned_index
+          ; batch_index = 0
+          ; batch_size = 2
+          ; execution_mode = Tool_contract.Serial
+          }
         in
         let tool_use_id = Printf.sprintf "call-%d" planned_index in
         let invocation =
-          Tool.Invocation.create
+          Tool_contract.Invocation.create
             ~tool_use_id
             ~turn:1
             ~schedule
-            ~completion:Tool.Continue_after_success
+            ~completion:Tool_contract.Continue_after_success
         in
         let receipt =
           submit_and_await
@@ -271,19 +275,19 @@ let test_effect_attempt_and_settlement_survive_restart () =
        | Ok _ | Error _ -> fail "duplicate tool occurrence was accepted");
       check int "duplicate producer is atomic" before_duplicate (seq ());
       let before_rejected_producer = seq () in
-      let wrong_schedule : Tool.schedule =
+      let wrong_schedule : Tool_contract.schedule =
         { planned_index = 99
         ; batch_index = 1
         ; batch_size = 1
-        ; execution_mode = Tool.Serial
+        ; execution_mode = Tool_contract.Serial
         }
       in
       let wrong_invocation =
-        Tool.Invocation.create
+        Tool_contract.Invocation.create
           ~tool_use_id:"wrong-turn"
           ~turn:2
           ~schedule:wrong_schedule
-          ~completion:Tool.Continue_after_success
+          ~completion:Tool_contract.Continue_after_success
       in
       (match
          Writer.await
@@ -481,20 +485,20 @@ let test_structural_occurrence_identity_is_parent_local () =
       let provider_1, _ =
         value (Tx.open_node ~run ~parent:turn_1 ~kind:(provider_attempt 0) ())
       in
-      let schedule : Tool.schedule =
+      let schedule : Tool_contract.schedule =
         { planned_index = 0
         ; batch_index = 0
         ; batch_size = 1
-        ; execution_mode = Tool.Serial
+        ; execution_mode = Tool_contract.Serial
         }
       in
       let input = `Assoc [ "value", `Int 7 ] in
       let occurrence_0 =
-        Tool.Invocation.create
+        Tool_contract.Invocation.create
           ~tool_use_id:"call"
           ~turn:0
           ~schedule
-          ~completion:Tool.Continue_after_success
+          ~completion:Tool_contract.Continue_after_success
       in
       let tool_0, _ =
         value
@@ -519,28 +523,28 @@ let test_structural_occurrence_identity_is_parent_local () =
         | Journal.Occurrence_already_opened existing ->
           Event.Node_id.equal existing tool_0
         | _ -> false);
-      let changed_schedule : Tool.schedule =
+      let changed_schedule : Tool_contract.schedule =
         { schedule with
           batch_index = 1
         ; batch_size = 2
-        ; execution_mode = Tool.Concurrent
+        ; execution_mode = Tool_contract.Concurrent
         }
       in
       let conflicts =
         [ ( "tool schedule conflict"
-          , Tool.Invocation.create
+          , Tool_contract.Invocation.create
               ~tool_use_id:"call"
               ~turn:0
               ~schedule:changed_schedule
-              ~completion:Tool.Continue_after_success
+              ~completion:Tool_contract.Continue_after_success
           , "effect"
           , input )
         ; ( "tool id conflict"
-          , Tool.Invocation.create
+          , Tool_contract.Invocation.create
               ~tool_use_id:"other-call"
               ~turn:0
               ~schedule
-              ~completion:Tool.Continue_after_success
+              ~completion:Tool_contract.Continue_after_success
           , "effect"
           , input )
         ; "tool name conflict", occurrence_0, "other-effect", input
@@ -574,18 +578,18 @@ let test_structural_occurrence_identity_is_parent_local () =
                 { provider_tool_use_id = Some "raw"
                 ; tool_name = "raw"
                 ; schedule
-                ; completion = Tool.Continue_after_success
+                ; completion = Tool_contract.Continue_after_success
                 })
            ())
         (function
           | Journal.Tool_invocation_requires_atomic_open -> true
           | _ -> false);
       let occurrence_1 =
-        Tool.Invocation.create
+        Tool_contract.Invocation.create
           ~tool_use_id:"call"
           ~turn:1
           ~schedule
-          ~completion:Tool.Continue_after_success
+          ~completion:Tool_contract.Continue_after_success
       in
       ignore
         (value
@@ -618,11 +622,11 @@ let test_structural_occurrence_identity_is_parent_local () =
              ~run:child_run
              ~provider_attempt:child_provider
              ~invocation:
-               (Tool.Invocation.create
+               (Tool_contract.Invocation.create
                   ~tool_use_id:"child"
                   ~turn:0
                   ~schedule
-                  ~completion:Tool.Continue_after_success)
+                  ~completion:Tool_contract.Continue_after_success)
              ~tool_name:"child-effect"
              ~input:`Null
              ())
@@ -691,19 +695,19 @@ let test_agent_scope_owns_effect_topology () =
              ~ordinal:0
              (binding_for ~provider_id:"scope-provider"))
       in
-      let schedule : Tool.schedule =
+      let schedule : Tool_contract.schedule =
         { planned_index = 0
         ; batch_index = 0
         ; batch_size = 1
-        ; execution_mode = Tool.Serial
+        ; execution_mode = Tool_contract.Serial
         }
       in
       let wrong_turn =
-        Tool.Invocation.create
+        Tool_contract.Invocation.create
           ~tool_use_id:""
           ~turn:4
           ~schedule
-          ~completion:Tool.Continue_after_success
+          ~completion:Tool_contract.Continue_after_success
       in
       (match
          Agent_scope.open_invocation
@@ -720,11 +724,11 @@ let test_agent_scope_owns_effect_topology () =
         3
         (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
       let exact_invocation =
-        Tool.Invocation.create
+        Tool_contract.Invocation.create
           ~tool_use_id:""
           ~turn:3
           ~schedule
-          ~completion:Tool.Continue_after_success
+          ~completion:Tool_contract.Continue_after_success
       in
       let invocation =
         require_agent_scope
@@ -890,11 +894,11 @@ let test_agent_scope_executes_pending_after_restart () =
              ~ordinal:0
              (binding_for ~provider_id:"pending-provider"))
       in
-      let schedule : Tool.schedule =
+      let schedule : Tool_contract.schedule =
         { planned_index = 0
         ; batch_index = 0
         ; batch_size = 1
-        ; execution_mode = Tool.Serial
+        ; execution_mode = Tool_contract.Serial
         }
       in
       let invocation =
@@ -902,11 +906,11 @@ let test_agent_scope_executes_pending_after_restart () =
           (Agent_scope.open_invocation
              provider
              ~invocation:
-               (Tool.Invocation.create
+               (Tool_contract.Invocation.create
                   ~tool_use_id:"pending"
                   ~turn:0
                   ~schedule
-                  ~completion:Tool.Continue_after_success)
+                  ~completion:Tool_contract.Continue_after_success)
              ~tool_name:"durable-tool"
              ~input:expected_input)
       in

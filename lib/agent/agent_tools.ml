@@ -21,9 +21,9 @@ let observer_failure ~invocation exception_ backtrace =
   Log.error
     _log
     "tool observer failed"
-    [ Log.S ("tool_use_id", Tool.Invocation.tool_use_id invocation)
-    ; Log.I ("turn", Tool.Invocation.turn invocation)
-    ; Log.I ("planned_index", Tool.Invocation.planned_index invocation)
+    [ Log.S ("tool_use_id", Tool_contract.Invocation.tool_use_id invocation)
+    ; Log.I ("turn", Tool_contract.Invocation.turn invocation)
+    ; Log.I ("planned_index", Tool_contract.Invocation.planned_index invocation)
     ];
   Observer_failure { invocation; exception_; backtrace }
 ;;
@@ -40,8 +40,8 @@ type scheduled_tool_use =
   ; id : string
   ; name : string
   ; input : Yojson.Safe.t
-  ; execution_mode : Tool.execution_mode
-  ; completion : Tool.completion
+  ; execution_mode : Tool_contract.execution_mode
+  ; completion : Tool_contract.completion
   }
 
 type tool_index = (string, Tool.t) Hashtbl.t
@@ -97,13 +97,13 @@ let schedule_tool_use ~tool_index index (id, name, input) =
   let execution_mode, completion =
     match find_in_index tool_index name with
     | Some tool -> Tool.execution_mode tool, Tool.completion tool
-    | None -> Tool.Serial, Tool.Continue_after_success
+    | None -> Tool_contract.Serial, Tool_contract.Continue_after_success
   in
   { index; id; name; input; execution_mode; completion }
 ;;
 
 let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
-  : Tool.schedule
+  : Tool_contract.schedule
   =
   { planned_index = tool_use.index
   ; batch_index
@@ -191,7 +191,7 @@ let invoke_post_hook
       hook_opt
       event
   =
-  let turn_count = Tool.Invocation.turn invocation in
+  let turn_count = Tool_contract.Invocation.turn invocation in
   try
     match
       invoke_hook
@@ -252,7 +252,7 @@ let find_and_execute_tool_with_index
       name
       input
   =
-  let id = Tool.Invocation.tool_use_id invocation in
+  let id = Tool_contract.Invocation.tool_use_id invocation in
   let requested_name = name in
   let name, input, tool_opt = resolve_tool_call tool_index name input in
   let first_deferred_failure = ref None in
@@ -559,19 +559,19 @@ let execute_scheduled_tool
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
-      ~(schedule : Tool.schedule)
+      ~(schedule : Tool_contract.schedule)
       (tool_use : scheduled_tool_use)
   =
   let { index; id; name; input; _ } = tool_use in
   let invocation =
-    Tool.Invocation.create
+    Tool_contract.Invocation.create
       ~tool_use_id:id
       ~turn:turn_count
       ~schedule
       ~completion:tool_use.completion
   in
-  let id = Tool.Invocation.tool_use_id invocation in
-  let turn_count = Tool.Invocation.turn invocation in
+  let id = Tool_contract.Invocation.tool_use_id invocation in
+  let turn_count = Tool_contract.Invocation.turn invocation in
   let completed_dispatch : tool_dispatch option ref = ref None in
   let first_failure = ref None in
   let record_failure failure =
@@ -825,7 +825,7 @@ let execute_scheduled_tool
                       Agent_execution_event_writer.append
                         j
                         (Tool_called
-                           { turn = Tool.Invocation.turn invocation
+                           { turn = Tool_contract.Invocation.turn invocation
                            ; tool_name = name
                            ; idempotency_key = idem_key
                            ; input_hash = Digest.string (Yojson.Safe.to_string input)
@@ -840,7 +840,7 @@ let execute_scheduled_tool
                       Agent_execution_event_writer.append
                         j
                         (Tool_completed
-                           { turn = Tool.Invocation.turn invocation
+                           { turn = Tool_contract.Invocation.turn invocation
                            ; tool_name = name
                            ; idempotency_key = idem_key
                            ; output_json = `String dispatch.result.content

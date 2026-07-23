@@ -7,7 +7,7 @@ open Types
 let descriptor_with execution_mode = Tool.ordinary_descriptor execution_mode
 
 let result_id (result : Agent_tools.tool_execution_result) =
-  Tool.Invocation.tool_use_id result.invocation
+  Tool_contract.Invocation.tool_use_id result.invocation
 ;;
 
 let contains_substring ~needle haystack =
@@ -296,7 +296,11 @@ let test_post_hook_failure_is_typed_agent_error () =
                 ; detail
                 })
        } ->
-     check string "hook invocation id" "t1" (Tool.Invocation.tool_use_id invocation);
+     check
+       string
+       "hook invocation id"
+       "t1"
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        bool
        "hook exception detail retained"
@@ -356,7 +360,7 @@ let test_error_hooks_run_after_prior_hook_failure () =
        string
        "observer failure occurrence"
        "failure-1"
-       (Tool.Invocation.tool_use_id invocation);
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        string
        "observer failure propagates"
@@ -389,7 +393,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   in
   let concurrent_tool name resolve_self await_other =
     Tool.create
-      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~descriptor:(descriptor_with Tool_contract.Concurrent)
       ~name
       ~description:""
       ~parameters:[]
@@ -401,7 +405,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   in
   let later_serial =
     Tool.create
-      ~descriptor:(descriptor_with Tool.Serial)
+      ~descriptor:(descriptor_with Tool_contract.Serial)
       ~name:"later_serial"
       ~description:""
       ~parameters:[]
@@ -420,7 +424,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
       ~hooks:Hooks.empty
       ~journal
       ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
-        finished_ids := Tool.Invocation.tool_use_id invocation :: !finished_ids)
+        finished_ids := Tool_contract.Invocation.tool_use_id invocation :: !finished_ids)
       [ ToolUse { id = "t1"; name = "first"; input = `Assoc [] }
       ; ToolUse { id = "t2"; name = "sibling"; input = `Assoc [] }
       ; ToolUse { id = "t3"; name = "later_serial"; input = `Assoc [] }
@@ -439,7 +443,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
        string
        "observer failure exact occurrence"
        "t1"
-       (Tool.Invocation.tool_use_id invocation);
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        string
        "original observer exception retained"
@@ -607,7 +611,7 @@ let test_concurrent_tools_share_batch () =
   let started_a, resolve_a = Eio.Promise.create () in
   let started_b, resolve_b = Eio.Promise.create () in
   let make_barrier_tool name resolve_self await_other =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Concurrent) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Concurrent) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -645,7 +649,7 @@ let test_serial_tools_run_sequentially () =
   let clock = Eio.Stdenv.clock env in
   let running = ref false in
   let make_guarded_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Serial) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Serial) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -720,7 +724,7 @@ let test_serial_barrier_splits_concurrent_batches () =
   let concurrent_running = ref 0 in
   let serial_running = ref false in
   let make_concurrent_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Concurrent) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Concurrent) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -734,7 +738,7 @@ let test_serial_barrier_splits_concurrent_batches () =
     }
   in
   let make_serial_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Serial) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Serial) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -778,7 +782,7 @@ let test_serial_barrier_splits_concurrent_batches () =
 let test_dispatch_passes_exact_tool_invocation () =
   let tool =
     Tool.create_with_execution_env
-      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~descriptor:(descriptor_with Tool_contract.Concurrent)
       ~name:"observe_invocation"
       ~description:"Return exact invocation identity"
       ~parameters:[]
@@ -790,9 +794,9 @@ let test_dispatch_passes_exact_tool_invocation () =
              { Types.content =
                  Printf.sprintf
                    "%s:%d:%d"
-                   (Tool.Invocation.tool_use_id invocation)
-                   (Tool.Invocation.turn invocation)
-                   (Tool.Invocation.planned_index invocation)
+                   (Tool_contract.Invocation.tool_use_id invocation)
+                   (Tool_contract.Invocation.turn invocation)
+                   (Tool_contract.Invocation.planned_index invocation)
              ; _meta = None
              }
          | None ->
@@ -827,16 +831,16 @@ let test_dispatch_passes_exact_tool_invocation () =
 ;;
 
 let invocation_key invocation =
-  let schedule = Tool.Invocation.schedule invocation in
+  let schedule = Tool_contract.Invocation.schedule invocation in
   let execution_mode =
     match schedule.execution_mode with
-    | Tool.Concurrent -> "concurrent"
-    | Tool.Serial -> "serial"
+    | Tool_contract.Concurrent -> "concurrent"
+    | Tool_contract.Serial -> "serial"
   in
   Printf.sprintf
     "%S:%d:%d:%d:%d:%s"
-    (Tool.Invocation.tool_use_id invocation)
-    (Tool.Invocation.turn invocation)
+    (Tool_contract.Invocation.tool_use_id invocation)
+    (Tool_contract.Invocation.turn invocation)
     schedule.planned_index
     schedule.batch_index
     schedule.batch_size
@@ -1011,18 +1015,18 @@ let test_tool_exception_still_publishes_tool_completed () =
       string
       "ToolCalled carries the provider id"
       "t1"
-      (Tool.Invocation.tool_use_id called);
+      (Tool_contract.Invocation.tool_use_id called);
     check
       string
       "ToolCompleted carries the provider id"
       "t1"
-      (Tool.Invocation.tool_use_id completed)
+      (Tool_contract.Invocation.tool_use_id completed)
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
 ;;
 
 let terminal_tool ~name on_execute =
   Tool.create
-    ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+    ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
     ~name
     ~description:"terminal"
     ~parameters:[]
@@ -1052,7 +1056,7 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
   let terminal name = terminal_tool ~name (fun () -> incr handler_count) in
   let ordinary =
     Tool.create
-      ~descriptor:(Tool.ordinary_descriptor Tool.Concurrent)
+      ~descriptor:(Tool.ordinary_descriptor Tool_contract.Concurrent)
       ~name:"ordinary"
       ~description:"ordinary"
       ~parameters:[]
@@ -1153,7 +1157,7 @@ let test_singleton_terminal_reports_exact_invocation_and_recovers () =
           string
           "exact terminal provider id"
           "terminal-1"
-          (Tool.Invocation.tool_use_id invocation);
+          (Tool_contract.Invocation.tool_use_id invocation);
         invocation
     in
     let recovered =
@@ -1179,7 +1183,7 @@ let test_singleton_terminal_reports_exact_invocation_and_recovers () =
          string
          "recovered exact terminal provider id"
          "terminal-1"
-         (Tool.Invocation.tool_use_id invocation))
+         (Tool_contract.Invocation.tool_use_id invocation))
 ;;
 
 let test_invalid_terminal_input_remains_correction_capable () =
@@ -1188,7 +1192,7 @@ let test_invalid_terminal_input_remains_correction_capable () =
   let handler_count = ref 0 in
   let tool =
     Tool.create
-      ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+      ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
       ~name:"finish"
       ~description:"terminal with typed input"
       ~parameters:

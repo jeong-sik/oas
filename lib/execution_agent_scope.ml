@@ -35,7 +35,7 @@ type invocation =
   }
 
 type invocation_authority =
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   }
@@ -46,7 +46,7 @@ type settled_invocation =
   }
 
 type tool_result =
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -453,12 +453,14 @@ let rebind_invocation scope locator =
 ;;
 
 let invocation_equal left right =
-  String.equal (Tool.Invocation.tool_use_id left) (Tool.Invocation.tool_use_id right)
-  && Tool.Invocation.turn left = Tool.Invocation.turn right
+  String.equal
+    (Tool_contract.Invocation.tool_use_id left)
+    (Tool_contract.Invocation.tool_use_id right)
+  && Tool_contract.Invocation.turn left = Tool_contract.Invocation.turn right
   && Execution_tool_schedule.equal
-       (Tool.Invocation.schedule left)
-       (Tool.Invocation.schedule right)
-  && Tool.Invocation.completion left = Tool.Invocation.completion right
+       (Tool_contract.Invocation.schedule left)
+       (Tool_contract.Invocation.schedule right)
+  && Tool_contract.Invocation.completion left = Tool_contract.Invocation.completion right
 ;;
 
 let find_invocation provider ~invocation ~tool_name ~input =
@@ -467,7 +469,7 @@ let find_invocation provider ~invocation ~tool_name ~input =
   | Error error -> Error (Scope_unavailable error)
   | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
   | Ok (Some view) ->
-    let planned_index = Tool.Invocation.planned_index invocation in
+    let planned_index = Tool_contract.Invocation.planned_index invocation in
     let matching =
       List.filter_map
         (fun (child : Event.node Journal.event_record) ->
@@ -524,8 +526,8 @@ let provider_invocations provider =
           (List.sort
              (fun (left : invocation_authority) (right : invocation_authority) ->
                 Int.compare
-                  (Tool.Invocation.planned_index left.invocation)
-                  (Tool.Invocation.planned_index right.invocation))
+                  (Tool_contract.Invocation.planned_index left.invocation)
+                  (Tool_contract.Invocation.planned_index right.invocation))
              acc)
       | node :: rest ->
         let locator = { run_id = Journal.run_id scope.run; node } in
@@ -552,18 +554,19 @@ let validate_invocation_authority
       ~input
   =
   let invocation = authority.invocation in
-  let schedule = Tool.Invocation.schedule invocation in
+  let schedule = Tool_contract.Invocation.schedule invocation in
   match
     Execution_tool_schedule.validate_completion
-      ~completion:(Tool.Invocation.completion invocation)
+      ~completion:(Tool_contract.Invocation.completion invocation)
       schedule
   with
-  | Error detail -> Error (Resume_topology_mismatch detail)
+  | Error error ->
+    Error (Resume_topology_mismatch (Execution_tool_schedule.error_to_string error))
   | Ok () ->
     if
-      Tool.Invocation.turn invocation = turn
+      Tool_contract.Invocation.turn invocation = turn
       && schedule.planned_index = planned_index
-      && String.equal (Tool.Invocation.tool_use_id invocation) tool_use_id
+      && String.equal (Tool_contract.Invocation.tool_use_id invocation) tool_use_id
       && String.equal authority.tool_name tool_name
       && Yojson.Safe.equal authority.input input
     then Ok ()
@@ -620,7 +623,7 @@ let tool_result_of_block durable = function
   | Llm_provider.Types.ToolResult { tool_use_id; content; outcome; _ }
     when String.equal
            tool_use_id
-           (Tool.Invocation.tool_use_id durable.Settlement.invocation) ->
+           (Tool_contract.Invocation.tool_use_id durable.Settlement.invocation) ->
     Ok
       { invocation = durable.invocation
       ; tool_name = durable.tool_name
@@ -663,8 +666,8 @@ let provider_settled_invocations provider =
           (List.sort
              (fun (left : settled_invocation) (right : settled_invocation) ->
                 Int.compare
-                  (Tool.Invocation.planned_index left.authority.invocation)
-                  (Tool.Invocation.planned_index right.authority.invocation))
+                  (Tool_contract.Invocation.planned_index left.authority.invocation)
+                  (Tool_contract.Invocation.planned_index right.authority.invocation))
              acc)
       | node :: rest ->
         let locator = { run_id = Journal.run_id scope.run; node } in
@@ -714,7 +717,7 @@ let execute_phased invocation ~invoke =
         Settlement.phased_effect
           ~result:
             (Llm_provider.Types.ToolResult
-               { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
+               { tool_use_id = Tool_contract.Invocation.tool_use_id durable.invocation
                ; content
                ; outcome
                ; json = None

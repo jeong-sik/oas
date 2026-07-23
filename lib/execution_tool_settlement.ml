@@ -10,7 +10,7 @@ type t =
 type durable_invocation =
   { authority : t
   ; run_id : Event.Run_id.t
-  ; invocation : Tool.Invocation.t
+  ; invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   }
@@ -104,7 +104,7 @@ let rebind ~writer ~invocation_node =
       { authority = { writer; invocation_node }
       ; run_id
       ; invocation =
-          Tool.Invocation.create ~tool_use_id ~turn:ordinal ~schedule ~completion
+          Tool_contract.Invocation.create ~tool_use_id ~turn:ordinal ~schedule ~completion
       ; tool_name
       ; input
       }

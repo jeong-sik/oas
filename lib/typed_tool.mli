@@ -102,4 +102,4 @@ val name : (_, _) t -> string
 (** Extract the optional safety descriptor. *)
 val descriptor : (_, _) t -> Tool.descriptor option
 
-val completion : (_, _) t -> Tool.completion
+val completion : (_, _) t -> Tool_contract.completion

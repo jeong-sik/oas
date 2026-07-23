@@ -17,8 +17,12 @@ let require_codec_ok = function
   | Error detail -> fail detail
 ;;
 
-let serial_schedule : Hooks.tool_schedule =
-  { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+let serial_schedule : Tool_contract.schedule =
+  { planned_index = 0
+  ; batch_index = 0
+  ; batch_size = 1
+  ; execution_mode = Tool_contract.Serial
+  }
 ;;
 
 let provider_attempt ?(model_id = "test-model") ordinal =
@@ -44,7 +48,7 @@ let tool_invocation ?(planned_index = 0) name =
     { provider_tool_use_id = Some ("provider-" ^ name)
     ; tool_name = name
     ; schedule = { serial_schedule with planned_index; batch_index = planned_index }
-    ; completion = Tool.Continue_after_success
+    ; completion = Tool_contract.Continue_after_success
     }
 ;;
 
@@ -780,7 +784,7 @@ let test_hierarchy_and_lifecycle_rejections () =
               { provider_tool_use_id = None
               ; tool_name = "late_identity"
               ; schedule = { serial_schedule with planned_index = 2; batch_index = 2 }
-              ; completion = Tool.Continue_after_success
+              ; completion = Tool_contract.Continue_after_success
               }))
   in
   let canonical_tool_use =
@@ -1015,15 +1019,19 @@ let test_json_terminal_and_id_boundaries () =
   check int "invalid agent name did not advance journal" 0 (Journal.length journal);
   let run = require_started_run (Journal.start_run journal ~agent_name:"validation") in
   let agent_turn, turn = open_provider_attempt journal run in
-  let later_batch : Tool.schedule =
-    { planned_index = 0; batch_index = 2; batch_size = 1; execution_mode = Tool.Serial }
+  let later_batch : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 2
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let later_batch_kind =
     Event.Tool_invocation
       { provider_tool_use_id = Some "provider-later-batch"
       ; tool_name = "valid_tool"
       ; schedule = later_batch
-      ; completion = Tool.Continue_after_success
+      ; completion = Tool_contract.Continue_after_success
       }
   in
   (match Event.node_kind_to_yojson later_batch_kind with
@@ -1045,7 +1053,7 @@ let test_json_terminal_and_id_boundaries () =
        { provider_tool_use_id = None
        ; tool_name = " \t"
        ; schedule = serial_schedule
-       ; completion = Tool.Continue_after_success
+       ; completion = Tool_contract.Continue_after_success
        });
   let exact_provider_id = " \n" in
   let exact_provider_kind =
@@ -1053,7 +1061,7 @@ let test_json_terminal_and_id_boundaries () =
       { provider_tool_use_id = Some exact_provider_id
       ; tool_name = "valid_tool"
       ; schedule = serial_schedule
-      ; completion = Tool.Continue_after_success
+      ; completion = Tool_contract.Continue_after_success
       }
   in
   (match Event.node_kind_to_yojson exact_provider_kind with

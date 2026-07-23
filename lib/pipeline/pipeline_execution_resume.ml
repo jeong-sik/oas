@@ -89,6 +89,15 @@ type settled_replay =
       }
   | Replay_terminal of Types.message
 
+type settled_tool_authority =
+  | All_pre_tool_use_blocked
+  | Durable_invocations of Execution_agent_scope.invocation_authority list
+
+let settled_tool_authority = function
+  | [] -> All_pre_tool_use_blocked
+  | invocations -> Durable_invocations invocations
+;;
+
 let last_assistant_message messages =
   List.fold_left
     (fun acc (message : Types.message) ->
@@ -166,7 +175,7 @@ let response_of_settled_terminal agent (message : Types.message) : Types.api_res
    settled results without re-executing effects and without aborting the root as
    Failed. [tools_settled] is the completed-tool-turn outcome; [terminal] wraps
    the reconstructed final assistant response. *)
-let run_settled agent boundary ~tools_settled ~terminal =
+let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~terminal =
   let* replay = classify_settled agent in
   match replay with
   | Replay_tools_settled { tool_uses; tool_results } ->
@@ -178,7 +187,12 @@ let run_settled agent boundary ~tools_settled ~terminal =
            "durable execution resume settled tool turn has an invalid turn counter")
     else
       let* invocations = Pipeline_execution_scope.settled_invocations boundary in
-      let* outcome = tools_settled ~turn ~invocations ~tool_results tool_uses in
+      let* outcome =
+        match settled_tool_authority invocations with
+        | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
+        | Durable_invocations invocations ->
+          tools_settled ~turn ~invocations ~tool_results tool_uses
+      in
       let+ () = Pipeline_execution_scope.finalize_settled boundary in
       outcome
   | Replay_terminal message ->
@@ -194,7 +208,14 @@ let run_settled agent boundary ~tools_settled ~terminal =
        outcome)
 ;;
 
-let run agent execution ~execute ~settled_before_checkpoint ~already_settled =
+let run
+      agent
+      execution
+      ~execute
+      ~settled_before_checkpoint
+      ~all_pre_tool_use_blocked
+      ~already_settled
+  =
   let outcome =
     match last_tool_turn agent.Agent_types.state.messages with
     | None ->
@@ -256,11 +277,14 @@ let run agent execution ~execute ~settled_before_checkpoint ~already_settled =
            match Nonempty.of_list tool_blocks with
            | Some tool_blocks ->
              let* invocations = Pipeline_execution_scope.invocations execution in
-             already_settled
-               ~turn:(Pipeline_execution_scope.turn_ordinal execution)
-               ~invocations
-               ~tool_results
-               tool_blocks
+             (match settled_tool_authority invocations with
+              | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
+              | Durable_invocations invocations ->
+                already_settled
+                  ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+                  ~invocations
+                  ~tool_results
+                  tool_blocks)
            | None ->
              Error
                (Error.Internal
@@ -296,6 +320,7 @@ let dispatch
       agent
       ~execute
       ~tools_settled_before_checkpoint
+      ~all_pre_tool_use_blocked
       ~tools_settled
       ~terminal
       ~fresh
@@ -313,8 +338,9 @@ let dispatch
       execution
       ~execute:(execute ~turn)
       ~settled_before_checkpoint:tools_settled_before_checkpoint
+      ~all_pre_tool_use_blocked
       ~already_settled:tools_settled
   | Pipeline_execution_scope.Settled boundary ->
-    run_settled agent boundary ~tools_settled ~terminal
+    run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~terminal
   | Pipeline_execution_scope.Fresh -> fresh ()
 ;;

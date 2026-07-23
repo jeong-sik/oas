@@ -149,15 +149,6 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
-(** Complete terminal-tool result for the single-turn streaming surface.
-    [response] retains the exact provider model, usage, content, and telemetry;
-    [checkpoint_stage] names the mutation boundary crossed before return. *)
-type terminal_tool_turn_completion =
-  { invocation : Tool.Invocation.t
-  ; response : Types.api_response
-  ; checkpoint_stage : checkpoint_stage
-  }
-
 (** Application-lifetime CPU capability shared by execution journals. *)
 type execution_runtime
 
@@ -273,7 +264,7 @@ module Advanced : sig
 
   type terminal_tool_completed =
     { turn : int
-    ; invocation : Tool.Invocation.t
+    ; invocation : Tool_contract.Invocation.t
     ; checkpoint_stage : checkpoint_stage
     ; checkpoint : Checkpoint.t
     ; response : Types.api_response
@@ -463,7 +454,7 @@ val run_turn_stream
   -> ?execution_store:execution_store
   -> t
   -> ( [ `Complete of Types.api_response
-       | `TerminalToolCompleted of terminal_tool_turn_completion
+       | `TerminalToolCompleted of Terminal_tool_receipt.t
        | `ToolsExecuted
        ]
        , Error.sdk_error )
@@ -478,7 +469,7 @@ val run_turn_stream_detailed
   -> ?execution_store:execution_store
   -> t
   -> ( [ `Complete of Types.api_response
-       | `TerminalToolCompleted of terminal_tool_turn_completion
+       | `TerminalToolCompleted of Terminal_tool_receipt.t
        | `ToolsExecuted
        ]
        , detailed_error )

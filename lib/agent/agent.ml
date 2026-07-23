@@ -28,12 +28,6 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
-type terminal_tool_turn_completion =
-  { invocation : Tool.Invocation.t
-  ; response : Types.api_response
-  ; checkpoint_stage : checkpoint_stage
-  }
-
 let detailed_error_of_sdk_error = Provider_failure_attribution.of_sdk_error
 
 type execution_runtime = Agent_execution_runner.runtime
@@ -756,7 +750,7 @@ module Advanced = struct
 
   type terminal_tool_completed =
     { turn : int
-    ; invocation : Tool.Invocation.t
+    ; invocation : Tool_contract.Invocation.t
     ; checkpoint_stage : checkpoint_stage
     ; checkpoint : Checkpoint.t
     ; response : Types.api_response
@@ -979,12 +973,7 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
   |> Result.map (function
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted
-    | `TerminalToolCompleted completion ->
-      `TerminalToolCompleted
-        { invocation = completion.Pipeline.invocation
-        ; response = completion.response
-        ; checkpoint_stage = completion.checkpoint_stage
-        })
+    | `TerminalToolCompleted receipt -> `TerminalToolCompleted receipt)
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =

@@ -59,14 +59,14 @@ type payload =
           [Result.is_error] check.
           @since 0.154.0 *)
   | ToolCalled of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
         (** Exact run-scoped model-tool occurrence. @since 0.216.0 *)
       ; agent_name : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       }
   | ToolCompleted of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
         (** Same exact occurrence as the matching [ToolCalled].
             @since 0.216.0 *)
       ; agent_name : string

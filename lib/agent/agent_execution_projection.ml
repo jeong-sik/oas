@@ -41,8 +41,8 @@ type node_kind =
   | Tool_invocation of
       { provider_tool_use_id : string option
       ; tool_name : string
-      ; schedule : Tool.schedule
-      ; completion : Tool.completion
+      ; schedule : Tool_contract.schedule
+      ; completion : Tool_contract.completion
       }
   | Tool_attempt
 

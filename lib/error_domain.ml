@@ -28,9 +28,9 @@ type agent_error =
   | `Tripwire_violation of string * string
   | `Input_required of string * string
   | `Hook_execution_failed of string * string * string option * string option * string
-  | `Terminal_tool_effect_failed of string * Error.terminal_effect_disposition * string
+  | `Terminal_tool_effect_failed of string * Error.closed_terminal_effect * string
   | `Terminal_tool_durability_failed of
-      Tool.Invocation.t * Error.terminal_effect_disposition * string
+      Tool_contract.Invocation.t * Error.closed_terminal_effect * string
   | `Unrecognized_stop_reason of string
   ]
 

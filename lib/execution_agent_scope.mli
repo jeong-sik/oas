@@ -10,7 +10,7 @@ type invocation_locator
 type invocation
 
 type invocation_authority = private
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   }
@@ -21,7 +21,7 @@ type settled_invocation = private
   }
 
 type tool_result = private
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -127,14 +127,14 @@ val resume_provider_attempt : turn -> (provider_resume, error) result
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation
   :  provider_attempt
-  -> invocation:Tool.Invocation.t
+  -> invocation:Tool_contract.Invocation.t
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation, error) result
 
 val find_invocation
   :  provider_attempt
-  -> invocation:Tool.Invocation.t
+  -> invocation:Tool_contract.Invocation.t
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation option, error) result

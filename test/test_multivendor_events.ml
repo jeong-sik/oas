@@ -39,14 +39,18 @@ let stub_api_response : Types.api_response =
 let stub_tool_result : Types.tool_result = Ok { Types.content = "ok"; _meta = None }
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  let schedule : Tool.schedule =
-    { planned_index; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  Tool.Invocation.create
+  Tool_contract.Invocation.create
     ~tool_use_id
     ~turn
     ~schedule
-    ~completion:Tool.Continue_after_success
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 (* ── I1/I2: envelope preserved across variants ────────────────── *)

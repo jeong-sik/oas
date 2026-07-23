@@ -13,16 +13,21 @@ module Internal_codec = Internal.Execution_codec_executor
 module Internal_writer = Internal.Execution_lane_writer
 module Internal_scope = Internal.Execution_agent_scope
 module Internal_binding = Binding_identity
+module Internal_settlement = Internal.Execution_tool_settlement
 
 let invocation tool_use_id =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  Tool.Invocation.create
+  Tool_contract.Invocation.create
     ~tool_use_id
     ~turn:0
     ~schedule
-    ~completion:Tool.Continue_after_success
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 let terminal_outcome_name = function
@@ -352,7 +357,8 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
         Some
           (function
             | Hooks.PreToolUse { invocation; _ } ->
-              pre_tool_turns := Tool.Invocation.turn invocation :: !pre_tool_turns;
+              pre_tool_turns
+              := Tool_contract.Invocation.turn invocation :: !pre_tool_turns;
               Hooks.Continue
             | _ -> Alcotest.fail "expected PreToolUse")
     }
@@ -366,7 +372,7 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
          (match Tool.Execution_env.invocation execution_env with
           | None -> Alcotest.fail "tool handler received no invocation"
           | Some invocation ->
-            handler_turns := Tool.Invocation.turn invocation :: !handler_turns);
+            handler_turns := Tool_contract.Invocation.turn invocation :: !handler_turns);
          Ok { Types.content = "observed"; _meta = None })
   in
   let responses =
@@ -434,7 +440,7 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
             | TurnReady { turn; _ } -> started, turn :: ready, completed, tools
             | TurnCompleted { turn; _ } -> started, ready, turn :: completed, tools
             | ToolCalled { invocation; _ } | ToolCompleted { invocation; _ } ->
-              started, ready, completed, Tool.Invocation.turn invocation :: tools
+              started, ready, completed, Tool_contract.Invocation.turn invocation :: tools
             | AgentStarted _
             | AgentCompleted _
             | AgentFailed _
@@ -1692,11 +1698,11 @@ let test_agent_run_resumes_tool_without_duplicate_effects
        in
        let tool_input = `Assoc [ "value", `Int 7 ] in
        let tool_use_id = "restart-tool-use" in
-       let schedule : Tool.schedule =
+       let schedule : Tool_contract.schedule =
          { planned_index = 0
          ; batch_index = 0
          ; batch_size = 1
-         ; execution_mode = Tool.Serial
+         ; execution_mode = Tool_contract.Serial
          }
        in
        let locator_json = ref None in
@@ -1743,11 +1749,11 @@ let test_agent_run_resumes_tool_without_duplicate_effects
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             let invocation =
-              Tool.Invocation.create
+              Tool_contract.Invocation.create
                 ~tool_use_id
                 ~turn:0
                 ~schedule
-                ~completion:Tool.Continue_after_success
+                ~completion:Tool_contract.Continue_after_success
             in
             let durable =
               match
@@ -1975,7 +1981,7 @@ type settled_window =
   | Window_turn_failed
 
 let test_agent_run_resumes_settled_closed_turn
-      ?(persisted_completion = Tool.Continue_after_success)
+      ?(persisted_completion = Tool_contract.Continue_after_success)
       ?(resume_tool_present = true)
       ?(expect_terminal = false)
       ~window
@@ -2011,11 +2017,11 @@ let test_agent_run_resumes_settled_closed_turn
        in
        let tool_input = `Assoc [ "value", `Int 7 ] in
        let tool_use_id = "settled-tool-use" in
-       let schedule : Tool.schedule =
+       let schedule : Tool_contract.schedule =
          { planned_index = 0
          ; batch_index = 0
          ; batch_size = 1
-         ; execution_mode = Tool.Serial
+         ; execution_mode = Tool_contract.Serial
          }
        in
        let locator_json = ref None in
@@ -2065,7 +2071,7 @@ let test_agent_run_resumes_settled_closed_turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             let invocation =
-              Tool.Invocation.create
+              Tool_contract.Invocation.create
                 ~tool_use_id
                 ~turn:0
                 ~schedule
@@ -2258,7 +2264,8 @@ let test_agent_run_resumes_settled_closed_turn_boundary =
 
 let test_agent_run_resumes_terminal_after_descriptor_drift () =
   test_agent_run_resumes_settled_closed_turn
-    ~persisted_completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown)
+    ~persisted_completion:
+      (Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown)
     ~resume_tool_present:true
     ~expect_terminal:true
     ~window:Window_turn_closed
@@ -2267,7 +2274,8 @@ let test_agent_run_resumes_terminal_after_descriptor_drift () =
 
 let test_agent_run_resumes_terminal_after_tool_removal () =
   test_agent_run_resumes_settled_closed_turn
-    ~persisted_completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown)
+    ~persisted_completion:
+      (Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown)
     ~resume_tool_present:false
     ~expect_terminal:true
     ~window:Window_turn_closed
@@ -2275,39 +2283,130 @@ let test_agent_run_resumes_terminal_after_tool_removal () =
 ;;
 
 let test_terminal_durability_failure_is_typed_non_retryable () =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
   in
-  let invocation =
-    Tool.Invocation.create
-      ~tool_use_id:"durability-terminal"
-      ~turn:0
-      ~schedule
-      ~completion:(Tool.Terminal_after_success Tool.Proven_post_effect)
-  in
-  match
-    Internal_terminal_tool.durability_failure
-      ~invocation
-      ~detail:"receipt settlement failed"
-  with
-  | Error
-      (Error.Agent
-         (Error.TerminalToolDurabilityFailed
-            { invocation = failed_invocation
-            ; effect_disposition = Error.Proven_post_effect
-            ; detail
-            }) as error) ->
-    Alcotest.(check string)
-      "exact invocation"
-      "durability-terminal"
-      (Tool.Invocation.tool_use_id failed_invocation);
-    Alcotest.(check string) "typed detail" "receipt settlement failed" detail;
-    Alcotest.(check bool)
-      "terminal durability failure is not retryable"
-      false
-      (Error.is_retryable error)
-  | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
-  | Ok _ -> Alcotest.fail "terminal durability failure unexpectedly succeeded"
+  let codec = Internal_codec.of_runtime runtime in
+  let native_path = Filename.temp_file "oas-terminal-durability-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let provider_calls = ref 0 in
+       let effect_count = ref 0 in
+       let tool_input = `Assoc [ "value", `Int 1 ] in
+       let response =
+         Provider_mock.tool_use_response ~tool_name:"terminal_tool" ~tool_input ()
+       in
+       let transport : Llm_provider.Llm_transport.t =
+         { complete_sync =
+             (fun _request ->
+               incr provider_calls;
+               { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+         ; complete_stream =
+             (fun ?on_telemetry:_ ~on_event:_ _request ->
+               incr provider_calls;
+               Ok response)
+         }
+       in
+       let config =
+         { (Types.default_config ~model:"test-model") with
+           name = "terminal-durability-production-path"
+         }
+       in
+       let options =
+         { Agent.default_options with
+           transport = Some transport
+         ; provider = Some (Provider_mock.to_provider_config ())
+         }
+       in
+       match
+         Internal_writer.run ~codec ~dir (fun ~sw writer ->
+           let scope =
+             match Internal_scope.start ~writer ~agent_name:config.name with
+             | Ok scope -> scope
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let tool =
+             Tool.create
+               ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_post_effect)
+               ~name:"terminal_tool"
+               ~description:"closes durable writer after the effect"
+               ~parameters:[]
+               (fun _input ->
+                  incr effect_count;
+                  Internal_writer.close writer;
+                  Ok { Types.content = "effect committed"; _meta = None })
+           in
+           let agent =
+             Internal_agent.create
+               ~net:(Eio.Stdenv.net env)
+               ~config
+               ~tools:[ tool ]
+               ~options
+               ()
+           in
+           Internal_agent.set_state
+             agent
+             { (Internal_agent.state agent) with
+               messages = [ Types.user_msg "finish exactly once" ]
+             };
+           let expected_detail =
+             Internal_scope.error_to_string
+               (Internal_scope.Settlement_failed
+                  (Internal_settlement.Receipt_admission_outcome_unknown
+                     Internal_writer.Admission_closed))
+           in
+           (match
+              Internal.Execution_context.with_agent_scope scope (fun () ->
+                Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent)
+            with
+            | Error
+                (Error.Agent
+                   (Error.TerminalToolDurabilityFailed
+                      { invocation; effect_disposition; detail }) as error) ->
+              let schedule = Tool_contract.Invocation.schedule invocation in
+              Alcotest.(check string)
+                "exact invocation"
+                "call_1"
+                (Tool_contract.Invocation.tool_use_id invocation);
+              Alcotest.(check int)
+                "exact invocation turn"
+                0
+                (Tool_contract.Invocation.turn invocation);
+              Alcotest.(check int) "exact planned index" 0 schedule.planned_index;
+              Alcotest.(check int) "exact batch index" 0 schedule.batch_index;
+              Alcotest.(check int) "exact batch size" 1 schedule.batch_size;
+              Alcotest.(check bool)
+                "exact serial schedule"
+                true
+                (schedule.execution_mode = Tool_contract.Serial);
+              Alcotest.(check bool)
+                "exact closed effect disposition"
+                true
+                (Error.terminal_effect_disposition effect_disposition
+                 = Tool_contract.Proven_post_effect);
+              Alcotest.(check string) "exact durability detail" expected_detail detail;
+              Alcotest.(check bool)
+                "terminal durability failure is not retryable"
+                false
+                (Error.is_retryable error)
+            | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> Alcotest.fail "terminal durability failure unexpectedly succeeded");
+           Alcotest.(check int) "provider called once" 1 !provider_calls;
+           Alcotest.(check int) "terminal effect ran once" 1 !effect_count)
+       with
+       | Ok () -> ()
+       | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure))
 ;;
 
 let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
@@ -2316,14 +2415,21 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
   Eio.Switch.run
   @@ fun runtime_sw ->
   let domain_mgr = Eio.Stdenv.domain_mgr env in
-  let internal_runtime =
+  let runtime =
     match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
     | Ok runtime -> runtime
     | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
   in
-  let codec = Internal_codec.of_runtime internal_runtime in
+  let codec = Internal_codec.of_runtime runtime in
   let terminal_input = `Assoc [ "value", `Int 1 ] in
-  let run_case label ~restored_terminal_name ~restored_terminal_input ~include_ordinary =
+  let valid_terminal_schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
+  in
+  let run_case label case =
     let native_path =
       Filename.temp_file ("oas-agent-malformed-terminal-" ^ label) ".dir"
     in
@@ -2373,20 +2479,20 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                | Ok provider -> provider
                | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
              in
-             let persist
-                   ~tool_use_id
-                   ~tool_name
-                   ~input
-                   ~planned_index
-                   ~execution_mode
-                   ~completion
-               =
-               let schedule : Tool.schedule =
-                 { planned_index; batch_index = 0; batch_size = 1; execution_mode }
-               in
-               let invocation =
-                 Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule ~completion
-               in
+             let assert_turn_open () =
+               match Internal_scope.resume_current_turn scope with
+               | Ok (Internal_scope.Resume_turn_open _) -> ()
+               | Ok Internal_scope.Resume_turn_absent ->
+                 Alcotest.failf "%s: malformed case removed its durable turn" label
+               | Ok (Internal_scope.Resume_turn_settled _) ->
+                 Alcotest.failf "%s: malformed case finalized its turn" label
+               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+             in
+             let invocation ~tool_use_id ~schedule ~completion =
+               Tool_contract.Invocation.create ~tool_use_id ~turn:0 ~schedule ~completion
+             in
+             let persist ~tool_use_id ~tool_name ~input ~schedule ~completion =
+               let invocation = invocation ~tool_use_id ~schedule ~completion in
                let durable =
                  match
                    Internal_scope.open_invocation provider ~invocation ~tool_name ~input
@@ -2405,165 +2511,203 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                  Alcotest.fail "fixture unexpectedly replayed a fresh invocation"
                | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
              in
-             persist
-               ~tool_use_id:"terminal-call"
-               ~tool_name:"terminal_tool"
-               ~input:terminal_input
-               ~planned_index:0
-               ~execution_mode:Tool.Serial
-               ~completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown);
-             if include_ordinary
-             then
+             match case with
+             | `Invalid_contract (schedule, completion) ->
+               let invalid =
+                 invocation ~tool_use_id:"terminal-call" ~schedule ~completion
+               in
+               (match
+                  Internal_scope.open_invocation
+                    provider
+                    ~invocation:invalid
+                    ~tool_name:"terminal_tool"
+                    ~input:terminal_input
+                with
+                | Error (Internal_scope.Admission_failed _) -> ()
+                | Error error ->
+                  Alcotest.failf
+                    "%s: wrong typed contract error: %s"
+                    label
+                    (Internal_scope.error_to_string error)
+                | Ok _ -> Alcotest.failf "%s: invalid terminal contract persisted" label);
+               assert_turn_open ()
+             | (`Identity _ | `Mixed) as recovered_case ->
                persist
-                 ~tool_use_id:"ordinary-call"
-                 ~tool_name:"ordinary_tool"
-                 ~input:(`Assoc [])
-                 ~planned_index:1
-                 ~execution_mode:Tool.Concurrent
-                 ~completion:Tool.Continue_after_success;
-             (match
-                Internal_scope.close_provider_attempt
-                  provider
-                  Internal.Execution_event.Succeeded
-              with
-              | Ok () -> ()
-              | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
-             if not include_ordinary
-             then (
-               match Internal_scope.provider_invocations provider with
-               | Ok [ authority ] ->
-                 (match
-                    Internal_scope.validate_invocation_authority
-                      authority
-                      ~turn:0
-                      ~planned_index:0
-                      ~tool_use_id:"terminal-call"
-                      ~tool_name:restored_terminal_name
-                      ~input:restored_terminal_input
-                  with
-                  | Error (Internal_scope.Resume_topology_mismatch _) -> ()
-                  | Error error ->
-                    Alcotest.failf
-                      "%s: wrong typed identity error: %s"
-                      label
-                      (Internal_scope.error_to_string error)
-                  | Ok () ->
-                    Alcotest.failf "%s: drifted restored ToolUse was accepted" label)
-               | Ok _ -> Alcotest.failf "%s: expected one persisted authority" label
-               | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
-             let assistant_content =
-               let terminal =
-                 ToolUse
-                   { id = "terminal-call"
-                   ; name = restored_terminal_name
-                   ; input = restored_terminal_input
-                   }
-               in
-               if include_ordinary
-               then
-                 [ terminal
-                 ; ToolUse
-                     { id = "ordinary-call"; name = "ordinary_tool"; input = `Assoc [] }
-                 ]
-               else [ terminal ]
-             in
-             let result_content =
-               let terminal =
-                 ToolResult
-                   { tool_use_id = "terminal-call"
-                   ; content = "terminal_tool-settled"
-                   ; outcome = Types.Tool_succeeded
-                   ; json = None
-                   ; content_blocks = None
-                   }
-               in
-               if include_ordinary
-               then
-                 [ terminal
-                 ; ToolResult
-                     { tool_use_id = "ordinary-call"
-                     ; content = "ordinary_tool-settled"
-                     ; outcome = Types.Tool_succeeded
-                     ; json = None
-                     ; content_blocks = None
-                     }
-                 ]
-               else [ terminal ]
-             in
-             let options =
-               { Agent.default_options with
-                 provider = Some (Provider_mock.to_provider_config ())
-               }
-             in
-             let agent =
-               Internal_agent.create
-                 ~net:(Eio.Stdenv.net env)
-                 ~config
-                 ~tools:[]
-                 ~options
-                 ()
-             in
-             Internal_agent.set_state
-               agent
-               { config
-               ; messages =
-                   [ Types.user_msg "run malformed batch"
-                   ; { Types.role = Assistant
-                     ; content = assistant_content
-                     ; name = None
-                     ; tool_call_id = None
-                     ; metadata = []
-                     }
-                   ; { Types.role = Tool
-                     ; content = result_content
-                     ; name = None
-                     ; tool_call_id = None
-                     ; metadata = []
-                     }
-                   ]
-               ; turn_count = 1
-               ; usage = Types.empty_usage
-               };
-             (match
-                Internal.Execution_context.with_agent_scope scope (fun () ->
-                  Internal.Execution_context.with_resume_once (fun () ->
-                    Internal_pipeline.run_turn
-                      ~sw
-                      ~api_strategy:Internal_pipeline.Sync
-                      agent))
-              with
-              | Error _ -> ()
-              | Ok _ ->
-                Alcotest.failf "%s: malformed persisted topology was accepted" label);
-             match Internal_scope.resume_current_turn scope with
-             | Ok (Internal_scope.Resume_turn_open _) -> ()
-             | Ok Internal_scope.Resume_turn_absent ->
-               Alcotest.failf "%s: malformed resume removed its durable turn" label
-             | Ok (Internal_scope.Resume_turn_settled _) ->
-               Alcotest.failf
-                 "%s: malformed resume finalized its turn before returning the error"
-                 label
-             | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+                 ~tool_use_id:"terminal-call"
+                 ~tool_name:"terminal_tool"
+                 ~input:terminal_input
+                 ~schedule:valid_terminal_schedule
+                 ~completion:
+                   (Tool_contract.Terminal_after_success
+                      Tool_contract.Effect_outcome_unknown);
+               (match recovered_case with
+                | `Mixed ->
+                  let ordinary_schedule : Tool_contract.schedule =
+                    { planned_index = 1
+                    ; batch_index = 1
+                    ; batch_size = 1
+                    ; execution_mode = Tool_contract.Concurrent
+                    }
+                  in
+                  persist
+                    ~tool_use_id:"ordinary-call"
+                    ~tool_name:"ordinary_tool"
+                    ~input:(`Assoc [])
+                    ~schedule:ordinary_schedule
+                    ~completion:Tool_contract.Continue_after_success
+                | `Identity _ -> ());
+               (match
+                  Internal_scope.close_provider_attempt
+                    provider
+                    Internal.Execution_event.Succeeded
+                with
+                | Ok () -> ()
+                | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+               (match recovered_case with
+                | `Identity
+                    ( expected_turn
+                    , expected_index
+                    , restored_id
+                    , restored_name
+                    , restored_input ) ->
+                  (match Internal_scope.provider_invocations provider with
+                   | Ok [ authority ] ->
+                     (match
+                        Internal_scope.validate_invocation_authority
+                          authority
+                          ~turn:expected_turn
+                          ~planned_index:expected_index
+                          ~tool_use_id:restored_id
+                          ~tool_name:restored_name
+                          ~input:restored_input
+                      with
+                      | Error (Internal_scope.Resume_topology_mismatch _) -> ()
+                      | Error error ->
+                        Alcotest.failf
+                          "%s: wrong typed authority error: %s"
+                          label
+                          (Internal_scope.error_to_string error)
+                      | Ok () -> Alcotest.failf "%s: authority drift was accepted" label)
+                   | Ok _ -> Alcotest.failf "%s: expected one persisted authority" label
+                   | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+                | `Mixed ->
+                  let assistant_content =
+                    [ ToolUse
+                        { id = "terminal-call"
+                        ; name = "terminal_tool"
+                        ; input = terminal_input
+                        }
+                    ; ToolUse
+                        { id = "ordinary-call"
+                        ; name = "ordinary_tool"
+                        ; input = `Assoc []
+                        }
+                    ]
+                  in
+                  let result_content =
+                    [ ToolResult
+                        { tool_use_id = "terminal-call"
+                        ; content = "terminal_tool-settled"
+                        ; outcome = Types.Tool_succeeded
+                        ; json = None
+                        ; content_blocks = None
+                        }
+                    ; ToolResult
+                        { tool_use_id = "ordinary-call"
+                        ; content = "ordinary_tool-settled"
+                        ; outcome = Types.Tool_succeeded
+                        ; json = None
+                        ; content_blocks = None
+                        }
+                    ]
+                  in
+                  let options =
+                    { Agent.default_options with
+                      provider = Some (Provider_mock.to_provider_config ())
+                    }
+                  in
+                  let agent =
+                    Internal_agent.create
+                      ~net:(Eio.Stdenv.net env)
+                      ~config
+                      ~tools:[]
+                      ~options
+                      ()
+                  in
+                  Internal_agent.set_state
+                    agent
+                    { config
+                    ; messages =
+                        [ Types.user_msg "run malformed batch"
+                        ; { Types.role = Assistant
+                          ; content = assistant_content
+                          ; name = None
+                          ; tool_call_id = None
+                          ; metadata = []
+                          }
+                        ; { Types.role = Tool
+                          ; content = result_content
+                          ; name = None
+                          ; tool_call_id = None
+                          ; metadata = []
+                          }
+                        ]
+                    ; turn_count = 1
+                    ; usage = Types.empty_usage
+                    };
+                  (match
+                     Internal.Execution_context.with_agent_scope scope (fun () ->
+                       Internal.Execution_context.with_resume_once (fun () ->
+                         Internal_pipeline.run_turn
+                           ~sw
+                           ~api_strategy:Internal_pipeline.Sync
+                           agent))
+                   with
+                   | Error _ -> ()
+                   | Ok _ ->
+                     Alcotest.failf "%s: malformed persisted topology was accepted" label));
+               assert_turn_open ())
          with
          | Ok () -> ()
          | Error failure ->
            Alcotest.fail (Internal_writer.scope_failure_to_string failure))
   in
+  let identity
+        ?(turn = 0)
+        ?(planned_index = 0)
+        ?(id = "terminal-call")
+        ?(name = "terminal_tool")
+        ?(input = terminal_input)
+        ()
+    =
+    `Identity (turn, planned_index, id, name, input)
+  in
+  run_case "mixed" `Mixed;
+  run_case "id-drift" (identity ~id:"drifted-terminal-call" ());
+  run_case "order-drift" (identity ~planned_index:1 ());
+  run_case "turn-drift" (identity ~turn:1 ());
+  run_case "name-drift" (identity ~name:"renamed_terminal_tool" ());
+  run_case "input-drift" (identity ~input:(`Assoc [ "value", `Int 2 ]) ());
   run_case
-    "mixed"
-    ~restored_terminal_name:"terminal_tool"
-    ~restored_terminal_input:terminal_input
-    ~include_ordinary:true;
+    "schedule-planned-index-drift"
+    (`Invalid_contract
+        ( { valid_terminal_schedule with planned_index = 1 }
+        , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ));
   run_case
-    "name-drift"
-    ~restored_terminal_name:"renamed_terminal_tool"
-    ~restored_terminal_input:terminal_input
-    ~include_ordinary:false;
+    "schedule-batch-index-drift"
+    (`Invalid_contract
+        ( { valid_terminal_schedule with batch_index = 1 }
+        , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ));
   run_case
-    "input-drift"
-    ~restored_terminal_name:"terminal_tool"
-    ~restored_terminal_input:(`Assoc [ "value", `Int 2 ])
-    ~include_ordinary:false
+    "schedule-batch-size-drift"
+    (`Invalid_contract
+        ( { valid_terminal_schedule with batch_size = 2 }
+        , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ));
+  run_case
+    "completion-drift"
+    (`Invalid_contract
+        ( { valid_terminal_schedule with execution_mode = Tool_contract.Concurrent }
+        , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ))
 ;;
 
 let test_agent_run_replays_precheckpoint_terminal_settlement () =
@@ -2626,7 +2770,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
          let effect_count = ref 0 in
          let initial_tool =
            Tool.create
-             ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+             ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
              ~name:"durable_tool"
              ~description:"settles before the Agent checkpoint"
              ~parameters:[]
@@ -2702,7 +2846,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
            | `Removed -> []
            | `Drifted ->
              [ Tool.create
-                 ~descriptor:(Tool.ordinary_descriptor Tool.Concurrent)
+                 ~descriptor:(Tool.ordinary_descriptor Tool_contract.Concurrent)
                  ~name:"durable_tool"
                  ~description:"current descriptor must not control resume"
                  ~parameters:[]

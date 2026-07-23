@@ -312,8 +312,8 @@ let test_tool_contract () =
     { name = "bash"
     ; description = "Shell"
     ; origin = Some "builtin"
-    ; execution_mode = Tool.Concurrent
-    ; completion = Tool.Continue_after_success
+    ; execution_mode = Tool_contract.Concurrent
+    ; completion = Tool_contract.Continue_after_success
     }
   in
   roundtrip
@@ -326,8 +326,9 @@ let test_tool_contract () =
     { name = "read"
     ; description = "Read"
     ; origin = None
-    ; execution_mode = Tool.Serial
-    ; completion = Tool.Terminal_after_success Tool.Effect_outcome_unknown
+    ; execution_mode = Tool_contract.Serial
+    ; completion =
+        Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown
     }
   in
   roundtrip

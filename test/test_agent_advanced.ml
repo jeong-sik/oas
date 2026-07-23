@@ -628,7 +628,7 @@ let test_malformed_terminal_admission_keeps_provider_lease_held () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            (fun () -> incr handler_count))
   in
   (match
@@ -675,7 +675,7 @@ let test_terminal_success_stops_advanced_before_next_provider () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            (fun () -> incr handler_count))
   in
   (match
@@ -696,7 +696,7 @@ let test_terminal_success_stops_advanced_before_next_provider () =
      Alcotest.(check string)
        "exact invocation"
        "call_1"
-       (Tool.Invocation.tool_use_id completion.invocation);
+       (Tool_contract.Invocation.tool_use_id completion.invocation);
      Alcotest.(check bool)
        "checkpoint stage"
        true
@@ -734,7 +734,7 @@ let test_terminal_typed_error_allows_correction () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Proven_pre_effect)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_pre_effect)
            ~result:typed_error
            ignore)
   in
@@ -777,16 +777,20 @@ let test_terminal_post_effect_error_stops_before_next_provider () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Proven_post_effect)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_post_effect)
            ~result:typed_error
            (fun () -> incr effect_count))
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
    | Error
        (Error.Agent
-          (Error.TerminalToolEffectFailed
-             { tool_use_id; effect_disposition = Error.Proven_post_effect; detail })) ->
+          (Error.TerminalToolEffectFailed { tool_use_id; effect_disposition; detail })) ->
      Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check bool)
+       "typed post-effect disposition"
+       true
+       (Error.terminal_effect_disposition effect_disposition
+        = Tool_contract.Proven_post_effect);
      Alcotest.(check string)
        "typed terminal failure detail"
        "effect committed before receipt failure"
@@ -825,17 +829,20 @@ let test_terminal_unknown_effect_error_is_typed () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            ~result:typed_error
            ignore)
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
    | Error
        (Error.Agent
-          (Error.TerminalToolEffectFailed
-             { tool_use_id; effect_disposition = Error.Effect_outcome_unknown; detail }))
-     ->
+          (Error.TerminalToolEffectFailed { tool_use_id; effect_disposition; detail })) ->
      Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check bool)
+       "typed unknown-effect disposition"
+       true
+       (Error.terminal_effect_disposition effect_disposition
+        = Tool_contract.Effect_outcome_unknown);
      Alcotest.(check string)
        "typed unknown-effect detail"
        "effect outcome cannot be proven"
@@ -880,7 +887,9 @@ let test_terminal_stream_detail_preserves_provider_response () =
       ~context_injector:None
       ~on_run_complete:None
       ~tool:
-        (time_tool ~descriptor:(Tool.terminal_descriptor Tool.Proven_post_effect) ignore)
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_post_effect)
+           ignore)
   in
   Agent.set_state
     agent
@@ -933,7 +942,7 @@ let test_terminal_cancellation_preserves_token_and_stops_provider () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            (fun () -> raise (Eio.Cancel.Cancelled Terminal_cancel_token)))
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
@@ -964,7 +973,7 @@ let test_terminal_exception_stops_before_next_provider () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            (fun () -> failwith "terminal boom"))
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
@@ -996,7 +1005,7 @@ let test_terminal_success_stops_stream_before_next_provider () =
       ~on_run_complete:None
       ~tool:
         (time_tool
-           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
            ignore)
   in
   (match Agent.run_stream_blocks ~sw ~on_event:ignore agent [ Types.Text "finish" ] with

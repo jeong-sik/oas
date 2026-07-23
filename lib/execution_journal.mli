@@ -412,7 +412,7 @@ module Transaction : sig
   val open_tool_invocation
     :  run:run
     -> provider_attempt:Execution_event.Node_id.t
-    -> invocation:Tool.Invocation.t
+    -> invocation:Tool_contract.Invocation.t
     -> tool_name:string
     -> input:Yojson.Safe.t
     -> unit

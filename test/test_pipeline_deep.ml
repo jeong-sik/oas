@@ -11,14 +11,18 @@
 open Agent_sdk
 
 let invocation tool_use_id =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  Tool.Invocation.create
+  Tool_contract.Invocation.create
     ~tool_use_id
     ~turn:0
     ~schedule
-    ~completion:Tool.Continue_after_success
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 let context_messages = function

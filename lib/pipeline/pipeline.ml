@@ -24,16 +24,10 @@ type api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
-type terminal_tool_completion = Pipeline_terminal_tool.terminal_tool_completion =
-  { invocation : Tool.Invocation.t
-  ; response : Types.api_response
-  ; checkpoint_stage : checkpoint_stage
-  }
-
 type turn_outcome = Pipeline_terminal_tool.turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of checkpoint_stage
-  | TerminalToolCompleted of terminal_tool_completion
+  | TerminalToolCompleted of Terminal_tool_receipt.t
 
 let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
 
@@ -358,7 +352,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
               ~hook_name
               ~stage
               ~tool_name:(Some tool_name)
-              ~tool_use_id:(Some (Tool.Invocation.tool_use_id invocation))
+              ~tool_use_id:(Some (Tool_contract.Invocation.tool_use_id invocation))
               ~detail)
        | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
@@ -693,6 +687,7 @@ let run_turn
     ~execute:(fun ~turn tool_uses ->
       let response = Pipeline_terminal_tool.response agent tool_uses in
       stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tool_uses)
+    ~all_pre_tool_use_blocked:(ToolsExecuted After_tool_results_appended)
     ~tools_settled_before_checkpoint:(replay_settled_before_checkpoint agent)
     ~tools_settled:(Pipeline_terminal_tool.recovered_outcome agent)
     ~terminal:(fun response -> Complete response)

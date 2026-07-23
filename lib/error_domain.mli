@@ -53,10 +53,10 @@ type agent_error =
   | `Input_required of string * string (** request_id, question *)
   | `Hook_execution_failed of string * string * string option * string option * string
     (** hook_name, typed-stage projection, tool_name, tool_use_id, detail *)
-  | `Terminal_tool_effect_failed of string * Error.terminal_effect_disposition * string
+  | `Terminal_tool_effect_failed of string * Error.closed_terminal_effect * string
     (** tool_use_id, effect disposition, detail *)
   | `Terminal_tool_durability_failed of
-      Tool.Invocation.t * Error.terminal_effect_disposition * string
+      Tool_contract.Invocation.t * Error.closed_terminal_effect * string
     (** exact invocation, effect disposition, detail *)
   | `Unrecognized_stop_reason of string
   ]

@@ -578,8 +578,8 @@ let test_proof_bundle_roundtrip () =
         [ { name = "read_file"
           ; description = "Read a file"
           ; origin = Some "runtime"
-          ; execution_mode = Tool.Concurrent
-          ; completion = Tool.Continue_after_success
+          ; execution_mode = Tool_contract.Concurrent
+          ; completion = Tool_contract.Continue_after_success
           }
         ]
     ; latest_raw_trace_run = Some run_ref

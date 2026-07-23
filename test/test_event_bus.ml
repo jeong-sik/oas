@@ -27,14 +27,18 @@ let mock_response text =
 let ev payload = Event_bus.mk_event payload
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  let schedule : Tool.schedule =
-    { planned_index; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  Tool.Invocation.create
+  Tool_contract.Invocation.create
     ~tool_use_id
     ~turn
     ~schedule
-    ~completion:Tool.Continue_after_success
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 let subscription_config_exn ~capacity ~overflow =
@@ -448,7 +452,7 @@ let test_tool_called_fields () =
     check string "agent_name" "a" r.agent_name;
     check string "tool_name" "calc" r.tool_name;
     check string "input json" {|{"x":1}|} (Yojson.Safe.to_string r.input);
-    check int "turn" 0 (Tool.Invocation.turn r.invocation)
+    check int "turn" 0 (Tool_contract.Invocation.turn r.invocation)
   | _ -> fail "expected ToolCalled"
 ;;
 
@@ -475,8 +479,12 @@ let test_tool_completed_preserves_non_retryable_flag () =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[] (fun _ ->
       Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let _result =
     Agent_tools.find_and_execute_tool
@@ -489,11 +497,11 @@ let test_tool_completed_preserves_non_retryable_flag () =
       ~correlation_id:"sess-event"
       ~run_id:"run-event"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-1"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "fail"
       (`Assoc [])
     |> require_tool_execution
@@ -542,8 +550,12 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[] (fun _ ->
       Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let fired = ref [] in
   let on_tool_error =
@@ -567,11 +579,11 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-1"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "fail"
       (`Assoc [])
     |> require_tool_execution
@@ -593,8 +605,12 @@ let test_on_tool_error_hook_silent_on_success () =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
       Ok { Types.content = "done"; _meta = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let fired = ref 0 in
   let on_tool_error =
@@ -615,11 +631,11 @@ let test_on_tool_error_hook_silent_on_success () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-2"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "ok"
       (`Assoc [])
     |> require_tool_execution
@@ -634,8 +650,12 @@ let test_on_error_fires_on_tool_not_found () =
   @@ fun _env ->
   let context = Context.create_sync () in
   let bus = Event_bus.create () in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let fired = ref [] in
   let on_error =
@@ -660,11 +680,11 @@ let test_on_error_fires_on_tool_not_found () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-1"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "ghost_tool"
       (`Assoc [])
     |> require_tool_execution
@@ -688,7 +708,7 @@ let test_on_error_fires_on_tool_not_found () =
       string
       "error retains exact tool occurrence"
       "tool-1"
-      (Tool.Invocation.tool_use_id error_invocation)
+      (Tool_contract.Invocation.tool_use_id error_invocation)
   | [ (_, _, None) ] -> fail "tool-attributed on_error lost its invocation"
   | [] -> fail "on_error hook not fired"
   | _ -> fail "on_error fired more than once"
@@ -703,8 +723,12 @@ let test_unknown_tool_reports_available_tools_and_retries () =
     Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun _ ->
       Ok { Types.content = "unused"; _meta = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let fired = ref [] in
   let on_error =
@@ -728,11 +752,11 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-unknown"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "MissingRead"
       (`Assoc [])
     |> require_tool_execution
@@ -805,8 +829,12 @@ let test_execution_rejects_invalid_input_unchanged () =
          handler_input := input;
          Ok { Types.content = "ok"; _meta = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let result =
     Agent_tools.find_and_execute_tool
@@ -817,11 +845,11 @@ let test_execution_rejects_invalid_input_unchanged () =
       ~tracer:Tracing.null
       ~agent_name:"agent"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-invalid-input"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "Count"
       (`Assoc [ "count", `String "42" ])
     |> require_tool_execution
@@ -846,8 +874,12 @@ let test_on_error_silent_on_successful_dispatch () =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
       Ok { Types.content = "done"; _meta = None })
   in
-  let schedule : Hooks.tool_schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let fired = ref 0 in
   let on_error =
@@ -868,11 +900,11 @@ let test_on_error_silent_on_successful_dispatch () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~invocation:
-        (Tool.Invocation.create
+        (Tool_contract.Invocation.create
            ~tool_use_id:"tool-2"
            ~turn:0
            ~schedule
-           ~completion:Tool.Continue_after_success)
+           ~completion:Tool_contract.Continue_after_success)
       "ok"
       (`Assoc [])
     |> require_tool_execution

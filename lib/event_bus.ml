@@ -42,13 +42,13 @@ type payload =
       ; elapsed : float
       }
   | ToolCalled of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; agent_name : string
       ; tool_name : string
       ; input : Yojson.Safe.t
       }
   | ToolCompleted of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; agent_name : string
       ; tool_name : string
       ; output : Types.tool_result

@@ -1604,8 +1604,8 @@ let stage_open_tool_invocation
     | Event.Provider_attempt _, Some turn_node ->
       let* turn_record = node_record_or_error state turn_node in
       (match Event.node_kind turn_record.node with
-       | Event.Agent_turn { ordinal } when ordinal = Tool.Invocation.turn invocation ->
-         Ok ()
+       | Event.Agent_turn { ordinal }
+         when ordinal = Tool_contract.Invocation.turn invocation -> Ok ()
        | Event.Agent_turn _ ->
          Error
            (Invalid_argument "tool invocation turn does not match its provider attempt")
@@ -1628,8 +1628,8 @@ let stage_open_tool_invocation
         | Event.Tool_attempt )
       , _ ) -> Error (Invalid_argument "tool invocation requires a provider attempt")
   in
-  let tool_use_id = Tool.Invocation.tool_use_id invocation in
-  let planned_index = Tool.Invocation.planned_index invocation in
+  let tool_use_id = Tool_contract.Invocation.tool_use_id invocation in
+  let planned_index = Tool_contract.Invocation.planned_index invocation in
   let* () =
     match
       Occurrence_map.find_opt
@@ -1648,8 +1648,10 @@ let stage_open_tool_invocation
                  { id = existing_id; name = input_name; input = existing_input }) ) ->
           Option.equal String.equal provider_tool_use_id (Some tool_use_id)
           && String.equal existing_name tool_name
-          && Execution_tool_schedule.equal schedule (Tool.Invocation.schedule invocation)
-          && completion = Tool.Invocation.completion invocation
+          && Execution_tool_schedule.equal
+               schedule
+               (Tool_contract.Invocation.schedule invocation)
+          && completion = Tool_contract.Invocation.completion invocation
           && String.equal existing_id tool_use_id
           && String.equal input_name tool_name
           && Yojson.Safe.equal existing_input input
@@ -1679,8 +1681,8 @@ let stage_open_tool_invocation
         (Event.Tool_invocation
            { provider_tool_use_id = Some tool_use_id
            ; tool_name
-           ; schedule = Tool.Invocation.schedule invocation
-           ; completion = Tool.Invocation.completion invocation
+           ; schedule = Tool_contract.Invocation.schedule invocation
+           ; completion = Tool_contract.Invocation.completion invocation
            })
   in
   let tool_use =
@@ -1911,7 +1913,7 @@ module Transaction = struct
     | Open_tool_invocation :
         { run : run
         ; provider_attempt : Event.Node_id.t
-        ; invocation : Tool.Invocation.t
+        ; invocation : Tool_contract.Invocation.t
         ; tool_name : string
         ; input : Yojson.Safe.t
         }

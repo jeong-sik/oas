@@ -76,7 +76,7 @@ let descriptor tool = tool.descriptor
 
 let completion tool =
   Option.fold
-    ~none:Tool.Continue_after_success
+    ~none:Tool_contract.Continue_after_success
     ~some:Tool.descriptor_completion
     tool.descriptor
 ;;

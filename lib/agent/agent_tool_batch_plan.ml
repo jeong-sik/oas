@@ -17,8 +17,8 @@ let execution_batches tool_uses =
     | [] -> List.rev (flush_concurrent acc current_concurrent)
     | tool_use :: rest ->
       (match snd tool_use with
-       | Tool.Concurrent -> build acc (tool_use :: current_concurrent) rest
-       | Tool.Serial ->
+       | Tool_contract.Concurrent -> build acc (tool_use :: current_concurrent) rest
+       | Tool_contract.Serial ->
          let acc = flush_concurrent acc current_concurrent in
          build (Serial_batch tool_use :: acc) [] rest)
   in
@@ -30,8 +30,8 @@ let create ~execution_mode ~completion scheduled =
     List.fold_left
       (fun count tool_use ->
          match completion tool_use with
-         | Tool.Continue_after_success -> count
-         | Tool.Terminal_after_success _ -> count + 1)
+         | Tool_contract.Continue_after_success -> count
+         | Tool_contract.Terminal_after_success _ -> count + 1)
       0
       scheduled
   in

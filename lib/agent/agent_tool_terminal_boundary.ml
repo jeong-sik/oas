@@ -1,5 +1,6 @@
 open Types
 open Agent_tool_execution_types
+open Result_syntax
 
 let tool_use_blocks blocks =
   List.filter_map
@@ -22,8 +23,9 @@ let execute_handler ~tool ~name run =
     let backtrace = Printexc.get_raw_backtrace () in
     Llm_provider.Reserved_exn.reraise_if_reserved exn;
     (match Tool.completion tool with
-     | Tool.Terminal_after_success _ -> Printexc.raise_with_backtrace exn backtrace
-     | Tool.Continue_after_success ->
+     | Tool_contract.Terminal_after_success _ ->
+       Printexc.raise_with_backtrace exn backtrace
+     | Tool_contract.Continue_after_success ->
        Error
          { message = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn)
          ; recoverable = false
@@ -35,18 +37,20 @@ let completed_dispatch completion (dispatch : tool_dispatch option) =
   match dispatch with
   | Some { result = { outcome = Tool_succeeded; invocation; _ }; _ } ->
     (match completion with
-     | Tool.Terminal_after_success _ -> Terminal_completed invocation
-     | Tool.Continue_after_success -> Continue_after_batch)
+     | Tool_contract.Terminal_after_success _ -> Terminal_completed invocation
+     | Tool_contract.Continue_after_success -> Continue_after_batch)
   | Some
       { result = { outcome = Tool_failed { failure_kind = Validation_error; _ }; _ }; _ }
     -> Continue_after_batch
   | Some { result = { outcome = Tool_failed _; invocation; content; _ }; _ } ->
     (match completion with
-     | Tool.Terminal_after_success Tool.Proven_pre_effect -> Continue_after_batch
-     | Tool.Terminal_after_success
-         ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as effect_disposition)
-       -> Terminal_failed { invocation; effect_disposition; detail = content }
-     | Tool.Continue_after_success -> Continue_after_batch)
+     | Tool_contract.Terminal_after_success Tool_contract.Proven_pre_effect ->
+       Continue_after_batch
+     | Tool_contract.Terminal_after_success
+         ((Tool_contract.Proven_post_effect | Tool_contract.Effect_outcome_unknown) as
+          effect_disposition) ->
+       Terminal_failed { invocation; effect_disposition; detail = content }
+     | Tool_contract.Continue_after_success -> Continue_after_batch)
   | None -> Continue_after_batch
 ;;
 
@@ -58,7 +62,7 @@ let rejected_results ~turn ~schedule ~completion ~id ~name ~input scheduled =
   List.map
     (fun tool_use ->
        let invocation =
-         Tool.Invocation.create
+         Tool_contract.Invocation.create
            ~tool_use_id:(id tool_use)
            ~turn
            ~schedule:(schedule tool_use)
@@ -101,28 +105,33 @@ let recovered_batch_completion ~invocations tool_results =
   let terminal_invocations =
     List.filter
       (fun invocation ->
-         match Tool.Invocation.completion invocation with
-         | Tool.Terminal_after_success _ -> true
-         | Tool.Continue_after_success -> false)
+         match Tool_contract.Invocation.completion invocation with
+         | Tool_contract.Terminal_after_success _ -> true
+         | Tool_contract.Continue_after_success -> false)
       invocations
   in
   match invocations, terminal_invocations with
   | _, [] -> Ok Continue_after_batch
   | [ invocation ], [ terminal_invocation ] ->
-    let schedule = Tool.Invocation.schedule terminal_invocation in
+    let schedule = Tool_contract.Invocation.schedule terminal_invocation in
+    let* () =
+      Execution_tool_schedule.validate_completion
+        ~completion:(Tool_contract.Invocation.completion terminal_invocation)
+        schedule
+      |> Result.map_error (fun _ ->
+        Error.Internal "persisted terminal invocation violates singleton admission")
+    in
     if
-      schedule.execution_mode <> Tool.Serial
-      || schedule.batch_size <> 1
-      || not
-           (String.equal
-              (Tool.Invocation.tool_use_id invocation)
-              (Tool.Invocation.tool_use_id terminal_invocation))
+      not
+        (String.equal
+           (Tool_contract.Invocation.tool_use_id invocation)
+           (Tool_contract.Invocation.tool_use_id terminal_invocation))
     then
       Error
         (Error.Internal
-           "persisted terminal invocation violates singleton serial admission")
+           "persisted terminal invocation identity differs from terminal authority")
     else (
-      let tool_use_id = Tool.Invocation.tool_use_id invocation in
+      let tool_use_id = Tool_contract.Invocation.tool_use_id invocation in
       match List.assoc_opt tool_use_id result_by_id with
       | None ->
         Error
@@ -131,13 +140,14 @@ let recovered_batch_completion ~invocations tool_results =
       | Some (_, Tool_failed { failure_kind = Validation_error; _ }) ->
         Ok Continue_after_batch
       | Some (detail, Tool_failed _) ->
-        (match Tool.Invocation.completion invocation with
-         | Tool.Terminal_after_success Tool.Proven_pre_effect -> Ok Continue_after_batch
-         | Tool.Terminal_after_success
-             ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as
+        (match Tool_contract.Invocation.completion invocation with
+         | Tool_contract.Terminal_after_success Tool_contract.Proven_pre_effect ->
+           Ok Continue_after_batch
+         | Tool_contract.Terminal_after_success
+             ((Tool_contract.Proven_post_effect | Tool_contract.Effect_outcome_unknown) as
               effect_disposition) ->
            Ok (Terminal_failed { invocation; effect_disposition; detail })
-         | Tool.Continue_after_success ->
+         | Tool_contract.Continue_after_success ->
            Error
              (Error.Internal "persisted terminal invocation lost its terminal completion")))
   | _, [ _ ] ->

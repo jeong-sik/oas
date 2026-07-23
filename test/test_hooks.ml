@@ -7,21 +7,21 @@ let default_schedule
       ?(planned_index = 0)
       ?(batch_index = 0)
       ?(batch_size = 1)
-      ?(execution_mode = Tool.Serial)
+      ?(execution_mode = Tool_contract.Serial)
       ()
   =
-  let schedule : Tool.schedule =
+  let schedule : Tool_contract.schedule =
     { planned_index; batch_index; batch_size; execution_mode }
   in
   schedule
 ;;
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  Tool.Invocation.create
+  Tool_contract.Invocation.create
     ~tool_use_id
     ~turn
     ~schedule:(default_schedule ~planned_index ())
-    ~completion:Tool.Continue_after_success
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 let test_empty_hooks () =

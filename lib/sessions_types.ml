@@ -118,8 +118,8 @@ type tool_contract =
   { name : string
   ; description : string
   ; origin : string option
-  ; execution_mode : Tool.execution_mode
-  ; completion : Tool.completion
+  ; execution_mode : Tool_contract.execution_mode
+  ; completion : Tool_contract.completion
   }
 [@@deriving show]
 
@@ -131,8 +131,8 @@ let tool_contract_to_yojson contract =
       , match contract.origin with
         | Some origin -> `String origin
         | None -> `Null )
-    ; "execution_mode", Tool.execution_mode_to_yojson contract.execution_mode
-    ; "completion", Tool.completion_to_yojson contract.completion
+    ; "execution_mode", Tool_contract.execution_mode_to_yojson contract.execution_mode
+    ; "completion", Tool_contract.completion_to_yojson contract.completion
     ]
 ;;
 
@@ -177,12 +177,12 @@ let tool_contract_of_yojson json =
     in
     let* execution_mode =
       match List.assoc_opt "execution_mode" fields with
-      | Some value -> Tool.execution_mode_of_yojson value
+      | Some value -> Tool_contract.execution_mode_of_yojson value
       | None -> Error "tool contract field \"execution_mode\" is required"
     in
     let* completion =
       match List.assoc_opt "completion" fields with
-      | Some value -> Tool.completion_of_yojson value
+      | Some value -> Tool_contract.completion_of_yojson value
       | None -> Error "tool contract field \"completion\" is required"
     in
     Ok { name; description; origin; execution_mode; completion }
@@ -485,8 +485,8 @@ let%test "tool_contract round-trip" =
     { name = "t"
     ; description = "d"
     ; origin = Some "o"
-    ; execution_mode = Tool.Concurrent
-    ; completion = Tool.Continue_after_success
+    ; execution_mode = Tool_contract.Concurrent
+    ; completion = Tool_contract.Continue_after_success
     }
   in
   tool_contract_of_yojson (tool_contract_to_yojson v) = Ok v
