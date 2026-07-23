@@ -24,22 +24,22 @@ type api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
+type terminal_tool_completion = Pipeline_terminal_tool.terminal_tool_completion =
+  { invocation : Tool.Invocation.t
+  ; response : Types.api_response
+  ; checkpoint_stage : checkpoint_stage
+  }
+
 type turn_outcome = Pipeline_terminal_tool.turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of checkpoint_stage
-  | TerminalToolCompleted of
-      { invocation : Tool.Invocation.t
-      ; response : Types.api_response
-      ; checkpoint_stage : checkpoint_stage
-      }
+  | TerminalToolCompleted of terminal_tool_completion
 
 let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
 
 let persist_turn_checkpoint agent stage =
   persist_turn_checkpoint_for_state agent stage agent.state
 ;;
-
-(* ── Stage 1: Input ──────────────────────────────────────── *)
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
 let stage_input = Pipeline_stage_prepare.stage_input
@@ -396,49 +396,11 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
             finish After_context_injection))
 ;;
 
-let replay_settled_before_checkpoint agent ~turn:_ ~invocations ~tool_results tool_uses =
-  let response = Pipeline_terminal_tool.response agent tool_uses in
-  let* report =
-    Pipeline_terminal_tool.recovered_report ~invocations ~tool_results tool_uses
-  in
-  let tool_uses_list = Nonempty.to_list tool_uses in
-  update_state agent (fun state ->
-    { state with
-      messages = Util.snoc state.messages (make_message ~role:Tool tool_results)
-    });
-  let base_state = agent.state in
-  let* () =
-    persist_turn_checkpoint_for_state agent After_tool_results_appended base_state
-  in
-  let finish = Pipeline_terminal_tool.outcome ~response report.Agent_tools.completion in
-  match agent.options.context_injector with
-  | None -> finish After_tool_results_appended
-  | Some injector ->
-    let* messages =
-      Agent_turn.apply_context_injection
-        ~context:agent.context
-        ~messages:agent.state.messages
-        ~injector
-        ~tool_uses:tool_uses_list
-        ~results:report.completed_results
-      |> Result.map_error (fun error ->
-        Error.Internal
-          (Printf.sprintf
-             "context injector failed%s: %s"
-             (match error.Agent_turn.tool_name with
-              | Some name -> " for tool " ^ name
-              | None -> "")
-             error.detail))
-    in
-    let injected_state = { agent.state with messages } in
-    set_state agent injected_state;
-    let* () =
-      persist_turn_checkpoint_for_state agent After_context_injection injected_state
-    in
-    finish After_context_injection
+let replay_settled_before_checkpoint agent =
+  Pipeline_terminal_resume.replay
+    ~persist_checkpoint:(persist_turn_checkpoint_for_state agent)
+    agent
 ;;
-
-(* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
 let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =

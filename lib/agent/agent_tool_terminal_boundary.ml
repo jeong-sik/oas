@@ -1,6 +1,21 @@
 open Types
 open Agent_tool_execution_types
 
+let tool_use_blocks blocks =
+  List.filter_map
+    (function
+      | ToolUse { id; name; input } -> Some (id, name, input)
+      | Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> None)
+    blocks
+;;
+
 let execute_handler ~tool ~name run =
   try run () with
   | exn ->

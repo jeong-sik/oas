@@ -136,14 +136,7 @@ let validate_node_kind = function
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
   | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
     let* () = validate_non_blank "tool_name" tool_name in
-    let* () = Execution_tool_schedule.validate schedule in
-    (match completion with
-     | Tool.Continue_after_success -> Ok ()
-     | Tool.Terminal_after_success _ ->
-       if schedule.execution_mode = Tool.Serial && schedule.batch_size = 1
-       then Ok ()
-       else
-         Error "terminal tool invocation must have a singleton serial persisted schedule")
+    Execution_tool_schedule.validate_completion ~completion schedule
   | Tool_attempt -> Ok ()
 ;;
 

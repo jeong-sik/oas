@@ -28,11 +28,7 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
-type terminal_tool_turn_completion =
-  { invocation : Tool.Invocation.t
-  ; response : Types.api_response
-  ; checkpoint_stage : checkpoint_stage
-  }
+type terminal_tool_turn_completion = Agent_terminal_tool_completion.t
 
 let detailed_error_of_sdk_error = Provider_failure_attribution.of_sdk_error
 
@@ -980,12 +976,7 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted
     | `TerminalToolCompleted completion ->
-      `TerminalToolCompleted
-        ({ invocation = completion.Pipeline.invocation
-         ; response = completion.response
-         ; checkpoint_stage = completion.checkpoint_stage
-         }
-         : terminal_tool_turn_completion))
+      `TerminalToolCompleted (Agent_terminal_tool_completion.of_pipeline completion))
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =

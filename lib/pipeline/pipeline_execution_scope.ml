@@ -58,7 +58,10 @@ let resume_current scope =
        (match Execution_agent_scope.resume_provider_attempt turn with
         | Error error -> Error (sdk_error error)
         | Ok Resume_provider_absent ->
-          Ok (Settled { provider = None; turn_to_close = None })
+          Error
+            (sdk_error
+               (Execution_agent_scope.Resume_topology_mismatch
+                  "closed succeeded turn has no provider attempt authority"))
         | Ok (Resume_provider_settled provider) ->
           Ok (Settled { provider = Some provider; turn_to_close = None })
         | Ok (Resume_provider_open _) ->
@@ -99,9 +102,9 @@ let before_provider_attempt t binding =
     |> Result.map_error sdk_error
 ;;
 
-let provider t = t.provider
+let provider (t : t) = t.provider
 
-let invocations_settled t =
+let invocations_settled (t : t) =
   match t.provider with
   | None -> Ok false
   | Some provider ->
@@ -109,7 +112,7 @@ let invocations_settled t =
     |> Result.map_error sdk_error
 ;;
 
-let invocations t =
+let invocations (t : t) =
   match t.provider with
   | None ->
     Error

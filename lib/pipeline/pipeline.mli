@@ -17,14 +17,16 @@ type api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
+type terminal_tool_completion =
+  { invocation : Tool.Invocation.t
+  ; response : Types.api_response
+  ; checkpoint_stage : Agent_types.checkpoint_stage
+  }
+
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of Agent_types.checkpoint_stage
-  | TerminalToolCompleted of
-      { invocation : Tool.Invocation.t
-      ; response : Types.api_response
-      ; checkpoint_stage : Agent_types.checkpoint_stage
-      }
+  | TerminalToolCompleted of terminal_tool_completion
 
 (** Observation-only domain label stamped on a durable [Error_occurred] event,
     derived from the actual error's typed [Error.category] (not hardcoded).

@@ -2263,6 +2263,193 @@ let test_agent_run_resumes_terminal_after_tool_removal () =
     ()
 ;;
 
+let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let internal_runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime internal_runtime in
+  let native_path = Filename.temp_file "oas-agent-malformed-terminal-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       let config =
+         { (Types.default_config ~model:"test-model") with
+           name = "durable-malformed-terminal-test"
+         }
+       in
+       let provider_config =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"test-model"
+           ~base_url:"http://resume.invalid"
+           ~api_key:""
+           ~request_path:"/v1/chat/completions"
+           ()
+       in
+       let binding =
+         match
+           Internal_binding.of_provider_config
+             ~transport:Internal_binding.Injected
+             provider_config
+         with
+         | Ok binding -> binding
+         | Error detail -> Alcotest.fail detail
+       in
+       match
+         Internal_writer.run ~codec ~dir (fun ~sw writer ->
+           let scope =
+             match Internal_scope.start ~writer ~agent_name:config.name with
+             | Ok scope -> scope
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let turn =
+             match Internal_scope.open_turn scope ~ordinal:0 with
+             | Ok turn -> turn
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let provider =
+             match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+             | Ok provider -> provider
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let persist ~tool_use_id ~tool_name ~planned_index ~execution_mode ~completion =
+             let schedule : Tool.schedule =
+               { planned_index; batch_index = 0; batch_size = 1; execution_mode }
+             in
+             let invocation =
+               Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule ~completion
+             in
+             let durable =
+               match
+                 Internal_scope.open_invocation
+                   provider
+                   ~invocation
+                   ~tool_name
+                   ~input:(`Assoc [])
+               with
+               | Ok durable -> durable
+               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+             in
+             match
+               Internal_scope.execute
+                 durable
+                 ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
+                   tool_name ^ "-settled", Types.Tool_succeeded)
+             with
+             | Ok (Internal_scope.Executed _) -> ()
+             | Ok (Internal_scope.Replayed _) ->
+               Alcotest.fail "fixture unexpectedly replayed a fresh invocation"
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           persist
+             ~tool_use_id:"terminal-call"
+             ~tool_name:"terminal_tool"
+             ~planned_index:0
+             ~execution_mode:Tool.Serial
+             ~completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown);
+           persist
+             ~tool_use_id:"ordinary-call"
+             ~tool_name:"ordinary_tool"
+             ~planned_index:1
+             ~execution_mode:Tool.Concurrent
+             ~completion:Tool.Continue_after_success;
+           (match
+              Internal_scope.close_provider_attempt
+                provider
+                Internal.Execution_event.Succeeded
+            with
+            | Ok () -> ()
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+           let options =
+             { Agent.default_options with
+               provider = Some (Provider_mock.to_provider_config ())
+             }
+           in
+           let agent =
+             Internal_agent.create ~net:(Eio.Stdenv.net env) ~config ~tools:[] ~options ()
+           in
+           Internal_agent.set_state
+             agent
+             { config
+             ; messages =
+                 [ Types.user_msg "run malformed batch"
+                 ; { Types.role = Assistant
+                   ; content =
+                       [ ToolUse
+                           { id = "terminal-call"
+                           ; name = "terminal_tool"
+                           ; input = `Assoc []
+                           }
+                       ; ToolUse
+                           { id = "ordinary-call"
+                           ; name = "ordinary_tool"
+                           ; input = `Assoc []
+                           }
+                       ]
+                   ; name = None
+                   ; tool_call_id = None
+                   ; metadata = []
+                   }
+                 ; { Types.role = Tool
+                   ; content =
+                       [ ToolResult
+                           { tool_use_id = "terminal-call"
+                           ; content = "terminal_tool-settled"
+                           ; outcome = Types.Tool_succeeded
+                           ; json = None
+                           ; content_blocks = None
+                           }
+                       ; ToolResult
+                           { tool_use_id = "ordinary-call"
+                           ; content = "ordinary_tool-settled"
+                           ; outcome = Types.Tool_succeeded
+                           ; json = None
+                           ; content_blocks = None
+                           }
+                       ]
+                   ; name = None
+                   ; tool_call_id = None
+                   ; metadata = []
+                   }
+                 ]
+             ; turn_count = 1
+             ; usage = Types.empty_usage
+             };
+           (match
+              Internal.Execution_context.with_agent_scope scope (fun () ->
+                Internal.Execution_context.with_resume_once (fun () ->
+                  Internal_pipeline.run_turn
+                    ~sw
+                    ~api_strategy:Internal_pipeline.Sync
+                    agent))
+            with
+            | Error _ -> ()
+            | Ok _ ->
+              Alcotest.fail
+                "malformed persisted terminal and concurrent ordinary batch was accepted");
+           match Internal_scope.resume_current_turn scope with
+           | Ok (Internal_scope.Resume_turn_open _) -> ()
+           | Ok Internal_scope.Resume_turn_absent ->
+             Alcotest.fail "malformed resume removed its durable turn"
+           | Ok (Internal_scope.Resume_turn_settled _) ->
+             Alcotest.fail
+               "malformed resume finalized its turn before returning the error"
+           | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+       with
+       | Ok () -> ()
+       | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure))
+;;
+
 let test_agent_run_replays_precheckpoint_terminal_settlement () =
   Eio_main.run
   @@ fun env ->
@@ -2930,6 +3117,10 @@ let () =
             "terminal resume survives current tool removal"
             `Quick
             test_agent_run_resumes_terminal_after_tool_removal
+        ; Alcotest.test_case
+            "malformed terminal resume does not finalize its turn"
+            `Quick
+            test_settled_malformed_terminal_topology_does_not_finalize_turn
         ; Alcotest.test_case
             "terminal pre-checkpoint settlement survives removal and drift"
             `Quick

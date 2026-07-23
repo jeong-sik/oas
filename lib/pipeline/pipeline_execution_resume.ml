@@ -168,7 +168,6 @@ let response_of_settled_terminal agent (message : Types.message) : Types.api_res
    the reconstructed final assistant response. *)
 let run_settled agent boundary ~tools_settled ~terminal =
   let* replay = classify_settled agent in
-  let* () = Pipeline_execution_scope.finalize_settled boundary in
   match replay with
   | Replay_tools_settled { tool_uses; tool_results } ->
     let turn = agent.Agent_types.state.turn_count - 1 in
@@ -179,8 +178,20 @@ let run_settled agent boundary ~tools_settled ~terminal =
            "durable execution resume settled tool turn has an invalid turn counter")
     else
       let* invocations = Pipeline_execution_scope.settled_invocations boundary in
-      tools_settled ~turn ~invocations ~tool_results tool_uses
-  | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
+      let* outcome = tools_settled ~turn ~invocations ~tool_results tool_uses in
+      let+ () = Pipeline_execution_scope.finalize_settled boundary in
+      outcome
+  | Replay_terminal message ->
+    let* invocations = Pipeline_execution_scope.settled_invocations boundary in
+    (match invocations with
+     | _ :: _ ->
+       Error
+         (Error.Internal
+            "durable execution resume terminal turn contains persisted tool invocations")
+     | [] ->
+       let outcome = terminal (response_of_settled_terminal agent message) in
+       let+ () = Pipeline_execution_scope.finalize_settled boundary in
+       outcome)
 ;;
 
 let run agent execution ~execute ~settled_before_checkpoint ~already_settled =

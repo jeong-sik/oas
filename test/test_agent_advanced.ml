@@ -797,6 +797,118 @@ let test_terminal_post_effect_error_stops_before_next_provider () =
   Alcotest.(check int) "post-effect failure stopped provider" 1 !call_count
 ;;
 
+let test_terminal_unknown_effect_error_is_typed () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let typed_error =
+    Error
+      { Types.message = "effect outcome cannot be proven"
+      ; recoverable = true
+      ; error_class = Some Types.Unknown
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ~result:typed_error
+           ignore)
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error
+       (Error.Agent
+          (Error.TerminalToolEffectFailed
+             { tool_use_id; effect_disposition = Error.Effect_outcome_unknown; detail }))
+     ->
+     Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check string)
+       "typed unknown-effect detail"
+       "effect outcome cannot be proven"
+       detail
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "unknown-effect terminal failure must stop");
+  Alcotest.(check int) "unknown-effect failure stopped provider" 1 !call_count
+;;
+
+let test_terminal_stream_detail_preserves_provider_response () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let expected_usage : Types.api_usage =
+    { input_tokens = 11
+    ; output_tokens = 7
+    ; cache_creation_input_tokens = 3
+    ; cache_read_input_tokens = 2
+    }
+  in
+  let expected_response =
+    { tool_use_response with
+      id = "terminal-provider-response"
+    ; model = "terminal-provider-model"
+    ; usage = Some expected_usage
+    }
+  in
+  let transport, call_count =
+    sequence_transport [ expected_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool ~descriptor:(Tool.terminal_descriptor Tool.Proven_post_effect) ignore)
+  in
+  Agent.set_state
+    agent
+    { (Agent.state agent) with messages = [ Types.user_msg "finish" ] };
+  (match Agent.run_turn_stream_detailed ~sw ~on_event:ignore agent with
+   | Ok (`TerminalToolCompleted completion) ->
+     Alcotest.(check bool)
+       "full provider response"
+       true
+       (completion.response = expected_response);
+     Alcotest.(check string)
+       "provider model"
+       "terminal-provider-model"
+       completion.response.model;
+     Alcotest.(check bool)
+       "provider usage"
+       true
+       (completion.response.usage = Some expected_usage);
+     Alcotest.(check bool)
+       "checkpoint stage"
+       true
+       (completion.checkpoint_stage = Agent.After_tool_results_appended)
+   | Ok `Complete -> Alcotest.fail "terminal tool unexpectedly completed as text"
+   | Ok `ToolsExecuted ->
+     Alcotest.fail "terminal tool unexpectedly requested another turn"
+   | Error error -> Alcotest.fail (Error.to_string error.error));
+  Alcotest.(check int) "terminal detail used one provider call" 1 !call_count
+;;
+
 exception Terminal_cancel_token
 
 let test_terminal_cancellation_preserves_token_and_stops_provider () =
@@ -944,6 +1056,14 @@ let () =
             "terminal post-effect error stops provider"
             `Quick
             test_terminal_post_effect_error_stops_before_next_provider
+        ; Alcotest.test_case
+            "terminal unknown-effect error is typed"
+            `Quick
+            test_terminal_unknown_effect_error_is_typed
+        ; Alcotest.test_case
+            "terminal stream detail preserves provider response"
+            `Quick
+            test_terminal_stream_detail_preserves_provider_response
         ; Alcotest.test_case
             "terminal cancellation preserves token"
             `Quick

@@ -1,14 +1,16 @@
 open Types
 open Result_syntax
 
+type terminal_tool_completion =
+  { invocation : Tool.Invocation.t
+  ; response : Types.api_response
+  ; checkpoint_stage : Agent_types.checkpoint_stage
+  }
+
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of Agent_types.checkpoint_stage
-  | TerminalToolCompleted of
-      { invocation : Tool.Invocation.t
-      ; response : Types.api_response
-      ; checkpoint_stage : Agent_types.checkpoint_stage
-      }
+  | TerminalToolCompleted of terminal_tool_completion
 
 let response agent tool_uses : Types.api_response =
   { id = ""

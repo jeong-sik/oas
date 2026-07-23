@@ -18,7 +18,20 @@ matches_pattern() {
   local case_mode="$1"
   local pattern="$2"
   shift 2
-  if command -v rg >/dev/null 2>&1; then
+  local backend="${TERMINAL_BOUNDARY_SEARCH_BACKEND:-auto}"
+  if [[ "$backend" == "auto" ]]; then
+    if command -v rg >/dev/null 2>&1; then
+      backend="rg"
+    elif command -v perl >/dev/null 2>&1; then
+      backend="perl"
+    else
+      fail "requires either rg or perl; refusing to skip the boundary check"
+    fi
+  fi
+
+  if [[ "$backend" == "rg" ]]; then
+    command -v rg >/dev/null 2>&1 \
+      || fail "requested rg search backend is unavailable"
     local args=(-q --multiline)
     if [[ "$case_mode" == "insensitive" ]]; then
       args+=(-i)
@@ -32,23 +45,58 @@ matches_pattern() {
       fi
       fail "rg failed while evaluating the boundary"
     fi
-  elif command -v perl >/dev/null 2>&1; then
-    if perl -0 -e '
-      my ($case_mode, $pattern, @files) = @ARGV;
-      my $matched = 0;
-      for my $file (@files) {
-        open my $handle, "<", $file or die "cannot read $file: $!\n";
-        local $/;
-        my $content = <$handle>;
-        close $handle;
-        if ($case_mode eq "insensitive"
-              ? $content =~ /$pattern/msi
-              : $content =~ /$pattern/ms) {
-          $matched = 1;
-          last;
-        }
+  elif [[ "$backend" == "perl" ]]; then
+    command -v perl >/dev/null 2>&1 \
+      || fail "requested perl search backend is unavailable"
+    if perl -e '
+      use strict;
+      use warnings;
+
+      my ($case_mode, $pattern, @paths) = @ARGV;
+      my $regex = eval {
+        $case_mode eq "insensitive" ? qr/$pattern/mi : qr/$pattern/m
+      };
+      if ($@) {
+        print STDERR "cannot compile boundary pattern: $@\n";
+        exit 2;
       }
-      exit($matched ? 0 : 1);
+
+      sub io_error {
+        my ($detail) = @_;
+        print STDERR "$detail\n";
+        exit 2;
+      }
+
+      sub visit {
+        my ($path) = @_;
+        my @metadata = stat $path;
+        @metadata or io_error("cannot stat $path: $!");
+        if (-d _) {
+          opendir my $directory, $path
+            or io_error("cannot open directory $path: $!");
+          my @entries = sort grep { $_ ne "." && $_ ne ".." } readdir $directory;
+          closedir $directory
+            or io_error("cannot close directory $path: $!");
+          visit("$path/$_") for @entries;
+          return;
+        }
+        return unless -f _;
+
+        open my $handle, "<", $path
+          or io_error("cannot open $path: $!");
+        my $content = "";
+        while (1) {
+          my $count = read $handle, my $chunk, 65_536;
+          defined $count or io_error("cannot read $path: $!");
+          last if $count == 0;
+          $content .= $chunk;
+        }
+        close $handle or io_error("cannot close $path: $!");
+        exit 0 if $content =~ $regex;
+      }
+
+      visit($_) for @paths;
+      exit 1;
     ' "$case_mode" "$pattern" "$@"; then
       return 0
     else
@@ -59,7 +107,7 @@ matches_pattern() {
       fail "perl failed while evaluating the boundary"
     fi
   else
-    fail "requires either rg or perl; refusing to skip the boundary check"
+    fail "unsupported search backend: $backend"
   fi
 }
 
@@ -141,6 +189,8 @@ check_boundary() {
 
 self_test() {
   local fixture
+  command -v perl >/dev/null 2>&1 \
+    || fail "self-test requires perl to exercise the fallback backend"
   fixture="$(mktemp -d)"
   trap "rm -rf '$fixture'" EXIT
   mkdir -p \
@@ -155,14 +205,28 @@ self_test() {
 
   printf '\nlet _forbidden = Tool_set.to_list\n' \
     >> "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
-  if TERMINAL_BOUNDARY_ROOT="$fixture" "$0" --check >/dev/null 2>&1; then
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
     fail "negative self-test failed to detect current-catalog reconstruction"
   fi
   cp "$PIPELINE" "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
 
+  mkdir -p "$fixture/lib/pipeline/nested/deeper"
+  printf 'let terminal_parallel = ()\n' \
+    > "$fixture/lib/pipeline/nested/deeper/forbidden.ml"
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
+    fail "negative self-test failed to recurse into nested directories"
+  fi
+  rm -rf "$fixture/lib/pipeline/nested"
+
   sed -i.bak '/; "completion"/d' "$fixture/lib/execution_event.ml"
   rm -f "$fixture/lib/execution_event.ml.bak"
-  if TERMINAL_BOUNDARY_ROOT="$fixture" "$0" --check >/dev/null 2>&1; then
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
     fail "negative self-test failed to detect completion missing from the common whitelist"
   fi
   cp "$EVENT" "$fixture/lib/execution_event.ml"
@@ -171,9 +235,36 @@ self_test() {
     's/schema_version_current = 2/schema_version_current = 1/' \
     "$fixture/lib/execution_event.ml"
   rm -f "$fixture/lib/execution_event.ml.bak"
-  if TERMINAL_BOUNDARY_ROOT="$fixture" "$0" --check >/dev/null 2>&1; then
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
     fail "negative self-test failed to detect a legacy schema decoder"
   fi
+  cp "$EVENT" "$fixture/lib/execution_event.ml"
+
+  local backend_output
+  if backend_output="$(
+    TERMINAL_BOUNDARY_SEARCH_BACKEND=invalid \
+      TERMINAL_BOUNDARY_ROOT="$fixture" \
+      "$0" --check 2>&1
+  )"; then
+    fail "negative self-test accepted an invalid search backend"
+  elif [[ "$backend_output" != *"unsupported search backend"* ]]; then
+    fail "negative self-test did not surface the invalid backend error"
+  fi
+
+  mv "$fixture/lib/execution_event.ml" "$fixture/lib/execution_event.ml.missing"
+  local read_output
+  if read_output="$(
+    TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+      TERMINAL_BOUNDARY_ROOT="$fixture" \
+      "$0" --check 2>&1
+  )"; then
+    fail "negative self-test accepted a missing source path"
+  elif [[ "$read_output" != *"perl failed while evaluating the boundary"* ]]; then
+    fail "negative self-test did not surface the Perl read failure"
+  fi
+  mv "$fixture/lib/execution_event.ml.missing" "$fixture/lib/execution_event.ml"
 
   printf 'terminal-tool boundary self-test: OK\n'
 }
