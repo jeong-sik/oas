@@ -278,6 +278,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.221.1](https://github.com/jeong-sik/oas/compare/v0.221.0...v0.221.1) (2026-07-23)
+
+
+### Features
+
+* **exact-output:** add affine outer flow ([#2781](https://github.com/jeong-sik/oas/issues/2781)) ([4659b54](https://github.com/jeong-sik/oas/commit/4659b5488f2c93010024d929715911a3646606c5))
+
 ## [0.221.0](https://github.com/jeong-sik/oas/compare/v0.220.5...v0.221.0) (2026-07-22)
 
 
