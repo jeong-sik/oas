@@ -357,19 +357,8 @@ let find_and_execute_tool_with_index
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
          let result =
-           try Tool.execute ~context ~invocation tool exact_input with
-           | exn ->
-             let backtrace = Printexc.get_raw_backtrace () in
-             Llm_provider.Reserved_exn.reraise_if_reserved exn;
-             (match Tool.completion tool with
-              | Tool.Terminal_after_success -> Printexc.raise_with_backtrace exn backtrace
-              | Tool.Continue_after_success ->
-                Error
-                  { message =
-                      Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn)
-                  ; recoverable = false
-                  ; error_class = Some Types.Unknown
-                  })
+           Agent_tool_terminal_boundary.execute_handler ~tool ~name (fun () ->
+             Tool.execute ~context ~invocation tool exact_input)
          in
          let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
          let result_bytes =
@@ -622,20 +611,13 @@ let execute_scheduled_tool
       record_caught_exception exception_ backtrace
   in
   let outcome () =
-    let completion =
-      match tool_use.completion, !completed_dispatch with
-      | ( Tool.Terminal_after_success
-        , Some { result = { outcome = Tool_succeeded; invocation; _ }; _ } ) ->
-        Terminal_completed invocation
-      | Tool.Continue_after_success, Some { result = { outcome = Tool_succeeded; _ }; _ }
-      | ( (Tool.Continue_after_success | Tool.Terminal_after_success)
-        , (None | Some { result = { outcome = Tool_failed _; _ }; _ }) ) ->
-        Continue_after_batch
-    in
     { index
     ; completed_result =
         Option.map (fun (dispatch : tool_dispatch) -> dispatch.result) !completed_dispatch
-    ; completion
+    ; completion =
+        Agent_tool_terminal_boundary.completed_dispatch
+          tool_use.completion
+          !completed_dispatch
     ; failure = !first_failure
     }
   in
@@ -904,25 +886,7 @@ let execute_tools
       tool_uses
   =
   let tool_index = build_index tools in
-  let tool_use_blocks =
-    List.filter_map
-      (fun (block : Types.content_block) ->
-         match block with
-         | ToolUse { id; name; input } -> Some (id, name, input)
-         | Text _
-         | Thinking _
-         | ReasoningDetails _
-         | RedactedThinking _
-         | ToolResult _
-         | Image _
-         | Document _
-         | Audio _ ->
-           (* Only [ToolUse] blocks dispatch tools. Enumerated explicitly
-              so a new [content_block] variant cannot inherit "no tool"
-              behavior without review. *)
-           None)
-      tool_uses
-  in
+  let tool_use_blocks = Agent_tool_terminal_boundary.tool_use_blocks tool_uses in
   let scheduled = List.mapi (schedule_tool_use ~tool_index) tool_use_blocks in
   let plan =
     Agent_tool_batch_plan.create
@@ -1011,31 +975,15 @@ let execute_tools
   in
   match plan with
   | Agent_tool_batch_plan.Rejected_terminal_mix scheduled ->
-    let content =
-      "Terminal tool admission rejected: a terminal tool must be the only tool call in \
-       the provider turn"
-    in
     let batch_size = List.length scheduled in
-    let completed_results =
-      List.map
-        (fun tool_use ->
-           let schedule = hook_schedule_of_tool_use ~batch_index:0 ~batch_size tool_use in
-           let invocation =
-             Tool.Invocation.create ~tool_use_id:tool_use.id ~turn:turn_count ~schedule
-           in
-           { invocation
-           ; tool_name = tool_use.name
-           ; input = tool_use.input
-           ; content
-           ; outcome =
-               Tool_failed
-                 { failure_kind = Validation_error
-                 ; error_class = Some Types.Deterministic
-                 }
-           })
-        scheduled
-    in
-    Ok { completed_results; completion = Continue_after_batch }
+    Ok
+      (Agent_tool_terminal_boundary.rejected_report
+         ~turn:turn_count
+         ~schedule:(hook_schedule_of_tool_use ~batch_index:0 ~batch_size)
+         ~id:(fun tool_use -> tool_use.id)
+         ~name:(fun tool_use -> tool_use.name)
+         ~input:(fun tool_use -> tool_use.input)
+         scheduled)
   | Agent_tool_batch_plan.Admitted batches ->
     if batches <> [] then Option.iter (fun callback -> callback ()) before_tool_execution;
     run_batches 0 [] Continue_after_batch batches
@@ -1043,34 +991,9 @@ let execute_tools
 
 let recovered_batch_completion ~tools ~turn ~tool_uses ~tool_results =
   let tool_index = build_index tools in
-  let tool_use_blocks =
-    List.filter_map
-      (fun (block : Types.content_block) ->
-         match block with
-         | ToolUse { id; name; input } -> Some (id, name, input)
-         | Text _
-         | Thinking _
-         | ReasoningDetails _
-         | RedactedThinking _
-         | ToolResult _
-         | Image _
-         | Document _
-         | Audio _ -> None)
-      tool_uses
-  in
-  match
-    let scheduled = List.mapi (schedule_tool_use ~tool_index) tool_use_blocks in
-    ( Agent_tool_batch_plan.create
-        ~execution_mode:(fun tool_use -> tool_use.execution_mode)
-        ~completion:(fun tool_use -> tool_use.completion)
-        scheduled
-    , tool_results )
-  with
-  | ( Agent_tool_batch_plan.Admitted [ Agent_tool_batch_plan.Serial_batch tool_use ]
-    , [ Ok _ ] )
-    when tool_use.completion = Tool.Terminal_after_success ->
-    let schedule = hook_schedule_of_tool_use ~batch_index:0 ~batch_size:1 tool_use in
-    Terminal_completed (Tool.Invocation.create ~tool_use_id:tool_use.id ~turn ~schedule)
-  | (Agent_tool_batch_plan.Admitted _ | Agent_tool_batch_plan.Rejected_terminal_mix _), _
-    -> Continue_after_batch
+  Agent_tool_terminal_boundary.recovered_batch_completion
+    ~find_tool:(find_in_index tool_index)
+    ~turn
+    ~tool_uses
+    ~tool_results
 ;;
