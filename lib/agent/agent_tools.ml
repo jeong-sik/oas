@@ -885,10 +885,10 @@ let execute_tools
       ~(usage : Types.usage_stats)
       ?correlation_id
       ?run_id
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
-      ?before_tool_execution
       tool_uses
   =
   let tool_index = build_index tools in

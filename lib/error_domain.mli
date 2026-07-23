@@ -55,6 +55,9 @@ type agent_error =
     (** hook_name, typed-stage projection, tool_name, tool_use_id, detail *)
   | `Terminal_tool_effect_failed of string * Error.terminal_effect_disposition * string
     (** tool_use_id, effect disposition, detail *)
+  | `Terminal_tool_durability_failed of
+      Tool.Invocation.t * Error.terminal_effect_disposition * string
+    (** exact invocation, effect disposition, detail *)
   | `Unrecognized_stop_reason of string
   ]
 

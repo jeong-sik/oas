@@ -1077,7 +1077,7 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
   in
   let check_rejected label expected_ids = function
     | Error _ -> failf "%s: admission rejection must be model-visible" label
-    | Ok report ->
+    | Ok (report : Agent_tools.execution_report) ->
       check
         int
         (label ^ " result count")

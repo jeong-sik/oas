@@ -9,6 +9,17 @@ type scope_locator
 type invocation_locator
 type invocation
 
+type invocation_authority = private
+  { invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+type settled_invocation = private
+  { authority : invocation_authority
+  ; result : Llm_provider.Types.content_block
+  }
+
 type tool_result = private
   { invocation : Tool.Invocation.t
   ; tool_name : string
@@ -130,16 +141,29 @@ val find_invocation
 
 val provider_invocations_settled : provider_attempt -> (bool, error) result
 
-(** Immutable invocation authority reconstructed only from persisted
-    Tool_invocation nodes. Results are ordered by planned index. *)
-val provider_invocations : provider_attempt -> (Tool.Invocation.t list, error) result
+(** Exact immutable invocation authority reconstructed only from persisted
+    Tool_invocation nodes and their materialized ToolUse input. Results are
+    ordered by planned index. *)
+val provider_invocations : provider_attempt -> (invocation_authority list, error) result
+
+(** Compare a restored ToolUse occurrence to exact persisted authority. This
+    validates id, order, turn, name, input, schedule, and completion without
+    consulting the current tool catalog. *)
+val validate_invocation_authority
+  :  invocation_authority
+  -> turn:int
+  -> planned_index:int
+  -> tool_use_id:string
+  -> tool_name:string
+  -> input:Yojson.Safe.t
+  -> (unit, error) result
 
 (** Exact settled invocation/result pairs reconstructed from the journal and
     ordered by immutable planned index. Fails closed if any invocation lacks a
     durable result. *)
 val provider_settled_invocations
   :  provider_attempt
-  -> ((Tool.Invocation.t * Llm_provider.Types.content_block) list, error) result
+  -> (settled_invocation list, error) result
 
 (** Stable opaque coordinates for rebinding after the writer is reopened.
     The locator contains no copied Tool name, input, turn, or schedule; those

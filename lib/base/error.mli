@@ -44,6 +44,11 @@ type agent_error =
       ; effect_disposition : terminal_effect_disposition
       ; detail : string
       }
+  | TerminalToolDurabilityFailed of
+      { invocation : Tool.Invocation.t
+      ; effect_disposition : terminal_effect_disposition
+      ; detail : string
+      }
   | GuardrailViolation of
       { validator : string
       ; reason : string

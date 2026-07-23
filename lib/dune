@@ -21,7 +21,6 @@
   execution_context
   agent_input
   agent_run_loop_support
-  agent_terminal_tool_completion
   agent_tool_batch_plan
   agent_tool_terminal_boundary
   agent_tool_execution_types

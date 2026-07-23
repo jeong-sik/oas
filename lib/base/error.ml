@@ -45,6 +45,11 @@ type agent_error =
       ; effect_disposition : terminal_effect_disposition
       ; detail : string
       }
+  | TerminalToolDurabilityFailed of
+      { invocation : Tool.Invocation.t
+      ; effect_disposition : terminal_effect_disposition
+      ; detail : string
+      }
   | GuardrailViolation of
       { validator : string
       ; reason : string
@@ -180,6 +185,14 @@ let agent_error_to_string = function
     Printf.sprintf
       "Terminal tool use %s failed at %s: %s"
       r.tool_use_id
+      (match r.effect_disposition with
+       | Proven_post_effect -> "a proven post-effect boundary"
+       | Effect_outcome_unknown -> "an unknown effect boundary")
+      r.detail
+  | TerminalToolDurabilityFailed r ->
+    Printf.sprintf
+      "Terminal tool use %s lost durable settlement at %s: %s"
+      (Tool.Invocation.tool_use_id r.invocation)
       (match r.effect_disposition with
        | Proven_post_effect -> "a proven post-effect boundary"
        | Effect_outcome_unknown -> "an unknown effect boundary")

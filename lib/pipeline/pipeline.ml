@@ -362,8 +362,8 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
               ~detail)
        | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
-       | Some (Agent_tools.Durability_failure { detail; _ }) ->
-         Error (Error.Internal detail)
+       | Some (Agent_tools.Durability_failure { invocation; detail }) ->
+         Pipeline_terminal_tool.durability_failure ~invocation ~detail
        | None ->
          let finish = Pipeline_terminal_tool.outcome ~response completion in
          (match agent.options.context_injector with

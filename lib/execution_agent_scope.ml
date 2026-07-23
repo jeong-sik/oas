@@ -34,6 +34,17 @@ type invocation =
   ; scope : t
   }
 
+type invocation_authority =
+  { invocation : Tool.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+type settled_invocation =
+  { authority : invocation_authority
+  ; result : Llm_provider.Types.content_block
+  }
+
 type tool_result =
   { invocation : Tool.Invocation.t
   ; tool_name : string
@@ -511,18 +522,55 @@ let provider_invocations provider =
       | [] ->
         Ok
           (List.sort
-             (fun left right ->
+             (fun (left : invocation_authority) (right : invocation_authority) ->
                 Int.compare
-                  (Tool.Invocation.planned_index left)
-                  (Tool.Invocation.planned_index right))
+                  (Tool.Invocation.planned_index left.invocation)
+                  (Tool.Invocation.planned_index right.invocation))
              acc)
       | node :: rest ->
         let locator = { run_id = Journal.run_id scope.run; node } in
         (match rebind_invocation scope locator with
          | Error _ as error -> error
-         | Ok invocation -> rebind_all (invocation.durable.invocation :: acc) rest)
+         | Ok invocation ->
+           rebind_all
+             ({ invocation = invocation.durable.invocation
+              ; tool_name = invocation.durable.tool_name
+              ; input = invocation.durable.input
+              }
+              :: acc)
+             rest)
     in
     rebind_all [] invocation_nodes
+;;
+
+let validate_invocation_authority
+      (authority : invocation_authority)
+      ~turn
+      ~planned_index
+      ~tool_use_id
+      ~tool_name
+      ~input
+  =
+  let invocation = authority.invocation in
+  let schedule = Tool.Invocation.schedule invocation in
+  match
+    Execution_tool_schedule.validate_completion
+      ~completion:(Tool.Invocation.completion invocation)
+      schedule
+  with
+  | Error detail -> Error (Resume_topology_mismatch detail)
+  | Ok () ->
+    if
+      Tool.Invocation.turn invocation = turn
+      && schedule.planned_index = planned_index
+      && String.equal (Tool.Invocation.tool_use_id invocation) tool_use_id
+      && String.equal authority.tool_name tool_name
+      && Yojson.Safe.equal authority.input input
+    then Ok ()
+    else
+      Error
+        (Resume_topology_mismatch
+           "restored ToolUse identity differs from persisted invocation authority")
 ;;
 
 let provider_invocations_settled provider =
@@ -613,10 +661,10 @@ let provider_settled_invocations provider =
       | [] ->
         Ok
           (List.sort
-             (fun (left, _) (right, _) ->
+             (fun (left : settled_invocation) (right : settled_invocation) ->
                 Int.compare
-                  (Tool.Invocation.planned_index left)
-                  (Tool.Invocation.planned_index right))
+                  (Tool.Invocation.planned_index left.authority.invocation)
+                  (Tool.Invocation.planned_index right.authority.invocation))
              acc)
       | node :: rest ->
         let locator = { run_id = Journal.run_id scope.run; node } in
@@ -631,7 +679,13 @@ let provider_settled_invocations provider =
         (match invocation_view.materialized with
          | Journal.Tool_invocation_state { result = Some result; _ } ->
            let* (_ : tool_result) = tool_result_of_block rebound.durable result in
-           rebind_all ((rebound.durable.invocation, result) :: acc) rest
+           let authority : invocation_authority =
+             { invocation = rebound.durable.invocation
+             ; tool_name = rebound.durable.tool_name
+             ; input = rebound.durable.input
+             }
+           in
+           rebind_all ({ authority; result } :: acc) rest
          | Journal.Tool_invocation_state { result = None; _ } ->
            Error (Resume_topology_mismatch "tool invocation is not settled")
          | Journal.Agent_run_state

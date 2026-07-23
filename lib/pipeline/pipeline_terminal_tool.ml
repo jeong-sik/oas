@@ -54,36 +54,82 @@ let outcome ~response completion checkpoint_stage =
             "pre-effect terminal failure crossed the correction-capable boundary"))
 ;;
 
-let recovered_report ~invocations ~tool_results tool_uses =
+let durability_failure ~invocation ~detail =
+  match Tool.Invocation.completion invocation with
+  | Tool.Continue_after_success -> Error (Error.Internal detail)
+  | Tool.Terminal_after_success disposition ->
+    let effect_disposition =
+      match disposition with
+      | Tool.Proven_post_effect -> Error.Proven_post_effect
+      | Tool.Proven_pre_effect | Tool.Effect_outcome_unknown ->
+        Error.Effect_outcome_unknown
+    in
+    Error
+      (Error.Agent
+         (Error.TerminalToolDurabilityFailed { invocation; effect_disposition; detail }))
+;;
+
+let resume_topology_error detail =
+  Error.Internal
+    (Execution_agent_scope.error_to_string
+       (Execution_agent_scope.Resume_topology_mismatch detail))
+;;
+
+let recovered_report ~turn ~invocations ~tool_results tool_uses =
   let rec recover_results expected_index acc invocations tool_uses tool_results =
     match invocations, tool_uses, tool_results with
-    | ( invocation :: invocations
+    | ( authority :: invocations
       , ToolUse { id; name; input } :: tool_uses
-      , ToolResult { tool_use_id; content; outcome; _ } :: tool_results )
-      when Tool.Invocation.planned_index invocation = expected_index
-           && String.equal (Tool.Invocation.tool_use_id invocation) id
-           && String.equal tool_use_id id ->
-      recover_results
-        (expected_index + 1)
-        ({ Agent_tools.invocation; tool_name = name; input; content; outcome } :: acc)
-        invocations
-        tool_uses
-        tool_results
+      , ToolResult { tool_use_id; content; outcome; _ } :: tool_results ) ->
+      let* () =
+        Execution_agent_scope.validate_invocation_authority
+          authority
+          ~turn
+          ~planned_index:expected_index
+          ~tool_use_id:id
+          ~tool_name:name
+          ~input
+        |> Result.map_error (fun error ->
+          Error.Internal (Execution_agent_scope.error_to_string error))
+      in
+      if String.equal tool_use_id id
+      then
+        recover_results
+          (expected_index + 1)
+          ({ Agent_tools.invocation = authority.invocation
+           ; tool_name = authority.tool_name
+           ; input = authority.input
+           ; content
+           ; outcome
+           }
+           :: acc)
+          invocations
+          tool_uses
+          tool_results
+      else
+        Error (resume_topology_error "restored ToolResult identity differs from ToolUse")
     | [], [], [] -> Ok (List.rev acc)
     | _ ->
       Error
-        (Error.Internal
-           "persisted invocation authority does not match the restored \
-            ToolUse/ToolResult topology")
+        (resume_topology_error
+           "persisted invocation count differs from restored topology")
   in
   let tool_uses = Nonempty.to_list tool_uses in
   let* completed_results = recover_results 0 [] invocations tool_uses tool_results in
-  let* completion = Agent_tools.recovered_batch_completion ~invocations tool_results in
+  let persisted_invocations =
+    List.map
+      (fun (authority : Execution_agent_scope.invocation_authority) ->
+         authority.invocation)
+      invocations
+  in
+  let* completion =
+    Agent_tools.recovered_batch_completion ~invocations:persisted_invocations tool_results
+  in
   Ok Agent_tools.{ completed_results; completion }
 ;;
 
-let recovered_outcome agent ~turn:_ ~invocations ~tool_results tool_uses =
+let recovered_outcome agent ~turn ~invocations ~tool_results tool_uses =
   let response = response agent tool_uses in
-  let* completion = Agent_tools.recovered_batch_completion ~invocations tool_results in
-  outcome ~response completion Agent_types.After_tool_results_appended
+  let* report = recovered_report ~turn ~invocations ~tool_results tool_uses in
+  outcome ~response report.completion Agent_types.After_tool_results_appended
 ;;

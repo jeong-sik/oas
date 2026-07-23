@@ -232,7 +232,18 @@ let run agent execution ~execute ~settled_before_checkpoint ~already_settled =
                          a result. *)
                      execute tool_blocks
                    | persisted ->
-                     let invocations, tool_results = List.split persisted in
+                     let invocations =
+                       List.map
+                         (fun (settled : Execution_agent_scope.settled_invocation) ->
+                            settled.authority)
+                         persisted
+                     in
+                     let tool_results =
+                       List.map
+                         (fun (settled : Execution_agent_scope.settled_invocation) ->
+                            settled.result)
+                         persisted
+                     in
                      settled_before_checkpoint
                        ~turn:(Pipeline_execution_scope.turn_ordinal execution)
                        ~invocations

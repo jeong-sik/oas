@@ -10,12 +10,12 @@ let validate (schedule : Hooks.tool_schedule) =
   else Ok ()
 ;;
 
-let validate_completion ~completion schedule =
+let validate_completion ~completion (schedule : Hooks.tool_schedule) =
   let* () = validate schedule in
   match completion with
   | Tool.Continue_after_success -> Ok ()
   | Tool.Terminal_after_success _ ->
-    if schedule.Hooks.execution_mode = Tool.Serial && schedule.batch_size = 1
+    if schedule.execution_mode = Tool.Serial && schedule.batch_size = 1
     then Ok ()
     else Error "terminal tool invocation must have a singleton serial persisted schedule"
 ;;

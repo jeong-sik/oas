@@ -858,6 +858,7 @@ let test_terminal_stream_detail_preserves_provider_response () =
     ; output_tokens = 7
     ; cache_creation_input_tokens = 3
     ; cache_read_input_tokens = 2
+    ; cost_usd = None
     }
   in
   let expected_response =
@@ -902,7 +903,7 @@ let test_terminal_stream_detail_preserves_provider_response () =
        "checkpoint stage"
        true
        (completion.checkpoint_stage = Agent.After_tool_results_appended)
-   | Ok `Complete -> Alcotest.fail "terminal tool unexpectedly completed as text"
+   | Ok (`Complete _) -> Alcotest.fail "terminal tool unexpectedly completed as text"
    | Ok `ToolsExecuted ->
      Alcotest.fail "terminal tool unexpectedly requested another turn"
    | Error error -> Alcotest.fail (Error.to_string error.error));
