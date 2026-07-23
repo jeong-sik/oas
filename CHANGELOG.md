@@ -278,6 +278,17 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.222.0](https://github.com/jeong-sik/oas/compare/v0.221.1...v0.222.0) (2026-07-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tool:** canonicalize terminal-tool contracts under Tool_contract, remove legacy Tool and Hooks schedule aliases, and require exact durable provider-response receipts.
+
+### Features
+
+* **tool:** enforce typed terminal-tool exclusivity ([aef2002](https://github.com/jeong-sik/oas/commit/aef2002bc00c84d999db5cc09a44d666890e70da))
+
 ## [0.221.1](https://github.com/jeong-sik/oas/compare/v0.221.0...v0.221.1) (2026-07-23)
 
 
