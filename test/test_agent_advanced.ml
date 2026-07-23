@@ -852,7 +852,7 @@ let test_terminal_unknown_effect_error_is_typed () =
   Alcotest.(check int) "unknown-effect failure stopped provider" 1 !call_count
 ;;
 
-let test_terminal_stream_detail_preserves_provider_response () =
+let test_terminal_stream_detail_preserves_canonical_response () =
   with_temp_trace
   @@ fun trace_path ->
   Eio_main.run
@@ -896,18 +896,63 @@ let test_terminal_stream_detail_preserves_provider_response () =
     { (Agent.state agent) with messages = [ Types.user_msg "finish" ] };
   (match Agent.run_turn_stream_detailed ~sw ~on_event:ignore agent with
    | Ok (`TerminalToolCompleted completion) ->
-     Alcotest.(check bool)
-       "full provider response"
-       true
-       (completion.response = expected_response);
      Alcotest.(check string)
-       "provider model"
-       "terminal-provider-model"
+       "canonical response id"
+       expected_response.id
+       completion.response.id;
+     Alcotest.(check string)
+       "canonical response model"
+       expected_response.model
        completion.response.model;
      Alcotest.(check bool)
-       "provider usage"
+       "canonical stop reason"
        true
-       (completion.response.usage = Some expected_usage);
+       (completion.response.stop_reason = expected_response.stop_reason);
+     Alcotest.(check bool)
+       "canonical response content"
+       true
+       (completion.response.content = expected_response.content);
+     (match completion.response.usage with
+      | None -> Alcotest.fail "canonical response lost token usage"
+      | Some usage ->
+        Alcotest.(check int)
+          "canonical input tokens"
+          expected_usage.input_tokens
+          usage.input_tokens;
+        Alcotest.(check int)
+          "canonical output tokens"
+          expected_usage.output_tokens
+          usage.output_tokens;
+        Alcotest.(check int)
+          "canonical cache creation tokens"
+          expected_usage.cache_creation_input_tokens
+          usage.cache_creation_input_tokens;
+        Alcotest.(check int)
+          "canonical cache read tokens"
+          expected_usage.cache_read_input_tokens
+          usage.cache_read_input_tokens;
+        Alcotest.(check bool)
+          "cost enrichment is an optional finite observation"
+          true
+          (Option.fold
+             ~none:true
+             ~some:(fun cost -> Float.is_finite cost && cost >= 0.0)
+             usage.cost_usd));
+     (match completion.response.telemetry with
+      | None -> Alcotest.fail "canonical response lost completion telemetry"
+      | Some telemetry ->
+        Alcotest.(check bool)
+          "provider telemetry is observed"
+          true
+          (Option.is_some telemetry.provider_kind);
+        Alcotest.(check (option string))
+          "canonical model telemetry is observed"
+          (Some "mock-model")
+          telemetry.canonical_model_id;
+        Alcotest.(check bool)
+          "completion latency is observed"
+          true
+          (Option.is_some telemetry.request_latency_ms));
      Alcotest.(check bool)
        "checkpoint stage"
        true
@@ -1073,7 +1118,7 @@ let () =
         ; Alcotest.test_case
             "terminal stream detail preserves provider response"
             `Quick
-            test_terminal_stream_detail_preserves_provider_response
+            test_terminal_stream_detail_preserves_canonical_response
         ; Alcotest.test_case
             "terminal cancellation preserves token"
             `Quick

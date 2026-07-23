@@ -2282,7 +2282,10 @@ let test_agent_run_resumes_settled_closed_turn
        Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
        Alcotest.(check int)
          "provider count follows persisted completion"
-         (if expect_terminal then 0 else 1)
+         (match window with
+          | Window_turn_failed -> 0
+          | Window_provider_closed | Window_turn_closed ->
+            if expect_terminal then 0 else 1)
          !provider_call_count;
        match window with
        | Window_provider_closed | Window_turn_closed ->
@@ -2345,6 +2348,11 @@ let test_terminal_durability_failure_is_typed_non_retryable () =
        let tool_input = `Assoc [ "value", `Int 1 ] in
        let response =
          Provider_mock.tool_use_response ~tool_name:"terminal_tool" ~tool_input () []
+       in
+       let persisted_tool_use_id =
+         match response.content with
+         | [ Types.ToolUse { id; _ } ] -> id
+         | _ -> Alcotest.fail "terminal fixture did not produce one exact ToolUse"
        in
        let transport : Llm_provider.Llm_transport.t =
          { complete_sync =
@@ -2416,7 +2424,7 @@ let test_terminal_durability_failure_is_typed_non_retryable () =
               let schedule = Tool_contract.Invocation.schedule invocation in
               Alcotest.(check string)
                 "exact invocation"
-                "call_1"
+                persisted_tool_use_id
                 (Tool_contract.Invocation.tool_use_id invocation);
               Alcotest.(check int)
                 "exact invocation turn"
@@ -2562,7 +2570,10 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                     ~tool_name:"terminal_tool"
                     ~input:terminal_input
                 with
-                | Error (Internal_scope.Admission_failed _) -> ()
+                | Error
+                    (Internal_scope.Mutation_failed
+                       (Internal_writer.Transaction_rejected
+                          (Internal.Execution_journal.Invalid_argument _))) -> ()
                 | Error error ->
                   Alcotest.failf
                     "%s: wrong typed contract error: %s"
