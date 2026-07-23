@@ -3,6 +3,7 @@ set -euo pipefail
 
 required_basenames=(
   exact_output.ml
+  exact_output_flow.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_plan.ml
@@ -346,6 +347,7 @@ require_named_function_pattern() {
 }
 
 exact_output_source=""
+exact_output_flow_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -354,6 +356,10 @@ downstream_sources=()
 for source_file in "${source_files[@]}"; do
   case "$(basename "$source_file")" in
     exact_output.ml) exact_output_source="$source_file" ;;
+    exact_output_flow.ml)
+      exact_output_flow_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;
     exact_output_catalog_binding.ml) catalog_binding_source="$source_file" ;;
     exact_output_plan.ml)
@@ -591,6 +597,7 @@ scan_code \
 for private_module in \
   exact_output_plan \
   exact_output_execution \
+  exact_output_flow \
   exact_output_resolver \
   exact_output_catalog_binding
 do
@@ -600,3 +607,26 @@ do
     exit 1
   fi
 done
+
+# The generic outer executor is private, affine, and policy-free. The facade is
+# the only place allowed to interpret exact receipt/cause types.
+require_code_pattern \
+  "private exact-output flow lost its affine execution gate" \
+  'Atomic\.compare_and_set' \
+  "$exact_output_flow_source"
+require_code_pattern \
+  "private exact-output flow no longer terminalizes exceptions and cancellation" \
+  'Fun\.protect' \
+  "$exact_output_flow_source"
+scan_code \
+  "private exact-output flow acquired provider, model, tier, pricing, retry, cascade, or string policy" \
+  'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade|String\.|Str\.|Re\.' \
+  "$exact_output_flow_source"
+require_code_pattern \
+  "canonical facade lost outer exact-flow execution" \
+  '^[[:space:]]*val[[:space:]]+execute_flow_once[[:space:]]*:' \
+  "$exact_output_interface"
+scan_code \
+  "parallel public exact-output flow module escaped the single facade" \
+  '^[[:space:]]*module[[:space:]]+(Flow|Exact_output_flow)' \
+  "$exact_output_interface"

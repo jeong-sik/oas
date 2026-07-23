@@ -423,6 +423,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_exact_output_flow)
+ (modules test_exact_output_flow)
+ (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
  (name test_exact_output_resolver_snapshot)
  (modules test_exact_output_resolver_snapshot)
  (libraries agent_sdk llm_provider alcotest eio_main))
@@ -433,6 +438,8 @@
   ../scripts/check-exact-output-resolver-boundary.sh
   ../lib/llm_provider/exact_output.ml
   ../lib/llm_provider/exact_output.mli
+  ../lib/llm_provider/exact_output_flow.ml
+  ../lib/llm_provider/exact_output_flow.mli
   ../lib/llm_provider/exact_output_resolver.ml
   ../lib/llm_provider/exact_output_resolver.mli
   ../lib/llm_provider/exact_output_catalog_binding.ml
@@ -454,6 +461,7 @@
    bash
    %{dep:../scripts/check-exact-output-resolver-boundary.sh}
    %{dep:../lib/llm_provider/exact_output.ml}
+   %{dep:../lib/llm_provider/exact_output_flow.ml}
    %{dep:../lib/llm_provider/exact_output_resolver.ml}
    %{dep:../lib/llm_provider/exact_output_catalog_binding.ml}
    %{dep:../lib/llm_provider/exact_output_plan.ml}
