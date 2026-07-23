@@ -996,6 +996,4 @@ let execute_tools
     run_batches 0 [] Continue_after_batch batches
 ;;
 
-let recovered_batch_completion ~invocations tool_results =
-  Agent_tool_terminal_boundary.recovered_batch_completion ~invocations tool_results
-;;
+let recovered_batch_completion = Agent_tool_terminal_boundary.recovered_batch_completion
