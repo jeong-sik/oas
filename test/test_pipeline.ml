@@ -1661,6 +1661,28 @@ let test_agent_run_uses_durable_tool_authority () =
          (List.length public_tool_events))
 ;;
 
+let durable_tool_response
+      ?(id = "durable-provider-response")
+      ?(model = "persisted-provider-model")
+      ?(usage = None)
+      tool_uses
+  =
+  { Types.id
+  ; model
+  ; stop_reason = Types.StopToolUse
+  ; content =
+      List.map (fun (id, name, input) -> Types.ToolUse { id; name; input }) tool_uses
+  ; usage
+  ; telemetry = None
+  }
+;;
+
+let record_durable_provider_response provider response =
+  match Internal_scope.record_provider_response provider response with
+  | Ok () -> ()
+  | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+;;
+
 let test_agent_run_resumes_tool_without_duplicate_effects
       ?(extra_restored_messages = [])
       ?(resume_prompt = "run the tool")
@@ -1748,6 +1770,9 @@ let test_agent_run_resumes_tool_without_duplicate_effects
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
+            record_durable_provider_response
+              provider
+              (durable_tool_response [ tool_use_id, "durable_tool", tool_input ]);
             let invocation =
               Tool_contract.Invocation.create
                 ~tool_use_id
@@ -2017,6 +2042,20 @@ let test_agent_run_resumes_settled_closed_turn
        in
        let tool_input = `Assoc [ "value", `Int 7 ] in
        let tool_use_id = "settled-tool-use" in
+       let persisted_response =
+         durable_tool_response
+           ~id:"persisted-terminal-response-id"
+           ~model:"persisted-provider-model"
+           ~usage:
+             (Some
+                { Types.input_tokens = 17
+                ; output_tokens = 23
+                ; cache_creation_input_tokens = 5
+                ; cache_read_input_tokens = 7
+                ; cost_usd = Some 0.125
+                })
+           [ tool_use_id, "durable_tool", tool_input ]
+       in
        let schedule : Tool_contract.schedule =
          { planned_index = 0
          ; batch_index = 0
@@ -2070,6 +2109,7 @@ let test_agent_run_resumes_settled_closed_turn
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
+            record_durable_provider_response provider persisted_response;
             let invocation =
               Tool_contract.Invocation.create
                 ~tool_use_id
@@ -2225,9 +2265,9 @@ let test_agent_run_resumes_settled_closed_turn
         | (Window_provider_closed | Window_turn_closed), Ok response when expect_terminal
           ->
           Alcotest.(check bool)
-            "persisted terminal completion stops without current descriptor"
+            "persisted terminal response provenance is exact"
             true
-            (response.stop_reason = Types.StopToolUse)
+            (response = persisted_response)
         | (Window_provider_closed | Window_turn_closed), Ok response ->
           Alcotest.(check string)
             "settled turn resumes and completes"
@@ -2305,7 +2345,7 @@ let test_terminal_durability_failure_is_typed_non_retryable () =
        let effect_count = ref 0 in
        let tool_input = `Assoc [ "value", `Int 1 ] in
        let response =
-         Provider_mock.tool_use_response ~tool_name:"terminal_tool" ~tool_input ()
+         Provider_mock.tool_use_response ~tool_name:"terminal_tool" ~tool_input () []
        in
        let transport : Llm_provider.Llm_transport.t =
          { complete_sync =
@@ -2532,6 +2572,7 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                 | Ok _ -> Alcotest.failf "%s: invalid terminal contract persisted" label);
                assert_turn_open ()
              | `Resume (turn_count, persisted, restored) ->
+               record_durable_provider_response provider (durable_tool_response restored);
                List.iter persist persisted;
                (match
                   Internal_scope.close_provider_attempt
@@ -2726,7 +2767,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
          in
          let tool_input = `Assoc [ "value", `Int 7 ] in
          let response =
-           Provider_mock.tool_use_response ~tool_name:"durable_tool" ~tool_input ()
+           Provider_mock.tool_use_response ~tool_name:"durable_tool" ~tool_input () []
          in
          let provider_calls = ref 0 in
          let transport : Llm_provider.Llm_transport.t =
@@ -2734,7 +2775,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
              incr provider_calls;
              if !provider_calls = 1
              then response
-             else Provider_mock.text_response "unexpected-provider-resume" [] []
+             else Provider_mock.text_response "unexpected-provider-resume" []
            in
            { complete_sync =
                (fun _request ->
@@ -2959,7 +3000,10 @@ let test_agent_run_resumes_all_blocked_settled_turn () =
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
-            | Ok _provider -> ()
+            | Ok provider ->
+              record_durable_provider_response
+                provider
+                (durable_tool_response [ tool_use_id, "durable_tool", tool_input ])
             | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
         with
         | Ok () -> ()
@@ -3151,7 +3195,10 @@ let test_agent_run_resume_fires_on_yield () =
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
-            | Ok _provider -> ()
+            | Ok provider ->
+              record_durable_provider_response
+                provider
+                (durable_tool_response [ tool_use_id, "durable_tool", tool_input ])
             | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
         with
         | Ok () -> ()

@@ -646,6 +646,10 @@ let run_new_turn
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
            let* () =
+             Pipeline_execution_scope.record_provider_response execution response
+             |> tag_error "response"
+           in
+           let* () =
              stage_collect ?raw_trace_run ?clock ~turn agent response
              |> tag_error "collect"
            in
@@ -684,12 +688,11 @@ let run_turn
          identity is the durable turn ordinal supplied by [dispatch]
          ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
          traced under the exact ordinal the crashed run used (#2709). *)
-    ~execute:(fun ~turn tool_uses ->
-      let response = Pipeline_terminal_tool.response agent tool_uses in
+    ~execute:(fun ~turn ~response tool_uses ->
       stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tool_uses)
     ~all_pre_tool_use_blocked:(ToolsExecuted After_tool_results_appended)
     ~tools_settled_before_checkpoint:(replay_settled_before_checkpoint agent)
-    ~tools_settled:(Pipeline_terminal_tool.recovered_outcome agent)
+    ~tools_settled:Pipeline_terminal_tool.recovered_outcome
     ~terminal:(fun response -> Complete response)
     ~fresh:(fun () ->
       run_new_turn

@@ -4,7 +4,7 @@
     Consumes the one-shot resume flag, then routes on what the scope found at the
     durable turn frontier: an in-progress turn/provider is resumed, an
     already-settled turn boundary is replayed ([tools_settled] for a completed
-    tool turn, [terminal] reconstructing the final assistant response), and no
+    tool turn, [terminal] receiving the exact persisted response), and no
     resume runs [fresh]. [tools_settled_before_checkpoint] repairs only the
     crash window where invocation results settled before the Agent checkpoint;
     its invocation and result authority comes exclusively from the journal.
@@ -16,15 +16,21 @@
     restored topology. *)
 val dispatch
   :  Agent_types.t
-  -> execute:(turn:int -> Types.content_block Nonempty.t -> ('a, Error.sdk_error) result)
-  -> tools_settled_before_checkpoint:
+  -> execute:
        (turn:int
+        -> response:Types.api_response
+        -> Types.content_block Nonempty.t
+        -> ('a, Error.sdk_error) result)
+  -> tools_settled_before_checkpoint:
+       (response:Types.api_response
+        -> turn:int
         -> invocations:Execution_agent_scope.invocation_authority list
         -> tool_results:Types.content_block list
         -> Types.content_block Nonempty.t
         -> ('a, Error.sdk_error) result)
   -> tools_settled:
-       (turn:int
+       (response:Types.api_response
+        -> turn:int
         -> invocations:Execution_agent_scope.invocation_authority list
         -> tool_results:Types.content_block list
         -> Types.content_block Nonempty.t

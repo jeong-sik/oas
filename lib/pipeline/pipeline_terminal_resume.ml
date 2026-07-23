@@ -2,10 +2,14 @@ open Types
 open Agent_types
 open Result_syntax
 
-let replay ~persist_checkpoint agent ~turn ~invocations ~tool_results tool_uses =
-  let response = Pipeline_terminal_tool.response agent tool_uses in
+let replay ~persist_checkpoint agent ~response ~turn ~invocations ~tool_results tool_uses =
   let* report =
-    Pipeline_terminal_tool.recovered_report ~turn ~invocations ~tool_results tool_uses
+    Pipeline_terminal_tool.recovered_report
+      ~response
+      ~turn
+      ~invocations
+      ~tool_results
+      tool_uses
   in
   let tool_uses_list = Nonempty.to_list tool_uses in
   update_state agent (fun state ->

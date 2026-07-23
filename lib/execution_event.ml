@@ -201,7 +201,7 @@ let show_node node = Format.asprintf "%a" pp_node node
 
 type node_update =
   | Provider_event of Yojson.Safe.t
-  | Provider_response_id_snapshot of string
+  | Provider_response_snapshot of Llm_provider.Types.api_response
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t
@@ -252,6 +252,7 @@ type payload =
 
 module External_source = Execution_cause.External_source
 module Cause = Execution_cause.Make (Event_id)
+module Response_snapshot = Execution_provider_response_snapshot
 
 type cause = Cause.t =
   | Internal_event of Event_id.t
@@ -318,8 +319,7 @@ let validate_content_block block =
 
 let validate_node_update update =
   match update with
-  | Provider_response_id_snapshot value ->
-    validate_non_blank "provider response identifier" value
+  | Provider_response_snapshot value -> Response_snapshot.validate value
   | Provider_event value -> validate_json ~context:"provider event" value
   | Output_delta value -> validate_json ~context:"output delta" value
   | Tool_input_delta value -> validate_json ~context:"tool input delta" value
@@ -458,10 +458,9 @@ let equal_update left right =
   | Output_snapshot left, Output_snapshot right
   | Tool_input_snapshot left, Tool_input_snapshot right
   | Tool_result left, Tool_result right -> left = right
-  | Provider_response_id_snapshot left, Provider_response_id_snapshot right ->
-    String.equal left right
+  | Provider_response_snapshot left, Provider_response_snapshot right -> left = right
   | ( ( Provider_event _
-      | Provider_response_id_snapshot _
+      | Provider_response_snapshot _
       | Output_delta _
       | Output_snapshot _
       | Tool_input_delta _
@@ -680,30 +679,28 @@ let node_of_yojson json =
   make_node ~node_id ~run_id ~parent_node_id ~kind
 ;;
 
+let node_update_json kind value = `Assoc [ "type", `String kind; "value", value ]
+
 let node_update_to_yojson_unchecked update =
   match update with
-  | Provider_response_id_snapshot value ->
-    `Assoc [ "type", `String "provider_response_id_snapshot"; "value", `String value ]
-  | Provider_event value -> `Assoc [ "type", `String "provider_event"; "value", value ]
-  | Output_delta value -> `Assoc [ "type", `String "output_delta"; "value", value ]
+  | Provider_response_snapshot value ->
+    node_update_json "provider_response_snapshot" (Response_snapshot.to_yojson value)
+  | Provider_event value -> node_update_json "provider_event" value
+  | Output_delta value -> node_update_json "output_delta" value
   | Output_snapshot value ->
-    `Assoc
-      [ "type", `String "output_snapshot"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
-  | Tool_input_delta value ->
-    `Assoc [ "type", `String "tool_input_delta"; "value", value ]
+    node_update_json
+      "output_snapshot"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
+  | Tool_input_delta value -> node_update_json "tool_input_delta" value
   | Tool_input_snapshot value ->
-    `Assoc
-      [ "type", `String "tool_input_snapshot"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
-  | Tool_progress value -> `Assoc [ "type", `String "tool_progress"; "value", value ]
+    node_update_json
+      "tool_input_snapshot"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
+  | Tool_progress value -> node_update_json "tool_progress" value
   | Tool_result value ->
-    `Assoc
-      [ "type", `String "tool_result"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
+    node_update_json
+      "tool_result"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
 ;;
 
 let node_update_to_yojson update =
@@ -720,10 +717,9 @@ let node_update_of_yojson json =
   let* update =
     match kind with
     | "provider_event" -> Ok (Provider_event value)
-    | "provider_response_id_snapshot" ->
-      (match value with
-       | `String value -> Ok (Provider_response_id_snapshot value)
-       | _ -> Error "provider response identifier snapshot must be a string")
+    | "provider_response_snapshot" ->
+      let+ value = Response_snapshot.of_yojson value in
+      Provider_response_snapshot value
     | "output_delta" -> Ok (Output_delta value)
     | "output_snapshot" ->
       let+ block = durable_content_of_yojson value in
@@ -924,7 +920,7 @@ let payload_of_yojson json =
   | value -> Error ("unknown execution payload: " ^ value)
 ;;
 
-let schema_version_current = 2
+let schema_version_current = 3
 
 let to_yojson event =
   `Assoc

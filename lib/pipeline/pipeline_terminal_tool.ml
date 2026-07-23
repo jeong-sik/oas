@@ -6,16 +6,6 @@ type turn_outcome =
   | ToolsExecuted of Agent_types.checkpoint_stage
   | TerminalToolCompleted of Terminal_tool_receipt.t
 
-let response agent tool_uses : Types.api_response =
-  { id = ""
-  ; model = agent.Agent_types.state.config.model
-  ; stop_reason = StopToolUse
-  ; content = Nonempty.to_list tool_uses
-  ; usage = None
-  ; telemetry = None
-  }
-;;
-
 let unpack_execution_result = function
   | Ok ({ Agent_tools.completed_results; completion } : Agent_tools.execution_report) ->
     completed_results, completion, None
@@ -72,7 +62,7 @@ let resume_topology_error detail =
        (Execution_agent_scope.Resume_topology_mismatch detail))
 ;;
 
-let recovered_report ~turn ~invocations ~tool_results tool_uses =
+let recovered_report ~response ~turn ~invocations ~tool_results tool_uses =
   let rec recover_results expected_index acc invocations tool_uses tool_results =
     match invocations, tool_uses, tool_results with
     | ( authority :: invocations
@@ -112,6 +102,30 @@ let recovered_report ~turn ~invocations ~tool_results tool_uses =
            "persisted invocation count differs from restored topology")
   in
   let tool_uses = Nonempty.to_list tool_uses in
+  let response_tool_uses =
+    List.filter
+      (function
+        | ToolUse _ -> true
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolResult _
+        | Image _
+        | Document _
+        | Audio _ -> false)
+      response.content
+  in
+  let* () =
+    if response.stop_reason <> StopToolUse
+    then Error (resume_topology_error "persisted tool response did not stop for tool use")
+    else if response_tool_uses <> tool_uses
+    then
+      Error
+        (resume_topology_error
+           "persisted provider response ToolUse blocks differ from restored checkpoint")
+    else Ok ()
+  in
   let* completed_results = recover_results 0 [] invocations tool_uses tool_results in
   let persisted_invocations =
     List.map
@@ -125,8 +139,7 @@ let recovered_report ~turn ~invocations ~tool_results tool_uses =
   Ok Agent_tools.{ completed_results; completion }
 ;;
 
-let recovered_outcome agent ~turn ~invocations ~tool_results tool_uses =
-  let response = response agent tool_uses in
-  let* report = recovered_report ~turn ~invocations ~tool_results tool_uses in
+let recovered_outcome ~response ~turn ~invocations ~tool_results tool_uses =
+  let* report = recovered_report ~response ~turn ~invocations ~tool_results tool_uses in
   outcome ~response report.completion Agent_types.After_tool_results_appended
 ;;

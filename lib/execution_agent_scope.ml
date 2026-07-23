@@ -793,3 +793,29 @@ let terminal_recovery_action scope =
   in
   visit [ Journal.run_root scope.run ]
 ;;
+
+let record_provider_response provider response =
+  transact
+    provider.turn.scope.writer
+    (Tx.update_node ~node:provider.node (Event.Provider_response_snapshot response))
+  |> Result.map ignore
+;;
+
+let provider_response provider =
+  match Writer.find_node provider.turn.scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt node disappeared")
+  | Ok
+      (Some
+         { Journal.materialized =
+             Journal.Provider_attempt_state { response = Some response }
+         ; _
+         }) -> Ok response
+  | Ok
+      (Some
+         { Journal.materialized = Journal.Provider_attempt_state { response = None }; _ })
+    -> Error (Resume_topology_mismatch "provider response authority is not materialized")
+  | Ok (Some _) ->
+    Error
+      (Resume_topology_mismatch "provider attempt has an incompatible materialized state")
+;;

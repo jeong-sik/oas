@@ -15,6 +15,7 @@ RECEIPT_MLI="$ROOT/lib/terminal_tool_receipt.mli"
 PIPELINE_MLI="$ROOT/lib/pipeline/pipeline.mli"
 AGENT_MLI="$ROOT/lib/agent/agent.mli"
 EVENT="$ROOT/lib/execution_event.ml"
+RESPONSE_SNAPSHOT="$ROOT/lib/execution_provider_response_snapshot.ml"
 
 fail() {
   printf 'terminal-tool boundary violation: %s\n' "$1" >&2
@@ -228,9 +229,22 @@ check_boundary() {
     "$EVENT" \
     "the common strict decoder whitelist must admit required completion"
   require_pattern \
-    'schema_version_current = 2' \
+    'schema_version_current = 3' \
     "$EVENT" \
     "execution events must reject pre-completion schema versions"
+  require_pattern \
+    'Provider_response_snapshot of Llm_provider\.Types\.api_response' \
+    "$EVENT" \
+    "provider attempts must persist one full response snapshot"
+  require_pattern \
+    '~required:\[[^]]*"id"[^]]*"model"[^]]*"stop_reason"[^]]*"content"[^]]*"usage"[^]]*"telemetry"' \
+    "$RESPONSE_SNAPSHOT" \
+    "the current response snapshot decoder must require full response provenance"
+  if matches_pattern sensitive \
+    'Provider_response_id_snapshot|provider_response_id_snapshot' \
+    "$ROOT/lib"; then
+    fail "legacy provider response ID-only snapshots must not survive"
+  fi
   require_pattern \
     'Tool_contract\.Invocation\.completion invocation' \
     "$BOUNDARY" \
@@ -238,9 +252,9 @@ check_boundary() {
 
   if matches_pattern \
     sensitive \
-    'Tool_set|find_tool|Tool\.completion[[:space:]]' \
+    'Tool_set|find_tool|Tool\.completion[[:space:]]|let response agent tool_uses' \
     "$PIPELINE"; then
-    fail "pipeline recovery must not reconstruct completion from the current tool catalog"
+    fail "pipeline recovery must not reconstruct completion or provider responses"
   fi
 
   if matches_pattern \
@@ -274,6 +288,7 @@ self_test() {
   cp "$PIPELINE_MLI" "$fixture/lib/pipeline/pipeline.mli"
   cp "$AGENT_MLI" "$fixture/lib/agent/agent.mli"
   cp "$EVENT" "$fixture/lib/execution_event.ml"
+  cp "$RESPONSE_SNAPSHOT" "$fixture/lib/execution_provider_response_snapshot.ml"
 
   printf '\nlet _forbidden = Tool_set.to_list\n' \
     >> "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
@@ -304,7 +319,7 @@ self_test() {
   cp "$EVENT" "$fixture/lib/execution_event.ml"
 
   sed -i.bak \
-    's/schema_version_current = 2/schema_version_current = 1/' \
+    's/schema_version_current = 3/schema_version_current = 2/' \
     "$fixture/lib/execution_event.ml"
   rm -f "$fixture/lib/execution_event.ml.bak"
   if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
@@ -313,6 +328,24 @@ self_test() {
     fail "negative self-test failed to detect a legacy schema decoder"
   fi
   cp "$EVENT" "$fixture/lib/execution_event.ml"
+
+  printf '\nlet _legacy = Provider_response_id_snapshot ""\n' \
+    >> "$fixture/lib/execution_event.ml"
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
+    fail "negative self-test failed to detect an ID-only provider response snapshot"
+  fi
+  cp "$EVENT" "$fixture/lib/execution_event.ml"
+
+  printf '\nlet response agent tool_uses = agent, tool_uses\n' \
+    >> "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
+    fail "negative self-test failed to detect synthetic provider response recovery"
+  fi
+  cp "$PIPELINE" "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
 
   cat >> "$fixture/lib/agent/agent.mli" <<'EOF'
 

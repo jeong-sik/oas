@@ -55,7 +55,7 @@ type node =
 
 type node_update =
   | Provider_event of Yojson.Safe.t
-  | Provider_response_id_snapshot of string
+  | Provider_response_snapshot of Llm_provider.Types.api_response
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t
@@ -381,7 +381,7 @@ let node value =
 
 let node_update = function
   | Event.Provider_event value -> Provider_event value
-  | Event.Provider_response_id_snapshot value -> Provider_response_id_snapshot value
+  | Event.Provider_response_snapshot value -> Provider_response_snapshot value
   | Event.Output_delta value -> Output_delta value
   | Event.Output_snapshot value -> Output_snapshot value
   | Event.Tool_input_delta value -> Tool_input_delta value

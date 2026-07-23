@@ -52,7 +52,7 @@ module type S = sig
 
   type node_update =
     | Provider_event of Yojson.Safe.t
-    | Provider_response_id_snapshot of string
+    | Provider_response_snapshot of Llm_provider.Types.api_response
     | Output_delta of Yojson.Safe.t
     | Output_snapshot of Llm_provider.Types.content_block
     | Tool_input_delta of Yojson.Safe.t

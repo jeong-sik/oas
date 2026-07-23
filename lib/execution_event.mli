@@ -57,7 +57,7 @@ val classify_content_block
 
     Provider response identity and canonical tool input are mutable stream
     outcomes, not node identity. They are therefore materialized exactly once
-    through [Provider_response_id_snapshot] and [Tool_input_snapshot]. *)
+    through [Provider_response_snapshot] and [Tool_input_snapshot]. *)
 type node_kind =
   | Agent_run of { agent_name : string }
   | Agent_turn of { ordinal : int }
@@ -107,7 +107,7 @@ val equal_node : node -> node -> bool
     classification cannot disagree with an untyped JSON label. *)
 type node_update =
   | Provider_event of Yojson.Safe.t
-  | Provider_response_id_snapshot of string
+  | Provider_response_snapshot of Llm_provider.Types.api_response
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t

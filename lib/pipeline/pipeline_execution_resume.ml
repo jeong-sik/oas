@@ -150,23 +150,6 @@ let classify_settled agent =
              message"))
 ;;
 
-(* Reconstruct a terminal turn's response from the durably-settled assistant
-   message the resume restored (After_assistant_collected checkpoint). The
-   content is the exact settled message content; [stop_reason] is [EndTurn]
-   because a terminal turn stopped with no pending tool calls. Per-call
-   [usage]/[telemetry] and the provider response [id] are not part of the
-   persisted checkpoint, so they surface as empty/[None] rather than being
-   fabricated. Returning the settled result is a recovery, not a recomputation. *)
-let response_of_settled_terminal agent (message : Types.message) : Types.api_response =
-  { Types.id = ""
-  ; model = agent.Agent_types.state.config.model
-  ; stop_reason = EndTurn
-  ; content = message.content
-  ; usage = None
-  ; telemetry = None
-  }
-;;
-
 (* Idempotent completed boundary: the turn is already [Closed Succeeded] under a
    still-[Running] root (crash between the provider close, the turn close, and the
    root finish of a fully-settled turn). Complete any interrupted [close_success]
@@ -179,6 +162,7 @@ let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~termina
   let* replay = classify_settled agent in
   match replay with
   | Replay_tools_settled { tool_uses; tool_results } ->
+    let* response = Pipeline_execution_scope.settled_response boundary in
     let turn = agent.Agent_types.state.turn_count - 1 in
     if turn < 0
     then
@@ -191,11 +175,12 @@ let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~termina
         match settled_tool_authority invocations with
         | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
         | Durable_invocations invocations ->
-          tools_settled ~turn ~invocations ~tool_results tool_uses
+          tools_settled ~response ~turn ~invocations ~tool_results tool_uses
       in
       let+ () = Pipeline_execution_scope.finalize_settled boundary in
       outcome
   | Replay_terminal message ->
+    let* response = Pipeline_execution_scope.settled_response boundary in
     let* invocations = Pipeline_execution_scope.settled_invocations boundary in
     (match invocations with
      | _ :: _ ->
@@ -203,9 +188,16 @@ let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~termina
          (Error.Internal
             "durable execution resume terminal turn contains persisted tool invocations")
      | [] ->
-       let outcome = terminal (response_of_settled_terminal agent message) in
-       let+ () = Pipeline_execution_scope.finalize_settled boundary in
-       outcome)
+       if response.content <> message.content
+       then
+         Error
+           (Error.Internal
+              "persisted provider response content differs from the restored terminal \
+               checkpoint")
+       else (
+         let outcome = terminal response in
+         let+ () = Pipeline_execution_scope.finalize_settled boundary in
+         outcome))
 ;;
 
 let run
@@ -217,6 +209,7 @@ let run
       ~already_settled
   =
   let outcome =
+    let* response = Pipeline_execution_scope.provider_response execution in
     match last_tool_turn agent.Agent_types.state.messages with
     | None ->
       Error
@@ -240,7 +233,7 @@ let run
                Execution_context.with_provider_attempt provider (fun () ->
                  let* settled = Pipeline_execution_scope.invocations_settled execution in
                  if not settled
-                 then execute tool_blocks
+                 then execute ~response tool_blocks
                  else
                    let* persisted =
                      Pipeline_execution_scope.settled_invocations_with_results execution
@@ -251,7 +244,7 @@ let run
                          without opening an invocation. With no persisted result
                          authority, safely re-run admission rather than inventing
                          a result. *)
-                     execute tool_blocks
+                     execute ~response tool_blocks
                    | persisted ->
                      let invocations =
                        List.map
@@ -266,6 +259,7 @@ let run
                          persisted
                      in
                      settled_before_checkpoint
+                       ~response
                        ~turn:(Pipeline_execution_scope.turn_ordinal execution)
                        ~invocations
                        ~tool_results
@@ -281,6 +275,7 @@ let run
               | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
               | Durable_invocations invocations ->
                 already_settled
+                  ~response
                   ~turn:(Pipeline_execution_scope.turn_ordinal execution)
                   ~invocations
                   ~tool_results

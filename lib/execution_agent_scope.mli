@@ -124,6 +124,17 @@ val open_provider_attempt
 
 val resume_provider_attempt : turn -> (provider_resume, error) result
 
+(** Materialize the exact provider response once on its owning attempt. *)
+val record_provider_response
+  :  provider_attempt
+  -> Llm_provider.Types.api_response
+  -> (unit, error) result
+
+(** Read the exact response authority required for restart recovery. *)
+val provider_response
+  :  provider_attempt
+  -> (Llm_provider.Types.api_response, error) result
+
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation
   :  provider_attempt

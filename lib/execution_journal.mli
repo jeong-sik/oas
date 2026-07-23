@@ -28,7 +28,7 @@ type node_status =
 type materialized =
   | Agent_run_state
   | Agent_turn_state
-  | Provider_attempt_state of { provider_response_id : string option }
+  | Provider_attempt_state of { response : Llm_provider.Types.api_response option }
   | Output_block_state of { snapshot : Llm_provider.Types.content_block option }
   | Tool_invocation_state of
       { input : Llm_provider.Types.content_block option
@@ -106,7 +106,7 @@ type invariant_violation =
       ; actual : Execution_event.Event_id.t option
       }
   | Invalid_update_for_node of Execution_event.Node_id.t
-  | Provider_response_id_already_materialized of Execution_event.Node_id.t
+  | Provider_response_already_materialized of Execution_event.Node_id.t
   | Output_snapshot_already_materialized of Execution_event.Node_id.t
   | Output_snapshot_kind_mismatch of
       { node : Execution_event.Node_id.t

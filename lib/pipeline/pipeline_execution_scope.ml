@@ -104,6 +104,30 @@ let before_provider_attempt t binding =
 
 let provider (t : t) = t.provider
 
+let record_provider_response (t : t) response =
+  match t.turn, t.provider with
+  | Transient _, None -> Ok ()
+  | Durable _, Some provider ->
+    Execution_agent_scope.record_provider_response provider response
+    |> Result.map_error sdk_error
+  | Transient _, Some _ | Durable _, None ->
+    Error
+      (sdk_error
+         (Execution_agent_scope.Resume_topology_mismatch
+            "provider response has no matching provider attempt authority"))
+;;
+
+let provider_response (t : t) =
+  match t.provider with
+  | Some provider ->
+    Execution_agent_scope.provider_response provider |> Result.map_error sdk_error
+  | None ->
+    Error
+      (sdk_error
+         (Execution_agent_scope.Resume_topology_mismatch
+            "active execution has no provider response authority"))
+;;
+
 let invocations_settled (t : t) =
   match t.provider with
   | None -> Ok false
@@ -140,6 +164,17 @@ let settled_invocations boundary =
   | None -> Ok []
   | Some provider ->
     Execution_agent_scope.provider_invocations provider |> Result.map_error sdk_error
+;;
+
+let settled_response boundary =
+  match boundary.provider with
+  | Some provider ->
+    Execution_agent_scope.provider_response provider |> Result.map_error sdk_error
+  | None ->
+    Error
+      (sdk_error
+         (Execution_agent_scope.Resume_topology_mismatch
+            "settled execution has no provider response authority"))
 ;;
 
 let close_success (t : t) =
