@@ -31,6 +31,13 @@ val finalize_settled : settled_boundary -> (unit, Error.sdk_error) result
 val turn_ordinal : t -> int
 val before_provider_attempt : t -> Binding_identity.t -> (unit, Error.sdk_error) result
 val provider : t -> Execution_agent_scope.provider_attempt option
+
+val record_provider_response
+  :  t
+  -> Llm_provider.Types.api_response
+  -> (unit, Error.sdk_error) result
+
+val provider_response : t -> (Llm_provider.Types.api_response, Error.sdk_error) result
 val invocations_settled : t -> (bool, Error.sdk_error) result
 
 val invocations
@@ -46,5 +53,9 @@ val settled_invocations_with_results
 val settled_invocations
   :  settled_boundary
   -> (Execution_agent_scope.invocation_authority list, Error.sdk_error) result
+
+val settled_response
+  :  settled_boundary
+  -> (Llm_provider.Types.api_response, Error.sdk_error) result
 
 val close_success : t -> (unit, Error.sdk_error) result

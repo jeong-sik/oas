@@ -163,6 +163,11 @@ let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~termina
   match replay with
   | Replay_tools_settled { tool_uses; tool_results } ->
     let* response = Pipeline_execution_scope.settled_response boundary in
+    let* () =
+      Pipeline_terminal_tool.validate_response_tool_uses
+        ~response
+        ~tool_uses:(Nonempty.to_list tool_uses)
+    in
     let turn = agent.Agent_types.state.turn_count - 1 in
     if turn < 0
     then
@@ -217,6 +222,11 @@ let run
            "durable execution resume found an open provider attempt without a restored \
             ToolUse checkpoint")
     | Some (tool_blocks, expected_ids, messages_after) ->
+      let* () =
+        Pipeline_terminal_tool.validate_response_tool_uses
+          ~response
+          ~tool_uses:tool_blocks
+      in
       (match recovered_tool_results messages_after with
        | None ->
          (match Nonempty.of_list tool_blocks with

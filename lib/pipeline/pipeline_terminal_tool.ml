@@ -62,6 +62,31 @@ let resume_topology_error detail =
        (Execution_agent_scope.Resume_topology_mismatch detail))
 ;;
 
+let validate_response_tool_uses ~response ~tool_uses =
+  let response_tool_uses =
+    List.filter
+      (function
+        | ToolUse _ -> true
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolResult _
+        | Image _
+        | Document _
+        | Audio _ -> false)
+      response.content
+  in
+  if response.stop_reason <> StopToolUse
+  then Error (resume_topology_error "persisted tool response did not stop for tool use")
+  else if response_tool_uses <> tool_uses
+  then
+    Error
+      (resume_topology_error
+         "persisted provider response ToolUse blocks differ from restored checkpoint")
+  else Ok ()
+;;
+
 let recovered_report ~response ~turn ~invocations ~tool_results tool_uses =
   let rec recover_results expected_index acc invocations tool_uses tool_results =
     match invocations, tool_uses, tool_results with
@@ -102,30 +127,7 @@ let recovered_report ~response ~turn ~invocations ~tool_results tool_uses =
            "persisted invocation count differs from restored topology")
   in
   let tool_uses = Nonempty.to_list tool_uses in
-  let response_tool_uses =
-    List.filter
-      (function
-        | ToolUse _ -> true
-        | Text _
-        | Thinking _
-        | ReasoningDetails _
-        | RedactedThinking _
-        | ToolResult _
-        | Image _
-        | Document _
-        | Audio _ -> false)
-      response.content
-  in
-  let* () =
-    if response.stop_reason <> StopToolUse
-    then Error (resume_topology_error "persisted tool response did not stop for tool use")
-    else if response_tool_uses <> tool_uses
-    then
-      Error
-        (resume_topology_error
-           "persisted provider response ToolUse blocks differ from restored checkpoint")
-    else Ok ()
-  in
+  let* () = validate_response_tool_uses ~response ~tool_uses in
   let* completed_results = recover_results 0 [] invocations tool_uses tool_results in
   let persisted_invocations =
     List.map

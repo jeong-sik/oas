@@ -2571,6 +2571,109 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                     (Internal_scope.error_to_string error)
                 | Ok _ -> Alcotest.failf "%s: invalid terminal contract persisted" label);
                assert_turn_open ()
+             | `Response_mismatch settled ->
+               let restored =
+                 [ "restored-zero-call", "zero_invocation_tool", terminal_input ]
+               in
+               record_durable_provider_response
+                 provider
+                 (durable_tool_response
+                    [ "persisted-zero-call", "zero_invocation_tool", terminal_input ]);
+               if settled
+               then (
+                 match
+                   Internal_scope.close_provider_attempt
+                     provider
+                     Internal.Execution_event.Succeeded
+                 with
+                 | Ok () -> ()
+                 | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+               let effect_count = ref 0 in
+               let tool =
+                 Tool.create
+                   ~name:"zero_invocation_tool"
+                   ~description:"must not execute before response topology validation"
+                   ~parameters:[]
+                   (fun _input ->
+                      incr effect_count;
+                      Ok { Types.content = "unexpected-effect"; _meta = None })
+               in
+               let assistant_content =
+                 List.map
+                   (fun (id, name, input) -> Types.ToolUse { id; name; input })
+                   restored
+               in
+               let messages =
+                 let assistant =
+                   { Types.role = Assistant
+                   ; content = assistant_content
+                   ; name = None
+                   ; tool_call_id = None
+                   ; metadata = []
+                   }
+                 in
+                 if settled
+                 then
+                   [ Types.user_msg "run mismatched zero-invocation authority"
+                   ; assistant
+                   ; { Types.role = Tool
+                     ; content =
+                         [ Types.ToolResult
+                             { tool_use_id = "restored-zero-call"
+                             ; content = "blocked before invocation admission"
+                             ; outcome = Types.Tool_succeeded
+                             ; json = None
+                             ; content_blocks = None
+                             }
+                         ]
+                     ; name = None
+                     ; tool_call_id = None
+                     ; metadata = []
+                     }
+                   ]
+                 else
+                   [ Types.user_msg "run mismatched zero-invocation authority"
+                   ; assistant
+                   ]
+               in
+               let options =
+                 { Agent.default_options with
+                   provider = Some (Provider_mock.to_provider_config ())
+                 }
+               in
+               let agent =
+                 Internal_agent.create
+                   ~net:(Eio.Stdenv.net env)
+                   ~config
+                   ~tools:[ tool ]
+                   ~options
+                   ()
+               in
+               Internal_agent.set_state
+                 agent
+                 { config; messages; turn_count = 1; usage = Types.empty_usage };
+               let outcome =
+                 Internal.Execution_context.with_agent_scope scope (fun () ->
+                   Internal.Execution_context.with_resume_once (fun () ->
+                     Internal_pipeline.run_turn
+                       ~sw
+                       ~api_strategy:Internal_pipeline.Sync
+                       agent))
+               in
+               Alcotest.(check int)
+                 (label ^ ": mismatch executes no tool effect")
+                 0
+                 !effect_count;
+               assert_turn_open ();
+               (match outcome with
+                | Error (Error.Internal _) -> ()
+                | Error error ->
+                  Alcotest.failf
+                    "%s: wrong typed response mismatch error: %s"
+                    label
+                    (Error.to_string error)
+                | Ok _ ->
+                  Alcotest.failf "%s: mismatched response topology was accepted" label)
              | `Resume (turn_count, persisted, restored) ->
                record_durable_provider_response provider (durable_tool_response restored);
                List.iter persist persisted;
@@ -2582,12 +2685,14 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                 | Ok () -> ()
                 | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
                let assistant_content =
-                 List.map (fun (id, name, input) -> ToolUse { id; name; input }) restored
+                 List.map
+                   (fun (id, name, input) -> Types.ToolUse { id; name; input })
+                   restored
                in
                let result_content =
                  List.map
                    (fun (tool_use_id, name, _input) ->
-                      ToolResult
+                      Types.ToolResult
                         { tool_use_id
                         ; content = name ^ "-settled"
                         ; outcome = Types.Tool_succeeded
@@ -2700,6 +2805,8 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
   run_case
     "input-drift"
     (resume [ "terminal-call", "terminal_tool", `Assoc [ "value", `Int 2 ] ]);
+  run_case "active-zero-invocation-response-drift" (`Response_mismatch false);
+  run_case "settled-zero-invocation-response-drift" (`Response_mismatch true);
   let planned_index_persisted =
     [ ( "ordinary-call"
       , "ordinary_tool"
