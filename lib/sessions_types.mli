@@ -120,6 +120,7 @@ type tool_contract =
   ; description : string
   ; origin : string option
   ; execution_mode : Tool.execution_mode
+  ; completion : Tool.completion
   }
 [@@deriving show]
 

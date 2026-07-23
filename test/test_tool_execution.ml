@@ -4,7 +4,7 @@ open Alcotest
 open Agent_sdk
 open Types
 
-let descriptor_with execution_mode = { Tool.execution_mode }
+let descriptor_with execution_mode = Tool.ordinary_descriptor execution_mode
 
 let result_id (result : Agent_tools.tool_execution_result) =
   Tool.Invocation.tool_use_id result.invocation
@@ -110,9 +110,10 @@ let execute_with_tools_in_env
       ?on_hook_invoked
       tool_uses
   with
-  | Ok results -> results
+  | Ok report -> report.Agent_tools.completed_results
   | Error
       { Agent_tools.completed_results
+      ; completion = _
       ; cause = Agent_tools.Hook_failure (Agent_tools.Hook_execution_failed failure)
       } ->
     failf
@@ -1015,6 +1016,144 @@ let test_tool_exception_still_publishes_tool_completed () =
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
 ;;
 
+let terminal_tool ~name on_execute =
+  Tool.create
+    ~descriptor:Tool.terminal_descriptor
+    ~name
+    ~description:"terminal"
+    ~parameters:[]
+    (fun _ ->
+       on_execute ();
+       Ok { Types.content = "terminal-complete"; _meta = None })
+;;
+
+let test_terminal_admission_rejects_entire_malformed_batch () =
+  Eio_main.run
+  @@ fun env ->
+  let handler_count = ref 0 in
+  let hook_count = ref 0 in
+  let started_count = ref 0 in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use =
+        Some
+          (fun _ ->
+            incr hook_count;
+            Hooks.Continue)
+    }
+  in
+  let terminal name = terminal_tool ~name (fun () -> incr handler_count) in
+  let ordinary =
+    Tool.create
+      ~descriptor:(Tool.ordinary_descriptor Tool.Concurrent)
+      ~name:"ordinary"
+      ~description:"ordinary"
+      ~parameters:[]
+      (fun _ ->
+         incr handler_count;
+         Ok { Types.content = "ordinary-complete"; _meta = None })
+  in
+  let run tools tool_uses =
+    execute_result_with_tools_in_env
+      env
+      ~tools
+      ~hooks
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ ->
+        incr started_count)
+      tool_uses
+  in
+  let check_rejected label expected_ids = function
+    | Error _ -> failf "%s: admission rejection must be model-visible" label
+    | Ok report ->
+      check
+        int
+        (label ^ " result count")
+        (List.length expected_ids)
+        (List.length report.completed_results);
+      check
+        (list string)
+        (label ^ " deterministic order")
+        expected_ids
+        (List.map result_id report.completed_results);
+      let contents =
+        List.map
+          (fun (result : Agent_tools.tool_execution_result) ->
+             (match result.outcome with
+              | Tool_failed
+                  { failure_kind = Validation_error; error_class = Some Deterministic } ->
+                ()
+              | _ -> failf "%s: expected deterministic Validation_error" label);
+             result.content)
+          report.completed_results
+      in
+      (match contents with
+       | [] -> failf "%s: expected rejection results" label
+       | first :: rest ->
+         List.iter
+           (fun content -> check string (label ^ " uniform message") first content)
+           rest);
+      (match report.completion with
+       | Agent_tools.Continue_after_batch -> ()
+       | Agent_tools.Terminal_completed _ ->
+         failf "%s: rejected batch cannot complete terminally" label)
+  in
+  check_rejected
+    "terminal plus ordinary"
+    [ "terminal-1"; "ordinary-1" ]
+    (run
+       [ terminal "finish"; ordinary ]
+       [ ToolUse { id = "terminal-1"; name = "finish"; input = `Assoc [] }
+       ; ToolUse { id = "ordinary-1"; name = "ordinary"; input = `Assoc [] }
+       ]);
+  check_rejected
+    "double terminal"
+    [ "terminal-2"; "terminal-3" ]
+    (run
+       [ terminal "finish-a"; terminal "finish-b" ]
+       [ ToolUse { id = "terminal-2"; name = "finish-a"; input = `Assoc [] }
+       ; ToolUse { id = "terminal-3"; name = "finish-b"; input = `Assoc [] }
+       ]);
+  check int "zero handlers" 0 !handler_count;
+  check int "zero hooks" 0 !hook_count;
+  check int "zero execution callbacks/fibers" 0 !started_count
+;;
+
+let test_singleton_terminal_reports_exact_invocation_and_recovers () =
+  Eio_main.run
+  @@ fun env ->
+  let tool = terminal_tool ~name:"finish" ignore in
+  let tool_uses = [ ToolUse { id = "terminal-1"; name = "finish"; input = `Assoc [] } ] in
+  match
+    execute_result_with_tools_in_env env ~tools:[ tool ] ~hooks:Hooks.empty tool_uses
+  with
+  | Error _ -> fail "singleton terminal execution failed"
+  | Ok report ->
+    (match report.completion with
+     | Agent_tools.Continue_after_batch -> fail "terminal success did not stop the batch"
+     | Agent_tools.Terminal_completed invocation ->
+       check
+         string
+         "exact terminal provider id"
+         "terminal-1"
+         (Tool.Invocation.tool_use_id invocation));
+    let recovered =
+      Agent_tools.recovered_batch_completion
+        ~tools:[ tool ]
+        ~turn:0
+        ~tool_uses
+        ~tool_results:[ Ok { Types.content = "terminal-complete"; _meta = None } ]
+    in
+    (match recovered with
+     | Agent_tools.Continue_after_batch ->
+       fail "settled terminal success was not reconstructed"
+     | Agent_tools.Terminal_completed invocation ->
+       check
+         string
+         "recovered exact terminal provider id"
+         "terminal-1"
+         (Tool.Invocation.tool_use_id invocation))
+;;
+
 let () =
   run
     "Tool_execution"
@@ -1065,6 +1204,16 @@ let () =
             "tool exception still publishes ToolCompleted"
             `Quick
             test_tool_exception_still_publishes_tool_completed
+        ] )
+    ; ( "terminal"
+      , [ test_case
+            "malformed batches reject before execution"
+            `Quick
+            test_terminal_admission_rejects_entire_malformed_batch
+        ; test_case
+            "singleton success reports and recovers exact invocation"
+            `Quick
+            test_singleton_terminal_reports_exact_invocation_and_recovers
         ] )
     ; ( "callbacks"
       , [ test_case

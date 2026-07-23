@@ -27,6 +27,11 @@ type api_strategy =
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of checkpoint_stage
+  | TerminalToolCompleted of
+      { invocation : Tool.Invocation.t
+      ; response : Types.api_response
+      ; checkpoint_stage : checkpoint_stage
+      }
 
 let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
 
@@ -301,7 +306,14 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution and context injection. *)
-let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_nonempty =
+let stage_execute
+      ?raw_trace_run
+      ?before_tool_execution
+      ~turn
+      ~response
+      agent
+      tool_uses_nonempty
+  =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
@@ -318,12 +330,20 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
     ; links = []
     }
     (fun _tracer ->
-       Option.iter (fun callback -> callback ()) before_tool_execution;
-       let results, failure =
-         match execute_tools_with_trace agent raw_trace_run ~turn tool_uses with
-         | Ok results -> results, None
-         | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
-           completed_results, Some cause
+       let results, completion, failure =
+         match
+           execute_tools_with_trace
+             agent
+             raw_trace_run
+             ~turn
+             ?before_tool_execution
+             tool_uses
+         with
+         | Ok ({ completed_results; completion } : Agent_tools.execution_report) ->
+           completed_results, completion, None
+         | Error
+             ({ completed_results; completion; cause } : Agent_tools.execution_failure) ->
+           completed_results, completion, Some cause
        in
        let tool_results = Agent_turn.make_tool_results results in
        let* () =
@@ -358,8 +378,14 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
        | Some (Agent_tools.Durability_failure { detail; _ }) ->
          Error (Error.Internal detail)
        | None ->
+         let finish checkpoint_stage =
+           match completion with
+           | Agent_tools.Continue_after_batch -> ToolsExecuted checkpoint_stage
+           | Agent_tools.Terminal_completed invocation ->
+             TerminalToolCompleted { invocation; response; checkpoint_stage }
+         in
          (match agent.options.context_injector with
-          | None -> Ok (ToolsExecuted After_tool_results_appended)
+          | None -> Ok (finish After_tool_results_appended)
           | Some injector ->
             let* messages =
               Agent_turn.apply_context_injection
@@ -385,7 +411,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
                 After_context_injection
                 injected_state
             in
-            Ok (ToolsExecuted After_context_injection)))
+            Ok (finish After_context_injection)))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -436,6 +462,7 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
               ?raw_trace_run
               ?before_tool_execution
               ~turn
+              ~response
               agent
               tool_uses_nonempty)
        | UnmatchedToolCalls ->
@@ -678,8 +705,45 @@ let run_turn
          ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
          traced under the exact ordinal the crashed run used (#2709). *)
     ~execute:(fun ~turn ->
-      stage_execute ?raw_trace_run ?before_tool_execution ~turn agent)
-    ~tools_settled:(ToolsExecuted After_tool_results_appended)
+      let response : Types.api_response =
+        { id = ""
+        ; model = agent.state.config.model
+        ; stop_reason = StopToolUse
+        ; content = []
+        ; usage = None
+        ; telemetry = None
+        }
+      in
+      fun tool_uses ->
+        stage_execute
+          ?raw_trace_run
+          ?before_tool_execution
+          ~turn
+          ~response:{ response with content = Nonempty.to_list tool_uses }
+          agent
+          tool_uses)
+    ~tools_settled:(fun ~turn tool_uses ->
+      let content = Nonempty.to_list tool_uses in
+      let response : Types.api_response =
+        { id = ""
+        ; model = agent.state.config.model
+        ; stop_reason = StopToolUse
+        ; content
+        ; usage = None
+        ; telemetry = None
+        }
+      in
+      match
+        Agent_tools.recovered_batch_completion
+          ~tools:(Tool_set.to_list agent.tools)
+          ~turn
+          ~tool_uses:content
+          ~tool_results:(last_tool_results_from agent.state.messages)
+      with
+      | Agent_tools.Continue_after_batch -> ToolsExecuted After_tool_results_appended
+      | Agent_tools.Terminal_completed invocation ->
+        TerminalToolCompleted
+          { invocation; response; checkpoint_stage = After_tool_results_appended })
     ~terminal:(fun response -> Complete response)
     ~fresh:(fun () ->
       run_new_turn

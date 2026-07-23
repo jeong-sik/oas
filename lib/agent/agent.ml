@@ -115,6 +115,8 @@ let run_turn_core_detailed
        | Ok (Pipeline.Complete response) -> Ok (`Complete response)
        | Ok (Pipeline.ToolsExecuted checkpoint_stage) ->
          Ok (`ToolsExecuted checkpoint_stage)
+       | Ok (Pipeline.TerminalToolCompleted completion) ->
+         Ok (`TerminalToolCompleted completion)
        | Error error -> Error { error; provider_failure = !provider_failure })
 ;;
 
@@ -256,6 +258,14 @@ let run_loop_turns_detailed
         ~model:agent.state.config.model
         ~stop:"tools_executed";
       loop release.after
+    | Ok (`TerminalToolCompleted completion) ->
+      log_turn
+        ~run_start
+        ~turn_start
+        ~turn_index
+        ~model:completion.response.model
+        ~stop:"terminal_tool_completed";
+      Ok completion.response
   in
   loop Held
 ;;
@@ -789,9 +799,18 @@ module Advanced = struct
     ; checkpoint : Checkpoint.t
     }
 
+  type terminal_tool_completed =
+    { turn : int
+    ; invocation : Tool.Invocation.t
+    ; checkpoint_stage : checkpoint_stage
+    ; checkpoint : Checkpoint.t
+    ; response : Types.api_response
+    }
+
   type run_outcome =
     | Completed of Types.api_response
     | Yielded of yielded
+    | Terminal_tool_completed of terminal_tool_completed
 
   let raw_trace_yield_stop_reason = "cooperative_tool_boundary_yield"
 
@@ -806,6 +825,11 @@ module Advanced = struct
         ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
         }
     | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
+    | Terminal_tool_completed completion ->
+      Run_completed
+        { final_text = final_text_of_response completion.response
+        ; stop_reason = Some "terminal_tool_completed"
+        }
   ;;
 
   let run_loop_turns_detailed
@@ -868,6 +892,21 @@ module Advanced = struct
                 ; checkpoint_stage = boundary.checkpoint_stage
                 ; checkpoint
                 }))
+      | Ok (`TerminalToolCompleted completion) ->
+        log_turn
+          ~run_start
+          ~turn_start
+          ~turn_index
+          ~model:completion.response.model
+          ~stop:"terminal_tool_completed";
+        Ok
+          (Terminal_tool_completed
+             { turn = agent.state.turn_count
+             ; invocation = completion.invocation
+             ; checkpoint_stage = completion.checkpoint_stage
+             ; checkpoint = checkpoint agent
+             ; response = completion.response
+             })
     in
     loop Held
   ;;
@@ -984,7 +1023,9 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
   run_with_execution_scope ~sw ?execution_store agent (fun ~sw -> run ~sw ())
   |> Result.map (function
     | `Complete response -> `Complete response
-    | `ToolsExecuted _ -> `ToolsExecuted)
+    | `ToolsExecuted _ -> `ToolsExecuted
+    | `TerminalToolCompleted completion ->
+      `TerminalToolCompleted completion.Pipeline.invocation)
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =

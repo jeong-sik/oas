@@ -84,8 +84,9 @@ let make_agent
   Agent.create ~net ~config ~tools:[ tool ] ~options ~checkpoint_sink ()
 ;;
 
-let time_tool on_execute =
+let time_tool ?descriptor ?result on_execute =
   Tool.create
+    ?descriptor
     ~name:"get_time"
     ~description:"Get current time"
     ~parameters:
@@ -97,7 +98,9 @@ let time_tool on_execute =
       ]
     (fun _input ->
        on_execute ();
-       Ok { Types.content = "12:00 UTC"; _meta = None })
+       match result with
+       | Some result -> result
+       | None -> Ok { Types.content = "12:00 UTC"; _meta = None })
 ;;
 
 let messages_contain_text expected messages =
@@ -220,6 +223,8 @@ let test_yield_after_context_checkpoint () =
    with
    | Error error -> Alcotest.fail (Error.to_string error)
    | Ok (Agent.Advanced.Completed _) -> Alcotest.fail "expected cooperative yield"
+   | Ok (Agent.Advanced.Terminal_tool_completed _) ->
+     Alcotest.fail "expected cooperative yield"
    | Ok (Agent.Advanced.Yielded yielded) ->
      Alcotest.(check int) "yielded turn" 1 yielded.turn;
      Alcotest.(check int) "checkpoint turn" 1 yielded.checkpoint.turn_count;
@@ -300,6 +305,8 @@ let test_continue_reaches_terminal_completion () =
    with
    | Error error -> Alcotest.fail (Error.to_string error)
    | Ok (Agent.Advanced.Yielded _) -> Alcotest.fail "expected terminal completion"
+   | Ok (Agent.Advanced.Terminal_tool_completed _) ->
+     Alcotest.fail "expected provider terminal completion"
    | Ok (Agent.Advanced.Completed response) ->
      Alcotest.(check string)
        "visible response"
@@ -585,6 +592,157 @@ let test_unpaired_lease_callback_is_rejected () =
   Alcotest.(check int) "provider not called" 0 !call_count
 ;;
 
+let test_terminal_success_stops_advanced_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let handler_count = ref 0 in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool ~descriptor:Tool.terminal_descriptor (fun () -> incr handler_count))
+  in
+  (match
+     Agent.Advanced.run_blocks
+       ~sw
+       ~api_strategy:Agent.Sync
+       ~on_tool_boundary:(fun _ ->
+         Alcotest.fail "terminal completion reached cooperative boundary")
+       agent
+       [ Types.Text "finish" ]
+   with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok (Agent.Advanced.Completed _) ->
+     Alcotest.fail "expected typed terminal tool completion"
+   | Ok (Agent.Advanced.Yielded _) ->
+     Alcotest.fail "terminal tool completion must not yield"
+   | Ok (Agent.Advanced.Terminal_tool_completed completion) ->
+     Alcotest.(check string)
+       "exact invocation"
+       "call_1"
+       (Tool.Invocation.tool_use_id completion.invocation);
+     Alcotest.(check bool)
+       "checkpoint stage"
+       true
+       (completion.checkpoint_stage = Agent.After_tool_results_appended);
+     Alcotest.(check int) "checkpoint turn" 1 completion.checkpoint.turn_count);
+  Alcotest.(check int) "one handler" 1 !handler_count;
+  Alcotest.(check int) "one provider call" 1 !call_count
+;;
+
+let test_terminal_typed_error_allows_correction () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let typed_error =
+    Error
+      { Types.message = "correct input"
+      ; recoverable = true
+      ; error_class = Some Types.Deterministic
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "corrected" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:(time_tool ~descriptor:Tool.terminal_descriptor ~result:typed_error ignore)
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check string)
+       "corrected provider response"
+       "corrected"
+       (Types.visible_text_of_response response));
+  Alcotest.(check int) "correction used second provider turn" 2 !call_count
+;;
+
+let test_terminal_exception_stops_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool ~descriptor:Tool.terminal_descriptor (fun () ->
+           failwith "terminal boom"))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | _ -> Alcotest.fail "terminal exception must propagate"
+   | exception Failure message ->
+     Alcotest.(check string) "original exception" "terminal boom" message
+   | exception exn -> raise exn);
+  Alcotest.(check int) "exception stops before next provider call" 1 !call_count
+;;
+
+let test_terminal_success_stops_stream_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:(time_tool ~descriptor:Tool.terminal_descriptor ignore)
+  in
+  (match Agent.run_stream_blocks ~sw ~on_event:ignore agent [ Types.Text "finish" ] with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check bool)
+       "terminal response remains tool-use response"
+       true
+       (response.stop_reason = Types.StopToolUse));
+  Alcotest.(check int) "stream stops after one provider call" 1 !call_count
+;;
+
 let () =
   Alcotest.run
     "Agent advanced cooperative execution"
@@ -617,6 +775,22 @@ let () =
             "unpaired provider lease callback is rejected"
             `Quick
             test_unpaired_lease_callback_is_rejected
+        ; Alcotest.test_case
+            "terminal success stops Advanced"
+            `Quick
+            test_terminal_success_stops_advanced_before_next_provider
+        ; Alcotest.test_case
+            "terminal typed error allows correction"
+            `Quick
+            test_terminal_typed_error_allows_correction
+        ; Alcotest.test_case
+            "terminal exception stops before next provider"
+            `Quick
+            test_terminal_exception_stops_before_next_provider
+        ; Alcotest.test_case
+            "terminal success stops stream"
+            `Quick
+            test_terminal_success_stops_stream_before_next_provider
         ] )
     ]
 ;;

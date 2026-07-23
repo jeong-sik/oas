@@ -356,6 +356,9 @@ jobs:
       - name: Run SDK independence gate
         run: bash scripts/check-sdk-independence.sh
 
+      - name: Check terminal-tool boundary
+        run: bash scripts/check-terminal-tool-boundary.sh
+
   tag-drift:
     name: Release Tag Drift
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

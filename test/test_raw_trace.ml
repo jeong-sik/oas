@@ -154,7 +154,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let file_write_tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Serial }
+      ~descriptor:(Tool.ordinary_descriptor Serial)
       ~name:"file_write"
       ~description:"Write a file"
       ~parameters:
@@ -177,7 +177,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let shell_exec_tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Concurrent }
+      ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ~name:"shell_exec"
       ~description:"Run a verification command"
       ~parameters:

@@ -11,7 +11,7 @@
 val dispatch
   :  Agent_types.t
   -> execute:(turn:int -> Types.content_block Nonempty.t -> ('a, Error.sdk_error) result)
-  -> tools_settled:'a
+  -> tools_settled:(turn:int -> Types.content_block Nonempty.t -> 'a)
   -> terminal:(Types.api_response -> 'a)
   -> fresh:(unit -> ('a, Error.sdk_error) result)
   -> ('a, Error.sdk_error) result

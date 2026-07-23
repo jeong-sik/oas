@@ -15,6 +15,15 @@ type execution_mode =
 val execution_mode_to_yojson : execution_mode -> Yojson.Safe.t
 val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
 
+(** Whether a successful invocation permits another provider turn. *)
+type completion =
+  | Continue_after_success
+  | Terminal_after_success
+[@@deriving show]
+
+val completion_to_yojson : completion -> Yojson.Safe.t
+val completion_of_yojson : Yojson.Safe.t -> (completion, string) result
+
 (** Exact scheduler placement for one tool occurrence.
 
     @since 0.216.0 *)
@@ -61,7 +70,15 @@ module Execution_env : sig
 end
 
 type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-type descriptor = { execution_mode : execution_mode }
+
+(** Immutable execution metadata. A terminal tool is serial by construction,
+    so [Terminal + Concurrent] is not representable. *)
+type descriptor
+
+val ordinary_descriptor : execution_mode -> descriptor
+val terminal_descriptor : descriptor
+val descriptor_execution_mode : descriptor -> execution_mode
+val descriptor_completion : descriptor -> completion
 
 type handler_kind =
   | Simple of tool_handler
@@ -114,6 +131,10 @@ val descriptor : t -> descriptor option
 
 (** Exact declared execution mode, or [Serial] when no descriptor exists. *)
 val execution_mode : t -> execution_mode
+
+(** Exact completion policy, or [Continue_after_success] when no descriptor
+    exists. *)
+val completion : t -> completion
 
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t

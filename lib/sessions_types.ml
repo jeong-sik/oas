@@ -119,6 +119,7 @@ type tool_contract =
   ; description : string
   ; origin : string option
   ; execution_mode : Tool.execution_mode
+  ; completion : Tool.completion
   }
 [@@deriving show]
 
@@ -131,6 +132,7 @@ let tool_contract_to_yojson contract =
         | Some origin -> `String origin
         | None -> `Null )
     ; "execution_mode", Tool.execution_mode_to_yojson contract.execution_mode
+    ; "completion", Tool.completion_to_yojson contract.completion
     ]
 ;;
 
@@ -138,7 +140,7 @@ let tool_contract_of_yojson json =
   let ( let* ) = Result.bind in
   match json with
   | `Assoc fields ->
-    let allowed = [ "name"; "description"; "origin"; "execution_mode" ] in
+    let allowed = [ "name"; "description"; "origin"; "execution_mode"; "completion" ] in
     let rec validate_names seen = function
       | [] -> Ok ()
       | (name, _) :: _ when not (List.mem name allowed) ->
@@ -178,7 +180,12 @@ let tool_contract_of_yojson json =
       | Some value -> Tool.execution_mode_of_yojson value
       | None -> Error "tool contract field \"execution_mode\" is required"
     in
-    Ok { name; description; origin; execution_mode }
+    let* completion =
+      match List.assoc_opt "completion" fields with
+      | Some value -> Tool.completion_of_yojson value
+      | None -> Error "tool contract field \"completion\" is required"
+    in
+    Ok { name; description; origin; execution_mode; completion }
   | value ->
     Error
       (Printf.sprintf
@@ -475,7 +482,12 @@ let%test "show_missing_file non-empty" =
 (* -- tool_contract round-trip -- *)
 let%test "tool_contract round-trip" =
   let v : tool_contract =
-    { name = "t"; description = "d"; origin = Some "o"; execution_mode = Tool.Concurrent }
+    { name = "t"
+    ; description = "d"
+    ; origin = Some "o"
+    ; execution_mode = Tool.Concurrent
+    ; completion = Tool.Continue_after_success
+    }
   in
   tool_contract_of_yojson (tool_contract_to_yojson v) = Ok v
 ;;

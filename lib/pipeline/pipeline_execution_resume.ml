@@ -69,7 +69,7 @@ let recovered_tool_result_ids messages_after =
 ;;
 
 type settled_replay =
-  | Replay_tools_settled
+  | Replay_tools_settled of Types.content_block Nonempty.t
   | Replay_terminal of Types.message
 
 let last_assistant_message messages =
@@ -92,9 +92,18 @@ let last_assistant_message messages =
    checkpoint stays an error (fail-closed on inconsistent topology). *)
 let classify_settled agent =
   match last_tool_turn agent.Agent_types.state.messages with
-  | Some (_tool_blocks, expected_ids, messages_after) ->
+  | Some (tool_blocks, expected_ids, messages_after) ->
+    let* tool_blocks =
+      match Nonempty.of_list tool_blocks with
+      | Some tool_blocks -> Ok tool_blocks
+      | None ->
+        Error
+          (Error.Internal
+             "durable execution resume settled tool turn restored no ToolUse blocks")
+    in
     (match recovered_tool_result_ids messages_after with
-     | Some result_ids when result_ids = expected_ids -> Ok Replay_tools_settled
+     | Some result_ids when result_ids = expected_ids ->
+       Ok (Replay_tools_settled tool_blocks)
      | Some _ ->
        Error
          (Error.Internal
@@ -144,7 +153,14 @@ let run_settled agent boundary ~tools_settled ~terminal =
   let* () = Pipeline_execution_scope.finalize_settled boundary in
   let* replay = classify_settled agent in
   match replay with
-  | Replay_tools_settled -> Ok tools_settled
+  | Replay_tools_settled tool_blocks ->
+    let turn = agent.Agent_types.state.turn_count - 1 in
+    if turn < 0
+    then
+      Error
+        (Error.Internal
+           "durable execution resume settled tool turn has an invalid turn counter")
+    else Ok (tools_settled ~turn tool_blocks)
   | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
 ;;
 
@@ -175,7 +191,17 @@ let run agent execution ~execute ~already_settled =
        | Some result_ids when result_ids = expected_ids ->
          let* settled = Pipeline_execution_scope.invocations_settled execution in
          if settled
-         then Ok already_settled
+         then (
+           match Nonempty.of_list tool_blocks with
+           | Some tool_blocks ->
+             Ok
+               (already_settled
+                  ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+                  tool_blocks)
+           | None ->
+             Error
+               (Error.Internal
+                  "durable execution resume restored an empty ToolUse checkpoint"))
          else
            Error
              (Error.Internal

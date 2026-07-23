@@ -40,8 +40,9 @@ val execute_tools_with_trace
   :  t
   -> Raw_trace.active_run option
   -> turn:int
+  -> ?before_tool_execution:(unit -> unit)
   -> Types.content_block list
-  -> (Agent_tools.tool_execution_result list, Agent_tools.execution_failure) result
+  -> (Agent_tools.execution_report, Agent_tools.execution_failure) result
 
 (** {1 Assistant block recording} *)
 

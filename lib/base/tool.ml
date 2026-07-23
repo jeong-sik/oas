@@ -29,6 +29,27 @@ let execution_mode_of_yojson = function
          (Yojson.Safe.to_string value))
 ;;
 
+type completion =
+  | Continue_after_success
+  | Terminal_after_success
+[@@deriving show]
+
+let completion_to_yojson = function
+  | Continue_after_success -> `String "continue_after_success"
+  | Terminal_after_success -> `String "terminal_after_success"
+;;
+
+let completion_of_yojson = function
+  | `String "continue_after_success" -> Ok Continue_after_success
+  | `String "terminal_after_success" -> Ok Terminal_after_success
+  | value ->
+    Error
+      (Printf.sprintf
+         "Tool.completion: expected \"continue_after_success\" or \
+          \"terminal_after_success\", got %s"
+         (Yojson.Safe.to_string value))
+;;
+
 type schedule =
   { planned_index : int
   ; batch_index : int
@@ -62,7 +83,23 @@ module Execution_env = struct
 end
 
 type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-type descriptor = { execution_mode : execution_mode }
+
+type descriptor =
+  | Ordinary_descriptor of execution_mode
+  | Terminal_descriptor
+
+let ordinary_descriptor execution_mode = Ordinary_descriptor execution_mode
+let terminal_descriptor = Terminal_descriptor
+
+let descriptor_execution_mode = function
+  | Ordinary_descriptor execution_mode -> execution_mode
+  | Terminal_descriptor -> Serial
+;;
+
+let descriptor_completion = function
+  | Ordinary_descriptor _ -> Continue_after_success
+  | Terminal_descriptor -> Terminal_after_success
+;;
 
 (** Handler kind: preserves backward compatibility via Simple variant *)
 type handler_kind =
@@ -112,13 +149,20 @@ let execute ?context ?invocation tool input =
 let descriptor tool = tool.descriptor
 
 let execution_mode tool =
-  Option.fold ~none:Serial ~some:(fun d -> d.execution_mode) tool.descriptor
+  Option.fold ~none:Serial ~some:descriptor_execution_mode tool.descriptor
+;;
+
+let completion tool =
+  Option.fold ~none:Continue_after_success ~some:descriptor_completion tool.descriptor
 ;;
 
 let descriptor_to_yojson = function
   | None -> `Null
   | Some descriptor ->
-    `Assoc [ "execution_mode", execution_mode_to_yojson descriptor.execution_mode ]
+    `Assoc
+      [ "execution_mode", execution_mode_to_yojson (descriptor_execution_mode descriptor)
+      ; "completion", completion_to_yojson (descriptor_completion descriptor)
+      ]
 ;;
 
 (** Schema to JSON *)

@@ -245,7 +245,7 @@ let test_schema_param_types () =
 let test_descriptor_preserved_and_not_in_schema () =
   let tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Concurrent }
+      ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ~name:"shell_exec"
       ~description:"Run a command"
       ~parameters:
@@ -268,7 +268,12 @@ let test_descriptor_preserved_and_not_in_schema () =
     "descriptor json has execution_mode"
     "concurrent"
     (descriptor_json |> member "execution_mode" |> to_string);
-  check int "one structural field" 1 (descriptor_json |> to_assoc |> List.length)
+  check
+    string
+    "descriptor json has completion"
+    "continue_after_success"
+    (descriptor_json |> member "completion" |> to_string);
+  check int "two structural fields" 2 (descriptor_json |> to_assoc |> List.length)
 ;;
 
 let test_descriptor_to_yojson_none () =
@@ -301,7 +306,33 @@ let test_missing_descriptor_defaults_to_serial () =
     string
     "serial"
     (Tool.show_execution_mode Tool.Serial)
-    (Tool.show_execution_mode (Tool.execution_mode tool))
+    (Tool.show_execution_mode (Tool.execution_mode tool));
+  check
+    string
+    "continue"
+    (Tool.show_completion Tool.Continue_after_success)
+    (Tool.show_completion (Tool.completion tool))
+;;
+
+let test_terminal_descriptor_is_serial_and_terminal () =
+  let tool =
+    Tool.create
+      ~descriptor:Tool.terminal_descriptor
+      ~name:"finish"
+      ~description:""
+      ~parameters:[]
+      (fun _ -> Ok { Types.content = "done"; _meta = None })
+  in
+  check
+    string
+    "terminal is serial"
+    (Tool.show_execution_mode Tool.Serial)
+    (Tool.show_execution_mode (Tool.execution_mode tool));
+  check
+    string
+    "terminal completion"
+    (Tool.show_completion Tool.Terminal_after_success)
+    (Tool.show_completion (Tool.completion tool))
 ;;
 
 let () =
@@ -341,6 +372,10 @@ let () =
             "missing descriptor is serial"
             `Quick
             test_missing_descriptor_defaults_to_serial
+        ; test_case
+            "terminal descriptor is serial and terminal"
+            `Quick
+            test_terminal_descriptor_is_serial_and_terminal
         ] )
     ; ( "with_defaults"
       , [ test_case "injects missing args" `Quick (fun () ->

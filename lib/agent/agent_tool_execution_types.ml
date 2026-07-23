@@ -6,6 +6,15 @@ type tool_execution_result =
   ; outcome : Types.tool_result_outcome
   }
 
+type batch_completion =
+  | Continue_after_batch
+  | Terminal_completed of Tool.Invocation.t
+
+type execution_report =
+  { completed_results : tool_execution_result list
+  ; completion : batch_completion
+  }
+
 type execution_error =
   | Hook_execution_failed of
       { hook_name : string
@@ -29,6 +38,7 @@ type execution_failure_cause =
 
 type execution_failure =
   { completed_results : tool_execution_result list
+  ; completion : batch_completion
   ; cause : execution_failure_cause
   }
 

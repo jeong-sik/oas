@@ -39,7 +39,7 @@ let invoke_hook_with_trace agent ?raw_trace_run ~turn ~hook_name hook_opt event 
        decision)
 ;;
 
-let execute_tools_with_trace agent active_run ~turn tool_uses =
+let execute_tools_with_trace agent active_run ~turn ?before_tool_execution tool_uses =
   let correlation_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
   let run_id = Option.map Raw_trace.active_run_id active_run in
   let tools = Tool_set.to_list agent.tools in
@@ -103,6 +103,7 @@ let execute_tools_with_trace agent active_run ~turn tool_uses =
     ?on_tool_execution_started
     ?on_tool_execution_finished
     ~on_hook_invoked
+    ?before_tool_execution
     tool_uses
 ;;
 

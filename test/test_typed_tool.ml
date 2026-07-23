@@ -179,12 +179,36 @@ let test_descriptor_some () =
       ~parse:(fun _ -> Ok ())
       ~handler:(fun () -> Ok ())
       ~encode:(fun () -> `Null)
-      ~descriptor:{ Tool.execution_mode = Concurrent }
+      ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ()
   in
-  match Typed_tool.descriptor tool with
-  | Some d -> Alcotest.(check bool) "concurrent" true (d.execution_mode = Tool.Concurrent)
-  | None -> Alcotest.fail "expected descriptor"
+  (match Typed_tool.descriptor tool with
+   | Some d ->
+     Alcotest.(check bool)
+       "concurrent"
+       true
+       (Tool.descriptor_execution_mode d = Tool.Concurrent);
+     Alcotest.(check bool)
+       "ordinary completion"
+       true
+       (Typed_tool.completion tool = Tool.Continue_after_success)
+   | None -> Alcotest.fail "expected descriptor");
+  let terminal =
+    Typed_tool.create
+      ~name:"finish"
+      ~description:"Finish"
+      ~params:[]
+      ~parse:(fun _ -> Ok ())
+      ~handler:(fun () -> Ok ())
+      ~encode:(fun () -> `Null)
+      ~descriptor:Tool.terminal_descriptor
+      ()
+  in
+  let untyped = Typed_tool.to_untyped terminal in
+  Alcotest.(check bool)
+    "typed conversion preserves terminal completion"
+    true
+    (Tool.completion untyped = Tool.Terminal_after_success)
 ;;
 
 let test_context_handler () =
