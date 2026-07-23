@@ -28,6 +28,7 @@ type agent_error =
   | `Tripwire_violation of string * string
   | `Input_required of string * string
   | `Hook_execution_failed of string * string * string option * string option * string
+  | `Terminal_tool_effect_failed of string * Error.terminal_effect_disposition * string
   | `Unrecognized_stop_reason of string
   ]
 
@@ -128,6 +129,8 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (InputRequired r) -> `Input_required (r.request_id, r.question)
   | Error.Agent (HookExecutionFailed r) ->
     `Hook_execution_failed (r.hook_name, r.stage, r.tool_name, r.tool_use_id, r.detail)
+  | Error.Agent (TerminalToolEffectFailed r) ->
+    `Terminal_tool_effect_failed (r.tool_use_id, r.effect_disposition, r.detail)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
@@ -187,6 +190,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
          })
   | `Hook_execution_failed (hook_name, stage, tool_name, tool_use_id, detail) ->
     Error.Agent (HookExecutionFailed { hook_name; stage; tool_name; tool_use_id; detail })
+  | `Terminal_tool_effect_failed (tool_use_id, effect_disposition, detail) ->
+    Error.Agent (TerminalToolEffectFailed { tool_use_id; effect_disposition; detail })
   | `Unrecognized_stop_reason reason -> Error.Agent (UnrecognizedStopReason { reason })
   | `Missing_env_var var -> Error.Config (MissingEnvVar { var_name = var })
   | `Unsupported_provider detail -> Error.Config (UnsupportedProvider { detail })
@@ -254,6 +259,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Tripwire_violation _
   | `Input_required _
   | `Hook_execution_failed _
+  | `Terminal_tool_effect_failed _
   | `Unrecognized_stop_reason _
   | `Missing_env_var _
   | `Unsupported_provider _

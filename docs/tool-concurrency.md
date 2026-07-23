@@ -42,9 +42,12 @@ let descriptor =
 
 Only `Tool.Proven_pre_effect` authorizes another provider turn after a typed
 handler error. `Tool.Proven_post_effect` and
-`Tool.Effect_outcome_unknown` stop without a second provider call. Input
+`Tool.Effect_outcome_unknown` stop without a second provider call and surface
+`Error.TerminalToolEffectFailed` with a typed effect disposition. Input
 validation failures remain correction-capable because OAS proves that the
-handler did not run.
+handler did not run. An ordinary tool-handler exception is localized to a
+non-retryable result; a terminal tool-handler exception instead propagates
+with its original backtrace because no typed pre-effect proof exists.
 
 Completion is copied into the immutable invocation and persisted in execution
 event schema v2. Durable resume reads that persisted value only. It never

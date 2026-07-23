@@ -5,12 +5,21 @@
     durable turn frontier: an in-progress turn/provider is resumed, an
     already-settled turn boundary is replayed ([tools_settled] for a completed
     tool turn, [terminal] reconstructing the final assistant response), and no
-    resume runs [fresh]. [execute] receives the durable turn identity ([turn]),
-    owned by the journal rather than reconstructed from mutable agent state. Fails
-    closed on inconsistent restored topology. *)
+    resume runs [fresh]. [tools_settled_before_checkpoint] repairs only the
+    crash window where invocation results settled before the Agent checkpoint;
+    its invocation and result authority comes exclusively from the journal.
+    [execute] receives the durable turn identity ([turn]), owned by the journal
+    rather than reconstructed from mutable agent state. Fails closed on
+    inconsistent restored topology. *)
 val dispatch
   :  Agent_types.t
   -> execute:(turn:int -> Types.content_block Nonempty.t -> ('a, Error.sdk_error) result)
+  -> tools_settled_before_checkpoint:
+       (turn:int
+        -> invocations:Tool.Invocation.t list
+        -> tool_results:Types.content_block list
+        -> Types.content_block Nonempty.t
+        -> ('a, Error.sdk_error) result)
   -> tools_settled:
        (turn:int
         -> invocations:Tool.Invocation.t list

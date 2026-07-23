@@ -14,27 +14,60 @@ fail() {
   exit 1
 }
 
+matches_pattern() {
+  local case_mode="$1"
+  local pattern="$2"
+  shift 2
+  if command -v rg >/dev/null 2>&1; then
+    local args=(-q --multiline)
+    if [[ "$case_mode" == "insensitive" ]]; then
+      args+=(-i)
+    fi
+    rg "${args[@]}" "$pattern" "$@"
+  elif command -v perl >/dev/null 2>&1; then
+    perl -0 -e '
+      my ($case_mode, $pattern, @files) = @ARGV;
+      my $matched = 0;
+      for my $file (@files) {
+        open my $handle, "<", $file or die "cannot read $file: $!\n";
+        local $/;
+        my $content = <$handle>;
+        close $handle;
+        if ($case_mode eq "insensitive"
+              ? $content =~ /$pattern/msi
+              : $content =~ /$pattern/ms) {
+          $matched = 1;
+          last;
+        }
+      }
+      exit($matched ? 0 : 1);
+    ' "$case_mode" "$pattern" "$@"
+  else
+    fail "requires either rg or perl; refusing to skip the boundary check"
+  fi
+}
+
 require_pattern() {
   local pattern="$1"
   local file="$2"
   local detail="$3"
-  rg -q --multiline "$pattern" "$file" || fail "$detail"
+  matches_pattern sensitive "$pattern" "$file" || fail "$detail"
 }
 
 check_boundary() {
-  if rg -n -i \
+  if matches_pattern insensitive \
     'provider|model|tier|pricing|price|parallel[_ -]?tool|parallel[_ -]?call' \
     "$PLANNER"; then
     fail "the admission planner must remain provider, pricing, and parallel-flag neutral"
   fi
 
-  if rg -n \
+  if matches_pattern sensitive \
     'String\.(equal|starts_with|ends_with)|Str\.|Re\.' \
     "$PLANNER"; then
     fail "the admission planner must not infer completion from tool-name strings"
   fi
 
-  if rg -n \
+  if matches_pattern sensitive \
     '(String\.(equal|starts_with|ends_with).*(terminal|Terminal)|(terminal|Terminal).*String\.(equal|starts_with|ends_with)|terminal.*parallel|parallel.*terminal)' \
     "$ROOT/lib/agent" "$ROOT/lib/pipeline"; then
     fail "terminal control flow must use typed metadata only"
@@ -61,6 +94,10 @@ check_boundary() {
     "$EVENT" \
     "the current event decoder must require persisted completion"
   require_pattern \
+    '; "schedule"[[:space:]]*; "completion"' \
+    "$EVENT" \
+    "the common strict decoder whitelist must admit required completion"
+  require_pattern \
     'schema_version_current = 2' \
     "$EVENT" \
     "execution events must reject pre-completion schema versions"
@@ -69,11 +106,17 @@ check_boundary() {
     "$BOUNDARY" \
     "durable terminal recovery must use persisted invocation completion"
 
-  if rg -n 'Tool_set|find_tool|Tool\.completion[[:space:]]' "$PIPELINE"; then
+  if matches_pattern \
+    sensitive \
+    'Tool_set|find_tool|Tool\.completion[[:space:]]' \
+    "$PIPELINE"; then
     fail "pipeline recovery must not reconstruct completion from the current tool catalog"
   fi
 
-  if rg -n 'find_tool|Tool_set|tool_name.*completion|completion.*tool_name' "$BOUNDARY"; then
+  if matches_pattern \
+    sensitive \
+    'find_tool|Tool_set|tool_name.*completion|completion.*tool_name' \
+    "$BOUNDARY"; then
     fail "terminal recovery must remain catalog- and tool-name-independent"
   fi
 
@@ -101,10 +144,19 @@ self_test() {
   fi
   cp "$PIPELINE" "$fixture/lib/pipeline/pipeline_terminal_tool.ml"
 
-  sed -i.bak '/; completion : Tool\.completion/d' "$fixture/lib/execution_event.ml"
+  sed -i.bak '/; "completion"/d' "$fixture/lib/execution_event.ml"
   rm -f "$fixture/lib/execution_event.ml.bak"
   if TERMINAL_BOUNDARY_ROOT="$fixture" "$0" --check >/dev/null 2>&1; then
-    fail "negative self-test failed to detect missing persisted completion"
+    fail "negative self-test failed to detect completion missing from the common whitelist"
+  fi
+  cp "$EVENT" "$fixture/lib/execution_event.ml"
+
+  sed -i.bak \
+    's/schema_version_current = 2/schema_version_current = 1/' \
+    "$fixture/lib/execution_event.ml"
+  rm -f "$fixture/lib/execution_event.ml.bak"
+  if TERMINAL_BOUNDARY_ROOT="$fixture" "$0" --check >/dev/null 2>&1; then
+    fail "negative self-test failed to detect a legacy schema decoder"
   fi
 
   printf 'terminal-tool boundary self-test: OK\n'

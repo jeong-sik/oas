@@ -183,7 +183,7 @@ let run_settled agent boundary ~tools_settled ~terminal =
   | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
 ;;
 
-let run agent execution ~execute ~already_settled =
+let run agent execution ~execute ~settled_before_checkpoint ~already_settled =
   let outcome =
     match last_tool_turn agent.Agent_types.state.messages with
     | None ->
@@ -206,7 +206,27 @@ let run agent execution ~execute ~already_settled =
                  (Error.Internal "durable execution resume lost its provider authority")
              | Some provider ->
                Execution_context.with_provider_attempt provider (fun () ->
-                 execute tool_blocks)))
+                 let* settled = Pipeline_execution_scope.invocations_settled execution in
+                 if not settled
+                 then execute tool_blocks
+                 else
+                   let* persisted =
+                     Pipeline_execution_scope.settled_invocations_with_results execution
+                   in
+                   match persisted with
+                   | [] ->
+                     (* A pre-execution hook can produce a model-visible result
+                         without opening an invocation. With no persisted result
+                         authority, safely re-run admission rather than inventing
+                         a result. *)
+                     execute tool_blocks
+                   | persisted ->
+                     let invocations, tool_results = List.split persisted in
+                     settled_before_checkpoint
+                       ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+                       ~invocations
+                       ~tool_results
+                       tool_blocks)))
        | Some tool_results when tool_result_ids tool_results = expected_ids ->
          let* settled = Pipeline_execution_scope.invocations_settled execution in
          if settled
@@ -250,7 +270,14 @@ let run agent execution ~execute ~already_settled =
    passed to [execute] is read from the durable turn ([turn_ordinal]), never
    reconstructed from mutable agent state, so a resumed tool turn is traced under
    the same ordinal the crashed run used. *)
-let dispatch agent ~execute ~tools_settled ~terminal ~fresh =
+let dispatch
+      agent
+      ~execute
+      ~tools_settled_before_checkpoint
+      ~tools_settled
+      ~terminal
+      ~fresh
+  =
   let* resumed =
     if Execution_context.take_resume_once ()
     then Pipeline_execution_scope.resume_current (Execution_context.agent_scope ())
@@ -259,7 +286,12 @@ let dispatch agent ~execute ~tools_settled ~terminal ~fresh =
   match resumed with
   | Pipeline_execution_scope.Active execution ->
     let turn = Pipeline_execution_scope.turn_ordinal execution in
-    run agent execution ~execute:(execute ~turn) ~already_settled:tools_settled
+    run
+      agent
+      execution
+      ~execute:(execute ~turn)
+      ~settled_before_checkpoint:tools_settled_before_checkpoint
+      ~already_settled:tools_settled
   | Pipeline_execution_scope.Settled boundary ->
     run_settled agent boundary ~tools_settled ~terminal
   | Pipeline_execution_scope.Fresh -> fresh ()

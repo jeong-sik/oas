@@ -34,6 +34,12 @@ val provider : t -> Execution_agent_scope.provider_attempt option
 val invocations_settled : t -> (bool, Error.sdk_error) result
 val invocations : t -> (Tool.Invocation.t list, Error.sdk_error) result
 
+(** Exact settled result authority, reconstructed from persisted invocation
+    nodes and ordered by their immutable planned index. *)
+val settled_invocations_with_results
+  :  t
+  -> ((Tool.Invocation.t * Types.content_block) list, Error.sdk_error) result
+
 val settled_invocations
   :  settled_boundary
   -> (Tool.Invocation.t list, Error.sdk_error) result

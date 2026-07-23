@@ -591,6 +591,59 @@ let tool_result_of_block durable = function
   | Llm_provider.Types.Audio _ -> Error Invalid_tool_result
 ;;
 
+let provider_settled_invocations provider =
+  let scope = provider.turn.scope in
+  match Writer.find_node scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let invocation_nodes =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    let rec rebind_all acc = function
+      | [] ->
+        Ok
+          (List.sort
+             (fun (left, _) (right, _) ->
+                Int.compare
+                  (Tool.Invocation.planned_index left)
+                  (Tool.Invocation.planned_index right))
+             acc)
+      | node :: rest ->
+        let locator = { run_id = Journal.run_id scope.run; node } in
+        let open Result_syntax in
+        let* rebound = rebind_invocation scope locator in
+        let* invocation_view =
+          match Writer.find_node scope.writer node with
+          | Error error -> Error (Scope_unavailable error)
+          | Ok None -> Error (Resume_topology_mismatch "tool invocation disappeared")
+          | Ok (Some invocation_view) -> Ok invocation_view
+        in
+        (match invocation_view.materialized with
+         | Journal.Tool_invocation_state { result = Some result; _ } ->
+           let* (_ : tool_result) = tool_result_of_block rebound.durable result in
+           rebind_all ((rebound.durable.invocation, result) :: acc) rest
+         | Journal.Tool_invocation_state { result = None; _ } ->
+           Error (Resume_topology_mismatch "tool invocation is not settled")
+         | Journal.Agent_run_state
+         | Journal.Agent_turn_state
+         | Journal.Provider_attempt_state _
+         | Journal.Output_block_state _
+         | Journal.Tool_attempt_state ->
+           Error (Resume_topology_mismatch "provider child changed node kind"))
+    in
+    rebind_all [] invocation_nodes
+;;
+
 let execute_phased invocation ~invoke =
   let durable = invocation.durable in
   let settled =

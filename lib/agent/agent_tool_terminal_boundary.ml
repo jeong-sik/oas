@@ -16,7 +16,8 @@ let execute_handler ~tool ~name run =
          })
 ;;
 
-let completed_dispatch completion = function
+let completed_dispatch completion (dispatch : tool_dispatch option) =
+  match dispatch with
   | Some { result = { outcome = Tool_succeeded; invocation; _ }; _ } ->
     (match completion with
      | Tool.Terminal_after_success _ -> Terminal_completed invocation
@@ -90,25 +91,44 @@ let recovered_batch_completion ~invocations tool_results =
          | Tool.Continue_after_success -> false)
       invocations
   in
-  match terminal_invocations with
-  | [] -> Ok Continue_after_batch
-  | [ invocation ] ->
-    let tool_use_id = Tool.Invocation.tool_use_id invocation in
-    (match List.assoc_opt tool_use_id result_by_id with
-     | None ->
-       Error
-         (Error.Internal ("missing durable result for terminal invocation " ^ tool_use_id))
-     | Some (_, Tool_succeeded) -> Ok (Terminal_completed invocation)
-     | Some (_, Tool_failed { failure_kind = Validation_error; _ }) ->
-       Ok Continue_after_batch
-     | Some (detail, Tool_failed _) ->
-       (match Tool.Invocation.completion invocation with
-        | Tool.Terminal_after_success Tool.Proven_pre_effect -> Ok Continue_after_batch
-        | Tool.Terminal_after_success
-            ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as effect_disposition)
-          -> Ok (Terminal_failed { invocation; effect_disposition; detail })
-        | Tool.Continue_after_success -> assert false))
-  | _ ->
+  match invocations, terminal_invocations with
+  | _, [] -> Ok Continue_after_batch
+  | [ invocation ], [ terminal_invocation ] ->
+    let schedule = Tool.Invocation.schedule terminal_invocation in
+    if
+      schedule.execution_mode <> Tool.Serial
+      || schedule.batch_size <> 1
+      || not
+           (String.equal
+              (Tool.Invocation.tool_use_id invocation)
+              (Tool.Invocation.tool_use_id terminal_invocation))
+    then
+      Error
+        (Error.Internal
+           "persisted terminal invocation violates singleton serial admission")
+    else (
+      let tool_use_id = Tool.Invocation.tool_use_id invocation in
+      match List.assoc_opt tool_use_id result_by_id with
+      | None ->
+        Error
+          (Error.Internal ("missing durable result for terminal invocation " ^ tool_use_id))
+      | Some (_, Tool_succeeded) -> Ok (Terminal_completed invocation)
+      | Some (_, Tool_failed { failure_kind = Validation_error; _ }) ->
+        Ok Continue_after_batch
+      | Some (detail, Tool_failed _) ->
+        (match Tool.Invocation.completion invocation with
+         | Tool.Terminal_after_success Tool.Proven_pre_effect -> Ok Continue_after_batch
+         | Tool.Terminal_after_success
+             ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as
+              effect_disposition) ->
+           Ok (Terminal_failed { invocation; effect_disposition; detail })
+         | Tool.Continue_after_success ->
+           Error
+             (Error.Internal "persisted terminal invocation lost its terminal completion")))
+  | _, [ _ ] ->
+    Error
+      (Error.Internal "persisted terminal invocation is mixed with an ordinary invocation")
+  | _, _ :: _ :: _ ->
     Error
       (Error.Internal
          "multiple persisted terminal invocations violate singleton admission")

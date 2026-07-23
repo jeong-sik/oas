@@ -592,6 +592,67 @@ let test_unpaired_lease_callback_is_rejected () =
   Alcotest.(check int) "provider not called" 0 !call_count
 ;;
 
+let test_malformed_terminal_admission_keeps_provider_lease_held () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let malformed_response =
+    match tool_use_response.content with
+    | [ ToolUse { name; input; _ } ] ->
+      { tool_use_response with
+        content =
+          [ ToolUse { id = "malformed-terminal-1"; name; input }
+          ; ToolUse { id = "malformed-terminal-2"; name; input }
+          ]
+      }
+    | _ -> Alcotest.fail "terminal fixture lost its singleton ToolUse"
+  in
+  let lease_events = ref [] in
+  let handler_count = ref 0 in
+  let transport, call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ malformed_response; text_response "corrected" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           (fun () -> incr handler_count))
+  in
+  (match
+     Agent.run_blocks
+       ~sw
+       ~on_yield:(fun () -> lease_events := "yield" :: !lease_events)
+       ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
+       agent
+       [ Types.Text "reject malformed terminal turn" ]
+   with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check string)
+       "provider corrected the malformed turn"
+       "corrected"
+       (Types.visible_text_of_response response));
+  Alcotest.(check int) "malformed turn ran no terminal handlers" 0 !handler_count;
+  Alcotest.(check int) "provider corrected on its second turn" 2 !call_count;
+  Alcotest.(check (list string))
+    "no resume callback without a preceding yield"
+    [ "provider"; "provider" ]
+    (List.rev !lease_events)
+;;
+
 let test_terminal_success_stops_advanced_before_next_provider () =
   with_temp_trace
   @@ fun trace_path ->
@@ -721,7 +782,15 @@ let test_terminal_post_effect_error_stops_before_next_provider () =
            (fun () -> incr effect_count))
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
-   | Error (Error.Internal _) -> ()
+   | Error
+       (Error.Agent
+          (Error.TerminalToolEffectFailed
+             { tool_use_id; effect_disposition = Error.Proven_post_effect; detail })) ->
+     Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check string)
+       "typed terminal failure detail"
+       "effect committed before receipt failure"
+       detail
    | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
    | Ok _ -> Alcotest.fail "post-effect terminal failure must stop");
   Alcotest.(check int) "effect ran once" 1 !effect_count;
@@ -859,6 +928,10 @@ let () =
             "unpaired provider lease callback is rejected"
             `Quick
             test_unpaired_lease_callback_is_rejected
+        ; Alcotest.test_case
+            "malformed terminal admission keeps provider lease held"
+            `Quick
+            test_malformed_terminal_admission_keeps_provider_lease_held
         ; Alcotest.test_case
             "terminal success stops Advanced"
             `Quick

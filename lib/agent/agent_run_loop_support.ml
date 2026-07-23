@@ -36,14 +36,25 @@ type provider_lease =
   | Released
 
 type provider_lease_release =
-  { after : provider_lease
+  { after : unit -> provider_lease
   ; before_tool_execution : (unit -> unit) option
   }
 
 let plan_provider_lease_release ~yield_enabled ~on_yield = function
-  | Released -> { after = Released; before_tool_execution = None }
-  | Held when yield_enabled -> { after = Released; before_tool_execution = on_yield }
-  | Held -> { after = Held; before_tool_execution = None }
+  | Released -> { after = (fun () -> Released); before_tool_execution = None }
+  | Held when yield_enabled ->
+    (match on_yield with
+     | None -> { after = (fun () -> Held); before_tool_execution = None }
+     | Some callback ->
+       let released = ref false in
+       { after = (fun () -> if !released then Released else Held)
+       ; before_tool_execution =
+           Some
+             (fun () ->
+               callback ();
+               released := true)
+       })
+  | Held -> { after = (fun () -> Held); before_tool_execution = None }
 ;;
 
 let acquire_provider_lease ~yield_enabled ~on_resume = function

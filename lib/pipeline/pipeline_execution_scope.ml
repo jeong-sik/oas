@@ -120,6 +120,18 @@ let invocations t =
     Execution_agent_scope.provider_invocations provider |> Result.map_error sdk_error
 ;;
 
+let settled_invocations_with_results t =
+  match t.provider with
+  | None ->
+    Error
+      (sdk_error
+         (Execution_agent_scope.Resume_topology_mismatch
+            "active execution has no provider invocation authority"))
+  | Some provider ->
+    Execution_agent_scope.provider_settled_invocations provider
+    |> Result.map_error sdk_error
+;;
+
 let settled_invocations boundary =
   match boundary.provider with
   | None -> Ok []
@@ -127,7 +139,7 @@ let settled_invocations boundary =
     Execution_agent_scope.provider_invocations provider |> Result.map_error sdk_error
 ;;
 
-let close_success t =
+let close_success (t : t) =
   match t.provider, t.turn with
   | None, Transient _ -> Ok ()
   | Some provider, Durable turn ->

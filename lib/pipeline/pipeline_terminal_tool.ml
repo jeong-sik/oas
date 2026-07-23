@@ -34,14 +34,50 @@ let outcome ~response completion checkpoint_stage =
   | Agent_tools.Terminal_completed invocation ->
     Ok (TerminalToolCompleted { invocation; response; checkpoint_stage })
   | Agent_tools.Terminal_failed { invocation; effect_disposition; detail } ->
-    Error
-      (Error.Internal
-         (Printf.sprintf
-            "terminal tool %S failed after an effect boundary that forbids another \
-             provider turn (%s): %s"
-            (Tool.Invocation.tool_use_id invocation)
-            (Tool.show_failure_effect_disposition effect_disposition)
-            detail))
+    let tool_use_id = Tool.Invocation.tool_use_id invocation in
+    (match effect_disposition with
+     | Tool.Proven_post_effect ->
+       Error
+         (Error.Agent
+            (Error.TerminalToolEffectFailed
+               { tool_use_id; effect_disposition = Error.Proven_post_effect; detail }))
+     | Tool.Effect_outcome_unknown ->
+       Error
+         (Error.Agent
+            (Error.TerminalToolEffectFailed
+               { tool_use_id; effect_disposition = Error.Effect_outcome_unknown; detail }))
+     | Tool.Proven_pre_effect ->
+       Error
+         (Error.Internal
+            "pre-effect terminal failure crossed the correction-capable boundary"))
+;;
+
+let recovered_report ~invocations ~tool_results tool_uses =
+  let rec recover_results expected_index acc invocations tool_uses tool_results =
+    match invocations, tool_uses, tool_results with
+    | ( invocation :: invocations
+      , ToolUse { id; name; input } :: tool_uses
+      , ToolResult { tool_use_id; content; outcome; _ } :: tool_results )
+      when Tool.Invocation.planned_index invocation = expected_index
+           && String.equal (Tool.Invocation.tool_use_id invocation) id
+           && String.equal tool_use_id id ->
+      recover_results
+        (expected_index + 1)
+        ({ Agent_tools.invocation; tool_name = name; input; content; outcome } :: acc)
+        invocations
+        tool_uses
+        tool_results
+    | [], [], [] -> Ok (List.rev acc)
+    | _ ->
+      Error
+        (Error.Internal
+           "persisted invocation authority does not match the restored \
+            ToolUse/ToolResult topology")
+  in
+  let tool_uses = Nonempty.to_list tool_uses in
+  let* completed_results = recover_results 0 [] invocations tool_uses tool_results in
+  let* completion = Agent_tools.recovered_batch_completion ~invocations tool_results in
+  Ok Agent_tools.{ completed_results; completion }
 ;;
 
 let recovered_outcome agent ~turn:_ ~invocations ~tool_results tool_uses =

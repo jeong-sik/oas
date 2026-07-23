@@ -134,9 +134,16 @@ let validate_node_kind = function
     if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
-  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion = _ } ->
+  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
     let* () = validate_non_blank "tool_name" tool_name in
-    Execution_tool_schedule.validate schedule
+    let* () = Execution_tool_schedule.validate schedule in
+    (match completion with
+     | Tool.Continue_after_success -> Ok ()
+     | Tool.Terminal_after_success _ ->
+       if schedule.execution_mode = Tool.Serial && schedule.batch_size = 1
+       then Ok ()
+       else
+         Error "terminal tool invocation must have a singleton serial persisted schedule")
   | Tool_attempt -> Ok ()
 ;;
 
@@ -584,6 +591,7 @@ let node_kind_of_yojson json =
         ; "provider_tool_use_id"
         ; "tool_name"
         ; "schedule"
+        ; "completion"
         ]
       json
   in

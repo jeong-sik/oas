@@ -134,6 +134,13 @@ val provider_invocations_settled : provider_attempt -> (bool, error) result
     Tool_invocation nodes. Results are ordered by planned index. *)
 val provider_invocations : provider_attempt -> (Tool.Invocation.t list, error) result
 
+(** Exact settled invocation/result pairs reconstructed from the journal and
+    ordered by immutable planned index. Fails closed if any invocation lacks a
+    durable result. *)
+val provider_settled_invocations
+  :  provider_attempt
+  -> ((Tool.Invocation.t * Llm_provider.Types.content_block) list, error) result
+
 (** Stable opaque coordinates for rebinding after the writer is reopened.
     The locator contains no copied Tool name, input, turn, or schedule; those
     values are reconstructed from the journal's exact durable topology. *)

@@ -26,6 +26,10 @@ type input_required =
   ; created_at : float
   }
 
+type terminal_effect_disposition =
+  | Proven_post_effect
+  | Effect_outcome_unknown
+
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
   | HookExecutionFailed of
@@ -33,6 +37,11 @@ type agent_error =
       ; stage : string
       ; tool_name : string option
       ; tool_use_id : string option
+      ; detail : string
+      }
+  | TerminalToolEffectFailed of
+      { tool_use_id : string
+      ; effect_disposition : terminal_effect_disposition
       ; detail : string
       }
   | GuardrailViolation of

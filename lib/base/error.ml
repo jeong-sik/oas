@@ -26,6 +26,10 @@ type input_required =
   ; created_at : float
   }
 
+type terminal_effect_disposition =
+  | Proven_post_effect
+  | Effect_outcome_unknown
+
 (** Agent runtime errors. *)
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
@@ -34,6 +38,11 @@ type agent_error =
       ; stage : string
       ; tool_name : string option
       ; tool_use_id : string option
+      ; detail : string
+      }
+  | TerminalToolEffectFailed of
+      { tool_use_id : string
+      ; effect_disposition : terminal_effect_disposition
       ; detail : string
       }
   | GuardrailViolation of
@@ -166,6 +175,14 @@ let agent_error_to_string = function
        | Some tool_name, None -> Printf.sprintf " for tool %s" tool_name
        | None, Some tool_use_id -> Printf.sprintf " for tool use %s" tool_use_id
        | None, None -> "")
+      r.detail
+  | TerminalToolEffectFailed r ->
+    Printf.sprintf
+      "Terminal tool use %s failed at %s: %s"
+      r.tool_use_id
+      (match r.effect_disposition with
+       | Proven_post_effect -> "a proven post-effect boundary"
+       | Effect_outcome_unknown -> "an unknown effect boundary")
       r.detail
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason

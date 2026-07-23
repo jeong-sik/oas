@@ -2263,6 +2263,184 @@ let test_agent_run_resumes_terminal_after_tool_removal () =
     ()
 ;;
 
+let test_agent_run_replays_precheckpoint_terminal_settlement () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Agent.create_execution_runtime ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Error.to_string error)
+  in
+  let internal_runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime internal_runtime in
+  let run_case label resume_mode =
+    let native_path = Filename.temp_file ("oas-agent-precheckpoint-" ^ label) ".dir" in
+    Sys.remove native_path;
+    let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+    Fun.protect
+      ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+      (fun () ->
+         Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+         let config =
+           { (Types.default_config ~model:"test-model") with
+             name = "durable-agent-precheckpoint-" ^ label
+           }
+         in
+         let tool_input = `Assoc [ "value", `Int 7 ] in
+         let response =
+           Provider_mock.tool_use_response ~tool_name:"durable_tool" ~tool_input ()
+         in
+         let provider_calls = ref 0 in
+         let transport : Llm_provider.Llm_transport.t =
+           let next_response () =
+             incr provider_calls;
+             if !provider_calls = 1
+             then response
+             else Provider_mock.text_response "unexpected-provider-resume" []
+           in
+           { complete_sync =
+               (fun _request ->
+                 { Llm_provider.Llm_transport.response = Ok (next_response ())
+                 ; latency_ms = Some 0
+                 })
+           ; complete_stream =
+               (fun ?on_telemetry:_ ~on_event:_ _request -> Ok (next_response ()))
+           }
+         in
+         let options =
+           { Agent.default_options with
+             transport = Some transport
+           ; provider = Some (Provider_mock.to_provider_config ())
+           }
+         in
+         let effect_count = ref 0 in
+         let initial_tool =
+           Tool.create
+             ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+             ~name:"durable_tool"
+             ~description:"settles before the Agent checkpoint"
+             ~parameters:[]
+             (fun _ ->
+                incr effect_count;
+                Ok { Types.content = "settled-before-checkpoint"; _meta = None })
+         in
+         let saved_checkpoint = ref None in
+         let initial_agent =
+           Internal_agent.create
+             ~net:(Eio.Stdenv.net env)
+             ~config
+             ~tools:[ initial_tool ]
+             ~options
+             ~checkpoint_sink:(fun snapshot ->
+               match snapshot.Agent.stage with
+               | Agent.After_assistant_collected ->
+                 saved_checkpoint := Some snapshot.checkpoint;
+                 Ok ()
+               | Agent.After_tool_results_appended ->
+                 Error "simulated crash before Agent tool-result checkpoint"
+               | Agent.After_context_injection ->
+                 Alcotest.fail "fixture unexpectedly reached context injection")
+             ()
+         in
+         Internal_agent.set_state
+           initial_agent
+           { (Internal_agent.state initial_agent) with
+             messages = [ Types.user_msg "run the durable tool" ]
+           };
+         let locator_json = ref None in
+         (match
+            Internal_writer.run ~codec ~dir (fun ~sw writer ->
+              let scope =
+                match Internal_scope.start ~writer ~agent_name:config.name with
+                | Ok scope -> scope
+                | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+              in
+              locator_json
+              := Some
+                   (Internal_scope.scope_locator_to_yojson
+                      (Internal_scope.scope_locator scope));
+              match
+                Internal.Execution_context.with_agent_scope scope (fun () ->
+                  Internal_pipeline.run_turn
+                    ~sw
+                    ~api_strategy:Internal_pipeline.Sync
+                    initial_agent)
+              with
+              | Error _ -> ()
+              | Ok _ ->
+                Alcotest.fail
+                  "simulated crash boundary completed instead of rejecting its checkpoint")
+          with
+          | Ok () -> ()
+          | Error failure ->
+            Alcotest.fail (Internal_writer.scope_failure_to_string failure));
+         Alcotest.(check int) "initial provider call" 1 !provider_calls;
+         Alcotest.(check int) "initial effect settled once" 1 !effect_count;
+         let checkpoint =
+           match !saved_checkpoint with
+           | Some checkpoint -> checkpoint
+           | None -> Alcotest.fail "assistant checkpoint was not captured"
+         in
+         let locator =
+           match Option.get !locator_json |> Agent.execution_locator_of_yojson with
+           | Ok locator -> locator
+           | Error detail -> Alcotest.fail detail
+         in
+         let resumed_handler_count = ref 0 in
+         let resumed_tools =
+           match resume_mode with
+           | `Removed -> []
+           | `Drifted ->
+             [ Tool.create
+                 ~descriptor:(Tool.ordinary_descriptor Tool.Concurrent)
+                 ~name:"durable_tool"
+                 ~description:"current descriptor must not control resume"
+                 ~parameters:[]
+                 (fun _ ->
+                    incr resumed_handler_count;
+                    Ok { Types.content = "duplicate"; _meta = None })
+             ]
+         in
+         let resumed_agent =
+           Agent.resume
+             ~net:(Eio.Stdenv.net env)
+             ~checkpoint
+             ~tools:resumed_tools
+             ~options
+             ~config
+             ()
+         in
+         let execution_store = Agent.execution_store ~runtime ~dir ~resume:locator () in
+         (match
+            Agent.run ~sw:runtime_sw ~execution_store resumed_agent "run the durable tool"
+          with
+          | Error error ->
+            Alcotest.failf
+              "%s resume ignored persisted settlement authority: %s"
+              label
+              (Error.to_string error)
+          | Ok response ->
+            Alcotest.(check bool)
+              (label ^ " retains persisted terminal completion")
+              true
+              (response.stop_reason = Types.StopToolUse));
+         Alcotest.(check int) (label ^ " total provider calls") 1 !provider_calls;
+         Alcotest.(check int)
+           (label ^ " current handler never runs")
+           0
+           !resumed_handler_count)
+  in
+  run_case "removed" `Removed;
+  run_case "drifted" `Drifted
+;;
+
 let test_agent_run_rejects_settled_failed_turn =
   test_agent_run_resumes_settled_closed_turn ~window:Window_turn_failed
 ;;
@@ -2752,6 +2930,10 @@ let () =
             "terminal resume survives current tool removal"
             `Quick
             test_agent_run_resumes_terminal_after_tool_removal
+        ; Alcotest.test_case
+            "terminal pre-checkpoint settlement survives removal and drift"
+            `Quick
+            test_agent_run_replays_precheckpoint_terminal_settlement
         ; Alcotest.test_case
             "Agent.run rejects a closed-Failed turn on resume (#2683)"
             `Quick

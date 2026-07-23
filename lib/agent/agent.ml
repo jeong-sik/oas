@@ -28,6 +28,12 @@ type detailed_error = Provider_failure_attribution.detailed_error =
   ; provider_failure : Provider_failure_attribution.t option
   }
 
+type terminal_tool_turn_completion =
+  { invocation : Tool.Invocation.t
+  ; response : Types.api_response
+  ; checkpoint_stage : checkpoint_stage
+  }
+
 let detailed_error_of_sdk_error = Provider_failure_attribution.of_sdk_error
 
 type execution_runtime = Agent_execution_runner.runtime
@@ -206,7 +212,7 @@ let run_loop_turns_detailed
         ~turn_index
         ~model:agent.state.config.model
         ~stop:"tools_executed";
-      loop release.after
+      loop (release.after ())
     | Ok (`TerminalToolCompleted completion) ->
       log_turn
         ~run_start
@@ -832,7 +838,7 @@ module Advanced = struct
           ~stop:"tools_executed";
         let boundary = completed_tool_boundary agent checkpoint_stage in
         (match on_tool_boundary boundary with
-         | Continue -> loop release.after
+         | Continue -> loop (release.after ())
          | Yield ->
            let checkpoint = checkpoint agent in
            Ok
@@ -974,7 +980,12 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
     | `Complete response -> `Complete response
     | `ToolsExecuted _ -> `ToolsExecuted
     | `TerminalToolCompleted completion ->
-      `TerminalToolCompleted completion.Pipeline.invocation)
+      `TerminalToolCompleted
+        ({ invocation = completion.Pipeline.invocation
+         ; response = completion.response
+         ; checkpoint_stage = completion.checkpoint_stage
+         }
+         : terminal_tool_turn_completion))
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =

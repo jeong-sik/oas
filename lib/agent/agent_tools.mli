@@ -155,11 +155,14 @@ val find_and_execute_tool
     OAS does not adjudicate external effects; an embedding application must
     settle any such decision before the call reaches this function.
 
-    A tool-handler exception is localized to that call as a non-retryable tool
-    result. Typed hook failures and ordinary observer failures are returned as
-    values after the current concurrent batch has joined, so they do not cancel
-    sibling tool handlers. [Out_of_memory], [Stack_overflow], [Sys.Break], and
-    cancellation still propagate through the surrounding Eio scope.
+    An ordinary tool-handler exception is localized to that call as a
+    non-retryable tool result. A terminal tool-handler exception propagates
+    with its original backtrace because no typed pre-effect proof exists and a
+    second provider turn would be unsafe. Typed hook failures and ordinary
+    observer failures are returned as values after the current concurrent batch
+    has joined, so they do not cancel sibling tool handlers. [Out_of_memory],
+    [Stack_overflow], [Sys.Break], and cancellation still propagate through the
+    surrounding Eio scope.
 
     [on_tool_execution_started] and [on_tool_execution_finished] are
     caller-owned lifecycle observers. Their failures, event-bus publication
@@ -194,6 +197,7 @@ val execute_tools
   -> usage:Types.usage_stats
   -> ?correlation_id:string
   -> ?run_id:string
+  -> ?before_tool_execution:(unit -> unit)
   -> ?on_tool_execution_started:
        (invocation:Tool.Invocation.t -> tool_name:string -> input:Yojson.Safe.t -> unit)
   -> ?on_tool_execution_finished:
