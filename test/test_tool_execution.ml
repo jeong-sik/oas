@@ -52,6 +52,7 @@ let execute_result_with_tools_in_env
       ~hooks
       ?event_bus
       ?journal
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
@@ -83,6 +84,7 @@ let execute_result_with_tools_in_env
     ~agent_name:(Agent.state agent).config.name
     ~turn_count:(Agent.state agent).turn_count
     ~usage:(Agent.state agent).usage
+    ?before_tool_execution
     ?on_tool_execution_started
     ?on_tool_execution_finished
     ?on_hook_invoked
@@ -94,6 +96,7 @@ let execute_with_tools_in_env
       ~tools
       ~hooks
       ?event_bus
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
@@ -105,6 +108,7 @@ let execute_with_tools_in_env
       ~tools
       ~hooks
       ?event_bus
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
@@ -1018,7 +1022,7 @@ let test_tool_exception_still_publishes_tool_completed () =
 
 let terminal_tool ~name on_execute =
   Tool.create
-    ~descriptor:Tool.terminal_descriptor
+    ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
     ~name
     ~description:"terminal"
     ~parameters:[]
@@ -1032,7 +1036,10 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
   @@ fun env ->
   let handler_count = ref 0 in
   let hook_count = ref 0 in
+  let before_count = ref 0 in
   let started_count = ref 0 in
+  let finished_count = ref 0 in
+  let observed_hook_count = ref 0 in
   let hooks =
     { Hooks.empty with
       pre_tool_use =
@@ -1058,8 +1065,14 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
       env
       ~tools
       ~hooks
+      ~before_tool_execution:(fun () -> incr before_count)
       ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ ->
         incr started_count)
+      ~on_tool_execution_finished:
+        (fun
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished_count)
+      ~on_hook_invoked:(fun ~invocation:_ ~hook_name:_ ~decision:_ ~detail:_ ->
+        incr observed_hook_count)
       tool_uses
   in
   let check_rejected label expected_ids = function
@@ -1094,7 +1107,7 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
            rest);
       (match report.completion with
        | Agent_tools.Continue_after_batch -> ()
-       | Agent_tools.Terminal_completed _ ->
+       | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
          failf "%s: rejected batch cannot complete terminally" label)
   in
   check_rejected
@@ -1115,7 +1128,10 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
        ]);
   check int "zero handlers" 0 !handler_count;
   check int "zero hooks" 0 !hook_count;
-  check int "zero execution callbacks/fibers" 0 !started_count
+  check int "zero before-tool callbacks/yields" 0 !before_count;
+  check int "zero execution starts/fibers" 0 !started_count;
+  check int "zero execution finishes" 0 !finished_count;
+  check int "zero hook observers" 0 !observed_hook_count
 ;;
 
 let test_singleton_terminal_reports_exact_invocation_and_recovers () =
@@ -1128,30 +1144,86 @@ let test_singleton_terminal_reports_exact_invocation_and_recovers () =
   with
   | Error _ -> fail "singleton terminal execution failed"
   | Ok report ->
-    (match report.completion with
-     | Agent_tools.Continue_after_batch -> fail "terminal success did not stop the batch"
-     | Agent_tools.Terminal_completed invocation ->
-       check
-         string
-         "exact terminal provider id"
-         "terminal-1"
-         (Tool.Invocation.tool_use_id invocation));
+    let invocation =
+      match report.completion with
+      | Agent_tools.Continue_after_batch -> fail "terminal success did not stop the batch"
+      | Agent_tools.Terminal_failed _ -> fail "terminal success was classified as failure"
+      | Agent_tools.Terminal_completed invocation ->
+        check
+          string
+          "exact terminal provider id"
+          "terminal-1"
+          (Tool.Invocation.tool_use_id invocation);
+        invocation
+    in
     let recovered =
       Agent_tools.recovered_batch_completion
-        ~tools:[ tool ]
-        ~turn:0
-        ~tool_uses
-        ~tool_results:[ Ok { Types.content = "terminal-complete"; _meta = None } ]
+        ~invocations:[ invocation ]
+        [ ToolResult
+            { tool_use_id = "terminal-1"
+            ; content = "terminal-complete"
+            ; outcome = Tool_succeeded
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
     in
     (match recovered with
-     | Agent_tools.Continue_after_batch ->
+     | Error error -> fail (Error.to_string error)
+     | Ok Agent_tools.Continue_after_batch ->
        fail "settled terminal success was not reconstructed"
-     | Agent_tools.Terminal_completed invocation ->
+     | Ok (Agent_tools.Terminal_failed _) ->
+       fail "settled terminal success was reconstructed as failure"
+     | Ok (Agent_tools.Terminal_completed invocation) ->
        check
          string
          "recovered exact terminal provider id"
          "terminal-1"
          (Tool.Invocation.tool_use_id invocation))
+;;
+
+let test_invalid_terminal_input_remains_correction_capable () =
+  Eio_main.run
+  @@ fun env ->
+  let handler_count = ref 0 in
+  let tool =
+    Tool.create
+      ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+      ~name:"finish"
+      ~description:"terminal with typed input"
+      ~parameters:
+        [ { Types.name = "count"
+          ; description = "required count"
+          ; param_type = Integer
+          ; required = true
+          }
+        ]
+      (fun _ ->
+         incr handler_count;
+         Ok { Types.content = "must-not-run"; _meta = None })
+  in
+  match
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
+      ~hooks:Hooks.empty
+      [ ToolUse
+          { id = "terminal-invalid"
+          ; name = "finish"
+          ; input = `Assoc [ "count", `String "not-an-integer" ]
+          }
+      ]
+  with
+  | Error _ -> fail "invalid terminal input must remain a model-visible result"
+  | Ok report ->
+    check int "terminal handler did not run" 0 !handler_count;
+    (match report.completed_results with
+     | [ { outcome = Tool_failed { failure_kind = Validation_error; _ }; _ } ] -> ()
+     | _ -> fail "invalid terminal input was not a typed Validation_error");
+    (match report.completion with
+     | Agent_tools.Continue_after_batch -> ()
+     | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
+       fail "pre-handler validation failure incorrectly closed the terminal boundary")
 ;;
 
 let () =
@@ -1214,6 +1286,10 @@ let () =
             "singleton success reports and recovers exact invocation"
             `Quick
             test_singleton_terminal_reports_exact_invocation_and_recovers
+        ; test_case
+            "invalid input remains correction-capable"
+            `Quick
+            test_invalid_terminal_input_remains_correction_capable
         ] )
     ; ( "callbacks"
       , [ test_case

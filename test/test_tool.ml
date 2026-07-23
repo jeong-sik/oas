@@ -151,6 +151,7 @@ let test_execution_env_handler_receives_context_and_invocation () =
         ; batch_size = 1
         ; execution_mode = Tool.Serial
         }
+      ~completion:Tool.Continue_after_success
   in
   match Tool.execute ~context ~invocation tool `Null with
   | Ok { content; _meta = _ } ->
@@ -272,7 +273,7 @@ let test_descriptor_preserved_and_not_in_schema () =
     string
     "descriptor json has completion"
     "continue_after_success"
-    (descriptor_json |> member "completion" |> to_string);
+    (descriptor_json |> member "completion" |> member "kind" |> to_string);
   check int "two structural fields" 2 (descriptor_json |> to_assoc |> List.length)
 ;;
 
@@ -317,7 +318,7 @@ let test_missing_descriptor_defaults_to_serial () =
 let test_terminal_descriptor_is_serial_and_terminal () =
   let tool =
     Tool.create
-      ~descriptor:Tool.terminal_descriptor
+      ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
       ~name:"finish"
       ~description:""
       ~parameters:[]
@@ -331,8 +332,36 @@ let test_terminal_descriptor_is_serial_and_terminal () =
   check
     string
     "terminal completion"
-    (Tool.show_completion Tool.Terminal_after_success)
+    (Tool.show_completion (Tool.Terminal_after_success Tool.Effect_outcome_unknown))
     (Tool.show_completion (Tool.completion tool))
+;;
+
+let test_completion_codec_is_current_only () =
+  let require_rejected label json =
+    match Tool.completion_of_yojson json with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail (label ^ " unexpectedly decoded")
+  in
+  require_rejected "legacy completion string" (`String "terminal_after_success");
+  require_rejected
+    "terminal completion without effect disposition"
+    (`Assoc [ "kind", `String "terminal_after_success" ]);
+  require_rejected
+    "duplicate effect disposition"
+    (`Assoc
+        [ "kind", `String "terminal_after_success"
+        ; "failure_effect", `String "proven_pre_effect"
+        ; "failure_effect", `String "proven_post_effect"
+        ]);
+  match
+    Tool.completion_of_yojson
+      (`Assoc
+          [ "kind", `String "terminal_after_success"
+          ; "failure_effect", `String "effect_outcome_unknown"
+          ])
+  with
+  | Ok (Tool.Terminal_after_success Tool.Effect_outcome_unknown) -> ()
+  | Ok _ | Error _ -> Alcotest.fail "current terminal completion did not round-trip"
 ;;
 
 let () =
@@ -376,6 +405,10 @@ let () =
             "terminal descriptor is serial and terminal"
             `Quick
             test_terminal_descriptor_is_serial_and_terminal
+        ; test_case
+            "completion codec is current-only"
+            `Quick
+            test_completion_codec_is_current_only
         ] )
     ; ( "with_defaults"
       , [ test_case "injects missing args" `Quick (fun () ->
@@ -460,6 +493,7 @@ let () =
                   ; batch_size = 1
                   ; execution_mode = Tool.Serial
                   }
+                ~completion:Tool.Continue_after_success
             in
             match Tool.execute ~invocation wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->

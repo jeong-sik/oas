@@ -59,6 +59,20 @@ type tool_execution_result =
   ; outcome : Types.tool_result_outcome
   }
 
+type batch_completion =
+  | Continue_after_batch
+  | Terminal_completed of Tool.Invocation.t
+  | Terminal_failed of
+      { invocation : Tool.Invocation.t
+      ; effect_disposition : Tool.failure_effect_disposition
+      ; detail : string
+      }
+
+type execution_report =
+  { completed_results : tool_execution_result list
+  ; completion : batch_completion
+  }
+
 type execution_error =
   | Hook_execution_failed of
       { hook_name : string
@@ -93,6 +107,7 @@ type execution_failure_cause =
     [ToolUse] order. *)
 type execution_failure =
   { completed_results : tool_execution_result list
+  ; completion : batch_completion
   ; cause : execution_failure_cause
   }
 
@@ -194,4 +209,12 @@ val execute_tools
         -> detail:string option
         -> unit)
   -> Types.content_block list
-  -> (tool_execution_result list, execution_failure) result
+  -> (execution_report, execution_failure) result
+
+(** Recover terminal completion exclusively from immutable persisted
+    invocations and their exact durable results. The current tool catalog is
+    deliberately absent from this boundary. *)
+val recovered_batch_completion
+  :  invocations:Tool.Invocation.t list
+  -> Types.content_block list
+  -> (batch_completion, Error.sdk_error) result

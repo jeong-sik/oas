@@ -29,24 +29,72 @@ let execution_mode_of_yojson = function
          (Yojson.Safe.to_string value))
 ;;
 
-type completion =
-  | Continue_after_success
-  | Terminal_after_success
+type failure_effect_disposition =
+  | Proven_pre_effect
+  | Proven_post_effect
+  | Effect_outcome_unknown
 [@@deriving show]
 
-let completion_to_yojson = function
-  | Continue_after_success -> `String "continue_after_success"
-  | Terminal_after_success -> `String "terminal_after_success"
+type completion =
+  | Continue_after_success
+  | Terminal_after_success of failure_effect_disposition
+[@@deriving show]
+
+let failure_effect_disposition_to_yojson = function
+  | Proven_pre_effect -> `String "proven_pre_effect"
+  | Proven_post_effect -> `String "proven_post_effect"
+  | Effect_outcome_unknown -> `String "effect_outcome_unknown"
 ;;
 
-let completion_of_yojson = function
-  | `String "continue_after_success" -> Ok Continue_after_success
-  | `String "terminal_after_success" -> Ok Terminal_after_success
+let failure_effect_disposition_of_yojson = function
+  | `String "proven_pre_effect" -> Ok Proven_pre_effect
+  | `String "proven_post_effect" -> Ok Proven_post_effect
+  | `String "effect_outcome_unknown" -> Ok Effect_outcome_unknown
   | value ->
     Error
       (Printf.sprintf
-         "Tool.completion: expected \"continue_after_success\" or \
-          \"terminal_after_success\", got %s"
+         "Tool.failure_effect_disposition: invalid value %s"
+         (Yojson.Safe.to_string value))
+;;
+
+let completion_to_yojson = function
+  | Continue_after_success -> `Assoc [ "kind", `String "continue_after_success" ]
+  | Terminal_after_success failure_effect ->
+    `Assoc
+      [ "kind", `String "terminal_after_success"
+      ; "failure_effect", failure_effect_disposition_to_yojson failure_effect
+      ]
+;;
+
+let completion_of_yojson = function
+  | `Assoc fields ->
+    let values key =
+      List.filter_map
+        (fun (field, value) -> if String.equal field key then Some value else None)
+        fields
+    in
+    let has_unknown_field =
+      List.exists
+        (fun (field, _) ->
+           not (String.equal field "kind" || String.equal field "failure_effect"))
+        fields
+    in
+    if has_unknown_field
+    then Error "Tool.completion: unknown field"
+    else (
+      match values "kind", values "failure_effect" with
+      | [ `String "continue_after_success" ], [] -> Ok Continue_after_success
+      | [ `String "terminal_after_success" ], [ failure_effect ] ->
+        Result.map
+          (fun disposition -> Terminal_after_success disposition)
+          (failure_effect_disposition_of_yojson failure_effect)
+      | [ `String "terminal_after_success" ], [] ->
+        Error "Tool.completion: terminal completion requires failure_effect"
+      | _ -> Error "Tool.completion: invalid or duplicate fields")
+  | value ->
+    Error
+      (Printf.sprintf
+         "Tool.completion: expected a current-version object, got %s"
          (Yojson.Safe.to_string value))
 ;;
 
@@ -62,12 +110,17 @@ module Invocation = struct
     { tool_use_id : string
     ; turn : int
     ; schedule : schedule
+    ; completion : completion
     }
 
-  let create ~tool_use_id ~turn ~schedule = { tool_use_id; turn; schedule }
+  let create ~tool_use_id ~turn ~schedule ~completion =
+    { tool_use_id; turn; schedule; completion }
+  ;;
+
   let tool_use_id t = t.tool_use_id
   let turn t = t.turn
   let schedule t = t.schedule
+  let completion t = t.completion
   let planned_index t = t.schedule.planned_index
 end
 
@@ -86,19 +139,19 @@ type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool
 
 type descriptor =
   | Ordinary_descriptor of execution_mode
-  | Terminal_descriptor
+  | Terminal_descriptor of failure_effect_disposition
 
 let ordinary_descriptor execution_mode = Ordinary_descriptor execution_mode
-let terminal_descriptor = Terminal_descriptor
+let terminal_descriptor failure_effect = Terminal_descriptor failure_effect
 
 let descriptor_execution_mode = function
   | Ordinary_descriptor execution_mode -> execution_mode
-  | Terminal_descriptor -> Serial
+  | Terminal_descriptor _ -> Serial
 ;;
 
 let descriptor_completion = function
   | Ordinary_descriptor _ -> Continue_after_success
-  | Terminal_descriptor -> Terminal_after_success
+  | Terminal_descriptor failure_effect -> Terminal_after_success failure_effect
 ;;
 
 (** Handler kind: preserves backward compatibility via Simple variant *)

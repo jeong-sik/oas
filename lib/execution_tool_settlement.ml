@@ -53,19 +53,26 @@ let parent_node view = Event.parent_node_id view.Journal.node
 let rebind ~writer ~invocation_node =
   let open Result_syntax in
   let* invocation_view = read_node writer invocation_node in
-  let* provider_attempt, run_id, tool_use_id, schedule, tool_name, input =
+  let* provider_attempt, run_id, tool_use_id, schedule, completion, tool_name, input =
     match
       ( Event.node_kind invocation_view.node
       , parent_node invocation_view
       , invocation_view.materialized )
     with
-    | ( Event.Tool_invocation { provider_tool_use_id; tool_name; schedule }
+    | ( Event.Tool_invocation { provider_tool_use_id; tool_name; schedule; completion }
       , Some parent
       , Journal.Tool_invocation_state
           { input = Some (Llm_provider.Types.ToolUse { id; name; input }); _ } )
       when Option.equal String.equal provider_tool_use_id (Some id)
            && String.equal tool_name name ->
-      Ok (parent, Event.node_run_id invocation_view.node, id, schedule, tool_name, input)
+      Ok
+        ( parent
+        , Event.node_run_id invocation_view.node
+        , id
+        , schedule
+        , completion
+        , tool_name
+        , input )
     | ( ( Event.Agent_run _
         | Event.Agent_turn _
         | Event.Provider_attempt _
@@ -96,7 +103,8 @@ let rebind ~writer ~invocation_node =
     Ok
       { authority = { writer; invocation_node }
       ; run_id
-      ; invocation = Tool.Invocation.create ~tool_use_id ~turn:ordinal ~schedule
+      ; invocation =
+          Tool.Invocation.create ~tool_use_id ~turn:ordinal ~schedule ~completion
       ; tool_name
       ; input
       }

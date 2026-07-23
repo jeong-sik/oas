@@ -201,14 +201,14 @@ let test_descriptor_some () =
       ~parse:(fun _ -> Ok ())
       ~handler:(fun () -> Ok ())
       ~encode:(fun () -> `Null)
-      ~descriptor:Tool.terminal_descriptor
+      ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
       ()
   in
   let untyped = Typed_tool.to_untyped terminal in
   Alcotest.(check bool)
     "typed conversion preserves terminal completion"
     true
-    (Tool.completion untyped = Tool.Terminal_after_success)
+    (Tool.completion untyped = Tool.Terminal_after_success Tool.Effect_outcome_unknown)
 ;;
 
 let test_context_handler () =

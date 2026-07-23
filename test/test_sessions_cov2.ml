@@ -377,7 +377,7 @@ let test_tool_contract () =
     ; description = ""
     ; origin = None
     ; execution_mode = Tool.Serial
-    ; completion = Tool.Terminal_after_success
+    ; completion = Tool.Terminal_after_success Tool.Effect_outcome_unknown
     }
   in
   roundtrip

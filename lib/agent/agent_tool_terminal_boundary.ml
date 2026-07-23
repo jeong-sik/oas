@@ -7,7 +7,7 @@ let execute_handler ~tool ~name run =
     let backtrace = Printexc.get_raw_backtrace () in
     Llm_provider.Reserved_exn.reraise_if_reserved exn;
     (match Tool.completion tool with
-     | Tool.Terminal_after_success -> Printexc.raise_with_backtrace exn backtrace
+     | Tool.Terminal_after_success _ -> Printexc.raise_with_backtrace exn backtrace
      | Tool.Continue_after_success ->
        Error
          { message = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn)
@@ -17,33 +17,27 @@ let execute_handler ~tool ~name run =
 ;;
 
 let completed_dispatch completion = function
-  | Some { result = { outcome = Tool_succeeded; invocation; _ }; _ }
-    when completion = Tool.Terminal_after_success -> Terminal_completed invocation
-  | None
-  | Some { result = { outcome = Tool_succeeded | Tool_failed _; _ }; _ } ->
-    Continue_after_batch
+  | Some { result = { outcome = Tool_succeeded; invocation; _ }; _ } ->
+    (match completion with
+     | Tool.Terminal_after_success _ -> Terminal_completed invocation
+     | Tool.Continue_after_success -> Continue_after_batch)
+  | Some
+      { result = { outcome = Tool_failed { failure_kind = Validation_error; _ }; _ }; _ }
+    -> Continue_after_batch
+  | Some { result = { outcome = Tool_failed _; invocation; content; _ }; _ } ->
+    (match completion with
+     | Tool.Terminal_after_success Tool.Proven_pre_effect -> Continue_after_batch
+     | Tool.Terminal_after_success
+         ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as effect_disposition)
+       -> Terminal_failed { invocation; effect_disposition; detail = content }
+     | Tool.Continue_after_success -> Continue_after_batch)
+  | None -> Continue_after_batch
 ;;
 
-let tool_use_blocks blocks =
-  List.filter_map
-    (fun (block : Types.content_block) ->
-       match block with
-       | ToolUse { id; name; input } -> Some (id, name, input)
-       | Text _
-       | Thinking _
-       | ReasoningDetails _
-       | RedactedThinking _
-       | ToolResult _
-       | Image _
-       | Document _
-       | Audio _ -> None)
-    blocks
-;;
-
-let rejected_results ~turn ~schedule ~id ~name ~input scheduled =
+let rejected_results ~turn ~schedule ~completion ~id ~name ~input scheduled =
   let content =
-    "Terminal tool admission rejected: a terminal tool must be the only tool call in \
-     the provider turn"
+    "Terminal tool admission rejected: a terminal tool must be the only tool call in the \
+     provider turn"
   in
   List.map
     (fun tool_use ->
@@ -52,6 +46,7 @@ let rejected_results ~turn ~schedule ~id ~name ~input scheduled =
            ~tool_use_id:(id tool_use)
            ~turn
            ~schedule:(schedule tool_use)
+           ~completion:(completion tool_use)
        in
        { invocation
        ; tool_name = name tool_use
@@ -59,76 +54,62 @@ let rejected_results ~turn ~schedule ~id ~name ~input scheduled =
        ; content
        ; outcome =
            Tool_failed
-             { failure_kind = Validation_error
-             ; error_class = Some Types.Deterministic
-             }
+             { failure_kind = Validation_error; error_class = Some Types.Deterministic }
        })
     scheduled
 ;;
 
-let rejected_report ~turn ~schedule ~id ~name ~input scheduled =
-  { completed_results = rejected_results ~turn ~schedule ~id ~name ~input scheduled
+let rejected_report ~turn ~schedule ~completion ~id ~name ~input scheduled =
+  { completed_results =
+      rejected_results ~turn ~schedule ~completion ~id ~name ~input scheduled
   ; completion = Continue_after_batch
   }
 ;;
 
-let recovered_completion
-      ~turn
-      ~schedule
-      ~id
-      ~completion
-      ~plan
-      ~tool_results
-  =
-  match plan, tool_results with
-  | ( Agent_tool_batch_plan.Admitted
-        [ Agent_tool_batch_plan.Serial_batch tool_use ]
-    , [ Ok _ ] )
-    when completion tool_use = Tool.Terminal_after_success ->
-    Terminal_completed
-      (Tool.Invocation.create
-         ~tool_use_id:(id tool_use)
-         ~turn
-         ~schedule:(schedule tool_use))
-  | ( Agent_tool_batch_plan.Admitted _
-    | Agent_tool_batch_plan.Rejected_terminal_mix _ )
-    , _ -> Continue_after_batch
-;;
-
-type recovered_tool_use =
-  { index : int
-  ; id : string
-  ; execution_mode : Tool.execution_mode
-  ; completion : Tool.completion
-  }
-
-let recovered_batch_completion ~find_tool ~turn ~tool_uses ~tool_results =
-  let scheduled =
-    tool_use_blocks tool_uses
-    |> List.mapi (fun index (id, name, _input) ->
-      let execution_mode, completion =
-        match find_tool name with
-        | Some tool -> Tool.execution_mode tool, Tool.completion tool
-        | None -> Tool.Serial, Tool.Continue_after_success
-      in
-      { index; id; execution_mode; completion })
+let recovered_batch_completion ~invocations tool_results =
+  let result_by_id =
+    List.filter_map
+      (function
+        | ToolResult { tool_use_id; content; outcome; _ } ->
+          Some (tool_use_id, (content, outcome))
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ -> None)
+      tool_results
   in
-  let plan =
-    Agent_tool_batch_plan.create
-      ~execution_mode:(fun tool_use -> tool_use.execution_mode)
-      ~completion:(fun tool_use -> tool_use.completion)
-      scheduled
+  let terminal_invocations =
+    List.filter
+      (fun invocation ->
+         match Tool.Invocation.completion invocation with
+         | Tool.Terminal_after_success _ -> true
+         | Tool.Continue_after_success -> false)
+      invocations
   in
-  recovered_completion
-    ~turn
-    ~schedule:(fun tool_use ->
-      { Tool.planned_index = tool_use.index
-      ; batch_index = 0
-      ; batch_size = 1
-      ; execution_mode = tool_use.execution_mode
-      })
-    ~id:(fun tool_use -> tool_use.id)
-    ~completion:(fun tool_use -> tool_use.completion)
-    ~plan
-    ~tool_results
+  match terminal_invocations with
+  | [] -> Ok Continue_after_batch
+  | [ invocation ] ->
+    let tool_use_id = Tool.Invocation.tool_use_id invocation in
+    (match List.assoc_opt tool_use_id result_by_id with
+     | None ->
+       Error
+         (Error.Internal ("missing durable result for terminal invocation " ^ tool_use_id))
+     | Some (_, Tool_succeeded) -> Ok (Terminal_completed invocation)
+     | Some (_, Tool_failed { failure_kind = Validation_error; _ }) ->
+       Ok Continue_after_batch
+     | Some (detail, Tool_failed _) ->
+       (match Tool.Invocation.completion invocation with
+        | Tool.Terminal_after_success Tool.Proven_pre_effect -> Ok Continue_after_batch
+        | Tool.Terminal_after_success
+            ((Tool.Proven_post_effect | Tool.Effect_outcome_unknown) as effect_disposition)
+          -> Ok (Terminal_failed { invocation; effect_disposition; detail })
+        | Tool.Continue_after_success -> assert false))
+  | _ ->
+    Error
+      (Error.Internal
+         "multiple persisted terminal invocations violate singleton admission")
 ;;

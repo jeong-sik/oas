@@ -59,17 +59,34 @@ let last_tool_turn messages =
   find [] (List.rev messages)
 ;;
 
-let recovered_tool_result_ids messages_after =
+let recovered_tool_results messages_after =
   List.find_map
     (fun (message : Types.message) ->
-       match tool_result_ids message.content with
+       let results =
+         List.filter
+           (function
+             | ToolResult _ -> true
+             | Text _
+             | Thinking _
+             | ReasoningDetails _
+             | RedactedThinking _
+             | ToolUse _
+             | Image _
+             | Document _
+             | Audio _ -> false)
+           message.content
+       in
+       match results with
        | [] -> None
-       | ids -> Some ids)
+       | results -> Some results)
     messages_after
 ;;
 
 type settled_replay =
-  | Replay_tools_settled of Types.content_block Nonempty.t
+  | Replay_tools_settled of
+      { tool_uses : Types.content_block Nonempty.t
+      ; tool_results : Types.content_block list
+      }
   | Replay_terminal of Types.message
 
 let last_assistant_message messages =
@@ -101,9 +118,9 @@ let classify_settled agent =
           (Error.Internal
              "durable execution resume settled tool turn restored no ToolUse blocks")
     in
-    (match recovered_tool_result_ids messages_after with
-     | Some result_ids when result_ids = expected_ids ->
-       Ok (Replay_tools_settled tool_blocks)
+    (match recovered_tool_results messages_after with
+     | Some tool_results when tool_result_ids tool_results = expected_ids ->
+       Ok (Replay_tools_settled { tool_uses = tool_blocks; tool_results })
      | Some _ ->
        Error
          (Error.Internal
@@ -150,17 +167,19 @@ let response_of_settled_terminal agent (message : Types.message) : Types.api_res
    Failed. [tools_settled] is the completed-tool-turn outcome; [terminal] wraps
    the reconstructed final assistant response. *)
 let run_settled agent boundary ~tools_settled ~terminal =
-  let* () = Pipeline_execution_scope.finalize_settled boundary in
   let* replay = classify_settled agent in
+  let* () = Pipeline_execution_scope.finalize_settled boundary in
   match replay with
-  | Replay_tools_settled tool_blocks ->
+  | Replay_tools_settled { tool_uses; tool_results } ->
     let turn = agent.Agent_types.state.turn_count - 1 in
     if turn < 0
     then
       Error
         (Error.Internal
            "durable execution resume settled tool turn has an invalid turn counter")
-    else Ok (tools_settled ~turn tool_blocks)
+    else
+      let* invocations = Pipeline_execution_scope.settled_invocations boundary in
+      tools_settled ~turn ~invocations ~tool_results tool_uses
   | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
 ;;
 
@@ -173,7 +192,7 @@ let run agent execution ~execute ~already_settled =
            "durable execution resume found an open provider attempt without a restored \
             ToolUse checkpoint")
     | Some (tool_blocks, expected_ids, messages_after) ->
-      (match recovered_tool_result_ids messages_after with
+      (match recovered_tool_results messages_after with
        | None ->
          (match Nonempty.of_list tool_blocks with
           | None ->
@@ -188,16 +207,18 @@ let run agent execution ~execute ~already_settled =
              | Some provider ->
                Execution_context.with_provider_attempt provider (fun () ->
                  execute tool_blocks)))
-       | Some result_ids when result_ids = expected_ids ->
+       | Some tool_results when tool_result_ids tool_results = expected_ids ->
          let* settled = Pipeline_execution_scope.invocations_settled execution in
          if settled
          then (
            match Nonempty.of_list tool_blocks with
            | Some tool_blocks ->
-             Ok
-               (already_settled
-                  ~turn:(Pipeline_execution_scope.turn_ordinal execution)
-                  tool_blocks)
+             let* invocations = Pipeline_execution_scope.invocations execution in
+             already_settled
+               ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+               ~invocations
+               ~tool_results
+               tool_blocks
            | None ->
              Error
                (Error.Internal

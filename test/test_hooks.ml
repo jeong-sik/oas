@@ -17,7 +17,11 @@ let default_schedule
 ;;
 
 let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
-  Tool.Invocation.create ~tool_use_id ~turn ~schedule:(default_schedule ~planned_index ())
+  Tool.Invocation.create
+    ~tool_use_id
+    ~turn
+    ~schedule:(default_schedule ~planned_index ())
+    ~completion:Tool.Continue_after_success
 ;;
 
 let test_empty_hooks () =

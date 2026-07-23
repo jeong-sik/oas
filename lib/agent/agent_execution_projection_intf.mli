@@ -39,6 +39,7 @@ module type S = sig
         { provider_tool_use_id : string option
         ; tool_name : string
         ; schedule : Tool.schedule
+        ; completion : Tool.completion
         }
     | Tool_attempt
 

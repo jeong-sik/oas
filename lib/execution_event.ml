@@ -63,6 +63,7 @@ type node_kind =
       { provider_tool_use_id : string option
       ; tool_name : string
       ; schedule : Hooks.tool_schedule
+      ; completion : Tool.completion
       }
   | Tool_attempt
 
@@ -84,11 +85,12 @@ let pp_node_kind formatter = function
       ordinal
       pp_output_block_kind
       block_kind
-  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule; completion } ->
     Format.fprintf
       formatter
       "Tool_invocation {provider_tool_use_id=%a; tool_name=%S; \
-       schedule={planned_index=%d; batch_index=%d; batch_size=%d; execution_mode=%a}}"
+       schedule={planned_index=%d; batch_index=%d; batch_size=%d; execution_mode=%a}; \
+       completion=%a}"
       (Format.pp_print_option Format.pp_print_string)
       provider_tool_use_id
       tool_name
@@ -97,6 +99,8 @@ let pp_node_kind formatter = function
       schedule.batch_size
       Tool.pp_execution_mode
       schedule.execution_mode
+      Tool.pp_completion
+      completion
   | Tool_attempt -> Format.pp_print_string formatter "Tool_attempt"
 ;;
 
@@ -130,7 +134,7 @@ let validate_node_kind = function
     if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
-  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion = _ } ->
     let* () = validate_non_blank "tool_name" tool_name in
     Execution_tool_schedule.validate schedule
   | Tool_attempt -> Ok ()
@@ -163,6 +167,7 @@ let equal_node_kind left right =
     Option.equal String.equal left.provider_tool_use_id right.provider_tool_use_id
     && String.equal left.tool_name right.tool_name
     && Execution_tool_schedule.equal left.schedule right.schedule
+    && left.completion = right.completion
   | Tool_attempt, Tool_attempt -> true
   | ( ( Agent_run _
       | Agent_turn _
@@ -549,13 +554,14 @@ let node_kind_to_yojson_unchecked = function
       ; "ordinal", `Int ordinal
       ; "block_kind", `String (output_block_kind_to_string block_kind)
       ]
-  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule; completion } ->
     `Assoc
       [ "type", `String "tool_invocation"
       ; ( "provider_tool_use_id"
         , option_json (Option.map (fun v -> `String v) provider_tool_use_id) )
       ; "tool_name", `String tool_name
       ; "schedule", schedule_to_yojson schedule
+      ; "completion", Tool.completion_to_yojson completion
       ]
   | Tool_attempt -> `Assoc [ "type", `String "tool_attempt" ]
 ;;
@@ -616,7 +622,7 @@ let node_kind_of_yojson json =
         Output_block { ordinal; block_kind })
     | "tool_invocation" ->
       decode
-        ~required:[ "provider_tool_use_id"; "tool_name"; "schedule" ]
+        ~required:[ "provider_tool_use_id"; "tool_name"; "schedule"; "completion" ]
         ~optional:[]
         (fun fields ->
            let* provider_tool_use_id =
@@ -624,8 +630,10 @@ let node_kind_of_yojson json =
            in
            let* tool_name = string_field "tool_name" fields in
            let* schedule_json = field "schedule" fields in
-           let+ schedule = schedule_of_yojson schedule_json in
-           Tool_invocation { provider_tool_use_id; tool_name; schedule })
+           let* schedule = schedule_of_yojson schedule_json in
+           let* completion_json = field "completion" fields in
+           let+ completion = Tool.completion_of_yojson completion_json in
+           Tool_invocation { provider_tool_use_id; tool_name; schedule; completion })
     | "tool_attempt" -> decode ~required:[] ~optional:[] (fun _ -> Ok Tool_attempt)
     | value -> Error ("unknown node kind: " ^ value)
   in
@@ -915,7 +923,7 @@ let payload_of_yojson json =
   | value -> Error ("unknown execution payload: " ^ value)
 ;;
 
-let schema_version_current = 1
+let schema_version_current = 2
 
 let to_yojson event =
   `Assoc

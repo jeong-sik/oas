@@ -78,7 +78,7 @@ val resume_running
 type turn_resume =
   | Resume_turn_absent
   | Resume_turn_open of turn
-  | Resume_turn_settled
+  | Resume_turn_settled of turn
 
 (** Total classification of a provider attempt found under a resumed turn.
     [Settled] is a provider attempt already [Closed Succeeded] under a still-open
@@ -87,7 +87,7 @@ type turn_resume =
 type provider_resume =
   | Resume_provider_absent
   | Resume_provider_open of provider_attempt
-  | Resume_provider_settled
+  | Resume_provider_settled of provider_attempt
 
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn_resume, error) result
@@ -129,6 +129,10 @@ val find_invocation
   -> (invocation option, error) result
 
 val provider_invocations_settled : provider_attempt -> (bool, error) result
+
+(** Immutable invocation authority reconstructed only from persisted
+    Tool_invocation nodes. Results are ordered by planned index. *)
+val provider_invocations : provider_attempt -> (Tool.Invocation.t list, error) result
 
 (** Stable opaque coordinates for rebinding after the writer is reopened.
     The locator contains no copied Tool name, input, turn, or schedule; those

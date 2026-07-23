@@ -84,7 +84,11 @@ let invocation () =
   let schedule : Tool.schedule =
     { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
-  Tool.Invocation.create ~tool_use_id:"projection-tool-use" ~turn:1 ~schedule
+  Tool.Invocation.create
+    ~tool_use_id:"projection-tool-use"
+    ~turn:1
+    ~schedule
+    ~completion:Tool.Continue_after_success
 ;;
 
 let public_locator scope =

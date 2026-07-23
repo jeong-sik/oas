@@ -62,12 +62,12 @@ type recovery_action =
 type turn_resume =
   | Resume_turn_absent
   | Resume_turn_open of turn
-  | Resume_turn_settled
+  | Resume_turn_settled of turn
 
 type provider_resume =
   | Resume_provider_absent
   | Resume_provider_open of provider_attempt
-  | Resume_provider_settled
+  | Resume_provider_settled of provider_attempt
 
 type error =
   | Admission_failed of Writer.submit_error
@@ -279,7 +279,7 @@ let resume_turn scope ~ordinal =
            journal rejects closing a node with open children), so resume surfaces
            the settled outcome instead of aborting the root as Failed. *)
         | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
-          Ok Resume_turn_settled
+          Ok (Resume_turn_settled { scope; node; ordinal })
         | Ok
             (Some
                { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
@@ -318,7 +318,10 @@ let resume_current_turn scope =
          | Ok (Some { status = Journal.Open; _ }) ->
            resolve ~open_acc:({ scope; node; ordinal } :: open_acc) ~closed_acc rest
          | Ok (Some { status = Journal.Closed { value; _ }; _ }) ->
-           resolve ~open_acc ~closed_acc:((ordinal, value) :: closed_acc) rest)
+           resolve
+             ~open_acc
+             ~closed_acc:(({ scope; node; ordinal }, value) :: closed_acc)
+             rest)
     in
     (match resolve ~open_acc:[] ~closed_acc:[] turn_children with
      | Error _ as error -> error
@@ -335,17 +338,17 @@ let resume_current_turn scope =
           (match closed_turns with
            | [] -> Ok Resume_turn_absent
            | first :: rest ->
-             let _, frontier_value =
+             let frontier_turn, frontier_value =
                List.fold_left
-                 (fun (best_ordinal, best_value) (ordinal, value) ->
-                    if ordinal >= best_ordinal
-                    then ordinal, value
-                    else best_ordinal, best_value)
+                 (fun (best_turn, best_value) (turn, value) ->
+                    if turn.ordinal >= best_turn.ordinal
+                    then turn, value
+                    else best_turn, best_value)
                  first
                  rest
              in
              (match frontier_value with
-              | Event.Succeeded -> Ok Resume_turn_settled
+              | Event.Succeeded -> Ok (Resume_turn_settled frontier_turn)
               | Event.Failed _ | Event.Cancelled _ ->
                 Error (Resume_topology_mismatch "requested turn is already closed")))))
 ;;
@@ -392,7 +395,7 @@ let resume_provider_attempt (turn : turn) =
            caller finishes the interrupted turn close and surfaces the settled
            outcome instead of aborting the root as Failed. *)
         | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
-          Ok Resume_provider_settled
+          Ok (Resume_provider_settled { turn; node })
         | Ok
             (Some
                { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
@@ -444,6 +447,7 @@ let invocation_equal left right =
   && Execution_tool_schedule.equal
        (Tool.Invocation.schedule left)
        (Tool.Invocation.schedule right)
+  && Tool.Invocation.completion left = Tool.Invocation.completion right
 ;;
 
 let find_invocation provider ~invocation ~tool_name ~input =
@@ -483,6 +487,42 @@ let find_invocation provider ~invocation ~tool_name ~input =
             (Resume_topology_mismatch
                "tool occurrence identity differs from the restored Agent checkpoint"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate tool occurrence"))
+;;
+
+let provider_invocations provider =
+  let scope = provider.turn.scope in
+  match Writer.find_node scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let invocation_nodes =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    let rec rebind_all acc = function
+      | [] ->
+        Ok
+          (List.sort
+             (fun left right ->
+                Int.compare
+                  (Tool.Invocation.planned_index left)
+                  (Tool.Invocation.planned_index right))
+             acc)
+      | node :: rest ->
+        let locator = { run_id = Journal.run_id scope.run; node } in
+        (match rebind_invocation scope locator with
+         | Error _ as error -> error
+         | Ok invocation -> rebind_all (invocation.durable.invocation :: acc) rest)
+    in
+    rebind_all [] invocation_nodes
 ;;
 
 let provider_invocations_settled provider =

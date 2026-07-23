@@ -274,7 +274,12 @@ let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_res
   let schedule : Tool.schedule =
     { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
-  { invocation = Tool.Invocation.create ~tool_use_id:id ~turn:0 ~schedule
+  { invocation =
+      Tool.Invocation.create
+        ~tool_use_id:id
+        ~turn:0
+        ~schedule
+        ~completion:Tool.Continue_after_success
   ; tool_name = "test"
   ; input = `Null
   ; content

@@ -15,10 +15,18 @@ type execution_mode =
 val execution_mode_to_yojson : execution_mode -> Yojson.Safe.t
 val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
 
+(** Whether a terminal failure is proven to have occurred before any external
+    effect, after an external effect, or at an unknown effect boundary. *)
+type failure_effect_disposition =
+  | Proven_pre_effect
+  | Proven_post_effect
+  | Effect_outcome_unknown
+[@@deriving show]
+
 (** Whether a successful invocation permits another provider turn. *)
 type completion =
   | Continue_after_success
-  | Terminal_after_success
+  | Terminal_after_success of failure_effect_disposition
 [@@deriving show]
 
 val completion_to_yojson : completion -> Yojson.Safe.t
@@ -47,10 +55,17 @@ type schedule =
 module Invocation : sig
   type t
 
-  val create : tool_use_id:string -> turn:int -> schedule:schedule -> t
+  val create
+    :  tool_use_id:string
+    -> turn:int
+    -> schedule:schedule
+    -> completion:completion
+    -> t
+
   val tool_use_id : t -> string
   val turn : t -> int
   val schedule : t -> schedule
+  val completion : t -> completion
   val planned_index : t -> int
 end
 
@@ -76,7 +91,7 @@ type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool
 type descriptor
 
 val ordinary_descriptor : execution_mode -> descriptor
-val terminal_descriptor : descriptor
+val terminal_descriptor : failure_effect_disposition -> descriptor
 val descriptor_execution_mode : descriptor -> execution_mode
 val descriptor_completion : descriptor -> completion
 

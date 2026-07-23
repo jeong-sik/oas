@@ -73,6 +73,7 @@ type node_kind =
       { provider_tool_use_id : string option
       ; tool_name : string
       ; schedule : Hooks.tool_schedule
+      ; completion : Tool.completion
       }
   | Tool_attempt
 

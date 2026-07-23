@@ -42,6 +42,7 @@ type node_kind =
       { provider_tool_use_id : string option
       ; tool_name : string
       ; schedule : Tool.schedule
+      ; completion : Tool.completion
       }
   | Tool_attempt
 
@@ -365,8 +366,8 @@ let node_kind = function
   | Event.Provider_attempt { ordinal; target } -> Provider_attempt { ordinal; target }
   | Event.Output_block { ordinal; block_kind = kind } ->
     Output_block { ordinal; block_kind = output_block_kind kind }
-  | Event.Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
-    Tool_invocation { provider_tool_use_id; tool_name; schedule }
+  | Event.Tool_invocation { provider_tool_use_id; tool_name; schedule; completion } ->
+    Tool_invocation { provider_tool_use_id; tool_name; schedule; completion }
   | Event.Tool_attempt -> Tool_attempt
 ;;
 

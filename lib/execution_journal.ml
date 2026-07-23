@@ -1642,13 +1642,14 @@ let stage_open_tool_invocation
       let exact_duplicate =
         match Event.node_kind existing_record.node, existing_record.tool_input with
         | ( Event.Tool_invocation
-              { provider_tool_use_id; tool_name = existing_name; schedule }
+              { provider_tool_use_id; tool_name = existing_name; schedule; completion }
           , Some
               (Llm_provider.Types.ToolUse
                  { id = existing_id; name = input_name; input = existing_input }) ) ->
           Option.equal String.equal provider_tool_use_id (Some tool_use_id)
           && String.equal existing_name tool_name
           && Execution_tool_schedule.equal schedule (Tool.Invocation.schedule invocation)
+          && completion = Tool.Invocation.completion invocation
           && String.equal existing_id tool_use_id
           && String.equal input_name tool_name
           && Yojson.Safe.equal existing_input input
@@ -1679,6 +1680,7 @@ let stage_open_tool_invocation
            { provider_tool_use_id = Some tool_use_id
            ; tool_name
            ; schedule = Tool.Invocation.schedule invocation
+           ; completion = Tool.Invocation.completion invocation
            })
   in
   let tool_use =

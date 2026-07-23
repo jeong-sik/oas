@@ -327,7 +327,7 @@ let test_tool_contract () =
     ; description = "Read"
     ; origin = None
     ; execution_mode = Tool.Serial
-    ; completion = Tool.Terminal_after_success
+    ; completion = Tool.Terminal_after_success Tool.Effect_outcome_unknown
     }
   in
   roundtrip
@@ -342,7 +342,7 @@ let test_tool_contract () =
       ; "description", `String "Read"
       ; "origin", `Null
       ; "execution_mode", `String "serial"
-      ; "completion", `String "continue_after_success"
+      ; "completion", `Assoc [ "kind", `String "continue_after_success" ]
       ; "kind", `String "local"
       ]
   in

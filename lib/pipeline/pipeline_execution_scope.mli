@@ -32,4 +32,10 @@ val turn_ordinal : t -> int
 val before_provider_attempt : t -> Binding_identity.t -> (unit, Error.sdk_error) result
 val provider : t -> Execution_agent_scope.provider_attempt option
 val invocations_settled : t -> (bool, Error.sdk_error) result
+val invocations : t -> (Tool.Invocation.t list, Error.sdk_error) result
+
+val settled_invocations
+  :  settled_boundary
+  -> (Tool.Invocation.t list, Error.sdk_error) result
+
 val close_success : t -> (unit, Error.sdk_error) result

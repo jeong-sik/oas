@@ -613,7 +613,9 @@ let test_terminal_success_stops_advanced_before_next_provider () =
       ~context_injector:None
       ~on_run_complete:None
       ~tool:
-        (time_tool ~descriptor:Tool.terminal_descriptor (fun () -> incr handler_count))
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           (fun () -> incr handler_count))
   in
   (match
      Agent.Advanced.run_blocks
@@ -669,7 +671,11 @@ let test_terminal_typed_error_allows_correction () =
       ~checkpoint_sink:(fun _ -> Ok ())
       ~context_injector:None
       ~on_run_complete:None
-      ~tool:(time_tool ~descriptor:Tool.terminal_descriptor ~result:typed_error ignore)
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Proven_pre_effect)
+           ~result:typed_error
+           ignore)
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
    | Error error -> Alcotest.fail (Error.to_string error)
@@ -679,6 +685,80 @@ let test_terminal_typed_error_allows_correction () =
        "corrected"
        (Types.visible_text_of_response response));
   Alcotest.(check int) "correction used second provider turn" 2 !call_count
+;;
+
+let test_terminal_post_effect_error_stops_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let effect_count = ref 0 in
+  let typed_error =
+    Error
+      { Types.message = "effect committed before receipt failure"
+      ; recoverable = true
+      ; error_class = Some Types.Unknown
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Proven_post_effect)
+           ~result:typed_error
+           (fun () -> incr effect_count))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error (Error.Internal _) -> ()
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "post-effect terminal failure must stop");
+  Alcotest.(check int) "effect ran once" 1 !effect_count;
+  Alcotest.(check int) "post-effect failure stopped provider" 1 !call_count
+;;
+
+exception Terminal_cancel_token
+
+let test_terminal_cancellation_preserves_token_and_stops_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           (fun () -> raise (Eio.Cancel.Cancelled Terminal_cancel_token)))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | _ -> Alcotest.fail "terminal cancellation must propagate"
+   | exception Eio.Cancel.Cancelled Terminal_cancel_token -> ()
+   | exception exn -> raise exn);
+  Alcotest.(check int) "cancellation stops before next provider" 1 !call_count
 ;;
 
 let test_terminal_exception_stops_before_next_provider () =
@@ -701,8 +781,9 @@ let test_terminal_exception_stops_before_next_provider () =
       ~context_injector:None
       ~on_run_complete:None
       ~tool:
-        (time_tool ~descriptor:Tool.terminal_descriptor (fun () ->
-           failwith "terminal boom"))
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           (fun () -> failwith "terminal boom"))
   in
   (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
    | _ -> Alcotest.fail "terminal exception must propagate"
@@ -731,7 +812,10 @@ let test_terminal_success_stops_stream_before_next_provider () =
       ~checkpoint_sink:(fun _ -> Ok ())
       ~context_injector:None
       ~on_run_complete:None
-      ~tool:(time_tool ~descriptor:Tool.terminal_descriptor ignore)
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool.Effect_outcome_unknown)
+           ignore)
   in
   (match Agent.run_stream_blocks ~sw ~on_event:ignore agent [ Types.Text "finish" ] with
    | Error error -> Alcotest.fail (Error.to_string error)
@@ -783,6 +867,14 @@ let () =
             "terminal typed error allows correction"
             `Quick
             test_terminal_typed_error_allows_correction
+        ; Alcotest.test_case
+            "terminal post-effect error stops provider"
+            `Quick
+            test_terminal_post_effect_error_stops_before_next_provider
+        ; Alcotest.test_case
+            "terminal cancellation preserves token"
+            `Quick
+            test_terminal_cancellation_preserves_token_and_stops_provider
         ; Alcotest.test_case
             "terminal exception stops before next provider"
             `Quick

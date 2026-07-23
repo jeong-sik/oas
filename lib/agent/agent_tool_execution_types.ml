@@ -9,6 +9,11 @@ type tool_execution_result =
 type batch_completion =
   | Continue_after_batch
   | Terminal_completed of Tool.Invocation.t
+  | Terminal_failed of
+      { invocation : Tool.Invocation.t
+      ; effect_disposition : Tool.failure_effect_disposition
+      ; detail : string
+      }
 
 type execution_report =
   { completed_results : tool_execution_result list
@@ -79,7 +84,13 @@ let%test "durability failure dominates an earlier observer failure" =
   let schedule : Tool.schedule =
     { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
-  let invocation = Tool.Invocation.create ~tool_use_id:"priority" ~turn:0 ~schedule in
+  let invocation =
+    Tool.Invocation.create
+      ~tool_use_id:"priority"
+      ~turn:0
+      ~schedule
+      ~completion:Tool.Continue_after_success
+  in
   let observer =
     Observer_failure
       { invocation

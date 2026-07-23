@@ -30,7 +30,11 @@ let invocation ?(tool_use_id = "tu-test") ?(turn = 0) ?(planned_index = 0) () =
   let schedule : Tool.schedule =
     { planned_index; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
-  Tool.Invocation.create ~tool_use_id ~turn ~schedule
+  Tool.Invocation.create
+    ~tool_use_id
+    ~turn
+    ~schedule
+    ~completion:Tool.Continue_after_success
 ;;
 
 let subscription_config_exn ~capacity ~overflow =
@@ -484,7 +488,12 @@ let test_tool_completed_preserves_non_retryable_flag () =
       ~agent_name:"agent"
       ~correlation_id:"sess-event"
       ~run_id:"run-event"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-1"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "fail"
       (`Assoc [])
     |> require_tool_execution
@@ -557,7 +566,12 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
       ~agent_name:"agent"
       ~correlation_id:"c"
       ~run_id:"r"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-1"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "fail"
       (`Assoc [])
     |> require_tool_execution
@@ -600,7 +614,12 @@ let test_on_tool_error_hook_silent_on_success () =
       ~agent_name:"agent"
       ~correlation_id:"c"
       ~run_id:"r"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-2" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-2"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "ok"
       (`Assoc [])
     |> require_tool_execution
@@ -640,7 +659,12 @@ let test_on_error_fires_on_tool_not_found () =
       ~agent_name:"agent"
       ~correlation_id:"c"
       ~run_id:"r"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-1" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-1"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "ghost_tool"
       (`Assoc [])
     |> require_tool_execution
@@ -703,7 +727,12 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       ~agent_name:"agent"
       ~correlation_id:"c"
       ~run_id:"r"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-unknown" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-unknown"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "MissingRead"
       (`Assoc [])
     |> require_tool_execution
@@ -788,7 +817,11 @@ let test_execution_rejects_invalid_input_unchanged () =
       ~tracer:Tracing.null
       ~agent_name:"agent"
       ~invocation:
-        (Tool.Invocation.create ~tool_use_id:"tool-invalid-input" ~turn:0 ~schedule)
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-invalid-input"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "Count"
       (`Assoc [ "count", `String "42" ])
     |> require_tool_execution
@@ -834,7 +867,12 @@ let test_on_error_silent_on_successful_dispatch () =
       ~agent_name:"agent"
       ~correlation_id:"c"
       ~run_id:"r"
-      ~invocation:(Tool.Invocation.create ~tool_use_id:"tool-2" ~turn:0 ~schedule)
+      ~invocation:
+        (Tool.Invocation.create
+           ~tool_use_id:"tool-2"
+           ~turn:0
+           ~schedule
+           ~completion:Tool.Continue_after_success)
       "ok"
       (`Assoc [])
     |> require_tool_execution

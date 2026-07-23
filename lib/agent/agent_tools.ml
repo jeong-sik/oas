@@ -563,7 +563,13 @@ let execute_scheduled_tool
       (tool_use : scheduled_tool_use)
   =
   let { index; id; name; input; _ } = tool_use in
-  let invocation = Tool.Invocation.create ~tool_use_id:id ~turn:turn_count ~schedule in
+  let invocation =
+    Tool.Invocation.create
+      ~tool_use_id:id
+      ~turn:turn_count
+      ~schedule
+      ~completion:tool_use.completion
+  in
   let id = Tool.Invocation.tool_use_id invocation in
   let turn_count = Tool.Invocation.turn invocation in
   let completed_dispatch : tool_dispatch option ref = ref None in
@@ -932,7 +938,7 @@ let execute_tools
       List.fold_left
         (fun selected outcome ->
            match selected, outcome.completion with
-           | Terminal_completed _, _ -> selected
+           | (Terminal_completed _ | Terminal_failed _), _ -> selected
            | Continue_after_batch, candidate -> candidate)
         Continue_after_batch
         outcomes
@@ -965,7 +971,7 @@ let execute_tools
       let completed = List.rev_append batch_completed completed in
       let completion =
         match completion, batch_completion with
-        | Terminal_completed _, _ -> completion
+        | (Terminal_completed _ | Terminal_failed _), _ -> completion
         | Continue_after_batch, candidate -> candidate
       in
       (match failure with
@@ -980,6 +986,7 @@ let execute_tools
       (Agent_tool_terminal_boundary.rejected_report
          ~turn:turn_count
          ~schedule:(hook_schedule_of_tool_use ~batch_index:0 ~batch_size)
+         ~completion:(fun tool_use -> tool_use.completion)
          ~id:(fun tool_use -> tool_use.id)
          ~name:(fun tool_use -> tool_use.name)
          ~input:(fun tool_use -> tool_use.input)
@@ -989,11 +996,6 @@ let execute_tools
     run_batches 0 [] Continue_after_batch batches
 ;;
 
-let recovered_batch_completion ~tools ~turn ~tool_uses ~tool_results =
-  let tool_index = build_index tools in
-  Agent_tool_terminal_boundary.recovered_batch_completion
-    ~find_tool:(find_in_index tool_index)
-    ~turn
-    ~tool_uses
-    ~tool_results
+let recovered_batch_completion ~invocations tool_results =
+  Agent_tool_terminal_boundary.recovered_batch_completion ~invocations tool_results
 ;;

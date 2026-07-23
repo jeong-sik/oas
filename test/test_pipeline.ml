@@ -17,7 +17,11 @@ let invocation tool_use_id =
   let schedule : Tool.schedule =
     { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
   in
-  Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule
+  Tool.Invocation.create
+    ~tool_use_id
+    ~turn:0
+    ~schedule
+    ~completion:Tool.Continue_after_success
 ;;
 
 let terminal_outcome_name = function
@@ -1727,7 +1731,13 @@ let test_agent_run_resumes_tool_without_duplicate_effects
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
+            let invocation =
+              Tool.Invocation.create
+                ~tool_use_id
+                ~turn:0
+                ~schedule
+                ~completion:Tool.Continue_after_success
+            in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -1953,7 +1963,13 @@ type settled_window =
   | Window_turn_closed
   | Window_turn_failed
 
-let test_agent_run_resumes_settled_closed_turn ~window () =
+let test_agent_run_resumes_settled_closed_turn
+      ?(persisted_completion = Tool.Continue_after_success)
+      ?(resume_tool_present = true)
+      ?(expect_terminal = false)
+      ~window
+      ()
+  =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -2037,7 +2053,13 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            let invocation = Tool.Invocation.create ~tool_use_id ~turn:0 ~schedule in
+            let invocation =
+              Tool.Invocation.create
+                ~tool_use_id
+                ~turn:0
+                ~schedule
+                ~completion:persisted_completion
+            in
             let durable =
               match
                 Internal_scope.open_invocation
@@ -2095,11 +2117,16 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
          | Error detail -> Alcotest.fail detail
        in
        let response = Provider_mock.text_response "done-after-restart" [] in
+       let provider_call_count = ref 0 in
        let transport : Llm_provider.Llm_transport.t =
          { complete_sync =
              (fun _request ->
+               incr provider_call_count;
                { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
-         ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+         ; complete_stream =
+             (fun ?on_telemetry:_ ~on_event:_ _request ->
+               incr provider_call_count;
+               Ok response)
          }
        in
        let effect_count = ref 0 in
@@ -2120,7 +2147,12 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
          }
        in
        let agent =
-         Agent.create ~net:(Eio.Stdenv.net env) ~config ~tools:[ tool ] ~options ()
+         Agent.create
+           ~net:(Eio.Stdenv.net env)
+           ~config
+           ~tools:(if resume_tool_present then [ tool ] else [])
+           ~options
+           ()
        in
        (* The settled tool turn's checkpoint (After_tool_results_appended) is
           restored: the ToolUse and its recovered ToolResult are already present,
@@ -2173,6 +2205,12 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
            ()
        in
        (match window, Agent.run ~sw:runtime_sw ~execution_store agent "run the tool" with
+        | (Window_provider_closed | Window_turn_closed), Ok response when expect_terminal
+          ->
+          Alcotest.(check bool)
+            "persisted terminal completion stops without current descriptor"
+            true
+            (response.stop_reason = Types.StopToolUse)
         | (Window_provider_closed | Window_turn_closed), Ok response ->
           Alcotest.(check string)
             "settled turn resumes and completes"
@@ -2186,6 +2224,10 @@ let test_agent_run_resumes_settled_closed_turn ~window () =
         | Window_turn_failed, Ok _ ->
           Alcotest.fail "closed-Failed turn must not resume as a bogus success");
        Alcotest.(check int) "settled tool handler is not rerun" 0 !effect_count;
+       Alcotest.(check int)
+         "provider count follows persisted completion"
+         (if expect_terminal then 0 else 1)
+         !provider_call_count;
        match window with
        | Window_provider_closed | Window_turn_closed ->
          check_terminal_disposition
@@ -2201,6 +2243,24 @@ let test_agent_run_resumes_settled_provider_closed_turn =
 
 let test_agent_run_resumes_settled_closed_turn_boundary =
   test_agent_run_resumes_settled_closed_turn ~window:Window_turn_closed
+;;
+
+let test_agent_run_resumes_terminal_after_descriptor_drift () =
+  test_agent_run_resumes_settled_closed_turn
+    ~persisted_completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown)
+    ~resume_tool_present:true
+    ~expect_terminal:true
+    ~window:Window_turn_closed
+    ()
+;;
+
+let test_agent_run_resumes_terminal_after_tool_removal () =
+  test_agent_run_resumes_settled_closed_turn
+    ~persisted_completion:(Tool.Terminal_after_success Tool.Effect_outcome_unknown)
+    ~resume_tool_present:false
+    ~expect_terminal:true
+    ~window:Window_turn_closed
+    ()
 ;;
 
 let test_agent_run_rejects_settled_failed_turn =
@@ -2684,6 +2744,14 @@ let () =
             "Agent.run resumes settled turn after turn-close crash (#2683)"
             `Quick
             test_agent_run_resumes_settled_closed_turn_boundary
+        ; Alcotest.test_case
+            "terminal resume ignores current descriptor drift"
+            `Quick
+            test_agent_run_resumes_terminal_after_descriptor_drift
+        ; Alcotest.test_case
+            "terminal resume survives current tool removal"
+            `Quick
+            test_agent_run_resumes_terminal_after_tool_removal
         ; Alcotest.test_case
             "Agent.run rejects a closed-Failed turn on resume (#2683)"
             `Quick

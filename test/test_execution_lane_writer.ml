@@ -218,7 +218,13 @@ let test_effect_attempt_and_settlement_survive_restart () =
           { planned_index; batch_index = 0; batch_size = 2; execution_mode = Tool.Serial }
         in
         let tool_use_id = Printf.sprintf "call-%d" planned_index in
-        let invocation = Tool.Invocation.create ~tool_use_id ~turn:1 ~schedule in
+        let invocation =
+          Tool.Invocation.create
+            ~tool_use_id
+            ~turn:1
+            ~schedule
+            ~completion:Tool.Continue_after_success
+        in
         let receipt =
           submit_and_await
             writer
@@ -273,7 +279,11 @@ let test_effect_attempt_and_settlement_survive_restart () =
         }
       in
       let wrong_invocation =
-        Tool.Invocation.create ~tool_use_id:"wrong-turn" ~turn:2 ~schedule:wrong_schedule
+        Tool.Invocation.create
+          ~tool_use_id:"wrong-turn"
+          ~turn:2
+          ~schedule:wrong_schedule
+          ~completion:Tool.Continue_after_success
       in
       (match
          Writer.await
@@ -479,7 +489,13 @@ let test_structural_occurrence_identity_is_parent_local () =
         }
       in
       let input = `Assoc [ "value", `Int 7 ] in
-      let occurrence_0 = Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule in
+      let occurrence_0 =
+        Tool.Invocation.create
+          ~tool_use_id:"call"
+          ~turn:0
+          ~schedule
+          ~completion:Tool.Continue_after_success
+      in
       let tool_0, _ =
         value
           (Tx.open_tool_invocation
@@ -512,11 +528,19 @@ let test_structural_occurrence_identity_is_parent_local () =
       in
       let conflicts =
         [ ( "tool schedule conflict"
-          , Tool.Invocation.create ~tool_use_id:"call" ~turn:0 ~schedule:changed_schedule
+          , Tool.Invocation.create
+              ~tool_use_id:"call"
+              ~turn:0
+              ~schedule:changed_schedule
+              ~completion:Tool.Continue_after_success
           , "effect"
           , input )
         ; ( "tool id conflict"
-          , Tool.Invocation.create ~tool_use_id:"other-call" ~turn:0 ~schedule
+          , Tool.Invocation.create
+              ~tool_use_id:"other-call"
+              ~turn:0
+              ~schedule
+              ~completion:Tool.Continue_after_success
           , "effect"
           , input )
         ; "tool name conflict", occurrence_0, "other-effect", input
@@ -547,12 +571,22 @@ let test_structural_occurrence_identity_is_parent_local () =
            ~parent:provider_1
            ~kind:
              (Event.Tool_invocation
-                { provider_tool_use_id = Some "raw"; tool_name = "raw"; schedule })
+                { provider_tool_use_id = Some "raw"
+                ; tool_name = "raw"
+                ; schedule
+                ; completion = Tool.Continue_after_success
+                })
            ())
         (function
           | Journal.Tool_invocation_requires_atomic_open -> true
           | _ -> false);
-      let occurrence_1 = Tool.Invocation.create ~tool_use_id:"call" ~turn:1 ~schedule in
+      let occurrence_1 =
+        Tool.Invocation.create
+          ~tool_use_id:"call"
+          ~turn:1
+          ~schedule
+          ~completion:Tool.Continue_after_success
+      in
       ignore
         (value
            (Tx.open_tool_invocation
@@ -583,7 +617,12 @@ let test_structural_occurrence_identity_is_parent_local () =
           (Tx.open_tool_invocation
              ~run:child_run
              ~provider_attempt:child_provider
-             ~invocation:(Tool.Invocation.create ~tool_use_id:"child" ~turn:0 ~schedule)
+             ~invocation:
+               (Tool.Invocation.create
+                  ~tool_use_id:"child"
+                  ~turn:0
+                  ~schedule
+                  ~completion:Tool.Continue_after_success)
              ~tool_name:"child-effect"
              ~input:`Null
              ())
@@ -659,7 +698,13 @@ let test_agent_scope_owns_effect_topology () =
         ; execution_mode = Tool.Serial
         }
       in
-      let wrong_turn = Tool.Invocation.create ~tool_use_id:"" ~turn:4 ~schedule in
+      let wrong_turn =
+        Tool.Invocation.create
+          ~tool_use_id:""
+          ~turn:4
+          ~schedule
+          ~completion:Tool.Continue_after_success
+      in
       (match
          Agent_scope.open_invocation
            provider
@@ -674,7 +719,13 @@ let test_agent_scope_owns_effect_topology () =
         "rejected invocation left no partial node"
         3
         (Writer.current_cursor writer |> Result.get_ok |> Journal.cursor_seq);
-      let exact_invocation = Tool.Invocation.create ~tool_use_id:"" ~turn:3 ~schedule in
+      let exact_invocation =
+        Tool.Invocation.create
+          ~tool_use_id:""
+          ~turn:3
+          ~schedule
+          ~completion:Tool.Continue_after_success
+      in
       let invocation =
         require_agent_scope
           (Agent_scope.open_invocation
@@ -850,7 +901,12 @@ let test_agent_scope_executes_pending_after_restart () =
         require_agent_scope
           (Agent_scope.open_invocation
              provider
-             ~invocation:(Tool.Invocation.create ~tool_use_id:"pending" ~turn:0 ~schedule)
+             ~invocation:
+               (Tool.Invocation.create
+                  ~tool_use_id:"pending"
+                  ~turn:0
+                  ~schedule
+                  ~completion:Tool.Continue_after_success)
              ~tool_name:"durable-tool"
              ~input:expected_input)
       in

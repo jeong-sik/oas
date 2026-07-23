@@ -31,7 +31,7 @@ let create ~execution_mode ~completion scheduled =
       (fun count tool_use ->
          match completion tool_use with
          | Tool.Continue_after_success -> count
-         | Tool.Terminal_after_success -> count + 1)
+         | Tool.Terminal_after_success _ -> count + 1)
       0
       scheduled
   in

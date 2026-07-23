@@ -367,7 +367,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
        | None ->
          let finish = Pipeline_terminal_tool.outcome ~response completion in
          (match agent.options.context_injector with
-          | None -> Ok (finish After_tool_results_appended)
+          | None -> finish After_tool_results_appended
           | Some injector ->
             let* messages =
               Agent_turn.apply_context_injection
@@ -393,7 +393,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
                 After_context_injection
                 injected_state
             in
-            Ok (finish After_context_injection)))
+            finish After_context_injection))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)

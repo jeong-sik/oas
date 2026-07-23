@@ -186,6 +186,7 @@ let legacy_recursive_events correlation_id =
                   ; batch_size = 1
                   ; execution_mode = Tool.Serial
                   }
+              ; completion = Tool.Continue_after_success
               }))
   in
   let input_materialized =

@@ -1,4 +1,5 @@
 open Types
+open Result_syntax
 
 type turn_outcome =
   | Complete of Types.api_response
@@ -20,8 +21,7 @@ let response agent tool_uses : Types.api_response =
 ;;
 
 let unpack_execution_result = function
-  | Ok
-      ({ Agent_tools.completed_results; completion } : Agent_tools.execution_report) ->
+  | Ok ({ Agent_tools.completed_results; completion } : Agent_tools.execution_report) ->
     completed_results, completion, None
   | Error
       ({ Agent_tools.completed_results; completion; cause } :
@@ -30,25 +30,22 @@ let unpack_execution_result = function
 
 let outcome ~response completion checkpoint_stage =
   match completion with
-  | Agent_tools.Continue_after_batch -> ToolsExecuted checkpoint_stage
+  | Agent_tools.Continue_after_batch -> Ok (ToolsExecuted checkpoint_stage)
   | Agent_tools.Terminal_completed invocation ->
-    TerminalToolCompleted { invocation; response; checkpoint_stage }
+    Ok (TerminalToolCompleted { invocation; response; checkpoint_stage })
+  | Agent_tools.Terminal_failed { invocation; effect_disposition; detail } ->
+    Error
+      (Error.Internal
+         (Printf.sprintf
+            "terminal tool %S failed after an effect boundary that forbids another \
+             provider turn (%s): %s"
+            (Tool.Invocation.tool_use_id invocation)
+            (Tool.show_failure_effect_disposition effect_disposition)
+            detail))
 ;;
 
-let recovered agent ~turn tool_uses =
+let recovered_outcome agent ~turn:_ ~invocations ~tool_results tool_uses =
   let response = response agent tool_uses in
-  let completion =
-    Agent_tools.recovered_batch_completion
-      ~tools:(Tool_set.to_list agent.Agent_types.tools)
-      ~turn
-      ~tool_uses:response.content
-      ~tool_results:
-        (Pipeline_stage_prepare.last_tool_results_from agent.Agent_types.state.messages)
-  in
-  response, completion
-;;
-
-let recovered_outcome agent ~turn tool_uses =
-  let response, completion = recovered agent ~turn tool_uses in
+  let* completion = Agent_tools.recovered_batch_completion ~invocations tool_results in
   outcome ~response completion Agent_types.After_tool_results_appended
 ;;
