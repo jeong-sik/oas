@@ -66,10 +66,6 @@ let open_execution_projection ~runtime ~dir locator =
     ()
 ;;
 
-let replace_projected_error error detailed =
-  { detailed with Provider_failure_attribution.error }
-;;
-
 let project_detailed_error result =
   Result.map_error (fun detailed -> detailed.error) result
 ;;
