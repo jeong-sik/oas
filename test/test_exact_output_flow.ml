@@ -2,6 +2,8 @@ open Alcotest
 open Llm_provider
 module EO = Agent_sdk.Exact_output
 
+exception Advance_committed_before_successor
+
 let msg text : Types.message =
   { role = Types.User
   ; content = [ Types.Text text ]
@@ -335,6 +337,194 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
   | Error _ -> fail "eligible pre-dispatch failure did not advance"
 ;;
 
+let test_exception_after_durable_advance_stops_before_successor () =
+  let durable_path = Filename.temp_file "oas-exact-flow-advance-" ".json" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove durable_path with
+      | Sys_error _ -> ())
+    (fun () ->
+       let persist_advance json =
+         let channel = open_out_bin durable_path in
+         Fun.protect
+           ~finally:(fun () -> close_out_noerr channel)
+           (fun () ->
+              output_string channel (Yojson.Safe.to_string json);
+              flush channel;
+              Unix.fsync (Unix.descr_of_out_channel channel))
+       in
+       let (raised, replay, evidence, bound, committed), posts =
+         with_server ~response:(openai_response {|{"name":"unused"}|})
+         @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+         let dead_url = Printf.sprintf "http://127.0.0.1:%d" (fresh_port ()) in
+         with_catalog
+           [ catalog_entry
+               ~id:"advance-committed-dead"
+               ~base_url:dead_url
+               ~native:true
+               ~json:true
+               ()
+           ; catalog_entry
+               ~id:"advance-withheld-live"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ]
+         @@ fun snapshot ->
+         let flow =
+           start_flow
+             (ready_flow snapshot [ "advance-committed-dead"; "advance-withheld-live" ])
+         in
+         let bound = ref [] in
+         let raised =
+           try
+             ignore
+               (EO.execute_flow_once
+                  ~net
+                  ~before_dispatch:(fun candidate ->
+                    bound := candidate_id candidate :: !bound;
+                    Ok ())
+                  ~before_advance:(fun ~failed ~failure ~next ->
+                    (match failure.EO.cause with
+                     | EO.Completion_failed -> ()
+                     | _ ->
+                       fail
+                         "advance callback did not receive the typed completion failure");
+                    check
+                      bool
+                      "committed failure is before dispatch"
+                      true
+                      (EO.receipt_phase failure.receipt = EO.Before_dispatch);
+                    check
+                      int
+                      "committed failure has zero dispatch"
+                      0
+                      (EO.receipt_dispatch_count failure.receipt);
+                    persist_advance
+                      (`Assoc
+                          [ "failed_candidate_id", `String (candidate_id failed)
+                          ; "next_candidate_id", `String (candidate_id next)
+                          ; ( "failed_call_id"
+                            , `String
+                                (EO.receipt_call_id failed.receipt |> EO.call_id_to_string)
+                            )
+                          ; ( "next_call_id"
+                            , `String
+                                (EO.receipt_call_id next.receipt |> EO.call_id_to_string)
+                            )
+                          ; ( "failed_plan_fingerprint"
+                            , `String (EO.receipt_plan_fingerprint failed.receipt) )
+                          ; ( "next_plan_fingerprint"
+                            , `String (EO.receipt_plan_fingerprint next.receipt) )
+                          ; "failure_cause", `String "completion_failed"
+                          ; "failure_phase", `String "before_dispatch"
+                          ; "failure_dispatch_count", `Int 0
+                          ]);
+                    raise Advance_committed_before_successor)
+                  flow
+                : (EO.flow_success, unit EO.flow_execution_error) result);
+             false
+           with
+           | Advance_committed_before_successor -> true
+         in
+         let replay = execute_ok ~net flow in
+         let evidence = EO.flow_attempt_evidence flow in
+         let committed =
+           In_channel.with_open_bin durable_path In_channel.input_all
+           |> Yojson.Safe.from_string
+         in
+         raised, replay, evidence, List.rev !bound, committed
+       in
+       check bool "exception escaped after durable advance" true raised;
+       check int "successor POST count remains zero" 0 posts;
+       check
+         (list string)
+         "successor before_dispatch never runs"
+         [ "advance-committed-dead" ]
+         bound;
+       (match replay with
+        | Error (EO.Flow_attempt_already_started replay_evidence) ->
+          check
+            bool
+            "replay evidence keeps successor not started"
+            true
+            (EO.receipt_phase
+               (attempt_for replay_evidence "advance-withheld-live").receipt
+             = EO.Not_started)
+        | Ok _ | Error _ -> fail "flow was replayable after committed advance exception");
+       let failed = attempt_for evidence "advance-committed-dead" in
+       let next = attempt_for evidence "advance-withheld-live" in
+       check
+         bool
+         "failed attempt evidence remains before dispatch"
+         true
+         (EO.receipt_phase failed.receipt = EO.Before_dispatch);
+       check
+         int
+         "failed attempt evidence remains zero dispatch"
+         0
+         (EO.receipt_dispatch_count failed.receipt);
+       check
+         bool
+         "successor evidence remains not started"
+         true
+         (EO.receipt_phase next.receipt = EO.Not_started);
+       check
+         int
+         "successor evidence remains zero dispatch"
+         0
+         (EO.receipt_dispatch_count next.receipt);
+       let open Yojson.Safe.Util in
+       let committed_string field = committed |> member field |> to_string in
+       let committed_int field = committed |> member field |> to_int in
+       check
+         string
+         "committed failed candidate joins retained evidence"
+         (candidate_id failed)
+         (committed_string "failed_candidate_id");
+       check
+         string
+         "committed successor joins retained evidence"
+         (candidate_id next)
+         (committed_string "next_candidate_id");
+       check
+         string
+         "committed failed call joins retained evidence"
+         (EO.receipt_call_id failed.receipt |> EO.call_id_to_string)
+         (committed_string "failed_call_id");
+       check
+         string
+         "committed successor call joins retained evidence"
+         (EO.receipt_call_id next.receipt |> EO.call_id_to_string)
+         (committed_string "next_call_id");
+       check
+         string
+         "committed failed plan joins retained evidence"
+         (EO.receipt_plan_fingerprint failed.receipt)
+         (committed_string "failed_plan_fingerprint");
+       check
+         string
+         "committed successor plan joins retained evidence"
+         (EO.receipt_plan_fingerprint next.receipt)
+         (committed_string "next_plan_fingerprint");
+       check
+         string
+         "caller reconciliation retains typed cause"
+         "completion_failed"
+         (committed_string "failure_cause");
+       check
+         string
+         "caller reconciliation retains exact phase"
+         "before_dispatch"
+         (committed_string "failure_phase");
+       check
+         int
+         "caller reconciliation retains exact dispatch count"
+         0
+         (committed_int "failure_dispatch_count"))
+;;
+
 let test_callback_failures_are_terminal () =
   let before_dispatch_result, before_dispatch_posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
@@ -596,6 +786,10 @@ let () =
             "predispatch transport failure advances durably"
             `Quick
             test_predispatch_transport_failure_advances_after_durable_callback
+        ; test_case
+            "exception after durable advance stops successor"
+            `Quick
+            test_exception_after_durable_advance_stops_before_successor
         ; test_case
             "callback failures are terminal"
             `Quick
