@@ -7,7 +7,6 @@ open Agent_sdk
 module Internal = Agent_sdk__
 module Internal_agent = Agent_sdk__Agent_types
 module Internal_pipeline = Agent_sdk__Pipeline
-module Internal_terminal_tool = Agent_sdk__Pipeline_terminal_tool
 module Internal_runtime = Internal.Execution_runtime
 module Internal_codec = Internal.Execution_codec_executor
 module Internal_writer = Internal.Execution_lane_writer
