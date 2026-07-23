@@ -573,7 +573,9 @@ let duplicate_flow_candidate_id candidates =
          List.find_opt (fun (seen_id, _) -> String.equal seen_id candidate_id) seen
        with
        | Some (_, first_position) ->
-         Some { candidate_id; first_position; duplicate_position = position }
+         Some
+           (Duplicate_flow_candidate_id
+              { candidate_id; first_position; duplicate_position = position })
        | None -> find (position + 1) ((candidate_id, position) :: seen) rest)
   in
   find 1 [] candidates
@@ -582,7 +584,7 @@ let duplicate_flow_candidate_id candidates =
 let admit_flow ~first ~rest ~messages requirement =
   let candidates = first :: rest in
   match duplicate_flow_candidate_id candidates with
-  | Some duplicate -> Error (Duplicate_flow_candidate_id duplicate)
+  | Some duplicate -> Error duplicate
   | None ->
     let admissions, admitted =
       List.fold_left

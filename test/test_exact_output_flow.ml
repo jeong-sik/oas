@@ -266,7 +266,7 @@ let test_admission_freezes_all_candidates_before_network () =
 ;;
 
 let test_predispatch_transport_failure_advances_after_durable_callback () =
-  let (result, bound, advanced), posts =
+  let (result, bound, advanced, events), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     let dead_url = Printf.sprintf "http://127.0.0.1:%d" (fresh_port ()) in
@@ -278,10 +278,12 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     let flow = start_flow (ready_flow snapshot [ "flow-dead"; "flow-live" ]) in
     let bound = ref [] in
     let advanced = ref [] in
+    let events = ref [] in
     let result =
       EO.execute_flow_once
         ~net
         ~before_dispatch:(fun candidate ->
+          events := ("bind:" ^ candidate_id candidate) :: !events;
           bound := candidate_id candidate :: !bound;
           Ok ())
         ~before_advance:(fun ~failed ~failure ~next ->
@@ -295,11 +297,14 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
             "advance failure has zero dispatch"
             0
             (EO.receipt_dispatch_count failure.receipt);
+          events
+          := Printf.sprintf "advance:%s->%s" (candidate_id failed) (candidate_id next)
+             :: !events;
           advanced := (candidate_id failed, candidate_id next) :: !advanced;
           Ok ())
         flow
     in
-    result, List.rev !bound, List.rev !advanced
+    result, List.rev !bound, List.rev !advanced, List.rev !events
   in
   check int "only live successor posts" 1 posts;
   check (list string) "bind order" [ "flow-dead"; "flow-live" ] bound;
@@ -308,6 +313,11 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     "predetermined successor"
     [ "flow-dead", "flow-live" ]
     advanced;
+  check
+    (list string)
+    "durable advance precedes successor bind"
+    [ "bind:flow-dead"; "advance:flow-dead->flow-live"; "bind:flow-live" ]
+    events;
   match result with
   | Ok success ->
     check string "successor succeeds" "flow-live" (candidate_id success.candidate);
@@ -518,7 +528,12 @@ let test_concurrent_duplicate_flow_does_not_double_dispatch () =
         ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ -> Ok ())
         flow
     in
-    Eio.Fiber.both execute execute
+    let left_promise, left_resolver = Eio.Promise.create () in
+    let right_promise, right_resolver = Eio.Promise.create () in
+    Eio.Fiber.both
+      (fun () -> Eio.Promise.resolve left_resolver (execute ()))
+      (fun () -> Eio.Promise.resolve right_resolver (execute ()));
+    Eio.Promise.await left_promise, Eio.Promise.await right_promise
   in
   check int "concurrent duplicate makes one POST" 1 posts;
   let is_success = function
