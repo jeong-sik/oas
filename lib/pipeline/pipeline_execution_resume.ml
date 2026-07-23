@@ -320,8 +320,8 @@ let dispatch
       agent
       ~execute
       ~tools_settled_before_checkpoint
-      ~all_pre_tool_use_blocked
       ~tools_settled
+      ~all_pre_tool_use_blocked
       ~terminal
       ~fresh
   =

@@ -10,6 +10,7 @@ TOOL_MLI="$ROOT/lib/base/tool.mli"
 CONTRACT_MLI="$ROOT/lib/base/tool_contract.mli"
 ERROR_MLI="$ROOT/lib/base/error.mli"
 HOOKS_MLI="$ROOT/lib/base/hooks.mli"
+RECEIPT_ML="$ROOT/lib/terminal_tool_receipt.ml"
 RECEIPT_MLI="$ROOT/lib/terminal_tool_receipt.mli"
 PIPELINE_MLI="$ROOT/lib/pipeline/pipeline.mli"
 AGENT_MLI="$ROOT/lib/agent/agent.mli"
@@ -188,10 +189,31 @@ check_boundary() {
     'TerminalToolCompleted of Terminal_tool_receipt\.t' \
     "$AGENT_MLI" \
     "Agent must expose the canonical terminal receipt"
+  require_pattern \
+    '; receipt : Terminal_tool_receipt\.t' \
+    "$AGENT_MLI" \
+    "Advanced terminal completion must compose the canonical receipt"
   if matches_pattern sensitive \
     'type terminal_tool_(turn_)?completion' \
     "$ROOT/lib"; then
     fail "terminal success receipts must not be redeclared"
+  fi
+  local receipt_consumers=()
+  while IFS= read -r source; do
+    receipt_consumers+=("$source")
+  done < <(
+    find "$ROOT/lib" \
+      -type f \
+      \( -name '*.ml' -o -name '*.mli' \) \
+      ! -path "$RECEIPT_ML" \
+      ! -path "$RECEIPT_MLI" \
+      -print
+  )
+  if ((${#receipt_consumers[@]} > 0)) \
+    && matches_pattern sensitive \
+      'type[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*\{[^}]*(invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t[^}]*checkpoint_stage[[:space:]]*:[^;}]+[^}]*response[[:space:]]*:[[:space:]]*Types\.api_response|invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t[^}]*response[[:space:]]*:[[:space:]]*Types\.api_response[^}]*checkpoint_stage[[:space:]]*:[^;}]+|checkpoint_stage[[:space:]]*:[^;}]+[^}]*invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t[^}]*response[[:space:]]*:[[:space:]]*Types\.api_response|checkpoint_stage[[:space:]]*:[^;}]+[^}]*response[[:space:]]*:[[:space:]]*Types\.api_response[^}]*invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t|response[[:space:]]*:[[:space:]]*Types\.api_response[^}]*invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t[^}]*checkpoint_stage[[:space:]]*:[^;}]+|response[[:space:]]*:[[:space:]]*Types\.api_response[^}]*checkpoint_stage[[:space:]]*:[^;}]+[^}]*invocation[[:space:]]*:[[:space:]]*Tool_contract\.Invocation\.t)[^}]*\}' \
+      "${receipt_consumers[@]}"; then
+    fail "canonical invocation/response/checkpoint-stage receipt fields must not be redeclared"
   fi
   require_pattern \
     '; completion : Tool_contract\.completion' \
@@ -291,6 +313,21 @@ self_test() {
     fail "negative self-test failed to detect a legacy schema decoder"
   fi
   cp "$EVENT" "$fixture/lib/execution_event.ml"
+
+  cat >> "$fixture/lib/agent/agent.mli" <<'EOF'
+
+type duplicate_terminal_receipt =
+  { invocation : Tool_contract.Invocation.t
+  ; response : Types.api_response
+  ; checkpoint_stage : Agent_types.checkpoint_stage
+  }
+EOF
+  if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
+    TERMINAL_BOUNDARY_ROOT="$fixture" \
+    "$0" --check >/dev/null 2>&1; then
+    fail "negative self-test failed to detect a duplicate terminal receipt record"
+  fi
+  cp "$AGENT_MLI" "$fixture/lib/agent/agent.mli"
 
   local backend_output
   if backend_output="$(

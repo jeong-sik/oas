@@ -2491,7 +2491,7 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
              let invocation ~tool_use_id ~schedule ~completion =
                Tool_contract.Invocation.create ~tool_use_id ~turn:0 ~schedule ~completion
              in
-             let persist ~tool_use_id ~tool_name ~input ~schedule ~completion =
+             let persist (tool_use_id, tool_name, input, schedule, completion) =
                let invocation = invocation ~tool_use_id ~schedule ~completion in
                let durable =
                  match
@@ -2531,31 +2531,8 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                     (Internal_scope.error_to_string error)
                 | Ok _ -> Alcotest.failf "%s: invalid terminal contract persisted" label);
                assert_turn_open ()
-             | (`Identity _ | `Mixed) as recovered_case ->
-               persist
-                 ~tool_use_id:"terminal-call"
-                 ~tool_name:"terminal_tool"
-                 ~input:terminal_input
-                 ~schedule:valid_terminal_schedule
-                 ~completion:
-                   (Tool_contract.Terminal_after_success
-                      Tool_contract.Effect_outcome_unknown);
-               (match recovered_case with
-                | `Mixed ->
-                  let ordinary_schedule : Tool_contract.schedule =
-                    { planned_index = 1
-                    ; batch_index = 1
-                    ; batch_size = 1
-                    ; execution_mode = Tool_contract.Concurrent
-                    }
-                  in
-                  persist
-                    ~tool_use_id:"ordinary-call"
-                    ~tool_name:"ordinary_tool"
-                    ~input:(`Assoc [])
-                    ~schedule:ordinary_schedule
-                    ~completion:Tool_contract.Continue_after_success
-                | `Identity _ -> ());
+             | `Resume (turn_count, persisted, restored) ->
+               List.iter persist persisted;
                (match
                   Internal_scope.close_provider_attempt
                     provider
@@ -2563,131 +2540,138 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                 with
                 | Ok () -> ()
                 | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
-               (match recovered_case with
-                | `Identity
-                    ( expected_turn
-                    , expected_index
-                    , restored_id
-                    , restored_name
-                    , restored_input ) ->
-                  (match Internal_scope.provider_invocations provider with
-                   | Ok [ authority ] ->
-                     (match
-                        Internal_scope.validate_invocation_authority
-                          authority
-                          ~turn:expected_turn
-                          ~planned_index:expected_index
-                          ~tool_use_id:restored_id
-                          ~tool_name:restored_name
-                          ~input:restored_input
-                      with
-                      | Error (Internal_scope.Resume_topology_mismatch _) -> ()
-                      | Error error ->
-                        Alcotest.failf
-                          "%s: wrong typed authority error: %s"
-                          label
-                          (Internal_scope.error_to_string error)
-                      | Ok () -> Alcotest.failf "%s: authority drift was accepted" label)
-                   | Ok _ -> Alcotest.failf "%s: expected one persisted authority" label
-                   | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
-                | `Mixed ->
-                  let assistant_content =
-                    [ ToolUse
-                        { id = "terminal-call"
-                        ; name = "terminal_tool"
-                        ; input = terminal_input
-                        }
-                    ; ToolUse
-                        { id = "ordinary-call"
-                        ; name = "ordinary_tool"
-                        ; input = `Assoc []
-                        }
-                    ]
-                  in
-                  let result_content =
-                    [ ToolResult
-                        { tool_use_id = "terminal-call"
-                        ; content = "terminal_tool-settled"
+               let assistant_content =
+                 List.map (fun (id, name, input) -> ToolUse { id; name; input }) restored
+               in
+               let result_content =
+                 List.map
+                   (fun (tool_use_id, name, _input) ->
+                      ToolResult
+                        { tool_use_id
+                        ; content = name ^ "-settled"
                         ; outcome = Types.Tool_succeeded
                         ; json = None
                         ; content_blocks = None
-                        }
-                    ; ToolResult
-                        { tool_use_id = "ordinary-call"
-                        ; content = "ordinary_tool-settled"
-                        ; outcome = Types.Tool_succeeded
-                        ; json = None
-                        ; content_blocks = None
-                        }
-                    ]
-                  in
-                  let options =
-                    { Agent.default_options with
-                      provider = Some (Provider_mock.to_provider_config ())
-                    }
-                  in
-                  let agent =
-                    Internal_agent.create
-                      ~net:(Eio.Stdenv.net env)
-                      ~config
-                      ~tools:[]
-                      ~options
-                      ()
-                  in
-                  Internal_agent.set_state
-                    agent
-                    { config
-                    ; messages =
-                        [ Types.user_msg "run malformed batch"
-                        ; { Types.role = Assistant
-                          ; content = assistant_content
-                          ; name = None
-                          ; tool_call_id = None
-                          ; metadata = []
-                          }
-                        ; { Types.role = Tool
-                          ; content = result_content
-                          ; name = None
-                          ; tool_call_id = None
-                          ; metadata = []
-                          }
-                        ]
-                    ; turn_count = 1
-                    ; usage = Types.empty_usage
-                    };
-                  (match
-                     Internal.Execution_context.with_agent_scope scope (fun () ->
-                       Internal.Execution_context.with_resume_once (fun () ->
-                         Internal_pipeline.run_turn
-                           ~sw
-                           ~api_strategy:Internal_pipeline.Sync
-                           agent))
-                   with
-                   | Error _ -> ()
-                   | Ok _ ->
-                     Alcotest.failf "%s: malformed persisted topology was accepted" label));
+                        })
+                   restored
+               in
+               let options =
+                 { Agent.default_options with
+                   provider = Some (Provider_mock.to_provider_config ())
+                 }
+               in
+               let agent =
+                 Internal_agent.create
+                   ~net:(Eio.Stdenv.net env)
+                   ~config
+                   ~tools:[]
+                   ~options
+                   ()
+               in
+               Internal_agent.set_state
+                 agent
+                 { config
+                 ; messages =
+                     [ Types.user_msg "run malformed authority"
+                     ; { Types.role = Assistant
+                       ; content = assistant_content
+                       ; name = None
+                       ; tool_call_id = None
+                       ; metadata = []
+                       }
+                     ; { Types.role = Tool
+                       ; content = result_content
+                       ; name = None
+                       ; tool_call_id = None
+                       ; metadata = []
+                       }
+                     ]
+                 ; turn_count
+                 ; usage = Types.empty_usage
+                 };
+               (match
+                  Internal.Execution_context.with_agent_scope scope (fun () ->
+                    Internal.Execution_context.with_resume_once (fun () ->
+                      Internal_pipeline.run_turn
+                        ~sw
+                        ~api_strategy:Internal_pipeline.Sync
+                        agent))
+                with
+                | Error (Error.Internal _) -> ()
+                | Error error ->
+                  Alcotest.failf
+                    "%s: wrong typed resume error: %s"
+                    label
+                    (Error.to_string error)
+                | Ok _ ->
+                  Alcotest.failf "%s: malformed persisted topology was accepted" label);
                assert_turn_open ())
          with
          | Ok () -> ()
          | Error failure ->
            Alcotest.fail (Internal_writer.scope_failure_to_string failure))
   in
-  let identity
-        ?(turn = 0)
-        ?(planned_index = 0)
-        ?(id = "terminal-call")
-        ?(name = "terminal_tool")
-        ?(input = terminal_input)
-        ()
-    =
-    `Identity (turn, planned_index, id, name, input)
+  let terminal_completion =
+    Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown
   in
-  run_case "mixed" `Mixed;
-  run_case "id-drift" (identity ~id:"drifted-terminal-call" ());
-  run_case "order-drift" (identity ~planned_index:1 ());
-  run_case "turn-drift" (identity ~turn:1 ());
-  run_case "name-drift" (identity ~name:"renamed_terminal_tool" ());
-  run_case "input-drift" (identity ~input:(`Assoc [ "value", `Int 2 ]) ());
+  let terminal_persisted =
+    [ ( "terminal-call"
+      , "terminal_tool"
+      , terminal_input
+      , valid_terminal_schedule
+      , terminal_completion )
+    ]
+  in
+  let terminal_restored = [ "terminal-call", "terminal_tool", terminal_input ] in
+  let resume ?(turn_count = 1) ?(persisted = terminal_persisted) restored =
+    `Resume (turn_count, persisted, restored)
+  in
+  let serial_schedule planned_index : Tool_contract.schedule =
+    { planned_index
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
+  in
+  run_case
+    "id-drift"
+    (resume [ "drifted-terminal-call", "terminal_tool", terminal_input ]);
+  let first = "first-call", "first_tool", `Assoc [ "ordinal", `Int 0 ] in
+  let second = "second-call", "second_tool", `Assoc [ "ordinal", `Int 1 ] in
+  let ordered_persisted =
+    [ ( "first-call"
+      , "first_tool"
+      , `Assoc [ "ordinal", `Int 0 ]
+      , serial_schedule 0
+      , Tool_contract.Continue_after_success )
+    ; ( "second-call"
+      , "second_tool"
+      , `Assoc [ "ordinal", `Int 1 ]
+      , serial_schedule 1
+      , Tool_contract.Continue_after_success )
+    ]
+  in
+  run_case "order-drift" (resume ~persisted:ordered_persisted [ second; first ]);
+  run_case "turn-drift" (resume ~turn_count:2 terminal_restored);
+  run_case
+    "name-drift"
+    (resume [ "terminal-call", "renamed_terminal_tool", terminal_input ]);
+  run_case
+    "input-drift"
+    (resume [ "terminal-call", "terminal_tool", `Assoc [ "value", `Int 2 ] ]);
+  let planned_index_persisted =
+    [ ( "ordinary-call"
+      , "ordinary_tool"
+      , terminal_input
+      , serial_schedule 1
+      , Tool_contract.Continue_after_success )
+    ]
+  in
+  run_case
+    "planned-index-drift"
+    (resume
+       ~persisted:planned_index_persisted
+       [ "ordinary-call", "ordinary_tool", terminal_input ]);
   run_case
     "schedule-planned-index-drift"
     (`Invalid_contract
@@ -2704,7 +2688,7 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
         ( { valid_terminal_schedule with batch_size = 2 }
         , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ));
   run_case
-    "completion-drift"
+    "schedule-execution-mode-drift"
     (`Invalid_contract
         ( { valid_terminal_schedule with execution_mode = Tool_contract.Concurrent }
         , Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown ))

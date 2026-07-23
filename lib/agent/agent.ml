@@ -750,10 +750,8 @@ module Advanced = struct
 
   type terminal_tool_completed =
     { turn : int
-    ; invocation : Tool_contract.Invocation.t
-    ; checkpoint_stage : checkpoint_stage
+    ; receipt : Terminal_tool_receipt.t
     ; checkpoint : Checkpoint.t
-    ; response : Types.api_response
     }
 
   type run_outcome =
@@ -776,7 +774,7 @@ module Advanced = struct
     | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
     | Terminal_tool_completed completion ->
       Run_completed
-        { final_text = final_text_of_response completion.response
+        { final_text = final_text_of_response completion.receipt.response
         ; stop_reason = Some "terminal_tool_completed"
         }
   ;;
@@ -841,21 +839,16 @@ module Advanced = struct
                 ; checkpoint_stage = boundary.checkpoint_stage
                 ; checkpoint
                 }))
-      | Ok (`TerminalToolCompleted completion) ->
+      | Ok (`TerminalToolCompleted receipt) ->
         log_turn
           ~run_start
           ~turn_start
           ~turn_index
-          ~model:completion.response.model
+          ~model:receipt.response.model
           ~stop:"terminal_tool_completed";
         Ok
           (Terminal_tool_completed
-             { turn = agent.state.turn_count
-             ; invocation = completion.invocation
-             ; checkpoint_stage = completion.checkpoint_stage
-             ; checkpoint = checkpoint agent
-             ; response = completion.response
-             })
+             { turn = agent.state.turn_count; receipt; checkpoint = checkpoint agent })
     in
     loop Held
   ;;

@@ -696,11 +696,11 @@ let test_terminal_success_stops_advanced_before_next_provider () =
      Alcotest.(check string)
        "exact invocation"
        "call_1"
-       (Tool_contract.Invocation.tool_use_id completion.invocation);
+       (Tool_contract.Invocation.tool_use_id completion.receipt.invocation);
      Alcotest.(check bool)
        "checkpoint stage"
        true
-       (completion.checkpoint_stage = Agent.After_tool_results_appended);
+       (completion.receipt.checkpoint_stage = Agent.After_tool_results_appended);
      Alcotest.(check int) "checkpoint turn" 1 completion.checkpoint.turn_count);
   Alcotest.(check int) "one handler" 1 !handler_count;
   Alcotest.(check int) "one provider call" 1 !call_count

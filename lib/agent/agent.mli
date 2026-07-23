@@ -264,10 +264,8 @@ module Advanced : sig
 
   type terminal_tool_completed =
     { turn : int
-    ; invocation : Tool_contract.Invocation.t
-    ; checkpoint_stage : checkpoint_stage
+    ; receipt : Terminal_tool_receipt.t
     ; checkpoint : Checkpoint.t
-    ; response : Types.api_response
     }
 
   type run_outcome =
