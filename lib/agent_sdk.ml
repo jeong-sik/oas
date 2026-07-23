@@ -60,6 +60,7 @@ module Error = Agent_sdk_base.Error
 module Error_domain = Error_domain
 module Hooks = Agent_sdk_base.Hooks
 module Tracing = Tracing
+module Tool_contract = Agent_sdk_base.Tool_contract
 module Tool = Agent_sdk_base.Tool
 module Typed_tool = Typed_tool
 module Mcp = Mcp

@@ -24,17 +24,16 @@ type api_strategy =
       ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
       }
 
-type turn_outcome =
+type turn_outcome = Pipeline_terminal_tool.turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of checkpoint_stage
+  | TerminalToolCompleted of Terminal_tool_receipt.t
 
 let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
 
 let persist_turn_checkpoint agent stage =
   persist_turn_checkpoint_for_state agent stage agent.state
 ;;
-
-(* ── Stage 1: Input ──────────────────────────────────────── *)
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
 let stage_input = Pipeline_stage_prepare.stage_input
@@ -301,13 +300,13 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution and context injection. *)
-let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_nonempty =
+let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tools =
   (* The caller (stage_output) proves the tool-call set is non-empty: a
      StopToolUse turn that carried no tool block is rejected before this stage
      (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
      Threading [Nonempty.t] makes the empty case a compile error instead of a
      silent [ToolsExecuted] that re-issues the same Thinking turn forever. *)
-  let tool_uses = Nonempty.to_list tool_uses_nonempty in
+  let tool_uses = Nonempty.to_list tools in
   Tracing.with_span
     agent.options.tracer
     { kind = Tool_exec
@@ -318,12 +317,14 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
     ; links = []
     }
     (fun _tracer ->
-       Option.iter (fun callback -> callback ()) before_tool_execution;
-       let results, failure =
-         match execute_tools_with_trace agent raw_trace_run ~turn tool_uses with
-         | Ok results -> results, None
-         | Error ({ completed_results; cause } : Agent_tools.execution_failure) ->
-           completed_results, Some cause
+       let results, completion, failure =
+         execute_tools_with_trace
+           agent
+           raw_trace_run
+           ~turn
+           ?before_tool_execution
+           tool_uses
+         |> Pipeline_terminal_tool.unpack_execution_result
        in
        let tool_results = Agent_turn.make_tool_results results in
        let* () =
@@ -351,15 +352,16 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
               ~hook_name
               ~stage
               ~tool_name:(Some tool_name)
-              ~tool_use_id:(Some (Tool.Invocation.tool_use_id invocation))
+              ~tool_use_id:(Some (Tool_contract.Invocation.tool_use_id invocation))
               ~detail)
        | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
          Printexc.raise_with_backtrace exception_ backtrace
-       | Some (Agent_tools.Durability_failure { detail; _ }) ->
-         Error (Error.Internal detail)
+       | Some (Agent_tools.Durability_failure { invocation; detail }) ->
+         Pipeline_terminal_tool.durability_failure ~invocation ~detail
        | None ->
+         let finish = Pipeline_terminal_tool.outcome ~response completion in
          (match agent.options.context_injector with
-          | None -> Ok (ToolsExecuted After_tool_results_appended)
+          | None -> finish After_tool_results_appended
           | Some injector ->
             let* messages =
               Agent_turn.apply_context_injection
@@ -385,10 +387,14 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn agent tool_uses_no
                 After_context_injection
                 injected_state
             in
-            Ok (ToolsExecuted After_context_injection)))
+            finish After_context_injection))
 ;;
 
-(* ── Stage 6: Output ─────────────────────────────────────── *)
+let replay_settled_before_checkpoint agent =
+  Pipeline_terminal_resume.replay
+    ~persist_checkpoint:(persist_turn_checkpoint_for_state agent)
+    agent
+;;
 
 (** Map stop_reason to turn_outcome. *)
 let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
@@ -436,6 +442,7 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
               ?raw_trace_run
               ?before_tool_execution
               ~turn
+              ~response
               agent
               tool_uses_nonempty)
        | UnmatchedToolCalls ->
@@ -639,6 +646,10 @@ let run_new_turn
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
            let* () =
+             Pipeline_execution_scope.record_provider_response execution response
+             |> tag_error "response"
+           in
+           let* () =
              stage_collect ?raw_trace_run ?clock ~turn agent response
              |> tag_error "collect"
            in
@@ -677,9 +688,11 @@ let run_turn
          identity is the durable turn ordinal supplied by [dispatch]
          ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
          traced under the exact ordinal the crashed run used (#2709). *)
-    ~execute:(fun ~turn ->
-      stage_execute ?raw_trace_run ?before_tool_execution ~turn agent)
-    ~tools_settled:(ToolsExecuted After_tool_results_appended)
+    ~execute:(fun ~turn ~response tool_uses ->
+      stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tool_uses)
+    ~all_pre_tool_use_blocked:(ToolsExecuted After_tool_results_appended)
+    ~tools_settled_before_checkpoint:(replay_settled_before_checkpoint agent)
+    ~tools_settled:Pipeline_terminal_tool.recovered_outcome
     ~terminal:(fun response -> Complete response)
     ~fresh:(fun () ->
       run_new_turn

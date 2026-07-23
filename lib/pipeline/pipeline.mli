@@ -20,6 +20,7 @@ type api_strategy =
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted of Agent_types.checkpoint_stage
+  | TerminalToolCompleted of Terminal_tool_receipt.t
 
 (** Observation-only domain label stamped on a durable [Error_occurred] event,
     derived from the actual error's typed [Error.category] (not hardcoded).

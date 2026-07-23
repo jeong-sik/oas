@@ -62,7 +62,8 @@ type node_kind =
   | Tool_invocation of
       { provider_tool_use_id : string option
       ; tool_name : string
-      ; schedule : Hooks.tool_schedule
+      ; schedule : Tool_contract.schedule
+      ; completion : Tool_contract.completion
       }
   | Tool_attempt
 
@@ -84,19 +85,22 @@ let pp_node_kind formatter = function
       ordinal
       pp_output_block_kind
       block_kind
-  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule; completion } ->
     Format.fprintf
       formatter
       "Tool_invocation {provider_tool_use_id=%a; tool_name=%S; \
-       schedule={planned_index=%d; batch_index=%d; batch_size=%d; execution_mode=%a}}"
+       schedule={planned_index=%d; batch_index=%d; batch_size=%d; execution_mode=%a}; \
+       completion=%a}"
       (Format.pp_print_option Format.pp_print_string)
       provider_tool_use_id
       tool_name
       schedule.planned_index
       schedule.batch_index
       schedule.batch_size
-      Tool.pp_execution_mode
+      Tool_contract.pp_execution_mode
       schedule.execution_mode
+      Tool_contract.pp_completion
+      completion
   | Tool_attempt -> Format.pp_print_string formatter "Tool_attempt"
 ;;
 
@@ -130,9 +134,9 @@ let validate_node_kind = function
     if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
-  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
     let* () = validate_non_blank "tool_name" tool_name in
-    Execution_tool_schedule.validate schedule
+    Execution_tool_schedule.validate_completion_message ~completion schedule
   | Tool_attempt -> Ok ()
 ;;
 
@@ -163,6 +167,7 @@ let equal_node_kind left right =
     Option.equal String.equal left.provider_tool_use_id right.provider_tool_use_id
     && String.equal left.tool_name right.tool_name
     && Execution_tool_schedule.equal left.schedule right.schedule
+    && left.completion = right.completion
   | Tool_attempt, Tool_attempt -> true
   | ( ( Agent_run _
       | Agent_turn _
@@ -196,7 +201,7 @@ let show_node node = Format.asprintf "%a" pp_node node
 
 type node_update =
   | Provider_event of Yojson.Safe.t
-  | Provider_response_id_snapshot of string
+  | Provider_response_snapshot of Llm_provider.Types.api_response
   | Output_delta of Yojson.Safe.t
   | Output_snapshot of Llm_provider.Types.content_block
   | Tool_input_delta of Yojson.Safe.t
@@ -247,6 +252,7 @@ type payload =
 
 module External_source = Execution_cause.External_source
 module Cause = Execution_cause.Make (Event_id)
+module Response_snapshot = Execution_provider_response_snapshot
 
 type cause = Cause.t =
   | Internal_event of Event_id.t
@@ -313,8 +319,7 @@ let validate_content_block block =
 
 let validate_node_update update =
   match update with
-  | Provider_response_id_snapshot value ->
-    validate_non_blank "provider response identifier" value
+  | Provider_response_snapshot value -> Response_snapshot.validate value
   | Provider_event value -> validate_json ~context:"provider event" value
   | Output_delta value -> validate_json ~context:"output delta" value
   | Tool_input_delta value -> validate_json ~context:"tool input delta" value
@@ -453,10 +458,9 @@ let equal_update left right =
   | Output_snapshot left, Output_snapshot right
   | Tool_input_snapshot left, Tool_input_snapshot right
   | Tool_result left, Tool_result right -> left = right
-  | Provider_response_id_snapshot left, Provider_response_id_snapshot right ->
-    String.equal left right
+  | Provider_response_snapshot left, Provider_response_snapshot right -> left = right
   | ( ( Provider_event _
-      | Provider_response_id_snapshot _
+      | Provider_response_snapshot _
       | Output_delta _
       | Output_snapshot _
       | Tool_input_delta _
@@ -549,13 +553,14 @@ let node_kind_to_yojson_unchecked = function
       ; "ordinal", `Int ordinal
       ; "block_kind", `String (output_block_kind_to_string block_kind)
       ]
-  | Tool_invocation { provider_tool_use_id; tool_name; schedule } ->
+  | Tool_invocation { provider_tool_use_id; tool_name; schedule; completion } ->
     `Assoc
       [ "type", `String "tool_invocation"
       ; ( "provider_tool_use_id"
         , option_json (Option.map (fun v -> `String v) provider_tool_use_id) )
       ; "tool_name", `String tool_name
       ; "schedule", schedule_to_yojson schedule
+      ; "completion", Tool_contract.completion_to_yojson completion
       ]
   | Tool_attempt -> `Assoc [ "type", `String "tool_attempt" ]
 ;;
@@ -578,6 +583,7 @@ let node_kind_of_yojson json =
         ; "provider_tool_use_id"
         ; "tool_name"
         ; "schedule"
+        ; "completion"
         ]
       json
   in
@@ -616,7 +622,7 @@ let node_kind_of_yojson json =
         Output_block { ordinal; block_kind })
     | "tool_invocation" ->
       decode
-        ~required:[ "provider_tool_use_id"; "tool_name"; "schedule" ]
+        ~required:[ "provider_tool_use_id"; "tool_name"; "schedule"; "completion" ]
         ~optional:[]
         (fun fields ->
            let* provider_tool_use_id =
@@ -624,8 +630,10 @@ let node_kind_of_yojson json =
            in
            let* tool_name = string_field "tool_name" fields in
            let* schedule_json = field "schedule" fields in
-           let+ schedule = schedule_of_yojson schedule_json in
-           Tool_invocation { provider_tool_use_id; tool_name; schedule })
+           let* schedule = schedule_of_yojson schedule_json in
+           let* completion_json = field "completion" fields in
+           let+ completion = Tool_contract.completion_of_yojson completion_json in
+           Tool_invocation { provider_tool_use_id; tool_name; schedule; completion })
     | "tool_attempt" -> decode ~required:[] ~optional:[] (fun _ -> Ok Tool_attempt)
     | value -> Error ("unknown node kind: " ^ value)
   in
@@ -671,30 +679,28 @@ let node_of_yojson json =
   make_node ~node_id ~run_id ~parent_node_id ~kind
 ;;
 
+let node_update_json kind value = `Assoc [ "type", `String kind; "value", value ]
+
 let node_update_to_yojson_unchecked update =
   match update with
-  | Provider_response_id_snapshot value ->
-    `Assoc [ "type", `String "provider_response_id_snapshot"; "value", `String value ]
-  | Provider_event value -> `Assoc [ "type", `String "provider_event"; "value", value ]
-  | Output_delta value -> `Assoc [ "type", `String "output_delta"; "value", value ]
+  | Provider_response_snapshot value ->
+    node_update_json "provider_response_snapshot" (Response_snapshot.to_yojson value)
+  | Provider_event value -> node_update_json "provider_event" value
+  | Output_delta value -> node_update_json "output_delta" value
   | Output_snapshot value ->
-    `Assoc
-      [ "type", `String "output_snapshot"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
-  | Tool_input_delta value ->
-    `Assoc [ "type", `String "tool_input_delta"; "value", value ]
+    node_update_json
+      "output_snapshot"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
+  | Tool_input_delta value -> node_update_json "tool_input_delta" value
   | Tool_input_snapshot value ->
-    `Assoc
-      [ "type", `String "tool_input_snapshot"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
-  | Tool_progress value -> `Assoc [ "type", `String "tool_progress"; "value", value ]
+    node_update_json
+      "tool_input_snapshot"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
+  | Tool_progress value -> node_update_json "tool_progress" value
   | Tool_result value ->
-    `Assoc
-      [ "type", `String "tool_result"
-      ; "value", Checkpoint_codec.checkpoint_content_block_to_json value
-      ]
+    node_update_json
+      "tool_result"
+      (Checkpoint_codec.checkpoint_content_block_to_json value)
 ;;
 
 let node_update_to_yojson update =
@@ -711,10 +717,9 @@ let node_update_of_yojson json =
   let* update =
     match kind with
     | "provider_event" -> Ok (Provider_event value)
-    | "provider_response_id_snapshot" ->
-      (match value with
-       | `String value -> Ok (Provider_response_id_snapshot value)
-       | _ -> Error "provider response identifier snapshot must be a string")
+    | "provider_response_snapshot" ->
+      let+ value = Response_snapshot.of_yojson value in
+      Provider_response_snapshot value
     | "output_delta" -> Ok (Output_delta value)
     | "output_snapshot" ->
       let+ block = durable_content_of_yojson value in
@@ -915,7 +920,7 @@ let payload_of_yojson json =
   | value -> Error ("unknown execution payload: " ^ value)
 ;;
 
-let schema_version_current = 1
+let schema_version_current = 3
 
 let to_yojson event =
   `Assoc

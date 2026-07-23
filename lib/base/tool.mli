@@ -6,45 +6,6 @@
 type tool_handler = Yojson.Safe.t -> Types.tool_result
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
-(** Declared execution ordering for a tool. *)
-type execution_mode =
-  | Concurrent
-  | Serial
-[@@deriving show]
-
-val execution_mode_to_yojson : execution_mode -> Yojson.Safe.t
-val execution_mode_of_yojson : Yojson.Safe.t -> (execution_mode, string) result
-
-(** Exact scheduler placement for one tool occurrence.
-
-    @since 0.216.0 *)
-type schedule =
-  { planned_index : int
-  ; batch_index : int (** Zero-based execution-batch ordinal within the turn. *)
-  ; batch_size : int (** Number of invocations in that execution batch. *)
-  ; execution_mode : execution_mode
-  }
-
-(** Exact occurrence metadata for correlation and observability only.
-    It does not authorize tool execution. [turn] is the zero-based provider
-    turn shared by BeforeTurn, AfterTurn, TurnCompleted, and every tool
-    occurrence produced by that response. Together, [turn] and
-    [schedule.planned_index] scope provider [tool_use_id] values that may be
-    blank or repeated. The embedding runtime owns any broader agent/run
-    identity.
-
-    @since 0.215.0
-    @since 0.216.0 Owns the canonical [schedule]. *)
-module Invocation : sig
-  type t
-
-  val create : tool_use_id:string -> turn:int -> schedule:schedule -> t
-  val tool_use_id : t -> string
-  val turn : t -> int
-  val schedule : t -> schedule
-  val planned_index : t -> int
-end
-
 (** Explicit resources available at one tool execution occurrence.
     Context and invocation are orthogonal optional capabilities, not mutually
     exclusive handler variants. Future execution metadata belongs in this
@@ -55,13 +16,21 @@ end
 module Execution_env : sig
   type t
 
-  val create : ?context:Context.t -> ?invocation:Invocation.t -> unit -> t
+  val create : ?context:Context.t -> ?invocation:Tool_contract.Invocation.t -> unit -> t
   val context : t -> Context.t option
-  val invocation : t -> Invocation.t option
+  val invocation : t -> Tool_contract.Invocation.t option
 end
 
 type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-type descriptor = { execution_mode : execution_mode }
+
+(** Immutable execution metadata. A terminal tool is serial by construction,
+    so [Terminal + Concurrent] is not representable. *)
+type descriptor
+
+val ordinary_descriptor : Tool_contract.execution_mode -> descriptor
+val terminal_descriptor : Tool_contract.failure_effect_disposition -> descriptor
+val descriptor_execution_mode : descriptor -> Tool_contract.execution_mode
+val descriptor_completion : descriptor -> Tool_contract.completion
 
 type handler_kind =
   | Simple of tool_handler
@@ -105,7 +74,7 @@ val create_with_execution_env
 
 val execute
   :  ?context:Context.t
-  -> ?invocation:Invocation.t
+  -> ?invocation:Tool_contract.Invocation.t
   -> t
   -> Yojson.Safe.t
   -> Types.tool_result
@@ -113,7 +82,11 @@ val execute
 val descriptor : t -> descriptor option
 
 (** Exact declared execution mode, or [Serial] when no descriptor exists. *)
-val execution_mode : t -> execution_mode
+val execution_mode : t -> Tool_contract.execution_mode
+
+(** Exact completion policy, or [Continue_after_success] when no descriptor
+    exists. *)
+val completion : t -> Tool_contract.completion
 
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t

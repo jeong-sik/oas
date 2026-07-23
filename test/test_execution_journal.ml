@@ -17,8 +17,29 @@ let require_codec_ok = function
   | Error detail -> fail detail
 ;;
 
-let serial_schedule : Hooks.tool_schedule =
-  { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+let serial_schedule : Tool_contract.schedule =
+  { planned_index = 0
+  ; batch_index = 0
+  ; batch_size = 1
+  ; execution_mode = Tool_contract.Serial
+  }
+;;
+
+let provider_response ?(id = "response-stream-1") ?(cost_usd = Some 0.25) () =
+  { Llm_provider.Types.id
+  ; model = "streaming-model"
+  ; stop_reason = Llm_provider.Types.EndTurn
+  ; content = [ Llm_provider.Types.Text "answer" ]
+  ; usage =
+      Some
+        { input_tokens = 11
+        ; output_tokens = 22
+        ; cache_creation_input_tokens = 3
+        ; cache_read_input_tokens = 4
+        ; cost_usd
+        }
+  ; telemetry = None
+  }
 ;;
 
 let provider_attempt ?(model_id = "test-model") ordinal =
@@ -44,6 +65,7 @@ let tool_invocation ?(planned_index = 0) name =
     { provider_tool_use_id = Some ("provider-" ^ name)
     ; tool_name = name
     ; schedule = { serial_schedule with planned_index; batch_index = planned_index }
+    ; completion = Tool_contract.Continue_after_success
     }
 ;;
 
@@ -779,6 +801,7 @@ let test_hierarchy_and_lifecycle_rejections () =
               { provider_tool_use_id = None
               ; tool_name = "late_identity"
               ; schedule = { serial_schedule with planned_index = 2; batch_index = 2 }
+              ; completion = Tool_contract.Continue_after_success
               }))
   in
   let canonical_tool_use =
@@ -895,6 +918,7 @@ let test_streaming_provider_identity_and_projection () =
   (match Event.payload opened with
    | Event.Node_opened node when Event.Node_id.equal (Event.node_id node) attempt -> ()
    | _ -> fail "open_node did not return its exact opened event");
+  let response = provider_response () in
   ignore
     (require_ok
        (Journal.update_node
@@ -906,17 +930,17 @@ let test_streaming_provider_identity_and_projection () =
        (Journal.update_node
           journal
           ~node:attempt
-          (Event.Provider_response_id_snapshot "response-stream-1")));
+          (Event.Provider_response_snapshot response)));
   (match
      Journal.update_node
        journal
        ~node:attempt
-       (Event.Provider_response_id_snapshot "response-stream-2")
+       (Event.Provider_response_snapshot (provider_response ~id:"response-stream-2" ()))
    with
    | Error
-       (Journal.Invariant_violation (Journal.Provider_response_id_already_materialized _))
-     -> ()
-   | _ -> fail "a second provider response identifier was accepted");
+       (Journal.Invariant_violation (Journal.Provider_response_already_materialized _)) ->
+     ()
+   | _ -> fail "a second provider response snapshot was accepted");
   let output =
     require_opened_node
       (Journal.open_node
@@ -979,15 +1003,16 @@ let test_streaming_provider_identity_and_projection () =
        { status = Journal.Closed { value = Event.Succeeded; _ }
        ; updates =
            [ { value = Event.Provider_event _; _ }
-           ; { value = Event.Provider_response_id_snapshot "response-stream-1"; _ }
+           ; { value = Event.Provider_response_snapshot update_response; _ }
            ]
        ; children = [ { value = child; _ } ]
        ; materialized =
-           Journal.Provider_attempt_state
-             { provider_response_id = Some "response-stream-1" }
+           Journal.Provider_attempt_state { response = Some materialized_response }
        ; _
        }
-     when Event.Node_id.equal (Event.node_id child) output -> ()
+     when Event.Node_id.equal (Event.node_id child) output
+          && update_response = response
+          && materialized_response = response -> ()
    | _ -> fail "provider attempt projection lost updates or its output child");
   match Journal.find_node journal output with
   | Some
@@ -1013,14 +1038,19 @@ let test_json_terminal_and_id_boundaries () =
   check int "invalid agent name did not advance journal" 0 (Journal.length journal);
   let run = require_started_run (Journal.start_run journal ~agent_name:"validation") in
   let agent_turn, turn = open_provider_attempt journal run in
-  let later_batch : Tool.schedule =
-    { planned_index = 0; batch_index = 2; batch_size = 1; execution_mode = Tool.Serial }
+  let later_batch : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 2
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
   let later_batch_kind =
     Event.Tool_invocation
       { provider_tool_use_id = Some "provider-later-batch"
       ; tool_name = "valid_tool"
       ; schedule = later_batch
+      ; completion = Tool_contract.Continue_after_success
       }
   in
   (match Event.node_kind_to_yojson later_batch_kind with
@@ -1039,13 +1069,18 @@ let test_json_terminal_and_id_boundaries () =
   expect_invalid_node_kind (Event.Agent_run { agent_name = "  " });
   expect_invalid_node_kind
     (Event.Tool_invocation
-       { provider_tool_use_id = None; tool_name = " \t"; schedule = serial_schedule });
+       { provider_tool_use_id = None
+       ; tool_name = " \t"
+       ; schedule = serial_schedule
+       ; completion = Tool_contract.Continue_after_success
+       });
   let exact_provider_id = " \n" in
   let exact_provider_kind =
     Event.Tool_invocation
       { provider_tool_use_id = Some exact_provider_id
       ; tool_name = "valid_tool"
       ; schedule = serial_schedule
+      ; completion = Tool_contract.Continue_after_success
       }
   in
   (match Event.node_kind_to_yojson exact_provider_kind with
@@ -1076,16 +1111,20 @@ let test_json_terminal_and_id_boundaries () =
           | Ok decoded when decoded = update -> ()
           | Ok _ | Error _ -> fail "opaque content-block provider id changed"))
     [ Event.Tool_input_snapshot opaque_tool_use; Event.Tool_result opaque_tool_result ];
-  let before_invalid_response_id = Journal.length journal in
+  let before_invalid_response = Journal.length journal in
+  let invalid_response = provider_response ~cost_usd:(Some nan) () in
   (match
-     Journal.update_node journal ~node:turn (Event.Provider_response_id_snapshot " \t")
+     Journal.update_node
+       journal
+       ~node:turn
+       (Event.Provider_response_snapshot invalid_response)
    with
    | Error (Journal.Invalid_event _) -> ()
-   | _ -> fail "whitespace-only provider response id entered the journal");
+   | _ -> fail "non-finite provider response snapshot entered the journal");
   check
     int
-    "invalid provider response id did not advance journal"
-    before_invalid_response_id
+    "invalid provider response did not advance journal"
+    before_invalid_response
     (Journal.length journal);
   let before_invalid_updates = Journal.length journal in
   let invalid_json_values = [ `Float nan; `Intlit "not-a-json-integer" ] in

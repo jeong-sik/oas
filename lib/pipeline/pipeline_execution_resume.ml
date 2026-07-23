@@ -59,18 +59,44 @@ let last_tool_turn messages =
   find [] (List.rev messages)
 ;;
 
-let recovered_tool_result_ids messages_after =
+let recovered_tool_results messages_after =
   List.find_map
     (fun (message : Types.message) ->
-       match tool_result_ids message.content with
+       let results =
+         List.filter
+           (function
+             | ToolResult _ -> true
+             | Text _
+             | Thinking _
+             | ReasoningDetails _
+             | RedactedThinking _
+             | ToolUse _
+             | Image _
+             | Document _
+             | Audio _ -> false)
+           message.content
+       in
+       match results with
        | [] -> None
-       | ids -> Some ids)
+       | results -> Some results)
     messages_after
 ;;
 
 type settled_replay =
-  | Replay_tools_settled
+  | Replay_tools_settled of
+      { tool_uses : Types.content_block Nonempty.t
+      ; tool_results : Types.content_block list
+      }
   | Replay_terminal of Types.message
+
+type settled_tool_authority =
+  | All_pre_tool_use_blocked
+  | Durable_invocations of Execution_agent_scope.invocation_authority list
+
+let settled_tool_authority = function
+  | [] -> All_pre_tool_use_blocked
+  | invocations -> Durable_invocations invocations
+;;
 
 let last_assistant_message messages =
   List.fold_left
@@ -92,9 +118,18 @@ let last_assistant_message messages =
    checkpoint stays an error (fail-closed on inconsistent topology). *)
 let classify_settled agent =
   match last_tool_turn agent.Agent_types.state.messages with
-  | Some (_tool_blocks, expected_ids, messages_after) ->
-    (match recovered_tool_result_ids messages_after with
-     | Some result_ids when result_ids = expected_ids -> Ok Replay_tools_settled
+  | Some (tool_blocks, expected_ids, messages_after) ->
+    let* tool_blocks =
+      match Nonempty.of_list tool_blocks with
+      | Some tool_blocks -> Ok tool_blocks
+      | None ->
+        Error
+          (Error.Internal
+             "durable execution resume settled tool turn restored no ToolUse blocks")
+    in
+    (match recovered_tool_results messages_after with
+     | Some tool_results when tool_result_ids tool_results = expected_ids ->
+       Ok (Replay_tools_settled { tool_uses = tool_blocks; tool_results })
      | Some _ ->
        Error
          (Error.Internal
@@ -115,23 +150,6 @@ let classify_settled agent =
              message"))
 ;;
 
-(* Reconstruct a terminal turn's response from the durably-settled assistant
-   message the resume restored (After_assistant_collected checkpoint). The
-   content is the exact settled message content; [stop_reason] is [EndTurn]
-   because a terminal turn stopped with no pending tool calls. Per-call
-   [usage]/[telemetry] and the provider response [id] are not part of the
-   persisted checkpoint, so they surface as empty/[None] rather than being
-   fabricated. Returning the settled result is a recovery, not a recomputation. *)
-let response_of_settled_terminal agent (message : Types.message) : Types.api_response =
-  { Types.id = ""
-  ; model = agent.Agent_types.state.config.model
-  ; stop_reason = EndTurn
-  ; content = message.content
-  ; usage = None
-  ; telemetry = None
-  }
-;;
-
 (* Idempotent completed boundary: the turn is already [Closed Succeeded] under a
    still-[Running] root (crash between the provider close, the turn close, and the
    root finish of a fully-settled turn). Complete any interrupted [close_success]
@@ -140,16 +158,63 @@ let response_of_settled_terminal agent (message : Types.message) : Types.api_res
    settled results without re-executing effects and without aborting the root as
    Failed. [tools_settled] is the completed-tool-turn outcome; [terminal] wraps
    the reconstructed final assistant response. *)
-let run_settled agent boundary ~tools_settled ~terminal =
-  let* () = Pipeline_execution_scope.finalize_settled boundary in
+let run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~terminal =
   let* replay = classify_settled agent in
   match replay with
-  | Replay_tools_settled -> Ok tools_settled
-  | Replay_terminal message -> Ok (terminal (response_of_settled_terminal agent message))
+  | Replay_tools_settled { tool_uses; tool_results } ->
+    let* response = Pipeline_execution_scope.settled_response boundary in
+    let* () =
+      Pipeline_terminal_tool.validate_response_tool_uses
+        ~response
+        ~tool_uses:(Nonempty.to_list tool_uses)
+    in
+    let turn = agent.Agent_types.state.turn_count - 1 in
+    if turn < 0
+    then
+      Error
+        (Error.Internal
+           "durable execution resume settled tool turn has an invalid turn counter")
+    else
+      let* invocations = Pipeline_execution_scope.settled_invocations boundary in
+      let* outcome =
+        match settled_tool_authority invocations with
+        | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
+        | Durable_invocations invocations ->
+          tools_settled ~response ~turn ~invocations ~tool_results tool_uses
+      in
+      let+ () = Pipeline_execution_scope.finalize_settled boundary in
+      outcome
+  | Replay_terminal message ->
+    let* response = Pipeline_execution_scope.settled_response boundary in
+    let* invocations = Pipeline_execution_scope.settled_invocations boundary in
+    (match invocations with
+     | _ :: _ ->
+       Error
+         (Error.Internal
+            "durable execution resume terminal turn contains persisted tool invocations")
+     | [] ->
+       if response.content <> message.content
+       then
+         Error
+           (Error.Internal
+              "persisted provider response content differs from the restored terminal \
+               checkpoint")
+       else (
+         let outcome = terminal response in
+         let+ () = Pipeline_execution_scope.finalize_settled boundary in
+         outcome))
 ;;
 
-let run agent execution ~execute ~already_settled =
+let run
+      agent
+      execution
+      ~execute
+      ~settled_before_checkpoint
+      ~all_pre_tool_use_blocked
+      ~already_settled
+  =
   let outcome =
+    let* response = Pipeline_execution_scope.provider_response execution in
     match last_tool_turn agent.Agent_types.state.messages with
     | None ->
       Error
@@ -157,7 +222,12 @@ let run agent execution ~execute ~already_settled =
            "durable execution resume found an open provider attempt without a restored \
             ToolUse checkpoint")
     | Some (tool_blocks, expected_ids, messages_after) ->
-      (match recovered_tool_result_ids messages_after with
+      let* () =
+        Pipeline_terminal_tool.validate_response_tool_uses
+          ~response
+          ~tool_uses:tool_blocks
+      in
+      (match recovered_tool_results messages_after with
        | None ->
          (match Nonempty.of_list tool_blocks with
           | None ->
@@ -171,11 +241,59 @@ let run agent execution ~execute ~already_settled =
                  (Error.Internal "durable execution resume lost its provider authority")
              | Some provider ->
                Execution_context.with_provider_attempt provider (fun () ->
-                 execute tool_blocks)))
-       | Some result_ids when result_ids = expected_ids ->
+                 let* settled = Pipeline_execution_scope.invocations_settled execution in
+                 if not settled
+                 then execute ~response tool_blocks
+                 else
+                   let* persisted =
+                     Pipeline_execution_scope.settled_invocations_with_results execution
+                   in
+                   match persisted with
+                   | [] ->
+                     (* A pre-execution hook can produce a model-visible result
+                         without opening an invocation. With no persisted result
+                         authority, safely re-run admission rather than inventing
+                         a result. *)
+                     execute ~response tool_blocks
+                   | persisted ->
+                     let invocations =
+                       List.map
+                         (fun (settled : Execution_agent_scope.settled_invocation) ->
+                            settled.authority)
+                         persisted
+                     in
+                     let tool_results =
+                       List.map
+                         (fun (settled : Execution_agent_scope.settled_invocation) ->
+                            settled.result)
+                         persisted
+                     in
+                     settled_before_checkpoint
+                       ~response
+                       ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+                       ~invocations
+                       ~tool_results
+                       tool_blocks)))
+       | Some tool_results when tool_result_ids tool_results = expected_ids ->
          let* settled = Pipeline_execution_scope.invocations_settled execution in
          if settled
-         then Ok already_settled
+         then (
+           match Nonempty.of_list tool_blocks with
+           | Some tool_blocks ->
+             let* invocations = Pipeline_execution_scope.invocations execution in
+             (match settled_tool_authority invocations with
+              | All_pre_tool_use_blocked -> Ok all_pre_tool_use_blocked
+              | Durable_invocations invocations ->
+                already_settled
+                  ~response
+                  ~turn:(Pipeline_execution_scope.turn_ordinal execution)
+                  ~invocations
+                  ~tool_results
+                  tool_blocks)
+           | None ->
+             Error
+               (Error.Internal
+                  "durable execution resume restored an empty ToolUse checkpoint"))
          else
            Error
              (Error.Internal
@@ -203,7 +321,15 @@ let run agent execution ~execute ~already_settled =
    passed to [execute] is read from the durable turn ([turn_ordinal]), never
    reconstructed from mutable agent state, so a resumed tool turn is traced under
    the same ordinal the crashed run used. *)
-let dispatch agent ~execute ~tools_settled ~terminal ~fresh =
+let dispatch
+      agent
+      ~execute
+      ~tools_settled_before_checkpoint
+      ~tools_settled
+      ~all_pre_tool_use_blocked
+      ~terminal
+      ~fresh
+  =
   let* resumed =
     if Execution_context.take_resume_once ()
     then Pipeline_execution_scope.resume_current (Execution_context.agent_scope ())
@@ -212,8 +338,14 @@ let dispatch agent ~execute ~tools_settled ~terminal ~fresh =
   match resumed with
   | Pipeline_execution_scope.Active execution ->
     let turn = Pipeline_execution_scope.turn_ordinal execution in
-    run agent execution ~execute:(execute ~turn) ~already_settled:tools_settled
+    run
+      agent
+      execution
+      ~execute:(execute ~turn)
+      ~settled_before_checkpoint:tools_settled_before_checkpoint
+      ~all_pre_tool_use_blocked
+      ~already_settled:tools_settled
   | Pipeline_execution_scope.Settled boundary ->
-    run_settled agent boundary ~tools_settled ~terminal
+    run_settled agent boundary ~all_pre_tool_use_blocked ~tools_settled ~terminal
   | Pipeline_execution_scope.Fresh -> fresh ()
 ;;

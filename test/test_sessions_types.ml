@@ -312,7 +312,8 @@ let test_tool_contract () =
     { name = "bash"
     ; description = "Shell"
     ; origin = Some "builtin"
-    ; execution_mode = Tool.Concurrent
+    ; execution_mode = Tool_contract.Concurrent
+    ; completion = Tool_contract.Continue_after_success
     }
   in
   roundtrip
@@ -322,7 +323,13 @@ let test_tool_contract () =
     ~name:"tool_contract_concurrent"
     concurrent;
   let minimal : Sessions.tool_contract =
-    { name = "read"; description = "Read"; origin = None; execution_mode = Tool.Serial }
+    { name = "read"
+    ; description = "Read"
+    ; origin = None
+    ; execution_mode = Tool_contract.Serial
+    ; completion =
+        Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown
+    }
   in
   roundtrip
     ~to_yojson:Sessions.tool_contract_to_yojson
@@ -336,6 +343,7 @@ let test_tool_contract () =
       ; "description", `String "Read"
       ; "origin", `Null
       ; "execution_mode", `String "serial"
+      ; "completion", `Assoc [ "kind", `String "continue_after_success" ]
       ; "kind", `String "local"
       ]
   in
@@ -349,7 +357,19 @@ let test_tool_contract () =
   Alcotest.(check bool)
     "missing execution mode rejected"
     true
-    (Result.is_error (Sessions.tool_contract_of_yojson missing_mode))
+    (Result.is_error (Sessions.tool_contract_of_yojson missing_mode));
+  let missing_completion =
+    `Assoc
+      [ "name", `String "read"
+      ; "description", `String "Read"
+      ; "origin", `Null
+      ; "execution_mode", `String "serial"
+      ]
+  in
+  Alcotest.(check bool)
+    "missing completion rejected"
+    true
+    (Result.is_error (Sessions.tool_contract_of_yojson missing_completion))
 ;;
 
 (* ── worker_status ─────────────────────────────────────────────── *)

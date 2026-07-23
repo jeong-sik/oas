@@ -84,8 +84,9 @@ let make_agent
   Agent.create ~net ~config ~tools:[ tool ] ~options ~checkpoint_sink ()
 ;;
 
-let time_tool on_execute =
+let time_tool ?descriptor ?result on_execute =
   Tool.create
+    ?descriptor
     ~name:"get_time"
     ~description:"Get current time"
     ~parameters:
@@ -97,7 +98,9 @@ let time_tool on_execute =
       ]
     (fun _input ->
        on_execute ();
-       Ok { Types.content = "12:00 UTC"; _meta = None })
+       match result with
+       | Some result -> result
+       | None -> Ok { Types.content = "12:00 UTC"; _meta = None })
 ;;
 
 let messages_contain_text expected messages =
@@ -220,6 +223,8 @@ let test_yield_after_context_checkpoint () =
    with
    | Error error -> Alcotest.fail (Error.to_string error)
    | Ok (Agent.Advanced.Completed _) -> Alcotest.fail "expected cooperative yield"
+   | Ok (Agent.Advanced.Terminal_tool_completed _) ->
+     Alcotest.fail "expected cooperative yield"
    | Ok (Agent.Advanced.Yielded yielded) ->
      Alcotest.(check int) "yielded turn" 1 yielded.turn;
      Alcotest.(check int) "checkpoint turn" 1 yielded.checkpoint.turn_count;
@@ -300,6 +305,8 @@ let test_continue_reaches_terminal_completion () =
    with
    | Error error -> Alcotest.fail (Error.to_string error)
    | Ok (Agent.Advanced.Yielded _) -> Alcotest.fail "expected terminal completion"
+   | Ok (Agent.Advanced.Terminal_tool_completed _) ->
+     Alcotest.fail "expected provider terminal completion"
    | Ok (Agent.Advanced.Completed response) ->
      Alcotest.(check string)
        "visible response"
@@ -585,6 +592,477 @@ let test_unpaired_lease_callback_is_rejected () =
   Alcotest.(check int) "provider not called" 0 !call_count
 ;;
 
+let test_malformed_terminal_admission_keeps_provider_lease_held () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let malformed_response =
+    match tool_use_response.content with
+    | [ ToolUse { name; input; _ } ] ->
+      { tool_use_response with
+        content =
+          [ ToolUse { id = "malformed-terminal-1"; name; input }
+          ; ToolUse { id = "malformed-terminal-2"; name; input }
+          ]
+      }
+    | _ -> Alcotest.fail "terminal fixture lost its singleton ToolUse"
+  in
+  let lease_events = ref [] in
+  let handler_count = ref 0 in
+  let transport, call_count =
+    sequence_transport
+      ~on_call:(fun () -> lease_events := "provider" :: !lease_events)
+      [ malformed_response; text_response "corrected" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           (fun () -> incr handler_count))
+  in
+  (match
+     Agent.run_blocks
+       ~sw
+       ~on_yield:(fun () -> lease_events := "yield" :: !lease_events)
+       ~on_resume:(fun () -> lease_events := "resume" :: !lease_events)
+       agent
+       [ Types.Text "reject malformed terminal turn" ]
+   with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check string)
+       "provider corrected the malformed turn"
+       "corrected"
+       (Types.visible_text_of_response response));
+  Alcotest.(check int) "malformed turn ran no terminal handlers" 0 !handler_count;
+  Alcotest.(check int) "provider corrected on its second turn" 2 !call_count;
+  Alcotest.(check (list string))
+    "no resume callback without a preceding yield"
+    [ "provider"; "provider" ]
+    (List.rev !lease_events)
+;;
+
+let test_terminal_success_stops_advanced_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let handler_count = ref 0 in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           (fun () -> incr handler_count))
+  in
+  (match
+     Agent.Advanced.run_blocks
+       ~sw
+       ~api_strategy:Agent.Sync
+       ~on_tool_boundary:(fun _ ->
+         Alcotest.fail "terminal completion reached cooperative boundary")
+       agent
+       [ Types.Text "finish" ]
+   with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok (Agent.Advanced.Completed _) ->
+     Alcotest.fail "expected typed terminal tool completion"
+   | Ok (Agent.Advanced.Yielded _) ->
+     Alcotest.fail "terminal tool completion must not yield"
+   | Ok (Agent.Advanced.Terminal_tool_completed completion) ->
+     Alcotest.(check string)
+       "exact invocation"
+       "call_1"
+       (Tool_contract.Invocation.tool_use_id completion.receipt.invocation);
+     Alcotest.(check bool)
+       "checkpoint stage"
+       true
+       (completion.receipt.checkpoint_stage = Agent.After_tool_results_appended);
+     Alcotest.(check int) "checkpoint turn" 1 completion.checkpoint.turn_count);
+  Alcotest.(check int) "one handler" 1 !handler_count;
+  Alcotest.(check int) "one provider call" 1 !call_count
+;;
+
+let test_terminal_typed_error_allows_correction () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let typed_error =
+    Error
+      { Types.message = "correct input"
+      ; recoverable = true
+      ; error_class = Some Types.Deterministic
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "corrected" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_pre_effect)
+           ~result:typed_error
+           ignore)
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check string)
+       "corrected provider response"
+       "corrected"
+       (Types.visible_text_of_response response));
+  Alcotest.(check int) "correction used second provider turn" 2 !call_count
+;;
+
+let test_terminal_post_effect_error_stops_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let effect_count = ref 0 in
+  let typed_error =
+    Error
+      { Types.message = "effect committed before receipt failure"
+      ; recoverable = true
+      ; error_class = Some Types.Unknown
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_post_effect)
+           ~result:typed_error
+           (fun () -> incr effect_count))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error
+       (Error.Agent
+          (Error.TerminalToolEffectFailed { tool_use_id; effect_disposition; detail })) ->
+     Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check bool)
+       "typed post-effect disposition"
+       true
+       (Error.terminal_effect_disposition effect_disposition
+        = Tool_contract.Proven_post_effect);
+     Alcotest.(check string)
+       "typed terminal failure detail"
+       "effect committed before receipt failure"
+       detail
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "post-effect terminal failure must stop");
+  Alcotest.(check int) "effect ran once" 1 !effect_count;
+  Alcotest.(check int) "post-effect failure stopped provider" 1 !call_count
+;;
+
+let test_terminal_unknown_effect_error_is_typed () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let typed_error =
+    Error
+      { Types.message = "effect outcome cannot be proven"
+      ; recoverable = true
+      ; error_class = Some Types.Unknown
+      }
+  in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           ~result:typed_error
+           ignore)
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | Error
+       (Error.Agent
+          (Error.TerminalToolEffectFailed { tool_use_id; effect_disposition; detail })) ->
+     Alcotest.(check string) "typed terminal occurrence" "call_1" tool_use_id;
+     Alcotest.(check bool)
+       "typed unknown-effect disposition"
+       true
+       (Error.terminal_effect_disposition effect_disposition
+        = Tool_contract.Effect_outcome_unknown);
+     Alcotest.(check string)
+       "typed unknown-effect detail"
+       "effect outcome cannot be proven"
+       detail
+   | Error error -> Alcotest.fail ("unexpected error: " ^ Error.to_string error)
+   | Ok _ -> Alcotest.fail "unknown-effect terminal failure must stop");
+  Alcotest.(check int) "unknown-effect failure stopped provider" 1 !call_count
+;;
+
+let test_terminal_stream_detail_preserves_canonical_response () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let expected_usage : Types.api_usage =
+    { input_tokens = 11
+    ; output_tokens = 7
+    ; cache_creation_input_tokens = 3
+    ; cache_read_input_tokens = 2
+    ; cost_usd = None
+    }
+  in
+  let expected_response =
+    { tool_use_response with
+      id = "terminal-provider-response"
+    ; model = "terminal-provider-model"
+    ; usage = Some expected_usage
+    }
+  in
+  let transport, call_count =
+    sequence_transport [ expected_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Proven_post_effect)
+           ignore)
+  in
+  Agent.set_state
+    agent
+    { (Agent.state agent) with messages = [ Types.user_msg "finish" ] };
+  (match Agent.run_turn_stream_detailed ~sw ~on_event:ignore agent with
+   | Ok (`TerminalToolCompleted completion) ->
+     Alcotest.(check string)
+       "canonical response id"
+       expected_response.id
+       completion.response.id;
+     Alcotest.(check string)
+       "canonical response model"
+       expected_response.model
+       completion.response.model;
+     Alcotest.(check bool)
+       "canonical stop reason"
+       true
+       (completion.response.stop_reason = expected_response.stop_reason);
+     Alcotest.(check bool)
+       "canonical response content"
+       true
+       (completion.response.content = expected_response.content);
+     (match completion.response.usage with
+      | None -> Alcotest.fail "canonical response lost token usage"
+      | Some usage ->
+        Alcotest.(check int)
+          "canonical input tokens"
+          expected_usage.input_tokens
+          usage.input_tokens;
+        Alcotest.(check int)
+          "canonical output tokens"
+          expected_usage.output_tokens
+          usage.output_tokens;
+        Alcotest.(check int)
+          "canonical cache creation tokens"
+          expected_usage.cache_creation_input_tokens
+          usage.cache_creation_input_tokens;
+        Alcotest.(check int)
+          "canonical cache read tokens"
+          expected_usage.cache_read_input_tokens
+          usage.cache_read_input_tokens;
+        Alcotest.(check bool)
+          "cost enrichment is an optional finite observation"
+          true
+          (Option.fold
+             ~none:true
+             ~some:(fun cost -> Float.is_finite cost && cost >= 0.0)
+             usage.cost_usd));
+     (match completion.response.telemetry with
+      | None -> Alcotest.fail "canonical response lost completion telemetry"
+      | Some telemetry ->
+        Alcotest.(check bool)
+          "provider telemetry is observed"
+          true
+          (Option.is_some telemetry.provider_kind);
+        Alcotest.(check (option string))
+          "canonical model telemetry is observed"
+          (Some "mock-model")
+          telemetry.canonical_model_id;
+        Alcotest.(check bool)
+          "completion latency is observed"
+          true
+          (Option.is_some telemetry.request_latency_ms));
+     Alcotest.(check bool)
+       "checkpoint stage"
+       true
+       (completion.checkpoint_stage = Agent.After_tool_results_appended)
+   | Ok (`Complete _) -> Alcotest.fail "terminal tool unexpectedly completed as text"
+   | Ok `ToolsExecuted ->
+     Alcotest.fail "terminal tool unexpectedly requested another turn"
+   | Error error -> Alcotest.fail (Error.to_string error.error));
+  Alcotest.(check int) "terminal detail used one provider call" 1 !call_count
+;;
+
+exception Terminal_cancel_token
+
+let test_terminal_cancellation_preserves_token_and_stops_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           (fun () -> raise (Eio.Cancel.Cancelled Terminal_cancel_token)))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | _ -> Alcotest.fail "terminal cancellation must propagate"
+   | exception Eio.Cancel.Cancelled Terminal_cancel_token -> ()
+   | exception exn -> raise exn);
+  Alcotest.(check int) "cancellation stops before next provider" 1 !call_count
+;;
+
+let test_terminal_exception_stops_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           (fun () -> failwith "terminal boom"))
+  in
+  (match Agent.run_blocks ~sw agent [ Types.Text "finish" ] with
+   | _ -> Alcotest.fail "terminal exception must propagate"
+   | exception Failure message ->
+     Alcotest.(check string) "original exception" "terminal boom" message
+   | exception exn -> raise exn);
+  Alcotest.(check int) "exception stops before next provider call" 1 !call_count
+;;
+
+let test_terminal_success_stops_stream_before_next_provider () =
+  with_temp_trace
+  @@ fun trace_path ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let trace = Raw_trace.create ~path:trace_path () |> Result.get_ok in
+  let transport, call_count =
+    sequence_transport [ tool_use_response; text_response "must-not-run" ]
+  in
+  let agent =
+    make_agent
+      ~net:env#net
+      ~transport
+      ~raw_trace:trace
+      ~checkpoint_sink:(fun _ -> Ok ())
+      ~context_injector:None
+      ~on_run_complete:None
+      ~tool:
+        (time_tool
+           ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+           ignore)
+  in
+  (match Agent.run_stream_blocks ~sw ~on_event:ignore agent [ Types.Text "finish" ] with
+   | Error error -> Alcotest.fail (Error.to_string error)
+   | Ok response ->
+     Alcotest.(check bool)
+       "terminal response remains tool-use response"
+       true
+       (response.stop_reason = Types.StopToolUse));
+  Alcotest.(check int) "stream stops after one provider call" 1 !call_count
+;;
+
 let () =
   Alcotest.run
     "Agent advanced cooperative execution"
@@ -617,6 +1095,42 @@ let () =
             "unpaired provider lease callback is rejected"
             `Quick
             test_unpaired_lease_callback_is_rejected
+        ; Alcotest.test_case
+            "malformed terminal admission keeps provider lease held"
+            `Quick
+            test_malformed_terminal_admission_keeps_provider_lease_held
+        ; Alcotest.test_case
+            "terminal success stops Advanced"
+            `Quick
+            test_terminal_success_stops_advanced_before_next_provider
+        ; Alcotest.test_case
+            "terminal typed error allows correction"
+            `Quick
+            test_terminal_typed_error_allows_correction
+        ; Alcotest.test_case
+            "terminal post-effect error stops provider"
+            `Quick
+            test_terminal_post_effect_error_stops_before_next_provider
+        ; Alcotest.test_case
+            "terminal unknown-effect error is typed"
+            `Quick
+            test_terminal_unknown_effect_error_is_typed
+        ; Alcotest.test_case
+            "terminal stream detail preserves provider response"
+            `Quick
+            test_terminal_stream_detail_preserves_canonical_response
+        ; Alcotest.test_case
+            "terminal cancellation preserves token"
+            `Quick
+            test_terminal_cancellation_preserves_token_and_stops_provider
+        ; Alcotest.test_case
+            "terminal exception stops before next provider"
+            `Quick
+            test_terminal_exception_stops_before_next_provider
+        ; Alcotest.test_case
+            "terminal success stops stream"
+            `Quick
+            test_terminal_success_stops_stream_before_next_provider
         ] )
     ]
 ;;

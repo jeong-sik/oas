@@ -10,6 +10,7 @@ module Retry = Llm_provider.Retry
 open Types
 include Agent_types
 open Agent_trace
+open Agent_run_loop_support
 
 let _log = Log.create ~module_name:"agent" ()
 
@@ -115,6 +116,8 @@ let run_turn_core_detailed
        | Ok (Pipeline.Complete response) -> Ok (`Complete response)
        | Ok (Pipeline.ToolsExecuted checkpoint_stage) ->
          Ok (`ToolsExecuted checkpoint_stage)
+       | Ok (Pipeline.TerminalToolCompleted completion) ->
+         Ok (`TerminalToolCompleted completion)
        | Error error -> Error { error; provider_failure = !provider_failure })
 ;;
 
@@ -154,58 +157,6 @@ let resume_user_input = Agent_input.resume_user_input
     and dropped without allocating a record, so hosts can detect missing
     telemetry wiring without forcing stderr output. Disabled records below
     the global log level are filtered before this counter is considered. *)
-let stop_reason_label : Types.stop_reason -> string = function
-  | EndTurn -> "end_turn"
-  | StopToolUse -> "stop_tool_use"
-  | MaxTokens -> "max_tokens"
-  | StopSequence -> "stop_sequence"
-  | Refusal -> "refusal"
-  | ContentFilter -> "content_filter"
-  | RepetitionTruncation -> "repetition_truncation"
-  | PauseTurn -> "pause_turn"
-  | Compaction -> "compaction"
-  | ContextWindowExceeded -> "model_context_window_exceeded"
-  | UnmatchedToolCalls -> "unmatched_tool_calls"
-  | Unknown s -> "unknown:" ^ s
-;;
-
-let log_turn ~run_start ~turn_start ~turn_index ~model ~stop =
-  let now = Unix.gettimeofday () in
-  let model_field = if String.length model = 0 then "-" else model in
-  Log.info
-    _log
-    "turn completed"
-    [ Log.I ("turn", turn_index)
-    ; Log.F ("elapsed_run_sec", now -. run_start)
-    ; Log.F ("turn_duration_sec", now -. turn_start)
-    ; Log.S ("model", model_field)
-    ; Log.S ("stop", stop)
-    ]
-;;
-
-type provider_lease =
-  | Held
-  | Released
-
-type provider_lease_release =
-  { after : provider_lease
-  ; before_tool_execution : (unit -> unit) option
-  }
-
-let plan_provider_lease_release ~yield_enabled ~on_yield = function
-  | Released -> { after = Released; before_tool_execution = None }
-  | Held when yield_enabled -> { after = Released; before_tool_execution = on_yield }
-  | Held -> { after = Held; before_tool_execution = None }
-;;
-
-let acquire_provider_lease ~yield_enabled ~on_resume = function
-  | Held -> Held
-  | Released when yield_enabled ->
-    Option.iter (fun callback -> callback ()) on_resume;
-    Held
-  | Released -> Held
-;;
-
 let run_loop_turns_detailed
       ~sw
       ?clock
@@ -255,7 +206,15 @@ let run_loop_turns_detailed
         ~turn_index
         ~model:agent.state.config.model
         ~stop:"tools_executed";
-      loop release.after
+      loop (release.after ())
+    | Ok (`TerminalToolCompleted completion) ->
+      log_turn
+        ~run_start
+        ~turn_start
+        ~turn_index
+        ~model:completion.response.model
+        ~stop:"terminal_tool_completed";
+      Ok completion.response
   in
   loop Held
 ;;
@@ -789,9 +748,16 @@ module Advanced = struct
     ; checkpoint : Checkpoint.t
     }
 
+  type terminal_tool_completed =
+    { turn : int
+    ; receipt : Terminal_tool_receipt.t
+    ; checkpoint : Checkpoint.t
+    }
+
   type run_outcome =
     | Completed of Types.api_response
     | Yielded of yielded
+    | Terminal_tool_completed of terminal_tool_completed
 
   let raw_trace_yield_stop_reason = "cooperative_tool_boundary_yield"
 
@@ -806,6 +772,11 @@ module Advanced = struct
         ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
         }
     | Yielded _ -> Run_yielded { stop_reason = raw_trace_yield_stop_reason }
+    | Terminal_tool_completed completion ->
+      Run_completed
+        { final_text = final_text_of_response completion.receipt.response
+        ; stop_reason = Some "terminal_tool_completed"
+        }
   ;;
 
   let run_loop_turns_detailed
@@ -859,7 +830,7 @@ module Advanced = struct
           ~stop:"tools_executed";
         let boundary = completed_tool_boundary agent checkpoint_stage in
         (match on_tool_boundary boundary with
-         | Continue -> loop release.after
+         | Continue -> loop (release.after ())
          | Yield ->
            let checkpoint = checkpoint agent in
            Ok
@@ -868,6 +839,16 @@ module Advanced = struct
                 ; checkpoint_stage = boundary.checkpoint_stage
                 ; checkpoint
                 }))
+      | Ok (`TerminalToolCompleted receipt) ->
+        log_turn
+          ~run_start
+          ~turn_start
+          ~turn_index
+          ~model:receipt.response.model
+          ~stop:"terminal_tool_completed";
+        Ok
+          (Terminal_tool_completed
+             { turn = agent.state.turn_count; receipt; checkpoint = checkpoint agent })
     in
     loop Held
   ;;
@@ -984,7 +965,8 @@ let run_turn_stream_detailed ~sw ?clock ~on_event ?on_telemetry ?execution_store
   run_with_execution_scope ~sw ?execution_store agent (fun ~sw -> run ~sw ())
   |> Result.map (function
     | `Complete response -> `Complete response
-    | `ToolsExecuted _ -> `ToolsExecuted)
+    | `ToolsExecuted _ -> `ToolsExecuted
+    | `TerminalToolCompleted receipt -> `TerminalToolCompleted receipt)
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry ?execution_store agent =

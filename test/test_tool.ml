@@ -126,9 +126,9 @@ let test_execution_env_handler_receives_context_and_invocation () =
                  Printf.sprintf
                    "%s:%s:%d:%d"
                    context_value
-                   (Tool.Invocation.tool_use_id invocation)
-                   (Tool.Invocation.turn invocation)
-                   (Tool.Invocation.planned_index invocation)
+                   (Tool_contract.Invocation.tool_use_id invocation)
+                   (Tool_contract.Invocation.turn invocation)
+                   (Tool_contract.Invocation.planned_index invocation)
              ; _meta = None
              }
          | _, None -> missing_invocation_error ()
@@ -142,15 +142,16 @@ let test_execution_env_handler_receives_context_and_invocation () =
   let context = Context.create_sync () in
   Context.set context "key" (`String "ctx");
   let invocation =
-    Tool.Invocation.create
+    Tool_contract.Invocation.create
       ~tool_use_id:"provider-call-17"
       ~turn:4
       ~schedule:
         { planned_index = 2
         ; batch_index = 0
         ; batch_size = 1
-        ; execution_mode = Tool.Serial
+        ; execution_mode = Tool_contract.Serial
         }
+      ~completion:Tool_contract.Continue_after_success
   in
   match Tool.execute ~context ~invocation tool `Null with
   | Ok { content; _meta = _ } ->
@@ -245,7 +246,7 @@ let test_schema_param_types () =
 let test_descriptor_preserved_and_not_in_schema () =
   let tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Concurrent }
+      ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ~name:"shell_exec"
       ~description:"Run a command"
       ~parameters:
@@ -268,7 +269,12 @@ let test_descriptor_preserved_and_not_in_schema () =
     "descriptor json has execution_mode"
     "concurrent"
     (descriptor_json |> member "execution_mode" |> to_string);
-  check int "one structural field" 1 (descriptor_json |> to_assoc |> List.length)
+  check
+    string
+    "descriptor json has completion"
+    "continue_after_success"
+    (descriptor_json |> member "completion" |> member "kind" |> to_string);
+  check int "two structural fields" 2 (descriptor_json |> to_assoc |> List.length)
 ;;
 
 let test_descriptor_to_yojson_none () =
@@ -277,17 +283,17 @@ let test_descriptor_to_yojson_none () =
 ;;
 
 let test_execution_mode_yojson_roundtrip () =
-  let variants = [ Tool.Concurrent; Tool.Serial ] in
+  let variants = [ Tool_contract.Concurrent; Tool_contract.Serial ] in
   List.iter
     (fun value ->
-       let json = Tool.execution_mode_to_yojson value in
-       match Tool.execution_mode_of_yojson json with
+       let json = Tool_contract.execution_mode_to_yojson value in
+       match Tool_contract.execution_mode_of_yojson json with
        | Ok decoded ->
          check
            string
            "execution mode roundtrip"
-           (Tool.show_execution_mode value)
-           (Tool.show_execution_mode decoded)
+           (Tool_contract.show_execution_mode value)
+           (Tool_contract.show_execution_mode decoded)
        | Error msg -> fail ("execution_mode roundtrip: " ^ msg))
     variants
 ;;
@@ -300,8 +306,63 @@ let test_missing_descriptor_defaults_to_serial () =
   check
     string
     "serial"
-    (Tool.show_execution_mode Tool.Serial)
-    (Tool.show_execution_mode (Tool.execution_mode tool))
+    (Tool_contract.show_execution_mode Tool_contract.Serial)
+    (Tool_contract.show_execution_mode (Tool.execution_mode tool));
+  check
+    string
+    "continue"
+    (Tool_contract.show_completion Tool_contract.Continue_after_success)
+    (Tool_contract.show_completion (Tool.completion tool))
+;;
+
+let test_terminal_descriptor_is_serial_and_terminal () =
+  let tool =
+    Tool.create
+      ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+      ~name:"finish"
+      ~description:""
+      ~parameters:[]
+      (fun _ -> Ok { Types.content = "done"; _meta = None })
+  in
+  check
+    string
+    "terminal is serial"
+    (Tool_contract.show_execution_mode Tool_contract.Serial)
+    (Tool_contract.show_execution_mode (Tool.execution_mode tool));
+  check
+    string
+    "terminal completion"
+    (Tool_contract.show_completion
+       (Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown))
+    (Tool_contract.show_completion (Tool.completion tool))
+;;
+
+let test_completion_codec_is_current_only () =
+  let require_rejected label json =
+    match Tool_contract.completion_of_yojson json with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail (label ^ " unexpectedly decoded")
+  in
+  require_rejected "legacy completion string" (`String "terminal_after_success");
+  require_rejected
+    "terminal completion without effect disposition"
+    (`Assoc [ "kind", `String "terminal_after_success" ]);
+  require_rejected
+    "duplicate effect disposition"
+    (`Assoc
+        [ "kind", `String "terminal_after_success"
+        ; "failure_effect", `String "proven_pre_effect"
+        ; "failure_effect", `String "proven_post_effect"
+        ]);
+  match
+    Tool_contract.completion_of_yojson
+      (`Assoc
+          [ "kind", `String "terminal_after_success"
+          ; "failure_effect", `String "effect_outcome_unknown"
+          ])
+  with
+  | Ok (Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown) -> ()
+  | Ok _ | Error _ -> Alcotest.fail "current terminal completion did not round-trip"
 ;;
 
 let () =
@@ -341,6 +402,14 @@ let () =
             "missing descriptor is serial"
             `Quick
             test_missing_descriptor_defaults_to_serial
+        ; test_case
+            "terminal descriptor is serial and terminal"
+            `Quick
+            test_terminal_descriptor_is_serial_and_terminal
+        ; test_case
+            "completion codec is current-only"
+            `Quick
+            test_completion_codec_is_current_only
         ] )
     ; ( "with_defaults"
       , [ test_case "injects missing args" `Quick (fun () ->
@@ -407,7 +476,7 @@ let () =
                    | Some invocation ->
                      Ok
                        { Types.content =
-                           Tool.Invocation.tool_use_id invocation
+                           Tool_contract.Invocation.tool_use_id invocation
                            ^ ":"
                            ^ (input |> member "name" |> to_string)
                        ; _meta = None
@@ -416,15 +485,16 @@ let () =
             in
             let wrapped = Tool.with_defaults [ "name", `String "default" ] tool in
             let invocation =
-              Tool.Invocation.create
+              Tool_contract.Invocation.create
                 ~tool_use_id:"call-1"
                 ~turn:3
                 ~schedule:
                   { planned_index = 1
                   ; batch_index = 0
                   ; batch_size = 1
-                  ; execution_mode = Tool.Serial
+                  ; execution_mode = Tool_contract.Serial
                   }
+                ~completion:Tool_contract.Continue_after_success
             in
             match Tool.execute ~invocation wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->

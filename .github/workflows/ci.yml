@@ -41,6 +41,12 @@ jobs:
       - name: Check execution store single-writer boundary
         run: opam exec -- bash scripts/check-execution-store-boundary.sh
 
+      - name: Check terminal-tool boundary
+        run: opam exec -- bash scripts/check-terminal-tool-boundary.sh --check
+
+      - name: Check terminal-tool boundary ratchet self-test
+        run: opam exec -- bash scripts/check-terminal-tool-boundary.sh --self-test
+
       - name: Build
         run: opam exec -- dune build @all
 

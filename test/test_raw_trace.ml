@@ -154,7 +154,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let file_write_tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Serial }
+      ~descriptor:(Tool.ordinary_descriptor Serial)
       ~name:"file_write"
       ~description:"Write a file"
       ~parameters:
@@ -177,7 +177,7 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let shell_exec_tool =
     Tool.create
-      ~descriptor:{ Tool.execution_mode = Concurrent }
+      ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ~name:"shell_exec"
       ~description:"Run a verification command"
       ~parameters:
@@ -456,7 +456,7 @@ let test_agent_run_stream_append_only_raw_trace () =
          (fun (record : Raw_trace.record) ->
             Option.map
               (fun mode ->
-                 Tool.execution_mode_to_yojson mode |> Yojson.Safe.Util.to_string)
+                 Tool_contract.execution_mode_to_yojson mode |> Yojson.Safe.Util.to_string)
               record.tool_execution_mode)
          started_records);
     let first_record = List.hd run1_records in
@@ -727,20 +727,20 @@ let test_record_of_json_execution_modes () =
            ~record_type:"tool_execution_started"
            [ "tool_use_id", `String "tool-1"
            ; "tool_name", `String "lookup"
-           ; "tool_execution_mode", Tool.execution_mode_to_yojson mode
+           ; "tool_execution_mode", Tool_contract.execution_mode_to_yojson mode
            ]
        in
        match Raw_trace.record_of_json json with
        | Ok record ->
          Alcotest.(check string)
            "mode"
-           (Tool.show_execution_mode mode)
+           (Tool_contract.show_execution_mode mode)
            (Option.fold
               ~none:"missing"
-              ~some:Tool.show_execution_mode
+              ~some:Tool_contract.show_execution_mode
               record.tool_execution_mode)
        | Error error -> Alcotest.fail (Error.to_string error))
-    [ Tool.Concurrent; Tool.Serial ]
+    [ Tool_contract.Concurrent; Tool_contract.Serial ]
 ;;
 
 let test_record_to_json_full () =

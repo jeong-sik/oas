@@ -21,9 +21,9 @@ let observer_failure ~invocation exception_ backtrace =
   Log.error
     _log
     "tool observer failed"
-    [ Log.S ("tool_use_id", Tool.Invocation.tool_use_id invocation)
-    ; Log.I ("turn", Tool.Invocation.turn invocation)
-    ; Log.I ("planned_index", Tool.Invocation.planned_index invocation)
+    [ Log.S ("tool_use_id", Tool_contract.Invocation.tool_use_id invocation)
+    ; Log.I ("turn", Tool_contract.Invocation.turn invocation)
+    ; Log.I ("planned_index", Tool_contract.Invocation.planned_index invocation)
     ];
   Observer_failure { invocation; exception_; backtrace }
 ;;
@@ -40,12 +40,9 @@ type scheduled_tool_use =
   ; id : string
   ; name : string
   ; input : Yojson.Safe.t
-  ; execution_mode : Tool.execution_mode
+  ; execution_mode : Tool_contract.execution_mode
+  ; completion : Tool_contract.completion
   }
-
-type execution_batch =
-  | Concurrent_batch of scheduled_tool_use list
-  | Serial_batch of scheduled_tool_use
 
 type tool_index = (string, Tool.t) Hashtbl.t
 
@@ -97,33 +94,16 @@ let blocked_tool_result ~invocation ~name ~input ~content =
 ;;
 
 let schedule_tool_use ~tool_index index (id, name, input) =
-  let execution_mode =
+  let execution_mode, completion =
     match find_in_index tool_index name with
-    | Some tool -> Tool.execution_mode tool
-    | None -> Tool.Serial
+    | Some tool -> Tool.execution_mode tool, Tool.completion tool
+    | None -> Tool_contract.Serial, Tool_contract.Continue_after_success
   in
-  { index; id; name; input; execution_mode }
-;;
-
-let execution_batches tool_uses =
-  let flush_concurrent acc = function
-    | [] -> acc
-    | concurrent_tools -> Concurrent_batch (List.rev concurrent_tools) :: acc
-  in
-  let rec build acc current_concurrent = function
-    | [] -> List.rev (flush_concurrent acc current_concurrent)
-    | tool_use :: rest ->
-      (match tool_use.execution_mode with
-       | Tool.Concurrent -> build acc (tool_use :: current_concurrent) rest
-       | Tool.Serial ->
-         let acc = flush_concurrent acc current_concurrent in
-         build (Serial_batch tool_use :: acc) [] rest)
-  in
-  build [] [] tool_uses
+  { index; id; name; input; execution_mode; completion }
 ;;
 
 let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
-  : Tool.schedule
+  : Tool_contract.schedule
   =
   { planned_index = tool_use.index
   ; batch_index
@@ -211,7 +191,7 @@ let invoke_post_hook
       hook_opt
       event
   =
-  let turn_count = Tool.Invocation.turn invocation in
+  let turn_count = Tool_contract.Invocation.turn invocation in
   try
     match
       invoke_hook
@@ -272,7 +252,7 @@ let find_and_execute_tool_with_index
       name
       input
   =
-  let id = Tool.Invocation.tool_use_id invocation in
+  let id = Tool_contract.Invocation.tool_use_id invocation in
   let requested_name = name in
   let name, input, tool_opt = resolve_tool_call tool_index name input in
   let first_deferred_failure = ref None in
@@ -377,15 +357,8 @@ let find_and_execute_tool_with_index
        | Ok exact_input ->
          let t0 = Unix.gettimeofday () in
          let result =
-           try Tool.execute ~context ~invocation tool exact_input with
-           | exn ->
-             Llm_provider.Reserved_exn.reraise_if_reserved exn;
-             Error
-               { message =
-                   Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn)
-               ; recoverable = false
-               ; error_class = Some Types.Unknown
-               }
+           Agent_tool_terminal_boundary.execute_handler ~tool ~name (fun () ->
+             Tool.execute ~context ~invocation tool exact_input)
          in
          let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
          let result_bytes =
@@ -564,6 +537,7 @@ let find_and_execute_tool
 type scheduled_tool_outcome =
   { index : int
   ; completed_result : tool_execution_result option
+  ; completion : batch_completion
   ; failure : execution_failure_cause option
   }
 
@@ -585,13 +559,19 @@ let execute_scheduled_tool
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
-      ~(schedule : Tool.schedule)
+      ~(schedule : Tool_contract.schedule)
       (tool_use : scheduled_tool_use)
   =
   let { index; id; name; input; _ } = tool_use in
-  let invocation = Tool.Invocation.create ~tool_use_id:id ~turn:turn_count ~schedule in
-  let id = Tool.Invocation.tool_use_id invocation in
-  let turn_count = Tool.Invocation.turn invocation in
+  let invocation =
+    Tool_contract.Invocation.create
+      ~tool_use_id:id
+      ~turn:turn_count
+      ~schedule
+      ~completion:tool_use.completion
+  in
+  let id = Tool_contract.Invocation.tool_use_id invocation in
+  let turn_count = Tool_contract.Invocation.turn invocation in
   let completed_dispatch : tool_dispatch option ref = ref None in
   let first_failure = ref None in
   let record_failure failure =
@@ -640,6 +620,10 @@ let execute_scheduled_tool
     { index
     ; completed_result =
         Option.map (fun (dispatch : tool_dispatch) -> dispatch.result) !completed_dispatch
+    ; completion =
+        Agent_tool_terminal_boundary.completed_dispatch
+          tool_use.completion
+          !completed_dispatch
     ; failure = !first_failure
     }
   in
@@ -782,11 +766,13 @@ let execute_scheduled_tool
          { index
          ; completed_result =
              Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
+         ; completion = Continue_after_batch
          ; failure = None
          }
        | Hooks.HookFailed { stage; detail } ->
          { index
          ; completed_result = None
+         ; completion = Continue_after_batch
          ; failure =
              Some
                (Hook_failure
@@ -800,6 +786,7 @@ let execute_scheduled_tool
        | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
          { index
          ; completed_result = None
+         ; completion = Continue_after_batch
          ; failure =
              Some
                (Hook_failure
@@ -838,7 +825,7 @@ let execute_scheduled_tool
                       Agent_execution_event_writer.append
                         j
                         (Tool_called
-                           { turn = Tool.Invocation.turn invocation
+                           { turn = Tool_contract.Invocation.turn invocation
                            ; tool_name = name
                            ; idempotency_key = idem_key
                            ; input_hash = Digest.string (Yojson.Safe.to_string input)
@@ -853,7 +840,7 @@ let execute_scheduled_tool
                       Agent_execution_event_writer.append
                         j
                         (Tool_completed
-                           { turn = Tool.Invocation.turn invocation
+                           { turn = Tool_contract.Invocation.turn invocation
                            ; tool_name = name
                            ; idempotency_key = idem_key
                            ; output_json = `String dispatch.result.content
@@ -898,32 +885,21 @@ let execute_tools
       ~(usage : Types.usage_stats)
       ?correlation_id
       ?run_id
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
       tool_uses
   =
   let tool_index = build_index tools in
-  let tool_use_blocks =
-    List.filter_map
-      (fun (block : Types.content_block) ->
-         match block with
-         | ToolUse { id; name; input } -> Some (id, name, input)
-         | Text _
-         | Thinking _
-         | ReasoningDetails _
-         | RedactedThinking _
-         | ToolResult _
-         | Image _
-         | Document _
-         | Audio _ ->
-           (* Only [ToolUse] blocks dispatch tools. Enumerated explicitly
-              so a new [content_block] variant cannot inherit "no tool"
-              behavior without review. *)
-           None)
-      tool_uses
-  in
+  let tool_use_blocks = Agent_tool_terminal_boundary.tool_use_blocks tool_uses in
   let scheduled = List.mapi (schedule_tool_use ~tool_index) tool_use_blocks in
+  let plan =
+    Agent_tool_batch_plan.create
+      ~execution_mode:(fun tool_use -> tool_use.execution_mode)
+      ~completion:(fun tool_use -> tool_use.completion)
+      scheduled
+  in
   let run_one =
     execute_scheduled_tool
       ~context
@@ -958,7 +934,16 @@ let execute_tools
         None
         outcomes
     in
-    completed, failure
+    let completion =
+      List.fold_left
+        (fun selected outcome ->
+           match selected, outcome.completion with
+           | (Terminal_completed _ | Terminal_failed _), _ -> selected
+           | Continue_after_batch, candidate -> candidate)
+        Continue_after_batch
+        outcomes
+    in
+    completed, completion, failure
   in
   let ordered_results completed =
     completed
@@ -966,15 +951,15 @@ let execute_tools
       Int.compare left_index right_index)
     |> List.map snd
   in
-  let rec run_batches batch_index completed = function
-    | [] -> Ok (ordered_results completed)
+  let rec run_batches batch_index completed completion = function
+    | [] -> Ok { completed_results = ordered_results completed; completion }
     | batch :: rest ->
       let batch_results =
         match batch with
-        | Serial_batch tool_use ->
+        | Agent_tool_batch_plan.Serial_batch tool_use ->
           let schedule = hook_schedule_of_tool_use ~batch_index ~batch_size:1 tool_use in
           [ run_one ~schedule tool_use ]
-        | Concurrent_batch tool_uses ->
+        | Agent_tool_batch_plan.Concurrent_batch tool_uses ->
           let batch_size = List.length tool_uses in
           tool_uses
           |> List.map (fun tool_use ->
@@ -982,11 +967,33 @@ let execute_tools
             tool_use, schedule)
           |> Eio.Fiber.List.map (fun (tool_use, schedule) -> run_one ~schedule tool_use)
       in
-      let batch_completed, failure = collect_batch batch_results in
+      let batch_completed, batch_completion, failure = collect_batch batch_results in
       let completed = List.rev_append batch_completed completed in
+      let completion =
+        match completion, batch_completion with
+        | (Terminal_completed _ | Terminal_failed _), _ -> completion
+        | Continue_after_batch, candidate -> candidate
+      in
       (match failure with
-       | Some cause -> Error { completed_results = ordered_results completed; cause }
-       | None -> run_batches (batch_index + 1) completed rest)
+       | Some cause ->
+         Error { completed_results = ordered_results completed; completion; cause }
+       | None -> run_batches (batch_index + 1) completed completion rest)
   in
-  run_batches 0 [] (execution_batches scheduled)
+  match plan with
+  | Agent_tool_batch_plan.Rejected_terminal_mix scheduled ->
+    let batch_size = List.length scheduled in
+    Ok
+      (Agent_tool_terminal_boundary.rejected_report
+         ~turn:turn_count
+         ~schedule:(hook_schedule_of_tool_use ~batch_index:0 ~batch_size)
+         ~completion:(fun tool_use -> tool_use.completion)
+         ~id:(fun tool_use -> tool_use.id)
+         ~name:(fun tool_use -> tool_use.name)
+         ~input:(fun tool_use -> tool_use.input)
+         scheduled)
+  | Agent_tool_batch_plan.Admitted batches ->
+    if batches <> [] then Option.iter (fun callback -> callback ()) before_tool_execution;
+    run_batches 0 [] Continue_after_batch batches
 ;;
+
+let recovered_batch_completion = Agent_tool_terminal_boundary.recovered_batch_completion

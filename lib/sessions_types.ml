@@ -118,7 +118,8 @@ type tool_contract =
   { name : string
   ; description : string
   ; origin : string option
-  ; execution_mode : Tool.execution_mode
+  ; execution_mode : Tool_contract.execution_mode
+  ; completion : Tool_contract.completion
   }
 [@@deriving show]
 
@@ -130,7 +131,8 @@ let tool_contract_to_yojson contract =
       , match contract.origin with
         | Some origin -> `String origin
         | None -> `Null )
-    ; "execution_mode", Tool.execution_mode_to_yojson contract.execution_mode
+    ; "execution_mode", Tool_contract.execution_mode_to_yojson contract.execution_mode
+    ; "completion", Tool_contract.completion_to_yojson contract.completion
     ]
 ;;
 
@@ -138,7 +140,7 @@ let tool_contract_of_yojson json =
   let ( let* ) = Result.bind in
   match json with
   | `Assoc fields ->
-    let allowed = [ "name"; "description"; "origin"; "execution_mode" ] in
+    let allowed = [ "name"; "description"; "origin"; "execution_mode"; "completion" ] in
     let rec validate_names seen = function
       | [] -> Ok ()
       | (name, _) :: _ when not (List.mem name allowed) ->
@@ -175,10 +177,15 @@ let tool_contract_of_yojson json =
     in
     let* execution_mode =
       match List.assoc_opt "execution_mode" fields with
-      | Some value -> Tool.execution_mode_of_yojson value
+      | Some value -> Tool_contract.execution_mode_of_yojson value
       | None -> Error "tool contract field \"execution_mode\" is required"
     in
-    Ok { name; description; origin; execution_mode }
+    let* completion =
+      match List.assoc_opt "completion" fields with
+      | Some value -> Tool_contract.completion_of_yojson value
+      | None -> Error "tool contract field \"completion\" is required"
+    in
+    Ok { name; description; origin; execution_mode; completion }
   | value ->
     Error
       (Printf.sprintf
@@ -475,7 +482,12 @@ let%test "show_missing_file non-empty" =
 (* -- tool_contract round-trip -- *)
 let%test "tool_contract round-trip" =
   let v : tool_contract =
-    { name = "t"; description = "d"; origin = Some "o"; execution_mode = Tool.Concurrent }
+    { name = "t"
+    ; description = "d"
+    ; origin = Some "o"
+    ; execution_mode = Tool_contract.Concurrent
+    ; completion = Tool_contract.Continue_after_success
+    }
   in
   tool_contract_of_yojson (tool_contract_to_yojson v) = Ok v
 ;;

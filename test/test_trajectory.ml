@@ -129,7 +129,7 @@ let test_tool_call_pairing () =
         ~tool_use_id:"tu-1"
         ~tool_name:"read_file"
         ~tool_input:(`Assoc [ "path", `String "/foo" ])
-        ~tool_execution_mode:Tool.Serial
+        ~tool_execution_mode:Tool_contract.Serial
         ()
     ; make_record
         ~seq:3
@@ -248,7 +248,7 @@ let test_unfinished_tool () =
         ~tool_use_id:"tu-pending"
         ~tool_name:"long_op"
         ~tool_input:(`Assoc [])
-        ~tool_execution_mode:Tool.Serial
+        ~tool_execution_mode:Tool_contract.Serial
         ()
     ; make_record
         ~seq:3
@@ -303,7 +303,7 @@ let test_json_roundtrip () =
         ~tool_use_id:"tu-rt"
         ~tool_name:"search"
         ~tool_input:(`Assoc [ "q", `String "test" ])
-        ~tool_execution_mode:Tool.Concurrent
+        ~tool_execution_mode:Tool_contract.Concurrent
         ()
     ; make_record
         ~seq:4

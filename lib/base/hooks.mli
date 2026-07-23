@@ -30,10 +30,6 @@ type reasoning_summary =
 val empty_reasoning_summary : reasoning_summary
 val extract_reasoning : Types.message list -> reasoning_summary
 
-(** Compatibility name for the canonical tool schedule type. This alias owns
-    no second representation; new code should use {!Tool.schedule}. *)
-type tool_schedule = Tool.schedule
-
 (** Events emitted during agent execution *)
 type hook_event =
   | BeforeTurn of
@@ -52,14 +48,14 @@ type hook_event =
       ; response : Types.api_response
       }
   | PreToolUse of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
         (** Exact run-scoped model-tool occurrence. @since 0.216.0 *)
       ; tool_name : string
       ; input : Yojson.Safe.t
       ; accumulated_cost_usd : float
       }
   | PostToolUse of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
         (** Same exact occurrence as the matching [PreToolUse].
             @since 0.216.0 *)
       ; tool_name : string
@@ -69,7 +65,7 @@ type hook_event =
       ; duration_ms : float
       }
   | PostToolUseFailure of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
         (** Same exact occurrence as the matching [PreToolUse].
             @since 0.216.0 *)
       ; tool_name : string
@@ -81,20 +77,20 @@ type hook_event =
       ; response : Types.api_response
       }
   | OnError of
-      { invocation : Tool.Invocation.t option
+      { invocation : Tool_contract.Invocation.t option
         (** [Some] for an error attributable to one exact tool occurrence;
             [None] for non-tool errors. *)
       ; detail : string
       ; context : string
       }
   | OnToolError of
-      { invocation : Tool.Invocation.t
+      { invocation : Tool_contract.Invocation.t
       ; tool_name : string
       ; error : string
       }
 
 (** Exact tool occurrence associated with a hook event, when any. *)
-val invocation_of_event : hook_event -> Tool.Invocation.t option
+val invocation_of_event : hook_event -> Tool_contract.Invocation.t option
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request =

@@ -21,7 +21,7 @@ open Agent_sdk
 open Types
 
 let read_only_tool =
-  let descriptor = { Tool.execution_mode = Concurrent } in
+  let descriptor = Tool.ordinary_descriptor Concurrent in
   Tool.create
     ~descriptor
     ~name:"lookup"
@@ -49,7 +49,7 @@ let read_only_tool =
 (** This simulated client declares serial execution. OAS does not recognize the
     URL or tool name to choose that mode. *)
 let external_fetch_tool =
-  let descriptor = { Tool.execution_mode = Serial } in
+  let descriptor = Tool.ordinary_descriptor Serial in
   Tool.create
     ~descriptor
     ~name:"fetch_url"

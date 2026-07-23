@@ -9,8 +9,19 @@ type scope_locator
 type invocation_locator
 type invocation
 
+type invocation_authority = private
+  { invocation : Tool_contract.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+type settled_invocation = private
+  { authority : invocation_authority
+  ; result : Llm_provider.Types.content_block
+  }
+
 type tool_result = private
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -78,7 +89,7 @@ val resume_running
 type turn_resume =
   | Resume_turn_absent
   | Resume_turn_open of turn
-  | Resume_turn_settled
+  | Resume_turn_settled of turn
 
 (** Total classification of a provider attempt found under a resumed turn.
     [Settled] is a provider attempt already [Closed Succeeded] under a still-open
@@ -87,7 +98,7 @@ type turn_resume =
 type provider_resume =
   | Resume_provider_absent
   | Resume_provider_open of provider_attempt
-  | Resume_provider_settled
+  | Resume_provider_settled of provider_attempt
 
 val open_turn : t -> ordinal:int -> (turn, error) result
 val resume_turn : t -> ordinal:int -> (turn_resume, error) result
@@ -113,22 +124,57 @@ val open_provider_attempt
 
 val resume_provider_attempt : turn -> (provider_resume, error) result
 
+(** Materialize the exact provider response once on its owning attempt. *)
+val record_provider_response
+  :  provider_attempt
+  -> Llm_provider.Types.api_response
+  -> (unit, error) result
+
+(** Read the exact response authority required for restart recovery. *)
+val provider_response
+  :  provider_attempt
+  -> (Llm_provider.Types.api_response, error) result
+
 (** Atomically open an invocation and materialize the exact ToolUse input. *)
 val open_invocation
   :  provider_attempt
-  -> invocation:Tool.Invocation.t
+  -> invocation:Tool_contract.Invocation.t
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation, error) result
 
 val find_invocation
   :  provider_attempt
-  -> invocation:Tool.Invocation.t
+  -> invocation:Tool_contract.Invocation.t
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation option, error) result
 
 val provider_invocations_settled : provider_attempt -> (bool, error) result
+
+(** Exact immutable invocation authority reconstructed only from persisted
+    Tool_invocation nodes and their materialized ToolUse input. Results are
+    ordered by planned index. *)
+val provider_invocations : provider_attempt -> (invocation_authority list, error) result
+
+(** Compare a restored ToolUse occurrence to exact persisted authority. This
+    validates id, order, turn, name, input, schedule, and completion without
+    consulting the current tool catalog. *)
+val validate_invocation_authority
+  :  invocation_authority
+  -> turn:int
+  -> planned_index:int
+  -> tool_use_id:string
+  -> tool_name:string
+  -> input:Yojson.Safe.t
+  -> (unit, error) result
+
+(** Exact settled invocation/result pairs reconstructed from the journal and
+    ordered by immutable planned index. Fails closed if any invocation lacks a
+    durable result. *)
+val provider_settled_invocations
+  :  provider_attempt
+  -> (settled_invocation list, error) result
 
 (** Stable opaque coordinates for rebinding after the writer is reopened.
     The locator contains no copied Tool name, input, turn, or schedule; those

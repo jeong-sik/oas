@@ -119,7 +119,8 @@ type tool_contract =
   { name : string
   ; description : string
   ; origin : string option
-  ; execution_mode : Tool.execution_mode
+  ; execution_mode : Tool_contract.execution_mode
+  ; completion : Tool_contract.completion
   }
 [@@deriving show]
 

@@ -517,7 +517,7 @@ let test_summarize_run () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "bash")
         ~tool_input:(Some (`Assoc [ "cmd", `String "ls" ]))
-        ~tool_execution_mode:(Some Tool.Concurrent)
+        ~tool_execution_mode:(Some Tool_contract.Concurrent)
         ()
     ; mk_record
         ~seq:4
@@ -584,7 +584,7 @@ let test_validate_run_pass () =
         ~tool_name:(Some "read")
         ~tool_input:(Some `Null)
         ~tool_planned_index:(Some 0)
-        ~tool_execution_mode:(Some Tool.Serial)
+        ~tool_execution_mode:(Some Tool_contract.Serial)
         ()
     ; mk_record
         ~seq:3
@@ -676,7 +676,7 @@ let test_validate_run_unmatched_tool_pairs () =
         ~tool_use_id:(Some "tu-1")
         ~tool_name:(Some "bash")
         ~tool_input:(Some `Null)
-        ~tool_execution_mode:(Some Tool.Serial)
+        ~tool_execution_mode:(Some Tool_contract.Serial)
         ()
     ; (* No matching Tool_execution_finished for tu-1 *)
       mk_record
@@ -748,7 +748,7 @@ let test_validate_run_distinguishes_repeated_blank_ids_across_turns () =
       ~tool_planned_index:(Some 0)
       ~tool_execution_mode:
         (match record_type with
-         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | Raw_trace.Tool_execution_started -> Some Tool_contract.Serial
          | _ -> None)
       ()
   in
@@ -786,7 +786,7 @@ let test_validate_run_rejects_finish_before_start () =
       ~tool_planned_index:(Some 0)
       ~tool_execution_mode:
         (match record_type with
-         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | Raw_trace.Tool_execution_started -> Some Tool_contract.Serial
          | _ -> None)
       ()
   in
@@ -814,7 +814,7 @@ let test_validate_run_does_not_collapse_mixed_legacy_records () =
         ~tool_use_id:(Some "")
         ~tool_turn:(Some 0)
         ~tool_planned_index:(Some 0)
-        ~tool_execution_mode:(Some Tool.Serial)
+        ~tool_execution_mode:(Some Tool_contract.Serial)
         ()
     ; mk_record
         ~seq:3
@@ -843,7 +843,7 @@ let test_validate_run_rejects_duplicate_exact_occurrence () =
       ~tool_planned_index:(Some 0)
       ~tool_execution_mode:
         (match record_type with
-         | Raw_trace.Tool_execution_started -> Some Tool.Serial
+         | Raw_trace.Tool_execution_started -> Some Tool_contract.Serial
          | _ -> None)
       ()
   in

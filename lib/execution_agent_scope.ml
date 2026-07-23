@@ -34,8 +34,19 @@ type invocation =
   ; scope : t
   }
 
+type invocation_authority =
+  { invocation : Tool_contract.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+type settled_invocation =
+  { authority : invocation_authority
+  ; result : Llm_provider.Types.content_block
+  }
+
 type tool_result =
-  { invocation : Tool.Invocation.t
+  { invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   ; content : string
@@ -62,12 +73,12 @@ type recovery_action =
 type turn_resume =
   | Resume_turn_absent
   | Resume_turn_open of turn
-  | Resume_turn_settled
+  | Resume_turn_settled of turn
 
 type provider_resume =
   | Resume_provider_absent
   | Resume_provider_open of provider_attempt
-  | Resume_provider_settled
+  | Resume_provider_settled of provider_attempt
 
 type error =
   | Admission_failed of Writer.submit_error
@@ -279,7 +290,7 @@ let resume_turn scope ~ordinal =
            journal rejects closing a node with open children), so resume surfaces
            the settled outcome instead of aborting the root as Failed. *)
         | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
-          Ok Resume_turn_settled
+          Ok (Resume_turn_settled { scope; node; ordinal })
         | Ok
             (Some
                { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
@@ -318,7 +329,10 @@ let resume_current_turn scope =
          | Ok (Some { status = Journal.Open; _ }) ->
            resolve ~open_acc:({ scope; node; ordinal } :: open_acc) ~closed_acc rest
          | Ok (Some { status = Journal.Closed { value; _ }; _ }) ->
-           resolve ~open_acc ~closed_acc:((ordinal, value) :: closed_acc) rest)
+           resolve
+             ~open_acc
+             ~closed_acc:(({ scope; node; ordinal }, value) :: closed_acc)
+             rest)
     in
     (match resolve ~open_acc:[] ~closed_acc:[] turn_children with
      | Error _ as error -> error
@@ -335,17 +349,17 @@ let resume_current_turn scope =
           (match closed_turns with
            | [] -> Ok Resume_turn_absent
            | first :: rest ->
-             let _, frontier_value =
+             let frontier_turn, frontier_value =
                List.fold_left
-                 (fun (best_ordinal, best_value) (ordinal, value) ->
-                    if ordinal >= best_ordinal
-                    then ordinal, value
-                    else best_ordinal, best_value)
+                 (fun (best_turn, best_value) (turn, value) ->
+                    if turn.ordinal >= best_turn.ordinal
+                    then turn, value
+                    else best_turn, best_value)
                  first
                  rest
              in
              (match frontier_value with
-              | Event.Succeeded -> Ok Resume_turn_settled
+              | Event.Succeeded -> Ok (Resume_turn_settled frontier_turn)
               | Event.Failed _ | Event.Cancelled _ ->
                 Error (Resume_topology_mismatch "requested turn is already closed")))))
 ;;
@@ -392,7 +406,7 @@ let resume_provider_attempt (turn : turn) =
            caller finishes the interrupted turn close and surfaces the settled
            outcome instead of aborting the root as Failed. *)
         | Ok (Some { status = Journal.Closed { value = Event.Succeeded; _ }; _ }) ->
-          Ok Resume_provider_settled
+          Ok (Resume_provider_settled { turn; node })
         | Ok
             (Some
                { status = Journal.Closed { value = Event.Failed _ | Event.Cancelled _; _ }
@@ -439,11 +453,14 @@ let rebind_invocation scope locator =
 ;;
 
 let invocation_equal left right =
-  String.equal (Tool.Invocation.tool_use_id left) (Tool.Invocation.tool_use_id right)
-  && Tool.Invocation.turn left = Tool.Invocation.turn right
+  String.equal
+    (Tool_contract.Invocation.tool_use_id left)
+    (Tool_contract.Invocation.tool_use_id right)
+  && Tool_contract.Invocation.turn left = Tool_contract.Invocation.turn right
   && Execution_tool_schedule.equal
-       (Tool.Invocation.schedule left)
-       (Tool.Invocation.schedule right)
+       (Tool_contract.Invocation.schedule left)
+       (Tool_contract.Invocation.schedule right)
+  && Tool_contract.Invocation.completion left = Tool_contract.Invocation.completion right
 ;;
 
 let find_invocation provider ~invocation ~tool_name ~input =
@@ -452,7 +469,7 @@ let find_invocation provider ~invocation ~tool_name ~input =
   | Error error -> Error (Scope_unavailable error)
   | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
   | Ok (Some view) ->
-    let planned_index = Tool.Invocation.planned_index invocation in
+    let planned_index = Tool_contract.Invocation.planned_index invocation in
     let matching =
       List.filter_map
         (fun (child : Event.node Journal.event_record) ->
@@ -483,6 +500,80 @@ let find_invocation provider ~invocation ~tool_name ~input =
             (Resume_topology_mismatch
                "tool occurrence identity differs from the restored Agent checkpoint"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate tool occurrence"))
+;;
+
+let provider_invocations provider =
+  let scope = provider.turn.scope in
+  match Writer.find_node scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let invocation_nodes =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    let rec rebind_all acc = function
+      | [] ->
+        Ok
+          (List.sort
+             (fun (left : invocation_authority) (right : invocation_authority) ->
+                Int.compare
+                  (Tool_contract.Invocation.planned_index left.invocation)
+                  (Tool_contract.Invocation.planned_index right.invocation))
+             acc)
+      | node :: rest ->
+        let locator = { run_id = Journal.run_id scope.run; node } in
+        (match rebind_invocation scope locator with
+         | Error _ as error -> error
+         | Ok invocation ->
+           rebind_all
+             ({ invocation = invocation.durable.invocation
+              ; tool_name = invocation.durable.tool_name
+              ; input = invocation.durable.input
+              }
+              :: acc)
+             rest)
+    in
+    rebind_all [] invocation_nodes
+;;
+
+let validate_invocation_authority
+      (authority : invocation_authority)
+      ~turn
+      ~planned_index
+      ~tool_use_id
+      ~tool_name
+      ~input
+  =
+  let invocation = authority.invocation in
+  let schedule = Tool_contract.Invocation.schedule invocation in
+  match
+    Execution_tool_schedule.validate_completion
+      ~completion:(Tool_contract.Invocation.completion invocation)
+      schedule
+  with
+  | Error error ->
+    Error (Resume_topology_mismatch (Execution_tool_schedule.error_to_string error))
+  | Ok () ->
+    if
+      Tool_contract.Invocation.turn invocation = turn
+      && schedule.planned_index = planned_index
+      && String.equal (Tool_contract.Invocation.tool_use_id invocation) tool_use_id
+      && String.equal authority.tool_name tool_name
+      && Yojson.Safe.equal authority.input input
+    then Ok ()
+    else
+      Error
+        (Resume_topology_mismatch
+           "restored ToolUse identity differs from persisted invocation authority")
 ;;
 
 let provider_invocations_settled provider =
@@ -532,7 +623,7 @@ let tool_result_of_block durable = function
   | Llm_provider.Types.ToolResult { tool_use_id; content; outcome; _ }
     when String.equal
            tool_use_id
-           (Tool.Invocation.tool_use_id durable.Settlement.invocation) ->
+           (Tool_contract.Invocation.tool_use_id durable.Settlement.invocation) ->
     Ok
       { invocation = durable.invocation
       ; tool_name = durable.tool_name
@@ -551,6 +642,65 @@ let tool_result_of_block durable = function
   | Llm_provider.Types.Audio _ -> Error Invalid_tool_result
 ;;
 
+let provider_settled_invocations provider =
+  let scope = provider.turn.scope in
+  match Writer.find_node scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt disappeared")
+  | Ok (Some view) ->
+    let invocation_nodes =
+      List.filter_map
+        (fun (child : Event.node Journal.event_record) ->
+           match Event.node_kind child.value with
+           | Event.Tool_invocation _ -> Some (Event.node_id child.value)
+           | Event.Agent_run _
+           | Event.Agent_turn _
+           | Event.Provider_attempt _
+           | Event.Output_block _
+           | Event.Tool_attempt -> None)
+        view.children
+    in
+    let rec rebind_all acc = function
+      | [] ->
+        Ok
+          (List.sort
+             (fun (left : settled_invocation) (right : settled_invocation) ->
+                Int.compare
+                  (Tool_contract.Invocation.planned_index left.authority.invocation)
+                  (Tool_contract.Invocation.planned_index right.authority.invocation))
+             acc)
+      | node :: rest ->
+        let locator = { run_id = Journal.run_id scope.run; node } in
+        let open Result_syntax in
+        let* rebound = rebind_invocation scope locator in
+        let* invocation_view =
+          match Writer.find_node scope.writer node with
+          | Error error -> Error (Scope_unavailable error)
+          | Ok None -> Error (Resume_topology_mismatch "tool invocation disappeared")
+          | Ok (Some invocation_view) -> Ok invocation_view
+        in
+        (match invocation_view.materialized with
+         | Journal.Tool_invocation_state { result = Some result; _ } ->
+           let* (_ : tool_result) = tool_result_of_block rebound.durable result in
+           let authority : invocation_authority =
+             { invocation = rebound.durable.invocation
+             ; tool_name = rebound.durable.tool_name
+             ; input = rebound.durable.input
+             }
+           in
+           rebind_all ({ authority; result } :: acc) rest
+         | Journal.Tool_invocation_state { result = None; _ } ->
+           Error (Resume_topology_mismatch "tool invocation is not settled")
+         | Journal.Agent_run_state
+         | Journal.Agent_turn_state
+         | Journal.Provider_attempt_state _
+         | Journal.Output_block_state _
+         | Journal.Tool_attempt_state ->
+           Error (Resume_topology_mismatch "provider child changed node kind"))
+    in
+    rebind_all [] invocation_nodes
+;;
+
 let execute_phased invocation ~invoke =
   let durable = invocation.durable in
   let settled =
@@ -567,7 +717,7 @@ let execute_phased invocation ~invoke =
         Settlement.phased_effect
           ~result:
             (Llm_provider.Types.ToolResult
-               { tool_use_id = Tool.Invocation.tool_use_id durable.invocation
+               { tool_use_id = Tool_contract.Invocation.tool_use_id durable.invocation
                ; content
                ; outcome
                ; json = None
@@ -642,4 +792,30 @@ let terminal_recovery_action scope =
                  rest)))
   in
   visit [ Journal.run_root scope.run ]
+;;
+
+let record_provider_response provider response =
+  transact
+    provider.turn.scope.writer
+    (Tx.update_node ~node:provider.node (Event.Provider_response_snapshot response))
+  |> Result.map ignore
+;;
+
+let provider_response provider =
+  match Writer.find_node provider.turn.scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt node disappeared")
+  | Ok
+      (Some
+         { Journal.materialized =
+             Journal.Provider_attempt_state { response = Some response }
+         ; _
+         }) -> Ok response
+  | Ok
+      (Some
+         { Journal.materialized = Journal.Provider_attempt_state { response = None }; _ })
+    -> Error (Resume_topology_mismatch "provider response authority is not materialized")
+  | Ok (Some _) ->
+    Error
+      (Resume_topology_mismatch "provider attempt has an incompatible materialized state")
 ;;

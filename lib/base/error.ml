@@ -26,6 +26,12 @@ type input_required =
   ; created_at : float
   }
 
+type closed_terminal_effect = Tool_contract.failure_effect_disposition
+
+let proven_post_terminal_effect = Tool_contract.Proven_post_effect
+let unknown_terminal_effect = Tool_contract.Effect_outcome_unknown
+let terminal_effect_disposition disposition = disposition
+
 (** Agent runtime errors. *)
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
@@ -34,6 +40,16 @@ type agent_error =
       ; stage : string
       ; tool_name : string option
       ; tool_use_id : string option
+      ; detail : string
+      }
+  | TerminalToolEffectFailed of
+      { tool_use_id : string
+      ; effect_disposition : closed_terminal_effect
+      ; detail : string
+      }
+  | TerminalToolDurabilityFailed of
+      { invocation : Tool_contract.Invocation.t
+      ; effect_disposition : closed_terminal_effect
       ; detail : string
       }
   | GuardrailViolation of
@@ -166,6 +182,24 @@ let agent_error_to_string = function
        | Some tool_name, None -> Printf.sprintf " for tool %s" tool_name
        | None, Some tool_use_id -> Printf.sprintf " for tool use %s" tool_use_id
        | None, None -> "")
+      r.detail
+  | TerminalToolEffectFailed r ->
+    Printf.sprintf
+      "Terminal tool use %s failed at %s: %s"
+      r.tool_use_id
+      (match terminal_effect_disposition r.effect_disposition with
+       | Tool_contract.Proven_pre_effect -> "a proven pre-effect boundary"
+       | Tool_contract.Proven_post_effect -> "a proven post-effect boundary"
+       | Tool_contract.Effect_outcome_unknown -> "an unknown effect boundary")
+      r.detail
+  | TerminalToolDurabilityFailed r ->
+    Printf.sprintf
+      "Terminal tool use %s lost durable settlement at %s: %s"
+      (Tool_contract.Invocation.tool_use_id r.invocation)
+      (match terminal_effect_disposition r.effect_disposition with
+       | Tool_contract.Proven_pre_effect -> "a proven pre-effect boundary"
+       | Tool_contract.Proven_post_effect -> "a proven post-effect boundary"
+       | Tool_contract.Effect_outcome_unknown -> "an unknown effect boundary")
       r.detail
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason

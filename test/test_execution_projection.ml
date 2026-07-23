@@ -81,10 +81,18 @@ let child_agent ~net =
 ;;
 
 let invocation () =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  Tool.Invocation.create ~tool_use_id:"projection-tool-use" ~turn:1 ~schedule
+  Tool_contract.Invocation.create
+    ~tool_use_id:"projection-tool-use"
+    ~turn:1
+    ~schedule
+    ~completion:Tool_contract.Continue_after_success
 ;;
 
 let public_locator scope =

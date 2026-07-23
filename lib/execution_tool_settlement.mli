@@ -3,7 +3,7 @@ type t
 type durable_invocation = private
   { authority : t
   ; run_id : Execution_event.Run_id.t
-  ; invocation : Tool.Invocation.t
+  ; invocation : Tool_contract.Invocation.t
   ; tool_name : string
   ; input : Yojson.Safe.t
   }

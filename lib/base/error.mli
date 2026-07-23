@@ -26,6 +26,17 @@ type input_required =
   ; created_at : float
   }
 
+(** Proof that a terminal error is closed against another provider turn.
+    Construction is limited to the two closed canonical dispositions. *)
+type closed_terminal_effect
+
+val proven_post_terminal_effect : closed_terminal_effect
+val unknown_terminal_effect : closed_terminal_effect
+
+val terminal_effect_disposition
+  :  closed_terminal_effect
+  -> Tool_contract.failure_effect_disposition
+
 type agent_error =
   | UnrecognizedStopReason of { reason : string }
   | HookExecutionFailed of
@@ -33,6 +44,16 @@ type agent_error =
       ; stage : string
       ; tool_name : string option
       ; tool_use_id : string option
+      ; detail : string
+      }
+  | TerminalToolEffectFailed of
+      { tool_use_id : string
+      ; effect_disposition : closed_terminal_effect
+      ; detail : string
+      }
+  | TerminalToolDurabilityFailed of
+      { invocation : Tool_contract.Invocation.t
+      ; effect_disposition : closed_terminal_effect
       ; detail : string
       }
   | GuardrailViolation of

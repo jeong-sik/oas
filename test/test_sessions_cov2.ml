@@ -362,7 +362,8 @@ let test_tool_contract () =
     { name = "run_cmd"
     ; description = "Run command"
     ; origin = Some "mcp"
-    ; execution_mode = Tool.Concurrent
+    ; execution_mode = Tool_contract.Concurrent
+    ; completion = Tool_contract.Continue_after_success
     }
   in
   roundtrip
@@ -372,7 +373,13 @@ let test_tool_contract () =
     ~name:"tool_contract_full"
     v;
   let v2 : Sessions.tool_contract =
-    { name = "simple"; description = ""; origin = None; execution_mode = Tool.Serial }
+    { name = "simple"
+    ; description = ""
+    ; origin = None
+    ; execution_mode = Tool_contract.Serial
+    ; completion =
+        Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown
+    }
   in
   roundtrip
     ~to_yojson:Sessions.tool_contract_to_yojson

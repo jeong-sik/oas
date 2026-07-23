@@ -259,7 +259,7 @@ let make_tool_results results =
   List.map
     (fun (result : Agent_tools.tool_execution_result) ->
        ToolResult
-         { tool_use_id = Tool.Invocation.tool_use_id result.invocation
+         { tool_use_id = Tool_contract.Invocation.tool_use_id result.invocation
          ; content = result.content
          ; outcome = result.outcome
          ; json = None
@@ -271,10 +271,19 @@ let make_tool_results results =
 (* === make_tool_results inline tests === *)
 
 let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_result =
-  let schedule : Tool.schedule =
-    { planned_index = 0; batch_index = 0; batch_size = 1; execution_mode = Tool.Serial }
+  let schedule : Tool_contract.schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; execution_mode = Tool_contract.Serial
+    }
   in
-  { invocation = Tool.Invocation.create ~tool_use_id:id ~turn:0 ~schedule
+  { invocation =
+      Tool_contract.Invocation.create
+        ~tool_use_id:id
+        ~turn:0
+        ~schedule
+        ~completion:Tool_contract.Continue_after_success
   ; tool_name = "test"
   ; input = `Null
   ; content

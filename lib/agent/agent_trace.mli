@@ -14,7 +14,7 @@ open Agent_types
     [active_run] is [None]). *)
 val record_hook_invocation
   :  Raw_trace.active_run option
-  -> ?invocation:Tool.Invocation.t
+  -> ?invocation:Tool_contract.Invocation.t
   -> hook_name:string
   -> decision:Hooks.hook_decision
   -> ?detail:string
@@ -40,8 +40,9 @@ val execute_tools_with_trace
   :  t
   -> Raw_trace.active_run option
   -> turn:int
+  -> ?before_tool_execution:(unit -> unit)
   -> Types.content_block list
-  -> (Agent_tools.tool_execution_result list, Agent_tools.execution_failure) result
+  -> (Agent_tools.execution_report, Agent_tools.execution_failure) result
 
 (** {1 Assistant block recording} *)
 

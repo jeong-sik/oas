@@ -73,3 +73,10 @@ let to_untyped tool =
 let schema tool = tool.schema
 let name tool = tool.schema.name
 let descriptor tool = tool.descriptor
+
+let completion tool =
+  Option.fold
+    ~none:Tool_contract.Continue_after_success
+    ~some:Tool.descriptor_completion
+    tool.descriptor
+;;

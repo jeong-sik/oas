@@ -4,10 +4,10 @@ open Alcotest
 open Agent_sdk
 open Types
 
-let descriptor_with execution_mode = { Tool.execution_mode }
+let descriptor_with execution_mode = Tool.ordinary_descriptor execution_mode
 
 let result_id (result : Agent_tools.tool_execution_result) =
-  Tool.Invocation.tool_use_id result.invocation
+  Tool_contract.Invocation.tool_use_id result.invocation
 ;;
 
 let contains_substring ~needle haystack =
@@ -52,6 +52,7 @@ let execute_result_with_tools_in_env
       ~hooks
       ?event_bus
       ?journal
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
@@ -83,6 +84,7 @@ let execute_result_with_tools_in_env
     ~agent_name:(Agent.state agent).config.name
     ~turn_count:(Agent.state agent).turn_count
     ~usage:(Agent.state agent).usage
+    ?before_tool_execution
     ?on_tool_execution_started
     ?on_tool_execution_finished
     ?on_hook_invoked
@@ -94,6 +96,7 @@ let execute_with_tools_in_env
       ~tools
       ~hooks
       ?event_bus
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
@@ -105,14 +108,16 @@ let execute_with_tools_in_env
       ~tools
       ~hooks
       ?event_bus
+      ?before_tool_execution
       ?on_tool_execution_started
       ?on_tool_execution_finished
       ?on_hook_invoked
       tool_uses
   with
-  | Ok results -> results
+  | Ok report -> report.Agent_tools.completed_results
   | Error
       { Agent_tools.completed_results
+      ; completion = _
       ; cause = Agent_tools.Hook_failure (Agent_tools.Hook_execution_failed failure)
       } ->
     failf
@@ -291,7 +296,11 @@ let test_post_hook_failure_is_typed_agent_error () =
                 ; detail
                 })
        } ->
-     check string "hook invocation id" "t1" (Tool.Invocation.tool_use_id invocation);
+     check
+       string
+       "hook invocation id"
+       "t1"
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        bool
        "hook exception detail retained"
@@ -351,7 +360,7 @@ let test_error_hooks_run_after_prior_hook_failure () =
        string
        "observer failure occurrence"
        "failure-1"
-       (Tool.Invocation.tool_use_id invocation);
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        string
        "observer failure propagates"
@@ -384,7 +393,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   in
   let concurrent_tool name resolve_self await_other =
     Tool.create
-      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~descriptor:(descriptor_with Tool_contract.Concurrent)
       ~name
       ~description:""
       ~parameters:[]
@@ -396,7 +405,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
   in
   let later_serial =
     Tool.create
-      ~descriptor:(descriptor_with Tool.Serial)
+      ~descriptor:(descriptor_with Tool_contract.Serial)
       ~name:"later_serial"
       ~description:""
       ~parameters:[]
@@ -415,7 +424,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
       ~hooks:Hooks.empty
       ~journal
       ~on_tool_execution_finished:(fun ~invocation ~tool_name:_ ~content:_ ~is_error:_ ->
-        finished_ids := Tool.Invocation.tool_use_id invocation :: !finished_ids)
+        finished_ids := Tool_contract.Invocation.tool_use_id invocation :: !finished_ids)
       [ ToolUse { id = "t1"; name = "first"; input = `Assoc [] }
       ; ToolUse { id = "t2"; name = "sibling"; input = `Assoc [] }
       ; ToolUse { id = "t3"; name = "later_serial"; input = `Assoc [] }
@@ -434,7 +443,7 @@ let test_concurrent_journal_failure_retains_sibling_results () =
        string
        "observer failure exact occurrence"
        "t1"
-       (Tool.Invocation.tool_use_id invocation);
+       (Tool_contract.Invocation.tool_use_id invocation);
      check
        string
        "original observer exception retained"
@@ -602,7 +611,7 @@ let test_concurrent_tools_share_batch () =
   let started_a, resolve_a = Eio.Promise.create () in
   let started_b, resolve_b = Eio.Promise.create () in
   let make_barrier_tool name resolve_self await_other =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Concurrent) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Concurrent) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -640,7 +649,7 @@ let test_serial_tools_run_sequentially () =
   let clock = Eio.Stdenv.clock env in
   let running = ref false in
   let make_guarded_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Serial) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Serial) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -715,7 +724,7 @@ let test_serial_barrier_splits_concurrent_batches () =
   let concurrent_running = ref 0 in
   let serial_running = ref false in
   let make_concurrent_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Concurrent) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Concurrent) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -729,7 +738,7 @@ let test_serial_barrier_splits_concurrent_batches () =
     }
   in
   let make_serial_tool name =
-    make_echo_tool ~descriptor:(descriptor_with Tool.Serial) name
+    make_echo_tool ~descriptor:(descriptor_with Tool_contract.Serial) name
     |> fun tool ->
     { tool with
       Tool.handler =
@@ -773,7 +782,7 @@ let test_serial_barrier_splits_concurrent_batches () =
 let test_dispatch_passes_exact_tool_invocation () =
   let tool =
     Tool.create_with_execution_env
-      ~descriptor:(descriptor_with Tool.Concurrent)
+      ~descriptor:(descriptor_with Tool_contract.Concurrent)
       ~name:"observe_invocation"
       ~description:"Return exact invocation identity"
       ~parameters:[]
@@ -785,9 +794,9 @@ let test_dispatch_passes_exact_tool_invocation () =
              { Types.content =
                  Printf.sprintf
                    "%s:%d:%d"
-                   (Tool.Invocation.tool_use_id invocation)
-                   (Tool.Invocation.turn invocation)
-                   (Tool.Invocation.planned_index invocation)
+                   (Tool_contract.Invocation.tool_use_id invocation)
+                   (Tool_contract.Invocation.turn invocation)
+                   (Tool_contract.Invocation.planned_index invocation)
              ; _meta = None
              }
          | None ->
@@ -822,16 +831,16 @@ let test_dispatch_passes_exact_tool_invocation () =
 ;;
 
 let invocation_key invocation =
-  let schedule = Tool.Invocation.schedule invocation in
+  let schedule = Tool_contract.Invocation.schedule invocation in
   let execution_mode =
     match schedule.execution_mode with
-    | Tool.Concurrent -> "concurrent"
-    | Tool.Serial -> "serial"
+    | Tool_contract.Concurrent -> "concurrent"
+    | Tool_contract.Serial -> "serial"
   in
   Printf.sprintf
     "%S:%d:%d:%d:%d:%s"
-    (Tool.Invocation.tool_use_id invocation)
-    (Tool.Invocation.turn invocation)
+    (Tool_contract.Invocation.tool_use_id invocation)
+    (Tool_contract.Invocation.turn invocation)
     schedule.planned_index
     schedule.batch_index
     schedule.batch_size
@@ -1006,13 +1015,219 @@ let test_tool_exception_still_publishes_tool_completed () =
       string
       "ToolCalled carries the provider id"
       "t1"
-      (Tool.Invocation.tool_use_id called);
+      (Tool_contract.Invocation.tool_use_id called);
     check
       string
       "ToolCompleted carries the provider id"
       "t1"
-      (Tool.Invocation.tool_use_id completed)
+      (Tool_contract.Invocation.tool_use_id completed)
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
+;;
+
+let terminal_tool ~name on_execute =
+  Tool.create
+    ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+    ~name
+    ~description:"terminal"
+    ~parameters:[]
+    (fun _ ->
+       on_execute ();
+       Ok { Types.content = "terminal-complete"; _meta = None })
+;;
+
+let test_terminal_admission_rejects_entire_malformed_batch () =
+  Eio_main.run
+  @@ fun env ->
+  let handler_count = ref 0 in
+  let hook_count = ref 0 in
+  let before_count = ref 0 in
+  let started_count = ref 0 in
+  let finished_count = ref 0 in
+  let observed_hook_count = ref 0 in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use =
+        Some
+          (fun _ ->
+            incr hook_count;
+            Hooks.Continue)
+    }
+  in
+  let terminal name = terminal_tool ~name (fun () -> incr handler_count) in
+  let ordinary =
+    Tool.create
+      ~descriptor:(Tool.ordinary_descriptor Tool_contract.Concurrent)
+      ~name:"ordinary"
+      ~description:"ordinary"
+      ~parameters:[]
+      (fun _ ->
+         incr handler_count;
+         Ok { Types.content = "ordinary-complete"; _meta = None })
+  in
+  let run tools tool_uses =
+    execute_result_with_tools_in_env
+      env
+      ~tools
+      ~hooks
+      ~before_tool_execution:(fun () -> incr before_count)
+      ~on_tool_execution_started:(fun ~invocation:_ ~tool_name:_ ~input:_ ->
+        incr started_count)
+      ~on_tool_execution_finished:
+        (fun
+          ~invocation:_ ~tool_name:_ ~content:_ ~is_error:_ -> incr finished_count)
+      ~on_hook_invoked:(fun ~invocation:_ ~hook_name:_ ~decision:_ ~detail:_ ->
+        incr observed_hook_count)
+      tool_uses
+  in
+  let check_rejected label expected_ids = function
+    | Error _ -> failf "%s: admission rejection must be model-visible" label
+    | Ok (report : Agent_tools.execution_report) ->
+      check
+        int
+        (label ^ " result count")
+        (List.length expected_ids)
+        (List.length report.completed_results);
+      check
+        (list string)
+        (label ^ " deterministic order")
+        expected_ids
+        (List.map result_id report.completed_results);
+      let contents =
+        List.map
+          (fun (result : Agent_tools.tool_execution_result) ->
+             (match result.outcome with
+              | Tool_failed
+                  { failure_kind = Validation_error; error_class = Some Deterministic } ->
+                ()
+              | _ -> failf "%s: expected deterministic Validation_error" label);
+             result.content)
+          report.completed_results
+      in
+      (match contents with
+       | [] -> failf "%s: expected rejection results" label
+       | first :: rest ->
+         List.iter
+           (fun content -> check string (label ^ " uniform message") first content)
+           rest);
+      (match report.completion with
+       | Agent_tools.Continue_after_batch -> ()
+       | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
+         failf "%s: rejected batch cannot complete terminally" label)
+  in
+  check_rejected
+    "terminal plus ordinary"
+    [ "terminal-1"; "ordinary-1" ]
+    (run
+       [ terminal "finish"; ordinary ]
+       [ ToolUse { id = "terminal-1"; name = "finish"; input = `Assoc [] }
+       ; ToolUse { id = "ordinary-1"; name = "ordinary"; input = `Assoc [] }
+       ]);
+  check_rejected
+    "double terminal"
+    [ "terminal-2"; "terminal-3" ]
+    (run
+       [ terminal "finish-a"; terminal "finish-b" ]
+       [ ToolUse { id = "terminal-2"; name = "finish-a"; input = `Assoc [] }
+       ; ToolUse { id = "terminal-3"; name = "finish-b"; input = `Assoc [] }
+       ]);
+  check int "zero handlers" 0 !handler_count;
+  check int "zero hooks" 0 !hook_count;
+  check int "zero before-tool callbacks/yields" 0 !before_count;
+  check int "zero execution starts/fibers" 0 !started_count;
+  check int "zero execution finishes" 0 !finished_count;
+  check int "zero hook observers" 0 !observed_hook_count
+;;
+
+let test_singleton_terminal_reports_exact_invocation_and_recovers () =
+  Eio_main.run
+  @@ fun env ->
+  let tool = terminal_tool ~name:"finish" ignore in
+  let tool_uses = [ ToolUse { id = "terminal-1"; name = "finish"; input = `Assoc [] } ] in
+  match
+    execute_result_with_tools_in_env env ~tools:[ tool ] ~hooks:Hooks.empty tool_uses
+  with
+  | Error _ -> fail "singleton terminal execution failed"
+  | Ok report ->
+    let invocation =
+      match report.completion with
+      | Agent_tools.Continue_after_batch -> fail "terminal success did not stop the batch"
+      | Agent_tools.Terminal_failed _ -> fail "terminal success was classified as failure"
+      | Agent_tools.Terminal_completed invocation ->
+        check
+          string
+          "exact terminal provider id"
+          "terminal-1"
+          (Tool_contract.Invocation.tool_use_id invocation);
+        invocation
+    in
+    let recovered =
+      Agent_tools.recovered_batch_completion
+        ~invocations:[ invocation ]
+        [ ToolResult
+            { tool_use_id = "terminal-1"
+            ; content = "terminal-complete"
+            ; outcome = Tool_succeeded
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    in
+    (match recovered with
+     | Error error -> fail (Error.to_string error)
+     | Ok Agent_tools.Continue_after_batch ->
+       fail "settled terminal success was not reconstructed"
+     | Ok (Agent_tools.Terminal_failed _) ->
+       fail "settled terminal success was reconstructed as failure"
+     | Ok (Agent_tools.Terminal_completed invocation) ->
+       check
+         string
+         "recovered exact terminal provider id"
+         "terminal-1"
+         (Tool_contract.Invocation.tool_use_id invocation))
+;;
+
+let test_invalid_terminal_input_remains_correction_capable () =
+  Eio_main.run
+  @@ fun env ->
+  let handler_count = ref 0 in
+  let tool =
+    Tool.create
+      ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
+      ~name:"finish"
+      ~description:"terminal with typed input"
+      ~parameters:
+        [ { Types.name = "count"
+          ; description = "required count"
+          ; param_type = Integer
+          ; required = true
+          }
+        ]
+      (fun _ ->
+         incr handler_count;
+         Ok { Types.content = "must-not-run"; _meta = None })
+  in
+  match
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
+      ~hooks:Hooks.empty
+      [ ToolUse
+          { id = "terminal-invalid"
+          ; name = "finish"
+          ; input = `Assoc [ "count", `String "not-an-integer" ]
+          }
+      ]
+  with
+  | Error _ -> fail "invalid terminal input must remain a model-visible result"
+  | Ok report ->
+    check int "terminal handler did not run" 0 !handler_count;
+    (match report.completed_results with
+     | [ { outcome = Tool_failed { failure_kind = Validation_error; _ }; _ } ] -> ()
+     | _ -> fail "invalid terminal input was not a typed Validation_error");
+    (match report.completion with
+     | Agent_tools.Continue_after_batch -> ()
+     | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
+       fail "pre-handler validation failure incorrectly closed the terminal boundary")
 ;;
 
 let () =
@@ -1065,6 +1280,20 @@ let () =
             "tool exception still publishes ToolCompleted"
             `Quick
             test_tool_exception_still_publishes_tool_completed
+        ] )
+    ; ( "terminal"
+      , [ test_case
+            "malformed batches reject before execution"
+            `Quick
+            test_terminal_admission_rejects_entire_malformed_batch
+        ; test_case
+            "singleton success reports and recovers exact invocation"
+            `Quick
+            test_singleton_terminal_reports_exact_invocation_and_recovers
+        ; test_case
+            "invalid input remains correction-capable"
+            `Quick
+            test_invalid_terminal_input_remains_correction_capable
         ] )
     ; ( "callbacks"
       , [ test_case

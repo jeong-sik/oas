@@ -6,7 +6,7 @@
     - Context-aware handler (stateful via Context.t)
     - Caller-declared execution mode via [Tool.descriptor]
 
-    [Tool.descriptor.execution_mode] tells the OAS runtime whether calls may be
+    [Tool.descriptor_execution_mode] tells the OAS runtime whether calls may be
     batched concurrently or must execute serially.
 
     OAS never derives this structural choice from a tool name or effect.
@@ -22,7 +22,7 @@ open Types
 
 (** A pure tool whose implementation explicitly permits overlapping calls. *)
 let calculator_tool =
-  let descriptor = { Tool.execution_mode = Concurrent } in
+  let descriptor = Tool.ordinary_descriptor Concurrent in
   Tool.create
     ~descriptor
     ~name:"calculator"
@@ -49,7 +49,7 @@ let calculator_tool =
 
 (** An HTTP-like tool whose simulated client must execute serially. *)
 let weather_api_tool =
-  let descriptor = { Tool.execution_mode = Serial } in
+  let descriptor = Tool.ordinary_descriptor Serial in
   Tool.create
     ~descriptor
     ~name:"weather"
@@ -72,7 +72,7 @@ let weather_api_tool =
 
 (** A stateful tool whose context updates must retain call order. *)
 let counter_tool =
-  let descriptor = { Tool.execution_mode = Serial } in
+  let descriptor = Tool.ordinary_descriptor Serial in
   Tool.create_with_context
     ~descriptor
     ~name:"counter"

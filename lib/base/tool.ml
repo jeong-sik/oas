@@ -8,52 +8,10 @@ type tool_handler = Yojson.Safe.t -> Types.tool_result
 (** Context-aware tool handler *)
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
-(** Tool execution ordering *)
-type execution_mode =
-  | Concurrent
-  | Serial
-[@@deriving show]
-
-let execution_mode_to_yojson = function
-  | Concurrent -> `String "concurrent"
-  | Serial -> `String "serial"
-;;
-
-let execution_mode_of_yojson = function
-  | `String "concurrent" -> Ok Concurrent
-  | `String "serial" -> Ok Serial
-  | value ->
-    Error
-      (Printf.sprintf
-         "Tool.execution_mode: expected \"concurrent\" or \"serial\", got %s"
-         (Yojson.Safe.to_string value))
-;;
-
-type schedule =
-  { planned_index : int
-  ; batch_index : int
-  ; batch_size : int
-  ; execution_mode : execution_mode
-  }
-
-module Invocation = struct
-  type t =
-    { tool_use_id : string
-    ; turn : int
-    ; schedule : schedule
-    }
-
-  let create ~tool_use_id ~turn ~schedule = { tool_use_id; turn; schedule }
-  let tool_use_id t = t.tool_use_id
-  let turn t = t.turn
-  let schedule t = t.schedule
-  let planned_index t = t.schedule.planned_index
-end
-
 module Execution_env = struct
   type t =
     { context : Context.t option
-    ; invocation : Invocation.t option
+    ; invocation : Tool_contract.Invocation.t option
     }
 
   let create ?context ?invocation () = { context; invocation }
@@ -62,7 +20,24 @@ module Execution_env = struct
 end
 
 type execution_env_tool_handler = Execution_env.t -> Yojson.Safe.t -> Types.tool_result
-type descriptor = { execution_mode : execution_mode }
+
+type descriptor =
+  | Ordinary_descriptor of Tool_contract.execution_mode
+  | Terminal_descriptor of Tool_contract.failure_effect_disposition
+
+let ordinary_descriptor execution_mode = Ordinary_descriptor execution_mode
+let terminal_descriptor failure_effect = Terminal_descriptor failure_effect
+
+let descriptor_execution_mode = function
+  | Ordinary_descriptor execution_mode -> execution_mode
+  | Terminal_descriptor _ -> Tool_contract.Serial
+;;
+
+let descriptor_completion = function
+  | Ordinary_descriptor _ -> Tool_contract.Continue_after_success
+  | Terminal_descriptor failure_effect ->
+    Tool_contract.Terminal_after_success failure_effect
+;;
 
 (** Handler kind: preserves backward compatibility via Simple variant *)
 type handler_kind =
@@ -112,13 +87,25 @@ let execute ?context ?invocation tool input =
 let descriptor tool = tool.descriptor
 
 let execution_mode tool =
-  Option.fold ~none:Serial ~some:(fun d -> d.execution_mode) tool.descriptor
+  Option.fold ~none:Tool_contract.Serial ~some:descriptor_execution_mode tool.descriptor
+;;
+
+let completion tool =
+  Option.fold
+    ~none:Tool_contract.Continue_after_success
+    ~some:descriptor_completion
+    tool.descriptor
 ;;
 
 let descriptor_to_yojson = function
   | None -> `Null
   | Some descriptor ->
-    `Assoc [ "execution_mode", execution_mode_to_yojson descriptor.execution_mode ]
+    `Assoc
+      [ ( "execution_mode"
+        , Tool_contract.execution_mode_to_yojson (descriptor_execution_mode descriptor) )
+      ; ( "completion"
+        , Tool_contract.completion_to_yojson (descriptor_completion descriptor) )
+      ]
 ;;
 
 (** Schema to JSON *)

@@ -262,9 +262,16 @@ module Advanced : sig
     ; checkpoint : Checkpoint.t
     }
 
+  type terminal_tool_completed =
+    { turn : int
+    ; receipt : Terminal_tool_receipt.t
+    ; checkpoint : Checkpoint.t
+    }
+
   type run_outcome =
     | Completed of Types.api_response
     | Yielded of yielded
+    | Terminal_tool_completed of terminal_tool_completed
 
   (** Run from one caller-authored input until terminal completion or until
       [on_tool_boundary] requests a cooperative yield.
@@ -444,7 +451,12 @@ val run_turn_stream
   -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
   -> ?execution_store:execution_store
   -> t
-  -> ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
+  -> ( [ `Complete of Types.api_response
+       | `TerminalToolCompleted of Terminal_tool_receipt.t
+       | `ToolsExecuted
+       ]
+       , Error.sdk_error )
+       result
 
 (** Detailed counterpart of {!run_turn_stream}. *)
 val run_turn_stream_detailed
@@ -454,7 +466,12 @@ val run_turn_stream_detailed
   -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
   -> ?execution_store:execution_store
   -> t
-  -> ([ `Complete of Types.api_response | `ToolsExecuted ], detailed_error) result
+  -> ( [ `Complete of Types.api_response
+       | `TerminalToolCompleted of Terminal_tool_receipt.t
+       | `ToolsExecuted
+       ]
+       , detailed_error )
+       result
 
 (** Append an elicitation response to the agent conversation so callers that
     received {!Error.InputRequired} can resume with {!run_turn_stream} or an
