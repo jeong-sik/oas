@@ -38,8 +38,7 @@ let create ~execution_mode ~completion scheduled =
   match terminal_count, scheduled with
   | 0, _ ->
     Admitted
-      (execution_batches
-         (List.map (fun value -> value, execution_mode value) scheduled)
+      (execution_batches (List.map (fun value -> value, execution_mode value) scheduled)
        |> List.map (function
          | Concurrent_batch values -> Concurrent_batch (List.map fst values)
          | Serial_batch value -> Serial_batch (fst value)))
