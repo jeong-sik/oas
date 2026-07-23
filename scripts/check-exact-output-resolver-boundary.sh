@@ -622,9 +622,9 @@ scan_code \
   "private exact-output flow acquired provider, model, tier, pricing, retry, cascade, or string policy" \
   'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade|String\.|Str\.|Re\.' \
   "$exact_output_flow_source"
-require_code_pattern \
+require_code_sequence \
   "canonical facade lost outer exact-flow execution" \
-  '^[[:space:]]*val[[:space:]]+execute_flow_once[[:space:]]*:' \
+  'val[[:space:]]+execute_flow_once[[:space:]]*:' \
   "$exact_output_interface"
 scan_code \
   "parallel public exact-output flow module escaped the single facade" \

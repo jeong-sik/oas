@@ -562,12 +562,12 @@ let make_flow_candidate ~id ~target =
       }
 ;;
 
-let flow_candidate_identity candidate = candidate.identity
+let flow_candidate_identity (candidate : flow_candidate) = candidate.identity
 
-let duplicate_flow_candidate_id candidates =
+let duplicate_flow_candidate_id (candidates : flow_candidate list) =
   let rec find position seen = function
     | [] -> None
-    | candidate :: rest ->
+    | (candidate : flow_candidate) :: rest ->
       let candidate_id = candidate.identity.candidate_id in
       (match
          List.find_opt (fun (seen_id, _) -> String.equal seen_id candidate_id) seen
@@ -611,7 +611,7 @@ let admit_flow ~first ~rest ~messages requirement =
      | candidates -> Ok { admissions; candidates })
 ;;
 
-let ready_flow_admissions ready = ready.admissions
+let ready_flow_admissions (ready : ready_flow) = ready.admissions
 
 let start_attempt (ready : ready_plan) =
   match Exact_output_call_id.create () with
@@ -630,7 +630,7 @@ let start_attempt (ready : ready_plan) =
     Ok { ready; receipt }
 ;;
 
-let start_flow ready =
+let start_flow (ready : ready_flow) =
   let rec start position started = function
     | [] ->
       Ok
@@ -686,11 +686,11 @@ let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
 let receipt_catalog_evidence (receipt : receipt) = receipt.catalog_evidence
 let receipt_target_identity (receipt : receipt) = receipt.target_identity
 
-let flow_attempt_receipt candidate =
+let flow_attempt_receipt (candidate : flow_attempt_candidate) =
   { identity = candidate.evidence.identity; receipt = attempt_receipt candidate.attempt }
 ;;
 
-let flow_attempt_evidence flow =
+let flow_attempt_evidence (flow : flow_attempt) =
   { admissions = flow.admissions
   ; attempts = List.map flow_attempt_receipt flow.candidates
   }
