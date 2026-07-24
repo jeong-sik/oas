@@ -100,6 +100,14 @@ let collect structure =
            | Ppat_alias (_, name) -> observe_binding collected ~top_level:false name.txt
            | _ -> ());
           Ast_iterator.default_iterator.pat self pattern)
+    ; open_declaration =
+        (fun self declaration ->
+          collected.namespace_import_seen <- true;
+          Ast_iterator.default_iterator.open_declaration self declaration)
+    ; include_declaration =
+        (fun self declaration ->
+          collected.namespace_import_seen <- true;
+          Ast_iterator.default_iterator.include_declaration self declaration)
     ; structure_item =
         (fun self item ->
           (match item.pstr_desc with
@@ -108,9 +116,6 @@ let collect structure =
           Ast_iterator.default_iterator.structure_item self item)
     ; expr =
         (fun self expression ->
-          (match expression.pexp_desc with
-           | Pexp_open _ -> collected.namespace_import_seen <- true
-           | _ -> ());
           let is_recorder, recorder_arguments =
             is_named_application "record_preference_locked" expression
           in

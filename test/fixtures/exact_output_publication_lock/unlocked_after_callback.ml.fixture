@@ -7,6 +7,11 @@ let record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal
   Ok ()
 ;;
 
+let with_preference_lock preferences callback =
+  ignore preferences;
+  callback ()
+;;
+
 let settle_domain_valid_once_with_publication_hook
       ~after_publishing
       settlement
