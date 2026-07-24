@@ -349,7 +349,7 @@ let test_prepared_measure_admit_dispatch () =
       | Error _ -> fail "expected resolved context limit"
     in
     let admitted =
-      match Complete.admit_request ~max_context_tokens measured with
+      match Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured with
       | Ok admitted -> admitted
       | Error _ -> fail "expected prepared request admission"
     in
@@ -403,7 +403,8 @@ let test_prepared_context_overflow_is_typed () =
     | Ok measured ->
       (match Complete.resolve_context_limit prepared with
        | Error _ -> fail "expected resolved context limit"
-       | Ok max_context_tokens -> Complete.admit_request ~max_context_tokens measured)
+       | Ok max_context_tokens ->
+         Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured)
   in
   match result with
   | Error
@@ -426,7 +427,7 @@ let test_prepared_admission_resolves_catalog_context_limit () =
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
     let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
     let max_context_tokens = Complete.resolve_context_limit prepared |> Result.get_ok in
-    Complete.admit_request ~max_context_tokens measured, expected
+    Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured, expected
   in
   match result with
   | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"

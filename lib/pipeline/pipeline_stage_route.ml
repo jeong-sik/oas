@@ -132,15 +132,11 @@ let fit_error ~binding = function
             }))
 ;;
 
-let preflight_serving_constraint ~binding prepared =
+let preflight_serving_constraint ~binding ~now_unix_s prepared =
   match Llm_provider.Complete.serving_constraint prepared with
   | None -> Ok ()
   | Some constraint_ ->
-    (match
-       Llm_provider.Serving_constraint.check_evidence
-         ~now_unix_s:(int_of_float (Unix.gettimeofday ()))
-         constraint_
-     with
+    (match Llm_provider.Serving_constraint.check_evidence ~now_unix_s constraint_ with
      | Ok () -> Ok ()
      | Error reason ->
        Error
@@ -231,6 +227,7 @@ let dispatch_sync
       |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
     let admitted_call () =
+      let now_unix_s = int_of_float (Unix.gettimeofday ()) in
       let prepared =
         Llm_provider.Complete.prepare_request
           ~config:pc
@@ -241,7 +238,7 @@ let dispatch_sync
       in
       (* Reject stale or future-dated evidence, then resolve the context limit.
          Both are network-free and therefore precede token measurement. *)
-      match preflight_serving_constraint ~binding prepared with
+      match preflight_serving_constraint ~binding ~now_unix_s prepared with
       | Error error -> Error error
       | Ok () ->
         (match Llm_provider.Complete.resolve_context_limit prepared with
@@ -262,7 +259,12 @@ let dispatch_sync
                    ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
                    error)
             | Ok measured ->
-              (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+              (match
+                 Llm_provider.Complete.admit_request
+                   ~now_unix_s
+                   ~max_context_tokens
+                   measured
+               with
                | Error error -> Error (fit_error ~binding error)
                | Ok admitted ->
                  Llm_provider.Complete.complete_admitted
@@ -327,6 +329,7 @@ let dispatch_stream
       |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
     let admitted_call () =
+      let now_unix_s = int_of_float (Unix.gettimeofday ()) in
       let prepared =
         Llm_provider.Complete.prepare_request
           ~config:pc
@@ -341,7 +344,7 @@ let dispatch_stream
       in
       (* Reject stale or future-dated evidence, then resolve the context limit.
          Both are network-free and therefore precede token measurement. *)
-      match preflight_serving_constraint ~binding prepared with
+      match preflight_serving_constraint ~binding ~now_unix_s prepared with
       | Error error -> Error error
       | Ok () ->
         (match Llm_provider.Complete.resolve_context_limit prepared with
@@ -362,7 +365,12 @@ let dispatch_stream
                    ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
                    error)
             | Ok measured ->
-              (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+              (match
+                 Llm_provider.Complete.admit_request
+                   ~now_unix_s
+                   ~max_context_tokens
+                   measured
+               with
                | Error error -> Error (fit_error ~binding error)
                | Ok admitted ->
                  Llm_provider.Complete.complete_stream_admitted

@@ -90,7 +90,7 @@ val serving_constraint : prepared_request -> Serving_constraint.t option
     carried by the same provider request artifact. A missing reservation and
     context overflow are explicit. *)
 val admit_request
-  :  ?now_unix_s:int
+  :  now_unix_s:int
   -> max_context_tokens:int
   -> measured_request
   -> (admitted_request, fit_error) result

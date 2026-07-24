@@ -308,6 +308,10 @@ val with_tool_support : capabilities -> supports_tools:bool -> capabilities
     back to {!default_capabilities}.  Each [Some] field in [entry] overrides the
     corresponding field; [None] fields inherit from the base.
 
+    Capability manifests do not carry evidence-backed serving constraints.
+    Those constraints require provenance and validity fields and are therefore
+    accepted only through the model catalog declaration path.
+
     @since 0.188.0 *)
 val apply_manifest_entry : Capability_manifest.entry -> capabilities
 

@@ -106,7 +106,7 @@ let serving_constraint prepared =
 
 let requires_token_measurement prepared = Option.is_some (serving_constraint prepared)
 
-let admit ?now_unix_s ~max_context_tokens measured =
+let admit ~now_unix_s ~max_context_tokens measured =
   let request = measured.prepared.request in
   let input_tokens = measured.measurement.input_count.input_tokens in
   let reserved_output_tokens =
@@ -128,9 +128,6 @@ let admit ?now_unix_s ~max_context_tokens measured =
       match serving_constraint measured.prepared with
       | None -> Ok { measured; fit }
       | Some constraint_ ->
-        let now_unix_s =
-          Option.value now_unix_s ~default:(int_of_float (Unix.gettimeofday ()))
-        in
         (match Serving_constraint.admit ~now_unix_s ~input_tokens constraint_ with
          | Ok () -> Ok { measured; fit }
          | Error reason -> Error (Serving_constraint_rejected { constraint_; reason })))

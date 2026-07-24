@@ -97,6 +97,9 @@ val source_kind_to_string : source_kind -> string
 val confidence_of_string : string -> confidence option
 val confidence_to_string : confidence -> string
 
-(** Stable functional projection used by immutable catalog and ready-plan
-    fingerprints. *)
+(** Stable projection used by immutable catalog and ready-plan fingerprints.
+    This deliberately includes the full evidence identity, not only the
+    observed interval: refreshing [checked_at], [expires_at], [source_ref], or
+    confidence creates a new ready-plan generation instead of mutating the
+    meaning or validity window of an already-frozen plan. *)
 val fingerprint_parts : t -> string list

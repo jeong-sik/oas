@@ -65,7 +65,7 @@ val requires_token_measurement : t -> bool
 val serving_constraint : t -> Serving_constraint.t option
 
 val admit
-  :  ?now_unix_s:int
+  :  now_unix_s:int
   -> max_context_tokens:int
   -> measured
   -> (admitted, fit_error) result
