@@ -2,7 +2,28 @@ type exact_binding_error =
   | Provider_missing
   | Model_missing
 
+type endpoint_error =
+  | Malformed_base_url
+  | Base_url_userinfo_not_allowed
+  | Base_url_query_not_allowed
+  | Base_url_fragment_not_allowed
+  | Invalid_request_path
+  | Unsupported_gemini_request_path
+  | Invalid_gemini_model_path
+
 val has_control : string -> bool
+
+val validate_base_url : string -> (unit, endpoint_error) result
+
+val validate_request_path
+  :  kind:Provider_config.provider_kind
+  -> string
+  -> (unit, endpoint_error) result
+
+val validate_model_path
+  :  Provider_config.provider_kind
+  -> string
+  -> (unit, endpoint_error) result
 
 val target_string_field
   :  target_label:string

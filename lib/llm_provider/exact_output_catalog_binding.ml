@@ -1,4 +1,5 @@
 module Caps = Capabilities
+module PC = Provider_config
 module String_map = Map.Make (String)
 module String_set = Set.Make (String)
 
@@ -6,10 +7,96 @@ type exact_binding_error =
   | Provider_missing
   | Model_missing
 
+type endpoint_error =
+  | Malformed_base_url
+  | Base_url_userinfo_not_allowed
+  | Base_url_query_not_allowed
+  | Base_url_fragment_not_allowed
+  | Invalid_request_path
+  | Unsupported_gemini_request_path
+  | Invalid_gemini_model_path
+
 let has_control value =
   String.exists
     (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
     value
+;;
+
+let validate_base_url value =
+  if has_control value
+  then Error Malformed_base_url
+  else if String.contains value '?'
+  then Error Base_url_query_not_allowed
+  else if String.contains value '#'
+  then Error Base_url_fragment_not_allowed
+  else (
+    let uri = Uri.of_string value in
+    match Uri.scheme uri, Uri.host uri with
+    | Some ("http" | "https"), Some host when host <> "" ->
+      if Option.is_some (Uri.userinfo uri)
+      then Error Base_url_userinfo_not_allowed
+      else if Uri.query uri <> []
+      then Error Base_url_query_not_allowed
+      else if Option.is_some (Uri.fragment uri)
+      then Error Base_url_fragment_not_allowed
+      else Ok ()
+    | _ -> Error Malformed_base_url)
+;;
+
+let contains_encoded_control value =
+  let value = String.lowercase_ascii value in
+  List.exists
+    (fun encoded ->
+       let encoded_length = String.length encoded in
+       let rec loop offset =
+         offset + encoded_length <= String.length value
+         && (String.sub value offset encoded_length = encoded || loop (offset + 1))
+       in
+       loop 0)
+    [ "%00"; "%0a"; "%0d" ]
+;;
+
+let validate_request_path ~kind value =
+  match kind with
+  | PC.Gemini ->
+    if value = "" then Ok () else Error Unsupported_gemini_request_path
+  | PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope ->
+    let path_segments = String.split_on_char '/' value in
+    if
+      value = ""
+      || value.[0] <> '/'
+      || has_control value
+      || contains_encoded_control value
+      || String.contains value '%'
+      || String.contains value '\\'
+      || String.contains value '?'
+      || String.contains value '#'
+      || List.exists (fun segment -> segment = "." || segment = "..") path_segments
+      || List.exists (fun segment -> segment = "") (List.tl path_segments)
+    then Error Invalid_request_path
+    else Ok ()
+;;
+
+let validate_model_path kind model_id =
+  match kind with
+  | PC.Gemini
+    when model_id = ""
+         || model_id = "."
+         || model_id = ".."
+         || not
+              (String.for_all
+                 (function
+                   | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' | '~' -> true
+                   | _ -> false)
+                 model_id) ->
+    Error Invalid_gemini_model_path
+  | PC.Gemini
+  | PC.Anthropic
+  | PC.Kimi
+  | PC.OpenAI_compat
+  | PC.Ollama
+  | PC.Glm
+  | PC.DashScope -> Ok ()
 ;;
 
 let target_string_field ~target_label ~field toml =

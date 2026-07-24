@@ -1,6 +1,7 @@
 module Plan = Exact_output_plan
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
+module Gemini_schema = Exact_output_gemini_schema
 module Caps = Capabilities
 module PC = Provider_config
 include Exact_output_resolver
@@ -329,159 +330,14 @@ let make_output_requirement ~schema ~minimum_guarantee =
   }
 ;;
 
-let gemini_schema_keywords =
-  [ "type"
-  ; "title"
-  ; "description"
-  ; "properties"
-  ; "required"
-  ; "additionalProperties"
-  ; "enum"
-  ; "format"
-  ; "minimum"
-  ; "maximum"
-  ; "items"
-  ; "prefixItems"
-  ; "minItems"
-  ; "maxItems"
-  ]
-;;
-
-let gemini_keywords_for_type = function
-  | "object" ->
-    [ "type"; "title"; "description"; "properties"; "required"; "additionalProperties" ]
-  | "string" -> [ "type"; "title"; "description"; "enum"; "format" ]
-  | "number" | "integer" ->
-    [ "type"; "title"; "description"; "enum"; "minimum"; "maximum" ]
-  | "array" ->
-    [ "type"; "title"; "description"; "items"; "prefixItems"; "minItems"; "maxItems" ]
-  | "boolean" | "null" -> [ "type"; "title"; "description" ]
-  | type_name -> raise_notrace (Invalid_argument type_name)
-;;
-
-let assoc_keys_are_unique fields =
-  let keys = List.map fst fields in
-  List.length keys = List.length (List.sort_uniq String.compare keys)
-;;
-
-let json_number = function
-  | `Int _ | `Intlit _ | `Float _ -> true
-  | `Null | `Bool _ | `String _ | `Assoc _ | `List _ -> false
-;;
-
-let json_integer = function
-  | `Int _ | `Intlit _ -> true
-  | `Null | `Bool _ | `Float _ | `String _ | `Assoc _ | `List _ -> false
-;;
-
-let gemini_non_null_schema_types =
-  [ "string"; "number"; "integer"; "boolean"; "object"; "array" ]
-;;
-
-let gemini_schema_base_type = function
-  | Some (`String type_name)
-    when String.equal type_name "null" || List.mem type_name gemini_non_null_schema_types
-    -> Ok type_name
-  | Some (`String type_name) -> Error (Unsupported_schema_type type_name)
-  | Some (`List [ `String left; `String right ])
-    when String.equal left "null" && List.mem right gemini_non_null_schema_types ->
-    Ok right
-  | Some (`List [ `String left; `String right ])
-    when String.equal right "null" && List.mem left gemini_non_null_schema_types ->
-    Ok left
-  | Some (`List _) | Some _ | None -> Error Invalid_schema
-;;
-
-let rec validate_gemini_schema ~path = function
-  | `Assoc fields when assoc_keys_are_unique fields ->
-    (match
-       List.find_opt
-         (fun (keyword, _) -> not (List.mem keyword gemini_schema_keywords))
-         fields
-     with
-     | Some (keyword, _) -> Error (Unsupported_schema_keyword (path ^ "." ^ keyword))
-     | None ->
-       (match gemini_schema_base_type (List.assoc_opt "type" fields) with
-        | Ok type_name ->
-          let supported = gemini_keywords_for_type type_name in
-          (match
-             List.find_opt (fun (keyword, _) -> not (List.mem keyword supported)) fields
-           with
-           | Some (keyword, _) ->
-             Error (Unsupported_schema_keyword (path ^ "." ^ keyword))
-           | None -> validate_gemini_schema_fields ~path ~type_name fields)
-        | Error _ as error -> error))
-  | `Assoc _ | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
-    Error Invalid_schema
-
-and validate_gemini_schema_fields ~path ~type_name fields =
-  let rec validate_all = function
-    | [] -> Ok ()
-    | field :: rest ->
-      let* () = validate_gemini_schema_field ~path ~type_name field in
-      validate_all rest
-  in
-  validate_all fields
-
-and validate_gemini_schema_field ~path ~type_name = function
-  | "type", (`String _ | `List _) -> Ok ()
-  | ("title" | "description"), `String _ -> Ok ()
-  | "properties", `Assoc properties
-    when String.equal type_name "object" && assoc_keys_are_unique properties ->
-    let rec validate = function
-      | [] -> Ok ()
-      | (name, schema) :: rest ->
-        let* () = validate_gemini_schema ~path:(path ^ ".properties." ^ name) schema in
-        validate rest
-    in
-    validate properties
-  | "required", `List names
-    when String.equal type_name "object"
-         && List.for_all
-              (function
-                | `String _ -> true
-                | _ -> false)
-              names -> Ok ()
-  | "additionalProperties", `Bool _ when String.equal type_name "object" -> Ok ()
-  | "additionalProperties", schema when String.equal type_name "object" ->
-    validate_gemini_schema ~path:(path ^ ".additionalProperties") schema
-  | "enum", `List values
-    when values <> []
-         && String.equal type_name "string"
-         && List.for_all
-              (function
-                | `String _ -> true
-                | _ -> false)
-              values -> Ok ()
-  | "enum", `List values
-    when values <> []
-         && String.equal type_name "number"
-         && List.for_all json_number values -> Ok ()
-  | "enum", `List values
-    when values <> []
-         && String.equal type_name "integer"
-         && List.for_all json_integer values -> Ok ()
-  | "format", `String _ when String.equal type_name "string" -> Ok ()
-  | ("minimum" | "maximum"), value
-    when (String.equal type_name "number" || String.equal type_name "integer")
-         && json_number value -> Ok ()
-  | "items", schema when String.equal type_name "array" ->
-    validate_gemini_schema ~path:(path ^ ".items") schema
-  | "prefixItems", `List schemas when String.equal type_name "array" ->
-    let rec validate index = function
-      | [] -> Ok ()
-      | schema :: rest ->
-        let* () =
-          validate_gemini_schema
-            ~path:(Printf.sprintf "%s.prefixItems[%d]" path index)
-            schema
-        in
-        validate (index + 1) rest
-    in
-    validate 0 schemas
-  | ("minItems" | "maxItems"), `Int value
-    when String.equal type_name "array" && value >= 0 -> Ok ()
-  | _ -> Error Invalid_schema
+let validate_gemini_schema ~path schema =
+  match Gemini_schema.validate ~path schema with
+  | Ok () -> Ok ()
+  | Error (Gemini_schema.Unsupported_keyword keyword) ->
+    Error (Unsupported_schema_keyword keyword)
+  | Error (Gemini_schema.Unsupported_type type_name) ->
+    Error (Unsupported_schema_type type_name)
+  | Error Gemini_schema.Invalid_schema -> Error Invalid_schema
 ;;
 
 let schema_for_wire target (Domain_schema domain_schema) =
