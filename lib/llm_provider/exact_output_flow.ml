@@ -152,9 +152,7 @@ let record_preference store ~scope ~reservation ~candidate ~ordinal =
 ;;
 
 let claim_domain_settlement settlement =
-  if Atomic.compare_and_set settlement false true
-  then Ok ()
-  else Error Already_settled
+  if Atomic.compare_and_set settlement false true then Ok () else Error Already_settled
 ;;
 
 let settle_domain_rejected_once = claim_domain_settlement
@@ -172,8 +170,7 @@ let settle_domain_valid_once
   | Ok () ->
     (match record_preference preferences ~scope ~reservation ~candidate ~ordinal with
      | Ok installation -> Ok installation
-     | Error Preference_scope_not_reserved_for_record ->
-       Error Preference_scope_released)
+     | Error Preference_scope_not_reserved_for_record -> Error Preference_scope_released)
 ;;
 
 let record_admission progress admission =
