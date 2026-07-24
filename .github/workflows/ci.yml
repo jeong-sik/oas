@@ -194,6 +194,39 @@ jobs:
           opam install odoc --yes
           opam exec -- dune build @doc
 
+  eio-compat:
+    name: Eio ${{ matrix.eio-version }} Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        eio-version: ['1.3', '1.4']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.4.1
+          dune-cache: true
+
+      - name: Install dependencies
+        run: opam exec -- bash scripts/ci-setup-deps.sh
+
+      - name: Select Eio ${{ matrix.eio-version }}
+        run: |
+          opam install \
+            "eio.${{ matrix.eio-version }}" \
+            "eio_main.${{ matrix.eio-version }}" \
+            --yes
+
+      - name: Run typed transport compatibility tests
+        env:
+          OCAMLPARAM: "_,warn-error=+a"
+        run: opam exec -- dune runtest lib/llm_provider
+
   boundary-lint:
     # Runs on every push and PR (including drafts) to give fast feedback
     # without waiting for the full opam-based build matrix.
