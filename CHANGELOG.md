@@ -278,6 +278,14 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.222.2](https://github.com/jeong-sik/oas/compare/v0.222.1...v0.222.2) (2026-07-24)
+
+
+### Features
+
+* add evidence-backed token serving admission ([#2796](https://github.com/jeong-sik/oas/issues/2796)) ([5a82100](https://github.com/jeong-sik/oas/commit/5a8210019d0d119cd209becf47aef0f124e1f0a8))
+* **llm-provider:** admit exact request body limits ([#2791](https://github.com/jeong-sik/oas/issues/2791)) ([417c5c1](https://github.com/jeong-sik/oas/commit/417c5c1c34025a36889b6671f5ae02acada41f27))
+
 ## [0.222.1](https://github.com/jeong-sik/oas/compare/v0.222.0...v0.222.1) (2026-07-24)
 
 
