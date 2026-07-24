@@ -503,16 +503,10 @@ scan_public_error_accessors() {
   hits="$(
     strip_ocaml_noncode < "$source_file" \
       | awk '
-          match(
-            $0,
-            /^[[:space:]]*val[[:space:]]+(target_selection_error|wire_admission_error|admission_error)_[[:alnum:]_]+/
-          ) {
+          match($0, /^[[:space:]]*val[[:space:]]+(target_selection_error|wire_admission_error|admission_error)_[[:alnum:]_]+/) {
             accessor = substr($0, RSTART, RLENGTH)
             sub(/^[[:space:]]*val[[:space:]]+/, "", accessor)
-            if (
-              accessor != "target_selection_error_disposition"
-              && accessor != "admission_error_disposition"
-            ) {
+            if (accessor != "target_selection_error_disposition" && accessor != "admission_error_disposition") {
               printf "%d:%s\n", NR, $0
             }
           }
@@ -986,7 +980,7 @@ scan_named_functions \
   "make_flow_candidate snapshot_flow start_flow"
 require_code_pattern \
   "outer exact flow no longer prepares only the executing candidate" \
-  'let[[:space:]]+execute_flow_candidate[[:space:]]' \
+  'let[[:space:]]+execute_flow_candidate([^[:alnum:]_]|$)' \
   "$exact_output_source"
 require_named_function_pattern \
   "current exact-flow candidate no longer resolves its frozen target" \
