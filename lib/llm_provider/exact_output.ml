@@ -856,7 +856,7 @@ let admitted_flow_candidate visit (plan : ready_plan) =
   }
 ;;
 
-let record_candidate_rejection flow visit cause =
+let record_candidate_rejection (flow : flow_attempt) visit cause =
   let rejection = { scope = flow.scope; visit; cause } in
   Flow_state.record_admission flow.progress (Candidate_rejected rejection);
   rejection
@@ -882,16 +882,16 @@ let execute_flow_candidate
        let admitted = admitted_flow_candidate candidate.visit plan in
        Flow_state.record_admission flow.progress (Candidate_admitted admitted);
        (match start_attempt plan with
-         | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
-         | Ok attempt ->
-           let candidate_receipt =
-             { scope = flow.scope
-             ; visit = candidate.visit
-             ; receipt = attempt_receipt attempt
-             }
-           in
-           record_attempt flow candidate_receipt;
-           (match before_dispatch candidate_receipt with
+        | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
+        | Ok attempt ->
+          let candidate_receipt =
+            { scope = flow.scope
+            ; visit = candidate.visit
+            ; receipt = attempt_receipt attempt
+            }
+          in
+          record_attempt flow candidate_receipt;
+          (match before_dispatch candidate_receipt with
            | Error cause ->
              Error (Flow_step_before_dispatch_callback_failed (candidate_receipt, cause))
            | Ok () ->
