@@ -13,7 +13,7 @@ type ('admission, 'attempt) progress_snapshot =
   ; attempts : 'attempt list
   }
 
-type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
+type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
       { candidate : 'candidate
       ; success : 'success
@@ -21,7 +21,7 @@ type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
   | Attempt_already_started
   | Before_advance_callback_failed of
       { failed_candidate : 'candidate
-      ; failure : 'execution_error
+      ; failure : 'advanceable_error
       ; next_candidate : 'candidate
       ; cause : 'callback_error
       }
@@ -31,6 +31,10 @@ type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
       }
 
 val create : unit -> t
+
+(** Progress has exactly one writer: the invocation that wins [execute_once]'s
+    affine gate. Concurrent readers may observe the honest point between a
+    recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt) progress
 
 val record_admission
@@ -55,8 +59,9 @@ val duplicate_key
     [execute] owns preparation, durable pre-dispatch binding, and one-shot
     execution for the current candidate. [before_advance] receives the
     already-selected successor and can only confirm or reject its durable
-    transition; it cannot replace or reorder that successor. [can_advance] is
-    supplied exclusively by the private facade adapter.
+    transition; it cannot replace or reorder that successor. [advanceable]
+    refines an execution error into the only error type accepted by
+    [before_advance]; terminal errors cannot reach that callback.
 
     The outer attempt is affine. A duplicate or concurrent invocation returns
     [Attempt_already_started]. Any exception, including Eio cancellation,
@@ -65,10 +70,10 @@ val execute_once
   :  t
   -> candidates:'candidate list
   -> execute:('candidate -> ('success, 'execution_error) result)
-  -> can_advance:('execution_error -> bool)
+  -> advanceable:('execution_error -> 'advanceable_error option)
   -> before_advance:
        (failed:'candidate
-        -> failure:'execution_error
+        -> failure:'advanceable_error
         -> next:'candidate
         -> (unit, 'callback_error) result)
-  -> ('candidate, 'success, 'execution_error, 'callback_error) outcome
+  -> ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome

@@ -408,7 +408,9 @@ type 'callback_error flow_execution_error =
     immutable order. [candidate_attempt_count], [admissions], and [attempts]
     contain only candidates reached so far. Attempts are allocated only after
     current-candidate admission succeeds. This remains queryable after
-    cancellation escapes. *)
+    cancellation escapes. The affine executor is the sole writer. A concurrent
+    reader may observe the exact point after an admitted outcome is recorded
+    and before its fresh attempt is allocated. *)
 val flow_attempt_evidence : flow_attempt -> flow_evidence
 
 (** Execute the frozen request once. The attempt is single-use: duplicate or

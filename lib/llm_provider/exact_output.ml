@@ -259,7 +259,11 @@ type 'callback_error flow_step_failure =
   | Flow_step_admission_rejected of admission_rejection_receipt
   | Flow_step_attempt_start_failed of flow_candidate_identity * start_attempt_error
   | Flow_step_before_dispatch_callback_failed of flow_attempt_receipt * 'callback_error
-  | Flow_step_execution_failed of flow_candidate_failure
+  | Flow_step_execution_failed of
+      { candidate : flow_attempt_receipt
+      ; cause : execution_error
+      ; candidate_attempt_count : candidate_attempt_count
+      }
 
 let ( let* ) = Result.bind
 
@@ -933,24 +937,23 @@ let execute_flow_candidate ~net ?clock ~before_dispatch flow candidate =
            | Error cause ->
              Error
                (Flow_step_execution_failed
-                  (Flow_candidate_execution_failed
-                     { candidate = candidate_receipt; cause; candidate_attempt_count })))))
-;;
-
-let flow_step_failure_may_advance = function
-  | Flow_step_admission_rejected _ -> true
-  | Flow_step_execution_failed (Flow_candidate_execution_failed { cause; _ }) ->
-    execution_failure_may_advance cause
-  | Flow_step_execution_failed (Flow_candidate_admission_rejected _)
-  | Flow_step_attempt_start_failed _ | Flow_step_before_dispatch_callback_failed _ ->
-    false
+                  { candidate = candidate_receipt; cause; candidate_attempt_count }))))
 ;;
 
 let advanceable_flow_failure = function
-  | Flow_step_admission_rejected receipt -> Flow_candidate_admission_rejected receipt
-  | Flow_step_execution_failed failure -> failure
-  | Flow_step_attempt_start_failed _ | Flow_step_before_dispatch_callback_failed _ ->
-    invalid_arg "Exact_output: terminal flow failure reached before_advance"
+  | Flow_step_admission_rejected receipt ->
+    Some (Flow_candidate_admission_rejected receipt)
+  | Flow_step_execution_failed ({ cause; _ } as failure)
+    when execution_failure_may_advance cause ->
+    Some
+      (Flow_candidate_execution_failed
+         { candidate = failure.candidate
+         ; cause = failure.cause
+         ; candidate_attempt_count = failure.candidate_attempt_count
+         })
+  | Flow_step_execution_failed _
+  | Flow_step_attempt_start_failed _
+  | Flow_step_before_dispatch_callback_failed _ -> None
 ;;
 
 let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
@@ -959,9 +962,9 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
       flow.execution
       ~candidates:flow.candidates
       ~execute:(execute_flow_candidate ~net ?clock ~before_dispatch flow)
-      ~can_advance:flow_step_failure_may_advance
+      ~advanceable:advanceable_flow_failure
       ~before_advance:(fun ~failed:_ ~failure ~next ->
-        before_advance ~failed:(advanceable_flow_failure failure) ~next:next.identity)
+        before_advance ~failed:failure ~next:next.identity)
   in
   let evidence = flow_attempt_evidence flow in
   match outcome with
@@ -971,11 +974,7 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
   | Flow_state.Before_advance_callback_failed { failure; next_candidate; cause; _ } ->
     Error
       (Flow_before_advance_callback_failed
-         { failed = advanceable_flow_failure failure
-         ; next = next_candidate.identity
-         ; cause
-         ; evidence
-         })
+         { failed = failure; next = next_candidate.identity; cause; evidence })
   | Flow_state.Execution_failed { cause; _ } ->
     (match cause with
      | Flow_step_admission_rejected rejection ->
@@ -984,9 +983,6 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
        Error (Flow_attempt_start_failed { candidate; cause; evidence })
      | Flow_step_before_dispatch_callback_failed (candidate, cause) ->
        Error (Flow_before_dispatch_callback_failed { candidate; cause; evidence })
-     | Flow_step_execution_failed
-         (Flow_candidate_execution_failed { candidate; cause; _ }) ->
-       Error (Flow_exact_execution_failed { candidate; cause; evidence })
-     | Flow_step_execution_failed (Flow_candidate_admission_rejected _) ->
-       invalid_arg "Exact_output: admission rejection used an execution-failure step")
+     | Flow_step_execution_failed { candidate; cause; _ } ->
+       Error (Flow_exact_execution_failed { candidate; cause; evidence }))
 ;;

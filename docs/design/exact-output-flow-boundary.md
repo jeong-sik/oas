@@ -59,6 +59,14 @@ dispatch. For each predetermined candidate:
 Callbacks can stop a transition but cannot select, replace, or reorder a
 candidate.
 
+Advance eligibility is effect-based, not a classifier over admission-error
+causes. Every typed admission rejection is pre-dispatch and zero-dispatch, so
+it is eligible for the predetermined successor. OAS does not infer that a
+schema or requirement rejection must behave identically across opaque targets.
+Target-specific schema validators and capability admission can emit the same
+public error variant, so the cause alone is not proof that an unvisited
+candidate must reject the contract.
+
 The following outcomes are terminal:
 
 - callback failure or exception;
@@ -87,6 +95,11 @@ Every terminal result carries:
 
 After cancellation escapes, the same aggregate evidence remains queryable from
 the opaque flow attempt.
+
+The affine executor is the sole progress writer. Concurrent evidence readers
+may observe the exact intermediate point after admission is recorded and before
+an admitted candidate receives its fresh attempt. Such a snapshot is
+point-in-time evidence, not a fabricated attempt or a terminal state.
 
 ## Explicit exclusions
 

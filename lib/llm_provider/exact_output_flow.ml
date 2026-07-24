@@ -19,7 +19,7 @@ type ('admission, 'attempt) progress_state =
 
 type ('admission, 'attempt) progress = ('admission, 'attempt) progress_state Atomic.t
 
-type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
+type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
       { candidate : 'candidate
       ; success : 'success
@@ -27,7 +27,7 @@ type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
   | Attempt_already_started
   | Before_advance_callback_failed of
       { failed_candidate : 'candidate
-      ; failure : 'execution_error
+      ; failure : 'advanceable_error
       ; next_candidate : 'candidate
       ; cause : 'callback_error
       }
@@ -80,7 +80,7 @@ let duplicate_key ~equal ~key candidates =
   find 1 [] candidates
 ;;
 
-let execute_once state ~candidates ~execute ~can_advance ~before_advance =
+let execute_once state ~candidates ~execute ~advanceable ~before_advance =
   if not (Atomic.compare_and_set state Not_started Running)
   then Attempt_already_started
   else
@@ -93,18 +93,20 @@ let execute_once state ~candidates ~execute ~can_advance ~before_advance =
              (match execute candidate with
               | Ok success -> Succeeded { candidate; success }
               | Error failure ->
-                (match rest with
-                 | next :: _ when can_advance failure ->
-                   (match before_advance ~failed:candidate ~failure ~next with
+                (match rest, advanceable failure with
+                 | next :: _, Some advanceable_failure ->
+                   (match
+                      before_advance ~failed:candidate ~failure:advanceable_failure ~next
+                    with
                     | Ok () -> execute_candidates rest
                     | Error cause ->
                       Before_advance_callback_failed
                         { failed_candidate = candidate
-                        ; failure
+                        ; failure = advanceable_failure
                         ; next_candidate = next
                         ; cause
                         })
-                 | [] | _ :: _ -> Execution_failed { candidate; cause = failure }))
+                 | [], _ | _ :: _, None -> Execution_failed { candidate; cause = failure }))
          in
          execute_candidates candidates)
 ;;

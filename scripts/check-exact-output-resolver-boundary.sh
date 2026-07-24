@@ -650,6 +650,15 @@ require_code_pattern \
   "outer exact flow no longer prepares only the executing candidate" \
   'let[[:space:]]+execute_flow_candidate[[:space:]]' \
   "$exact_output_source"
+require_code_sequence \
+  "private exact-output flow lost typed advance-error refinement" \
+  'advanceable:.*option.*failure:.*advanceable_error' \
+  "$module_dir/exact_output_flow.mli"
+scan_named_functions \
+  "outer exact-flow advance refinement returned to runtime exceptions" \
+  'invalid_arg|failwith' \
+  "$exact_output_source" \
+  "advanceable_flow_failure execute_flow_once"
 scan_code \
   "speculative ready-flow admission projection returned" \
   'type[[:space:]]+ready_flow|val[[:space:]]+(ready_flow_admissions|admit_flow)|let[[:space:]]+(ready_flow_admissions|admit_flow)' \
