@@ -7,14 +7,27 @@
 type t
 type ('admission, 'attempt) progress
 type ('scope, 'candidate) preference_store
+type preference_reservation
+type success_ordinal
 type domain_settlement
-type domain_settlement_error = Already_settled
+type preference_store_error = Invalid_preference_capacity of int
+type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
+
+type preference_scope_removal =
+  | Preference_scope_removed
+  | Preference_scope_not_reserved
+
+type success_ordinal_error = Success_ordinal_exhausted
+
+type domain_settlement_error =
+  | Already_settled
+  | Preference_scope_released
 
 type 'candidate preference_installation =
   | Preference_installed
   | Preference_superseded of
       { current_candidate : 'candidate
-      ; current_time : int64
+      ; current_ordinal : success_ordinal
       }
 
 type ('admission, 'attempt) progress_snapshot =
@@ -47,13 +60,29 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt) progress
 
-val create_preference_store : unit -> ('scope, 'candidate) preference_store
+val create_preference_store
+  :  capacity:int
+  -> (('scope, 'candidate) preference_store, preference_store_error) result
+
 val create_domain_settlement : unit -> domain_settlement
 
-val preferred_candidate
+val reserve_preference_scope
   :  ('scope, 'candidate) preference_store
   -> scope:'scope
-  -> ('candidate * int64) option
+  -> ( preference_reservation * ('candidate * success_ordinal) option
+       , preference_reservation_error )
+       result
+
+val remove_preference_scope
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> preference_scope_removal
+
+val allocate_success_ordinal
+  :  ('scope, 'candidate) preference_store
+  -> (success_ordinal, success_ordinal_error) result
+
+val success_ordinal_to_int64 : success_ordinal -> int64
 
 val settle_domain_rejected_once
   :  domain_settlement
@@ -63,8 +92,9 @@ val settle_domain_valid_once
   :  domain_settlement
   -> ('scope, 'candidate) preference_store
   -> scope:'scope
+  -> reservation:preference_reservation
   -> candidate:'candidate
-  -> time:int64
+  -> ordinal:success_ordinal
   -> ('candidate preference_installation, domain_settlement_error) result
 
 val record_admission : ('admission, 'attempt) progress -> 'admission -> unit

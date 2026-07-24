@@ -25,6 +25,7 @@ type schema_fingerprint
 type flow_candidate
 type flow_preference_store
 type flow_scope
+type flow_success_ordinal
 type flow_snapshot
 type flow_attempt
 type flow_success
@@ -204,11 +205,11 @@ type flow_preference_observation =
   | No_preference_recorded
   | Preference_applied of
       { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
+      ; success_ordinal : flow_success_ordinal
       }
   | Preference_not_applied of
       { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
+      ; success_ordinal : flow_success_ordinal
       ; reason : flow_preference_not_applied_reason
       }
 
@@ -233,6 +234,11 @@ type candidate_admission =
 
 type flow_candidate_error = Blank_flow_candidate_id
 type flow_scope_error = Blank_flow_scope_id
+type flow_preference_store_error = Invalid_flow_preference_capacity of int
+
+type flow_preference_scope_removal =
+  | Flow_preference_scope_removed
+  | Flow_preference_scope_not_reserved
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -240,6 +246,7 @@ type flow_snapshot_error =
       ; first_position : int
       ; duplicate_position : int
       }
+  | Flow_preference_capacity_exhausted of { capacity : int }
 
 (** Construct one provider-neutral candidate from a catalog-admitted target.
     Credential selection remains frozen but unresolved until this candidate is
@@ -255,16 +262,30 @@ val make_flow_candidate
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
-(** Create one caller-owned, process-local preference store. The store has no
+(** Create one caller-owned, process-local preference store with an explicit
+    hard scope capacity. Nonpositive capacities fail closed. The store has no
     global singleton, environment-derived policy, expiry, clock, persistence,
-    or background refresh. Sharing and lifetime are explicit at the call site. *)
-val create_flow_preference_store : unit -> flow_preference_store
+    or background refresh. *)
+val create_flow_preference_store
+  :  capacity:int
+  -> (flow_preference_store, flow_preference_store_error) result
 
 (** Brand one opaque caller scope. OAS compares the trimmed nonempty identity
     exactly; it does not parse coordinator, tenant, provider, or model fields. *)
 val make_flow_scope : id:string -> (flow_scope, flow_scope_error) result
 
 val flow_scope_equal : flow_scope -> flow_scope -> bool
+val flow_success_ordinal_to_int64 : flow_success_ordinal -> int64
+
+(** Remove one explicitly reserved scope and free its capacity. Existing frozen
+    snapshots remain immutable, but a later domain-valid settlement from an
+    already-running flow for this reservation fails with
+    [Domain_preference_scope_released], even if the same textual scope has since
+    been reserved again, and is still consumed exactly once. *)
+val remove_flow_preference_scope
+  :  flow_preference_store
+  -> flow_scope
+  -> flow_preference_scope_removal
 
 (** Freeze one nonempty ordered candidate snapshot and its immutable domain
     input. This validates only flow topology. Credential selection and exact
@@ -272,13 +293,14 @@ val flow_scope_equal : flow_scope -> flow_scope -> bool
     {!execute_flow_once}; later candidates are neither selected, prepared, nor
     assigned attempts speculatively.
 
-    A domain-valid last-good candidate recorded in [preferences] for [scope] is
-    moved to the front only when the same caller slot and opaque target binding
-    are both present. An absent slot or changed target binding is retained as a
-    typed non-applied observation. The remaining candidates retain their
-    declared relative order. This lookup happens exactly once: existing
-    snapshots never change, and preferences from another scope cannot affect
-    this snapshot. *)
+    The snapshot atomically reserves [scope] in [preferences]. A new scope fails
+    with [Flow_preference_capacity_exhausted] when the store is full. A
+    domain-valid last-good candidate recorded for the scope is moved to the
+    front only when the same caller slot and opaque target binding are both
+    present. An absent slot or changed target binding is retained as a typed
+    non-applied observation. The remaining candidates retain their declared
+    relative order. This lookup happens exactly once: existing snapshots never
+    change, and preferences from another scope cannot affect this snapshot. *)
 val snapshot_flow
   :  preferences:flow_preference_store
   -> scope:flow_scope
@@ -423,33 +445,40 @@ type flow_evidence = private
 val flow_success_candidate : flow_success -> flow_attempt_receipt
 val flow_success_output : flow_success -> success
 val flow_success_evidence : flow_success -> flow_evidence
+val flow_success_ordinal : flow_success -> flow_success_ordinal
 
 type domain_disposition =
-  | Domain_valid of { success_time_unix_s : int64 }
+  | Domain_valid
   | Domain_rejected
 
-type domain_settlement_receipt =
+type domain_settlement_receipt = private
   | Domain_rejected_recorded
   | Domain_valid_preference_installed of
       { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
+      ; success_ordinal : flow_success_ordinal
       }
   | Domain_valid_preference_superseded of
       { current_candidate : flow_candidate_identity
-      ; current_success_time_unix_s : int64
+      ; current_success_ordinal : flow_success_ordinal
       }
 
-type domain_settlement_error = Domain_already_settled
+type domain_settlement_error =
+  | Domain_already_settled
+  | Domain_preference_scope_released
 
 (** Settle caller-owned domain validation exactly once after structural
-    success. [Domain_valid] records the successful opaque candidate and the
-    caller-supplied success time as last-good for this flow's scope.
-    [Domain_rejected] records no preference and never resumes or advances the
-    terminal flow. Concurrent or duplicate settlement returns
-    [Domain_already_settled]. An equal or older success time cannot overwrite
-    a newer preference already recorded by another flow and returns a typed
-    [Domain_valid_preference_superseded] receipt naming the retained opaque
-    candidate identity and success time. *)
+    success. OAS freezes an immutable monotonic ordinal when structural success
+    is created; the caller cannot supply or alter freshness. [Domain_valid]
+    records the successful opaque candidate and frozen ordinal as last-good for
+    this flow's scope. [Domain_rejected] records no preference and never resumes
+    or advances the terminal flow. Concurrent or duplicate settlement returns
+    [Domain_already_settled]. A success whose ordinal is not newer cannot
+    overwrite the retained preference and returns a typed
+    [Domain_valid_preference_superseded] receipt. If the caller explicitly
+    removed the scope reservation after snapshot, domain-valid settlement
+    returns [Domain_preference_scope_released]; recreating the same textual
+    scope does not revive the old reservation. Every disposition is consumed
+    exactly once. *)
 val settle_flow_domain
   :  flow_success
   -> domain_disposition
@@ -464,6 +493,7 @@ type flow_candidate_failure =
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
+  | Flow_success_ordinal_exhausted of flow_evidence
   | Flow_attempt_start_failed of
       { candidate : flow_candidate_visit
       ; cause : start_attempt_error

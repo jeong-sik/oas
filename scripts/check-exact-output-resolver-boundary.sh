@@ -965,6 +965,18 @@ require_code_sequence \
   'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
   "$exact_output_interface"
 require_code_sequence \
+  "outer exact-flow preference store lost its mandatory hard capacity" \
+  'val[[:space:]]+create_flow_preference_store[[:space:]]*:[[:space:]]*capacity:int[[:space:]]*->[[:space:]]*\(flow_preference_store,[[:space:]]*flow_preference_store_error\)[[:space:]]*result' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow snapshot lost typed capacity exhaustion" \
+  'type[[:space:]]+flow_snapshot_error.*Flow_preference_capacity_exhausted[[:space:]]+of[[:space:]]*\{[[:space:]]*capacity[[:space:]]*:[[:space:]]*int' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow preference lost explicit scope removal" \
+  'val[[:space:]]+remove_flow_preference_scope[[:space:]]*:[[:space:]]*flow_preference_store[[:space:]]*->[[:space:]]*flow_scope[[:space:]]*->[[:space:]]*flow_preference_scope_removal' \
+  "$exact_output_interface"
+require_code_sequence \
   "outer exact-flow attempt receipt lost its opaque scope binding" \
   'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
   "$exact_output_interface"
@@ -987,15 +999,45 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow lost typed domain settlement" \
-  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_receipt.*Domain_rejected_recorded.*Domain_valid_preference_installed.*Domain_valid_preference_superseded.*val[[:space:]]+settle_flow_domain' \
+  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*Domain_rejected_recorded.*Domain_valid_preference_installed.*Domain_valid_preference_superseded.*val[[:space:]]+settle_flow_domain' \
   "$exact_output_interface"
+require_code_sequence \
+  "private exact-flow contract exposed forgeable domain settlement receipts" \
+  'type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private' \
+  "$module_dir/exact_output_flow_contract.mli"
+scan_code \
+  "domain-valid settlement regained caller-forgeable freshness" \
+  'Domain_valid[[:space:]]+of|success_time_unix_s|current_success_time_unix_s' \
+  "$exact_output_source" \
+  "$exact_output_interface" \
+  "$exact_output_flow_source" \
+  "$module_dir/exact_output_flow.mli" \
+  "$exact_output_flow_contract_source" \
+  "$module_dir/exact_output_flow_contract.mli"
+require_code_sequence \
+  "outer exact-flow structural success lost its opaque OAS-owned ordinal" \
+  'type[[:space:]]+flow_success_ordinal.*val[[:space:]]+flow_success_ordinal[[:space:]]*:[[:space:]]*flow_success[[:space:]]*->[[:space:]]*flow_success_ordinal' \
+  "$exact_output_interface"
+require_named_function_pattern \
+  "outer exact-flow structural success stopped allocating its OAS-owned ordinal" \
+  'allocate_flow_success_ordinal[[:space:]]+flow[.]preferences' \
+  "$exact_output_source" \
+  "execute_flow_once"
 scan_code \
   "outer exact flow exposed forgeable structural success settlement state" \
   'type[[:space:]]+flow_success[[:space:]]*=' \
   "$exact_output_interface"
 require_code_sequence \
-  "scope-local preference can be overwritten by stale success evidence" \
-  'Int64\.compare[[:space:]]+time[[:space:]]+current_time[[:space:]]*<=[[:space:]]*0' \
+  "scope-local preference can be overwritten by an older success ordinal" \
+  'compare_success_ordinal[[:space:]]+ordinal[[:space:]]+current_ordinal[[:space:]]*<=[[:space:]]*0' \
+  "$exact_output_flow_source"
+require_code_sequence \
+  "scope-local preference lost snapshot reservation generation validation" \
+  'entry[.]reservation[[:space:]]*!=[[:space:]]*reservation' \
+  "$exact_output_flow_source"
+require_code_sequence \
+  "scope-local preference stopped failing closed on ordinal exhaustion" \
+  'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
   "$exact_output_flow_source"
 require_code_sequence \
   "domain settlement lost its linearized commit-before-publication gate" \

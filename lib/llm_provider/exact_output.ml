@@ -202,6 +202,7 @@ type candidate_admission =
 type flow_snapshot =
   { preferences : flow_preference_store
   ; scope : flow_scope
+  ; preference_reservation : Flow_contract.flow_preference_reservation
   ; declared_candidate_snapshot : flow_candidate_identity list
   ; preference_observation : flow_preference_observation
   ; candidates : flow_candidate list
@@ -220,6 +221,7 @@ type flow_attempt =
   ; flow_id : flow_id
   ; preferences : flow_preference_store
   ; scope : flow_scope
+  ; preference_reservation : Flow_contract.flow_preference_reservation
   ; declared_candidate_snapshot : flow_candidate_identity list
   ; candidate_snapshot : flow_candidate_identity list
   ; preference_observation : flow_preference_observation
@@ -237,6 +239,7 @@ type flow_snapshot_error =
       ; first_position : int
       ; duplicate_position : int
       }
+  | Flow_preference_capacity_exhausted of { capacity : int }
 
 type start_attempt_error = Call_id_generation_failed of string
 type flow_start_error = Flow_id_generation_failed of string
@@ -255,10 +258,12 @@ type flow_evidence =
 type flow_success =
   { candidate : flow_attempt_receipt
   ; success : success
+  ; success_ordinal : flow_success_ordinal
   ; evidence : flow_evidence
   ; domain_settlement : Flow_state.domain_settlement
   ; preferences : flow_preference_store
   ; scope : flow_scope
+  ; preference_reservation : Flow_contract.flow_preference_reservation
   }
 
 type flow_candidate_failure =
@@ -270,6 +275,7 @@ type flow_candidate_failure =
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
+  | Flow_success_ordinal_exhausted of flow_evidence
   | Flow_attempt_start_failed of
       { candidate : flow_candidate_visit
       ; cause : start_attempt_error
@@ -508,22 +514,26 @@ let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
       (Duplicate_flow_candidate_id { candidate_id; first_position; duplicate_position })
   | None ->
     let declared_candidate_snapshot = List.map flow_candidate_identity candidates in
-    let candidates, preference_observation =
-      Flow_contract.prefer_last_good
-        preferences
-        scope
-        ~candidate_identity:flow_candidate_identity
-        candidates
-    in
-    Ok
-      { preferences
-      ; scope
-      ; declared_candidate_snapshot
-      ; preference_observation
-      ; candidates
-      ; messages
-      ; requirement
-      }
+    (match
+       Flow_contract.prefer_last_good
+         preferences
+         scope
+         ~candidate_identity:flow_candidate_identity
+         candidates
+     with
+     | Error (Preference_capacity_exhausted { capacity }) ->
+       Error (Flow_preference_capacity_exhausted { capacity })
+     | Ok (candidates, preference_observation, preference_reservation) ->
+       Ok
+         { preferences
+         ; scope
+         ; preference_reservation
+         ; declared_candidate_snapshot
+         ; preference_observation
+         ; candidates
+         ; messages
+         ; requirement
+         })
 ;;
 
 let start_attempt (ready : ready_plan) =
@@ -566,6 +576,7 @@ let start_flow (ready : flow_snapshot) =
       ; flow_id
       ; preferences = ready.preferences
       ; scope = ready.scope
+      ; preference_reservation = ready.preference_reservation
       ; declared_candidate_snapshot = ready.declared_candidate_snapshot
       ; candidate_snapshot = List.map flow_candidate_identity ready.candidates
       ; preference_observation = ready.preference_observation
@@ -579,13 +590,16 @@ let start_flow (ready : flow_snapshot) =
 let flow_success_candidate success = success.candidate
 let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
+let flow_success_ordinal success = success.success_ordinal
 
 let settle_flow_domain success disposition =
   Flow_contract.settle_domain
     success.domain_settlement
     success.preferences
     success.scope
+    ~reservation:success.preference_reservation
     ~candidate:success.candidate.visit.identity
+    ~success_ordinal:success.success_ordinal
     disposition
 ;;
 
@@ -910,14 +924,20 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
   let evidence = flow_attempt_evidence flow in
   match outcome with
   | Flow_state.Succeeded { success = candidate, success; _ } ->
-    Ok
-      { candidate
-      ; success
-      ; evidence
-      ; domain_settlement = Flow_state.create_domain_settlement ()
-      ; preferences = flow.preferences
-      ; scope = flow.scope
-      }
+    (match Flow_contract.allocate_flow_success_ordinal flow.preferences with
+     | Error Success_ordinal_space_exhausted ->
+       Error (Flow_success_ordinal_exhausted evidence)
+     | Ok success_ordinal ->
+       Ok
+         { candidate
+         ; success
+         ; success_ordinal
+         ; evidence
+         ; domain_settlement = Flow_state.create_domain_settlement ()
+         ; preferences = flow.preferences
+         ; scope = flow.scope
+         ; preference_reservation = flow.preference_reservation
+         })
   | Flow_state.Attempt_already_started -> Error (Flow_attempt_already_started evidence)
   | Flow_state.Before_advance_callback_failed { failure; next_candidate; cause; _ } ->
     Error

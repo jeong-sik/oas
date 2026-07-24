@@ -148,25 +148,34 @@ let flow_scope id =
   | Error EO.Blank_flow_scope_id -> fail "fixture flow scope was blank"
 ;;
 
-let frozen_candidates
-      ?(preferences = EO.create_flow_preference_store ())
-      ?(scope = flow_scope "test-default")
-      candidates
-  =
+let preference_store ?(capacity = 16) () =
+  match EO.create_flow_preference_store ~capacity with
+  | Ok preferences -> preferences
+  | Error (EO.Invalid_flow_preference_capacity invalid) ->
+    failf "fixture preference capacity was invalid: %d" invalid
+;;
+
+let snapshot_candidates ~preferences ~scope candidates =
   match candidates with
   | [] -> fail "flow fixture must be nonempty"
   | first :: rest ->
-    (match
-       EO.snapshot_flow
-         ~preferences
-         ~scope
-         ~first
-         ~rest
-         ~messages:[ msg "return one exact object" ]
-         (EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
-     with
-     | Ok ready -> ready
-     | Error _ -> fail "flow fixture did not admit")
+    EO.snapshot_flow
+      ~preferences
+      ~scope
+      ~first
+      ~rest
+      ~messages:[ msg "return one exact object" ]
+      (EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
+;;
+
+let frozen_candidates
+      ?(preferences = preference_store ())
+      ?(scope = flow_scope "test-default")
+      candidates
+  =
+  match snapshot_candidates ~preferences ~scope candidates with
+  | Ok ready -> ready
+  | Error _ -> fail "flow fixture did not admit"
 ;;
 
 let frozen_flow ?preferences ?scope snapshot ids =
@@ -294,7 +303,7 @@ let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
       ; catalog_entry ~id:"preferred-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let preferences = EO.create_flow_preference_store () in
+    let preferences = preference_store () in
     let primary_scope = flow_scope "/runtime/keeper-primary" in
     let other_scope = flow_scope "/runtime/keeper-other" in
     let existing =
@@ -318,6 +327,7 @@ let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
     | Ok success ->
       let candidate = EO.flow_success_candidate success in
       let evidence = EO.flow_success_evidence success in
+      let success_ordinal = EO.flow_success_ordinal success in
       check
         bool
         "success receipt carries primary scope"
@@ -329,18 +339,23 @@ let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
         true
         (EO.flow_scope_equal primary_scope evidence.scope);
       let success_id = candidate_id candidate in
-      let settlement =
-        EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = 42L })
-      in
+      let settlement = EO.settle_flow_domain success EO.Domain_valid in
       (match settlement with
        | Ok
-           (EO.Domain_valid_preference_installed { candidate; success_time_unix_s = 42L })
-         ->
+           (EO.Domain_valid_preference_installed
+              { candidate; success_ordinal = installed_ordinal }) ->
          check
            string
            "installed preference candidate"
            "preferred-b"
-           candidate.candidate_id
+           candidate.candidate_id;
+         check
+           bool
+           "installed preference carries OAS-owned success ordinal"
+           true
+           (Int64.equal
+              (EO.flow_success_ordinal_to_int64 success_ordinal)
+              (EO.flow_success_ordinal_to_int64 installed_ordinal))
        | Ok _ | Error _ -> fail "domain-valid preference was not installed exactly");
       let future =
         frozen_flow
@@ -369,10 +384,17 @@ let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
        | EO.Preference_applied _ | EO.Preference_not_applied _ ->
          fail "pre-existing snapshot observed a later preference");
       (match future_evidence.preference_observation with
-       | EO.Preference_applied { candidate; success_time_unix_s = 42L } ->
-         check string "applied observation candidate" "preferred-b" candidate.candidate_id
-       | EO.No_preference_recorded | EO.Preference_not_applied _ | EO.Preference_applied _
-         -> fail "future snapshot did not freeze the applied preference");
+       | EO.Preference_applied { candidate; success_ordinal = observed_ordinal } ->
+         check string "applied observation candidate" "preferred-b" candidate.candidate_id;
+         check
+           bool
+           "applied observation freezes the successful ordinal"
+           true
+           (Int64.equal
+              (EO.flow_success_ordinal_to_int64 success_ordinal)
+              (EO.flow_success_ordinal_to_int64 observed_ordinal))
+       | EO.No_preference_recorded | EO.Preference_not_applied _ ->
+         fail "future snapshot did not freeze the applied preference");
       (match other_scope_evidence.preference_observation with
        | EO.No_preference_recorded -> ()
        | EO.Preference_applied _ | EO.Preference_not_applied _ ->
@@ -411,7 +433,7 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
         ; catalog_entry ~id:"scope-b" ~base_url ~native:true ~json:true ()
         ]
       @@ fun snapshot ->
-      let preferences = EO.create_flow_preference_store () in
+      let preferences = preference_store () in
       let scope_a = flow_scope "/runtime/concurrent-a" in
       let scope_b = flow_scope "/runtime/concurrent-b" in
       let flow_a =
@@ -445,16 +467,15 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
         "second attempt stays in second scope"
         true
         (EO.flow_scope_equal scope_b candidate_b.scope);
-      let settle success time =
-        match
-          EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = time })
-        with
+      let settle success =
+        match EO.settle_flow_domain success EO.Domain_valid with
         | Ok (EO.Domain_valid_preference_installed _) -> ()
         | Ok (EO.Domain_rejected_recorded | EO.Domain_valid_preference_superseded _) ->
           fail "fresh scoped success returned the wrong settlement receipt"
-        | Error EO.Domain_already_settled -> fail "fresh scoped success was settled twice"
+        | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) ->
+          fail "fresh scoped success could not settle"
       in
-      Eio.Fiber.both (fun () -> settle success_a 200L) (fun () -> settle success_b 200L);
+      Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
       let call_id candidate =
         EO.receipt_call_id candidate.EO.receipt |> EO.call_id_to_string
       in
@@ -491,7 +512,7 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
         ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
         ]
       @@ fun snapshot ->
-      let preferences = EO.create_flow_preference_store () in
+      let preferences = preference_store () in
       let scope = flow_scope "/runtime/domain-rejected" in
       match
         frozen_flow ~preferences ~scope snapshot [ "rejected-a"; "declared-b" ]
@@ -505,9 +526,7 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
           |> flow_snapshot_ids
         in
         let first_settlement = EO.settle_flow_domain success EO.Domain_rejected in
-        let duplicate_settlement =
-          EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = 43L })
-        in
+        let duplicate_settlement = EO.settle_flow_domain success EO.Domain_valid in
         let after_settlement =
           frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
           |> flow_snapshot_ids
@@ -530,13 +549,14 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
      | Ok EO.Domain_rejected_recorded -> true
      | Ok
          (EO.Domain_valid_preference_installed _ | EO.Domain_valid_preference_superseded _)
-     | Error EO.Domain_already_settled -> false);
+     | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) -> false);
   check
     bool
     "duplicate settlement is typed"
     true
     (match duplicate_settlement with
      | Error EO.Domain_already_settled -> true
+     | Error EO.Domain_preference_scope_released -> false
      | Ok
          ( EO.Domain_rejected_recorded
          | EO.Domain_valid_preference_installed _
@@ -559,7 +579,7 @@ let test_concurrent_domain_settlement_has_one_winner () =
         ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
         ]
       @@ fun snapshot ->
-      let preferences = EO.create_flow_preference_store () in
+      let preferences = preference_store () in
       let scope = flow_scope "/runtime/concurrent-settlement" in
       match
         frozen_flow ~preferences ~scope snapshot [ "winner-a"; "declared-b" ]
@@ -570,15 +590,15 @@ let test_concurrent_domain_settlement_has_one_winner () =
       | Ok success ->
         let ready = Atomic.make 0 in
         let start = Atomic.make false in
-        let contend success_time_unix_s =
+        let contend () =
           ignore (Atomic.fetch_and_add ready 1);
           while not (Atomic.get start) do
             Domain.cpu_relax ()
           done;
-          EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s })
+          EO.settle_flow_domain success EO.Domain_valid
         in
-        let left_domain = Domain.spawn (fun () -> contend 44L) in
-        let right_domain = Domain.spawn (fun () -> contend 45L) in
+        let left_domain = Domain.spawn contend in
+        let right_domain = Domain.spawn contend in
         while Atomic.get ready <> 2 do
           Domain.cpu_relax ()
         done;
@@ -597,7 +617,7 @@ let test_concurrent_domain_settlement_has_one_winner () =
   let settled = function
     | Ok (EO.Domain_valid_preference_installed _) -> true
     | Ok (EO.Domain_rejected_recorded | EO.Domain_valid_preference_superseded _) -> false
-    | Error EO.Domain_already_settled -> false
+    | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) -> false
   in
   check bool "exactly one concurrent settlement wins" true (settled left <> settled right);
   check
@@ -608,65 +628,117 @@ let test_concurrent_domain_settlement_has_one_winner () =
   check int "concurrent-settlement proof dispatches once" 1 posts
 ;;
 
-let test_stale_domain_success_cannot_overwrite_newer_last_good () =
-  let (future_order, newer_receipt, stale_receipt), posts =
+let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement () =
+  let (future_order, newer_receipt, older_receipt, older_ordinal, newer_ordinal), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
-      [ catalog_entry ~id:"stale-a" ~base_url ~native:true ~json:true ()
+      [ catalog_entry ~id:"older-a" ~base_url ~native:true ~json:true ()
       ; catalog_entry ~id:"newer-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let preferences = EO.create_flow_preference_store () in
+    let preferences = preference_store () in
     let scope = flow_scope "/runtime/out-of-order-success" in
-    let newer_flow =
-      frozen_flow ~preferences ~scope snapshot [ "newer-b"; "stale-a" ] |> start_flow
+    let older_flow =
+      frozen_flow ~preferences ~scope snapshot [ "older-a"; "newer-b" ] |> start_flow
     in
-    let stale_flow =
-      frozen_flow ~preferences ~scope snapshot [ "stale-a"; "newer-b" ] |> start_flow
+    let newer_flow =
+      frozen_flow ~preferences ~scope snapshot [ "newer-b"; "older-a" ] |> start_flow
     in
     let execute flow =
       match execute_ok ~net flow with
       | Error _ -> fail "out-of-order settlement fixture did not succeed"
       | Ok success -> success
     in
+    let older_success = execute older_flow in
     let newer_success = execute newer_flow in
-    let stale_success = execute stale_flow in
-    let newer_receipt =
-      EO.settle_flow_domain newer_success (EO.Domain_valid { success_time_unix_s = 100L })
+    let older_ordinal = EO.flow_success_ordinal older_success in
+    let newer_ordinal = EO.flow_success_ordinal newer_success in
+    let ready = Atomic.make 0 in
+    let start = Atomic.make false in
+    let newer_settled = Atomic.make false in
+    let await_start () =
+      ignore (Atomic.fetch_and_add ready 1);
+      while not (Atomic.get start) do
+        Domain.cpu_relax ()
+      done
     in
-    let stale_receipt =
-      EO.settle_flow_domain stale_success (EO.Domain_valid { success_time_unix_s = 99L })
+    let newer_domain =
+      Domain.spawn (fun () ->
+        await_start ();
+        let receipt = EO.settle_flow_domain newer_success EO.Domain_valid in
+        Atomic.set newer_settled true;
+        receipt)
     in
-    ( frozen_flow ~preferences ~scope snapshot [ "stale-a"; "newer-b" ]
+    let older_domain =
+      Domain.spawn (fun () ->
+        await_start ();
+        while not (Atomic.get newer_settled) do
+          Domain.cpu_relax ()
+        done;
+        EO.settle_flow_domain older_success EO.Domain_valid)
+    in
+    while Atomic.get ready <> 2 do
+      Domain.cpu_relax ()
+    done;
+    Atomic.set start true;
+    let newer_receipt = Domain.join newer_domain in
+    let older_receipt = Domain.join older_domain in
+    ( frozen_flow ~preferences ~scope snapshot [ "older-a"; "newer-b" ]
       |> flow_snapshot_ids
     , newer_receipt
-    , stale_receipt )
+    , older_receipt
+    , older_ordinal
+    , newer_ordinal )
   in
   check int "out-of-order settlement proof dispatches twice" 2 posts;
   check
+    bool
+    "structural success allocates strictly increasing OAS ordinals"
+    true
+    (Int64.compare
+       (EO.flow_success_ordinal_to_int64 older_ordinal)
+       (EO.flow_success_ordinal_to_int64 newer_ordinal)
+     < 0);
+  check
     (list string)
-    "older success time cannot overwrite newer last-good"
-    [ "newer-b"; "stale-a" ]
+    "later structural success survives reversed cross-domain settlement"
+    [ "newer-b"; "older-a" ]
     future_order;
   (match newer_receipt with
-   | Ok (EO.Domain_valid_preference_installed { candidate; success_time_unix_s = 100L })
-     -> check string "newer preference receipt candidate" "newer-b" candidate.candidate_id
+   | Ok
+       (EO.Domain_valid_preference_installed
+          { candidate; success_ordinal = installed_ordinal }) ->
+     check string "newer preference receipt candidate" "newer-b" candidate.candidate_id;
+     check
+       bool
+       "newer receipt carries its frozen ordinal"
+       true
+       (Int64.equal
+          (EO.flow_success_ordinal_to_int64 newer_ordinal)
+          (EO.flow_success_ordinal_to_int64 installed_ordinal))
    | Ok _ | Error _ -> fail "newer success did not install its preference");
-  match stale_receipt with
+  match older_receipt with
   | Ok
       (EO.Domain_valid_preference_superseded
-         { current_candidate; current_success_time_unix_s = 100L }) ->
+         { current_candidate; current_success_ordinal }) ->
     check
       string
-      "stale receipt names retained candidate"
+      "older receipt names retained candidate"
       "newer-b"
-      current_candidate.candidate_id
-  | Ok _ | Error _ -> fail "stale success was not reported as superseded"
+      current_candidate.candidate_id;
+    check
+      bool
+      "superseded receipt carries the retained ordinal"
+      true
+      (Int64.equal
+         (EO.flow_success_ordinal_to_int64 newer_ordinal)
+         (EO.flow_success_ordinal_to_int64 current_success_ordinal))
+  | Ok _ | Error _ -> fail "older success was not reported as superseded"
 ;;
 
 let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
-  let (rebound_evidence, absent_evidence), posts =
+  let (success_ordinal, rebound_evidence, absent_evidence), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
@@ -674,7 +746,7 @@ let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
       ; catalog_entry ~id:"binding-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let preferences = EO.create_flow_preference_store () in
+    let preferences = preference_store () in
     let scope = flow_scope "/runtime/rebound-preference" in
     let successful =
       flow_candidate_as snapshot ~id:"stable-slot" ~target_ref:"binding-a"
@@ -686,11 +758,10 @@ let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
       | Ok success -> success
       | Error _ -> fail "binding fixture did not structurally succeed"
     in
-    (match
-       EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = 77L })
-     with
+    (match EO.settle_flow_domain success EO.Domain_valid with
      | Ok (EO.Domain_valid_preference_installed _) -> ()
      | Ok _ | Error _ -> fail "binding fixture did not install its preference");
+    let success_ordinal = EO.flow_success_ordinal success in
     let fallback = flow_candidate_as snapshot ~id:"fallback" ~target_ref:"binding-a" in
     let rebound = flow_candidate_as snapshot ~id:"stable-slot" ~target_ref:"binding-b" in
     let rebound_evidence =
@@ -700,7 +771,7 @@ let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
     let absent_evidence =
       frozen_candidates ~preferences ~scope [ fallback ] |> flow_snapshot_evidence
     in
-    rebound_evidence, absent_evidence
+    success_ordinal, rebound_evidence, absent_evidence
   in
   check int "binding observation proof dispatches once" 1 posts;
   check
@@ -716,16 +787,33 @@ let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
   (match rebound_evidence.preference_observation with
    | EO.Preference_not_applied
        { candidate
-       ; success_time_unix_s = 77L
+       ; success_ordinal = rebound_ordinal
        ; reason = EO.Preference_candidate_binding_changed
        } ->
-     check string "binding-changed observation slot" "stable-slot" candidate.candidate_id
+     check string "binding-changed observation slot" "stable-slot" candidate.candidate_id;
+     check
+       bool
+       "binding-changed observation keeps successful ordinal"
+       true
+       (Int64.equal
+          (EO.flow_success_ordinal_to_int64 success_ordinal)
+          (EO.flow_success_ordinal_to_int64 rebound_ordinal))
    | EO.No_preference_recorded | EO.Preference_applied _ | EO.Preference_not_applied _ ->
      fail "rebound target did not produce binding-changed evidence");
   match absent_evidence.preference_observation with
   | EO.Preference_not_applied
-      { candidate; success_time_unix_s = 77L; reason = EO.Preference_candidate_absent } ->
-    check string "absent observation slot" "stable-slot" candidate.candidate_id
+      { candidate
+      ; success_ordinal = absent_ordinal
+      ; reason = EO.Preference_candidate_absent
+      } ->
+    check string "absent observation slot" "stable-slot" candidate.candidate_id;
+    check
+      bool
+      "absent observation keeps successful ordinal"
+      true
+      (Int64.equal
+         (EO.flow_success_ordinal_to_int64 success_ordinal)
+         (EO.flow_success_ordinal_to_int64 absent_ordinal))
   | EO.No_preference_recorded | EO.Preference_applied _ | EO.Preference_not_applied _ ->
     fail "absent target did not produce typed evidence"
 ;;
@@ -734,6 +822,127 @@ let test_blank_flow_scope_is_rejected () =
   match EO.make_flow_scope ~id:" \n\t " with
   | Error EO.Blank_flow_scope_id -> ()
   | Ok _ -> fail "blank flow scope was accepted"
+;;
+
+let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
+  (match EO.create_flow_preference_store ~capacity:0 with
+   | Error (EO.Invalid_flow_preference_capacity 0) -> ()
+   | Error (EO.Invalid_flow_preference_capacity invalid) ->
+     failf "zero capacity reported the wrong value: %d" invalid
+   | Ok _ -> fail "zero-capacity preference store was accepted");
+  with_catalog
+    [ catalog_entry
+        ~id:"capacity-candidate"
+        ~base_url:"http://127.0.0.1:1"
+        ~native:true
+        ~json:true
+        ()
+    ]
+  @@ fun snapshot ->
+  let preferences = preference_store ~capacity:1 () in
+  let scope_a = flow_scope "/runtime/capacity-a" in
+  let scope_b = flow_scope "/runtime/capacity-b" in
+  let candidates = [ flow_candidate snapshot "capacity-candidate" ] in
+  (match snapshot_candidates ~preferences ~scope:scope_a candidates with
+   | Ok _ -> ()
+   | Error _ -> fail "first scope did not reserve the only capacity slot");
+  (match snapshot_candidates ~preferences ~scope:scope_b candidates with
+   | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> ()
+   | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
+     failf "capacity exhaustion reported the wrong bound: %d" capacity
+   | Error (EO.Duplicate_flow_candidate_id _) ->
+     fail "capacity exhaustion was reported as a duplicate candidate"
+   | Ok _ -> fail "second scope exceeded the hard preference capacity");
+  (match EO.remove_flow_preference_scope preferences scope_a with
+   | EO.Flow_preference_scope_removed -> ()
+   | EO.Flow_preference_scope_not_reserved ->
+     fail "reserved preference scope was not removable");
+  (match EO.remove_flow_preference_scope preferences scope_a with
+   | EO.Flow_preference_scope_not_reserved -> ()
+   | EO.Flow_preference_scope_removed -> fail "preference scope was removed twice");
+  match snapshot_candidates ~preferences ~scope:scope_b candidates with
+  | Ok _ -> ()
+  | Error _ -> fail "released capacity was not reusable by a new scope"
+;;
+
+let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
+  let settlement, duplicate, replacement_order, posts =
+    let result, posts =
+      with_server ~response:(openai_response {|{"name":"accepted"}|})
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      with_catalog
+        [ catalog_entry ~id:"released-a" ~base_url ~native:true ~json:true ()
+        ; catalog_entry ~id:"replacement-b" ~base_url ~native:true ~json:true ()
+        ]
+      @@ fun snapshot ->
+      let preferences = preference_store ~capacity:1 () in
+      let released_scope = flow_scope "/runtime/released" in
+      let success =
+        match
+          frozen_flow
+            ~preferences
+            ~scope:released_scope
+            snapshot
+            [ "released-a"; "replacement-b" ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "released-scope fixture did not structurally succeed"
+      in
+      (match EO.remove_flow_preference_scope preferences released_scope with
+       | EO.Flow_preference_scope_removed -> ()
+       | EO.Flow_preference_scope_not_reserved ->
+         fail "running flow's preference scope was not reserved");
+      let _replacement_generation =
+        frozen_flow
+          ~preferences
+          ~scope:released_scope
+          snapshot
+          [ "replacement-b"; "released-a" ]
+      in
+      let settlement = EO.settle_flow_domain success EO.Domain_valid in
+      let duplicate = EO.settle_flow_domain success EO.Domain_valid in
+      let after_stale_settlement =
+        frozen_flow
+          ~preferences
+          ~scope:released_scope
+          snapshot
+          [ "replacement-b"; "released-a" ]
+      in
+      settlement, duplicate, flow_snapshot_ids after_stale_settlement
+    in
+    let settlement, duplicate, replacement_order = result in
+    settlement, duplicate, replacement_order, posts
+  in
+  check int "released-scope proof dispatches once" 1 posts;
+  check
+    bool
+    "domain-valid settlement reports released scope"
+    true
+    (match settlement with
+     | Error EO.Domain_preference_scope_released -> true
+     | Error EO.Domain_already_settled
+     | Ok
+         ( EO.Domain_rejected_recorded
+         | EO.Domain_valid_preference_installed _
+         | EO.Domain_valid_preference_superseded _ ) -> false);
+  check
+    bool
+    "released-scope failure still consumes settlement"
+    true
+    (match duplicate with
+     | Error EO.Domain_already_settled -> true
+     | Error EO.Domain_preference_scope_released
+     | Ok
+         ( EO.Domain_rejected_recorded
+         | EO.Domain_valid_preference_installed _
+         | EO.Domain_valid_preference_superseded _ ) -> false);
+  check
+    (list string)
+    "same scope reuses capacity without accepting stale generation"
+    [ "replacement-b"; "released-a" ]
+    replacement_order
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
@@ -755,7 +964,7 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
       | first :: rest ->
         (match
            EO.snapshot_flow
-             ~preferences:(EO.create_flow_preference_store ())
+             ~preferences:(preference_store ())
              ~scope:(flow_scope "nonsharing")
              ~first
              ~rest
@@ -2093,9 +2302,9 @@ let () =
             `Quick
             test_concurrent_domain_settlement_has_one_winner
         ; test_case
-            "stale domain success cannot overwrite newer last-good"
+            "older success cannot overwrite newer after reversed domain settlement"
             `Quick
-            test_stale_domain_success_cannot_overwrite_newer_last_good
+            test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement
         ; test_case
             "rebound preference is not promoted and observation is typed"
             `Quick
@@ -2104,6 +2313,14 @@ let () =
             "blank flow scope is rejected"
             `Quick
             test_blank_flow_scope_is_rejected
+        ; test_case
+            "preference capacity is typed and reusable after removal"
+            `Quick
+            test_preference_store_capacity_is_typed_and_reusable_after_removal
+        ; test_case
+            "removed scope consumes domain-valid settlement as typed failure"
+            `Quick
+            test_removed_scope_consumes_domain_valid_settlement_as_typed_failure
         ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick
