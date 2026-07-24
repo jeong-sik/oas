@@ -194,60 +194,17 @@ let selected_target_model_admitted (target : selected_target) =
   Binding.target_model_admitted target.capabilities ~model_id:target.config.model_id
 ;;
 
-let has_control value =
-  String.exists
-    (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
-    value
-;;
-
 let target_catalog_error source detail = Error (Target_catalog_invalid { source; detail })
 
-let target_string_field ~source ~target_label field toml =
-  match Otoml.find_opt toml Otoml.get_string [ field ] with
-  | None ->
-    target_catalog_error source (Printf.sprintf "target %s misses %s" target_label field)
-  | Some value when value = "" || String.trim value <> value || has_control value ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has invalid %s" target_label field)
-  | Some value -> Ok value
-  | exception Otoml.Type_error _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has non-string %s" target_label field)
-;;
-
-let target_float_field ~source ~target_label field toml =
-  match Otoml.find_opt toml Otoml.get_float [ field ] with
-  | None -> Ok None
-  | Some value -> Ok (Some value)
-  | exception Otoml.Type_error _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has non-float %s" target_label field)
-;;
-
-let target_int_field ~source ~target_label field toml =
-  match Otoml.find_opt toml Otoml.get_integer [ field ] with
-  | None -> Ok None
-  | Some value -> Ok (Some value)
-  | exception Otoml.Type_error _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has non-integer %s" target_label field)
-;;
-
-let validate_timeout ~source ~target_label field = function
-  | None -> Ok ()
-  | Some value when Float.is_finite value && value > 0. -> Ok ()
-  | Some _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has invalid %s" target_label field)
+let target_result source =
+  Result.map_error (fun detail -> Target_catalog_invalid { source; detail })
 ;;
 
 let parse_target_declaration ~source toml =
-  let* id = target_string_field ~source ~target_label:"<unknown>" "id" toml in
+  let* id =
+    Binding.target_string_field ~target_label:"<unknown>" ~field:"id" toml
+    |> target_result source
+  in
   let* target_ref =
     match target_ref id with
     | Ok target_ref -> Ok target_ref
@@ -271,29 +228,36 @@ let parse_target_declaration ~source toml =
        | _ ->
          target_catalog_error source (Printf.sprintf "target %s has unknown fields" id))
   in
-  let* provider_ref = target_string_field ~source ~target_label:id "provider_ref" toml in
-  let* model_id = target_string_field ~source ~target_label:id "model_id" toml in
+  let* provider_ref =
+    Binding.target_string_field ~target_label:id ~field:"provider_ref" toml
+    |> target_result source
+  in
+  let* model_id =
+    Binding.target_string_field ~target_label:id ~field:"model_id" toml
+    |> target_result source
+  in
   let* max_request_body_bytes =
-    target_int_field ~source ~target_label:id "max_request_body_bytes" toml
+    Binding.target_positive_int_field
+      ~target_label:id
+      ~field:"max_request_body_bytes"
+      toml
+    |> target_result source
   in
   let* connect_timeout_s =
-    target_float_field ~source ~target_label:id "connect_timeout_s" toml
+    Binding.target_float_field ~target_label:id ~field:"connect_timeout_s" toml
+    |> target_result source
   in
   let* body_timeout_s =
-    target_float_field ~source ~target_label:id "body_timeout_s" toml
+    Binding.target_float_field ~target_label:id ~field:"body_timeout_s" toml
+    |> target_result source
   in
   let* () =
-    validate_timeout ~source ~target_label:id "connect_timeout_s" connect_timeout_s
+    Binding.validate_timeout ~target_label:id ~field:"connect_timeout_s" connect_timeout_s
+    |> target_result source
   in
-  let* () = validate_timeout ~source ~target_label:id "body_timeout_s" body_timeout_s in
   let* () =
-    match max_request_body_bytes with
-    | None -> Ok ()
-    | Some value when value >= 1 -> Ok ()
-    | Some _ ->
-      target_catalog_error
-        source
-        (Printf.sprintf "target %s has invalid max_request_body_bytes" id)
+    Binding.validate_timeout ~target_label:id ~field:"body_timeout_s" body_timeout_s
+    |> target_result source
   in
   Ok
     { target_ref
@@ -552,7 +516,7 @@ let%test "case-only target overlay shadow fails closed" =
 
 let validate_base_url ~target_ref value =
   let target_ref = target_ref_id target_ref in
-  if has_control value
+  if Binding.has_control value
   then Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url })
   else if String.contains value '?'
   then Error (Target_endpoint_invalid { target_ref; cause = Base_url_query_not_allowed })
@@ -605,7 +569,7 @@ let validate_request_path ~target_ref ~kind value =
     if
       value = ""
       || value.[0] <> '/'
-      || has_control value
+      || Binding.has_control value
       || contains_encoded_control value
       || String.contains value '%'
       || String.contains value '\\'
@@ -954,7 +918,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
            else (
              match observed_environment provider.api_key_env with
              | Error () -> Credential_read_failed provider.api_key_env
-             | Ok (Some value) when has_control value ->
+             | Ok (Some value) when Binding.has_control value ->
                Credential_invalid provider.api_key_env
              | Ok (Some value) ->
                (match Cli_common_env.trim_non_empty value with

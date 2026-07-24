@@ -2,6 +2,32 @@ type exact_binding_error =
   | Provider_missing
   | Model_missing
 
+val has_control : string -> bool
+
+val target_string_field
+  :  target_label:string
+  -> field:string
+  -> Otoml.t
+  -> (string, string) result
+
+val target_float_field
+  :  target_label:string
+  -> field:string
+  -> Otoml.t
+  -> (float option, string) result
+
+val target_positive_int_field
+  :  target_label:string
+  -> field:string
+  -> Otoml.t
+  -> (int option, string) result
+
+val validate_timeout
+  :  target_label:string
+  -> field:string
+  -> float option
+  -> (unit, string) result
+
 val model_identities_unique : Model_catalog.model_entry list -> bool
 
 val validate_overlay_model_identities
