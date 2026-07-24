@@ -492,7 +492,7 @@
     %{dep:../lib/llm_provider/exact_output_flow.ml})
    (run
     %{exe:check_exact_output_publication_lock.exe}
-   --expect-outside-callback
+    --expect-outside-callback
     %{dep:fixtures/exact_output_publication_lock/unlocked_after_callback.ml.fixture})
    (run
     %{exe:check_exact_output_publication_lock.exe}

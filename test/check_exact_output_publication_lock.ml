@@ -20,9 +20,7 @@ let exact_identifier_name expression =
   | _ -> None
 ;;
 
-let simple_identifier expression =
-  exact_identifier_name expression
-;;
+let simple_identifier expression = exact_identifier_name expression
 
 let binding_name pattern =
   match pattern.ppat_desc with
@@ -153,8 +151,7 @@ let expression_binds name root =
       pat =
         (fun self pattern ->
           (match pattern.ppat_desc with
-           | Ppat_var bound | Ppat_alias (_, bound)
-             when String.equal bound.txt name ->
+           | (Ppat_var bound | Ppat_alias (_, bound)) when String.equal bound.txt name ->
              found := true
            | _ -> ());
           Ast_iterator.default_iterator.pat self pattern)
@@ -269,11 +266,10 @@ let () =
         | Error message ->
           report_error ("negative fixture failed for the wrong reason: " ^ message);
           exit 2
-        | Ok () ->
-          report_error "negative fixture unexpectedly passed";
-          exit 2))
+       | Ok () ->
+         report_error "negative fixture unexpectedly passed";
+         exit 2))
   | _ ->
-    prerr_endline
-      "usage: check_exact_output_publication_lock [--expect-*] SOURCE.ml";
+    prerr_endline "usage: check_exact_output_publication_lock [--expect-*] SOURCE.ml";
     exit 2
 ;;
