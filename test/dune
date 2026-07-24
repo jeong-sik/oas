@@ -464,6 +464,7 @@
   ../lib/llm_provider/model_catalog.mli
   ../lib/llm_provider/dune
   fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
+  fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
   fixtures/exact_output_publication_lock/local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/locally_shadowed_lock.ml.fixture
@@ -499,6 +500,10 @@
     %{exe:check_exact_output_publication_lock.exe}
     --expect-namespace-import
     %{dep:fixtures/exact_output_publication_lock/local_open_import.ml.fixture})
+   (run
+    %{exe:check_exact_output_publication_lock.exe}
+    --expect-namespace-import
+    %{dep:fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture})
    (run
     %{exe:check_exact_output_publication_lock.exe}
     --expect-shadowed-lock-binding

@@ -104,10 +104,18 @@ let collect structure =
         (fun self declaration ->
           collected.namespace_import_seen <- true;
           Ast_iterator.default_iterator.open_declaration self declaration)
+    ; open_description =
+        (fun self description ->
+          collected.namespace_import_seen <- true;
+          Ast_iterator.default_iterator.open_description self description)
     ; include_declaration =
         (fun self declaration ->
           collected.namespace_import_seen <- true;
           Ast_iterator.default_iterator.include_declaration self declaration)
+    ; include_description =
+        (fun self description ->
+          collected.namespace_import_seen <- true;
+          Ast_iterator.default_iterator.include_description self description)
     ; structure_item =
         (fun self item ->
           (match item.pstr_desc with
