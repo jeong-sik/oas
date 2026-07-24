@@ -273,6 +273,10 @@ type flow_candidate_failure =
       ; cause : execution_error
       }
 
+type outward_dispatch_fact =
+  | No_outward_dispatch
+  | Outward_dispatch_started
+
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
   | Flow_success_ordinal_exhausted of flow_evidence
@@ -623,6 +627,25 @@ let receipt_dispatch_count receipt =
   match Atomic.get receipt.state with
   | Not_started_state | Before_dispatch_state -> 0
   | Dispatch_started_state | Response_received_state _ | Terminal_state _ -> 1
+;;
+
+let outward_dispatch_fact_of_receipt receipt =
+  match Atomic.get receipt.state with
+  | Not_started_state | Before_dispatch_state -> No_outward_dispatch
+  | Dispatch_started_state | Response_received_state _ | Terminal_state _ ->
+    Outward_dispatch_started
+;;
+
+let flow_execution_error_outward_dispatch = function
+  | Flow_attempt_already_started _
+  | Flow_attempt_start_failed _
+  | Flow_before_dispatch_callback_failed _
+  | Flow_before_advance_callback_failed _
+  | Flow_candidates_exhausted _ ->
+    No_outward_dispatch
+  | Flow_success_ordinal_exhausted _ -> Outward_dispatch_started
+  | Flow_exact_execution_failed { cause; _ } ->
+    outward_dispatch_fact_of_receipt cause.receipt
 ;;
 
 let receipt_http_status receipt =
