@@ -180,7 +180,8 @@ scan_cli_common_env_usage() {
 extract_named_functions() {
   local source_file="$1"
   local names="$2"
-  awk -v names="$names" '
+  strip_ocaml_noncode < "$source_file" \
+    | awk -v names="$names" '
     BEGIN {
       count = split(names, requested, /[[:space:]]+/)
       for (i = 1; i <= count; i++) {
@@ -213,7 +214,7 @@ extract_named_functions() {
       }
       if (missing) exit 3
     }
-  ' "$source_file"
+  '
 }
 
 scan_named_functions() {
@@ -245,7 +246,8 @@ scan_named_functions() {
 exclude_named_functions() {
   local source_file="$1"
   local names="$2"
-  awk -v names="$names" '
+  strip_ocaml_noncode < "$source_file" \
+    | awk -v names="$names" '
     BEGIN {
       count = split(names, requested, /[[:space:]]+/)
       for (i = 1; i <= count; i++) {
@@ -278,7 +280,7 @@ exclude_named_functions() {
       }
       if (missing) exit 3
     }
-  ' "$source_file"
+  '
 }
 
 scan_outside_named_functions() {
@@ -334,14 +336,15 @@ require_named_function_pattern() {
   local pattern="$2"
   local source_file="$3"
   local name="$4"
-  local extracted
+  local extracted compact
   extracted="$(mktemp)"
   if ! extract_named_functions "$source_file" "$name" > "$extracted"; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
-  if ! strip_ocaml_noncode < "$extracted" | grep -E -- "$pattern" >/dev/null; then
+  compact="$(awk '{ printf "%s ", $0 } END { print "" }' "$extracted")"
+  if ! grep -E -- "$pattern" <<< "$compact" >/dev/null; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
