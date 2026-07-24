@@ -277,11 +277,11 @@ let () =
        exit 2
      | Some expected ->
        (match check_file path with
-         | Error message when String.equal message expected -> ()
+        | Error message when String.equal message expected -> ()
         | Error message ->
           report_error ("negative fixture failed for the wrong reason: " ^ message);
           exit 2
-         | Ok () ->
+        | Ok () ->
           report_error "negative fixture unexpectedly passed";
           exit 2))
   | _ ->
