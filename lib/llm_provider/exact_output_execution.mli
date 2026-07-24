@@ -55,6 +55,7 @@ type normalized_outcome =
 type raw_response_evidence =
   { raw_body : string
   ; raw_body_sha256 : string
+  ; response_header_evidence : Http_client.response_header_evidence
   }
 
 type normalized_outcome_with_evidence =

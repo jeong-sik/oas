@@ -2,6 +2,19 @@ open Alcotest
 open Llm_provider
 module EO = Agent_sdk.Exact_output
 
+let _preserve_public_raw_sync_response_surface
+      ({ status = _; body = _; retry_after_header = _ } : Http_client.raw_sync_response)
+  =
+  ()
+;;
+
+let _preserve_public_success_surface
+      ({ call_id = _; receipt = _; output = _; provenance = _; raw_response = _ } :
+        EO.success)
+  =
+  ()
+;;
+
 let msg text : Types.message =
   { role = Types.User
   ; content = [ Types.Text text ]
@@ -202,7 +215,14 @@ let anthropic_response ?(stop_reason = "end_turn") content =
     stop_reason
 ;;
 
-let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~response f =
+let with_server
+      ?response_delay_s
+      ?(status = `OK)
+      ?(abort_completion = false)
+      ?(response_headers = [])
+      ~response
+      f
+  =
   let completion_posts = Atomic.make 0 in
   let token_posts = Atomic.make 0 in
   let captures = Atomic.make [] in
@@ -232,7 +252,11 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
            :: Atomic.get captures);
         if abort_completion then raise Exit;
         Option.iter (Eio.Time.sleep clock) response_delay_s;
-        Cohttp_eio.Server.respond_string ~status ~body:response ())
+        Cohttp_eio.Server.respond_string
+          ~headers:(Cohttp.Header.of_list response_headers)
+          ~status
+          ~body:response
+          ())
     in
     let socket =
       Eio.Net.listen
@@ -554,7 +578,26 @@ let test_no_measure_one_post_and_wire_authority () =
       ; "reasoning_effort"
       ; "thinking"
       ; "pricing"
+      ; "retry"
+      ; "retries"
+      ; "max_retries"
+      ; "fallbacks"
+      ; "internal_model_rotation_count"
       ];
+    check
+      bool
+      (id ^ " server-side fallback header absent")
+      false
+      (List.exists
+         (fun (name, value) ->
+            String.equal (String.lowercase_ascii name) "anthropic-beta"
+            && (value
+                |> String.split_on_char ','
+                |> List.exists (fun beta ->
+                  String.equal
+                    (String.trim beta)
+                    "server-side-fallback-2026-06-01")))
+         capture.headers);
     inspect provenance body;
     match result with
     | Ok (success : EO.success) ->
@@ -631,9 +674,79 @@ let test_no_measure_one_post_and_wire_authority () =
        check
          bool
          "Ollama receives raw schema"
-         true
-         Yojson.Safe.Util.(
-           body |> member "format" |> member "type" |> to_string = "object"))
+       true
+       Yojson.Safe.Util.(
+         body |> member "format" |> member "type" |> to_string = "object"));
+  run
+    ~id:"anthropic-surface"
+    ~kind:Provider_config.Anthropic
+    ~path:"/v1/messages"
+    ~response:
+      (anthropic_response
+         {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
+    (fun _provenance _body -> ())
+;;
+
+let test_provider_trace_fingerprint_anchors_normalized_headers_and_body () =
+  let run ~response_headers response =
+    let result, posts, _, _ =
+      with_server ~response_headers ~response
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      let entry =
+        catalog_entry
+          ~id:"provider-trace-surface"
+          ~kind:Provider_config.OpenAI_compat
+          ~base_url
+          ~request_path:"/v1/chat/completions"
+          ~capabilities:(capabilities ~native:true ~json:true)
+          ()
+      in
+      with_catalog [ entry ]
+      @@ fun snapshot ->
+      EO.execute_once
+        ~net
+        (attempt (plan snapshot "provider-trace-surface" EO.Json_syntax))
+    in
+    check int "provider trace uses one POST" 1 posts;
+    match result with
+    | Error _ -> fail "provider trace fixture failed"
+    | Ok success ->
+      (match EO.receipt_provider_trace success.receipt with
+       | None -> fail "success receipt lost provider trace"
+       | Some trace -> EO.provider_trace_fingerprint trace)
+  in
+  let response = openai_response {|{"name":"accepted"}|} in
+  let first =
+    run
+      ~response_headers:[ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ]
+      response
+  in
+  let reordered =
+    run
+      ~response_headers:[ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
+      response
+  in
+  check string "header normalization is deterministic" first reordered;
+  let changed_header =
+    run
+      ~response_headers:[ "x-trace-a", "changed"; "x-trace-b", "beta" ]
+      response
+  in
+  check
+    bool
+    "provider trace is header-sensitive"
+    true
+    (not (String.equal first changed_header));
+  let changed_body =
+    run
+      ~response_headers:[ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
+      (openai_response {|{"name":"different"}|})
+  in
+  check
+    bool
+    "provider trace is body-sensitive"
+    true
+    (not (String.equal first changed_body))
 ;;
 
 let test_response_received_error_evidence_matrix () =
@@ -672,9 +785,14 @@ let test_response_received_error_evidence_matrix () =
       check
         (option int)
         (label ^ " response status")
-        (Some 200)
-        (EO.receipt_http_status receipt)
-    | Ok _ | Error _ -> fail (label ^ " lost response-received evidence")
+    (Some 200)
+    (EO.receipt_http_status receipt);
+  check
+    bool
+    (label ^ " typed error receipt trace")
+    true
+    (Option.is_some (EO.receipt_provider_trace receipt))
+| Ok _ | Error _ -> fail (label ^ " lost response-received evidence")
   in
   let completion_failed = function
     | EO.Completion_failed -> true
@@ -1634,6 +1752,10 @@ let () =
             "no measure and one post"
             `Quick
             test_no_measure_one_post_and_wire_authority
+        ; test_case
+            "provider trace fingerprint"
+            `Quick
+            test_provider_trace_fingerprint_anchors_normalized_headers_and_body
         ; test_case
             "response-received error evidence"
             `Quick

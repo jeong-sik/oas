@@ -40,8 +40,18 @@ type attempt_state =
 
 type call_id = Call_id of string
 
+type provider_trace =
+  { fingerprint : string
+  ; http_status : int
+  ; response_header_evidence_fingerprint : string
+  ; raw_response_body_sha256 : string
+  ; response_id : string option
+  ; response_model : string option
+  }
+
 type receipt =
   { state : attempt_state Atomic.t
+  ; provider_trace_state : provider_trace option Atomic.t
   ; call_id : call_id
   ; plan_fingerprint : string
   ; request_body_sha256 : string
@@ -619,6 +629,7 @@ let start_attempt (ready : ready_plan) =
   | Ok id ->
     let receipt =
       { state = Atomic.make Not_started_state
+      ; provider_trace_state = Atomic.make None
       ; call_id = Call_id id
       ; plan_fingerprint = ready.plan_fingerprint
       ; request_body_sha256 = ready.request_body_sha256
@@ -680,6 +691,8 @@ let receipt_http_status receipt =
   | Not_started_state | Before_dispatch_state | Dispatch_started_state -> None
 ;;
 
+let receipt_provider_trace receipt = Atomic.get receipt.provider_trace_state
+let provider_trace_fingerprint trace = trace.fingerprint
 let receipt_plan_fingerprint (receipt : receipt) = receipt.plan_fingerprint
 let receipt_request_body_sha256 (receipt : receipt) = receipt.request_body_sha256
 let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
@@ -741,6 +754,65 @@ let raw_response (evidence : Exec.raw_response_evidence) =
   { body = evidence.raw_body; body_sha256 = evidence.raw_body_sha256 }
 ;;
 
+let provider_trace_of_evidence
+      ?response
+      complete_receipt
+      (evidence : Exec.raw_response_evidence)
+  =
+  let http_status =
+    match Exec.receipt_http_status complete_receipt with
+    | Some status -> status
+    | None -> invalid_arg "Exact_output: response evidence without HTTP status"
+  in
+  let response_id, response_model =
+    match response with
+    | None -> None, None
+    | Some (response : Types.api_response) -> Some response.id, Some response.model
+  in
+  let response_header_evidence_fingerprint =
+    Http_client.response_header_evidence_fingerprint evidence.response_header_evidence
+  in
+  let payload =
+    `Assoc
+      [ "version", `Int 1
+      ; "http_status", `Int http_status
+      ; ( "response_header_evidence_fingerprint"
+        , `String response_header_evidence_fingerprint )
+      ; "raw_response_body_sha256", `String evidence.raw_body_sha256
+      ; ( "response_id"
+        , match response_id with
+          | None -> `Null
+          | Some value -> `String value )
+      ; ( "response_model"
+        , match response_model with
+          | None -> `Null
+          | Some value -> `String value )
+      ]
+  in
+  let fingerprint =
+    payload
+    |> Yojson.Safe.to_string
+    |> Digestif.SHA256.digest_string
+    |> Digestif.SHA256.to_hex
+  in
+  { fingerprint
+  ; http_status
+  ; response_header_evidence_fingerprint
+  ; raw_response_body_sha256 = evidence.raw_body_sha256
+  ; response_id
+  ; response_model
+  }
+;;
+
+let rec record_provider_trace receipt trace =
+  match Atomic.get receipt.provider_trace_state with
+  | Some existing when String.equal existing.fingerprint trace.fingerprint -> ()
+  | Some _ -> invalid_arg "Exact_output: provider trace changed after installation"
+  | None ->
+    if not (Atomic.compare_and_set receipt.provider_trace_state None (Some trace))
+    then record_provider_trace receipt trace
+;;
+
 let execution_error_cause = function
   | Exec.Clock_required_for_timeout -> Clock_required_for_timeout
   | Exec.Frozen_request_mismatch -> Frozen_request_mismatch
@@ -778,6 +850,12 @@ let execute_once ~net ?clock (attempt : attempt) =
         ({ receipt = complete_receipt; cause; raw_response = evidence } :
           Exec.execute_once_error_with_evidence) ->
       synchronize_receipt receipt complete_receipt;
+      Option.iter
+        (fun response_evidence ->
+           response_evidence
+           |> provider_trace_of_evidence complete_receipt
+           |> record_provider_trace receipt)
+        evidence;
       Error
         { call_id = receipt.call_id
         ; receipt
@@ -786,6 +864,10 @@ let execute_once ~net ?clock (attempt : attempt) =
         }
     | Ok { outcome; raw_response = evidence } ->
       synchronize_receipt receipt outcome.receipt;
+      let provider_trace =
+        provider_trace_of_evidence ~response:outcome.response outcome.receipt evidence
+      in
+      record_provider_trace receipt provider_trace;
       (match outcome.output with
        | Exec.Json_output { value; _ } ->
          Ok

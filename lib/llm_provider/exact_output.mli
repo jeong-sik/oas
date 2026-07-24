@@ -159,6 +159,10 @@ type effect_phase =
   | Response_received
   | Terminal
 
+(** Provider-neutral response evidence owned by OAS. Detailed headers and
+    provider metadata remain opaque; consumers compare only its fingerprint. *)
+type provider_trace
+
 type raw_response =
   { body : string
   ; body_sha256 : string
@@ -334,6 +338,8 @@ val receipt_call_id : receipt -> call_id
 val receipt_phase : receipt -> effect_phase
 val receipt_dispatch_count : receipt -> int
 val receipt_http_status : receipt -> int option
+val receipt_provider_trace : receipt -> provider_trace option
+val provider_trace_fingerprint : provider_trace -> string
 val receipt_plan_fingerprint : receipt -> string
 val receipt_request_body_sha256 : receipt -> string
 val receipt_catalog_generation : receipt -> catalog_generation
@@ -385,8 +391,11 @@ val flow_attempt_evidence : flow_attempt -> flow_evidence
     concurrent invocation of the same attempt is rejected before a second dispatch.
     Obtain {!attempt_receipt} before entering a cancellation scope; its phase is
     monotonic and remains queryable if cancellation escapes this function. The
-    sole invocation performs at most one outward completion POST and never
-    retries or falls back. *)
+    sole invocation performs at most one outward completion HTTP POST. It calls
+    the direct one-dispatch transport rather than a provider SDK or the generic
+    retry layer; internal model rotation and requested server-side fallback are
+    disabled. This is an outward-dispatch guarantee, not a claim about opaque
+    physical execution inside a provider service. *)
 val execute_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
