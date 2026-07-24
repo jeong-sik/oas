@@ -1,11 +1,13 @@
 module Plan = Exact_output_plan
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
+module Flow_contract = Exact_output_flow_contract
 module Gemini_schema = Exact_output_gemini_schema
 module Trace = Exact_output_provider_trace
 module Caps = Capabilities
 module PC = Provider_config
 include Exact_output_resolver
+include Flow_contract
 
 type schema_fingerprint = Schema_fingerprint of string
 type domain_schema = Domain_schema of Yojson.Safe.t
@@ -156,13 +158,6 @@ type success =
   ; raw_response : raw_response
   }
 
-type flow_candidate_identity =
-  { candidate_id : string
-  ; catalog_generation : catalog_generation
-  ; catalog_evidence : catalog_evidence
-  ; target_identity : target_identity
-  }
-
 type flow_candidate =
   { identity : flow_candidate_identity
   ; admitted_target : admitted_target
@@ -171,24 +166,6 @@ type flow_candidate =
 type flow_id = Flow_id of string
 type flow_visit_ordinal = Flow_visit_ordinal of int
 type candidate_visit_count = Candidate_visit_count of int
-type flow_preference_store = (string, flow_candidate_identity) Flow_state.preference_store
-type flow_scope = Flow_scope of string
-
-type flow_preference_not_applied_reason =
-  | Preference_candidate_absent
-  | Preference_candidate_binding_changed
-
-type flow_preference_observation =
-  | No_preference_recorded
-  | Preference_applied of
-      { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
-      }
-  | Preference_not_applied of
-      { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
-      ; reason : flow_preference_not_applied_reason
-      }
 
 type flow_candidate_visit =
   { flow_id : flow_id
@@ -253,7 +230,6 @@ type flow_attempt =
   }
 
 type flow_candidate_error = Blank_flow_candidate_id
-type flow_scope_error = Blank_flow_scope_id
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -284,23 +260,6 @@ type flow_success =
   ; preferences : flow_preference_store
   ; scope : flow_scope
   }
-
-type domain_disposition =
-  | Domain_valid of { success_time_unix_s : int64 }
-  | Domain_rejected
-
-type domain_settlement_receipt =
-  | Domain_rejected_recorded
-  | Domain_valid_preference_installed of
-      { candidate : flow_candidate_identity
-      ; success_time_unix_s : int64
-      }
-  | Domain_valid_preference_superseded of
-      { current_candidate : flow_candidate_identity
-      ; current_success_time_unix_s : int64
-      }
-
-type domain_settlement_error = Domain_already_settled
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -535,71 +494,26 @@ let make_flow_candidate ~id ~admitted_target =
 ;;
 
 let flow_candidate_identity (candidate : flow_candidate) = candidate.identity
-let create_flow_preference_store () = Flow_state.create_preference_store ()
-
-let make_flow_scope ~id =
-  let id = String.trim id in
-  if String.equal id "" then Error Blank_flow_scope_id else Ok (Flow_scope id)
-;;
-
-let flow_scope_equal (Flow_scope left) (Flow_scope right) = String.equal left right
-
-let duplicate_flow_candidate_id (candidates : flow_candidate list) =
-  Flow_state.duplicate_key
-    ~equal:String.equal
-    ~key:(fun (candidate : flow_candidate) -> candidate.identity.candidate_id)
-    candidates
-  |> Option.map (fun (candidate_id, first_position, duplicate_position) ->
-    Duplicate_flow_candidate_id { candidate_id; first_position; duplicate_position })
-;;
-
-let target_binding_equal left right =
-  String.equal
-    (target_identity_fingerprint left.target_identity)
-    (target_identity_fingerprint right.target_identity)
-;;
-
-let prefer_last_good preferences (Flow_scope scope) candidates =
-  match Flow_state.preferred_candidate preferences ~scope with
-  | None -> candidates, No_preference_recorded
-  | Some (recorded, success_time_unix_s) ->
-    (match
-       List.find_opt
-         (fun (candidate : flow_candidate) ->
-            String.equal candidate.identity.candidate_id recorded.candidate_id)
-         candidates
-     with
-     | None ->
-       ( candidates
-       , Preference_not_applied
-           { candidate = recorded
-           ; success_time_unix_s
-           ; reason = Preference_candidate_absent
-           } )
-     | Some current when not (target_binding_equal recorded current.identity) ->
-       ( candidates
-       , Preference_not_applied
-           { candidate = recorded
-           ; success_time_unix_s
-           ; reason = Preference_candidate_binding_changed
-           } )
-     | Some _ ->
-       ( Flow_state.promote_candidate
-           ~equal:String.equal
-           ~key:(fun (candidate : flow_candidate) -> candidate.identity.candidate_id)
-           ~preferred:(Some recorded.candidate_id)
-           candidates
-       , Preference_applied { candidate = recorded; success_time_unix_s } ))
-;;
 
 let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
   let candidates = first :: rest in
-  match duplicate_flow_candidate_id candidates with
-  | Some duplicate -> Error duplicate
+  match
+    Flow_state.duplicate_key
+      ~equal:String.equal
+      ~key:(fun (candidate : flow_candidate) -> candidate.identity.candidate_id)
+      candidates
+  with
+  | Some (candidate_id, first_position, duplicate_position) ->
+    Error
+      (Duplicate_flow_candidate_id { candidate_id; first_position; duplicate_position })
   | None ->
     let declared_candidate_snapshot = List.map flow_candidate_identity candidates in
     let candidates, preference_observation =
-      prefer_last_good preferences scope candidates
+      Flow_contract.prefer_last_good
+        preferences
+        scope
+        ~candidate_identity:flow_candidate_identity
+        candidates
     in
     Ok
       { preferences
@@ -667,30 +581,12 @@ let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
 
 let settle_flow_domain success disposition =
-  let candidate = success.candidate.visit.identity in
-  let result =
-    match disposition with
-    | Domain_rejected ->
-      Flow_state.settle_domain_rejected_once success.domain_settlement
-      |> Result.map (fun () -> Domain_rejected_recorded)
-    | Domain_valid { success_time_unix_s } ->
-      let (Flow_scope scope) = success.scope in
-      Flow_state.settle_domain_valid_once
-        success.domain_settlement
-        success.preferences
-        ~scope
-        ~candidate
-        ~time:success_time_unix_s
-      |> Result.map (function
-        | Flow_state.Preference_installed ->
-          Domain_valid_preference_installed { candidate; success_time_unix_s }
-        | Flow_state.Preference_superseded { current_candidate; current_time } ->
-          Domain_valid_preference_superseded
-            { current_candidate; current_success_time_unix_s = current_time })
-  in
-  match result with
-  | Error Flow_state.Already_settled -> Error Domain_already_settled
-  | Ok receipt -> Ok receipt
+  Flow_contract.settle_domain
+    success.domain_settlement
+    success.preferences
+    success.scope
+    ~candidate:success.candidate.visit.identity
+    disposition
 ;;
 
 let call_id_to_string (Call_id id) = id

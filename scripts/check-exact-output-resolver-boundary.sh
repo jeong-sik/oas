@@ -6,6 +6,7 @@ trap 'status=$?; printf "exact-output resolver boundary ratchet aborted at line 
 required_basenames=(
   exact_output.ml
   exact_output_flow.ml
+  exact_output_flow_contract.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_plan.ml
