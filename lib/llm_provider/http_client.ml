@@ -836,7 +836,8 @@ let classify_eio_net_error = function
   | Eio.Net.Connection_failure (Eio.Net.Refused backend) ->
     Option.value (classify_eio_backend_error backend) ~default:Connection_refused
   | Eio.Net.Connection_failure Eio.Net.Timeout -> Timeout
-  | Eio.Net.Connection_failure Eio.Net.No_matching_addresses -> Dns_failure
+  | Eio.Net.Address_lookup_failed _ -> Dns_failure
+  | Eio.Net.Invalid_option -> Unknown
 ;;
 
 let rec classify_eio_error = function
@@ -2801,12 +2802,21 @@ let%test "classify_network_exn: typed Eio timeout" =
   | None -> false
 ;;
 
-let%test "classify_network_exn: typed Eio no addresses" =
+let%test "classify_network_exn: typed Eio address lookup failure" =
   match
     classify_network_exn
-      (eio_exn (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.No_matching_addresses)))
+      (eio_exn
+         (Eio.Net.E (Eio.Net.Address_lookup_failed Eio.Net.Getaddrinfo_error.UNKNOWN)))
   with
   | Some (NetworkError { kind = Dns_failure; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let%test "classify_network_exn: typed Eio invalid socket option stays unknown" =
+  match classify_network_exn (eio_exn (Eio.Net.E Eio.Net.Invalid_option)) with
+  | Some (NetworkError { kind = Unknown; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
   | Some (ProviderTerminal _ | ProviderFailure _)
   | None -> false
