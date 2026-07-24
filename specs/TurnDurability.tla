@@ -3,7 +3,7 @@
 \*
 \* Concrete code:
 \*   - Agent_types.checkpoint_sink
-\*   - Pipeline.persist_turn_checkpoint
+\*   - Pipeline.persist_turn_checkpoint_for_state
 \*   - stage_collect / stage_execute / required-tool retry feedback append
 \*
 \* The key safety rule is that once an in-memory mutation that changes
