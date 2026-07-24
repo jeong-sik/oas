@@ -147,7 +147,7 @@ let settle_domain
   let result =
     match disposition with
     | Domain_rejected ->
-      Flow_state.settle_domain_rejected_once settlement
+      Flow_state.settle_domain_rejected_once settlement preferences
       |> Result.map (fun () -> Domain_rejected_recorded)
     | Domain_valid ->
       Flow_state.settle_domain_valid_once
