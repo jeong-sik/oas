@@ -7,6 +7,10 @@
 
 type invalid_request_reason =
   | Json_parse_error
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Unknown_invalid_request
 
 type api_error =

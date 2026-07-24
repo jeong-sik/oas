@@ -58,6 +58,11 @@ let sdk_error_of_http_error ?(accept_rejected = Api_invalid_request) err =
      | Api_invalid_request -> invalid_request reason
      | Config_invalid_config { field } ->
        Error.Config (Error.InvalidConfig { field; detail = reason }))
+  | Http.ProviderFailure
+      { kind = Http.Request_body_too_large { actual_bytes; limit_bytes }; message } ->
+    Error.Api
+      (Retry.InvalidRequest
+         { message; reason = Retry.Request_body_too_large { actual_bytes; limit_bytes } })
   | Http.ProviderFailure { kind = Http.Empty_completion { stop_reason }; message } ->
     (* The #2621 empty-completion overflow rule is centralised in
        [Retry.verdict_of_empty_completion]. A ContextWindowExceeded empty turn
@@ -205,6 +210,7 @@ let ownership_of_provider_failure ~binding = function
   | Http.Capability_mismatch _
   | Http.Cli_policy_invalid _
   | Http.Provider_parse_error _
+  | Http.Request_body_too_large _
   | Http.Response_body_too_large _
   | Http.Empty_completion _ -> Attempt_local
   | Http.Cli_startup_failed { reason } -> ownership_of_cli_startup ~binding reason
@@ -341,6 +347,12 @@ let provider_failure_to_yojson = function
     `Assoc
       [ "kind", `String "provider_parse_error"
       ; "parser_known", `Bool (Option.is_some parser)
+      ]
+  | Http.Request_body_too_large { actual_bytes; limit_bytes } ->
+    `Assoc
+      [ "kind", `String "request_body_too_large"
+      ; "actual_bytes", `Int actual_bytes
+      ; "limit_bytes", `Int limit_bytes
       ]
   | Http.Response_body_too_large { limit_bytes } ->
     `Assoc [ "kind", `String "response_body_too_large"; "limit_bytes", `Int limit_bytes ]

@@ -271,6 +271,16 @@ let of_provider_failure ?provider kind message =
       | None -> "unknown_parser"
     in
     ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Request_body_too_large { actual_bytes; limit_bytes } ->
+    InvalidRequest
+      { provider
+      ; reason =
+          Printf.sprintf
+            "serialized request body is %d bytes, target limit is %d bytes: %s"
+            actual_bytes
+            limit_bytes
+            message
+      }
   | Http_client.Response_body_too_large { limit_bytes } ->
     ParseError
       { detail =

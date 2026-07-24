@@ -89,6 +89,10 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Response_body_too_large of { limit_bytes : int }
   (* oas#2483: the provider returned a 200 with no deliverable content (no
      thinking, text, or tool_calls). Distinct from a parse error. Preserve the
@@ -156,6 +160,8 @@ let provider_failure_kind_to_string = function
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Request_body_too_large { actual_bytes; limit_bytes } ->
+    Printf.sprintf "request_body_too_large:%d:%d" actual_bytes limit_bytes
   | Response_body_too_large { limit_bytes } ->
     Printf.sprintf "response_body_too_large:%d" limit_bytes
   | Empty_completion { stop_reason } ->
@@ -175,6 +181,17 @@ let empty_completion_error ~stop_reason =
     { kind = Empty_completion { stop_reason }
     ; message =
         "provider returned an empty assistant turn (no thinking, text, or tool calls)"
+    }
+;;
+
+let request_body_too_large_error ~actual_bytes ~limit_bytes =
+  ProviderFailure
+    { kind = Request_body_too_large { actual_bytes; limit_bytes }
+    ; message =
+        Printf.sprintf
+          "serialized request body is %d bytes, target limit is %d bytes"
+          actual_bytes
+          limit_bytes
     }
 ;;
 

@@ -319,6 +319,58 @@ let test_complete_http_error () =
   | Exit -> ()
 ;;
 
+let check_request_body_too_large ~label = function
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Request_body_too_large { actual_bytes; limit_bytes }; _ })
+    ->
+    check int (label ^ " limit") 1 limit_bytes;
+    check bool (label ^ " measured serialized bytes") true (actual_bytes > limit_bytes)
+  | Ok _ -> failf "%s unexpectedly succeeded" label
+  | Error _ -> failf "%s returned the wrong typed error" label
+;;
+
+let test_complete_request_body_limit_rejects_before_io () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let base_url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        (anthropic_response "must not arrive")
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Anthropic
+        ~model_id:"request-body-limit"
+        ~base_url
+        ~max_tokens:100
+        ~max_request_body_bytes:1
+        ()
+    in
+    check_request_body_too_large
+      ~label:"sync request-body admission"
+      (Complete.complete ~sw ~net:env#net ~config ~messages ());
+    check_request_body_too_large
+      ~label:"stream request-body admission"
+      (Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config
+         ~messages
+         ~on_event:(fun _ -> ())
+         ());
+    check int "request-body admission performs no HTTP request" 0 !request_count;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_http_empty_error_body_has_context () =
   Eio_main.run
   @@ fun env ->
@@ -2816,6 +2868,10 @@ let () =
             `Quick
             test_complete_http_rejects_typed_empty_completion
         ; test_case "http error" `Quick test_complete_http_error
+        ; test_case
+            "request body limit rejects before I/O"
+            `Quick
+            test_complete_request_body_limit_rejects_before_io
         ; test_case
             "empty http error body has context"
             `Quick

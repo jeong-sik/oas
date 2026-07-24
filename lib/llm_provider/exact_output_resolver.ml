@@ -88,6 +88,7 @@ type target_declaration =
   { target_ref : target_ref
   ; provider_ref : string
   ; model_id : string
+  ; max_request_body_bytes : int option
   ; connect_timeout_s : float option
   ; body_timeout_s : float option
   }
@@ -226,6 +227,16 @@ let target_float_field ~source ~target_label field toml =
       (Printf.sprintf "target %s has non-float %s" target_label field)
 ;;
 
+let target_int_field ~source ~target_label field toml =
+  match Otoml.find_opt toml Otoml.get_integer [ field ] with
+  | None -> Ok None
+  | Some value -> Ok (Some value)
+  | exception Otoml.Type_error _ ->
+    target_catalog_error
+      source
+      (Printf.sprintf "target %s has non-integer %s" target_label field)
+;;
+
 let validate_timeout ~source ~target_label field = function
   | None -> Ok ()
   | Some value when Float.is_finite value && value > 0. -> Ok ()
@@ -243,7 +254,13 @@ let parse_target_declaration ~source toml =
     | Error _ -> target_catalog_error source "target id is not canonical"
   in
   let known =
-    [ "id"; "provider_ref"; "model_id"; "connect_timeout_s"; "body_timeout_s" ]
+    [ "id"
+    ; "provider_ref"
+    ; "model_id"
+    ; "max_request_body_bytes"
+    ; "connect_timeout_s"
+    ; "body_timeout_s"
+    ]
   in
   let* () =
     match Otoml.list_table_keys_result toml with
@@ -256,6 +273,9 @@ let parse_target_declaration ~source toml =
   in
   let* provider_ref = target_string_field ~source ~target_label:id "provider_ref" toml in
   let* model_id = target_string_field ~source ~target_label:id "model_id" toml in
+  let* max_request_body_bytes =
+    target_int_field ~source ~target_label:id "max_request_body_bytes" toml
+  in
   let* connect_timeout_s =
     target_float_field ~source ~target_label:id "connect_timeout_s" toml
   in
@@ -266,7 +286,23 @@ let parse_target_declaration ~source toml =
     validate_timeout ~source ~target_label:id "connect_timeout_s" connect_timeout_s
   in
   let* () = validate_timeout ~source ~target_label:id "body_timeout_s" body_timeout_s in
-  Ok { target_ref; provider_ref; model_id; connect_timeout_s; body_timeout_s }
+  let* () =
+    match max_request_body_bytes with
+    | None -> Ok ()
+    | Some value when value >= 1 -> Ok ()
+    | Some _ ->
+      target_catalog_error
+        source
+        (Printf.sprintf "target %s has invalid max_request_body_bytes" id)
+  in
+  Ok
+    { target_ref
+    ; provider_ref
+    ; model_id
+    ; max_request_body_bytes
+    ; connect_timeout_s
+    ; body_timeout_s
+    }
 ;;
 
 let parse_target_catalog ~source contents =
@@ -695,11 +731,12 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
       ; target_ref_id target.target_ref
       ; target.provider_ref
       ; target.model_id
+      ; Binding.option_int target.max_request_body_bytes
       ; option_float target.connect_timeout_s
       ; option_float target.body_timeout_s
       ])
   in
-  ("oas-exact-output-catalog-evidence-v2" :: providers) @ models @ targets
+  ("oas-exact-output-catalog-evidence-v3" :: providers) @ models @ targets
 ;;
 
 let frozen_environment ~io names =
@@ -872,6 +909,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
              ~request_path:provider.request_path
              ?max_tokens:capabilities.max_output_tokens
              ?max_context:capabilities.max_context_tokens
+             ?max_request_body_bytes:target.max_request_body_bytes
              ~supports_structured_output_override:capabilities.supports_structured_output
              ~model_capabilities_override:capabilities
              ?connect_timeout_s:target.connect_timeout_s
@@ -883,7 +921,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
          in
          let identity_fingerprint =
            hash_parts
-             ([ "oas-exact-output-target-v2"
+             ([ "oas-exact-output-target-v3"
               ; target_ref_id target.target_ref
               ; provider.id
               ; PC.string_of_provider_kind provider.kind
@@ -891,6 +929,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
               ; base_url
               ; provider.request_path
               ; provider.api_key_env
+              ; Binding.option_int target.max_request_body_bytes
               ; option_float target.connect_timeout_s
               ; option_float target.body_timeout_s
               ; codec

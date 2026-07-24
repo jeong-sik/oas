@@ -2,6 +2,10 @@
 
 type invalid_request_reason =
   | Json_parse_error
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Unknown_invalid_request
 
 type api_error =
@@ -47,6 +51,8 @@ let network_error_kind_label = function
 
 let invalid_request_reason_to_string = function
   | Json_parse_error -> "json_parse_error"
+  | Request_body_too_large { actual_bytes; limit_bytes } ->
+    Printf.sprintf "request_body_too_large(actual=%d,limit=%d)" actual_bytes limit_bytes
   | Unknown_invalid_request -> "unknown"
 ;;
 
@@ -342,7 +348,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
     not (is_retryable err)
-  | InvalidRequest { reason = Json_parse_error; _ } -> false
+  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
@@ -361,7 +367,7 @@ let%test "HTTP 400 prose does not synthesize ContextOverflow" =
   in
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
-  | InvalidRequest { reason = Json_parse_error; _ }
+  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ }
   | ContextOverflow _
   | RateLimited _
   | Overloaded _
@@ -378,7 +384,7 @@ let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   let body = {|{"error":{"message":"bad tool schema"}}|} in
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
-  | InvalidRequest { reason = Json_parse_error; _ } -> false
+  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
