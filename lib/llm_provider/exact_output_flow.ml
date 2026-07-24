@@ -19,6 +19,18 @@ type ('admission, 'attempt) progress_state =
 
 type ('admission, 'attempt) progress = ('admission, 'attempt) progress_state Atomic.t
 
+type ('scope, 'candidate) preference_store =
+  { mutex : Mutex.t
+  ; entries : ('scope, 'candidate * int64) Hashtbl.t
+  }
+
+type domain_settlement =
+  { mutex : Mutex.t
+  ; mutable settled : bool
+  }
+
+type domain_settlement_error = Already_settled
+
 type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
       { candidate : 'candidate
@@ -40,6 +52,47 @@ let create () = Atomic.make Not_started
 
 let create_progress () =
   Atomic.make { candidate_visit_count = 0; admissions_rev = []; attempts_rev = [] }
+;;
+
+let create_preference_store () = { mutex = Mutex.create (); entries = Hashtbl.create 8 }
+let create_domain_settlement () = { mutex = Mutex.create (); settled = false }
+
+let with_preference_lock (store : (_, _) preference_store) f =
+  Mutex.lock store.mutex;
+  Fun.protect ~finally:(fun () -> Mutex.unlock store.mutex) f
+;;
+
+let preferred_candidate store ~scope =
+  with_preference_lock store (fun () -> Hashtbl.find_opt store.entries scope)
+;;
+
+let record_preference store ~scope ~candidate ~time =
+  with_preference_lock store (fun () ->
+    match Hashtbl.find_opt store.entries scope with
+    | Some (_, current_time) when Int64.compare time current_time <= 0 -> ()
+    | None | Some _ -> Hashtbl.replace store.entries scope (candidate, time))
+;;
+
+let settle_domain_once settlement ~commit =
+  Mutex.lock settlement.mutex;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock settlement.mutex)
+    (fun () ->
+       if settlement.settled
+       then Error Already_settled
+       else (
+         commit ();
+         settlement.settled <- true;
+         Ok ()))
+;;
+
+let settle_domain_rejected_once settlement =
+  settle_domain_once settlement ~commit:(fun () -> ())
+;;
+
+let settle_domain_valid_once settlement preferences ~scope ~candidate ~time =
+  settle_domain_once settlement ~commit:(fun () ->
+    record_preference preferences ~scope ~candidate ~time)
 ;;
 
 let record_admission progress admission =
@@ -76,6 +129,16 @@ let duplicate_key ~equal ~key candidates =
        | None -> find (position + 1) ((value, position) :: seen) rest)
   in
   find 1 [] candidates
+;;
+
+let promote_candidate ~equal ~key ~preferred candidates =
+  match preferred with
+  | None -> candidates
+  | Some preferred ->
+    let selected, remaining =
+      List.partition (fun candidate -> equal (key candidate) preferred) candidates
+    in
+    selected @ remaining
 ;;
 
 let execute_once state ~candidates ~execute ~advanceable ~before_advance =

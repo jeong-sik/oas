@@ -23,8 +23,11 @@ type receipt
 type call_id
 type schema_fingerprint
 type flow_candidate
+type flow_preference_store
+type flow_scope
 type flow_snapshot
 type flow_attempt
+type flow_success
 type resolver_io = { getenv : string -> (string option, unit) result }
 
 type catalog_document =
@@ -213,6 +216,7 @@ type candidate_admission =
   | Candidate_rejected of candidate_rejection_receipt
 
 type flow_candidate_error = Blank_flow_candidate_id
+type flow_scope_error = Blank_flow_scope_id
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -232,13 +236,32 @@ val make_flow_candidate
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
+(** Create one caller-owned, process-local preference store. The store has no
+    global singleton, environment-derived policy, expiry, clock, persistence,
+    or background refresh. Sharing and lifetime are explicit at the call site. *)
+val create_flow_preference_store : unit -> flow_preference_store
+
+(** Brand one opaque caller scope. OAS compares the trimmed nonempty identity
+    exactly; it does not parse coordinator, tenant, provider, or model fields. *)
+val make_flow_scope : id:string -> (flow_scope, flow_scope_error) result
+
+val flow_scope_equal : flow_scope -> flow_scope -> bool
+
 (** Freeze one nonempty ordered candidate snapshot and its immutable domain
     input. This validates only flow topology. Credential selection and exact
     request admission are deferred to the current candidate during
     {!execute_flow_once}; later candidates are neither selected, prepared, nor
-    assigned attempts speculatively. *)
+    assigned attempts speculatively.
+
+    A domain-valid last-good candidate recorded in [preferences] for [scope] is
+    moved to the front if it is present. The remaining candidates retain their
+    declared relative order. This lookup happens exactly once: existing
+    snapshots never change, and preferences from another scope cannot affect
+    this snapshot. *)
 val snapshot_flow
-  :  first:flow_candidate
+  :  preferences:flow_preference_store
+  -> scope:flow_scope
+  -> first:flow_candidate
   -> rest:flow_candidate list
   -> messages:Types.message list
   -> output_requirement
@@ -338,8 +361,12 @@ val receipt_catalog_generation : receipt -> catalog_generation
 val receipt_catalog_evidence : receipt -> catalog_evidence
 val receipt_target_identity : receipt -> target_identity
 
+(** One immutable outer-flow binding. [scope], opaque candidate identity, and
+    the one-shot execution receipt travel together; consumers do not rebuild
+    that join from coordinator or target strings. *)
 type flow_attempt_receipt =
-  { visit : flow_candidate_visit
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
   ; receipt : receipt
   }
 
@@ -351,6 +378,7 @@ val target_selection_error_disposition
 
 val admission_error_disposition : admission_error -> candidate_rejection_disposition
 val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
+val candidate_rejection_scope : candidate_rejection_receipt -> flow_scope
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
 
 val candidate_rejection_disposition
@@ -362,17 +390,34 @@ val candidate_rejection_dispatch_count : candidate_rejection_receipt -> int
 
 type flow_evidence =
   { flow_id : flow_id
+  ; scope : flow_scope
   ; candidate_snapshot : flow_candidate_identity list
   ; candidate_visit_count : candidate_visit_count
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_receipt list
   }
 
-type flow_success =
-  { candidate : flow_attempt_receipt
-  ; success : success
-  ; evidence : flow_evidence
-  }
+val flow_success_candidate : flow_success -> flow_attempt_receipt
+val flow_success_output : flow_success -> success
+val flow_success_evidence : flow_success -> flow_evidence
+
+type domain_disposition =
+  | Domain_valid of { success_time_unix_s : int64 }
+  | Domain_rejected
+
+type domain_settlement_error = Domain_already_settled
+
+(** Settle caller-owned domain validation exactly once after structural
+    success. [Domain_valid] records the successful opaque candidate and the
+    caller-supplied success time as last-good for this flow's scope.
+    [Domain_rejected] records no preference and never resumes or advances the
+    terminal flow. Concurrent or duplicate settlement returns
+    [Domain_already_settled]. An equal or older success time cannot overwrite
+    a newer preference already recorded by another flow. *)
+val settle_flow_domain
+  :  flow_success
+  -> domain_disposition
+  -> (unit, domain_settlement_error) result
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -409,9 +454,10 @@ type 'callback_error flow_execution_error =
       ; evidence : flow_evidence
       }
 
-(** Point-in-time aggregate evidence. [candidate_snapshot] is the original
-    immutable order. [candidate_visit_count], [admissions], and [attempts]
-    contain only candidates reached so far. Attempts are allocated only after
+(** Point-in-time aggregate evidence. [scope] is the exact opaque flow scope and
+    [candidate_snapshot] is the frozen effective order.
+    [candidate_visit_count], [admissions], and [attempts] contain only
+    candidates reached so far. Attempts are allocated only after
     current-candidate target selection and request admission succeed. This
     remains queryable after cancellation escapes. The affine executor is the
     sole writer. A concurrent reader may observe the exact point after an
@@ -452,9 +498,11 @@ val execute_once
     errors, replay, identity-allocation failure, missing execution prerequisites,
     frozen-request corruption, cancellation, every post-dispatch outcome, and
     success are terminal. Cancellation is re-raised after the flow is
-    terminalized; inspect {!flow_attempt_evidence} for monotonic progress. Domain
-    validation occurs after an OAS success and is therefore outside this API and
-    never failover eligible. *)
+    terminalized; inspect {!flow_attempt_evidence} for monotonic progress.
+    Domain validation occurs after an OAS success through
+    {!settle_flow_domain}; either disposition remains terminal and is never
+    failover eligible. Only a domain-valid settlement can affect a future
+    snapshot in the same explicit scope. *)
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock

@@ -775,6 +775,7 @@ for private_module in \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
+  exact_output_provider_trace \
   exact_output_resolver \
   exact_output_catalog_binding
 do
@@ -933,7 +934,7 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "execution receipt no longer stores the immutable visit" \
-  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*\{[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*\{[^}]*scope[[:space:]]*:[[:space:]]*flow_scope[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow start stopped failing closed on identity allocation" \
@@ -953,6 +954,43 @@ require_opaque_type \
   "outer exact flow lost typed candidate-rejection receipts" \
   "$exact_output_interface" \
   candidate_rejection_receipt
+require_code_sequence \
+  "outer exact flow lost explicit scope-local preference ownership" \
+  'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow attempt receipt lost its opaque scope binding" \
+  'type[[:space:]]+flow_attempt_receipt.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow evidence lost its opaque scope binding" \
+  'type[[:space:]]+flow_evidence.*flow_id[[:space:]]*:.*scope[[:space:]]*:.*flow_scope.*candidate_snapshot' \
+  "$exact_output_interface"
+require_code_sequence \
+  "candidate rejection lost its opaque scope projection" \
+  'val[[:space:]]+candidate_rejection_scope[[:space:]]*:' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost typed domain settlement" \
+  'type[[:space:]]+domain_disposition.*val[[:space:]]+settle_flow_domain' \
+  "$exact_output_interface"
+scan_code \
+  "outer exact flow exposed forgeable structural success settlement state" \
+  'type[[:space:]]+flow_success[[:space:]]*=' \
+  "$exact_output_interface"
+require_code_sequence \
+  "scope-local preference can be overwritten by stale success evidence" \
+  'Int64\.compare[[:space:]]+time[[:space:]]+current_time[[:space:]]*<=[[:space:]]*0' \
+  "$exact_output_flow_source"
+require_code_sequence \
+  "domain settlement lost its linearized commit-before-publication gate" \
+  'let[[:space:]]+settle_domain_once.*Mutex\.lock.*commit[[:space:]]*\(\).*settled[[:space:]]*<-[[:space:]]*true' \
+  "$exact_output_flow_source"
+scan_code \
+  "outer exact-flow preference acquired an implicit clock or environment policy" \
+  'Unix\.gettimeofday|Sys\.getenv|Eio\.Time\.now' \
+  "$exact_output_source" \
+  "$exact_output_flow_source"
 require_code_pattern \
   "candidate rejection is no longer fixed at Before_dispatch" \
   'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \

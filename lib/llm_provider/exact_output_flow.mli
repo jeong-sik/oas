@@ -6,6 +6,9 @@
 
 type t
 type ('admission, 'attempt) progress
+type ('scope, 'candidate) preference_store
+type domain_settlement
+type domain_settlement_error = Already_settled
 
 type ('admission, 'attempt) progress_snapshot =
   { candidate_visit_count : int
@@ -37,6 +40,26 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt) progress
 
+val create_preference_store : unit -> ('scope, 'candidate) preference_store
+val create_domain_settlement : unit -> domain_settlement
+
+val preferred_candidate
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> ('candidate * int64) option
+
+val settle_domain_rejected_once
+  :  domain_settlement
+  -> (unit, domain_settlement_error) result
+
+val settle_domain_valid_once
+  :  domain_settlement
+  -> ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> candidate:'candidate
+  -> time:int64
+  -> (unit, domain_settlement_error) result
+
 val record_admission : ('admission, 'attempt) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit
 
@@ -49,6 +72,13 @@ val duplicate_key
   -> key:('candidate -> 'key)
   -> 'candidate list
   -> ('key * int * int) option
+
+val promote_candidate
+  :  equal:('key -> 'key -> bool)
+  -> key:('candidate -> 'key)
+  -> preferred:'key option
+  -> 'candidate list
+  -> 'candidate list
 
 (** Execute an immutable, nonempty candidate snapshot once.
 

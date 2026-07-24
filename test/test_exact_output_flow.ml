@@ -138,12 +138,25 @@ let credential_getenv = function
   | _ -> Ok None
 ;;
 
-let frozen_flow snapshot ids =
+let flow_scope id =
+  match EO.make_flow_scope ~id with
+  | Ok scope -> scope
+  | Error EO.Blank_flow_scope_id -> fail "fixture flow scope was blank"
+;;
+
+let frozen_flow
+      ?(preferences = EO.create_flow_preference_store ())
+      ?(scope = flow_scope "test-default")
+      snapshot
+      ids
+  =
   match List.map (flow_candidate snapshot) ids with
   | [] -> fail "flow fixture must be nonempty"
   | first :: rest ->
     (match
        EO.snapshot_flow
+         ~preferences
+         ~scope
          ~first
          ~rest
          ~messages:[ msg "return one exact object" ]
@@ -252,6 +265,342 @@ let execute_ok ~net flow =
     flow
 ;;
 
+let flow_snapshot_ids ready =
+  EO.flow_attempt_evidence (start_flow ready)
+  |> fun evidence ->
+  List.map
+    (fun (identity : EO.flow_candidate_identity) -> identity.candidate_id)
+    evidence.candidate_snapshot
+;;
+
+let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
+  let (success_id, settlement, existing_order, future_order, other_scope_order), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"preferred-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"preferred-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let preferences = EO.create_flow_preference_store () in
+    let primary_scope = flow_scope "/runtime/keeper-primary" in
+    let other_scope = flow_scope "/runtime/keeper-other" in
+    let existing =
+      frozen_flow
+        ~preferences
+        ~scope:primary_scope
+        snapshot
+        [ "preferred-a"; "preferred-b" ]
+    in
+    let successful =
+      frozen_flow
+        ~preferences
+        ~scope:primary_scope
+        snapshot
+        [ "preferred-b"; "preferred-a" ]
+      |> start_flow
+      |> execute_ok ~net
+    in
+    match successful with
+    | Error _ -> fail "last-good fixture did not structurally succeed"
+    | Ok success ->
+      let candidate = EO.flow_success_candidate success in
+      let evidence = EO.flow_success_evidence success in
+      check
+        bool
+        "success receipt carries primary scope"
+        true
+        (EO.flow_scope_equal primary_scope candidate.scope);
+      check
+        bool
+        "success evidence carries primary scope"
+        true
+        (EO.flow_scope_equal primary_scope evidence.scope);
+      let success_id = candidate_id candidate in
+      let settlement =
+        EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = 42L })
+      in
+      let future =
+        frozen_flow
+          ~preferences
+          ~scope:primary_scope
+          snapshot
+          [ "preferred-a"; "preferred-b" ]
+      in
+      let other_scope =
+        frozen_flow
+          ~preferences
+          ~scope:other_scope
+          snapshot
+          [ "preferred-a"; "preferred-b" ]
+      in
+      ( success_id
+      , settlement
+      , flow_snapshot_ids existing
+      , flow_snapshot_ids future
+      , flow_snapshot_ids other_scope )
+  in
+  check int "preference proof dispatches once" 1 posts;
+  check string "domain-valid candidate" "preferred-b" success_id;
+  check (result unit reject) "domain-valid settlement succeeds" (Ok ()) settlement;
+  check
+    (list string)
+    "existing immutable snapshot keeps declared order"
+    [ "preferred-a"; "preferred-b" ]
+    existing_order;
+  check
+    (list string)
+    "future same-scope snapshot prefers last-good"
+    [ "preferred-b"; "preferred-a" ]
+    future_order;
+  check
+    (list string)
+    "other scope is isolated"
+    [ "preferred-a"; "preferred-b" ]
+    other_scope_order
+;;
+
+let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
+  let call_ids_differ, future_a, future_b, posts =
+    let result, posts =
+      with_server ~response:(openai_response {|{"name":"accepted"}|})
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      with_catalog
+        [ catalog_entry ~id:"scope-a" ~base_url ~native:true ~json:true ()
+        ; catalog_entry ~id:"scope-b" ~base_url ~native:true ~json:true ()
+        ]
+      @@ fun snapshot ->
+      let preferences = EO.create_flow_preference_store () in
+      let scope_a = flow_scope "/runtime/concurrent-a" in
+      let scope_b = flow_scope "/runtime/concurrent-b" in
+      let flow_a =
+        frozen_flow ~preferences ~scope:scope_a snapshot [ "scope-a"; "scope-b" ]
+        |> start_flow
+      in
+      let flow_b =
+        frozen_flow ~preferences ~scope:scope_b snapshot [ "scope-b"; "scope-a" ]
+        |> start_flow
+      in
+      let promise_a, resolver_a = Eio.Promise.create () in
+      let promise_b, resolver_b = Eio.Promise.create () in
+      Eio.Fiber.both
+        (fun () -> Eio.Promise.resolve resolver_a (execute_ok ~net flow_a))
+        (fun () -> Eio.Promise.resolve resolver_b (execute_ok ~net flow_b));
+      let require_success label = function
+        | Ok success -> success
+        | Error _ -> failf "%s concurrent scope did not succeed" label
+      in
+      let success_a = Eio.Promise.await promise_a |> require_success "first" in
+      let success_b = Eio.Promise.await promise_b |> require_success "second" in
+      let candidate_a = EO.flow_success_candidate success_a in
+      let candidate_b = EO.flow_success_candidate success_b in
+      check
+        bool
+        "first attempt stays in first scope"
+        true
+        (EO.flow_scope_equal scope_a candidate_a.scope);
+      check
+        bool
+        "second attempt stays in second scope"
+        true
+        (EO.flow_scope_equal scope_b candidate_b.scope);
+      let settle success time =
+        match
+          EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = time })
+        with
+        | Ok () -> ()
+        | Error EO.Domain_already_settled -> fail "fresh scoped success was settled twice"
+      in
+      Eio.Fiber.both (fun () -> settle success_a 200L) (fun () -> settle success_b 200L);
+      let call_id candidate =
+        EO.receipt_call_id candidate.EO.receipt |> EO.call_id_to_string
+      in
+      ( not (String.equal (call_id candidate_a) (call_id candidate_b))
+      , frozen_flow ~preferences ~scope:scope_a snapshot [ "scope-b"; "scope-a" ]
+        |> flow_snapshot_ids
+      , frozen_flow ~preferences ~scope:scope_b snapshot [ "scope-a"; "scope-b" ]
+        |> flow_snapshot_ids )
+    in
+    let call_ids_differ, future_a, future_b = result in
+    call_ids_differ, future_a, future_b, posts
+  in
+  check int "two concurrent scopes dispatch independently" 2 posts;
+  check bool "concurrent scopes do not share attempt identity" true call_ids_differ;
+  check
+    (list string)
+    "first scope keeps only its last-good"
+    [ "scope-a"; "scope-b" ]
+    future_a;
+  check
+    (list string)
+    "second scope keeps only its last-good"
+    [ "scope-b"; "scope-a" ]
+    future_b
+;;
+
+let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
+  let before_settlement, first_settlement, duplicate_settlement, after_settlement, posts =
+    let result, posts =
+      with_server ~response:(openai_response {|{"name":"rejected"}|})
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      with_catalog
+        [ catalog_entry ~id:"rejected-a" ~base_url ~native:true ~json:true ()
+        ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
+        ]
+      @@ fun snapshot ->
+      let preferences = EO.create_flow_preference_store () in
+      let scope = flow_scope "/runtime/domain-rejected" in
+      match
+        frozen_flow ~preferences ~scope snapshot [ "rejected-a"; "declared-b" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Error _ -> fail "domain-rejection fixture did not structurally succeed"
+      | Ok success ->
+        let before_settlement =
+          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
+          |> flow_snapshot_ids
+        in
+        let first_settlement = EO.settle_flow_domain success EO.Domain_rejected in
+        let duplicate_settlement =
+          EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = 43L })
+        in
+        let after_settlement =
+          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
+          |> flow_snapshot_ids
+        in
+        before_settlement, first_settlement, duplicate_settlement, after_settlement
+    in
+    let before, first, duplicate, after = result in
+    before, first, duplicate, after, posts
+  in
+  check
+    (list string)
+    "structural success alone does not update last-good"
+    [ "declared-b"; "rejected-a" ]
+    before_settlement;
+  check (result unit reject) "domain rejection settles" (Ok ()) first_settlement;
+  check
+    bool
+    "duplicate settlement is typed"
+    true
+    (match duplicate_settlement with
+     | Error EO.Domain_already_settled -> true
+     | Ok () -> false);
+  check
+    (list string)
+    "domain rejection records no preference"
+    [ "declared-b"; "rejected-a" ]
+    after_settlement;
+  check int "domain-rejection proof dispatches once" 1 posts
+;;
+
+let test_concurrent_domain_settlement_has_one_winner () =
+  let left, right, future_order, posts =
+    let result, posts =
+      with_server ~response:(openai_response {|{"name":"accepted"}|})
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      with_catalog
+        [ catalog_entry ~id:"winner-a" ~base_url ~native:true ~json:true ()
+        ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
+        ]
+      @@ fun snapshot ->
+      let preferences = EO.create_flow_preference_store () in
+      let scope = flow_scope "/runtime/concurrent-settlement" in
+      match
+        frozen_flow ~preferences ~scope snapshot [ "winner-a"; "declared-b" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Error _ -> fail "concurrent-settlement fixture did not succeed"
+      | Ok success ->
+        let left_promise, left_resolver = Eio.Promise.create () in
+        let right_promise, right_resolver = Eio.Promise.create () in
+        Eio.Fiber.both
+          (fun () ->
+             Eio.Promise.resolve
+               left_resolver
+               (EO.settle_flow_domain
+                  success
+                  (EO.Domain_valid { success_time_unix_s = 44L })))
+          (fun () ->
+             Eio.Promise.resolve
+               right_resolver
+               (EO.settle_flow_domain
+                  success
+                  (EO.Domain_valid { success_time_unix_s = 45L })));
+        let future_order =
+          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "winner-a" ]
+          |> flow_snapshot_ids
+        in
+        Eio.Promise.await left_promise, Eio.Promise.await right_promise, future_order
+    in
+    let left, right, future_order = result in
+    left, right, future_order, posts
+  in
+  let settled = function
+    | Ok () -> true
+    | Error EO.Domain_already_settled -> false
+  in
+  check bool "exactly one concurrent settlement wins" true (settled left <> settled right);
+  check
+    (list string)
+    "winning settlement updates future snapshot once"
+    [ "winner-a"; "declared-b" ]
+    future_order;
+  check int "concurrent-settlement proof dispatches once" 1 posts
+;;
+
+let test_stale_domain_success_cannot_overwrite_newer_last_good () =
+  let future_order, posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"stale-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"newer-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let preferences = EO.create_flow_preference_store () in
+    let scope = flow_scope "/runtime/out-of-order-success" in
+    let newer_flow =
+      frozen_flow ~preferences ~scope snapshot [ "newer-b"; "stale-a" ] |> start_flow
+    in
+    let stale_flow =
+      frozen_flow ~preferences ~scope snapshot [ "stale-a"; "newer-b" ] |> start_flow
+    in
+    let execute flow =
+      match execute_ok ~net flow with
+      | Error _ -> fail "out-of-order settlement fixture did not succeed"
+      | Ok success -> success
+    in
+    let settle success time =
+      match
+        EO.settle_flow_domain success (EO.Domain_valid { success_time_unix_s = time })
+      with
+      | Ok () -> ()
+      | Error EO.Domain_already_settled -> fail "fresh success was already settled"
+    in
+    let newer_success = execute newer_flow in
+    let stale_success = execute stale_flow in
+    Eio.Fiber.both
+      (fun () -> settle newer_success 100L)
+      (fun () -> settle stale_success 99L);
+    frozen_flow ~preferences ~scope snapshot [ "stale-a"; "newer-b" ] |> flow_snapshot_ids
+  in
+  check int "out-of-order settlement proof dispatches twice" 2 posts;
+  check
+    (list string)
+    "older success time cannot overwrite newer last-good"
+    [ "newer-b"; "stale-a" ]
+    future_order
+;;
+
+let test_blank_flow_scope_is_rejected () =
+  match EO.make_flow_scope ~id:" \n\t " with
+  | Error EO.Blank_flow_scope_id -> ()
+  | Ok _ -> fail "blank flow scope was accepted"
+;;
+
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
   let (before_a, before_b, result_a, result_b), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
@@ -271,6 +620,8 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
       | first :: rest ->
         (match
            EO.snapshot_flow
+             ~preferences:(EO.create_flow_preference_store ())
+             ~scope:(flow_scope "nonsharing")
              ~first
              ~rest
              ~messages:[ msg "freeze all" ]
@@ -324,21 +675,22 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
   | Ok success_a, Ok success_b ->
     List.iter
       (fun success ->
+         let evidence = EO.flow_success_evidence success in
          check
            int
            "only current candidate is admitted"
            1
-           (List.length success.EO.evidence.admissions);
+           (List.length evidence.EO.admissions);
          check
            int
            "only current candidate gets an attempt"
            1
-           (List.length success.evidence.attempts);
+           (List.length evidence.attempts);
          check
            int
            "candidate visit count advances once"
            1
-           (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count))
+           (EO.candidate_visit_count_to_int evidence.candidate_visit_count))
       [ success_a; success_b ];
     check
       bool
@@ -346,20 +698,24 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
       true
       (not
          (String.equal
-            (EO.receipt_call_id success_a.candidate.receipt |> EO.call_id_to_string)
-            (EO.receipt_call_id success_b.candidate.receipt |> EO.call_id_to_string)));
+            (EO.receipt_call_id (EO.flow_success_candidate success_a).receipt
+             |> EO.call_id_to_string)
+            (EO.receipt_call_id (EO.flow_success_candidate success_b).receipt
+             |> EO.call_id_to_string)));
     List.iter
       (fun success ->
+         let candidate = EO.flow_success_candidate success in
+         let evidence = EO.flow_success_evidence success in
          check
            string
            "attempt visit remains bound to its outer flow"
-           (EO.flow_id_to_string success.EO.evidence.flow_id)
-           (EO.flow_id_to_string success.candidate.visit.flow_id);
+           (EO.flow_id_to_string evidence.flow_id)
+           (EO.flow_id_to_string candidate.visit.flow_id);
          check
            int
            "current candidate visit ordinal is one"
            1
-           (EO.flow_visit_ordinal_to_int success.candidate.visit.ordinal))
+           (EO.flow_visit_ordinal_to_int candidate.visit.ordinal))
       [ success_a; success_b ]
   | Ok _, Error _ | Error _, Ok _ | Error _, Error _ ->
     fail "independent current candidates did not both succeed"
@@ -401,27 +757,27 @@ let test_later_missing_credential_does_not_block_current_success () =
       string
       "current candidate succeeds"
       "current-good"
-      (candidate_id success.candidate);
+      (candidate_id (EO.flow_success_candidate success));
     check
       int
       "full candidate snapshot remains frozen"
       2
-      (List.length success.evidence.candidate_snapshot);
+      (List.length (EO.flow_success_evidence success).candidate_snapshot);
     check
       int
       "only current admission is recorded"
       1
-      (List.length success.evidence.admissions);
+      (List.length (EO.flow_success_evidence success).admissions);
     check
       int
       "only current attempt is allocated"
       1
-      (List.length success.evidence.attempts);
+      (List.length (EO.flow_success_evidence success).attempts);
     check
       int
       "only current candidate is visited"
       1
-      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+      (EO.candidate_visit_count_to_int (EO.flow_success_evidence success).candidate_visit_count)
   | Error _ -> fail "later missing credential blocked the current candidate"
 ;;
 
@@ -511,36 +867,36 @@ let test_missing_current_credential_advances_after_durable_settlement () =
       string
       "resolved successor succeeds"
       "next-good"
-      (candidate_id success.candidate);
+      (candidate_id (EO.flow_success_candidate success));
     check
       int
       "both candidate outcomes remain ordered"
       2
-      (List.length success.evidence.admissions);
-    check int "only successor gets an attempt" 1 (List.length success.evidence.attempts);
+      (List.length (EO.flow_success_evidence success).admissions);
+    check int "only successor gets an attempt" 1 (List.length (EO.flow_success_evidence success).attempts);
     (match next_visit with
      | Some next ->
        check
          string
          "settled successor visit becomes the successful attempt visit"
          (EO.flow_id_to_string next.flow_id)
-         (EO.flow_id_to_string success.candidate.visit.flow_id);
+         (EO.flow_id_to_string (EO.flow_success_candidate success).visit.flow_id);
        check
          int
          "settled successor ordinal is retained by the attempt"
          (EO.flow_visit_ordinal_to_int next.ordinal)
-         (EO.flow_visit_ordinal_to_int success.candidate.visit.ordinal);
+         (EO.flow_visit_ordinal_to_int (EO.flow_success_candidate success).visit.ordinal);
        check
          string
          "settled successor identity is retained by the attempt"
          next.identity.candidate_id
-         success.candidate.visit.identity.candidate_id
+         (EO.flow_success_candidate success).visit.identity.candidate_id
      | None -> fail "successful successor had no settled visit");
     check
       int
       "both candidates are visited"
       2
-      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+      (EO.candidate_visit_count_to_int (EO.flow_success_evidence success).candidate_visit_count)
   | Error _ -> fail "durably settled selection rejection did not reach successor"
 ;;
 
@@ -600,7 +956,7 @@ let test_read_failed_current_credential_advances_to_good_successor () =
       string
       "read-failed successor succeeds"
       "read-failed-successor"
-      (candidate_id success.candidate)
+      (candidate_id (EO.flow_success_candidate success))
   | Error _ -> fail "read-failed current candidate blocked its good successor"
 ;;
 
@@ -732,7 +1088,10 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
       ; catalog_entry ~id:"unconstrained-exact" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let ready = frozen_flow snapshot [ "constrained-exact"; "unconstrained-exact" ] in
+    let scope = flow_scope "/runtime/capacity-rejection" in
+    let ready =
+      frozen_flow ~scope snapshot [ "constrained-exact"; "unconstrained-exact" ]
+    in
     let transitions = ref [] in
     let bound = ref [] in
     let result =
@@ -764,6 +1123,11 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
               "settled rejected boundary remains exact"
               (Some 524299)
               rejected_from_tokens;
+            check
+              bool
+              "candidate rejection carries flow scope"
+              true
+              (EO.flow_scope_equal scope (EO.candidate_rejection_scope rejection));
             check
               bool
               "admission receipt is pre-dispatch"
@@ -799,17 +1163,14 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
       string
       "admitted successor succeeds"
       "unconstrained-exact"
-      (candidate_id success.candidate);
-    check
-      int
-      "only reached candidates are admitted"
-      2
-      (List.length success.evidence.admissions);
+      (candidate_id (EO.flow_success_candidate success));
+    let evidence = EO.flow_success_evidence success in
+    check int "only reached candidates are admitted" 2 (List.length evidence.admissions);
     check
       int
       "candidate visit count preserves ordered progress"
       2
-      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+      (EO.candidate_visit_count_to_int evidence.candidate_visit_count)
   | Error _ -> fail "durably settled admission rejection did not reach its successor"
 ;;
 
@@ -872,7 +1233,7 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
       string
       "body-cap successor succeeds"
       "body-successor"
-      (candidate_id success.candidate)
+      (candidate_id (EO.flow_success_candidate success))
   | Error _ -> fail "durably settled body-cap rejection did not reach its successor"
 ;;
 
@@ -1145,8 +1506,12 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     events;
   match result with
   | Ok success ->
-    check string "successor succeeds" "flow-live" (candidate_id success.candidate);
-    let failed = attempt_for success.evidence "flow-dead" in
+    check
+      string
+      "successor succeeds"
+      "flow-live"
+      (candidate_id (EO.flow_success_candidate success));
+    let failed = attempt_for (EO.flow_success_evidence success) "flow-dead" in
     check
       bool
       "failed receipt remains before dispatch"
@@ -1439,12 +1804,16 @@ let test_success_and_later_domain_rejection_are_terminal () =
   check int "success dispatches exactly once" 1 posts;
   match result with
   | Ok success ->
-    check string "first candidate succeeds" "success-a" (candidate_id success.candidate);
+    check
+      string
+      "first candidate succeeds"
+      "success-a"
+      (candidate_id (EO.flow_success_candidate success));
     check
       int
       "successor remains unavailable to later domain rejection"
       1
-      (List.length success.evidence.attempts)
+      (List.length (EO.flow_success_evidence success).attempts)
   | Error _ -> fail "terminal success fixture failed"
 ;;
 
@@ -1567,6 +1936,30 @@ let () =
     "exact-output-flow"
     [ ( "outer-flow"
       , [ test_case
+            "same-scope last-good changes only future snapshots"
+            `Quick
+            test_scope_local_domain_valid_preference_changes_only_future_snapshots
+        ; test_case
+            "concurrent flow scopes isolate attempts and last-good"
+            `Quick
+            test_concurrent_flow_scopes_isolate_attempts_and_future_preferences
+        ; test_case
+            "domain rejection does not update preference"
+            `Quick
+            test_domain_rejection_never_updates_preference_and_settlement_is_affine
+        ; test_case
+            "concurrent domain settlement has one winner"
+            `Quick
+            test_concurrent_domain_settlement_has_one_winner
+        ; test_case
+            "stale domain success cannot overwrite newer last-good"
+            `Quick
+            test_stale_domain_success_cannot_overwrite_newer_last_good
+        ; test_case
+            "blank flow scope is rejected"
+            `Quick
+            test_blank_flow_scope_is_rejected
+        ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick
             test_snapshot_defers_admission_and_allocates_nonshared_current_attempts

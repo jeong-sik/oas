@@ -2,6 +2,7 @@ module Plan = Exact_output_plan
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Gemini_schema = Exact_output_gemini_schema
+module Trace = Exact_output_provider_trace
 module Caps = Capabilities
 module PC = Provider_config
 include Exact_output_resolver
@@ -40,15 +41,7 @@ type attempt_state =
   | Terminal_state of int
 
 type call_id = Call_id of string
-
-type provider_trace =
-  { fingerprint : string
-  ; http_status : int
-  ; response_header_evidence_fingerprint : string
-  ; raw_response_body_sha256 : string
-  ; response_id : string option
-  ; response_model : string option
-  }
+type provider_trace = Trace.t
 
 type receipt =
   { state : attempt_state Atomic.t
@@ -131,7 +124,7 @@ type effect_phase =
   | Response_received
   | Terminal
 
-type raw_response =
+type raw_response = Trace.raw_response =
   { body : string
   ; body_sha256 : string
   }
@@ -178,6 +171,8 @@ type flow_candidate =
 type flow_id = Flow_id of string
 type flow_visit_ordinal = Flow_visit_ordinal of int
 type candidate_visit_count = Candidate_visit_count of int
+type flow_preference_store = (string, string) Flow_state.preference_store
+type flow_scope = Flow_scope of string
 
 type flow_candidate_visit =
   { flow_id : flow_id
@@ -195,7 +190,8 @@ type candidate_rejection_cause =
   | Request_admission_rejected of admission_error
 
 type candidate_rejection_receipt =
-  { visit : flow_candidate_visit
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
   ; cause : candidate_rejection_cause
   }
 
@@ -211,19 +207,24 @@ type candidate_admission =
   | Candidate_rejected of candidate_rejection_receipt
 
 type flow_snapshot =
-  { candidates : flow_candidate list
+  { preferences : flow_preference_store
+  ; scope : flow_scope
+  ; candidates : flow_candidate list
   ; messages : Types.message list
   ; requirement : output_requirement
   }
 
 type flow_attempt_receipt =
-  { visit : flow_candidate_visit
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
   ; receipt : receipt
   }
 
 type flow_attempt =
   { execution : Flow_state.t
   ; flow_id : flow_id
+  ; preferences : flow_preference_store
+  ; scope : flow_scope
   ; candidate_snapshot : flow_candidate_identity list
   ; candidates : flow_candidate_step list
   ; messages : Types.message list
@@ -232,6 +233,7 @@ type flow_attempt =
   }
 
 type flow_candidate_error = Blank_flow_candidate_id
+type flow_scope_error = Blank_flow_scope_id
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -245,6 +247,7 @@ type flow_start_error = Flow_id_generation_failed of string
 
 type flow_evidence =
   { flow_id : flow_id
+  ; scope : flow_scope
   ; candidate_snapshot : flow_candidate_identity list
   ; candidate_visit_count : candidate_visit_count
   ; admissions : candidate_admission list
@@ -255,7 +258,16 @@ type flow_success =
   { candidate : flow_attempt_receipt
   ; success : success
   ; evidence : flow_evidence
+  ; domain_settlement : Flow_state.domain_settlement
+  ; preferences : flow_preference_store
+  ; scope : flow_scope
   }
+
+type domain_disposition =
+  | Domain_valid of { success_time_unix_s : int64 }
+  | Domain_rejected
+
+type domain_settlement_error = Domain_already_settled
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -490,6 +502,14 @@ let make_flow_candidate ~id ~admitted_target =
 ;;
 
 let flow_candidate_identity (candidate : flow_candidate) = candidate.identity
+let create_flow_preference_store () = Flow_state.create_preference_store ()
+
+let make_flow_scope ~id =
+  let id = String.trim id in
+  if String.equal id "" then Error Blank_flow_scope_id else Ok (Flow_scope id)
+;;
+
+let flow_scope_equal (Flow_scope left) (Flow_scope right) = String.equal left right
 
 let duplicate_flow_candidate_id (candidates : flow_candidate list) =
   Flow_state.duplicate_key
@@ -500,11 +520,22 @@ let duplicate_flow_candidate_id (candidates : flow_candidate list) =
     Duplicate_flow_candidate_id { candidate_id; first_position; duplicate_position })
 ;;
 
-let snapshot_flow ~first ~rest ~messages requirement =
+let prefer_last_good preferences (Flow_scope scope) candidates =
+  let preferred = Flow_state.preferred_candidate preferences ~scope |> Option.map fst in
+  Flow_state.promote_candidate
+    ~equal:String.equal
+    ~key:(fun (candidate : flow_candidate) -> candidate.identity.candidate_id)
+    ~preferred
+    candidates
+;;
+
+let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
   let candidates = first :: rest in
   match duplicate_flow_candidate_id candidates with
   | Some duplicate -> Error duplicate
-  | None -> Ok { candidates; messages; requirement }
+  | None ->
+    let candidates = prefer_last_good preferences scope candidates in
+    Ok { preferences; scope; candidates; messages; requirement }
 ;;
 
 let start_attempt (ready : ready_plan) =
@@ -545,12 +576,36 @@ let start_flow (ready : flow_snapshot) =
     Ok
       { execution = Flow_state.create ()
       ; flow_id
+      ; preferences = ready.preferences
+      ; scope = ready.scope
       ; candidate_snapshot = List.map flow_candidate_identity ready.candidates
       ; candidates
       ; messages = ready.messages
       ; requirement = ready.requirement
       ; progress = Flow_state.create_progress ()
       }
+;;
+
+let flow_success_candidate success = success.candidate
+let flow_success_output success = success.success
+let flow_success_evidence success = success.evidence
+
+let settle_flow_domain success disposition =
+  let result =
+    match disposition with
+    | Domain_rejected -> Flow_state.settle_domain_rejected_once success.domain_settlement
+    | Domain_valid { success_time_unix_s } ->
+      let (Flow_scope scope) = success.scope in
+      Flow_state.settle_domain_valid_once
+        success.domain_settlement
+        success.preferences
+        ~scope
+        ~candidate:success.candidate.visit.identity.candidate_id
+        ~time:success_time_unix_s
+  in
+  match result with
+  | Error Flow_state.Already_settled -> Error Domain_already_settled
+  | Ok () -> Ok ()
 ;;
 
 let call_id_to_string (Call_id id) = id
@@ -583,7 +638,7 @@ let receipt_http_status receipt =
 ;;
 
 let receipt_provider_trace receipt = Atomic.get receipt.provider_trace_state
-let provider_trace_fingerprint trace = trace.fingerprint
+let provider_trace_fingerprint = Trace.fingerprint
 let receipt_plan_fingerprint (receipt : receipt) = receipt.plan_fingerprint
 let receipt_request_body_sha256 (receipt : receipt) = receipt.request_body_sha256
 let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
@@ -595,6 +650,7 @@ let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
   receipt.visit.identity
 ;;
 
+let candidate_rejection_scope (receipt : candidate_rejection_receipt) = receipt.scope
 let candidate_rejection_visit (receipt : candidate_rejection_receipt) = receipt.visit
 let candidate_rejection_phase _ = Before_dispatch
 let candidate_rejection_dispatch_count _ = 0
@@ -649,6 +705,7 @@ let candidate_rejection_disposition (receipt : candidate_rejection_receipt) =
 let flow_attempt_evidence (flow : flow_attempt) =
   let progress = Flow_state.progress_snapshot flow.progress in
   { flow_id = flow.flow_id
+  ; scope = flow.scope
   ; candidate_snapshot = flow.candidate_snapshot
   ; candidate_visit_count = Candidate_visit_count progress.candidate_visit_count
   ; admissions = progress.admissions
@@ -699,68 +756,8 @@ let synchronize_receipt receipt complete_receipt =
      | None -> invalid_arg "Exact_output: terminal receipt without HTTP status")
 ;;
 
-let raw_response (evidence : Exec.raw_response_evidence) =
-  { body = evidence.raw_body; body_sha256 = evidence.raw_body_sha256 }
-;;
-
-let provider_trace_of_evidence
-      ?response
-      complete_receipt
-      (evidence : Exec.raw_response_evidence)
-  =
-  let http_status =
-    match Exec.receipt_http_status complete_receipt with
-    | Some status -> status
-    | None -> invalid_arg "Exact_output: response evidence without HTTP status"
-  in
-  let response_id, response_model =
-    match response with
-    | None -> None, None
-    | Some (response : Types.api_response) -> Some response.id, Some response.model
-  in
-  let response_header_evidence_fingerprint =
-    Http_client.response_header_evidence_fingerprint evidence.response_header_evidence
-  in
-  let payload =
-    `Assoc
-      [ "version", `Int 1
-      ; "http_status", `Int http_status
-      ; ( "response_header_evidence_fingerprint"
-        , `String response_header_evidence_fingerprint )
-      ; "raw_response_body_sha256", `String evidence.raw_body_sha256
-      ; ( "response_id"
-        , match response_id with
-          | None -> `Null
-          | Some value -> `String value )
-      ; ( "response_model"
-        , match response_model with
-          | None -> `Null
-          | Some value -> `String value )
-      ]
-  in
-  let fingerprint =
-    payload
-    |> Yojson.Safe.to_string
-    |> Digestif.SHA256.digest_string
-    |> Digestif.SHA256.to_hex
-  in
-  { fingerprint
-  ; http_status
-  ; response_header_evidence_fingerprint
-  ; raw_response_body_sha256 = evidence.raw_body_sha256
-  ; response_id
-  ; response_model
-  }
-;;
-
-let rec record_provider_trace receipt trace =
-  match Atomic.get receipt.provider_trace_state with
-  | Some existing when String.equal existing.fingerprint trace.fingerprint -> ()
-  | Some _ -> invalid_arg "Exact_output: provider trace changed after installation"
-  | None ->
-    if not (Atomic.compare_and_set receipt.provider_trace_state None (Some trace))
-    then record_provider_trace receipt trace
-;;
+let raw_response = Trace.raw_response
+let record_provider_trace receipt = Trace.record_once receipt.provider_trace_state
 
 let execution_error_cause = function
   | Exec.Clock_required_for_timeout -> Clock_required_for_timeout
@@ -802,7 +799,7 @@ let execute_once ~net ?clock (attempt : attempt) =
       Option.iter
         (fun response_evidence ->
            response_evidence
-           |> provider_trace_of_evidence complete_receipt
+           |> Trace.of_evidence complete_receipt
            |> record_provider_trace receipt)
         evidence;
       Error
@@ -814,7 +811,7 @@ let execute_once ~net ?clock (attempt : attempt) =
     | Ok { outcome; raw_response = evidence } ->
       synchronize_receipt receipt outcome.receipt;
       let provider_trace =
-        provider_trace_of_evidence ~response:outcome.response outcome.receipt evidence
+        Trace.of_evidence ~response:outcome.response outcome.receipt evidence
       in
       record_provider_trace receipt provider_trace;
       (match outcome.output with
@@ -860,7 +857,7 @@ let admitted_flow_candidate visit (plan : ready_plan) =
 ;;
 
 let record_candidate_rejection flow visit cause =
-  let rejection = { visit; cause } in
+  let rejection = { scope = flow.scope; visit; cause } in
   Flow_state.record_admission flow.progress (Candidate_rejected rejection);
   rejection
 ;;
@@ -885,13 +882,16 @@ let execute_flow_candidate
        let admitted = admitted_flow_candidate candidate.visit plan in
        Flow_state.record_admission flow.progress (Candidate_admitted admitted);
        (match start_attempt plan with
-        | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
-        | Ok attempt ->
-          let candidate_receipt =
-            { visit = candidate.visit; receipt = attempt_receipt attempt }
-          in
-          record_attempt flow candidate_receipt;
-          (match before_dispatch candidate_receipt with
+         | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
+         | Ok attempt ->
+           let candidate_receipt =
+             { scope = flow.scope
+             ; visit = candidate.visit
+             ; receipt = attempt_receipt attempt
+             }
+           in
+           record_attempt flow candidate_receipt;
+           (match before_dispatch candidate_receipt with
            | Error cause ->
              Error (Flow_step_before_dispatch_callback_failed (candidate_receipt, cause))
            | Ok () ->
@@ -927,7 +927,14 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
   let evidence = flow_attempt_evidence flow in
   match outcome with
   | Flow_state.Succeeded { success = candidate, success; _ } ->
-    Ok { candidate; success; evidence }
+    Ok
+      { candidate
+      ; success
+      ; evidence
+      ; domain_settlement = Flow_state.create_domain_settlement ()
+      ; preferences = flow.preferences
+      ; scope = flow.scope
+      }
   | Flow_state.Attempt_already_started -> Error (Flow_attempt_already_started evidence)
   | Flow_state.Before_advance_callback_failed { failure; next_candidate; cause; _ } ->
     Error
