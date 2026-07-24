@@ -526,6 +526,7 @@ scan_public_error_accessors() {
 
 exact_output_source=""
 exact_output_flow_source=""
+exact_output_flow_contract_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -536,6 +537,10 @@ for source_file in "${source_files[@]}"; do
     exact_output.ml) exact_output_source="$source_file" ;;
     exact_output_flow.ml)
       exact_output_flow_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_flow_contract.ml)
+      exact_output_flow_contract_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;
@@ -935,7 +940,7 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "execution receipt no longer stores the immutable visit" \
-  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*\{[^}]*scope[[:space:]]*:[[:space:]]*flow_scope[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private[[:space:]]*\{[^}]*scope[[:space:]]*:[[:space:]]*flow_scope[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow start stopped failing closed on identity allocation" \
@@ -974,7 +979,7 @@ require_code_sequence \
 require_named_function_pattern \
   "scope-local preference stopped requiring opaque target binding equality" \
   'target_identity_fingerprint' \
-  "$exact_output_source" \
+  "$exact_output_flow_contract_source" \
   "target_binding_equal"
 require_code_sequence \
   "candidate rejection lost its opaque scope projection" \
@@ -1001,12 +1006,14 @@ scan_code \
   'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \
   "$exact_output_source" \
   "$exact_output_interface" \
-  "$exact_output_flow_source"
+  "$exact_output_flow_source" \
+  "$exact_output_flow_contract_source"
 scan_code \
   "outer exact-flow preference acquired an implicit clock or environment policy" \
   'Unix\.gettimeofday|Sys\.getenv|Eio\.Time\.now' \
   "$exact_output_source" \
-  "$exact_output_flow_source"
+  "$exact_output_flow_source" \
+  "$exact_output_flow_contract_source"
 require_code_pattern \
   "candidate rejection is no longer fixed at Before_dispatch" \
   'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \
