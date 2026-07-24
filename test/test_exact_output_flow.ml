@@ -777,7 +777,8 @@ let test_later_missing_credential_does_not_block_current_success () =
       int
       "only current candidate is visited"
       1
-      (EO.candidate_visit_count_to_int (EO.flow_success_evidence success).candidate_visit_count)
+      (EO.candidate_visit_count_to_int
+         (EO.flow_success_evidence success).candidate_visit_count)
   | Error _ -> fail "later missing credential blocked the current candidate"
 ;;
 
@@ -873,7 +874,11 @@ let test_missing_current_credential_advances_after_durable_settlement () =
       "both candidate outcomes remain ordered"
       2
       (List.length (EO.flow_success_evidence success).admissions);
-    check int "only successor gets an attempt" 1 (List.length (EO.flow_success_evidence success).attempts);
+    check
+      int
+      "only successor gets an attempt"
+      1
+      (List.length (EO.flow_success_evidence success).attempts);
     (match next_visit with
      | Some next ->
        check
@@ -896,7 +901,8 @@ let test_missing_current_credential_advances_after_durable_settlement () =
       int
       "both candidates are visited"
       2
-      (EO.candidate_visit_count_to_int (EO.flow_success_evidence success).candidate_visit_count)
+      (EO.candidate_visit_count_to_int
+         (EO.flow_success_evidence success).candidate_visit_count)
   | Error _ -> fail "durably settled selection rejection did not reach successor"
 ;;
 
