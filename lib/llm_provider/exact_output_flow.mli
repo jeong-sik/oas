@@ -10,6 +10,13 @@ type ('scope, 'candidate) preference_store
 type domain_settlement
 type domain_settlement_error = Already_settled
 
+type 'candidate preference_installation =
+  | Preference_installed
+  | Preference_superseded of
+      { current_candidate : 'candidate
+      ; current_time : int64
+      }
+
 type ('admission, 'attempt) progress_snapshot =
   { candidate_visit_count : int
   ; admissions : 'admission list
@@ -58,7 +65,7 @@ val settle_domain_valid_once
   -> scope:'scope
   -> candidate:'candidate
   -> time:int64
-  -> (unit, domain_settlement_error) result
+  -> ('candidate preference_installation, domain_settlement_error) result
 
 val record_admission : ('admission, 'attempt) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit

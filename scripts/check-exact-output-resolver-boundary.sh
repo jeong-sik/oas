@@ -960,19 +960,28 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow attempt receipt lost its opaque scope binding" \
-  'type[[:space:]]+flow_attempt_receipt.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow evidence lost its opaque scope binding" \
-  'type[[:space:]]+flow_evidence.*flow_id[[:space:]]*:.*scope[[:space:]]*:.*flow_scope.*candidate_snapshot' \
+  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*scope[[:space:]]*:.*flow_scope.*declared_candidate_snapshot.*candidate_snapshot.*preference_observation' \
   "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost its closed preference observation" \
+  'type[[:space:]]+flow_preference_observation.*No_preference_recorded.*Preference_applied.*Preference_not_applied' \
+  "$exact_output_interface"
+require_named_function_pattern \
+  "scope-local preference stopped requiring opaque target binding equality" \
+  'target_identity_fingerprint' \
+  "$exact_output_source" \
+  "target_binding_equal"
 require_code_sequence \
   "candidate rejection lost its opaque scope projection" \
   'val[[:space:]]+candidate_rejection_scope[[:space:]]*:' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow lost typed domain settlement" \
-  'type[[:space:]]+domain_disposition.*val[[:space:]]+settle_flow_domain' \
+  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_receipt.*Domain_rejected_recorded.*Domain_valid_preference_installed.*Domain_valid_preference_superseded.*val[[:space:]]+settle_flow_domain' \
   "$exact_output_interface"
 scan_code \
   "outer exact flow exposed forgeable structural success settlement state" \
@@ -984,7 +993,13 @@ require_code_sequence \
   "$exact_output_flow_source"
 require_code_sequence \
   "domain settlement lost its linearized commit-before-publication gate" \
-  'let[[:space:]]+settle_domain_once.*Mutex\.lock.*commit[[:space:]]*\(\).*settled[[:space:]]*<-[[:space:]]*true' \
+  'let[[:space:]]+settle_domain_valid_once.*Mutex\.lock.*record_preference.*settled[[:space:]]*<-[[:space:]]*true' \
+  "$exact_output_flow_source"
+scan_code \
+  "outer exact flow revived a legacy attempt or admission alias" \
+  'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \
+  "$exact_output_source" \
+  "$exact_output_interface" \
   "$exact_output_flow_source"
 scan_code \
   "outer exact-flow preference acquired an implicit clock or environment policy" \

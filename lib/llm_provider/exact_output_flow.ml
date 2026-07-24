@@ -31,6 +31,13 @@ type domain_settlement =
 
 type domain_settlement_error = Already_settled
 
+type 'candidate preference_installation =
+  | Preference_installed
+  | Preference_superseded of
+      { current_candidate : 'candidate
+      ; current_time : int64
+      }
+
 type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
       { candidate : 'candidate
@@ -69,11 +76,14 @@ let preferred_candidate store ~scope =
 let record_preference store ~scope ~candidate ~time =
   with_preference_lock store (fun () ->
     match Hashtbl.find_opt store.entries scope with
-    | Some (_, current_time) when Int64.compare time current_time <= 0 -> ()
-    | None | Some _ -> Hashtbl.replace store.entries scope (candidate, time))
+    | Some (current_candidate, current_time) when Int64.compare time current_time <= 0 ->
+      Preference_superseded { current_candidate; current_time }
+    | None | Some _ ->
+      Hashtbl.replace store.entries scope (candidate, time);
+      Preference_installed)
 ;;
 
-let settle_domain_once settlement ~commit =
+let settle_domain_rejected_once settlement =
   Mutex.lock settlement.mutex;
   Fun.protect
     ~finally:(fun () -> Mutex.unlock settlement.mutex)
@@ -81,18 +91,21 @@ let settle_domain_once settlement ~commit =
        if settlement.settled
        then Error Already_settled
        else (
-         commit ();
          settlement.settled <- true;
          Ok ()))
 ;;
 
-let settle_domain_rejected_once settlement =
-  settle_domain_once settlement ~commit:(fun () -> ())
-;;
-
 let settle_domain_valid_once settlement preferences ~scope ~candidate ~time =
-  settle_domain_once settlement ~commit:(fun () ->
-    record_preference preferences ~scope ~candidate ~time)
+  Mutex.lock settlement.mutex;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock settlement.mutex)
+    (fun () ->
+       if settlement.settled
+       then Error Already_settled
+       else (
+         let installation = record_preference preferences ~scope ~candidate ~time in
+         settlement.settled <- true;
+         Ok installation))
 ;;
 
 let record_admission progress admission =

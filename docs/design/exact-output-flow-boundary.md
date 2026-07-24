@@ -38,8 +38,11 @@ catalog-admitted opaque target handles, and one immutable domain input. Catalog
 membership and credential outcomes are frozen, but credentials remain
 unselected. The caller supplies an explicit preference store and opaque
 nonempty flow scope. OAS performs one exact scope lookup while creating the
-snapshot. If that scope's last domain-valid candidate is present, OAS moves it
-to the front and preserves the relative order of every other candidate.
+snapshot. The store retains the full successful candidate identity. OAS moves
+that candidate to the front only when both its opaque caller slot identity and
+opaque target-identity fingerprint still match. An absent slot or a slot rebound
+to another target is not promoted and remains typed observation evidence.
+The relative order of every other candidate is preserved.
 
 The resulting order is immutable. A later success cannot change an existing
 snapshot, and a preference recorded in one scope cannot affect another scope.
@@ -108,7 +111,8 @@ Neither disposition can trigger another provider dispatch.
 
 An older success time cannot overwrite a newer observation for the same scope.
 OAS uses no string or target-specific tie-break. Equal or older observations
-leave the installed preference unchanged.
+leave the installed preference unchanged and return a typed superseded receipt
+containing the retained candidate identity and success time.
 
 No network or filesystem I/O occurs while the preference mutex is held.
 
@@ -118,7 +122,10 @@ Every flow evidence projection carries:
 
 - the fresh outer-flow identity;
 - the exact opaque flow scope;
+- the caller-declared candidate identity snapshot;
 - the frozen effective candidate identity snapshot;
+- the single frozen preference observation: no record, applied, absent slot, or
+  changed target binding, including the observed success time when present;
 - the monotonic typed candidate-visit count;
 - ordered admission outcomes only for candidates reached so far;
 - every non-shared execution receipt allocated for an admitted current
@@ -134,8 +141,8 @@ journal.
 
 Every admission rejection and allocated outer attempt receipt carries the same
 opaque scope as the flow evidence. The scope, candidate identity, and one-shot
-receipt therefore form one immutable binding; the caller does not reconstruct
-that join from coordinator or target strings.
+receipt therefore form one private immutable record binding; the caller cannot
+construct or splice that join from coordinator or target strings.
 
 After cancellation escapes, the same aggregate evidence remains queryable from
 the opaque flow attempt.
