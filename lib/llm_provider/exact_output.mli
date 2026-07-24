@@ -491,6 +491,10 @@ type flow_candidate_failure =
       ; cause : execution_error
       }
 
+type outward_dispatch_fact =
+  | No_outward_dispatch
+  | Outward_dispatch_started
+
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
   | Flow_success_ordinal_exhausted of flow_evidence
@@ -519,6 +523,14 @@ type 'callback_error flow_execution_error =
       ; cause : execution_error
       ; evidence : flow_evidence
       }
+
+(** Closed fact for the invocation returning the error: whether its one outward
+    completion dispatch began. This does not claim provider acceptance, response
+    receipt, billing, retryability, failover eligibility, or any Pricing
+    decision. *)
+val flow_execution_error_outward_dispatch
+  :  'callback_error flow_execution_error
+  -> outward_dispatch_fact
 
 (** Point-in-time aggregate evidence. [scope] is the exact opaque flow scope,
     [declared_candidate_snapshot] is the caller-declared order, and

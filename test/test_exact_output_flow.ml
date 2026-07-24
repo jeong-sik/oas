@@ -1441,7 +1441,14 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
      check_rejection ~id:"credential-read-failed" ~visit:3 read_failed
    | _ -> fail "credential evidence did not retain three typed rejections");
   match result with
-  | Error (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence }) ->
+  | Error
+      (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence } as error)
+    ->
+    check
+      bool
+      "candidate exhaustion starts no outward dispatch"
+      true
+      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
     check
       string
       "last rejected candidate is terminal"
@@ -2093,14 +2100,31 @@ let test_callback_failures_are_terminal () =
   (match before_dispatch_result with
    | Error
        (EO.Flow_before_dispatch_callback_failed
-          { candidate; cause = "bind-not-durable"; evidence }) ->
+          { candidate; cause = "bind-not-durable"; evidence } as error) ->
+     check
+       bool
+       "before-dispatch callback failure starts no outward dispatch"
+       true
+       (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
      check string "failed bind candidate" "bind-a" (candidate_id candidate);
      check
        bool
        "failed bind leaves receipt not started"
        true
        (EO.receipt_phase candidate.receipt = EO.Not_started);
-     check int "successor remains unprepared" 1 (List.length evidence.attempts)
+     check int "successor remains unprepared" 1 (List.length evidence.attempts);
+     let start_failed =
+       EO.Flow_attempt_start_failed
+         { candidate = candidate.visit
+         ; cause = EO.Call_id_generation_failed "injected"
+         ; evidence
+         }
+     in
+     check
+       bool
+       "attempt-start failure starts no outward dispatch"
+       true
+       (EO.flow_execution_error_outward_dispatch start_failed = EO.No_outward_dispatch)
    | Ok _ | Error _ -> fail "failed bind did not return typed terminal evidence");
   let before_advance_result, before_advance_posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
@@ -2121,7 +2145,12 @@ let test_callback_failures_are_terminal () =
   match before_advance_result with
   | Error
       (EO.Flow_before_advance_callback_failed
-         { failed; next; cause = "release-not-durable"; evidence; _ }) ->
+         { failed; next; cause = "release-not-durable"; evidence; _ } as error) ->
+    check
+      bool
+      "before-advance callback failure starts no outward dispatch"
+      true
+      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
     check string "failed attempt identity" "advance-a" (flow_failure_id failed);
     check string "withheld successor identity" "advance-b" next.identity.candidate_id;
     check int "withheld successor remains unprepared" 1 (List.length evidence.attempts)
@@ -2153,7 +2182,12 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
     check int (label ^ " dispatches exactly once") 1 posts;
     check int (label ^ " does not request advance") 0 advances;
     match result with
-    | Error (EO.Flow_exact_execution_failed { candidate; cause; evidence }) ->
+    | Error (EO.Flow_exact_execution_failed { candidate; cause; evidence } as error) ->
+      check
+        bool
+        (label ^ " records outward dispatch started")
+        true
+        (EO.flow_execution_error_outward_dispatch error = EO.Outward_dispatch_started);
       check string (label ^ " terminal candidate") (label ^ "-a") (candidate_id candidate);
       check
         int
@@ -2187,6 +2221,7 @@ let test_success_and_later_domain_rejection_are_terminal () =
   check int "success dispatches exactly once" 1 posts;
   match result with
   | Ok success ->
+    let evidence = EO.flow_success_evidence success in
     check
       string
       "first candidate succeeds"
@@ -2196,7 +2231,20 @@ let test_success_and_later_domain_rejection_are_terminal () =
       int
       "successor remains unavailable to later domain rejection"
       1
-      (List.length (EO.flow_success_evidence success).attempts)
+      (List.length evidence.attempts);
+    check
+      bool
+      "ordinal exhaustion follows a completed outward dispatch"
+      true
+      (EO.flow_execution_error_outward_dispatch
+         (EO.Flow_success_ordinal_exhausted evidence)
+       = EO.Outward_dispatch_started);
+    check
+      bool
+      "replayed invocation starts no new outward dispatch"
+      true
+      (EO.flow_execution_error_outward_dispatch (EO.Flow_attempt_already_started evidence)
+       = EO.No_outward_dispatch)
   | Error _ -> fail "terminal success fixture failed"
 ;;
 
@@ -2232,8 +2280,13 @@ let test_structural_predispatch_failure_does_not_advance () =
   match result with
   | Error
       (EO.Flow_exact_execution_failed
-         { cause = { cause = EO.Clock_required_for_timeout; receipt; _ }; evidence; _ })
-    ->
+         { cause = { cause = EO.Clock_required_for_timeout; receipt; _ }; evidence; _ } as
+       error) ->
+    check
+      bool
+      "predispatch structural failure starts no outward dispatch"
+      true
+      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
     check
       int
       "structural failure remains zero dispatch"

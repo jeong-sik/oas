@@ -178,6 +178,15 @@ is recorded and before that candidate receives its fresh attempt. Such a
 snapshot is point-in-time evidence, not a fabricated attempt or a terminal
 state.
 
+`flow_execution_error_outward_dispatch` projects one closed fact about the
+invocation returning the error: `No_outward_dispatch` or
+`Outward_dispatch_started`. The fact says only whether that invocation began
+its one outward completion dispatch. It does not claim provider acceptance,
+response receipt, billing, physical execution, retryability, failover
+eligibility, or any Pricing decision. OAS derives it from affine flow control
+and private receipt state; callers do not decode phases, counts, HTTP status, or
+provider policy.
+
 ## Explicit exclusions
 
 - `execute_once` never retries and never changes plans.
