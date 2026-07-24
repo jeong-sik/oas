@@ -275,14 +275,14 @@ let () =
      | None ->
        report_error ("unknown negative-fixture mode: " ^ flag);
        exit 2
-      | Some expected ->
-        (match check_file path with
-        | Error message when String.equal message expected -> ()
-         | Error message ->
-           report_error ("negative fixture failed for the wrong reason: " ^ message);
-           exit 2
-        | Ok () ->
-           report_error "negative fixture unexpectedly passed";
+     | Some expected ->
+       (match check_file path with
+         | Error message when String.equal message expected -> ()
+        | Error message ->
+          report_error ("negative fixture failed for the wrong reason: " ^ message);
+          exit 2
+         | Ok () ->
+          report_error "negative fixture unexpectedly passed";
           exit 2))
   | _ ->
     prerr_endline "usage: check_exact_output_publication_lock [--expect-*] SOURCE.ml";
