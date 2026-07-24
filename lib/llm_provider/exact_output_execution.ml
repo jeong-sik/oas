@@ -95,10 +95,7 @@ let receipt_identity = function
 let receipt_fingerprint receipt = (receipt_identity receipt).fingerprint
 let receipt_request_body_sha256 receipt = (receipt_identity receipt).request_body_sha256
 
-let raw_response_evidence
-      (raw : Http_client.raw_sync_response)
-      response_header_evidence
-  =
+let raw_response_evidence (raw : Http_client.raw_sync_response) response_header_evidence =
   { raw_body = raw.body
   ; raw_body_sha256 = Digestif.SHA256.(to_hex (digest_string raw.body))
   ; response_header_evidence
@@ -166,9 +163,9 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
                  { code = raw.status
                  ; body = raw.body
                  ; retry_after_header = raw.retry_after_header
-                }))
-      | Ok (raw, response_header_evidence) ->
-        let raw_response = raw_response_evidence raw response_header_evidence in
+                 }))
+       | Ok (raw, response_header_evidence) ->
+         let raw_response = raw_response_evidence raw response_header_evidence in
          (match
             Complete_sync.parse_sync_response
               ~http_codec:(Exact_output_plan.response_codec plan)

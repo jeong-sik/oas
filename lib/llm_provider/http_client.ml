@@ -1166,10 +1166,10 @@ let capture_response_header_evidence headers =
     match
       List.filter
         (fun (name, _) ->
-           String.equal (String.lowercase_ascii (String.trim name)) "retry-after")
-        raw_headers
-    with
-    | [ _, value ] ->
+            String.equal (String.lowercase_ascii (String.trim name)) "retry-after")
+         raw_headers
+     with
+    | [ (_, value) ] ->
       Http.Header.of_list [ "retry-after", value ]
       |> retry_after_header_of_response_headers
     | [] | _ :: _ :: _ -> None
@@ -1178,9 +1178,7 @@ let capture_response_header_evidence headers =
     raw_headers
     |> normalize_response_headers
     |> List.map (fun (name, value) ->
-      if response_header_name_is_sensitive name
-      then name, "[REDACTED]"
-      else name, value)
+      if response_header_name_is_sensitive name then name, "[REDACTED]" else name, value)
   in
   let fingerprint =
     `Assoc
@@ -1208,19 +1206,14 @@ let header_evidence_fingerprint_for_test headers =
 
 let%test "response header evidence is canonical, multiplicity-sensitive, and redacted" =
   let first =
-    header_evidence_fingerprint_for_test
-      [ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ]
+    header_evidence_fingerprint_for_test [ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ]
   in
   let reordered =
-    header_evidence_fingerprint_for_test
-      [ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
+    header_evidence_fingerprint_for_test [ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
   in
-  let one =
-    header_evidence_fingerprint_for_test [ "x-trace", "same" ]
-  in
+  let one = header_evidence_fingerprint_for_test [ "x-trace", "same" ] in
   let duplicate =
-    header_evidence_fingerprint_for_test
-      [ "x-trace", "same"; "X-Trace", "same" ]
+    header_evidence_fingerprint_for_test [ "x-trace", "same"; "X-Trace", "same" ]
   in
   let secret_one =
     header_evidence_fingerprint_for_test [ "set-cookie", "session=secret-one" ]
@@ -1229,7 +1222,7 @@ let%test "response header evidence is canonical, multiplicity-sensitive, and red
     header_evidence_fingerprint_for_test [ "Set-Cookie", "session=secret-two" ]
   in
   String.equal first reordered
-  && not (String.equal one duplicate)
+  && (not (String.equal one duplicate))
   && String.equal secret_one secret_two
 ;;
 
@@ -1241,16 +1234,11 @@ type raw_sync_response =
 
 let%test "Retry-After is captured once with explicit duplicate ambiguity" =
   let capture headers =
-    headers
-    |> Http.Header.of_list
-    |> capture_response_header_evidence
-    |> snd
+    headers |> Http.Header.of_list |> capture_response_header_evidence |> snd
   in
   let retry_after_header = capture [ "Retry-After", "7" ] in
   let response = { status = 429; body = "rate limited"; retry_after_header } in
-  let duplicate =
-    capture [ "Retry-After", "7"; "retry-after", "8" ]
-  in
+  let duplicate = capture [ "Retry-After", "7"; "retry-after", "8" ] in
   response.retry_after_header = Some 7.0
   && response.retry_after_header = retry_after_header
   && duplicate = None
@@ -1921,11 +1909,10 @@ let post_sync_once_with_evidence
                 in
                 let response_status =
                   Cohttp.Response.status response |> Cohttp.Code.code_of_status
-                in
-                let response_header_evidence, retry_after_header =
-                  Cohttp.Response.headers response
-                  |> capture_response_header_evidence
-                in
+                 in
+                 let response_header_evidence, retry_after_header =
+                  Cohttp.Response.headers response |> capture_response_header_evidence
+                 in
                 phase := Response_received;
                 status := Some response_status;
                 Http_client_phase_observer.observe

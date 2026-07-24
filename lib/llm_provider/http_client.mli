@@ -434,7 +434,7 @@ val post_sync_once_with_evidence
   -> headers:(string * string) list
   -> body:string
   -> unit
-  -> ((raw_sync_response * response_header_evidence), post_sync_once_error) result
+  -> (raw_sync_response * response_header_evidence, post_sync_once_error) result
 
 (** POST JSON body for SSE/NDJSON streaming.
     Returns [Ok reader] on HTTP 200 (10 MB buffer).

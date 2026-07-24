@@ -588,16 +588,14 @@ let test_no_measure_one_post_and_wire_authority () =
       bool
       (id ^ " server-side fallback header absent")
       false
-      (List.exists
-         (fun (name, value) ->
-            String.equal (String.lowercase_ascii name) "anthropic-beta"
-            && (value
-                |> String.split_on_char ','
-                |> List.exists (fun beta ->
-                  String.equal
-                    (String.trim beta)
-                    "server-side-fallback-2026-06-01")))
-         capture.headers);
+       (List.exists
+          (fun (name, value) ->
+             String.equal (String.lowercase_ascii name) "anthropic-beta"
+            && value
+               |> String.split_on_char ','
+               |> List.exists (fun beta ->
+                 String.equal (String.trim beta) "server-side-fallback-2026-06-01"))
+          capture.headers);
     inspect provenance body;
     match result with
     | Ok (success : EO.success) ->
@@ -671,20 +669,18 @@ let test_no_measure_one_post_and_wire_authority () =
     ~path:"/api/chat"
     ~response:(ollama_response content)
     (fun _provenance body ->
-       check
-         bool
-         "Ollama receives raw schema"
-       true
-       Yojson.Safe.Util.(
-         body |> member "format" |> member "type" |> to_string = "object"));
+        check
+          bool
+          "Ollama receives raw schema"
+         true
+         Yojson.Safe.Util.(
+           body |> member "format" |> member "type" |> to_string = "object"));
   run
     ~id:"anthropic-surface"
-    ~kind:Provider_config.Anthropic
-    ~path:"/v1/messages"
-    ~response:
-      (anthropic_response
-         {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
-    (fun _provenance _body -> ())
+     ~kind:Provider_config.Anthropic
+     ~path:"/v1/messages"
+    ~response:(anthropic_response {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
+     (fun _provenance _body -> ())
 ;;
 
 let test_provider_trace_fingerprint_anchors_normalized_headers_and_body () =
@@ -717,20 +713,14 @@ let test_provider_trace_fingerprint_anchors_normalized_headers_and_body () =
   in
   let response = openai_response {|{"name":"accepted"}|} in
   let first =
-    run
-      ~response_headers:[ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ]
-      response
+    run ~response_headers:[ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ] response
   in
   let reordered =
-    run
-      ~response_headers:[ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
-      response
+    run ~response_headers:[ "x-trace-a", "alpha"; "x-trace-b", "beta" ] response
   in
   check string "header normalization is deterministic" first reordered;
   let changed_header =
-    run
-      ~response_headers:[ "x-trace-a", "changed"; "x-trace-b", "beta" ]
-      response
+    run ~response_headers:[ "x-trace-a", "changed"; "x-trace-b", "beta" ] response
   in
   check
     bool
