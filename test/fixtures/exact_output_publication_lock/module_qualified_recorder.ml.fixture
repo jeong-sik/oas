@@ -1,0 +1,29 @@
+let record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal =
+  ignore preferences;
+  ignore scope;
+  ignore reservation;
+  ignore candidate;
+  ignore ordinal;
+  Ok ()
+;;
+
+let with_preference_lock preferences callback =
+  ignore preferences;
+  callback ()
+;;
+
+let settle_domain_valid_once_with_publication_hook
+      preferences
+      ~scope
+      ~reservation
+      ~candidate
+      ~ordinal
+  =
+  with_preference_lock preferences (fun () ->
+    Fake.record_preference_locked
+      preferences
+      ~scope
+      ~reservation
+      ~candidate
+      ~ordinal)
+;;

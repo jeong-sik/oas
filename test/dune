@@ -463,6 +463,10 @@
   ../lib/llm_provider/capabilities.mli
   ../lib/llm_provider/model_catalog.mli
   ../lib/llm_provider/dune
+  fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
+  fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
+  fixtures/exact_output_publication_lock/locally_shadowed_lock.ml.fixture
+  fixtures/exact_output_publication_lock/module_qualified_recorder.ml.fixture
   fixtures/exact_output_publication_lock/unlocked_after_callback.ml.fixture)
  (action
   (progn
@@ -488,8 +492,24 @@
     %{dep:../lib/llm_provider/exact_output_flow.ml})
    (run
     %{exe:check_exact_output_publication_lock.exe}
-    --expect-outside-callback
-    %{dep:fixtures/exact_output_publication_lock/unlocked_after_callback.ml.fixture}))))
+   --expect-outside-callback
+    %{dep:fixtures/exact_output_publication_lock/unlocked_after_callback.ml.fixture})
+   (run
+    %{exe:check_exact_output_publication_lock.exe}
+    --expect-shadowed-lock-binding
+    %{dep:fixtures/exact_output_publication_lock/locally_shadowed_lock.ml.fixture})
+   (run
+    %{exe:check_exact_output_publication_lock.exe}
+    --expect-noncanonical-recorder
+    %{dep:fixtures/exact_output_publication_lock/module_qualified_recorder.ml.fixture})
+   (run
+    %{exe:check_exact_output_publication_lock.exe}
+    --expect-noncanonical-recorder
+    %{dep:fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture})
+   (run
+    %{exe:check_exact_output_publication_lock.exe}
+    --expect-shadowed-store
+    %{dep:fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture}))))
 
 (test
  (name test_complete_http)
