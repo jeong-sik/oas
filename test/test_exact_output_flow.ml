@@ -745,10 +745,12 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
           match failed with
           | EO.Flow_candidate_rejected rejection ->
             let identity = EO.candidate_rejection_identity rejection in
-            let constraint_ =
+            let accepted_through_tokens, rejected_from_tokens =
               match EO.candidate_rejection_disposition rejection with
-              | EO.Input_capacity (EO.Token_measurement_required observation) ->
-                observation
+              | EO.Input_capacity
+                  (EO.Token_measurement_required
+                     { accepted_through_tokens; rejected_from_tokens }) ->
+                accepted_through_tokens, rejected_from_tokens
               | _ -> fail "capacity rejection lost its neutral disposition"
             in
             check
@@ -756,11 +758,12 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
               "settled rejected identity"
               "constrained-exact"
               identity.candidate_id;
+            check int "settled constraint remains exact" 524298 accepted_through_tokens;
             check
-              int
-              "settled constraint remains exact"
-              524298
-              constraint_.accepted_through_tokens;
+              (option int)
+              "settled rejected boundary remains exact"
+              (Some 524299)
+              rejected_from_tokens;
             check
               bool
               "admission receipt is pre-dispatch"

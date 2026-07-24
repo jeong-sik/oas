@@ -865,7 +865,13 @@ let record_candidate_rejection flow visit cause =
   rejection
 ;;
 
-let execute_flow_candidate ~net ?clock ~before_dispatch flow candidate =
+let execute_flow_candidate
+      ~net
+      ?clock
+      ~before_dispatch
+      flow
+      (candidate : flow_candidate_step)
+  =
   let reject cause =
     let rejection = record_candidate_rejection flow candidate.visit cause in
     Error (Flow_step_candidate_rejected rejection)
