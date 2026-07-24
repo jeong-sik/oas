@@ -284,6 +284,25 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.223.0](https://github.com/jeong-sik/oas/compare/v0.222.2...v0.223.0) (2026-07-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **exact-output:** Replace admit_flow/ready_flow with snapshot_flow/flow_snapshot and change start_flow/before_advance contracts.
+
+### Features
+
+* **exact-output:** expose outward dispatch fact ([#2804](https://github.com/jeong-sik/oas/issues/2804)) ([4dab217](https://github.com/jeong-sik/oas/commit/4dab21717f8ba0f30e63095c9a3914adf51e6e51))
+* **exact-output:** settle current-candidate admission ([72cb98d](https://github.com/jeong-sik/oas/commit/72cb98dc08d13ae3e8bc734ed940a9d21fd1cc76))
+* **exact-output:** settle scoped domain success ([#2799](https://github.com/jeong-sik/oas/issues/2799)) ([7a0fa77](https://github.com/jeong-sik/oas/commit/7a0fa77eaaa60e4979e9f160a22cb122ff7a71b2))
+
+
+### Bug Fixes
+
+* **exact-output:** remove nested settlement lock ([#2803](https://github.com/jeong-sik/oas/issues/2803)) ([cbedc1e](https://github.com/jeong-sik/oas/commit/cbedc1e04e3c5c482d3026600b2fbd388ed64e8b))
+* **llm-provider:** adopt Eio 1.4 network errors ([#2802](https://github.com/jeong-sik/oas/issues/2802)) ([4942c15](https://github.com/jeong-sik/oas/commit/4942c1556ded36529a080985e788df1e009b2102))
+
 ## [0.222.2](https://github.com/jeong-sik/oas/compare/v0.222.1...v0.222.2) (2026-07-24)
 
 
