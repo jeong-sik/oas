@@ -124,6 +124,7 @@ type task = Llm_provider.Capabilities.task =
    is checked against the source record by the compiler. *)
 type capabilities = Llm_provider.Capabilities.capabilities =
   { max_context_tokens : int option
+  ; serving_constraint : Llm_provider.Serving_constraint.t option
   ; max_output_tokens : int option
   ; supports_tools : bool
   ; supports_tool_choice : bool

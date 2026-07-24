@@ -206,6 +206,8 @@ let of_retry_api_error ?provider err =
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
   | Retry.ContextOverflow r ->
     InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
+  | Retry.InputCapacity r ->
+    InvalidRequest { provider; reason = Retry.error_message (Retry.InputCapacity r) }
   | Retry.NetworkError r ->
     NetworkError { provider; kind = r.kind; timeout_phase = None; detail = r.message }
   (* Preserve the transport phase carried by Retry.Timeout so a retried

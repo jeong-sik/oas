@@ -8,6 +8,10 @@ type invalid_request_reason =
       }
   | Unknown_invalid_request
 
+type input_capacity_reason =
+  | Serving_constraint_rejected of Serving_constraint.admission_error
+  | Token_measurement_unavailable of Input_token_count.protocol
+
 type api_error =
   | RateLimited of
       { retry_after : float option
@@ -29,6 +33,11 @@ type api_error =
   | ContextOverflow of
       { message : string
       ; limit : int option
+      }
+  | InputCapacity of
+      { message : string
+      ; constraint_ : Serving_constraint.t
+      ; reason : input_capacity_reason
       }
   | NetworkError of
       { message : string
@@ -76,6 +85,15 @@ let error_message = function
       | None -> ""
     in
     Printf.sprintf "Context overflow%s: %s" limit_str r.message
+  | InputCapacity r ->
+    let reason =
+      match r.reason with
+      | Serving_constraint_rejected reason ->
+        Serving_constraint.show_admission_error reason
+      | Token_measurement_unavailable protocol ->
+        "token_measurement_unavailable(" ^ Input_token_count.show_protocol protocol ^ ")"
+    in
+    Printf.sprintf "Input capacity (%s): %s" reason r.message
   | NetworkError { message; kind = Unknown } -> Printf.sprintf "Network error: %s" message
   | NetworkError { message; kind } ->
     Printf.sprintf "Network error (%s): %s" (network_error_kind_label kind) message
@@ -101,7 +119,8 @@ let is_retryable = function
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     true
   | InvalidRequest _ -> false
-  | AuthError _ | AuthorizationError _ | ContextOverflow _ | NotFound _ -> false
+  | AuthError _ | AuthorizationError _ | ContextOverflow _ | InputCapacity _ | NotFound _
+    -> false
   | PaymentRequired _ -> false
 ;;
 
@@ -357,6 +376,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
   | PaymentRequired _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -369,6 +389,7 @@ let%test "HTTP 400 prose does not synthesize ContextOverflow" =
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
   | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ }
   | ContextOverflow _
+  | InputCapacity _
   | RateLimited _
   | Overloaded _
   | ServerError _
@@ -393,6 +414,7 @@ let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   | PaymentRequired _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -503,6 +525,7 @@ let%test "classify_error 429 preserves structured retry_after regardless of pros
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -522,6 +545,7 @@ let%test "classify_error 429 transient preserves retry_after" =
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -547,6 +571,7 @@ let%test "classify_error 429: body retry_after wins over header" =
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -565,6 +590,7 @@ let%test "classify_error 429: header-only (flat provider body) works" =
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -583,6 +609,7 @@ let%test "classify_error 429: neither body nor header yields None, message prese
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -601,6 +628,7 @@ let%test "classify_error 402 maps to PaymentRequired" =
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;
@@ -619,6 +647,7 @@ let%test "classify_error 402 is not retryable" =
   | InvalidRequest _
   | NotFound _
   | ContextOverflow _
+  | InputCapacity _
   | NetworkError _
   | Timeout _ -> false
 ;;

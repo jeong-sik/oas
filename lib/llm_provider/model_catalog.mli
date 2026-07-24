@@ -11,6 +11,9 @@ type model_entry =
         not a capability preset; [base_label] remains the capability base. *)
   ; provider_name : string option
   ; max_context_tokens : int option
+  ; serving_constraint : Serving_constraint.t option
+    (** Evidence-backed input-token admission interval for this exact catalog
+        row. It remains distinct from the declared model context window. *)
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option

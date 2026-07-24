@@ -1,6 +1,7 @@
 open Alcotest
 module Capabilities = Llm_provider.Capabilities
 module Model_catalog = Llm_provider.Model_catalog
+module Serving_constraint = Llm_provider.Serving_constraint
 
 let first_id_prefix ~suite catalog =
   match Model_catalog.model_entries catalog with
@@ -62,6 +63,107 @@ let test_global_loads_default_catalog_for_capabilities () =
         model_id)
 ;;
 
+let constraint_catalog ?expires_at ?rejected_from () =
+  Printf.sprintf
+    "[[models]]\n\
+     id_prefix = \"evidence-model\"\n\
+     provider_name = \"evidence-runtime\"\n\
+     max_context_tokens = 1048576\n\
+     serving_constraint_source_kind = \"probe\"\n\
+     serving_constraint_source = \"probe://incident/2793\"\n\
+     serving_constraint_checked_at_unix_s = 100\n\
+     serving_constraint_confidence = \"high\"\n\
+     %sserving_constraint_accepted_through_tokens = 524298\n\
+     %s"
+    (Option.fold
+       ~none:""
+       ~some:(Printf.sprintf "serving_constraint_expires_at_unix_s = %d\n")
+       expires_at)
+    (Option.fold
+       ~none:""
+       ~some:(Printf.sprintf "serving_constraint_rejected_from_tokens = %d\n")
+       rejected_from)
+;;
+
+let parsed_constraint toml =
+  match Model_catalog.of_toml_string ~source:"serving constraint fixture" toml with
+  | Error message -> fail message
+  | Ok catalog ->
+    (match Model_catalog.model_entries catalog with
+     | [ { Model_catalog.serving_constraint = Some constraint_; _ } ] -> constraint_
+     | _ -> fail "expected exactly one model with one serving constraint")
+;;
+
+let test_serving_constraint_projects_exact_interval () =
+  let constraint_ =
+    parsed_constraint (constraint_catalog ~expires_at:200 ~rejected_from:524299 ())
+  in
+  check
+    bool
+    "accepted observation is admitted"
+    true
+    (Serving_constraint.admit ~now_unix_s:150 ~input_tokens:524298 constraint_ = Ok ());
+  match Serving_constraint.admit ~now_unix_s:150 ~input_tokens:524299 constraint_ with
+  | Error
+      (Serving_constraint.Input_rejected
+         { input_tokens = 524299; accepted_through = 524298; rejected_from = 524299 }) ->
+    ()
+  | Ok () | Error _ -> fail "rejected observation did not remain exact"
+;;
+
+let test_serving_constraint_stale_evidence_fails_closed () =
+  let constraint_ =
+    parsed_constraint (constraint_catalog ~expires_at:200 ~rejected_from:524299 ())
+  in
+  match Serving_constraint.check_evidence ~now_unix_s:200 constraint_ with
+  | Error
+      (Serving_constraint.Evidence_expired { now_unix_s = 200; expires_at_unix_s = 200 })
+    -> ()
+  | Ok () | Error _ -> fail "expired serving evidence was accepted"
+;;
+
+let test_catalog_only_runtime_projects_serving_constraint () =
+  let catalog =
+    Model_catalog.of_toml_string
+      ~source:"catalog-only serving constraint fixture"
+      (constraint_catalog ~expires_at:200 ~rejected_from:524299 ())
+    |> Result.get_ok
+  in
+  with_clean_model_catalog_override (fun () ->
+    Model_catalog.set_global catalog;
+    match
+      Capabilities.for_provider_model_id
+        ~allow_bare_fallback:false
+        ~provider_label:"evidence-runtime"
+        ~model_id:"evidence-model"
+    with
+    | Some { Capabilities.serving_constraint = Some constraint_; _ } ->
+      check
+        int
+        "resolved runtime preserves observed acceptance"
+        524298
+        constraint_.Serving_constraint.observation.accepted_through
+    | Some _ | None -> fail "catalog-only normal runtime lost its serving constraint")
+;;
+
+let test_serving_constraint_partial_group_fails_closed () =
+  match
+    Model_catalog.of_toml_string
+      ~source:"partial serving constraint fixture"
+      "[[models]]\n\
+       id_prefix = \"partial-evidence\"\n\
+       serving_constraint_source_kind = \"probe\"\n\
+       serving_constraint_accepted_through_tokens = 524298\n"
+  with
+  | Error message ->
+    check
+      bool
+      "diagnostic identifies the grouped declaration"
+      true
+      (String.starts_with ~prefix:"model entry \"partial-evidence\"" message)
+  | Ok _ -> fail "partial serving-constraint declaration must fail closed"
+;;
+
 let () =
   run
     "model catalog default"
@@ -75,6 +177,22 @@ let () =
             "global uses embedded default"
             `Quick
             test_global_loads_default_catalog_for_capabilities
+        ; test_case
+            "serving constraint preserves exact interval"
+            `Quick
+            test_serving_constraint_projects_exact_interval
+        ; test_case
+            "stale serving evidence fails closed"
+            `Quick
+            test_serving_constraint_stale_evidence_fails_closed
+        ; test_case
+            "catalog-only runtime projects serving evidence"
+            `Quick
+            test_catalog_only_runtime_projects_serving_constraint
+        ; test_case
+            "partial serving evidence fails closed"
+            `Quick
+            test_serving_constraint_partial_group_fails_closed
         ] )
     ]
 ;;

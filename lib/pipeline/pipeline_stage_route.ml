@@ -26,19 +26,35 @@ let invalid_request message =
        { message; reason = Llm_provider.Retry.Unknown_invalid_request })
 ;;
 
-let measurement_error ~binding = function
+let measurement_error ~binding ~constraint_ = function
   | Llm_provider.Count_tokens_sync.Input_count_failed
       (Llm_provider.Input_token_count.Transport http_error) ->
     Provider_failure_attribution.of_http_error ~binding http_error
   | Llm_provider.Count_tokens_sync.Input_count_failed
       (Llm_provider.Input_token_count.Unsupported { protocol; model_id }) ->
-    Provider_failure_attribution.of_request_validation_error
-      ~binding
-      (invalid_request
-         (Printf.sprintf
-            "provider-native input measurement %s is unsupported for model %s"
-            (Llm_provider.Input_token_count.show_protocol protocol)
-            model_id))
+    (match constraint_ with
+     | Some constraint_ ->
+       Provider_failure_attribution.of_request_validation_error
+         ~binding
+         (Error.Api
+            (Llm_provider.Retry.InputCapacity
+               { message =
+                   Printf.sprintf
+                     "provider-native input measurement %s is unavailable for \
+                      constrained model %s"
+                     (Llm_provider.Input_token_count.show_protocol protocol)
+                     model_id
+               ; constraint_
+               ; reason = Llm_provider.Retry.Token_measurement_unavailable protocol
+               }))
+     | None ->
+       Provider_failure_attribution.of_request_validation_error
+         ~binding
+         (invalid_request
+            (Printf.sprintf
+               "provider-native input measurement %s is unsupported for model %s"
+               (Llm_provider.Input_token_count.show_protocol protocol)
+               model_id)))
   | Llm_provider.Count_tokens_sync.Input_count_failed
       (Llm_provider.Input_token_count.Invalid_response { protocol; model_id; detail }) ->
     Provider_failure_attribution.of_response_parse_error
@@ -105,6 +121,37 @@ let fit_error ~binding = function
                   max_context_tokens
             ; limit = Some max_context_tokens
             }))
+  | Llm_provider.Complete.Serving_constraint_rejected { constraint_; reason } ->
+    Provider_failure_attribution.of_request_validation_error
+      ~binding
+      (Error.Api
+         (Llm_provider.Retry.InputCapacity
+            { message = "prepared request rejected by resolved serving constraint"
+            ; constraint_
+            ; reason = Llm_provider.Retry.Serving_constraint_rejected reason
+            }))
+;;
+
+let preflight_serving_constraint ~binding prepared =
+  match Llm_provider.Complete.serving_constraint prepared with
+  | None -> Ok ()
+  | Some constraint_ ->
+    (match
+       Llm_provider.Serving_constraint.check_evidence
+         ~now_unix_s:(int_of_float (Unix.gettimeofday ()))
+         constraint_
+     with
+     | Ok () -> Ok ()
+     | Error reason ->
+       Error
+         (Provider_failure_attribution.of_request_validation_error
+            ~binding
+            (Error.Api
+               (Llm_provider.Retry.InputCapacity
+                  { message = "resolved serving-constraint evidence is not current"
+                  ; constraint_
+                  ; reason = Llm_provider.Retry.Serving_constraint_rejected reason
+                  }))))
 ;;
 
 let enforce_context_fit agent (provider_config : Llm_provider.Provider_config.t) =
@@ -112,6 +159,12 @@ let enforce_context_fit agent (provider_config : Llm_provider.Provider_config.t)
   | Disabled -> false
   | Enforce_when_supported ->
     Llm_provider.Count_tokens_sync.supports_completion_request_measurement provider_config
+    ||
+      (match
+         Llm_provider.Provider_config.capabilities_for_config_model provider_config
+       with
+      | Some { Llm_provider.Capabilities.serving_constraint = Some _; _ } -> true
+      | Some _ | None -> false)
 ;;
 
 let finish_call ?on_provider_failure = function
@@ -186,33 +239,41 @@ let dispatch_sync
           ~trace_context
           ()
       in
-      (* Resolve the context limit first: it needs no network, so a pre-knowable
-         limit failure surfaces without wasting a [measure_request] round-trip. *)
-      match Llm_provider.Complete.resolve_context_limit prepared with
-      | Error error -> Error (fit_error ~binding error)
-      | Ok max_context_tokens ->
-        (match
-           Llm_provider.Complete.measure_request
-             ~sw
-             ~net:agent.net
-             ?clock
-             ?timeout_s:agent.options.body_timeout_s
-             prepared
-         with
-         | Error error -> Error (measurement_error ~binding error)
-         | Ok measured ->
-           (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
-            | Error error -> Error (fit_error ~binding error)
-            | Ok admitted ->
-              Llm_provider.Complete.complete_admitted
+      (* Reject stale or future-dated evidence, then resolve the context limit.
+         Both are network-free and therefore precede token measurement. *)
+      match preflight_serving_constraint ~binding prepared with
+      | Error error -> Error error
+      | Ok () ->
+        (match Llm_provider.Complete.resolve_context_limit prepared with
+         | Error error -> Error (fit_error ~binding error)
+         | Ok max_context_tokens ->
+           (match
+              Llm_provider.Complete.measure_request
                 ~sw
                 ~net:agent.net
                 ?clock
-                ?transport:agent.options.transport
-                admitted
-                ?body_timeout_s:agent.options.body_timeout_s
-                ()
-              |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)))
+                ?timeout_s:agent.options.body_timeout_s
+                prepared
+            with
+            | Error error ->
+              Error
+                (measurement_error
+                   ~binding
+                   ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                   error)
+            | Ok measured ->
+              (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+               | Error error -> Error (fit_error ~binding error)
+               | Ok admitted ->
+                 Llm_provider.Complete.complete_admitted
+                   ~sw
+                   ~net:agent.net
+                   ?clock
+                   ?transport:agent.options.transport
+                   admitted
+                   ?body_timeout_s:agent.options.body_timeout_s
+                   ()
+                 |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())
@@ -278,34 +339,42 @@ let dispatch_stream
           ?body_timeout_s:agent.options.body_timeout_s
           ()
       in
-      (* Resolve the context limit first: it needs no network, so a pre-knowable
-         limit failure surfaces without wasting a [measure_request] round-trip. *)
-      match Llm_provider.Complete.resolve_context_limit prepared with
-      | Error error -> Error (fit_error ~binding error)
-      | Ok max_context_tokens ->
-        (match
-           Llm_provider.Complete.measure_request
-             ~sw
-             ~net:agent.net
-             ?clock
-             ?timeout_s:agent.options.body_timeout_s
-             prepared
-         with
-         | Error error -> Error (measurement_error ~binding error)
-         | Ok measured ->
-           (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
-            | Error error -> Error (fit_error ~binding error)
-            | Ok admitted ->
-              Llm_provider.Complete.complete_stream_admitted
+      (* Reject stale or future-dated evidence, then resolve the context limit.
+         Both are network-free and therefore precede token measurement. *)
+      match preflight_serving_constraint ~binding prepared with
+      | Error error -> Error error
+      | Ok () ->
+        (match Llm_provider.Complete.resolve_context_limit prepared with
+         | Error error -> Error (fit_error ~binding error)
+         | Ok max_context_tokens ->
+           (match
+              Llm_provider.Complete.measure_request
                 ~sw
                 ~net:agent.net
                 ?clock
-                ?transport:agent.options.transport
-                admitted
-                ~on_event
-                ?on_telemetry
-                ()
-              |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)))
+                ?timeout_s:agent.options.body_timeout_s
+                prepared
+            with
+            | Error error ->
+              Error
+                (measurement_error
+                   ~binding
+                   ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                   error)
+            | Ok measured ->
+              (match Llm_provider.Complete.admit_request ~max_context_tokens measured with
+               | Error error -> Error (fit_error ~binding error)
+               | Ok admitted ->
+                 Llm_provider.Complete.complete_stream_admitted
+                   ~sw
+                   ~net:agent.net
+                   ?clock
+                   ?transport:agent.options.transport
+                   admitted
+                   ~on_event
+                   ?on_telemetry
+                   ()
+                 |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())

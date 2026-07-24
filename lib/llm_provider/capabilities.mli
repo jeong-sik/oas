@@ -92,6 +92,9 @@ type anthropic_thinking_control =
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
+  ; serving_constraint : Serving_constraint.t option
+    (** Evidence-backed input-token serving interval for the exact resolved
+        runtime row. This is not inferred from [max_context_tokens]. *)
   ; max_output_tokens : int option
   ; (* Tool use *)
     supports_tools : bool

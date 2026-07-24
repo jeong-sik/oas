@@ -30,11 +30,17 @@ type fit_error = Prepared_completion_request.fit_error =
       }
   | Output_reservation_unknown of { model_id : string }
   | Context_window_exceeded of context_fit
+  | Serving_constraint_rejected of
+      { constraint_ : Serving_constraint.t
+      ; reason : Serving_constraint.admission_error
+      }
 
 let prepare_request = Prepared_completion_request.prepare
 let measure_request = Prepared_completion_request.measure
 let request_measurement = Prepared_completion_request.measurement
 let resolve_context_limit = Prepared_completion_request.resolve_context_limit
+let requires_token_measurement = Prepared_completion_request.requires_token_measurement
+let serving_constraint = Prepared_completion_request.serving_constraint
 let admit_request = Prepared_completion_request.admit
 let admitted_fit = Prepared_completion_request.admitted_fit
 

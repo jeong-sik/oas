@@ -51,6 +51,7 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   : Provider.capabilities
   =
   { max_context_tokens = caps.max_context_tokens
+  ; serving_constraint = caps.serving_constraint
   ; max_output_tokens = caps.max_output_tokens
   ; supports_tools = caps.supports_tools
   ; supports_tool_choice = caps.supports_tool_choice

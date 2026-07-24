@@ -33,6 +33,10 @@ type provider_error =
   | `Invalid_request of string
   | `Not_found of string
   | `Context_overflow of string * int option
+  | `Input_capacity of
+      Llm_provider.Retry.input_capacity_reason
+      * Llm_provider.Serving_constraint.t
+      * string
   | `Payment_required of string
     (** HTTP 402 — hard billing/quota exhaustion, distinct from
         [`Invalid_request]. Always non-retryable. *)

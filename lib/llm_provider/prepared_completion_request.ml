@@ -19,6 +19,10 @@ type fit_error =
       }
   | Output_reservation_unknown of { model_id : string }
   | Context_window_exceeded of context_fit
+  | Serving_constraint_rejected of
+      { constraint_ : Serving_constraint.t
+      ; reason : Serving_constraint.admission_error
+      }
 
 type admitted =
   { measured : measured
@@ -94,7 +98,15 @@ let resolve_context_limit prepared =
   | Some max_context_tokens -> Ok max_context_tokens
 ;;
 
-let admit ~max_context_tokens measured =
+let serving_constraint prepared =
+  Option.bind
+    (Provider_config.capabilities_for_config_model prepared.request.config)
+    (fun capabilities -> capabilities.Capabilities.serving_constraint)
+;;
+
+let requires_token_measurement prepared = Option.is_some (serving_constraint prepared)
+
+let admit ?now_unix_s ~max_context_tokens measured =
   let request = measured.prepared.request in
   let input_tokens = measured.measurement.input_count.input_tokens in
   let reserved_output_tokens =
@@ -112,7 +124,16 @@ let admit ~max_context_tokens measured =
       reserved_output_tokens > max_context_tokens
       || input_tokens > max_context_tokens - reserved_output_tokens
     then Error (Context_window_exceeded fit)
-    else Ok { measured; fit }
+    else (
+      match serving_constraint measured.prepared with
+      | None -> Ok { measured; fit }
+      | Some constraint_ ->
+        let now_unix_s =
+          Option.value now_unix_s ~default:(int_of_float (Unix.gettimeofday ()))
+        in
+        (match Serving_constraint.admit ~now_unix_s ~input_tokens constraint_ with
+         | Ok () -> Ok { measured; fit }
+         | Error reason -> Error (Serving_constraint_rejected { constraint_; reason })))
 ;;
 
 let admitted_request admitted = admitted.measured.prepared

@@ -28,10 +28,19 @@ type catalog_fixture =
   ; native : bool
   ; json : bool
   ; body_timeout_s : float option
+  ; serving_constraint : bool
   }
 
-let catalog_entry ?body_timeout_s ~id ~base_url ~native ~json () =
-  { id; base_url; native; json; body_timeout_s }
+let catalog_entry
+      ?body_timeout_s
+      ?(serving_constraint = false)
+      ~id
+      ~base_url
+      ~native
+      ~json
+      ()
+  =
+  { id; base_url; native; json; body_timeout_s; serving_constraint }
 ;;
 
 let catalog_fixture_toml entry =
@@ -47,7 +56,7 @@ let catalog_fixture_toml entry =
      provider_name = %S\n\
      max_context_tokens = 8192\n\
      max_output_tokens = 1024\n\
-     supports_response_format_json = %b\n\
+     %ssupports_response_format_json = %b\n\
      supports_structured_output = %b\n\n\
      [[targets]]\n\
      id = %S\n\
@@ -58,6 +67,15 @@ let catalog_fixture_toml entry =
     entry.base_url
     (entry.id ^ "-model")
     entry.id
+    (if entry.serving_constraint
+     then
+       "serving_constraint_source_kind = \"probe\"\n\
+        serving_constraint_source = \"probe://incident/2793\"\n\
+        serving_constraint_checked_at_unix_s = 0\n\
+        serving_constraint_confidence = \"high\"\n\
+        serving_constraint_accepted_through_tokens = 524298\n\
+        serving_constraint_rejected_from_tokens = 524299\n"
+     else "")
     entry.json
     entry.native
     entry.id
@@ -265,6 +283,46 @@ let test_admission_freezes_all_candidates_before_network () =
                (EO.receipt_call_id right.receipt |> EO.call_id_to_string))))
     evidence_a.attempts
     evidence_b.attempts
+;;
+
+let test_unmeasured_constraint_rejects_exact_candidate_before_network () =
+  let admissions, posts =
+    with_server ~response:(openai_response {|{"name":"unused"}|})
+    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~id:"constrained-exact"
+          ~base_url
+          ~native:true
+          ~json:true
+          ~serving_constraint:true
+          ()
+      ; catalog_entry ~id:"unconstrained-exact" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let ready = ready_flow snapshot [ "constrained-exact"; "unconstrained-exact" ] in
+    EO.ready_flow_admissions ready
+  in
+  check int "exact admission makes no POST" 0 posts;
+  match admissions with
+  | [ EO.Candidate_rejected
+        { identity
+        ; cause = EO.Wire_admission_rejected (EO.Token_measurement_required constraint_)
+        }
+    ; EO.Candidate_admitted admitted
+    ] ->
+    check string "constrained identity" "constrained-exact" identity.candidate_id;
+    check
+      int
+      "constraint remains exact"
+      524298
+      constraint_.Serving_constraint.observation.accepted_through;
+    check
+      string
+      "unconstrained successor remains available"
+      "unconstrained-exact"
+      admitted.identity.candidate_id
+  | _ -> fail "unmeasured exact candidate did not fail closed before its successor"
 ;;
 
 let test_predispatch_transport_failure_advances_after_durable_callback () =
@@ -782,6 +840,10 @@ let () =
             "all admissions freeze before network"
             `Quick
             test_admission_freezes_all_candidates_before_network
+        ; test_case
+            "unmeasured constraint rejects before network"
+            `Quick
+            test_unmeasured_constraint_rejects_exact_candidate_before_network
         ; test_case
             "predispatch transport failure advances durably"
             `Quick

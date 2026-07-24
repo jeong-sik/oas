@@ -118,6 +118,7 @@ let anthropic_thinking_control_of_vocab_value = function
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
+  ; serving_constraint : Serving_constraint.t option
   ; max_output_tokens : int option (** Model's max output. None = unknown. *)
   ; (* ── Tool use ──────────────────────────────────────── *)
     supports_tools : bool
@@ -229,6 +230,7 @@ type capabilities =
 
 let default_capabilities =
   { max_context_tokens = None
+  ; serving_constraint = None
   ; max_output_tokens = None
   ; supports_tools = false
   ; supports_tool_choice = false
@@ -843,6 +845,7 @@ let reasoning_efforts_of_catalog_strings ~field values =
 type declarative_capability_overrides =
   { base_label : string option
   ; max_context_tokens : int option
+  ; serving_constraint : Serving_constraint.t option
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
@@ -885,6 +888,7 @@ type declarative_capability_overrides =
 let overrides_of_manifest_entry (entry : Capability_manifest.entry) =
   { base_label = Option.map Capability_manifest.base_label_to_string entry.base_label
   ; max_context_tokens = entry.max_context_tokens
+  ; serving_constraint = None
   ; max_output_tokens = entry.max_output_tokens
   ; supports_tools = entry.supports_tools
   ; supports_tool_choice = entry.supports_tool_choice
@@ -960,6 +964,10 @@ let apply_declarative_capability_overrides overrides =
   { base with
     max_context_tokens =
       override_int_opt base.max_context_tokens overrides.max_context_tokens
+  ; serving_constraint =
+      (match overrides.serving_constraint with
+       | Some _ as constraint_ -> constraint_
+       | None -> base.serving_constraint)
   ; max_output_tokens =
       override_int_opt base.max_output_tokens overrides.max_output_tokens
   ; supports_tools = override_bool base.supports_tools overrides.supports_tools
@@ -1162,6 +1170,7 @@ let%test "reasoning_replay_override_of_catalog_string parses vocabulary" =
 let overrides_of_catalog_entry (entry : Model_catalog.model_entry) =
   { base_label = entry.base_label
   ; max_context_tokens = entry.max_context_tokens
+  ; serving_constraint = entry.serving_constraint
   ; max_output_tokens = entry.max_output_tokens
   ; supports_tools = entry.supports_tools
   ; supports_tool_choice = entry.supports_tool_choice
@@ -1416,6 +1425,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; base_label = None
   ; provider_name = None
   ; max_context_tokens = None
+  ; serving_constraint = None
   ; max_output_tokens = None
   ; supports_tools = None
   ; supports_tool_choice = None
