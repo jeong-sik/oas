@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eEuo pipefail
+
+trap 'status=$?; printf "exact-output resolver boundary ratchet aborted at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit "$status"' ERR
 
 required_basenames=(
   exact_output.ml
@@ -1043,3 +1045,5 @@ scan_code \
   "parallel public exact-output flow module escaped the single facade" \
   '^[[:space:]]*module[[:space:]]+(Flow|Exact_output_flow)' \
   "$exact_output_interface"
+
+echo "exact-output resolver boundary: OK"
