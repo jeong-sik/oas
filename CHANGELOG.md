@@ -278,6 +278,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.222.1](https://github.com/jeong-sik/oas/compare/v0.222.0...v0.222.1) (2026-07-24)
+
+
+### Features
+
+* **exact-output:** anchor opaque provider trace ([#2789](https://github.com/jeong-sik/oas/issues/2789)) ([0a07ae2](https://github.com/jeong-sik/oas/commit/0a07ae2d14c1832a83ecda4c2525ee7e703f0877))
+
 ## [0.222.0](https://github.com/jeong-sik/oas/compare/v0.221.1...v0.222.0) (2026-07-23)
 
 
