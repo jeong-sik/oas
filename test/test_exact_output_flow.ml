@@ -625,7 +625,8 @@ let test_concurrent_domain_settlement_has_one_winner () =
    | `Installed, `Already_settled | `Already_settled, `Installed -> ()
    | _ ->
      fail
-       "concurrent settlement did not return exactly one installed receipt and one already-settled error");
+       "concurrent settlement did not return exactly one installed receipt and one \
+        already-settled error");
   check
     (list string)
     "winning settlement updates future snapshot once"
