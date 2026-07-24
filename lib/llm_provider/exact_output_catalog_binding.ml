@@ -439,8 +439,9 @@ let%test "exact functional capability projection has a stable golden" =
   functional_capability_projection
     fixture
     ~anthropic_thinking_control:(Some Caps.Anthropic_adaptive_preferred)
-  = [ "oas-exact-output-functional-capabilities-v1"
+  = [ "oas-exact-output-functional-capabilities-v2"
     ; "max_context=some:8"
+    ; "serving_constraint=none"
     ; "max_output=some:3"
     ; "json_mode=1"
     ; "native_schema=0"
