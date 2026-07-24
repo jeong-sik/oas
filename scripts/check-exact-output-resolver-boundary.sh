@@ -1040,8 +1040,17 @@ require_code_sequence \
   'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
   "$exact_output_flow_source"
 require_code_sequence \
-  "domain settlement lost its linearized commit-before-publication gate" \
-  'let[[:space:]]+settle_domain_valid_once.*Mutex\.lock.*record_preference.*settled[[:space:]]*<-[[:space:]]*true' \
+  "domain settlement lost its affine atomic gate" \
+  'type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*bool[[:space:]]+Atomic[.]t.*let[[:space:]]+claim_domain_settlement.*Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+false[[:space:]]+true' \
+  "$exact_output_flow_source"
+require_named_function_pattern \
+  "domain-valid settlement stopped consuming its affine gate before recording preference" \
+  'claim_domain_settlement[[:space:]]+settlement.*record_preference' \
+  "$exact_output_flow_source" \
+  "settle_domain_valid_once"
+scan_code \
+  "domain settlement regained a per-success blocking mutex" \
+  'settlement[.]mutex|type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
   "$exact_output_flow_source"
 scan_code \
   "outer exact flow revived a legacy attempt or admission alias" \

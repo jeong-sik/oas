@@ -843,24 +843,50 @@ let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
   let scope_a = flow_scope "/runtime/capacity-a" in
   let scope_b = flow_scope "/runtime/capacity-b" in
   let candidates = [ flow_candidate snapshot "capacity-candidate" ] in
-  (match snapshot_candidates ~preferences ~scope:scope_a candidates with
-   | Ok _ -> ()
-   | Error _ -> fail "first scope did not reserve the only capacity slot");
-  (match snapshot_candidates ~preferences ~scope:scope_b candidates with
-   | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> ()
-   | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
-     failf "capacity exhaustion reported the wrong bound: %d" capacity
-   | Error (EO.Duplicate_flow_candidate_id _) ->
-     fail "capacity exhaustion was reported as a duplicate candidate"
-   | Ok _ -> fail "second scope exceeded the hard preference capacity");
-  (match EO.remove_flow_preference_scope preferences scope_a with
+  let ready = Atomic.make 0 in
+  let start = Atomic.make false in
+  let reserve scope () =
+    ignore (Atomic.fetch_and_add ready 1);
+    while not (Atomic.get start) do
+      Domain.cpu_relax ()
+    done;
+    snapshot_candidates ~preferences ~scope candidates
+  in
+  let left_domain = Domain.spawn (reserve scope_a) in
+  let right_domain = Domain.spawn (reserve scope_b) in
+  while Atomic.get ready <> 2 do
+    Domain.cpu_relax ()
+  done;
+  Atomic.set start true;
+  let left = Domain.join left_domain in
+  let right = Domain.join right_domain in
+  let classify = function
+    | Ok _ -> `Reserved
+    | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> `Exhausted
+    | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
+      failf "capacity exhaustion reported the wrong bound: %d" capacity
+    | Error (EO.Duplicate_flow_candidate_id _) ->
+      fail "capacity exhaustion was reported as a duplicate candidate"
+  in
+  let reserved_scope, exhausted_scope =
+    match classify left, classify right with
+    | `Reserved, `Exhausted -> scope_a, scope_b
+    | `Exhausted, `Reserved -> scope_b, scope_a
+    | `Reserved, `Reserved -> fail "concurrent scopes exceeded hard capacity"
+    | `Exhausted, `Exhausted -> fail "concurrent reservation admitted no scope"
+  in
+  (match EO.remove_flow_preference_scope preferences exhausted_scope with
+   | EO.Flow_preference_scope_not_reserved -> ()
+   | EO.Flow_preference_scope_removed ->
+     fail "capacity-exhausted scope was nevertheless reserved");
+  (match EO.remove_flow_preference_scope preferences reserved_scope with
    | EO.Flow_preference_scope_removed -> ()
    | EO.Flow_preference_scope_not_reserved ->
      fail "reserved preference scope was not removable");
-  (match EO.remove_flow_preference_scope preferences scope_a with
+  (match EO.remove_flow_preference_scope preferences reserved_scope with
    | EO.Flow_preference_scope_not_reserved -> ()
    | EO.Flow_preference_scope_removed -> fail "preference scope was removed twice");
-  match snapshot_candidates ~preferences ~scope:scope_b candidates with
+  match snapshot_candidates ~preferences ~scope:exhausted_scope candidates with
   | Ok _ -> ()
   | Error _ -> fail "released capacity was not reusable by a new scope"
 ;;
