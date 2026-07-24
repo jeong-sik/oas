@@ -785,14 +785,14 @@ let test_response_received_error_evidence_matrix () =
       check
         (option int)
         (label ^ " response status")
-    (Some 200)
-    (EO.receipt_http_status receipt);
-  check
-    bool
-    (label ^ " typed error receipt trace")
-    true
-    (Option.is_some (EO.receipt_provider_trace receipt))
-| Ok _ | Error _ -> fail (label ^ " lost response-received evidence")
+        (Some 200)
+        (EO.receipt_http_status receipt);
+      check
+        bool
+        (label ^ " typed error receipt trace")
+        true
+        (Option.is_some (EO.receipt_provider_trace receipt))
+    | Ok _ | Error _ -> fail (label ^ " lost response-received evidence")
   in
   let completion_failed = function
     | EO.Completion_failed -> true
