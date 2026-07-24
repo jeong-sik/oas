@@ -10,6 +10,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+* **exact-output flow settlement:** require an explicit hard capacity when
+  creating a scope-local preference store, add explicit scope removal and typed
+  capacity/released-scope failures, and replace caller-provided success
+  timestamps with an OAS-owned monotonic ordinal frozen at structural success.
+  Domain settlement receipts are now private evidence values, so callers can
+  inspect but cannot construct them.
 * **tool lifecycle:** replace independently writable tool-call id, turn, and
   schedule copies across hooks, events, results, failures, and execution
   callbacks with one run-scoped `Tool.Invocation.t`. The invocation now owns

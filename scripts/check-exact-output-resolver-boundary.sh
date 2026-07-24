@@ -6,6 +6,7 @@ trap 'status=$?; printf "exact-output resolver boundary ratchet aborted at line 
 required_basenames=(
   exact_output.ml
   exact_output_flow.ml
+  exact_output_flow_contract.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_plan.ml
@@ -179,7 +180,8 @@ scan_cli_common_env_usage() {
 extract_named_functions() {
   local source_file="$1"
   local names="$2"
-  awk -v names="$names" '
+  strip_ocaml_noncode < "$source_file" \
+    | awk -v names="$names" '
     BEGIN {
       count = split(names, requested, /[[:space:]]+/)
       for (i = 1; i <= count; i++) {
@@ -212,7 +214,7 @@ extract_named_functions() {
       }
       if (missing) exit 3
     }
-  ' "$source_file"
+  '
 }
 
 scan_named_functions() {
@@ -244,7 +246,8 @@ scan_named_functions() {
 exclude_named_functions() {
   local source_file="$1"
   local names="$2"
-  awk -v names="$names" '
+  strip_ocaml_noncode < "$source_file" \
+    | awk -v names="$names" '
     BEGIN {
       count = split(names, requested, /[[:space:]]+/)
       for (i = 1; i <= count; i++) {
@@ -277,7 +280,7 @@ exclude_named_functions() {
       }
       if (missing) exit 3
     }
-  ' "$source_file"
+  '
 }
 
 scan_outside_named_functions() {
@@ -333,14 +336,15 @@ require_named_function_pattern() {
   local pattern="$2"
   local source_file="$3"
   local name="$4"
-  local extracted
+  local extracted compact
   extracted="$(mktemp)"
   if ! extract_named_functions "$source_file" "$name" > "$extracted"; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
   fi
-  if ! strip_ocaml_noncode < "$extracted" | grep -E -- "$pattern" >/dev/null; then
+  compact="$(awk '{ printf "%s ", $0 } END { print "" }' "$extracted")"
+  if ! grep -E -- "$pattern" <<< "$compact" >/dev/null; then
     rm -f "$extracted"
     echo "exact-output boundary violation: $description" >&2
     return 1
@@ -525,6 +529,7 @@ scan_public_error_accessors() {
 
 exact_output_source=""
 exact_output_flow_source=""
+exact_output_flow_contract_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -535,6 +540,10 @@ for source_file in "${source_files[@]}"; do
     exact_output.ml) exact_output_source="$source_file" ;;
     exact_output_flow.ml)
       exact_output_flow_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_flow_contract.ml)
+      exact_output_flow_contract_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;
@@ -775,6 +784,7 @@ for private_module in \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
+  exact_output_provider_trace \
   exact_output_resolver \
   exact_output_catalog_binding
 do
@@ -933,7 +943,7 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "execution receipt no longer stores the immutable visit" \
-  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*\{[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private[[:space:]]*\{[^}]*scope[[:space:]]*:[[:space:]]*flow_scope[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow start stopped failing closed on identity allocation" \
@@ -953,6 +963,108 @@ require_opaque_type \
   "outer exact flow lost typed candidate-rejection receipts" \
   "$exact_output_interface" \
   candidate_rejection_receipt
+require_code_sequence \
+  "outer exact flow lost explicit scope-local preference ownership" \
+  'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow preference store lost its mandatory hard capacity" \
+  'val[[:space:]]+create_flow_preference_store[[:space:]]*:[[:space:]]*capacity:int[[:space:]]*->[[:space:]]*\(flow_preference_store,[[:space:]]*flow_preference_store_error\)[[:space:]]*result' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow snapshot lost typed capacity exhaustion" \
+  'type[[:space:]]+flow_snapshot_error.*Flow_preference_capacity_exhausted[[:space:]]+of[[:space:]]*\{[[:space:]]*capacity[[:space:]]*:[[:space:]]*int' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow preference lost explicit scope removal" \
+  'val[[:space:]]+remove_flow_preference_scope[[:space:]]*:[[:space:]]*flow_preference_store[[:space:]]*->[[:space:]]*flow_scope[[:space:]]*->[[:space:]]*flow_preference_scope_removal' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow attempt receipt lost its opaque scope binding" \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact-flow evidence lost its opaque scope binding" \
+  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*scope[[:space:]]*:.*flow_scope.*declared_candidate_snapshot.*candidate_snapshot.*preference_observation' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost its closed preference observation" \
+  'type[[:space:]]+flow_preference_observation.*No_preference_recorded.*Preference_applied.*Preference_not_applied' \
+  "$exact_output_interface"
+require_named_function_pattern \
+  "scope-local preference stopped requiring opaque target binding equality" \
+  'target_identity_fingerprint' \
+  "$exact_output_flow_contract_source" \
+  "target_binding_equal"
+require_code_sequence \
+  "candidate rejection lost its opaque scope projection" \
+  'val[[:space:]]+candidate_rejection_scope[[:space:]]*:' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost typed domain settlement" \
+  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*Domain_rejected_recorded.*Domain_valid_preference_installed.*Domain_valid_preference_superseded.*val[[:space:]]+settle_flow_domain' \
+  "$exact_output_interface"
+require_code_sequence \
+  "private exact-flow contract exposed forgeable domain settlement receipts" \
+  'type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private' \
+  "$module_dir/exact_output_flow_contract.mli"
+scan_code \
+  "domain-valid settlement regained caller-forgeable freshness" \
+  'Domain_valid[[:space:]]+of|success_time_unix_s|current_success_time_unix_s' \
+  "$exact_output_source" \
+  "$exact_output_interface" \
+  "$exact_output_flow_source" \
+  "$module_dir/exact_output_flow.mli" \
+  "$exact_output_flow_contract_source" \
+  "$module_dir/exact_output_flow_contract.mli"
+require_code_sequence \
+  "outer exact-flow structural success lost its opaque OAS-owned ordinal" \
+  'type[[:space:]]+flow_success_ordinal.*val[[:space:]]+flow_success_ordinal[[:space:]]*:[[:space:]]*flow_success[[:space:]]*->[[:space:]]*flow_success_ordinal' \
+  "$exact_output_interface"
+require_named_function_pattern \
+  "outer exact-flow structural success stopped allocating its OAS-owned ordinal" \
+  'allocate_flow_success_ordinal[[:space:]]+flow[.]preferences' \
+  "$exact_output_source" \
+  "execute_flow_once"
+scan_code \
+  "outer exact flow exposed forgeable structural success settlement state" \
+  'type[[:space:]]+flow_success[[:space:]]*=' \
+  "$exact_output_interface"
+require_code_sequence \
+  "scope-local preference can be overwritten by an older success ordinal" \
+  'compare_success_ordinal[[:space:]]+ordinal[[:space:]]+current_ordinal[[:space:]]*<=[[:space:]]*0' \
+  "$exact_output_flow_source"
+require_code_sequence \
+  "scope-local preference lost snapshot reservation generation validation" \
+  'entry[.]reservation[[:space:]]*!=[[:space:]]*reservation' \
+  "$exact_output_flow_source"
+require_code_sequence \
+  "scope-local preference stopped failing closed on ordinal exhaustion" \
+  'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
+  "$exact_output_flow_source"
+require_named_function_pattern \
+  "domain settlement lost its synchronized commit-before-publication gate" \
+  'Mutex[.]lock[[:space:]]+settlement[.]mutex.*Fun[.]protect.*Mutex[.]unlock[[:space:]]+settlement[.]mutex.*record_preference.*settled[[:space:]]*<-[[:space:]]*true' \
+  "$exact_output_flow_source" \
+  "settle_domain_valid_once"
+require_named_function_pattern \
+  "preference capacity check and reservation add are no longer atomic" \
+  'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \
+  "$exact_output_flow_source" \
+  "reserve_preference_scope"
+scan_code \
+  "outer exact flow revived a legacy attempt or admission alias" \
+  'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \
+  "$exact_output_source" \
+  "$exact_output_interface" \
+  "$exact_output_flow_source" \
+  "$exact_output_flow_contract_source"
+scan_code \
+  "outer exact-flow preference acquired an implicit clock or environment policy" \
+  'Unix\.gettimeofday|Sys\.getenv|Eio\.Time\.now' \
+  "$exact_output_source" \
+  "$exact_output_flow_source" \
+  "$exact_output_flow_contract_source"
 require_code_pattern \
   "candidate rejection is no longer fixed at Before_dispatch" \
   'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \

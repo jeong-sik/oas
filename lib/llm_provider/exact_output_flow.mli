@@ -6,6 +6,29 @@
 
 type t
 type ('admission, 'attempt) progress
+type ('scope, 'candidate) preference_store
+type preference_reservation
+type success_ordinal
+type domain_settlement
+type preference_store_error = Invalid_preference_capacity of int
+type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
+
+type preference_scope_removal =
+  | Preference_scope_removed
+  | Preference_scope_not_reserved
+
+type success_ordinal_error = Success_ordinal_exhausted
+
+type domain_settlement_error =
+  | Already_settled
+  | Preference_scope_released
+
+type 'candidate preference_installation =
+  | Preference_installed
+  | Preference_superseded of
+      { current_candidate : 'candidate
+      ; current_ordinal : success_ordinal
+      }
 
 type ('admission, 'attempt) progress_snapshot =
   { candidate_visit_count : int
@@ -37,6 +60,47 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt) progress
 
+val create_preference_store
+  :  capacity:int
+  -> (('scope, 'candidate) preference_store, preference_store_error) result
+
+val create_domain_settlement : unit -> domain_settlement
+
+val reserve_preference_scope
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> ( preference_reservation * ('candidate * success_ordinal) option
+       , preference_reservation_error )
+       result
+
+val remove_preference_scope
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> preference_scope_removal
+
+val allocate_success_ordinal
+  :  ('scope, 'candidate) preference_store
+  -> (success_ordinal, success_ordinal_error) result
+
+val success_ordinal_to_int64 : success_ordinal -> int64
+
+val settle_domain_rejected_once
+  :  domain_settlement
+  -> (unit, domain_settlement_error) result
+
+(** The per-success settlement gate remains held through preference
+    publication. A losing duplicate therefore returns only after the winning
+    domain-valid record is visible. Lock acquisition is strictly settlement
+    gate then preference store; no operation acquires them in reverse order. *)
+val settle_domain_valid_once
+  :  domain_settlement
+  -> ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> reservation:preference_reservation
+  -> candidate:'candidate
+  -> ordinal:success_ordinal
+  -> ('candidate preference_installation, domain_settlement_error) result
+
 val record_admission : ('admission, 'attempt) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit
 
@@ -49,6 +113,13 @@ val duplicate_key
   -> key:('candidate -> 'key)
   -> 'candidate list
   -> ('key * int * int) option
+
+val promote_candidate
+  :  equal:('key -> 'key -> bool)
+  -> key:('candidate -> 'key)
+  -> preferred:'key option
+  -> 'candidate list
+  -> 'candidate list
 
 (** Execute an immutable, nonempty candidate snapshot once.
 
