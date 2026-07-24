@@ -5,6 +5,13 @@
     types that wrap the private exact plan and execution modules. *)
 
 type t
+type ('admission, 'attempt) progress
+
+type ('admission, 'attempt) progress_snapshot =
+  { candidate_attempt_count : int
+  ; admissions : 'admission list
+  ; attempts : 'attempt list
+  }
 
 type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
   | Succeeded of
@@ -12,10 +19,6 @@ type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
       ; success : 'success
       }
   | Attempt_already_started
-  | Before_dispatch_callback_failed of
-      { candidate : 'candidate
-      ; cause : 'callback_error
-      }
   | Before_advance_callback_failed of
       { failed_candidate : 'candidate
       ; failure : 'execution_error
@@ -28,14 +31,32 @@ type ('candidate, 'success, 'execution_error, 'callback_error) outcome =
       }
 
 val create : unit -> t
+val create_progress : unit -> ('admission, 'attempt) progress
+
+val record_admission
+  :  ('admission, 'attempt) progress
+  -> (candidate_attempt_count:int -> 'admission * 'result)
+  -> 'result
+
+val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit
+
+val progress_snapshot
+  :  ('admission, 'attempt) progress
+  -> ('admission, 'attempt) progress_snapshot
+
+val duplicate_key
+  :  equal:('key -> 'key -> bool)
+  -> key:('candidate -> 'key)
+  -> 'candidate list
+  -> ('key * int * int) option
 
 (** Execute an immutable, nonempty candidate snapshot once.
 
-    [before_dispatch] must confirm the caller's durable binding before
-    [execute] is entered. [before_advance] receives the already-selected
-    successor and can only confirm or reject its durable transition; it cannot
-    replace or reorder that successor. [can_advance] is supplied exclusively by
-    the private facade adapter.
+    [execute] owns preparation, durable pre-dispatch binding, and one-shot
+    execution for the current candidate. [before_advance] receives the
+    already-selected successor and can only confirm or reject its durable
+    transition; it cannot replace or reorder that successor. [can_advance] is
+    supplied exclusively by the private facade adapter.
 
     The outer attempt is affine. A duplicate or concurrent invocation returns
     [Attempt_already_started]. Any exception, including Eio cancellation,
@@ -43,7 +64,6 @@ val create : unit -> t
 val execute_once
   :  t
   -> candidates:'candidate list
-  -> before_dispatch:('candidate -> (unit, 'callback_error) result)
   -> execute:('candidate -> ('success, 'execution_error) result)
   -> can_advance:('execution_error -> bool)
   -> before_advance:

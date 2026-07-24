@@ -626,6 +626,35 @@ require_code_sequence \
   "canonical facade lost outer exact-flow execution" \
   'val[[:space:]]+execute_flow_once[[:space:]]*:' \
   "$exact_output_interface"
+require_code_sequence \
+  "canonical facade lost immutable flow snapshot construction" \
+  'val[[:space:]]+snapshot_flow[[:space:]]*:' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost typed candidate-attempt progress" \
+  'type[[:space:]]+candidate_attempt_count' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost typed admission-rejection receipts" \
+  'type[[:space:]]+admission_rejection_receipt' \
+  "$exact_output_interface"
+require_code_pattern \
+  "admission rejection is no longer fixed at Before_dispatch" \
+  'let[[:space:]]+admission_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \
+  "$exact_output_source"
+require_code_pattern \
+  "admission rejection is no longer fixed at zero dispatch" \
+  'let[[:space:]]+admission_rejection_dispatch_count[[:space:]]+_[[:space:]]*=[[:space:]]*0' \
+  "$exact_output_source"
+require_code_pattern \
+  "outer exact flow no longer prepares only the executing candidate" \
+  'let[[:space:]]+execute_flow_candidate[[:space:]]' \
+  "$exact_output_source"
+scan_code \
+  "speculative ready-flow admission projection returned" \
+  'type[[:space:]]+ready_flow|val[[:space:]]+(ready_flow_admissions|admit_flow)|let[[:space:]]+(ready_flow_admissions|admit_flow)' \
+  "$exact_output_interface" \
+  "$exact_output_source"
 scan_code \
   "parallel public exact-output flow module escaped the single facade" \
   '^[[:space:]]*module[[:space:]]+(Flow|Exact_output_flow)' \
