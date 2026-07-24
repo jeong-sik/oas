@@ -26,6 +26,12 @@ let invalid_request message =
        { message; reason = Llm_provider.Retry.Unknown_invalid_request })
 ;;
 
+let input_capacity_error ~binding ~message ~constraint_ ~reason =
+  Provider_failure_attribution.of_request_validation_error
+    ~binding
+    (Error.Api (Llm_provider.Retry.InputCapacity { message; constraint_; reason }))
+;;
+
 let measurement_error ~binding ~constraint_ = function
   | Llm_provider.Count_tokens_sync.Input_count_failed
       (Llm_provider.Input_token_count.Transport http_error) ->
@@ -34,19 +40,16 @@ let measurement_error ~binding ~constraint_ = function
       (Llm_provider.Input_token_count.Unsupported { protocol; model_id }) ->
     (match constraint_ with
      | Some constraint_ ->
-       Provider_failure_attribution.of_request_validation_error
+       input_capacity_error
          ~binding
-         (Error.Api
-            (Llm_provider.Retry.InputCapacity
-               { message =
-                   Printf.sprintf
-                     "provider-native input measurement %s is unavailable for \
-                      constrained model %s"
-                     (Llm_provider.Input_token_count.show_protocol protocol)
-                     model_id
-               ; constraint_
-               ; reason = Llm_provider.Retry.Token_measurement_unavailable protocol
-               }))
+         ~message:
+           (Printf.sprintf
+              "provider-native input measurement %s is unavailable for constrained model \
+               %s"
+              (Llm_provider.Input_token_count.show_protocol protocol)
+              model_id)
+         ~constraint_
+         ~reason:(Llm_provider.Retry.Token_measurement_unavailable protocol)
      | None ->
        Provider_failure_attribution.of_request_validation_error
          ~binding
@@ -122,14 +125,11 @@ let fit_error ~binding = function
             ; limit = Some max_context_tokens
             }))
   | Llm_provider.Complete.Serving_constraint_rejected { constraint_; reason } ->
-    Provider_failure_attribution.of_request_validation_error
+    input_capacity_error
       ~binding
-      (Error.Api
-         (Llm_provider.Retry.InputCapacity
-            { message = "prepared request rejected by resolved serving constraint"
-            ; constraint_
-            ; reason = Llm_provider.Retry.Serving_constraint_rejected reason
-            }))
+      ~message:"prepared request rejected by resolved serving constraint"
+      ~constraint_
+      ~reason:(Llm_provider.Retry.Serving_constraint_rejected reason)
 ;;
 
 let preflight_serving_constraint ~binding ~now_unix_s prepared =
@@ -140,14 +140,11 @@ let preflight_serving_constraint ~binding ~now_unix_s prepared =
      | Ok () -> Ok ()
      | Error reason ->
        Error
-         (Provider_failure_attribution.of_request_validation_error
+         (input_capacity_error
             ~binding
-            (Error.Api
-               (Llm_provider.Retry.InputCapacity
-                  { message = "resolved serving-constraint evidence is not current"
-                  ; constraint_
-                  ; reason = Llm_provider.Retry.Serving_constraint_rejected reason
-                  }))))
+            ~message:"resolved serving-constraint evidence is not current"
+            ~constraint_
+            ~reason:(Llm_provider.Retry.Serving_constraint_rejected reason)))
 ;;
 
 let enforce_context_fit agent (provider_config : Llm_provider.Provider_config.t) =
