@@ -1,0 +1,34 @@
+let record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal =
+  ignore preferences;
+  ignore scope;
+  ignore reservation;
+  ignore candidate;
+  ignore ordinal;
+  Ok ()
+;;
+
+let settle_domain_valid_once_with_publication_hook
+      ~after_publishing
+      settlement
+      preferences
+      ~scope
+      ~reservation
+      ~candidate
+      ~ordinal
+  =
+  let publication =
+    with_preference_lock preferences (fun () ->
+      if not (Atomic.compare_and_set settlement Pending Publishing)
+      then Error Already_settled
+      else
+        Fun.protect
+          ~finally:(fun () -> Atomic.set settlement Settled)
+          (fun () ->
+             after_publishing ();
+             Ok ()))
+  in
+  match publication with
+  | Error _ as error -> error
+  | Ok () ->
+    record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal
+;;

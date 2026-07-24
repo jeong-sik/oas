@@ -273,14 +273,14 @@ let%test "domain-valid publication blocks a rejected loser and its immediate sna
           (not returned_before_publication)
           &&
             (match winner_result, loser_result, snapshot with
-             | ( Ok Preference_installed
-               , Error Already_settled
-               , Ok (_, Some (candidate, installed_ordinal)) ) ->
-               String.equal candidate "winner"
-               && Int64.equal
-                    (success_ordinal_to_int64 ordinal)
-                    (success_ordinal_to_int64 installed_ordinal)
-             | _ -> false)))
+            | ( Ok Preference_installed
+              , Error Already_settled
+              , Ok (_, Some (candidate, installed_ordinal)) ) ->
+              String.equal candidate "winner"
+              && Int64.equal
+                   (success_ordinal_to_int64 ordinal)
+                   (success_ordinal_to_int64 installed_ordinal)
+            | _ -> false)))
 ;;
 
 let%test "domain rejection can deterministically win against domain valid" =
@@ -389,8 +389,8 @@ let%test "exception after Publishing terminalizes settlement before store unlock
           raised
           &&
             (match duplicate, snapshot with
-             | Error Already_settled, Ok (_, None) -> true
-             | _ -> false)))
+            | Error Already_settled, Ok (_, None) -> true
+            | _ -> false)))
 ;;
 
 let record_admission progress admission =
