@@ -2,6 +2,7 @@ open Asttypes
 open Parsetree
 
 let outside_callback = "record_preference_locked is outside with_preference_lock callback"
+let namespace_import = "open/include syntax is forbidden in publication lock boundary"
 let fail message = Error message
 
 let parse_implementation path =
@@ -43,6 +44,7 @@ type collected =
   ; mutable recorder_calls : (expression * (arg_label * expression) list) list
   ; mutable recorder_first_class_references : expression list
   ; mutable lock_calls : (expression * (arg_label * expression) list) list
+  ; mutable namespace_import_seen : bool
   }
 
 let observe_binding collected ~top_level name =
@@ -85,6 +87,7 @@ let collect structure =
     ; recorder_calls = []
     ; recorder_first_class_references = []
     ; lock_calls = []
+    ; namespace_import_seen = false
     }
   in
   observe_top_level_bindings collected structure;
@@ -97,8 +100,17 @@ let collect structure =
            | Ppat_alias (_, name) -> observe_binding collected ~top_level:false name.txt
            | _ -> ());
           Ast_iterator.default_iterator.pat self pattern)
+    ; structure_item =
+        (fun self item ->
+          (match item.pstr_desc with
+           | Pstr_open _ | Pstr_include _ -> collected.namespace_import_seen <- true
+           | _ -> ());
+          Ast_iterator.default_iterator.structure_item self item)
     ; expr =
         (fun self expression ->
+          (match expression.pexp_desc with
+           | Pexp_open _ -> collected.namespace_import_seen <- true
+           | _ -> ());
           let is_recorder, recorder_arguments =
             is_named_application "record_preference_locked" expression
           in
@@ -186,7 +198,9 @@ let lock_store_and_callback arguments =
 
 let check structure =
   let collected = collect structure in
-  if
+  if collected.namespace_import_seen
+  then fail namespace_import
+  else if
     collected.recorder_binding_count <> 1
     || collected.recorder_top_level_binding_count <> 1
   then fail "record_preference_locked must have exactly one binding"
@@ -237,6 +251,7 @@ let check_file path =
 
 let expected_error_of_flag = function
   | "--expect-outside-callback" -> Some outside_callback
+  | "--expect-namespace-import" -> Some namespace_import
   | "--expect-shadowed-lock-binding" ->
     Some "with_preference_lock must have exactly one binding"
   | "--expect-noncanonical-recorder" ->
@@ -263,12 +278,12 @@ let () =
      | Some expected ->
        (match check_file path with
         | Error message when String.equal message expected -> ()
-        | Error message ->
-          report_error ("negative fixture failed for the wrong reason: " ^ message);
-          exit 2
-       | Ok () ->
-         report_error "negative fixture unexpectedly passed";
-         exit 2))
+       | Error message ->
+         report_error ("negative fixture failed for the wrong reason: " ^ message);
+         exit 2
+        | Ok () ->
+          report_error "negative fixture unexpectedly passed";
+          exit 2))
   | _ ->
     prerr_endline "usage: check_exact_output_publication_lock [--expect-*] SOURCE.ml";
     exit 2
