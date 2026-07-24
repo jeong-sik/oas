@@ -1442,7 +1442,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
    | _ -> fail "credential evidence did not retain three typed rejections");
   match result with
   | Error
-      ((EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence }) as error)
+      (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence } as error)
     ->
     check
       bool
@@ -2099,8 +2099,8 @@ let test_callback_failures_are_terminal () =
   check int "failed bind dispatches nothing" 0 before_dispatch_posts;
   (match before_dispatch_result with
    | Error
-       ((EO.Flow_before_dispatch_callback_failed
-           { candidate; cause = "bind-not-durable"; evidence }) as error) ->
+       (EO.Flow_before_dispatch_callback_failed
+          { candidate; cause = "bind-not-durable"; evidence } as error) ->
      check
        bool
        "before-dispatch callback failure starts no outward dispatch"
@@ -2144,8 +2144,8 @@ let test_callback_failures_are_terminal () =
   check int "failed advance dispatches no successor" 0 before_advance_posts;
   match before_advance_result with
   | Error
-      ((EO.Flow_before_advance_callback_failed
-          { failed; next; cause = "release-not-durable"; evidence; _ }) as error) ->
+      (EO.Flow_before_advance_callback_failed
+         { failed; next; cause = "release-not-durable"; evidence; _ } as error) ->
     check
       bool
       "before-advance callback failure starts no outward dispatch"
@@ -2182,7 +2182,7 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
     check int (label ^ " dispatches exactly once") 1 posts;
     check int (label ^ " does not request advance") 0 advances;
     match result with
-    | Error ((EO.Flow_exact_execution_failed { candidate; cause; evidence }) as error) ->
+    | Error (EO.Flow_exact_execution_failed { candidate; cause; evidence } as error) ->
       check
         bool
         (label ^ " records outward dispatch started")
@@ -2279,10 +2279,9 @@ let test_structural_predispatch_failure_does_not_advance () =
   check int "missing clock cannot advance" 0 advances;
   match result with
   | Error
-      ((EO.Flow_exact_execution_failed
-          { cause = { cause = EO.Clock_required_for_timeout; receipt; _ }; evidence; _ }) as
-       error)
-    ->
+      (EO.Flow_exact_execution_failed
+         { cause = { cause = EO.Clock_required_for_timeout; receipt; _ }; evidence; _ } as
+       error) ->
     check
       bool
       "predispatch structural failure starts no outward dispatch"

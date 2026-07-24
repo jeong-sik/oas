@@ -641,8 +641,7 @@ let flow_execution_error_outward_dispatch = function
   | Flow_attempt_start_failed _
   | Flow_before_dispatch_callback_failed _
   | Flow_before_advance_callback_failed _
-  | Flow_candidates_exhausted _ ->
-    No_outward_dispatch
+  | Flow_candidates_exhausted _ -> No_outward_dispatch
   | Flow_success_ordinal_exhausted _ -> Outward_dispatch_started
   | Flow_exact_execution_failed { cause; _ } ->
     outward_dispatch_fact_of_receipt cause.receipt
