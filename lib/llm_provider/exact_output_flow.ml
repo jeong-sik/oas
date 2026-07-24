@@ -34,7 +34,6 @@ type ('scope, 'candidate) preference_store =
   }
 
 type domain_settlement = bool Atomic.t
-
 type preference_store_error = Invalid_preference_capacity of int
 type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
 

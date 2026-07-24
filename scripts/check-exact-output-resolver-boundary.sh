@@ -1048,10 +1048,20 @@ require_named_function_pattern \
   'claim_domain_settlement[[:space:]]+settlement.*record_preference' \
   "$exact_output_flow_source" \
   "settle_domain_valid_once"
+scan_named_functions \
+  "domain settlement regained a blocking mutex" \
+  'Mutex[.]' \
+  "$exact_output_flow_source" \
+  "claim_domain_settlement settle_domain_rejected_once settle_domain_valid_once"
 scan_code \
   "domain settlement regained a per-success blocking mutex" \
   'settlement[.]mutex|type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
   "$exact_output_flow_source"
+require_named_function_pattern \
+  "preference capacity check and reservation add are no longer atomic" \
+  'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \
+  "$exact_output_flow_source" \
+  "reserve_preference_scope"
 scan_code \
   "outer exact flow revived a legacy attempt or admission alias" \
   'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \

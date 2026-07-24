@@ -614,12 +614,18 @@ let test_concurrent_domain_settlement_has_one_winner () =
     let left, right, future_order = result in
     left, right, future_order, posts
   in
-  let settled = function
-    | Ok (EO.Domain_valid_preference_installed _) -> true
-    | Ok (EO.Domain_rejected_recorded | EO.Domain_valid_preference_superseded _) -> false
-    | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) -> false
+  let settlement_class = function
+    | Ok (EO.Domain_valid_preference_installed _) -> `Installed
+    | Error EO.Domain_already_settled -> `Already_settled
+    | Ok EO.Domain_rejected_recorded -> `Rejected
+    | Ok (EO.Domain_valid_preference_superseded _) -> `Superseded
+    | Error EO.Domain_preference_scope_released -> `Scope_released
   in
-  check bool "exactly one concurrent settlement wins" true (settled left <> settled right);
+  (match settlement_class left, settlement_class right with
+   | `Installed, `Already_settled | `Already_settled, `Installed -> ()
+   | _ ->
+     fail
+       "concurrent settlement did not return exactly one installed receipt and one already-settled error");
   check
     (list string)
     "winning settlement updates future snapshot once"
