@@ -40,6 +40,7 @@ type t =
 type validation_error =
   | Invalid_source_ref
   | Invalid_checked_at of int
+  | Missing_probe_expiry
   | Invalid_expiry of
       { checked_at_unix_s : int
       ; expires_at_unix_s : int
@@ -51,6 +52,9 @@ type validation_error =
       }
 [@@deriving show, eq]
 
+(** Probe evidence must carry an explicit expiry. The boundary never invents a
+    default TTL; the catalog owner chooses the validity window. Declarations
+    may omit expiry when their source contract is itself durable. *)
 val make
   :  source_kind:source_kind
   -> source_ref:string

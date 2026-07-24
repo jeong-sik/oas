@@ -492,8 +492,13 @@ let dispatch_tripwire dispatched =
 ;;
 
 let serving_constraint ?expires_at_unix_s () =
+  let source_kind =
+    match expires_at_unix_s with
+    | Some _ -> Serving_constraint.Probe
+    | None -> Serving_constraint.Declaration
+  in
   Serving_constraint.make
-    ~source_kind:Serving_constraint.Probe
+    ~source_kind
     ~source_ref:"probe://incident/2793"
     ~checked_at_unix_s:0
     ~confidence:Serving_constraint.High

@@ -73,6 +73,7 @@ let catalog_fixture_toml entry =
         serving_constraint_source = \"probe://incident/2793\"\n\
         serving_constraint_checked_at_unix_s = 0\n\
         serving_constraint_confidence = \"high\"\n\
+        serving_constraint_expires_at_unix_s = 2000000000\n\
         serving_constraint_accepted_through_tokens = 524298\n\
         serving_constraint_rejected_from_tokens = 524299\n"
      else "")

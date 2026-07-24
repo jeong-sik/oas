@@ -33,6 +33,7 @@ type t =
 type validation_error =
   | Invalid_source_ref
   | Invalid_checked_at of int
+  | Missing_probe_expiry
   | Invalid_expiry of
       { checked_at_unix_s : int
       ; expires_at_unix_s : int
@@ -60,6 +61,8 @@ let make
   then Error (Invalid_checked_at checked_at_unix_s)
   else if accepted_through < 0
   then Error (Invalid_accepted_through accepted_through)
+  else if source_kind = Probe && Option.is_none expires_at_unix_s
+  then Error Missing_probe_expiry
   else (
     match expires_at_unix_s, rejected_from with
     | Some expires_at_unix_s, _ when expires_at_unix_s <= checked_at_unix_s ->

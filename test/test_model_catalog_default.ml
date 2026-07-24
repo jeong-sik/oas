@@ -122,6 +122,21 @@ let test_serving_constraint_stale_evidence_fails_closed () =
   | Ok () | Error _ -> fail "expired serving evidence was accepted"
 ;;
 
+let test_probe_serving_constraint_requires_expiry () =
+  match
+    Serving_constraint.make
+      ~source_kind:Serving_constraint.Probe
+      ~source_ref:"probe://incident/2793"
+      ~checked_at_unix_s:100
+      ~confidence:Serving_constraint.Medium
+      ~accepted_through:524298
+      ~rejected_from:524299
+      ()
+  with
+  | Error Serving_constraint.Missing_probe_expiry -> ()
+  | Error _ | Ok _ -> fail "probe evidence without explicit expiry was accepted"
+;;
+
 let test_catalog_only_runtime_projects_serving_constraint () =
   let catalog =
     Model_catalog.of_toml_string
@@ -185,6 +200,10 @@ let () =
             "stale serving evidence fails closed"
             `Quick
             test_serving_constraint_stale_evidence_fails_closed
+        ; test_case
+            "probe serving evidence requires expiry"
+            `Quick
+            test_probe_serving_constraint_requires_expiry
         ; test_case
             "catalog-only runtime projects serving evidence"
             `Quick
