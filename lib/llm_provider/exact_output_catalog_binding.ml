@@ -58,8 +58,7 @@ let contains_encoded_control value =
 
 let validate_request_path ~kind value =
   match kind with
-  | PC.Gemini ->
-    if value = "" then Ok () else Error Unsupported_gemini_request_path
+  | PC.Gemini -> if value = "" then Ok () else Error Unsupported_gemini_request_path
   | PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope ->
     let path_segments = String.split_on_char '/' value in
     if
@@ -88,8 +87,7 @@ let validate_model_path kind model_id =
                  (function
                    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' | '~' -> true
                    | _ -> false)
-                 model_id) ->
-    Error Invalid_gemini_model_path
+                 model_id) -> Error Invalid_gemini_model_path
   | PC.Gemini
   | PC.Anthropic
   | PC.Kimi

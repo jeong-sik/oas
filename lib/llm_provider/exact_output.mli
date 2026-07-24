@@ -344,6 +344,7 @@ type flow_attempt_receipt =
   }
 
 val candidate_visit_count_to_int : candidate_visit_count -> int
+
 val target_selection_error_disposition
   :  target_selection_error
   -> candidate_rejection_disposition
@@ -351,9 +352,11 @@ val target_selection_error_disposition
 val admission_error_disposition : admission_error -> candidate_rejection_disposition
 val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
+
 val candidate_rejection_disposition
   :  candidate_rejection_receipt
   -> candidate_rejection_disposition
+
 val candidate_rejection_phase : candidate_rejection_receipt -> effect_phase
 val candidate_rejection_dispatch_count : candidate_rejection_receipt -> int
 

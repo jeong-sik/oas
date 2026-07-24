@@ -60,11 +60,9 @@ let schema_base_type = function
     Ok type_name
   | Some (`String type_name) -> Error (Unsupported_type type_name)
   | Some (`List [ `String left; `String right ])
-    when String.equal left "null" && List.mem right non_null_schema_types ->
-    Ok right
+    when String.equal left "null" && List.mem right non_null_schema_types -> Ok right
   | Some (`List [ `String left; `String right ])
-    when String.equal right "null" && List.mem left non_null_schema_types ->
-    Ok left
+    when String.equal right "null" && List.mem left non_null_schema_types -> Ok left
   | Some (`List _) | Some _ | None -> Error Invalid_schema
 ;;
 

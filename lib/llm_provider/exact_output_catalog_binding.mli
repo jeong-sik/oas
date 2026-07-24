@@ -12,7 +12,6 @@ type endpoint_error =
   | Invalid_gemini_model_path
 
 val has_control : string -> bool
-
 val validate_base_url : string -> (unit, endpoint_error) result
 
 val validate_request_path

@@ -427,8 +427,7 @@ let test_request_body_limit_is_typed_and_pre_dispatch () =
           true
           (actual_bytes > limit_bytes)
       | _ -> fail "oversized request lost its neutral byte-cap disposition")
-   | Ok _ -> fail "oversized exact-output request unexpectedly admitted"
-  );
+   | Ok _ -> fail "oversized exact-output request unexpectedly admitted");
   check int "completion POST count" 0 completion_posts;
   check int "token measurement POST count" 0 token_posts;
   check int "captured request count" 0 (List.length captures)

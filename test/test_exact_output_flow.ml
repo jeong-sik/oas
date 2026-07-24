@@ -217,7 +217,9 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
   result, Atomic.get completion_posts
 ;;
 
-let candidate_id (candidate : EO.flow_attempt_receipt) = candidate.visit.identity.candidate_id
+let candidate_id (candidate : EO.flow_attempt_receipt) =
+  candidate.visit.identity.candidate_id
+;;
 
 let flow_failure_id = function
   | EO.Flow_candidate_rejected rejection ->
@@ -395,7 +397,11 @@ let test_later_missing_credential_does_not_block_current_success () =
   check int "unvisited missing credential does not advance" 0 advances;
   match result with
   | Ok success ->
-    check string "current candidate succeeds" "current-good" (candidate_id success.candidate);
+    check
+      string
+      "current candidate succeeds"
+      "current-good"
+      (candidate_id success.candidate);
     check
       int
       "full candidate snapshot remains frozen"
@@ -406,7 +412,11 @@ let test_later_missing_credential_does_not_block_current_success () =
       "only current admission is recorded"
       1
       (List.length success.evidence.admissions);
-    check int "only current attempt is allocated" 1 (List.length success.evidence.attempts);
+    check
+      int
+      "only current attempt is allocated"
+      1
+      (List.length success.evidence.attempts);
     check
       int
       "only current candidate is visited"
@@ -447,7 +457,11 @@ let test_missing_current_credential_advances_after_durable_settlement () =
             (match EO.candidate_rejection_disposition rejection with
              | EO.Runtime_slot_unavailable -> ()
              | _ -> fail "missing credential lost its neutral slot disposition");
-            check string "rejected current identity" "current-missing" identity.candidate_id;
+            check
+              string
+              "rejected current identity"
+              "current-missing"
+              identity.candidate_id;
             check
               bool
               "selection rejection is pre-dispatch"
@@ -469,9 +483,14 @@ let test_missing_current_credential_advances_after_durable_settlement () =
               "rejection and successor share one outer flow"
               (EO.flow_id_to_string (EO.candidate_rejection_visit rejection).flow_id)
               (EO.flow_id_to_string next.flow_id);
-            check int "successor visit is second" 2 (EO.flow_visit_ordinal_to_int next.ordinal);
+            check
+              int
+              "successor visit is second"
+              2
+              (EO.flow_visit_ordinal_to_int next.ordinal);
             next_visit := Some next;
-            transitions := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
+            transitions
+            := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
             Ok ()
           | EO.Flow_candidate_execution_failed _ ->
             fail "missing credential became an execution failure")
@@ -488,7 +507,11 @@ let test_missing_current_credential_advances_after_durable_settlement () =
   check (list string) "only successor reaches before_dispatch" [ "next-good" ] bound;
   match result with
   | Ok success ->
-    check string "resolved successor succeeds" "next-good" (candidate_id success.candidate);
+    check
+      string
+      "resolved successor succeeds"
+      "next-good"
+      (candidate_id success.candidate);
     check
       int
       "both candidate outcomes remain ordered"
@@ -623,7 +646,8 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
         ~before_dispatch:(fun candidate ->
           failf "credential rejection %s reached before_dispatch" (candidate_id candidate))
         ~before_advance:(fun ~failed ~next ->
-          transitions := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
+          transitions
+          := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
           Ok ())
         flow
     in
@@ -637,7 +661,11 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
     ; "credential-invalid", "credential-read-failed"
     ]
     transitions;
-  check int "credential rejections fabricate no attempts" 0 (List.length evidence.attempts);
+  check
+    int
+    "credential rejections fabricate no attempts"
+    0
+    (List.length evidence.attempts);
   check int "all credential outcomes remain ordered" 3 (List.length evidence.admissions);
   let check_rejection ~id ~visit rejection =
     check
@@ -669,18 +697,9 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
      ; EO.Candidate_rejected invalid
      ; EO.Candidate_rejected read_failed
      ] ->
-      check_rejection
-        ~id:"credential-missing"
-        ~visit:1
-        missing;
-      check_rejection
-        ~id:"credential-invalid"
-        ~visit:2
-        invalid;
-      check_rejection
-        ~id:"credential-read-failed"
-        ~visit:3
-        read_failed
+     check_rejection ~id:"credential-missing" ~visit:1 missing;
+     check_rejection ~id:"credential-invalid" ~visit:2 invalid;
+     check_rejection ~id:"credential-read-failed" ~visit:3 read_failed
    | _ -> fail "credential evidence did not retain three typed rejections");
   match result with
   | Error (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence }) ->
@@ -752,7 +771,8 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
               "admission receipt is zero-dispatch"
               0
               (EO.candidate_rejection_dispatch_count rejection);
-            transitions := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
+            transitions
+            := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
             Ok ()
           | _ -> fail "capacity rejection lost its typed durable transition")
         (start_flow ready)
@@ -882,7 +902,8 @@ let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
         ~before_dispatch:(fun candidate ->
           failf "rejected candidate %s reached before_dispatch" (candidate_id candidate))
         ~before_advance:(fun ~failed ~next ->
-          transitions := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
+          transitions
+          := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
           Ok ())
         flow
     in
@@ -1005,8 +1026,10 @@ let test_exception_after_durable_rejection_stops_before_successor () =
                           [ "flow_id", `String (EO.flow_id_to_string failed_visit.flow_id)
                           ; ( "failed_ordinal"
                             , `Int (EO.flow_visit_ordinal_to_int failed_visit.ordinal) )
-                          ; "next_ordinal", `Int (EO.flow_visit_ordinal_to_int next.ordinal)
-                          ; "failed_candidate_id", `String failed_visit.identity.candidate_id
+                          ; ( "next_ordinal"
+                            , `Int (EO.flow_visit_ordinal_to_int next.ordinal) )
+                          ; ( "failed_candidate_id"
+                            , `String failed_visit.identity.candidate_id )
                           ; "next_candidate_id", `String next.identity.candidate_id
                           ]
                       in
@@ -1098,7 +1121,8 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
                (candidate_id failed_candidate)
                next.identity.candidate_id
              :: !events;
-          advanced := (candidate_id failed_candidate, next.identity.candidate_id) :: !advanced;
+          advanced
+          := (candidate_id failed_candidate, next.identity.candidate_id) :: !advanced;
           Ok ())
         flow
     in

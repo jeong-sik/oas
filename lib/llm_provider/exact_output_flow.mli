@@ -37,11 +37,7 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt) progress
 
-val record_admission
-  :  ('admission, 'attempt) progress
-  -> 'admission
-  -> unit
-
+val record_admission : ('admission, 'attempt) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit
 
 val progress_snapshot

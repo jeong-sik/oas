@@ -893,8 +893,7 @@ let execute_flow_candidate ~net ?clock ~before_dispatch flow candidate =
               | Ok success -> Ok (candidate_receipt, success)
               | Error cause ->
                 Error
-                  (Flow_step_execution_failed
-                     { candidate = candidate_receipt; cause })))))
+                  (Flow_step_execution_failed { candidate = candidate_receipt; cause })))))
 ;;
 
 let advanceable_flow_failure = function
@@ -903,9 +902,7 @@ let advanceable_flow_failure = function
     when execution_failure_may_advance cause ->
     Some
       (Flow_candidate_execution_failed
-         { candidate = failure.candidate
-         ; cause = failure.cause
-         })
+         { candidate = failure.candidate; cause = failure.cause })
   | Flow_step_execution_failed _
   | Flow_step_attempt_start_failed _
   | Flow_step_before_dispatch_callback_failed _ -> None
