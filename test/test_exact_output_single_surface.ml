@@ -584,10 +584,10 @@ let test_no_measure_one_post_and_wire_authority () =
       ; "fallbacks"
       ; "internal_model_rotation_count"
       ];
-    check
-       bool
-       (id ^ " server-side fallback header absent")
-       false
+     check
+      bool
+      (id ^ " server-side fallback header absent")
+      false
       (List.exists
          (fun (name, value) ->
             String.equal (String.lowercase_ascii name) "anthropic-beta"
@@ -666,9 +666,9 @@ let test_no_measure_one_post_and_wire_authority () =
   run
     ~id:"ollama-surface"
     ~kind:Provider_config.Ollama
-     ~path:"/api/chat"
-     ~response:(ollama_response content)
-     (fun _provenance body ->
+    ~path:"/api/chat"
+    ~response:(ollama_response content)
+    (fun _provenance body ->
        check
          bool
          "Ollama receives raw schema"
@@ -679,7 +679,7 @@ let test_no_measure_one_post_and_wire_authority () =
     ~id:"anthropic-surface"
     ~kind:Provider_config.Anthropic
     ~path:"/v1/messages"
-     ~response:(anthropic_response {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
+    ~response:(anthropic_response {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
     (fun _provenance _body -> ())
 ;;
 

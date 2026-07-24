@@ -1163,9 +1163,9 @@ let response_header_name_is_sensitive = function
 let capture_response_header_evidence headers =
   let raw_headers = Http.Header.to_list headers in
   let retry_after_header =
-     match
-       List.filter
-         (fun (name, _) ->
+    match
+      List.filter
+        (fun (name, _) ->
            String.equal (String.lowercase_ascii (String.trim name)) "retry-after")
         raw_headers
     with
@@ -1907,11 +1907,11 @@ let post_sync_once_with_evidence
                     ~body:(Cohttp_eio.Body.of_string body)
                     uri
                 in
-                 let response_status =
-                   Cohttp.Response.status response |> Cohttp.Code.code_of_status
+                let response_status =
+                  Cohttp.Response.status response |> Cohttp.Code.code_of_status
                 in
                 let response_header_evidence, retry_after_header =
-                   Cohttp.Response.headers response |> capture_response_header_evidence
+                  Cohttp.Response.headers response |> capture_response_header_evidence
                 in
                 phase := Response_received;
                 status := Some response_status;
