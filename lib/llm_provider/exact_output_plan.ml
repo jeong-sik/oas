@@ -20,6 +20,10 @@ type output_admission_error =
   | Unsupported_audio_input
   | Unsupported_system_prompt
   | Provider_request_rejected of Http_client.http_error
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Request_serialization_rejected of Http_client.http_error
 
 type json_validation_provenance =
@@ -47,6 +51,7 @@ type frozen_wire_request =
   ; headers : (string * string) list
   ; body : string
   ; body_sha256 : string
+  ; max_request_body_bytes : int option
   ; connect_timeout_s : float option
   ; body_timeout_s : float option
   }
@@ -279,6 +284,9 @@ let plan_fingerprint
      ; (if capabilities.supports_structured_output then "1" else "0")
      ]
      @ admission_material
+     @ (match wire.max_request_body_bytes with
+        | None -> []
+        | Some limit -> [ "max_request_body_bytes"; string_of_int limit ])
      @ [ option_float wire.connect_timeout_s
        ; option_float wire.body_timeout_s
        ; string_of_int (List.length wire.headers)
@@ -357,6 +365,12 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
                    ~messages:request.messages
                    ~tools:request.tools
                with
+               | Error
+                   (Http_client.ProviderFailure
+                      { kind =
+                          Http_client.Request_body_too_large { actual_bytes; limit_bytes }
+                      ; _
+                      }) -> Error (Request_body_too_large { actual_bytes; limit_bytes })
                | Error error -> Error (Request_serialization_rejected error)
                | Ok (response_codec, body) ->
                  let body_sha256 = sha256 body in
@@ -373,6 +387,7 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
                    ; headers
                    ; body
                    ; body_sha256
+                   ; max_request_body_bytes = config.max_request_body_bytes
                    ; connect_timeout_s = config.connect_timeout_s
                    ; body_timeout_s = request.body_timeout_s
                    }
@@ -518,6 +533,7 @@ let%test "canonical fingerprint is sensitive to the frozen response codec" =
     ; headers = [ "Content-Length", "2" ]
     ; body = "{}"
     ; body_sha256 = sha256 "{}"
+    ; max_request_body_bytes = None
     ; connect_timeout_s = None
     ; body_timeout_s = None
     }

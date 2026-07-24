@@ -6,6 +6,45 @@ type exact_binding_error =
   | Provider_missing
   | Model_missing
 
+let has_control value =
+  String.exists
+    (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
+    value
+;;
+
+let target_string_field ~target_label ~field toml =
+  match Otoml.find_opt toml Otoml.get_string [ field ] with
+  | None -> Error (Printf.sprintf "target %s misses %s" target_label field)
+  | Some value when value = "" || String.trim value <> value || has_control value ->
+    Error (Printf.sprintf "target %s has invalid %s" target_label field)
+  | Some value -> Ok value
+  | exception Otoml.Type_error _ ->
+    Error (Printf.sprintf "target %s has non-string %s" target_label field)
+;;
+
+let target_float_field ~target_label ~field toml =
+  match Otoml.find_opt toml Otoml.get_float [ field ] with
+  | None -> Ok None
+  | Some value -> Ok (Some value)
+  | exception Otoml.Type_error _ ->
+    Error (Printf.sprintf "target %s has non-float %s" target_label field)
+;;
+
+let target_positive_int_field ~target_label ~field toml =
+  match Otoml.find_opt toml Otoml.get_integer [ field ] with
+  | None -> Ok None
+  | Some value when value >= 1 -> Ok (Some value)
+  | Some _ -> Error (Printf.sprintf "target %s has invalid %s" target_label field)
+  | exception Otoml.Type_error _ ->
+    Error (Printf.sprintf "target %s has non-integer %s" target_label field)
+;;
+
+let validate_timeout ~target_label ~field = function
+  | None -> Ok ()
+  | Some value when Float.is_finite value && value > 0. -> Ok ()
+  | Some _ -> Error (Printf.sprintf "target %s has invalid %s" target_label field)
+;;
+
 let normalize_identity value = String.lowercase_ascii (String.trim value)
 
 let model_identity_key (entry : Model_catalog.model_entry) =

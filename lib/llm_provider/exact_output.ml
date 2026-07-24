@@ -90,6 +90,10 @@ type wire_admission_error =
   | Unsupported_system_prompt
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Request_serialization_rejected
 
 type admission_error =
@@ -500,6 +504,8 @@ let wire_admission_error = function
   | Plan.Unsupported_audio_input -> Unsupported_audio_input
   | Plan.Unsupported_system_prompt -> Unsupported_system_prompt
   | Plan.Provider_request_rejected _ -> Target_request_rejected
+  | Plan.Request_body_too_large { actual_bytes; limit_bytes } ->
+    Request_body_too_large { actual_bytes; limit_bytes }
   | Plan.Request_serialization_rejected _ -> Request_serialization_rejected
 ;;
 

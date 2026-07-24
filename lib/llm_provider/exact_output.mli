@@ -133,6 +133,10 @@ type wire_admission_error =
   | Unsupported_system_prompt
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
   | Request_serialization_rejected
 
 type admission_error =

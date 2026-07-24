@@ -581,6 +581,29 @@ let test_empty_completion_overflow_types_as_context_overflow () =
   | other -> Alcotest.failf "expected Api ContextOverflow, got %s" (Error.to_string other)
 ;;
 
+let test_request_body_limit_preserves_typed_capacity_evidence () =
+  match
+    Attribution.sdk_error_of_http_error
+      (Http.request_body_too_large_error ~actual_bytes:2048 ~limit_bytes:1024)
+  with
+  | Error.Api
+      (Llm_provider.Retry.InvalidRequest
+         { reason =
+             Llm_provider.Retry.Request_body_too_large { actual_bytes; limit_bytes }
+         ; _
+         } as api) ->
+    Alcotest.(check int) "actual serialized bytes" 2048 actual_bytes;
+    Alcotest.(check int) "resolved target limit" 1024 limit_bytes;
+    check_bool
+      "deterministic admission is not retried"
+      false
+      (Llm_provider.Retry.is_retryable api)
+  | other ->
+    Alcotest.failf
+      "expected typed Api InvalidRequest request-body evidence, got %s"
+      (Error.to_string other)
+;;
+
 let test_empty_completion_end_turn_stays_provider_unavailable () =
   match
     Attribution.sdk_error_of_http_error
@@ -747,6 +770,10 @@ let () =
         ] )
     ; ( "empty completion classification"
       , [ Alcotest.test_case
+            "request-body admission preserves typed capacity evidence"
+            `Quick
+            test_request_body_limit_preserves_typed_capacity_evidence
+        ; Alcotest.test_case
             "ContextWindowExceeded types as Api ContextOverflow"
             `Quick
             test_empty_completion_overflow_types_as_context_overflow

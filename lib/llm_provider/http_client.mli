@@ -137,6 +137,13 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
+  (** The exact serialized provider request exceeded the resolved target's
+      declared transport boundary.  This is produced before dispatch and is
+      independent from the model context-token window. *)
   | Response_body_too_large of { limit_bytes : int }
   (** The provider response exceeded the explicit in-memory parser boundary.
       The connection is closed immediately; OAS never drains an unbounded
@@ -207,6 +214,10 @@ val provider_failure_to_string : kind:provider_failure_kind -> message:string ->
     with no thinking, text, or tool calls. Sync and streaming completion paths
     must use this helper so the typed stop reason and diagnostic stay aligned. *)
 val empty_completion_error : stop_reason:Types.stop_reason -> http_error
+
+(** Construct the canonical typed pre-dispatch rejection for an exact
+    serialized request body that exceeds its resolved target limit. *)
+val request_body_too_large_error : actual_bytes:int -> limit_bytes:int -> http_error
 
 val stream_idle_state_to_label : stream_idle_state -> string
 val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase

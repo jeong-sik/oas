@@ -565,15 +565,25 @@ let validate_thinking_control_request
    dispatch" — a config authoring error, not a throttle. Reject it before
    dispatch instead of letting Slot_scheduler.create raise mid-request. *)
 let validate_admission_declaration (config : Provider_config.t) =
-  match config.max_concurrent_requests with
-  | None -> Ok ()
-  | Some n when n >= 1 -> Ok ()
-  | Some n ->
+  match config.max_request_body_bytes with
+  | Some n when n < 1 ->
     Error
       (Http_client.AcceptRejected
          { reason =
-             Printf.sprintf "max_concurrent_requests must be >= 1 when declared, got %d" n
+             Printf.sprintf "max_request_body_bytes must be >= 1 when declared, got %d" n
          })
+  | None | Some _ ->
+    (match config.max_concurrent_requests with
+     | None -> Ok ()
+     | Some n when n >= 1 -> Ok ()
+     | Some n ->
+       Error
+         (Http_client.AcceptRejected
+            { reason =
+                Printf.sprintf
+                  "max_concurrent_requests must be >= 1 when declared, got %d"
+                  n
+            }))
 ;;
 
 let validate_common (config : Provider_config.t) =
@@ -669,7 +679,12 @@ let serialize_http_request_with_policy
     with
     | Invalid_argument reason -> Error (Http_client.AcceptRejected { reason })
   in
-  Result.map (fun body -> http_codec, body) body_result
+  Result.bind body_result (fun body ->
+    let actual_bytes = String.length body in
+    match config.max_request_body_bytes with
+    | Some limit_bytes when actual_bytes > limit_bytes ->
+      Error (Http_client.request_body_too_large_error ~actual_bytes ~limit_bytes)
+    | None | Some _ -> Ok (http_codec, body))
 ;;
 
 let serialize_http_request_with_thinking_control

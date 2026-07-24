@@ -507,6 +507,22 @@ let test_provider_failure_remaining_variants_mapping () =
    | Error.ParseError { detail } ->
      check string "parser default" "unknown_parser: bad JSON" detail
    | _ -> fail "expected ParseError");
+  let request_body_limit_message =
+    "serialized request body is 2048 bytes, target limit is 1024 bytes"
+  in
+  let request_body_limit =
+    provider_failure
+      (Http_client.Request_body_too_large { actual_bytes = 2048; limit_bytes = 1024 })
+      request_body_limit_message
+  in
+  (match request_body_limit with
+   | Error.InvalidRequest { reason; _ } ->
+     check
+       string
+       "request-body limit diagnostic is not duplicated"
+       request_body_limit_message
+       reason
+   | _ -> fail "expected InvalidRequest for request-body limit");
   let unknown =
     provider_failure
       ~provider:"unknown-provider"

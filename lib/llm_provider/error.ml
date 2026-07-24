@@ -271,6 +271,7 @@ let of_provider_failure ?provider kind message =
       | None -> "unknown_parser"
     in
     ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Request_body_too_large _ -> InvalidRequest { provider; reason = message }
   | Http_client.Response_body_too_large { limit_bytes } ->
     ParseError
       { detail =

@@ -88,6 +88,7 @@ type target_declaration =
   { target_ref : target_ref
   ; provider_ref : string
   ; model_id : string
+  ; max_request_body_bytes : int option
   ; connect_timeout_s : float option
   ; body_timeout_s : float option
   }
@@ -193,57 +194,30 @@ let selected_target_model_admitted (target : selected_target) =
   Binding.target_model_admitted target.capabilities ~model_id:target.config.model_id
 ;;
 
-let has_control value =
-  String.exists
-    (fun character -> Char.code character < 0x20 || Char.code character = 0x7f)
-    value
-;;
-
 let target_catalog_error source detail = Error (Target_catalog_invalid { source; detail })
 
-let target_string_field ~source ~target_label field toml =
-  match Otoml.find_opt toml Otoml.get_string [ field ] with
-  | None ->
-    target_catalog_error source (Printf.sprintf "target %s misses %s" target_label field)
-  | Some value when value = "" || String.trim value <> value || has_control value ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has invalid %s" target_label field)
-  | Some value -> Ok value
-  | exception Otoml.Type_error _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has non-string %s" target_label field)
-;;
-
-let target_float_field ~source ~target_label field toml =
-  match Otoml.find_opt toml Otoml.get_float [ field ] with
-  | None -> Ok None
-  | Some value -> Ok (Some value)
-  | exception Otoml.Type_error _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has non-float %s" target_label field)
-;;
-
-let validate_timeout ~source ~target_label field = function
-  | None -> Ok ()
-  | Some value when Float.is_finite value && value > 0. -> Ok ()
-  | Some _ ->
-    target_catalog_error
-      source
-      (Printf.sprintf "target %s has invalid %s" target_label field)
+let target_result source =
+  Result.map_error (fun detail -> Target_catalog_invalid { source; detail })
 ;;
 
 let parse_target_declaration ~source toml =
-  let* id = target_string_field ~source ~target_label:"<unknown>" "id" toml in
+  let* id =
+    Binding.target_string_field ~target_label:"<unknown>" ~field:"id" toml
+    |> target_result source
+  in
   let* target_ref =
     match target_ref id with
     | Ok target_ref -> Ok target_ref
     | Error _ -> target_catalog_error source "target id is not canonical"
   in
   let known =
-    [ "id"; "provider_ref"; "model_id"; "connect_timeout_s"; "body_timeout_s" ]
+    [ "id"
+    ; "provider_ref"
+    ; "model_id"
+    ; "max_request_body_bytes"
+    ; "connect_timeout_s"
+    ; "body_timeout_s"
+    ]
   in
   let* () =
     match Otoml.list_table_keys_result toml with
@@ -254,19 +228,45 @@ let parse_target_declaration ~source toml =
        | _ ->
          target_catalog_error source (Printf.sprintf "target %s has unknown fields" id))
   in
-  let* provider_ref = target_string_field ~source ~target_label:id "provider_ref" toml in
-  let* model_id = target_string_field ~source ~target_label:id "model_id" toml in
+  let* provider_ref =
+    Binding.target_string_field ~target_label:id ~field:"provider_ref" toml
+    |> target_result source
+  in
+  let* model_id =
+    Binding.target_string_field ~target_label:id ~field:"model_id" toml
+    |> target_result source
+  in
+  let* max_request_body_bytes =
+    Binding.target_positive_int_field
+      ~target_label:id
+      ~field:"max_request_body_bytes"
+      toml
+    |> target_result source
+  in
   let* connect_timeout_s =
-    target_float_field ~source ~target_label:id "connect_timeout_s" toml
+    Binding.target_float_field ~target_label:id ~field:"connect_timeout_s" toml
+    |> target_result source
   in
   let* body_timeout_s =
-    target_float_field ~source ~target_label:id "body_timeout_s" toml
+    Binding.target_float_field ~target_label:id ~field:"body_timeout_s" toml
+    |> target_result source
   in
   let* () =
-    validate_timeout ~source ~target_label:id "connect_timeout_s" connect_timeout_s
+    Binding.validate_timeout ~target_label:id ~field:"connect_timeout_s" connect_timeout_s
+    |> target_result source
   in
-  let* () = validate_timeout ~source ~target_label:id "body_timeout_s" body_timeout_s in
-  Ok { target_ref; provider_ref; model_id; connect_timeout_s; body_timeout_s }
+  let* () =
+    Binding.validate_timeout ~target_label:id ~field:"body_timeout_s" body_timeout_s
+    |> target_result source
+  in
+  Ok
+    { target_ref
+    ; provider_ref
+    ; model_id
+    ; max_request_body_bytes
+    ; connect_timeout_s
+    ; body_timeout_s
+    }
 ;;
 
 let parse_target_catalog ~source contents =
@@ -516,7 +516,7 @@ let%test "case-only target overlay shadow fails closed" =
 
 let validate_base_url ~target_ref value =
   let target_ref = target_ref_id target_ref in
-  if has_control value
+  if Binding.has_control value
   then Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url })
   else if String.contains value '?'
   then Error (Target_endpoint_invalid { target_ref; cause = Base_url_query_not_allowed })
@@ -569,7 +569,7 @@ let validate_request_path ~target_ref ~kind value =
     if
       value = ""
       || value.[0] <> '/'
-      || has_control value
+      || Binding.has_control value
       || contains_encoded_control value
       || String.contains value '%'
       || String.contains value '\\'
@@ -695,11 +695,12 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
       ; target_ref_id target.target_ref
       ; target.provider_ref
       ; target.model_id
+      ; Binding.option_int target.max_request_body_bytes
       ; option_float target.connect_timeout_s
       ; option_float target.body_timeout_s
       ])
   in
-  ("oas-exact-output-catalog-evidence-v2" :: providers) @ models @ targets
+  ("oas-exact-output-catalog-evidence-v3" :: providers) @ models @ targets
 ;;
 
 let frozen_environment ~io names =
@@ -872,6 +873,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
              ~request_path:provider.request_path
              ?max_tokens:capabilities.max_output_tokens
              ?max_context:capabilities.max_context_tokens
+             ?max_request_body_bytes:target.max_request_body_bytes
              ~supports_structured_output_override:capabilities.supports_structured_output
              ~model_capabilities_override:capabilities
              ?connect_timeout_s:target.connect_timeout_s
@@ -883,7 +885,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
          in
          let identity_fingerprint =
            hash_parts
-             ([ "oas-exact-output-target-v2"
+             ([ "oas-exact-output-target-v3"
               ; target_ref_id target.target_ref
               ; provider.id
               ; PC.string_of_provider_kind provider.kind
@@ -891,6 +893,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
               ; base_url
               ; provider.request_path
               ; provider.api_key_env
+              ; Binding.option_int target.max_request_body_bytes
               ; option_float target.connect_timeout_s
               ; option_float target.body_timeout_s
               ; codec
@@ -915,7 +918,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
            else (
              match observed_environment provider.api_key_env with
              | Error () -> Credential_read_failed provider.api_key_env
-             | Ok (Some value) when has_control value ->
+             | Ok (Some value) when Binding.has_control value ->
                Credential_invalid provider.api_key_env
              | Ok (Some value) ->
                (match Cli_common_env.trim_non_empty value with
