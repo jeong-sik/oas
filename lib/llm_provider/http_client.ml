@@ -2806,8 +2806,7 @@ let%test "classify_network_exn: typed Eio address lookup failure" =
   match
     classify_network_exn
       (eio_exn
-         (Eio.Net.E
-            (Eio.Net.Address_lookup_failed Eio.Net.Getaddrinfo_error.UNKNOWN)))
+         (Eio.Net.E (Eio.Net.Address_lookup_failed Eio.Net.Getaddrinfo_error.UNKNOWN)))
   with
   | Some (NetworkError { kind = Dns_failure; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
