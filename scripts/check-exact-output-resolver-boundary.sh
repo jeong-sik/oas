@@ -331,6 +331,33 @@ require_code_sequence() {
   fi
 }
 
+require_code_occurrence_count() {
+  local description="$1"
+  local pattern="$2"
+  local expected="$3"
+  local source_file="$4"
+  local actual
+  actual="$(
+    strip_ocaml_noncode < "$source_file" \
+      | awk -v pattern="$pattern" '
+          {
+            remaining = $0
+            while (match(remaining, pattern)) {
+              count++
+              remaining = substr(remaining, RSTART + RLENGTH)
+            }
+          }
+          END { print count + 0 }
+        '
+  )"
+  if [[ "$actual" -ne "$expected" ]]; then
+    echo \
+      "exact-output boundary violation: $description (expected $expected, found $actual)" \
+      >&2
+    return 1
+  fi
+}
+
 scan_code_sequence() {
   local description="$1"
   local pattern="$2"
@@ -1072,6 +1099,20 @@ require_named_function_pattern \
   'with_preference_lock[[:space:]]+preferences.*Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Publishing.*Fun[.]protect.*Atomic[.]set[[:space:]]+settlement[[:space:]]+Settled.*record_preference_locked' \
   "$exact_output_flow_source" \
   "settle_domain_valid_once_with_publication_hook"
+require_code_occurrence_count \
+  "locked preference recorder reference set changed" \
+  'record_preference_locked' \
+  2 \
+  "$exact_output_flow_source"
+scan_outside_named_functions \
+  "locked preference recorder escaped its definition or canonical publication path" \
+  'record_preference_locked' \
+  "$exact_output_flow_source" \
+  "record_preference_locked settle_domain_valid_once_with_publication_hook"
+scan_code \
+  "locked preference recorder escaped through the private interface" \
+  'record_preference_locked' \
+  "$module_dir/exact_output_flow.mli"
 require_named_function_pattern \
   "domain-rejected CAS loss stopped synchronizing with preference publication" \
   'Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Settled.*after_failed_cas.*with_preference_lock[[:space:]]+preferences.*Error[[:space:]]+Already_settled' \

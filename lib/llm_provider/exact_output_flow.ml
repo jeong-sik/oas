@@ -39,7 +39,6 @@ type settlement_state =
   | Settled
 
 type domain_settlement = settlement_state Atomic.t
-
 type preference_store_error = Invalid_preference_capacity of int
 type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
 
@@ -193,12 +192,7 @@ let settle_domain_valid_once_with_publication_hook
         (fun () ->
            after_publishing ();
            match
-             record_preference_locked
-               preferences
-               ~scope
-               ~reservation
-               ~candidate
-               ~ordinal
+             record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal
            with
            | Ok installation -> Ok installation
            | Error Preference_scope_not_reserved_for_record ->
@@ -278,15 +272,15 @@ let%test "domain-valid publication blocks a rejected loser and its immediate sna
           let loser_result, snapshot = Domain.join loser in
           (not returned_before_publication)
           &&
-          match winner_result, loser_result, snapshot with
-          | ( Ok Preference_installed
-            , Error Already_settled
-            , Ok (_, Some (candidate, installed_ordinal)) ) ->
-            String.equal candidate "winner"
-            && Int64.equal
-                 (success_ordinal_to_int64 ordinal)
-                 (success_ordinal_to_int64 installed_ordinal)
-          | _ -> false))
+            (match winner_result, loser_result, snapshot with
+             | ( Ok Preference_installed
+               , Error Already_settled
+               , Ok (_, Some (candidate, installed_ordinal)) ) ->
+               String.equal candidate "winner"
+               && Int64.equal
+                    (success_ordinal_to_int64 ordinal)
+                    (success_ordinal_to_int64 installed_ordinal)
+             | _ -> false)))
 ;;
 
 let%test "domain rejection can deterministically win against domain valid" =
@@ -332,9 +326,9 @@ let%test "domain rejection can deterministically win against domain valid" =
           let rejected_result = Domain.join rejected in
           let valid_result = Domain.join valid in
           let snapshot = reserve_preference_scope preferences ~scope in
-          match rejected_result, valid_result, snapshot with
-          | Ok (), Error Already_settled, Ok (_, None) -> true
-          | _ -> false))
+          (match rejected_result, valid_result, snapshot with
+           | Ok (), Error Already_settled, Ok (_, None) -> true
+           | _ -> false)))
 ;;
 
 let%test "two concurrent domain rejections have exactly one winner" =
@@ -394,9 +388,9 @@ let%test "exception after Publishing terminalizes settlement before store unlock
           let snapshot = reserve_preference_scope preferences ~scope in
           raised
           &&
-          match duplicate, snapshot with
-          | Error Already_settled, Ok (_, None) -> true
-          | _ -> false))
+            (match duplicate, snapshot with
+             | Error Already_settled, Ok (_, None) -> true
+             | _ -> false)))
 ;;
 
 let record_admission progress admission =
