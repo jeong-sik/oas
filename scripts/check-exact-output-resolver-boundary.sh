@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eEuo pipefail
+
+trap 'status=$?; printf "exact-output resolver boundary ratchet aborted at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit "$status"' ERR
 
 required_basenames=(
   exact_output.ml
@@ -346,6 +348,181 @@ require_named_function_pattern() {
   rm -f "$extracted"
 }
 
+extract_named_type_block() {
+  local source_file="$1"
+  local type_name="$2"
+  strip_ocaml_noncode < "$source_file" \
+    | awk -v target="$type_name" '
+    BEGIN {
+      capture = 0
+      found = 0
+      done = 0
+        }
+        function declaration_name(line) {
+          sub(/^type[[:space:]]+/, "", line)
+          sub(/[^[:alnum:]_].*$/, "", line)
+          return line
+        }
+        /^type[[:space:]]+/ {
+          current = declaration_name($0)
+          if (capture) {
+            capture = 0
+            done = 1
+          }
+          if (!done && current == target) {
+            capture = 1
+            found = 1
+          }
+        }
+        capture && /^(val|module|exception|class|include|external|open)[[:space:]]/ {
+          capture = 0
+          done = 1
+        }
+        capture {
+          print
+        }
+        END {
+          if (!found) exit 3
+        }
+      '
+}
+
+require_type_block_pattern() {
+  local description="$1"
+  local source_file="$2"
+  local type_name="$3"
+  local pattern="$4"
+  local block compact
+  if ! block="$(extract_named_type_block "$source_file" "$type_name")"; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+  compact="$(printf '%s\n' "$block" | awk '{ printf "%s ", $0 } END { print "" }')"
+  if ! grep -E -- "$pattern" <<< "$compact" >/dev/null; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+}
+
+require_opaque_type() {
+  local description="$1"
+  local source_file="$2"
+  local type_name="$3"
+  local block compact
+  if ! block="$(extract_named_type_block "$source_file" "$type_name")"; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+  compact="$(printf '%s\n' "$block" | awk '{ printf "%s ", $0 } END { print "" }')"
+  if grep -E -- \
+    "type[[:space:]]+${type_name}[[:space:]]*:?[[:space:]]*=" \
+    <<< "$compact" \
+    >/dev/null
+  then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+}
+
+require_type_constructor_set() {
+  local description="$1"
+  local source_file="$2"
+  local type_name="$3"
+  shift 3
+  local block actual expected
+  if ! block="$(extract_named_type_block "$source_file" "$type_name")"; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+  actual="$(
+    printf '%s\n' "$block" \
+      | awk '
+          {
+            rest = $0
+            while (match(rest, /(^|[=|])[[:space:]]*[A-Z][[:alnum:]_]*/)) {
+              constructor = substr(rest, RSTART, RLENGTH)
+              sub(/^[=|][[:space:]]*/, "", constructor)
+              sub(/^[[:space:]]*/, "", constructor)
+              print constructor
+              rest = substr(rest, RSTART + RLENGTH)
+            }
+          }
+        ' \
+      | sort -u \
+      | paste -s -d ' ' -
+  )"
+  expected="$(printf '%s\n' "$@" | sort -u | paste -s -d ' ' -)"
+  if [[ "$actual" != "$expected" ]]; then
+    echo \
+      "exact-output boundary violation: $description (expected: $expected; actual: $actual)" \
+      >&2
+    return 1
+  fi
+}
+
+require_type_field_set() {
+  local description="$1"
+  local source_file="$2"
+  local type_name="$3"
+  shift 3
+  local block actual expected
+  if ! block="$(extract_named_type_block "$source_file" "$type_name")"; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+  actual="$(
+    printf '%s\n' "$block" \
+      | awk '
+          {
+            rest = $0
+            while (match(rest, /(^|[;{])[[:space:]]*[a-z][[:alnum:]_]*[[:space:]]*:/)) {
+              field = substr(rest, RSTART, RLENGTH)
+              sub(/^[;{][[:space:]]*/, "", field)
+              sub(/^[[:space:]]*/, "", field)
+              sub(/[[:space:]]*:$/, "", field)
+              print field
+              rest = substr(rest, RSTART + RLENGTH)
+            }
+          }
+        ' \
+      | sort -u \
+      | paste -s -d ' ' -
+  )"
+  expected="$(printf '%s\n' "$@" | sort -u | paste -s -d ' ' -)"
+  if [[ "$actual" != "$expected" ]]; then
+    echo \
+      "exact-output boundary violation: $description (expected: $expected; actual: $actual)" \
+      >&2
+    return 1
+  fi
+}
+
+scan_public_error_accessors() {
+  local source_file="$1"
+  local hits
+  hits="$(
+    strip_ocaml_noncode < "$source_file" \
+      | awk '
+          match($0, /^[[:space:]]*val[[:space:]]+(target_selection_error|wire_admission_error|admission_error)_[[:alnum:]_]+/) {
+            accessor = substr($0, RSTART, RLENGTH)
+            sub(/^[[:space:]]*val[[:space:]]+/, "", accessor)
+            if (accessor != "target_selection_error_disposition" && accessor != "admission_error_disposition") {
+              printf "%d:%s\n", NR, $0
+            }
+          }
+        '
+  )"
+  if [[ -n "$hits" ]]; then
+    while IFS= read -r hit; do
+      printf '%s:%s\n' "$source_file" "$hit" >&2
+    done <<< "$hits"
+    echo \
+      "exact-output boundary violation: detailed exact-output error accessor escaped" \
+      >&2
+    return 1
+  fi
+}
+
 exact_output_source=""
 exact_output_flow_source=""
 resolver_source=""
@@ -626,7 +803,246 @@ require_code_sequence \
   "canonical facade lost outer exact-flow execution" \
   'val[[:space:]]+execute_flow_once[[:space:]]*:' \
   "$exact_output_interface"
+require_code_sequence \
+  "canonical facade lost immutable flow snapshot construction" \
+  'val[[:space:]]+snapshot_flow[[:space:]]*:' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow lost typed candidate-visit progress" \
+  'type[[:space:]]+candidate_visit_count([[:space:]]|$)' \
+  "$exact_output_interface"
+require_type_constructor_set \
+  "outer exact flow lost provider-neutral rejection projection" \
+  "$exact_output_interface" \
+  candidate_rejection_disposition \
+  Runtime_slot_unavailable \
+  Runtime_contract_rejected \
+  Input_contract_rejected \
+  Output_requirement_rejected \
+  Input_capacity \
+  Request_preparation_failed
+require_type_block_pattern \
+  "outer exact flow lost the typed input-capacity payload" \
+  "$exact_output_interface" \
+  candidate_rejection_disposition \
+  'Input_capacity[[:space:]]+of[[:space:]]+input_capacity_disposition([^[:alnum:]_]|$)'
+require_type_constructor_set \
+  "outer exact flow lost the closed token/byte capacity projection" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  Token_measurement_required \
+  Serialized_request_body_too_large
+require_type_field_set \
+  "outer exact flow changed the closed token/byte capacity fields" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  accepted_through_tokens \
+  rejected_from_tokens \
+  actual_bytes \
+  limit_bytes
+require_type_block_pattern \
+  "token measurement disposition lost accepted-through token evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Token_measurement_required[[:space:]]+of[[:space:]]*\{[^}]*accepted_through_tokens[[:space:]]*:'
+require_type_block_pattern \
+  "token measurement disposition lost rejected-from token evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Token_measurement_required[[:space:]]+of[[:space:]]*\{[^}]*rejected_from_tokens[[:space:]]*:'
+require_type_block_pattern \
+  "serialized request disposition lost actual-byte evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Serialized_request_body_too_large[[:space:]]+of[[:space:]]*\{[^}]*actual_bytes[[:space:]]*:'
+require_type_block_pattern \
+  "serialized request disposition lost byte-limit evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Serialized_request_body_too_large[[:space:]]+of[[:space:]]*\{[^}]*limit_bytes[[:space:]]*:'
+require_type_block_pattern \
+  "outer exact flow changed accepted-through token evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'accepted_through_tokens[[:space:]]*:[[:space:]]*int([^[:alnum:]_]|$)'
+require_type_block_pattern \
+  "outer exact flow changed rejected-from token evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'rejected_from_tokens[[:space:]]*:[[:space:]]*int[[:space:]]+option([^[:alnum:]_]|$)'
+require_type_block_pattern \
+  "outer exact flow changed serialized request byte evidence" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'actual_bytes[[:space:]]*:[[:space:]]*int([^[:alnum:]_]|$)'
+require_type_block_pattern \
+  "outer exact flow changed serialized request byte limit" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'limit_bytes[[:space:]]*:[[:space:]]*int([^[:alnum:]_]|$)'
+require_opaque_type \
+  "target-selection errors stopped being opaque" \
+  "$exact_output_interface" \
+  target_selection_error
+require_opaque_type \
+  "wire-admission errors stopped being opaque" \
+  "$exact_output_interface" \
+  wire_admission_error
+require_opaque_type \
+  "request-admission errors stopped being opaque" \
+  "$exact_output_interface" \
+  admission_error
+require_code_sequence \
+  "outer exact flow lost its OAS-owned identity" \
+  'type[[:space:]]+flow_id([[:space:]]|$)' \
+  "$exact_output_interface"
+require_type_block_pattern \
+  "outer exact flow lost immutable candidate visits" \
+  "$exact_output_interface" \
+  flow_candidate_visit \
+  'type[[:space:]]+flow_candidate_visit[[:space:]]*=[[:space:]]*private[[:space:]]*\{'
+require_type_field_set \
+  "outer exact flow changed immutable candidate-visit fields" \
+  "$exact_output_interface" \
+  flow_candidate_visit \
+  flow_id \
+  ordinal \
+  identity
+require_type_block_pattern \
+  "outer exact flow changed candidate-visit flow identity" \
+  "$exact_output_interface" \
+  flow_candidate_visit \
+  'flow_id[[:space:]]*:[[:space:]]*flow_id([^[:alnum:]_]|$)'
+require_type_block_pattern \
+  "outer exact flow changed candidate-visit ordinal" \
+  "$exact_output_interface" \
+  flow_candidate_visit \
+  'ordinal[[:space:]]*:[[:space:]]*flow_visit_ordinal([^[:alnum:]_]|$)'
+require_type_block_pattern \
+  "outer exact flow changed candidate-visit identity" \
+  "$exact_output_interface" \
+  flow_candidate_visit \
+  'identity[[:space:]]*:[[:space:]]*flow_candidate_identity([^[:alnum:]_]|$)'
+require_code_sequence \
+  "candidate rejection no longer stores the immutable visit" \
+  'val[[:space:]]+candidate_rejection_visit[[:space:]]*:[[:space:]]*candidate_rejection_receipt[[:space:]]*->[[:space:]]*flow_candidate_visit' \
+  "$exact_output_interface"
+require_code_sequence \
+  "admitted candidate no longer stores the immutable visit" \
+  'type[[:space:]]+admitted_flow_candidate[[:space:]]*=[[:space:]]*\{[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  "$exact_output_interface"
+require_code_sequence \
+  "execution receipt no longer stores the immutable visit" \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*\{[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer exact flow start stopped failing closed on identity allocation" \
+  'val[[:space:]]+start_flow[[:space:]]*:[[:space:]]*flow_snapshot[[:space:]]*->[[:space:]]*\(flow_attempt,[[:space:]]*flow_start_error\)[[:space:]]*result' \
+  "$exact_output_interface"
+require_named_function_pattern \
+  "outer exact flow start stopped allocating one OAS-owned identity" \
+  'Exact_output_call_id[.]create' \
+  "$exact_output_source" \
+  "start_flow"
+require_named_function_pattern \
+  "outer exact flow start stopped precomputing immutable visits" \
+  'List[.]mapi' \
+  "$exact_output_source" \
+  "start_flow"
+require_opaque_type \
+  "outer exact flow lost typed candidate-rejection receipts" \
+  "$exact_output_interface" \
+  candidate_rejection_receipt
+require_code_pattern \
+  "candidate rejection is no longer fixed at Before_dispatch" \
+  'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \
+  "$exact_output_source"
+require_code_pattern \
+  "candidate rejection is no longer fixed at zero dispatch" \
+  'let[[:space:]]+candidate_rejection_dispatch_count[[:space:]]+_[[:space:]]*=[[:space:]]*0' \
+  "$exact_output_source"
+require_code_sequence \
+  "outer flow candidate no longer accepts a catalog-admitted target" \
+  'val[[:space:]]+make_flow_candidate[[:space:]]*:[[:space:]]*id:string[[:space:]]*->[[:space:]]*admitted_target:admitted_target' \
+  "$exact_output_interface"
+scan_code \
+  "outer flow catalog-admitted target label was rebound to a selected target" \
+  'admitted_target[[:space:]]*:[[:space:]]*selected_target' \
+  "$exact_output_interface"
+require_code_sequence \
+  "outer flow candidate no longer stores its catalog-admitted target" \
+  'type[[:space:]]+flow_candidate[[:space:]]*=[[:space:]]*\{[^}]*admitted_target[[:space:]]*:[[:space:]]*admitted_target' \
+  "$exact_output_source"
+scan_named_functions \
+  "outer flow selected credentials before current-candidate execution" \
+  'resolve_target' \
+  "$exact_output_source" \
+  "make_flow_candidate snapshot_flow start_flow"
+require_code_pattern \
+  "outer exact flow no longer prepares only the executing candidate" \
+  'let[[:space:]]+execute_flow_candidate([^[:alnum:]_]|$)' \
+  "$exact_output_source"
+require_named_function_pattern \
+  "current exact-flow candidate no longer resolves its frozen target" \
+  'resolve_target[[:space:]]+candidate[.]admitted_target' \
+  "$exact_output_source" \
+  "execute_flow_candidate"
+require_named_function_pattern \
+  "current exact-flow candidate lost typed target-selection rejection" \
+  'Target_selection_rejected' \
+  "$exact_output_source" \
+  "execute_flow_candidate"
+require_named_function_pattern \
+  "current exact-flow candidate lost typed request-admission rejection" \
+  'Request_admission_rejected' \
+  "$exact_output_source" \
+  "execute_flow_candidate"
+require_code_sequence \
+  "outer exact flow lost typed candidate exhaustion" \
+  'Flow_candidates_exhausted[[:space:]]+of' \
+  "$exact_output_interface"
+require_code_sequence \
+  "private exact-output flow lost typed advance-error refinement" \
+  'advanceable:.*option.*failure:.*advanceable_error' \
+  "$module_dir/exact_output_flow.mli"
+scan_named_functions \
+  "outer exact-flow advance refinement returned to runtime exceptions" \
+  'invalid_arg|failwith' \
+  "$exact_output_source" \
+  "advanceable_flow_failure execute_flow_once"
+scan_code \
+  "speculative ready-flow admission projection returned" \
+  'type[[:space:]]+ready_flow|val[[:space:]]+(ready_flow_admissions|admit_flow)|let[[:space:]]+(ready_flow_admissions|admit_flow)' \
+  "$exact_output_interface" \
+  "$exact_output_source"
+scan_code \
+  "obsolete outer-flow admission or attempt-count surface returned" \
+  'candidate_attempt_count|admission_rejection|Flow_admission_failed|Flow_candidate_admission_rejected|Flow_step_admission_rejected' \
+  "$exact_output_interface" \
+  "$exact_output_source" \
+  "$module_dir/exact_output_flow.mli" \
+  "$exact_output_flow_source"
+scan_code \
+  "provider, model, credential, or raw serving evidence escaped the public rejection surface" \
+  'Missing_target_credential|Target_credential_invalid|Target_credential_read_failed|Unsupported_target_model|Target_selection_rejected|Request_admission_rejected|candidate_rejection_cause|Token_measurement_required[[:space:]]+of[[:space:]]+Serving_constraint[.]t' \
+  "$exact_output_interface"
+scan_code \
+  "raw serving-constraint evidence escaped the public exact-output facade" \
+  'Serving_constraint' \
+  "$exact_output_interface"
+scan_public_error_accessors "$exact_output_interface"
+scan_code \
+  "before-advance successor lost its immutable flow visit" \
+  'next:flow_candidate_identity' \
+  "$exact_output_interface"
+scan_named_functions \
+  "candidate rejection fabricated a call or execution attempt identity" \
+  'start_attempt|Call_id|Exact_output_call_id' \
+  "$exact_output_source" \
+  "record_candidate_rejection"
 scan_code \
   "parallel public exact-output flow module escaped the single facade" \
   '^[[:space:]]*module[[:space:]]+(Flow|Exact_output_flow)' \
   "$exact_output_interface"
+
+echo "exact-output resolver boundary: OK"

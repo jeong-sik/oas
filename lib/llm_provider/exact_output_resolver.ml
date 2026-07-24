@@ -51,7 +51,7 @@ type resolver_binding_component =
   | Target_provider
   | Target_model
 
-type resolver_endpoint_error =
+type resolver_endpoint_error = Binding.endpoint_error =
   | Malformed_base_url
   | Base_url_userinfo_not_allowed
   | Base_url_query_not_allowed
@@ -514,94 +514,21 @@ let%test "case-only target overlay shadow fails closed" =
   | None, _ | _, None -> false
 ;;
 
-let validate_base_url ~target_ref value =
-  let target_ref = target_ref_id target_ref in
-  if Binding.has_control value
-  then Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url })
-  else if String.contains value '?'
-  then Error (Target_endpoint_invalid { target_ref; cause = Base_url_query_not_allowed })
-  else if String.contains value '#'
-  then
-    Error (Target_endpoint_invalid { target_ref; cause = Base_url_fragment_not_allowed })
-  else (
-    let uri = Uri.of_string value in
-    match Uri.scheme uri, Uri.host uri with
-    | Some ("http" | "https"), Some host when host <> "" ->
-      if Option.is_some (Uri.userinfo uri)
-      then
-        Error
-          (Target_endpoint_invalid { target_ref; cause = Base_url_userinfo_not_allowed })
-      else if Uri.query uri <> []
-      then
-        Error (Target_endpoint_invalid { target_ref; cause = Base_url_query_not_allowed })
-      else if Option.is_some (Uri.fragment uri)
-      then
-        Error
-          (Target_endpoint_invalid { target_ref; cause = Base_url_fragment_not_allowed })
-      else Ok ()
-    | _ -> Error (Target_endpoint_invalid { target_ref; cause = Malformed_base_url }))
+let endpoint_result ~target_ref =
+  Result.map_error (fun cause ->
+    Target_endpoint_invalid { target_ref = target_ref_id target_ref; cause })
 ;;
 
-let contains_encoded_control value =
-  let value = String.lowercase_ascii value in
-  List.exists
-    (fun encoded ->
-       let encoded_length = String.length encoded in
-       let rec loop offset =
-         offset + encoded_length <= String.length value
-         && (String.sub value offset encoded_length = encoded || loop (offset + 1))
-       in
-       loop 0)
-    [ "%00"; "%0a"; "%0d" ]
+let validate_base_url ~target_ref value =
+  Binding.validate_base_url value |> endpoint_result ~target_ref
 ;;
 
 let validate_request_path ~target_ref ~kind value =
-  let target_ref = target_ref_id target_ref in
-  match kind with
-  | PC.Gemini ->
-    if value = ""
-    then Ok ()
-    else
-      Error
-        (Target_endpoint_invalid { target_ref; cause = Unsupported_gemini_request_path })
-  | PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope ->
-    let path_segments = String.split_on_char '/' value in
-    if
-      value = ""
-      || value.[0] <> '/'
-      || Binding.has_control value
-      || contains_encoded_control value
-      || String.contains value '%'
-      || String.contains value '\\'
-      || String.contains value '?'
-      || String.contains value '#'
-      || List.exists (fun segment -> segment = "." || segment = "..") path_segments
-      || List.exists (fun segment -> segment = "") (List.tl path_segments)
-    then Error (Target_endpoint_invalid { target_ref; cause = Invalid_request_path })
-    else Ok ()
+  Binding.validate_request_path ~kind value |> endpoint_result ~target_ref
 ;;
 
 let validate_model_path ~target_ref kind model_id =
-  let target_ref = target_ref_id target_ref in
-  match kind with
-  | PC.Gemini
-    when model_id = ""
-         || model_id = "."
-         || model_id = ".."
-         || not
-              (String.for_all
-                 (function
-                   | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' | '~' -> true
-                   | _ -> false)
-                 model_id) ->
-    Error (Target_endpoint_invalid { target_ref; cause = Invalid_gemini_model_path })
-  | PC.Gemini
-  | PC.Anthropic
-  | PC.Kimi
-  | PC.OpenAI_compat
-  | PC.Ollama
-  | PC.Glm
-  | PC.DashScope -> Ok ()
+  Binding.validate_model_path kind model_id |> endpoint_result ~target_ref
 ;;
 
 let option_float = function
@@ -964,6 +891,10 @@ let admit_target_ref snapshot value =
      | Some target ->
        Ok { target; generation = snapshot.generation; evidence = snapshot.evidence })
 ;;
+
+let admitted_target_identity (admitted : admitted_target) = admitted.target.identity
+let admitted_target_catalog_generation (admitted : admitted_target) = admitted.generation
+let admitted_target_catalog_evidence (admitted : admitted_target) = admitted.evidence
 
 let resolve_target (admitted : admitted_target) =
   let target = admitted.target in

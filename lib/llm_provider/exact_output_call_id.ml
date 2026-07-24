@@ -1,4 +1,4 @@
-(** Private exact-output call identity generation.
+(** Private exact-output call and outer-flow identity generation.
 
     Every identifier is sampled independently from 128 bits of operating-system
     entropy. Entropy failure is explicit and never falls back to clocks,

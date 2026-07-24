@@ -16,6 +16,7 @@
   exact_output_call_id
   exact_output_resolver
   exact_output_execution
+  exact_output_gemini_schema
   exact_output_flow
   exact_output_plan)
  (libraries

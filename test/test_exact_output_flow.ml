@@ -25,32 +25,53 @@ let schema =
 type catalog_fixture =
   { id : string
   ; base_url : string
+  ; api_key_env : string
   ; native : bool
   ; json : bool
   ; body_timeout_s : float option
   ; serving_constraint : bool
+  ; max_request_body_bytes : int option
   }
 
 let catalog_entry
       ?body_timeout_s
       ?(serving_constraint = false)
+      ?max_request_body_bytes
+      ?(api_key_env = "")
       ~id
       ~base_url
       ~native
       ~json
       ()
   =
-  { id; base_url; native; json; body_timeout_s; serving_constraint }
+  { id
+  ; base_url
+  ; api_key_env
+  ; native
+  ; json
+  ; body_timeout_s
+  ; serving_constraint
+  ; max_request_body_bytes
+  }
 ;;
 
 let catalog_fixture_toml entry =
+  let target_options =
+    (match entry.body_timeout_s with
+     | None -> ""
+     | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
+    ^
+    match entry.max_request_body_bytes with
+    | None -> ""
+    | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes
+  in
   Printf.sprintf
     "[[providers]]\n\
      id = %S\n\
      kind = \"openai_compat\"\n\
      base_url = %S\n\
      request_path = \"/v1/chat/completions\"\n\
-     api_key_env = \"\"\n\n\
+     api_key_env = %S\n\n\
      [[models]]\n\
      id_prefix = %S\n\
      provider_name = %S\n\
@@ -65,6 +86,7 @@ let catalog_fixture_toml entry =
      %s"
     entry.id
     entry.base_url
+    entry.api_key_env
     (entry.id ^ "-model")
     entry.id
     (if entry.serving_constraint
@@ -82,44 +104,46 @@ let catalog_fixture_toml entry =
     entry.id
     entry.id
     (entry.id ^ "-model")
-    (match entry.body_timeout_s with
-     | None -> ""
-     | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
+    target_options
 ;;
 
-let with_catalog entries f =
+let with_catalog ?(getenv = fun _ -> Ok None) entries f =
   let document : EO.catalog_document =
     { source = "exact-output outer-flow fixture"
     ; contents = String.concat "\n" (List.map catalog_fixture_toml entries)
     }
   in
-  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let io : EO.resolver_io = { getenv } in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay document) () with
   | Error _ -> fail "outer-flow resolver snapshot should load"
   | Ok snapshot -> f snapshot
 ;;
 
-let target snapshot selector =
+let admitted_target snapshot selector =
   match EO.admit_target_ref snapshot selector with
   | Error _ -> failf "target ref %s was not admitted" selector
-  | Ok admitted ->
-    (match EO.resolve_target admitted with
-     | Ok target -> target
-     | Error _ -> failf "target %s did not resolve" selector)
+  | Ok admitted -> admitted
 ;;
 
 let flow_candidate snapshot id =
-  match EO.make_flow_candidate ~id ~target:(target snapshot id) with
+  match EO.make_flow_candidate ~id ~admitted_target:(admitted_target snapshot id) with
   | Ok candidate -> candidate
   | Error EO.Blank_flow_candidate_id -> fail "fixture candidate id was blank"
 ;;
 
-let ready_flow snapshot ids =
+let credential_getenv = function
+  | "MISSING_FLOW_KEY" -> Ok None
+  | "INVALID_FLOW_KEY" -> Ok (Some "secret\r\nX-Leak: yes")
+  | "READ_FAILED_FLOW_KEY" -> Error ()
+  | _ -> Ok None
+;;
+
+let frozen_flow snapshot ids =
   match List.map (flow_candidate snapshot) ids with
   | [] -> fail "flow fixture must be nonempty"
   | first :: rest ->
     (match
-       EO.admit_flow
+       EO.snapshot_flow
          ~first
          ~rest
          ~messages:[ msg "return one exact object" ]
@@ -132,8 +156,8 @@ let ready_flow snapshot ids =
 let start_flow ready =
   match EO.start_flow ready with
   | Ok flow -> flow
-  | Error (EO.Flow_candidate_attempt_start_failed _) ->
-    fail "flow attempt identity allocation failed"
+  | Error (EO.Flow_id_generation_failed detail) ->
+    failf "flow identity allocation failed: %s" detail
 ;;
 
 let fresh_port () =
@@ -193,13 +217,27 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
   result, Atomic.get completion_posts
 ;;
 
-let candidate_id (candidate : EO.flow_attempt_receipt) = candidate.identity.candidate_id
+let candidate_id (candidate : EO.flow_attempt_receipt) =
+  candidate.visit.identity.candidate_id
+;;
+
+let flow_failure_id = function
+  | EO.Flow_candidate_rejected rejection ->
+    (EO.candidate_rejection_identity rejection).candidate_id
+  | EO.Flow_candidate_execution_failed { candidate; _ } -> candidate_id candidate
+;;
+
+let flow_execution_failure = function
+  | EO.Flow_candidate_execution_failed { candidate; cause; _ } -> candidate, cause
+  | EO.Flow_candidate_rejected _ ->
+    fail "expected an execution failure, got a candidate rejection"
+;;
 
 let attempt_for evidence id =
   match
     List.find_opt
       (fun (attempt : EO.flow_attempt_receipt) ->
-         String.equal attempt.identity.candidate_id id)
+         String.equal attempt.visit.identity.candidate_id id)
       evidence.EO.attempts
   with
   | Some attempt -> attempt
@@ -210,14 +248,14 @@ let execute_ok ~net flow =
   EO.execute_flow_once
     ~net
     ~before_dispatch:(fun _ -> Ok ())
-    ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ -> Ok ())
+    ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
     flow
 ;;
 
-let test_admission_freezes_all_candidates_before_network () =
-  let (admissions, evidence_a, evidence_b), posts =
-    with_server ~response:(openai_response {|{"name":"unused"}|})
-    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
+  let (before_a, before_b, result_a, result_b), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     let entry id native json = catalog_entry ~id ~base_url ~native ~json () in
     with_catalog
       [ entry "flow-good-a" true true
@@ -232,64 +270,457 @@ let test_admission_freezes_all_candidates_before_network () =
       match candidates with
       | first :: rest ->
         (match
-           EO.admit_flow
+           EO.snapshot_flow
              ~first
              ~rest
              ~messages:[ msg "freeze all" ]
              (EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
          with
          | Ok ready -> ready
-         | Error _ -> fail "partially admissible flow should be ready")
+         | Error _ -> fail "valid flow topology should freeze")
       | [] -> assert false
     in
     let flow_a = start_flow ready in
     let flow_b = start_flow ready in
-    ( EO.ready_flow_admissions ready
-    , EO.flow_attempt_evidence flow_a
-    , EO.flow_attempt_evidence flow_b )
+    let before_a = EO.flow_attempt_evidence flow_a in
+    let before_b = EO.flow_attempt_evidence flow_b in
+    check
+      string
+      "flow A handle and evidence share one identity"
+      (EO.flow_id_to_string before_a.flow_id)
+      (EO.flow_id_to_string (EO.flow_attempt_id flow_a));
+    check
+      string
+      "flow B handle and evidence share one identity"
+      (EO.flow_id_to_string before_b.flow_id)
+      (EO.flow_id_to_string (EO.flow_attempt_id flow_b));
+    before_a, before_b, execute_ok ~net flow_a, execute_ok ~net flow_b
   in
-  check int "admission and attempt allocation make no POST" 0 posts;
-  check int "all admission outcomes retained" 3 (List.length admissions);
-  (match admissions with
-   | [ EO.Candidate_admitted admitted_a
-     ; EO.Candidate_rejected { identity = rejected; cause = EO.Json_syntax_unavailable }
-     ; EO.Candidate_admitted admitted_b
-     ] ->
-     check
-       string
-       "first admission identity"
-       "flow-good-a"
-       admitted_a.identity.candidate_id;
-     check string "rejection identity" "flow-rejected" rejected.candidate_id;
-     check string "last admission identity" "flow-good-b" admitted_b.identity.candidate_id
-   | _ -> fail "ordered admission evidence was incomplete");
-  check int "only admitted candidates get attempts" 2 (List.length evidence_a.attempts);
+  check int "two independent current attempts make two POSTs" 2 posts;
+  check
+    bool
+    "independent flow starts do not share outer identity"
+    true
+    (not
+       (String.equal
+          (EO.flow_id_to_string before_a.flow_id)
+          (EO.flow_id_to_string before_b.flow_id)));
   List.iter
-    (fun (attempt : EO.flow_attempt_receipt) ->
+    (fun evidence ->
        check
-         bool
-         "candidate remains not started"
-         true
-         (EO.receipt_phase attempt.receipt = EO.Not_started))
-    evidence_a.attempts;
-  List.iter2
-    (fun (left : EO.flow_attempt_receipt) (right : EO.flow_attempt_receipt) ->
+         int
+         "candidate snapshot is complete"
+         3
+         (List.length evidence.EO.candidate_snapshot);
+       check int "no admission is speculative" 0 (List.length evidence.admissions);
+       check int "no attempt is speculative" 0 (List.length evidence.attempts);
        check
-         bool
-         "separate flows do not share call identity"
-         true
-         (not
-            (String.equal
-               (EO.receipt_call_id left.receipt |> EO.call_id_to_string)
-               (EO.receipt_call_id right.receipt |> EO.call_id_to_string))))
-    evidence_a.attempts
-    evidence_b.attempts
+         int
+         "candidate visit count starts at zero"
+         0
+         (EO.candidate_visit_count_to_int evidence.candidate_visit_count))
+    [ before_a; before_b ];
+  match result_a, result_b with
+  | Ok success_a, Ok success_b ->
+    List.iter
+      (fun success ->
+         check
+           int
+           "only current candidate is admitted"
+           1
+           (List.length success.EO.evidence.admissions);
+         check
+           int
+           "only current candidate gets an attempt"
+           1
+           (List.length success.evidence.attempts);
+         check
+           int
+           "candidate visit count advances once"
+           1
+           (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count))
+      [ success_a; success_b ];
+    check
+      bool
+      "separate flows do not share call identity"
+      true
+      (not
+         (String.equal
+            (EO.receipt_call_id success_a.candidate.receipt |> EO.call_id_to_string)
+            (EO.receipt_call_id success_b.candidate.receipt |> EO.call_id_to_string)));
+    List.iter
+      (fun success ->
+         check
+           string
+           "attempt visit remains bound to its outer flow"
+           (EO.flow_id_to_string success.EO.evidence.flow_id)
+           (EO.flow_id_to_string success.candidate.visit.flow_id);
+         check
+           int
+           "current candidate visit ordinal is one"
+           1
+           (EO.flow_visit_ordinal_to_int success.candidate.visit.ordinal))
+      [ success_a; success_b ]
+  | Ok _, Error _ | Error _, Ok _ | Error _, Error _ ->
+    fail "independent current candidates did not both succeed"
 ;;
 
-let test_unmeasured_constraint_rejects_exact_candidate_before_network () =
-  let admissions, posts =
+let test_later_missing_credential_does_not_block_current_success () =
+  let (result, advances), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry ~id:"current-good" ~base_url ~native:true ~json:true ()
+      ; catalog_entry
+          ~api_key_env:"MISSING_FLOW_KEY"
+          ~id:"later-missing"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let advances = ref 0 in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        (start_flow (frozen_flow snapshot [ "current-good"; "later-missing" ]))
+    in
+    result, !advances
+  in
+  check int "only the current candidate posts" 1 posts;
+  check int "unvisited missing credential does not advance" 0 advances;
+  match result with
+  | Ok success ->
+    check
+      string
+      "current candidate succeeds"
+      "current-good"
+      (candidate_id success.candidate);
+    check
+      int
+      "full candidate snapshot remains frozen"
+      2
+      (List.length success.evidence.candidate_snapshot);
+    check
+      int
+      "only current admission is recorded"
+      1
+      (List.length success.evidence.admissions);
+    check
+      int
+      "only current attempt is allocated"
+      1
+      (List.length success.evidence.attempts);
+    check
+      int
+      "only current candidate is visited"
+      1
+      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+  | Error _ -> fail "later missing credential blocked the current candidate"
+;;
+
+let test_missing_current_credential_advances_after_durable_settlement () =
+  let (result, transitions, bound, next_visit), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry
+          ~api_key_env:"MISSING_FLOW_KEY"
+          ~id:"current-missing"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry ~id:"next-good" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let transitions = ref [] in
+    let bound = ref [] in
+    let next_visit = ref None in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun candidate ->
+          bound := candidate_id candidate :: !bound;
+          Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          match failed with
+          | EO.Flow_candidate_rejected rejection ->
+            let identity = EO.candidate_rejection_identity rejection in
+            (match EO.candidate_rejection_disposition rejection with
+             | EO.Runtime_slot_unavailable -> ()
+             | _ -> fail "missing credential lost its neutral slot disposition");
+            check
+              string
+              "rejected current identity"
+              "current-missing"
+              identity.candidate_id;
+            check
+              bool
+              "selection rejection is pre-dispatch"
+              true
+              (EO.candidate_rejection_phase rejection = EO.Before_dispatch);
+            check
+              int
+              "selection rejection is zero-dispatch"
+              0
+              (EO.candidate_rejection_dispatch_count rejection);
+            check
+              int
+              "selection rejection is first visit"
+              1
+              (EO.flow_visit_ordinal_to_int
+                 (EO.candidate_rejection_visit rejection).ordinal);
+            check
+              string
+              "rejection and successor share one outer flow"
+              (EO.flow_id_to_string (EO.candidate_rejection_visit rejection).flow_id)
+              (EO.flow_id_to_string next.flow_id);
+            check
+              int
+              "successor visit is second"
+              2
+              (EO.flow_visit_ordinal_to_int next.ordinal);
+            next_visit := Some next;
+            transitions
+            := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
+            Ok ()
+          | EO.Flow_candidate_execution_failed _ ->
+            fail "missing credential became an execution failure")
+        (start_flow (frozen_flow snapshot [ "current-missing"; "next-good" ]))
+    in
+    result, List.rev !transitions, List.rev !bound, !next_visit
+  in
+  check int "only resolved successor posts" 1 posts;
+  check
+    (list (pair string string))
+    "selection rejection advances to predetermined successor"
+    [ "current-missing", "next-good" ]
+    transitions;
+  check (list string) "only successor reaches before_dispatch" [ "next-good" ] bound;
+  match result with
+  | Ok success ->
+    check
+      string
+      "resolved successor succeeds"
+      "next-good"
+      (candidate_id success.candidate);
+    check
+      int
+      "both candidate outcomes remain ordered"
+      2
+      (List.length success.evidence.admissions);
+    check int "only successor gets an attempt" 1 (List.length success.evidence.attempts);
+    (match next_visit with
+     | Some next ->
+       check
+         string
+         "settled successor visit becomes the successful attempt visit"
+         (EO.flow_id_to_string next.flow_id)
+         (EO.flow_id_to_string success.candidate.visit.flow_id);
+       check
+         int
+         "settled successor ordinal is retained by the attempt"
+         (EO.flow_visit_ordinal_to_int next.ordinal)
+         (EO.flow_visit_ordinal_to_int success.candidate.visit.ordinal);
+       check
+         string
+         "settled successor identity is retained by the attempt"
+         next.identity.candidate_id
+         success.candidate.visit.identity.candidate_id
+     | None -> fail "successful successor had no settled visit");
+    check
+      int
+      "both candidates are visited"
+      2
+      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+  | Error _ -> fail "durably settled selection rejection did not reach successor"
+;;
+
+let test_read_failed_current_credential_advances_to_good_successor () =
+  let (result, advances), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry
+          ~api_key_env:"READ_FAILED_FLOW_KEY"
+          ~id:"read-failed-current"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry ~id:"read-failed-successor" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let advances = ref [] in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          match failed with
+          | EO.Flow_candidate_rejected rejection ->
+            (match EO.candidate_rejection_disposition rejection with
+             | EO.Runtime_slot_unavailable -> ()
+             | _ -> fail "read-failed credential lost its neutral slot disposition");
+            check
+              int
+              "read-failed credential is zero-dispatch"
+              0
+              (EO.candidate_rejection_dispatch_count rejection);
+            advances
+            := ( (EO.candidate_rejection_identity rejection).candidate_id
+               , next.identity.candidate_id )
+               :: !advances;
+            Ok ()
+          | EO.Flow_candidate_execution_failed _ ->
+            fail "read-failed credential became an execution attempt")
+        (start_flow
+           (frozen_flow snapshot [ "read-failed-current"; "read-failed-successor" ]))
+    in
+    result, List.rev !advances
+  in
+  check int "only the read-failed successor posts" 1 posts;
+  check
+    (list (pair string string))
+    "read-failed credential advances in frozen order"
+    [ "read-failed-current", "read-failed-successor" ]
+    advances;
+  match result with
+  | Ok success ->
+    check
+      string
+      "read-failed successor succeeds"
+      "read-failed-successor"
+      (candidate_id success.candidate)
+  | Error _ -> fail "read-failed current candidate blocked its good successor"
+;;
+
+let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
+  let (result, transitions, evidence), posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
-    @@ fun ~sw:_ ~net:_ ~clock:_ ~base_url ->
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry
+          ~api_key_env:"MISSING_FLOW_KEY"
+          ~id:"credential-missing"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~api_key_env:"INVALID_FLOW_KEY"
+          ~id:"credential-invalid"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~api_key_env:"READ_FAILED_FLOW_KEY"
+          ~id:"credential-read-failed"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let transitions = ref [] in
+    let flow =
+      start_flow
+        (frozen_flow
+           snapshot
+           [ "credential-missing"; "credential-invalid"; "credential-read-failed" ])
+    in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun candidate ->
+          failf "credential rejection %s reached before_dispatch" (candidate_id candidate))
+        ~before_advance:(fun ~failed ~next ->
+          transitions
+          := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
+          Ok ())
+        flow
+    in
+    result, List.rev !transitions, EO.flow_attempt_evidence flow
+  in
+  check int "credential rejections perform zero completion POSTs" 0 posts;
+  check
+    (list (pair string string))
+    "credential rejection transitions remain ordered"
+    [ "credential-missing", "credential-invalid"
+    ; "credential-invalid", "credential-read-failed"
+    ]
+    transitions;
+  check
+    int
+    "credential rejections fabricate no attempts"
+    0
+    (List.length evidence.attempts);
+  check int "all credential outcomes remain ordered" 3 (List.length evidence.admissions);
+  let check_rejection ~id ~visit rejection =
+    check
+      string
+      "credential rejection identity"
+      id
+      (EO.candidate_rejection_identity rejection).candidate_id;
+    check
+      bool
+      "credential rejection remains pre-dispatch"
+      true
+      (EO.candidate_rejection_phase rejection = EO.Before_dispatch);
+    check
+      int
+      "credential rejection remains zero-dispatch"
+      0
+      (EO.candidate_rejection_dispatch_count rejection);
+    check
+      int
+      "credential rejection visit is exact"
+      visit
+      (EO.flow_visit_ordinal_to_int (EO.candidate_rejection_visit rejection).ordinal);
+    match EO.candidate_rejection_disposition rejection with
+    | EO.Runtime_slot_unavailable -> ()
+    | _ -> fail "credential rejection leaked a non-neutral disposition"
+  in
+  (match evidence.admissions with
+   | [ EO.Candidate_rejected missing
+     ; EO.Candidate_rejected invalid
+     ; EO.Candidate_rejected read_failed
+     ] ->
+     check_rejection ~id:"credential-missing" ~visit:1 missing;
+     check_rejection ~id:"credential-invalid" ~visit:2 invalid;
+     check_rejection ~id:"credential-read-failed" ~visit:3 read_failed
+   | _ -> fail "credential evidence did not retain three typed rejections");
+  match result with
+  | Error (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence }) ->
+    check
+      string
+      "last rejected candidate is terminal"
+      "credential-read-failed"
+      (EO.candidate_rejection_identity rejection).candidate_id;
+    check int "terminal retains zero attempts" 0 (List.length terminal_evidence.attempts);
+    check
+      int
+      "terminal candidate visit count is exact"
+      3
+      (EO.candidate_visit_count_to_int terminal_evidence.candidate_visit_count)
+  | Ok _ | Error _ -> fail "credential exhaustion lost its typed terminal rejection"
+;;
+
+let test_unmeasured_constraint_advances_only_after_durable_settlement () =
+  let (result, transitions, bound), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
       [ catalog_entry
           ~id:"constrained-exact"
@@ -301,29 +732,357 @@ let test_unmeasured_constraint_rejects_exact_candidate_before_network () =
       ; catalog_entry ~id:"unconstrained-exact" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let ready = ready_flow snapshot [ "constrained-exact"; "unconstrained-exact" ] in
-    EO.ready_flow_admissions ready
+    let ready = frozen_flow snapshot [ "constrained-exact"; "unconstrained-exact" ] in
+    let transitions = ref [] in
+    let bound = ref [] in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun candidate ->
+          bound := candidate_id candidate :: !bound;
+          Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          match failed with
+          | EO.Flow_candidate_rejected rejection ->
+            let identity = EO.candidate_rejection_identity rejection in
+            let accepted_through_tokens, rejected_from_tokens =
+              match EO.candidate_rejection_disposition rejection with
+              | EO.Input_capacity
+                  (EO.Token_measurement_required
+                     { accepted_through_tokens; rejected_from_tokens }) ->
+                accepted_through_tokens, rejected_from_tokens
+              | _ -> fail "capacity rejection lost its neutral disposition"
+            in
+            check
+              string
+              "settled rejected identity"
+              "constrained-exact"
+              identity.candidate_id;
+            check int "settled constraint remains exact" 524298 accepted_through_tokens;
+            check
+              (option int)
+              "settled rejected boundary remains exact"
+              (Some 524299)
+              rejected_from_tokens;
+            check
+              bool
+              "admission receipt is pre-dispatch"
+              true
+              (EO.candidate_rejection_phase rejection = EO.Before_dispatch);
+            check
+              int
+              "admission receipt is zero-dispatch"
+              0
+              (EO.candidate_rejection_dispatch_count rejection);
+            transitions
+            := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
+            Ok ()
+          | _ -> fail "capacity rejection lost its typed durable transition")
+        (start_flow ready)
+    in
+    result, List.rev !transitions, List.rev !bound
   in
-  check int "exact admission makes no POST" 0 posts;
-  match admissions with
-  | [ EO.Candidate_rejected
-        { identity
-        ; cause = EO.Wire_admission_rejected (EO.Token_measurement_required constraint_)
-        }
-    ; EO.Candidate_admitted admitted
-    ] ->
-    check string "constrained identity" "constrained-exact" identity.candidate_id;
-    check
-      int
-      "constraint remains exact"
-      524298
-      constraint_.Serving_constraint.observation.accepted_through;
+  check int "only the admitted successor posts" 1 posts;
+  check
+    (list (pair string string))
+    "capacity transition is explicit"
+    [ "constrained-exact", "unconstrained-exact" ]
+    transitions;
+  check
+    (list string)
+    "only the admitted successor reaches before_dispatch"
+    [ "unconstrained-exact" ]
+    bound;
+  match result with
+  | Ok success ->
     check
       string
-      "unconstrained successor remains available"
+      "admitted successor succeeds"
       "unconstrained-exact"
-      admitted.identity.candidate_id
-  | _ -> fail "unmeasured exact candidate did not fail closed before its successor"
+      (candidate_id success.candidate);
+    check
+      int
+      "only reached candidates are admitted"
+      2
+      (List.length success.evidence.admissions);
+    check
+      int
+      "candidate visit count preserves ordered progress"
+      2
+      (EO.candidate_visit_count_to_int success.evidence.candidate_visit_count)
+  | Error _ -> fail "durably settled admission rejection did not reach its successor"
+;;
+
+let test_request_body_capacity_advances_only_after_durable_settlement () =
+  let (result, transition), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~max_request_body_bytes:1
+          ~id:"body-capped"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry ~id:"body-successor" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let transition = ref None in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          match failed with
+          | EO.Flow_candidate_rejected rejection ->
+            let actual_bytes, limit_bytes =
+              match EO.candidate_rejection_disposition rejection with
+              | EO.Input_capacity
+                  (EO.Serialized_request_body_too_large { actual_bytes; limit_bytes }) ->
+                actual_bytes, limit_bytes
+              | _ -> fail "request-body rejection lost its neutral disposition"
+            in
+            check bool "serialized body exceeds the exact cap" true (actual_bytes > 1);
+            check int "declared cap remains exact" 1 limit_bytes;
+            check
+              int
+              "admission receipt is zero-dispatch"
+              0
+              (EO.candidate_rejection_dispatch_count rejection);
+            transition
+            := Some
+                 ( (EO.candidate_rejection_identity rejection).candidate_id
+                 , next.identity.candidate_id );
+            Ok ()
+          | _ -> fail "request-body rejection lost its typed durable transition")
+        (start_flow (frozen_flow snapshot [ "body-capped"; "body-successor" ]))
+    in
+    result, !transition
+  in
+  check int "only body-cap successor posts" 1 posts;
+  check
+    (option (pair string string))
+    "request-body transition is explicit"
+    (Some ("body-capped", "body-successor"))
+    transition;
+  match result with
+  | Ok success ->
+    check
+      string
+      "body-cap successor succeeds"
+      "body-successor"
+      (candidate_id success.candidate)
+  | Error _ -> fail "durably settled body-cap rejection did not reach its successor"
+;;
+
+let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
+  let (result, transitions, evidence), posts =
+    with_server ~response:(openai_response {|{"name":"unused"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~serving_constraint:true
+          ~id:"rejected-a"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~max_request_body_bytes:1
+          ~id:"rejected-b"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let transitions = ref [] in
+    let flow = start_flow (frozen_flow snapshot [ "rejected-a"; "rejected-b" ]) in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_dispatch:(fun candidate ->
+          failf "rejected candidate %s reached before_dispatch" (candidate_id candidate))
+        ~before_advance:(fun ~failed ~next ->
+          transitions
+          := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
+          Ok ())
+        flow
+    in
+    result, List.rev !transitions, EO.flow_attempt_evidence flow
+  in
+  check int "all-rejected flow performs zero completion POSTs" 0 posts;
+  check
+    (list (pair string string))
+    "all-rejected flow settles the ordered transition"
+    [ "rejected-a", "rejected-b" ]
+    transitions;
+  check int "all-rejected flow fabricates no attempts" 0 (List.length evidence.attempts);
+  check int "all rejection evidence remains ordered" 2 (List.length evidence.admissions);
+  (match evidence.admissions with
+   | [ EO.Candidate_rejected first; EO.Candidate_rejected second ] ->
+     check
+       string
+       "first retained rejection"
+       "rejected-a"
+       (EO.candidate_rejection_identity first).candidate_id;
+     check
+       int
+       "first retained candidate count"
+       1
+       (EO.flow_visit_ordinal_to_int (EO.candidate_rejection_visit first).ordinal);
+     check
+       string
+       "second retained rejection"
+       "rejected-b"
+       (EO.candidate_rejection_identity second).candidate_id;
+     check
+       int
+       "second retained candidate count"
+       2
+       (EO.flow_visit_ordinal_to_int (EO.candidate_rejection_visit second).ordinal);
+     List.iter
+       (fun rejection ->
+          check
+            bool
+            "retained rejection remains pre-dispatch"
+            true
+            (EO.candidate_rejection_phase rejection = EO.Before_dispatch);
+          check
+            int
+            "retained rejection remains zero-dispatch"
+            0
+            (EO.candidate_rejection_dispatch_count rejection))
+       [ first; second ]
+   | _ -> fail "flow evidence did not retain typed admission receipts");
+  match result with
+  | Error (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence }) ->
+    check
+      string
+      "terminal rejected candidate"
+      "rejected-b"
+      (EO.candidate_rejection_identity rejection).candidate_id;
+    (match EO.candidate_rejection_disposition rejection with
+     | EO.Input_capacity
+         (EO.Serialized_request_body_too_large { actual_bytes; limit_bytes }) ->
+       check bool "terminal body remains over cap" true (actual_bytes > limit_bytes)
+     | _ -> fail "terminal admission receipt lost its neutral body-cap disposition");
+    check int "terminal retains zero attempts" 0 (List.length terminal_evidence.attempts);
+    check
+      int
+      "terminal candidate count is exact"
+      2
+      (EO.candidate_visit_count_to_int terminal_evidence.candidate_visit_count)
+  | Ok _ | Error _ -> fail "all-rejected flow lost its typed terminal admission failure"
+;;
+
+exception Rejection_advance_committed_before_successor
+
+let test_exception_after_durable_rejection_stops_before_successor () =
+  let durable_path = Filename.temp_file "oas-rejection-advance-" ".json" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove durable_path)
+    (fun () ->
+       let (raised, replay, evidence, observed), posts =
+         with_server ~response:(openai_response {|{"name":"must-not-dispatch"}|})
+         @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+         with_catalog
+           ~getenv:credential_getenv
+           [ catalog_entry
+               ~api_key_env:"MISSING_FLOW_KEY"
+               ~id:"rejection-committed"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ; catalog_entry
+               ~id:"rejection-withheld-successor"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ]
+         @@ fun snapshot ->
+         let flow =
+           start_flow
+             (frozen_flow
+                snapshot
+                [ "rejection-committed"; "rejection-withheld-successor" ])
+         in
+         let observed = ref None in
+         let raised =
+           try
+             ignore
+               (EO.execute_flow_once
+                  ~net
+                  ~before_dispatch:(fun candidate ->
+                    failf
+                      "zero-dispatch rejection unexpectedly prepared %s"
+                      (candidate_id candidate))
+                  ~before_advance:(fun ~failed ~next ->
+                    match failed with
+                    | EO.Flow_candidate_rejected rejection ->
+                      let failed_visit = EO.candidate_rejection_visit rejection in
+                      let payload =
+                        `Assoc
+                          [ "flow_id", `String (EO.flow_id_to_string failed_visit.flow_id)
+                          ; ( "failed_ordinal"
+                            , `Int (EO.flow_visit_ordinal_to_int failed_visit.ordinal) )
+                          ; ( "next_ordinal"
+                            , `Int (EO.flow_visit_ordinal_to_int next.ordinal) )
+                          ; ( "failed_candidate_id"
+                            , `String failed_visit.identity.candidate_id )
+                          ; "next_candidate_id", `String next.identity.candidate_id
+                          ]
+                      in
+                      Out_channel.with_open_bin durable_path (fun channel ->
+                        output_string channel (Yojson.Safe.to_string payload);
+                        flush channel;
+                        Unix.fsync (Unix.descr_of_out_channel channel));
+                      observed := Some (failed_visit, next);
+                      raise Rejection_advance_committed_before_successor
+                    | EO.Flow_candidate_execution_failed _ ->
+                      fail "credential rejection allocated an execution attempt")
+                  flow
+                : (EO.flow_success, unit EO.flow_execution_error) result);
+             false
+           with
+           | Rejection_advance_committed_before_successor -> true
+         in
+         raised, execute_ok ~net flow, EO.flow_attempt_evidence flow, !observed
+       in
+       check bool "exception escaped after durable rejection settlement" true raised;
+       check int "rejection and withheld successor dispatch nothing" 0 posts;
+       check int "only rejected admission is recorded" 1 (List.length evidence.admissions);
+       check int "rejection fabricates no attempt" 0 (List.length evidence.attempts);
+       check
+         int
+         "only rejected candidate is visited"
+         1
+         (EO.candidate_visit_count_to_int evidence.candidate_visit_count);
+       (match replay with
+        | Error (EO.Flow_attempt_already_started _) -> ()
+        | Ok _ | Error _ -> fail "rejection callback exception left flow replayable");
+       (match observed with
+        | Some (failed_visit, next) ->
+          check
+            string
+            "rejection and withheld successor share a flow"
+            (EO.flow_id_to_string failed_visit.flow_id)
+            (EO.flow_id_to_string next.flow_id);
+          check
+            int
+            "rejected visit ordinal"
+            1
+            (EO.flow_visit_ordinal_to_int failed_visit.ordinal);
+          check int "withheld visit ordinal" 2 (EO.flow_visit_ordinal_to_int next.ordinal)
+        | None -> fail "durable rejection visit was not observed");
+       check
+         bool
+         "durable visit settlement was written"
+         true
+         (In_channel.with_open_bin durable_path In_channel.input_all <> ""))
 ;;
 
 let test_predispatch_transport_failure_advances_after_durable_callback () =
@@ -336,7 +1095,7 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
       ; catalog_entry ~id:"flow-live" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let flow = start_flow (ready_flow snapshot [ "flow-dead"; "flow-live" ]) in
+    let flow = start_flow (frozen_flow snapshot [ "flow-dead"; "flow-live" ]) in
     let bound = ref [] in
     let advanced = ref [] in
     let events = ref [] in
@@ -347,7 +1106,8 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
           events := ("bind:" ^ candidate_id candidate) :: !events;
           bound := candidate_id candidate :: !bound;
           Ok ())
-        ~before_advance:(fun ~failed ~failure ~next ->
+        ~before_advance:(fun ~failed ~next ->
+          let failed_candidate, failure = flow_execution_failure failed in
           check
             bool
             "advance failure is pre-dispatch"
@@ -359,9 +1119,13 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
             0
             (EO.receipt_dispatch_count failure.receipt);
           events
-          := Printf.sprintf "advance:%s->%s" (candidate_id failed) (candidate_id next)
+          := Printf.sprintf
+               "advance:%s->%s"
+               (candidate_id failed_candidate)
+               next.identity.candidate_id
              :: !events;
-          advanced := (candidate_id failed, candidate_id next) :: !advanced;
+          advanced
+          := (candidate_id failed_candidate, next.identity.candidate_id) :: !advanced;
           Ok ())
         flow
     in
@@ -433,7 +1197,7 @@ let test_exception_after_durable_advance_stops_before_successor () =
          @@ fun snapshot ->
          let flow =
            start_flow
-             (ready_flow snapshot [ "advance-committed-dead"; "advance-withheld-live" ])
+             (frozen_flow snapshot [ "advance-committed-dead"; "advance-withheld-live" ])
          in
          let bound = ref [] in
          let raised =
@@ -444,7 +1208,8 @@ let test_exception_after_durable_advance_stops_before_successor () =
                   ~before_dispatch:(fun candidate ->
                     bound := candidate_id candidate :: !bound;
                     Ok ())
-                  ~before_advance:(fun ~failed ~failure ~next ->
+                  ~before_advance:(fun ~failed ~next ->
+                    let failed, failure = flow_execution_failure failed in
                     (match failure.EO.cause with
                      | EO.Completion_failed -> ()
                      | _ ->
@@ -463,19 +1228,13 @@ let test_exception_after_durable_advance_stops_before_successor () =
                     persist_advance
                       (`Assoc
                           [ "failed_candidate_id", `String (candidate_id failed)
-                          ; "next_candidate_id", `String (candidate_id next)
+                          ; "next_candidate_id", `String next.identity.candidate_id
                           ; ( "failed_call_id"
                             , `String
                                 (EO.receipt_call_id failed.receipt |> EO.call_id_to_string)
                             )
-                          ; ( "next_call_id"
-                            , `String
-                                (EO.receipt_call_id next.receipt |> EO.call_id_to_string)
-                            )
                           ; ( "failed_plan_fingerprint"
                             , `String (EO.receipt_plan_fingerprint failed.receipt) )
-                          ; ( "next_plan_fingerprint"
-                            , `String (EO.receipt_plan_fingerprint next.receipt) )
                           ; "failure_cause", `String "completion_failed"
                           ; "failure_phase", `String "before_dispatch"
                           ; "failure_dispatch_count", `Int 0
@@ -505,15 +1264,12 @@ let test_exception_after_durable_advance_stops_before_successor () =
        (match replay with
         | Error (EO.Flow_attempt_already_started replay_evidence) ->
           check
-            bool
-            "replay evidence keeps successor not started"
-            true
-            (EO.receipt_phase
-               (attempt_for replay_evidence "advance-withheld-live").receipt
-             = EO.Not_started)
+            int
+            "replay evidence keeps successor unprepared"
+            1
+            (List.length replay_evidence.attempts)
         | Ok _ | Error _ -> fail "flow was replayable after committed advance exception");
        let failed = attempt_for evidence "advance-committed-dead" in
-       let next = attempt_for evidence "advance-withheld-live" in
        check
          bool
          "failed attempt evidence remains before dispatch"
@@ -524,16 +1280,12 @@ let test_exception_after_durable_advance_stops_before_successor () =
          "failed attempt evidence remains zero dispatch"
          0
          (EO.receipt_dispatch_count failed.receipt);
-       check
-         bool
-         "successor evidence remains not started"
-         true
-         (EO.receipt_phase next.receipt = EO.Not_started);
+       check int "successor has no speculative attempt" 1 (List.length evidence.attempts);
        check
          int
-         "successor evidence remains zero dispatch"
-         0
-         (EO.receipt_dispatch_count next.receipt);
+         "only the failed candidate was attempted"
+         1
+         (EO.candidate_visit_count_to_int evidence.candidate_visit_count);
        let open Yojson.Safe.Util in
        let committed_string field = committed |> member field |> to_string in
        let committed_int field = committed |> member field |> to_int in
@@ -545,7 +1297,7 @@ let test_exception_after_durable_advance_stops_before_successor () =
        check
          string
          "committed successor joins retained evidence"
-         (candidate_id next)
+         "advance-withheld-live"
          (committed_string "next_candidate_id");
        check
          string
@@ -554,19 +1306,9 @@ let test_exception_after_durable_advance_stops_before_successor () =
          (committed_string "failed_call_id");
        check
          string
-         "committed successor call joins retained evidence"
-         (EO.receipt_call_id next.receipt |> EO.call_id_to_string)
-         (committed_string "next_call_id");
-       check
-         string
          "committed failed plan joins retained evidence"
          (EO.receipt_plan_fingerprint failed.receipt)
          (committed_string "failed_plan_fingerprint");
-       check
-         string
-         "committed successor plan joins retained evidence"
-         (EO.receipt_plan_fingerprint next.receipt)
-         (committed_string "next_plan_fingerprint");
        check
          string
          "caller reconciliation retains typed cause"
@@ -596,8 +1338,8 @@ let test_callback_failures_are_terminal () =
     EO.execute_flow_once
       ~net
       ~before_dispatch:(fun _ -> Error "bind-not-durable")
-      ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ -> Ok ())
-      (start_flow (ready_flow snapshot [ "bind-a"; "bind-b" ]))
+      ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+      (start_flow (frozen_flow snapshot [ "bind-a"; "bind-b" ]))
   in
   check int "failed bind dispatches nothing" 0 before_dispatch_posts;
   (match before_dispatch_result with
@@ -610,11 +1352,7 @@ let test_callback_failures_are_terminal () =
        "failed bind leaves receipt not started"
        true
        (EO.receipt_phase candidate.receipt = EO.Not_started);
-     check
-       bool
-       "successor remains not started"
-       true
-       (EO.receipt_phase (attempt_for evidence "bind-b").receipt = EO.Not_started)
+     check int "successor remains unprepared" 1 (List.length evidence.attempts)
    | Ok _ | Error _ -> fail "failed bind did not return typed terminal evidence");
   let before_advance_result, before_advance_posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
@@ -628,21 +1366,17 @@ let test_callback_failures_are_terminal () =
     EO.execute_flow_once
       ~net
       ~before_dispatch:(fun _ -> Ok ())
-      ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ -> Error "release-not-durable")
-      (start_flow (ready_flow snapshot [ "advance-a"; "advance-b" ]))
+      ~before_advance:(fun ~failed:_ ~next:_ -> Error "release-not-durable")
+      (start_flow (frozen_flow snapshot [ "advance-a"; "advance-b" ]))
   in
   check int "failed advance dispatches no successor" 0 before_advance_posts;
   match before_advance_result with
   | Error
       (EO.Flow_before_advance_callback_failed
          { failed; next; cause = "release-not-durable"; evidence; _ }) ->
-    check string "failed attempt identity" "advance-a" (candidate_id failed);
-    check string "withheld successor identity" "advance-b" (candidate_id next);
-    check
-      bool
-      "withheld successor remains not started"
-      true
-      (EO.receipt_phase (attempt_for evidence "advance-b").receipt = EO.Not_started)
+    check string "failed attempt identity" "advance-a" (flow_failure_id failed);
+    check string "withheld successor identity" "advance-b" next.identity.candidate_id;
+    check int "withheld successor remains unprepared" 1 (List.length evidence.attempts)
   | Ok _ | Error _ -> fail "failed advance did not return typed terminal evidence"
 ;;
 
@@ -661,10 +1395,10 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
         EO.execute_flow_once
           ~net
           ~before_dispatch:(fun _ -> Ok ())
-          ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ ->
+          ~before_advance:(fun ~failed:_ ~next:_ ->
             incr advances;
             Ok ())
-          (start_flow (ready_flow snapshot [ label ^ "-a"; label ^ "-b" ]))
+          (start_flow (frozen_flow snapshot [ label ^ "-a"; label ^ "-b" ]))
       in
       result, !advances
     in
@@ -679,10 +1413,10 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
         1
         (EO.receipt_dispatch_count cause.receipt);
       check
-        bool
-        (label ^ " successor remains not started")
-        true
-        (EO.receipt_phase (attempt_for evidence (label ^ "-b")).receipt = EO.Not_started)
+        int
+        (label ^ " successor remains unprepared")
+        1
+        (List.length evidence.attempts)
     | Ok _ | Error _ -> fail (label ^ " did not remain terminal")
   in
   run ~abort_completion:true "partial" "unused";
@@ -700,18 +1434,17 @@ let test_success_and_later_domain_rejection_are_terminal () =
       ; catalog_entry ~id:"success-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    execute_ok ~net (start_flow (ready_flow snapshot [ "success-a"; "success-b" ]))
+    execute_ok ~net (start_flow (frozen_flow snapshot [ "success-a"; "success-b" ]))
   in
   check int "success dispatches exactly once" 1 posts;
   match result with
   | Ok success ->
     check string "first candidate succeeds" "success-a" (candidate_id success.candidate);
     check
-      bool
+      int
       "successor remains unavailable to later domain rejection"
-      true
-      (EO.receipt_phase (attempt_for success.evidence "success-b").receipt
-       = EO.Not_started)
+      1
+      (List.length success.evidence.attempts)
   | Error _ -> fail "terminal success fixture failed"
 ;;
 
@@ -735,10 +1468,10 @@ let test_structural_predispatch_failure_does_not_advance () =
       EO.execute_flow_once
         ~net
         ~before_dispatch:(fun _ -> Ok ())
-        ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ ->
+        ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
           Ok ())
-        (start_flow (ready_flow snapshot [ "clock-a"; "clock-b" ]))
+        (start_flow (frozen_flow snapshot [ "clock-a"; "clock-b" ]))
     in
     result, !advances
   in
@@ -754,11 +1487,7 @@ let test_structural_predispatch_failure_does_not_advance () =
       "structural failure remains zero dispatch"
       0
       (EO.receipt_dispatch_count receipt);
-    check
-      bool
-      "structural successor remains not started"
-      true
-      (EO.receipt_phase (attempt_for evidence "clock-b").receipt = EO.Not_started)
+    check int "structural successor remains unprepared" 1 (List.length evidence.attempts)
   | Ok _ | Error _ -> fail "missing clock was not terminal"
 ;;
 
@@ -769,12 +1498,12 @@ let test_concurrent_duplicate_flow_does_not_double_dispatch () =
     with_catalog
       [ catalog_entry ~id:"concurrent-flow" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
-    let flow = start_flow (ready_flow snapshot [ "concurrent-flow" ]) in
+    let flow = start_flow (frozen_flow snapshot [ "concurrent-flow" ]) in
     let execute () : (EO.flow_success, string EO.flow_execution_error) result =
       EO.execute_flow_once
         ~net
         ~before_dispatch:(fun _ -> Ok ())
-        ~before_advance:(fun ~failed:_ ~failure:_ ~next:_ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
         flow
     in
     let left_promise, left_resolver = Eio.Promise.create () in
@@ -811,7 +1540,7 @@ let test_cancellation_terminalizes_outer_attempt () =
     @@ fun ~sw:_ ~net ~clock ~base_url ->
     with_catalog [ catalog_entry ~id:"cancel-flow" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
-    let flow = start_flow (ready_flow snapshot [ "cancel-flow" ]) in
+    let flow = start_flow (frozen_flow snapshot [ "cancel-flow" ]) in
     let timed_out =
       try
         ignore
@@ -838,13 +1567,37 @@ let () =
     "exact-output-flow"
     [ ( "outer-flow"
       , [ test_case
-            "all admissions freeze before network"
+            "snapshot defers admission and current attempts do not share"
             `Quick
-            test_admission_freezes_all_candidates_before_network
+            test_snapshot_defers_admission_and_allocates_nonshared_current_attempts
         ; test_case
-            "unmeasured constraint rejects before network"
+            "later missing credential does not block current success"
             `Quick
-            test_unmeasured_constraint_rejects_exact_candidate_before_network
+            test_later_missing_credential_does_not_block_current_success
+        ; test_case
+            "missing current credential advances after durable settlement"
+            `Quick
+            test_missing_current_credential_advances_after_durable_settlement
+        ; test_case
+            "read-failed current credential advances to good successor"
+            `Quick
+            test_read_failed_current_credential_advances_to_good_successor
+        ; test_case
+            "credential rejections remain ordered zero-dispatch terminal"
+            `Quick
+            test_credential_rejections_are_ordered_zero_dispatch_terminal
+        ; test_case
+            "unmeasured constraint advances after durable settlement"
+            `Quick
+            test_unmeasured_constraint_advances_only_after_durable_settlement
+        ; test_case
+            "request body cap advances after durable settlement"
+            `Quick
+            test_request_body_capacity_advances_only_after_durable_settlement
+        ; test_case
+            "all candidate rejections return zero-dispatch terminal"
+            `Quick
+            test_all_candidate_rejections_return_typed_zero_dispatch_terminal
         ; test_case
             "predispatch transport failure advances durably"
             `Quick
@@ -853,6 +1606,10 @@ let () =
             "exception after durable advance stops successor"
             `Quick
             test_exception_after_durable_advance_stops_before_successor
+        ; test_case
+            "exception after durable rejection stops successor"
+            `Quick
+            test_exception_after_durable_rejection_stops_before_successor
         ; test_case
             "callback failures are terminal"
             `Quick

@@ -103,6 +103,9 @@ val catalog_evidence_sha256 : catalog_evidence -> string
 val resolver_catalog_generation : resolver_snapshot -> catalog_generation
 val resolver_catalog_evidence : resolver_snapshot -> catalog_evidence
 val target_identity_fingerprint : target_identity -> string
+val admitted_target_identity : admitted_target -> target_identity
+val admitted_target_catalog_generation : admitted_target -> catalog_generation
+val admitted_target_catalog_evidence : admitted_target -> catalog_evidence
 val selected_target_identity : selected_target -> target_identity
 val selected_target_catalog_generation : selected_target -> catalog_generation
 val selected_target_catalog_evidence : selected_target -> catalog_evidence

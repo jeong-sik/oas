@@ -410,30 +410,27 @@ let test_credential_outcomes_are_frozen_per_target () =
   ignore (resolve_admitted shared_available : EO.selected_target);
   let expect_missing admitted =
     match EO.resolve_target admitted with
-    | Error
-        (EO.Missing_target_credential
-           { target_ref = "credential-missing"
-           ; environment_variable = "MISSING_FIXTURE_KEY"
-           }) -> ()
-    | Ok _ | Error _ -> fail "missing credential must remain a typed target outcome"
+    | Error error ->
+      (match EO.target_selection_error_disposition error with
+       | EO.Runtime_slot_unavailable -> ()
+       | _ -> fail "missing credential must remain a runtime-slot outcome")
+    | Ok _ -> fail "missing credential unexpectedly resolved"
   in
   let expect_invalid admitted =
     match EO.resolve_target admitted with
-    | Error
-        (EO.Target_credential_invalid
-           { target_ref = "credential-invalid"
-           ; environment_variable = "INVALID_FIXTURE_KEY"
-           }) -> ()
-    | Ok _ | Error _ -> fail "invalid credential must remain a typed target outcome"
+    | Error error ->
+      (match EO.target_selection_error_disposition error with
+       | EO.Runtime_slot_unavailable -> ()
+       | _ -> fail "invalid credential must remain a runtime-slot outcome")
+    | Ok _ -> fail "invalid credential unexpectedly resolved"
   in
   let expect_read_failed admitted =
     match EO.resolve_target admitted with
-    | Error
-        (EO.Target_credential_read_failed
-           { target_ref = "credential-read-failed"
-           ; environment_variable = "READ_FAILED_FIXTURE_KEY"
-           }) -> ()
-    | Ok _ | Error _ -> fail "credential read failure must remain a typed target outcome"
+    | Error error ->
+      (match EO.target_selection_error_disposition error with
+       | EO.Runtime_slot_unavailable -> ()
+       | _ -> fail "credential read failure must remain a runtime-slot outcome")
+    | Ok _ -> fail "read-failed credential unexpectedly resolved"
   in
   expect_missing missing;
   expect_invalid invalid;
