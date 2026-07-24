@@ -353,9 +353,10 @@ extract_named_type_block() {
   local type_name="$2"
   strip_ocaml_noncode < "$source_file" \
     | awk -v target="$type_name" '
-        BEGIN {
-          capture = 0
-          found = 0
+    BEGIN {
+      capture = 0
+      found = 0
+      done = 0
         }
         function declaration_name(line) {
           sub(/^type[[:space:]]+/, "", line)
@@ -364,14 +365,18 @@ extract_named_type_block() {
         }
         /^type[[:space:]]+/ {
           current = declaration_name($0)
-          if (capture) exit
-          if (current == target) {
+          if (capture) {
+            capture = 0
+            done = 1
+          }
+          if (!done && current == target) {
             capture = 1
             found = 1
           }
         }
         capture && /^(val|module|exception|class|include|external|open)[[:space:]]/ {
-          exit
+          capture = 0
+          done = 1
         }
         capture {
           print
