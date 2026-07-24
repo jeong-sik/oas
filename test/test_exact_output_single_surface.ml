@@ -585,17 +585,17 @@ let test_no_measure_one_post_and_wire_authority () =
       ; "internal_model_rotation_count"
       ];
     check
-      bool
-      (id ^ " server-side fallback header absent")
-      false
-       (List.exists
-          (fun (name, value) ->
-             String.equal (String.lowercase_ascii name) "anthropic-beta"
+       bool
+       (id ^ " server-side fallback header absent")
+       false
+      (List.exists
+         (fun (name, value) ->
+            String.equal (String.lowercase_ascii name) "anthropic-beta"
             && value
                |> String.split_on_char ','
                |> List.exists (fun beta ->
                  String.equal (String.trim beta) "server-side-fallback-2026-06-01"))
-          capture.headers);
+         capture.headers);
     inspect provenance body;
     match result with
     | Ok (success : EO.success) ->
@@ -666,21 +666,21 @@ let test_no_measure_one_post_and_wire_authority () =
   run
     ~id:"ollama-surface"
     ~kind:Provider_config.Ollama
-    ~path:"/api/chat"
-    ~response:(ollama_response content)
-    (fun _provenance body ->
-        check
-          bool
-          "Ollama receives raw schema"
+     ~path:"/api/chat"
+     ~response:(ollama_response content)
+     (fun _provenance body ->
+       check
+         bool
+         "Ollama receives raw schema"
          true
          Yojson.Safe.Util.(
            body |> member "format" |> member "type" |> to_string = "object"));
   run
     ~id:"anthropic-surface"
-     ~kind:Provider_config.Anthropic
-     ~path:"/v1/messages"
-    ~response:(anthropic_response {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
-     (fun _provenance _body -> ())
+    ~kind:Provider_config.Anthropic
+    ~path:"/v1/messages"
+     ~response:(anthropic_response {|[{"type":"text","text":"{\"name\":\"accepted\"}"}]|})
+    (fun _provenance _body -> ())
 ;;
 
 let test_provider_trace_fingerprint_anchors_normalized_headers_and_body () =
