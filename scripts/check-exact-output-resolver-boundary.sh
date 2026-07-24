@@ -331,6 +331,45 @@ require_code_sequence() {
   fi
 }
 
+require_code_occurrence_count() {
+  local description="$1"
+  local pattern="$2"
+  local expected="$3"
+  local source_file="$4"
+  local actual
+  actual="$(
+    strip_ocaml_noncode < "$source_file" \
+      | awk -v pattern="$pattern" '
+          {
+            remaining = $0
+            while (match(remaining, pattern)) {
+              count++
+              remaining = substr(remaining, RSTART + RLENGTH)
+            }
+          }
+          END { print count + 0 }
+        '
+  )"
+  if [[ "$actual" -ne "$expected" ]]; then
+    echo \
+      "exact-output boundary violation: $description (expected $expected, found $actual)" \
+      >&2
+    return 1
+  fi
+}
+
+scan_code_sequence() {
+  local description="$1"
+  local pattern="$2"
+  local source_file="$3"
+  local compact
+  compact="$(strip_ocaml_noncode < "$source_file" | awk '{ printf "%s ", $0 } END { print "" }')"
+  if grep -E -- "$pattern" <<< "$compact" >/dev/null; then
+    echo "exact-output boundary violation: $description" >&2
+    return 1
+  fi
+}
+
 require_named_function_pattern() {
   local description="$1"
   local pattern="$2"
@@ -1042,11 +1081,43 @@ require_code_sequence \
   "scope-local preference stopped failing closed on ordinal exhaustion" \
   'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
   "$exact_output_flow_source"
-require_named_function_pattern \
-  "domain settlement lost its synchronized commit-before-publication gate" \
-  'Mutex[.]lock[[:space:]]+settlement[.]mutex.*Fun[.]protect.*Mutex[.]unlock[[:space:]]+settlement[.]mutex.*record_preference.*settled[[:space:]]*<-[[:space:]]*true' \
+require_code_sequence \
+  "domain settlement lost its closed atomic publication states" \
+  'type[[:space:]]+settlement_state[[:space:]]*=[[:space:]]*.*Pending.*Publishing.*Settled.*type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*settlement_state[[:space:]]+Atomic[.]t' \
+  "$exact_output_flow_source"
+scan_code_sequence \
+  "domain settlement regained a per-settlement mutex" \
+  'type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
+  "$exact_output_flow_source"
+scan_named_functions \
+  "domain settlement acquired a second mutex or revived a settlement lock" \
+  'Mutex[.](lock|unlock)|settlement[.][[:alnum:]_]*mutex' \
   "$exact_output_flow_source" \
-  "settle_domain_valid_once"
+  "settle_domain_valid_once_with_publication_hook settle_domain_rejected_once_with_publication_hook"
+require_named_function_pattern \
+  "domain-valid settlement lost store-lock-first atomic publication" \
+  'with_preference_lock[[:space:]]+preferences.*Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Publishing.*Fun[.]protect.*Atomic[.]set[[:space:]]+settlement[[:space:]]+Settled.*record_preference_locked' \
+  "$exact_output_flow_source" \
+  "settle_domain_valid_once_with_publication_hook"
+require_code_occurrence_count \
+  "locked preference recorder reference set changed" \
+  'record_preference_locked' \
+  2 \
+  "$exact_output_flow_source"
+scan_outside_named_functions \
+  "locked preference recorder escaped its definition or canonical publication path" \
+  'record_preference_locked' \
+  "$exact_output_flow_source" \
+  "record_preference_locked settle_domain_valid_once_with_publication_hook"
+scan_code \
+  "locked preference recorder escaped through the private interface" \
+  'record_preference_locked' \
+  "$module_dir/exact_output_flow.mli"
+require_named_function_pattern \
+  "domain-rejected CAS loss stopped synchronizing with preference publication" \
+  'Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Settled.*after_failed_cas.*with_preference_lock[[:space:]]+preferences.*Error[[:space:]]+Already_settled' \
+  "$exact_output_flow_source" \
+  "settle_domain_rejected_once_with_publication_hook"
 require_named_function_pattern \
   "preference capacity check and reservation add are no longer atomic" \
   'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \

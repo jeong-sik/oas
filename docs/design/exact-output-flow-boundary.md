@@ -128,11 +128,15 @@ timestamp, string, or target-specific tie-break. An older observation leaves
 the installed preference unchanged and returns a typed superseded receipt
 containing the retained candidate identity and ordinal.
 
-The per-success settlement gate remains held until domain-valid preference
-publication completes. A losing duplicate therefore cannot return
-`Domain_already_settled` and immediately observe a pre-publication snapshot.
-The only nested lock order is settlement gate then preference store; no path
-acquires those locks in reverse.
+Each success has a closed atomic settlement state: `Pending`, `Publishing`, or
+`Settled`. Domain-valid acquires the preference-store mutex first, changes
+`Pending` to `Publishing`, publishes under that single lock, and terminalizes
+`Settled` in a protected finalizer before unlocking even if publication raises.
+A losing disposition synchronizes through the same preference-store mutex
+before returning `Domain_already_settled`, so its immediate snapshot cannot
+observe pre-publication state. Domain-rejected may change `Pending` directly to
+`Settled`; after a failed compare-and-set it uses the same publication barrier.
+There is no per-settlement mutex and no nested lock order.
 
 No network or filesystem I/O occurs while the preference mutex is held.
 
