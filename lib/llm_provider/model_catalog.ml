@@ -11,6 +11,7 @@ type model_entry =
   ; base_label : string option
   ; provider_name : string option
   ; max_context_tokens : int option
+  ; serving_constraint : Serving_constraint.t option
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
@@ -310,6 +311,13 @@ let known_entry_keys =
   ; "base"
   ; "provider_name"
   ; "max_context_tokens"
+  ; "serving_constraint_source_kind"
+  ; "serving_constraint_source"
+  ; "serving_constraint_checked_at_unix_s"
+  ; "serving_constraint_confidence"
+  ; "serving_constraint_expires_at_unix_s"
+  ; "serving_constraint_accepted_through_tokens"
+  ; "serving_constraint_rejected_from_tokens"
   ; "max_output_tokens"
   ; "supports_tools"
   ; "supports_tool_choice"
@@ -397,6 +405,9 @@ let parse_entry entry_toml =
   in
   let* max_context_tokens =
     int_field ~entry_id:id_prefix "max_context_tokens" entry_toml
+  in
+  let* serving_constraint =
+    Serving_constraint_catalog.parse ~entry_id:id_prefix entry_toml
   in
   let* max_output_tokens = int_field ~entry_id:id_prefix "max_output_tokens" entry_toml in
   let* supports_tools = bool_field ~entry_id:id_prefix "supports_tools" entry_toml in
@@ -555,6 +566,7 @@ let parse_entry entry_toml =
     ; base_label
     ; provider_name
     ; max_context_tokens
+    ; serving_constraint
     ; max_output_tokens
     ; supports_tools
     ; supports_tool_choice

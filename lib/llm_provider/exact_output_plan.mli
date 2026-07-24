@@ -33,6 +33,7 @@ type output_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
+  | Token_measurement_required of Serving_constraint.t
   | Provider_request_rejected of Http_client.http_error
   | Request_body_too_large of
       { actual_bytes : int

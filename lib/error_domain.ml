@@ -15,6 +15,8 @@ type provider_error =
   | `Invalid_request of string
   | `Not_found of string
   | `Context_overflow of string * int option
+  | `Input_capacity of
+      Retry.input_capacity_reason * Llm_provider.Serving_constraint.t * string
   | `Payment_required of string
   ]
 
@@ -92,6 +94,7 @@ let of_api_error (err : Retry.api_error) : provider_error =
   | Retry.InvalidRequest r -> `Invalid_request r.message
   | Retry.NotFound r -> `Not_found r.message
   | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
+  | Retry.InputCapacity r -> `Input_capacity (r.reason, r.constraint_, r.message)
   | Retry.PaymentRequired r -> `Payment_required r.message
 ;;
 
@@ -172,6 +175,8 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Not_found msg -> Error.Api (Retry.NotFound { message = msg })
   | `Context_overflow (msg, limit) ->
     Error.Api (Retry.ContextOverflow { message = msg; limit })
+  | `Input_capacity (reason, constraint_, message) ->
+    Error.Api (Retry.InputCapacity { message; constraint_; reason })
   | `Payment_required msg -> Error.Api (Retry.PaymentRequired { message = msg })
 ;;
 
@@ -258,6 +263,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Invalid_request _
   | `Not_found _
   | `Context_overflow _
+  | `Input_capacity _
   | `Payment_required _
   | `Tool_exec_failed _
   | `Tool_timeout _

@@ -206,6 +206,11 @@ let of_retry_api_error ?provider err =
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
   | Retry.ContextOverflow r ->
     InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
+  | Retry.InputCapacity r ->
+    (* [Error.t] is the legacy provider-only surface and cannot preserve the
+       constraint evidence. The Agent SDK [Error.Api] / error-domain path keeps
+       [Retry.InputCapacity] typed end to end; new consumers must use it. *)
+    InvalidRequest { provider; reason = Retry.error_message (Retry.InputCapacity r) }
   | Retry.NetworkError r ->
     NetworkError { provider; kind = r.kind; timeout_phase = None; detail = r.message }
   (* Preserve the transport phase carried by Retry.Timeout so a retried

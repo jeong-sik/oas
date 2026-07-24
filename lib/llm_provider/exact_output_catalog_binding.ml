@@ -125,6 +125,7 @@ let merge_exact_model_entry
   ; base_label = prefer_overlay overlay.base_label base.base_label
   ; provider_name = overlay.provider_name
   ; max_context_tokens = prefer_overlay overlay.max_context_tokens base.max_context_tokens
+  ; serving_constraint = prefer_overlay overlay.serving_constraint base.serving_constraint
   ; max_output_tokens = prefer_overlay overlay.max_output_tokens base.max_output_tokens
   ; supports_tools = prefer_overlay overlay.supports_tools base.supports_tools
   ; supports_tool_choice =
@@ -280,22 +281,33 @@ let functional_capability_projection
       (caps : Caps.capabilities)
       ~anthropic_thinking_control
   =
-  [ "oas-exact-output-functional-capabilities-v1"
+  let serving_constraint =
+    match caps.serving_constraint with
+    | None -> [ "serving_constraint=none" ]
+    | Some constraint_ ->
+      "serving_constraint=some"
+      :: List.map
+           (fun part -> "serving_constraint." ^ part)
+           (Serving_constraint.fingerprint_parts constraint_)
+  in
+  [ "oas-exact-output-functional-capabilities-v2"
   ; "max_context=" ^ option_int caps.max_context_tokens
-  ; "max_output=" ^ option_int caps.max_output_tokens
-  ; "json_mode=" ^ bool_string caps.supports_response_format_json
-  ; "native_schema=" ^ bool_string caps.supports_structured_output
-  ; "multimodal=" ^ bool_string caps.supports_multimodal_inputs
-  ; "image=" ^ bool_string caps.supports_image_input
-  ; "audio=" ^ bool_string caps.supports_audio_input
-  ; "video=" ^ bool_string caps.supports_video_input
-  ; "document=" ^ bool_string caps.supports_document_input
-  ; "modality_priority=" ^ modality_priority_string caps.modality_priority
-  ; "system_prompt=" ^ bool_string caps.supports_system_prompt
-  ; "task=" ^ task_string caps.task
-  ; "supported_models=" ^ supported_models_string caps.supported_models
-  ; "anthropic_thinking=" ^ anthropic_thinking_control_string anthropic_thinking_control
   ]
+  @ serving_constraint
+  @ [ "max_output=" ^ option_int caps.max_output_tokens
+    ; "json_mode=" ^ bool_string caps.supports_response_format_json
+    ; "native_schema=" ^ bool_string caps.supports_structured_output
+    ; "multimodal=" ^ bool_string caps.supports_multimodal_inputs
+    ; "image=" ^ bool_string caps.supports_image_input
+    ; "audio=" ^ bool_string caps.supports_audio_input
+    ; "video=" ^ bool_string caps.supports_video_input
+    ; "document=" ^ bool_string caps.supports_document_input
+    ; "modality_priority=" ^ modality_priority_string caps.modality_priority
+    ; "system_prompt=" ^ bool_string caps.supports_system_prompt
+    ; "task=" ^ task_string caps.task
+    ; "supported_models=" ^ supported_models_string caps.supported_models
+    ; "anthropic_thinking=" ^ anthropic_thinking_control_string anthropic_thinking_control
+    ]
 ;;
 
 let catalog_anthropic_thinking_control = function
@@ -327,6 +339,7 @@ let capabilities_of_catalog_binding
   let bool_or fallback = Option.value ~default:fallback in
   { base with
     max_context_tokens = prefer_overlay model.max_context_tokens base.max_context_tokens
+  ; serving_constraint = prefer_overlay model.serving_constraint base.serving_constraint
   ; max_output_tokens = prefer_overlay model.max_output_tokens base.max_output_tokens
   ; supports_response_format_json =
       bool_or base.supports_response_format_json model.supports_response_format_json
@@ -426,8 +439,9 @@ let%test "exact functional capability projection has a stable golden" =
   functional_capability_projection
     fixture
     ~anthropic_thinking_control:(Some Caps.Anthropic_adaptive_preferred)
-  = [ "oas-exact-output-functional-capabilities-v1"
+  = [ "oas-exact-output-functional-capabilities-v2"
     ; "max_context=some:8"
+    ; "serving_constraint=none"
     ; "max_output=some:3"
     ; "json_mode=1"
     ; "native_schema=0"

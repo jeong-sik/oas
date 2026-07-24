@@ -13,6 +13,10 @@ type invalid_request_reason =
       }
   | Unknown_invalid_request
 
+type input_capacity_reason =
+  | Serving_constraint_rejected of Serving_constraint.admission_error
+  | Token_measurement_unavailable of Input_token_count.protocol
+
 type api_error =
   | RateLimited of
       { retry_after : float option
@@ -35,6 +39,11 @@ type api_error =
   | ContextOverflow of
       { message : string
       ; limit : int option
+      }
+  | InputCapacity of
+      { message : string
+      ; constraint_ : Serving_constraint.t
+      ; reason : input_capacity_reason
       }
   | NetworkError of
       { message : string

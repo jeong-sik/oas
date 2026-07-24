@@ -55,6 +55,7 @@ let config
       ?(request_path = "/proxy/messages")
       ?max_context
       ?max_concurrent_requests
+      ?model_capabilities_override
       base_url
   =
   Provider_config.make
@@ -76,6 +77,7 @@ let config
     ~supports_tool_choice_override:true
     ~output_schema:(`Assoc [ "type", `String "object" ])
     ?max_concurrent_requests
+    ?model_capabilities_override
     ()
 ;;
 
@@ -347,7 +349,7 @@ let test_prepared_measure_admit_dispatch () =
       | Error _ -> fail "expected resolved context limit"
     in
     let admitted =
-      match Complete.admit_request ~max_context_tokens measured with
+      match Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured with
       | Ok admitted -> admitted
       | Error _ -> fail "expected prepared request admission"
     in
@@ -401,7 +403,8 @@ let test_prepared_context_overflow_is_typed () =
     | Ok measured ->
       (match Complete.resolve_context_limit prepared with
        | Error _ -> fail "expected resolved context limit"
-       | Ok max_context_tokens -> Complete.admit_request ~max_context_tokens measured)
+       | Ok max_context_tokens ->
+         Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured)
   in
   match result with
   | Error
@@ -424,7 +427,7 @@ let test_prepared_admission_resolves_catalog_context_limit () =
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
     let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
     let max_context_tokens = Complete.resolve_context_limit prepared |> Result.get_ok in
-    Complete.admit_request ~max_context_tokens measured, expected
+    Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured, expected
   in
   match result with
   | Error _, _ -> fail "catalog-backed context admission unexpectedly failed"
@@ -486,6 +489,162 @@ let dispatch_tripwire dispatched =
         dispatched := true;
         Ok response)
   }
+;;
+
+let serving_constraint ?expires_at_unix_s () =
+  let source_kind =
+    match expires_at_unix_s with
+    | Some _ -> Serving_constraint.Probe
+    | None -> Serving_constraint.Declaration
+  in
+  Serving_constraint.make
+    ~source_kind
+    ~source_ref:"probe://incident/2793"
+    ~checked_at_unix_s:0
+    ~confidence:Serving_constraint.High
+    ?expires_at_unix_s
+    ~accepted_through:524298
+    ~rejected_from:524299
+    ()
+  |> Result.get_ok
+;;
+
+let constrained_capabilities base constraint_ =
+  { base with Capabilities.serving_constraint = Some constraint_ }
+;;
+
+let run_constrained_anthropic_count input_tokens =
+  let response = Printf.sprintf {|{"input_tokens":%d}|} input_tokens in
+  with_mock ~status:`OK ~response
+  @@ fun ~sw ~net ~base_url ->
+  let provider_config =
+    config
+      ~max_context:1048576
+      ~model_capabilities_override:
+        (constrained_capabilities
+           Capabilities.anthropic_capabilities
+           (serving_constraint ()))
+      base_url
+  in
+  let dispatched = ref false in
+  let transport = dispatch_tripwire dispatched in
+  let result =
+    Agent_sdk.Agent.run
+      ~sw
+      (build_admission_agent ~net ~provider_config ~transport ())
+      "same exact provider request"
+  in
+  result, !dispatched
+;;
+
+let test_serving_constraint_uses_exact_provider_count () =
+  let (accepted, accepted_dispatched), (_, _, accepted_body) =
+    run_constrained_anthropic_count 524298
+  in
+  let (rejected, rejected_dispatched), (_, _, rejected_body) =
+    run_constrained_anthropic_count 524299
+  in
+  check
+    string
+    "the measured provider request is byte-identical"
+    accepted_body
+    rejected_body;
+  (match accepted with
+   | Ok _ -> check bool "accepted observation dispatches" true accepted_dispatched
+   | Error error -> fail (Agent_sdk.Error.to_string error));
+  match rejected with
+  | Error
+      (Agent_sdk.Error.Api
+         (Retry.InputCapacity
+            { reason =
+                Retry.Serving_constraint_rejected
+                  (Serving_constraint.Input_rejected
+                     { input_tokens = 524299
+                     ; accepted_through = 524298
+                     ; rejected_from = 524299
+                     })
+            ; _
+            })) ->
+    check bool "rejected observation is zero-dispatch" false rejected_dispatched
+  | Error error -> fail (Agent_sdk.Error.to_string error)
+  | Ok _ -> fail "rejected exact token observation was dispatched"
+;;
+
+let test_stale_serving_constraint_fails_before_measurement () =
+  let dispatched = ref false in
+  let result, posts =
+    with_post_counter
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config =
+      config
+        ~max_context:1048576
+        ~model_capabilities_override:
+          (constrained_capabilities
+             Capabilities.anthropic_capabilities
+             (serving_constraint ~expires_at_unix_s:1 ()))
+        base_url
+    in
+    Agent_sdk.Agent.run
+      ~sw
+      (build_admission_agent
+         ~net
+         ~provider_config
+         ~transport:(dispatch_tripwire dispatched)
+         ())
+      "stale evidence"
+  in
+  (match result with
+   | Error
+       (Agent_sdk.Error.Api
+          (Retry.InputCapacity
+             { reason =
+                 Retry.Serving_constraint_rejected (Serving_constraint.Evidence_expired _)
+             ; _
+             })) -> ()
+   | Error error -> fail (Agent_sdk.Error.to_string error)
+   | Ok _ -> fail "stale serving evidence was admitted");
+  check int "stale evidence makes no count request" 0 posts;
+  check bool "stale evidence makes no completion request" false !dispatched
+;;
+
+let test_unmeasurable_constraint_fails_typed_without_dispatch () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let dispatched = ref false in
+  let provider_config =
+    { (config
+         ~kind:Provider_config.OpenAI_compat
+         ~max_context:1048576
+         ~model_capabilities_override:
+           (constrained_capabilities
+              Capabilities.openai_compat_chat_capabilities
+              (serving_constraint ()))
+         "not-used")
+      with
+      output_schema = None
+    ; response_format = Off
+    }
+  in
+  let result =
+    Agent_sdk.Agent.run
+      ~sw
+      (build_admission_agent
+         ~net:(Eio.Stdenv.net env)
+         ~provider_config
+         ~transport:(dispatch_tripwire dispatched)
+         ())
+      "provider-native measurement is unavailable"
+  in
+  (match result with
+   | Error
+       (Agent_sdk.Error.Api
+          (Retry.InputCapacity { reason = Retry.Token_measurement_unavailable _; _ })) ->
+     ()
+   | Error error -> fail (Agent_sdk.Error.to_string error)
+   | Ok _ -> fail "unmeasurable constrained request was dispatched");
+  check bool "unmeasurable constraint is zero-dispatch" false !dispatched
 ;;
 
 (* Regression for #2678: [Pipeline_stage_route.dispatch_sync] /
@@ -986,6 +1145,18 @@ let () =
             "resolve before measure skips count round-trip (stream)"
             `Quick
             test_resolve_before_measure_skips_count_roundtrip_stream
+        ; test_case
+            "serving boundary uses exact provider count"
+            `Quick
+            test_serving_constraint_uses_exact_provider_count
+        ; test_case
+            "stale serving evidence is zero-I/O"
+            `Quick
+            test_stale_serving_constraint_fails_before_measurement
+        ; test_case
+            "unmeasurable serving constraint is typed zero-dispatch"
+            `Quick
+            test_unmeasurable_constraint_fails_typed_without_dispatch
         ; test_case
             "measurement validates before I/O"
             `Quick

@@ -22,6 +22,10 @@ type fit_error =
       }
   | Output_reservation_unknown of { model_id : string }
   | Context_window_exceeded of context_fit
+  | Serving_constraint_rejected of
+      { constraint_ : Serving_constraint.t
+      ; reason : Serving_constraint.admission_error
+      }
 
 val prepare
   :  config:Provider_config.t
@@ -54,6 +58,17 @@ val measurement : measured -> Count_tokens_sync.completion_request_measurement
     limit is declared, [Invalid_context_limit] when it is non-positive. *)
 val resolve_context_limit : t -> (int, fit_error) result
 
-val admit : max_context_tokens:int -> measured -> (admitted, fit_error) result
+(** [true] when the exact resolved capability carries a serving constraint and
+    therefore cannot use an unmeasured compatibility dispatch. *)
+val requires_token_measurement : t -> bool
+
+val serving_constraint : t -> Serving_constraint.t option
+
+val admit
+  :  now_unix_s:int
+  -> max_context_tokens:int
+  -> measured
+  -> (admitted, fit_error) result
+
 val admitted_request : admitted -> t
 val admitted_fit : admitted -> context_fit

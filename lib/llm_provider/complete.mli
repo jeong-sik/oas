@@ -36,6 +36,10 @@ type fit_error =
       }
   | Output_reservation_unknown of { model_id : string }
   | Context_window_exceeded of context_fit
+  | Serving_constraint_rejected of
+      { constraint_ : Serving_constraint.t
+      ; reason : Serving_constraint.admission_error
+      }
 
 (** Build the single request value used by measurement and dispatch. Existing
     [complete] and [complete_stream] calls are compatibility wrappers over this
@@ -78,12 +82,16 @@ val request_measurement
     count round-trip. *)
 val resolve_context_limit : prepared_request -> (int, fit_error) result
 
+val requires_token_measurement : prepared_request -> bool
+val serving_constraint : prepared_request -> Serving_constraint.t option
+
 (** Admit the measured request against the [max_context_tokens] resolved by
     {!resolve_context_limit}. The output-token reservation is the effective value
     carried by the same provider request artifact. A missing reservation and
     context overflow are explicit. *)
 val admit_request
-  :  max_context_tokens:int
+  :  now_unix_s:int
+  -> max_context_tokens:int
   -> measured_request
   -> (admitted_request, fit_error) result
 

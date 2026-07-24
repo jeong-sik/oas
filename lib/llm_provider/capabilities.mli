@@ -92,6 +92,9 @@ type anthropic_thinking_control =
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
+  ; serving_constraint : Serving_constraint.t option
+    (** Evidence-backed input-token serving interval for the exact resolved
+        runtime row. This is not inferred from [max_context_tokens]. *)
   ; max_output_tokens : int option
   ; (* Tool use *)
     supports_tools : bool
@@ -304,6 +307,10 @@ val with_tool_support : capabilities -> supports_tools:bool -> capabilities
     and is resolved via {!capabilities_for_provider_label}; an absent label falls
     back to {!default_capabilities}.  Each [Some] field in [entry] overrides the
     corresponding field; [None] fields inherit from the base.
+
+    Capability manifests do not carry evidence-backed serving constraints.
+    Those constraints require provenance and validity fields and are therefore
+    accepted only through the model catalog declaration path.
 
     @since 0.188.0 *)
 val apply_manifest_entry : Capability_manifest.entry -> capabilities

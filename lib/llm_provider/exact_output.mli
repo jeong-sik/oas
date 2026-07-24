@@ -131,6 +131,7 @@ type wire_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
+  | Token_measurement_required of Serving_constraint.t
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
   | Request_body_too_large of

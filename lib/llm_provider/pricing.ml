@@ -139,6 +139,7 @@ let test_catalog_entry ?provider_name ?input ?output ?cache_write ?cache_read id
   ; base_label = None
   ; provider_name
   ; max_context_tokens = None
+  ; serving_constraint = None
   ; max_output_tokens = None
   ; supports_tools = None
   ; supports_tool_choice = None
