@@ -8,7 +8,7 @@ type t
 type ('admission, 'attempt) progress
 
 type ('admission, 'attempt) progress_snapshot =
-  { candidate_attempt_count : int
+  { candidate_visit_count : int
   ; admissions : 'admission list
   ; attempts : 'attempt list
   }
@@ -39,8 +39,8 @@ val create_progress : unit -> ('admission, 'attempt) progress
 
 val record_admission
   :  ('admission, 'attempt) progress
-  -> (candidate_attempt_count:int -> 'admission * 'result)
-  -> 'result
+  -> 'admission
+  -> unit
 
 val record_attempt : ('admission, 'attempt) progress -> 'attempt -> unit
 

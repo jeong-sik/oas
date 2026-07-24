@@ -105,6 +105,24 @@ type admission_error =
   | Invalid_schema
   | Wire_admission_rejected of wire_admission_error
 
+type input_capacity_disposition =
+  | Token_measurement_required of
+      { accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Serialized_request_body_too_large of
+      { actual_bytes : int
+      ; limit_bytes : int
+      }
+
+type candidate_rejection_disposition =
+  | Runtime_slot_unavailable
+  | Runtime_contract_rejected
+  | Input_contract_rejected
+  | Output_requirement_rejected
+  | Input_capacity of input_capacity_disposition
+  | Request_preparation_failed
+
 type effect_phase =
   | Not_started
   | Before_dispatch
@@ -153,19 +171,35 @@ type flow_candidate_identity =
 
 type flow_candidate =
   { identity : flow_candidate_identity
-  ; target : selected_target
+  ; admitted_target : admitted_target
   }
 
-type candidate_attempt_count = Candidate_attempt_count of int
+type flow_id = Flow_id of string
+type flow_visit_ordinal = Flow_visit_ordinal of int
+type candidate_visit_count = Candidate_visit_count of int
 
-type admission_rejection_receipt =
-  { identity : flow_candidate_identity
-  ; cause : admission_error
-  ; candidate_attempt_count : candidate_attempt_count
+type flow_candidate_visit =
+  { flow_id : flow_id
+  ; ordinal : flow_visit_ordinal
+  ; identity : flow_candidate_identity
+  }
+
+type flow_candidate_step =
+  { visit : flow_candidate_visit
+  ; admitted_target : admitted_target
+  }
+
+type candidate_rejection_cause =
+  | Target_selection_rejected of target_selection_error
+  | Request_admission_rejected of admission_error
+
+type candidate_rejection_receipt =
+  { visit : flow_candidate_visit
+  ; cause : candidate_rejection_cause
   }
 
 type admitted_flow_candidate =
-  { identity : flow_candidate_identity
+  { visit : flow_candidate_visit
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; provenance : plan_provenance
@@ -173,7 +207,7 @@ type admitted_flow_candidate =
 
 type candidate_admission =
   | Candidate_admitted of admitted_flow_candidate
-  | Candidate_rejected of admission_rejection_receipt
+  | Candidate_rejected of candidate_rejection_receipt
 
 type flow_snapshot =
   { candidates : flow_candidate list
@@ -182,14 +216,15 @@ type flow_snapshot =
   }
 
 type flow_attempt_receipt =
-  { identity : flow_candidate_identity
+  { visit : flow_candidate_visit
   ; receipt : receipt
   }
 
 type flow_attempt =
   { execution : Flow_state.t
+  ; flow_id : flow_id
   ; candidate_snapshot : flow_candidate_identity list
-  ; candidates : flow_candidate list
+  ; candidates : flow_candidate_step list
   ; messages : Types.message list
   ; requirement : output_requirement
   ; progress : (candidate_admission, flow_attempt_receipt) Flow_state.progress
@@ -205,10 +240,12 @@ type flow_snapshot_error =
       }
 
 type start_attempt_error = Call_id_generation_failed of string
+type flow_start_error = Flow_id_generation_failed of string
 
 type flow_evidence =
-  { candidate_snapshot : flow_candidate_identity list
-  ; candidate_attempt_count : candidate_attempt_count
+  { flow_id : flow_id
+  ; candidate_snapshot : flow_candidate_identity list
+  ; candidate_visit_count : candidate_visit_count
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_receipt list
   }
@@ -220,17 +257,16 @@ type flow_success =
   }
 
 type flow_candidate_failure =
-  | Flow_candidate_admission_rejected of admission_rejection_receipt
+  | Flow_candidate_rejected of candidate_rejection_receipt
   | Flow_candidate_execution_failed of
       { candidate : flow_attempt_receipt
       ; cause : execution_error
-      ; candidate_attempt_count : candidate_attempt_count
       }
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
   | Flow_attempt_start_failed of
-      { candidate : flow_candidate_identity
+      { candidate : flow_candidate_visit
       ; cause : start_attempt_error
       ; evidence : flow_evidence
       }
@@ -241,12 +277,12 @@ type 'callback_error flow_execution_error =
       }
   | Flow_before_advance_callback_failed of
       { failed : flow_candidate_failure
-      ; next : flow_candidate_identity
+      ; next : flow_candidate_visit
       ; cause : 'callback_error
       ; evidence : flow_evidence
       }
-  | Flow_admission_failed of
-      { rejection : admission_rejection_receipt
+  | Flow_candidates_exhausted of
+      { rejection : candidate_rejection_receipt
       ; evidence : flow_evidence
       }
   | Flow_exact_execution_failed of
@@ -256,13 +292,12 @@ type 'callback_error flow_execution_error =
       }
 
 type 'callback_error flow_step_failure =
-  | Flow_step_admission_rejected of admission_rejection_receipt
-  | Flow_step_attempt_start_failed of flow_candidate_identity * start_attempt_error
+  | Flow_step_candidate_rejected of candidate_rejection_receipt
+  | Flow_step_attempt_start_failed of flow_candidate_visit * start_attempt_error
   | Flow_step_before_dispatch_callback_failed of flow_attempt_receipt * 'callback_error
   | Flow_step_execution_failed of
       { candidate : flow_attempt_receipt
       ; cause : execution_error
-      ; candidate_attempt_count : candidate_attempt_count
       }
 
 let ( let* ) = Result.bind
@@ -582,7 +617,7 @@ let admit ~target ~messages requirement =
 let plan_provenance (ready : ready_plan) = ready.provenance
 let plan_fingerprint (ready : ready_plan) = ready.plan_fingerprint
 
-let make_flow_candidate ~id ~target =
+let make_flow_candidate ~id ~admitted_target =
   let id = String.trim id in
   if String.equal id ""
   then Error Blank_flow_candidate_id
@@ -590,11 +625,11 @@ let make_flow_candidate ~id ~target =
     Ok
       { identity =
           { candidate_id = id
-          ; catalog_generation = selected_target_catalog_generation target
-          ; catalog_evidence = selected_target_catalog_evidence target
-          ; target_identity = selected_target_identity target
+          ; catalog_generation = admitted_target_catalog_generation admitted_target
+          ; catalog_evidence = admitted_target_catalog_evidence admitted_target
+          ; target_identity = admitted_target_identity admitted_target
           }
-      ; target
+      ; admitted_target
       }
 ;;
 
@@ -635,16 +670,37 @@ let start_attempt (ready : ready_plan) =
 ;;
 
 let start_flow (ready : flow_snapshot) =
-  { execution = Flow_state.create ()
-  ; candidate_snapshot = List.map flow_candidate_identity ready.candidates
-  ; candidates = ready.candidates
-  ; messages = ready.messages
-  ; requirement = ready.requirement
-  ; progress = Flow_state.create_progress ()
-  }
+  match Exact_output_call_id.create () with
+  | Error detail -> Error (Flow_id_generation_failed detail)
+  | Ok raw_flow_id ->
+    let flow_id = Flow_id raw_flow_id in
+    let candidates =
+      List.mapi
+        (fun index (candidate : flow_candidate) ->
+           { visit =
+               { flow_id
+               ; ordinal = Flow_visit_ordinal (index + 1)
+               ; identity = candidate.identity
+               }
+           ; admitted_target = candidate.admitted_target
+           })
+        ready.candidates
+    in
+    Ok
+      { execution = Flow_state.create ()
+      ; flow_id
+      ; candidate_snapshot = List.map flow_candidate_identity ready.candidates
+      ; candidates
+      ; messages = ready.messages
+      ; requirement = ready.requirement
+      ; progress = Flow_state.create_progress ()
+      }
 ;;
 
 let call_id_to_string (Call_id id) = id
+let flow_id_to_string (Flow_id id) = id
+let flow_visit_ordinal_to_int (Flow_visit_ordinal ordinal) = ordinal
+let flow_attempt_id (flow : flow_attempt) = flow.flow_id
 let attempt_receipt (attempt : attempt) = attempt.receipt
 let receipt_call_id (receipt : receipt) = receipt.call_id
 
@@ -677,24 +733,68 @@ let receipt_request_body_sha256 (receipt : receipt) = receipt.request_body_sha25
 let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
 let receipt_catalog_evidence (receipt : receipt) = receipt.catalog_evidence
 let receipt_target_identity (receipt : receipt) = receipt.target_identity
-let candidate_attempt_count_to_int (Candidate_attempt_count count) = count
+let candidate_visit_count_to_int (Candidate_visit_count count) = count
 
-let admission_rejection_identity (receipt : admission_rejection_receipt) =
-  receipt.identity
+let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
+  receipt.visit.identity
 ;;
 
-let admission_rejection_cause receipt = receipt.cause
-let admission_rejection_phase _ = Before_dispatch
-let admission_rejection_dispatch_count _ = 0
+let candidate_rejection_visit (receipt : candidate_rejection_receipt) = receipt.visit
+let candidate_rejection_phase _ = Before_dispatch
+let candidate_rejection_dispatch_count _ = 0
 
-let admission_rejection_candidate_attempt_count (receipt : admission_rejection_receipt) =
-  receipt.candidate_attempt_count
+let target_selection_error_disposition = function
+  | Missing_target_credential _
+  | Target_credential_invalid _
+  | Target_credential_read_failed _ -> Runtime_slot_unavailable
+;;
+
+let wire_admission_error_disposition = function
+  | Capability_snapshot_missing
+  | Inconsistent_output_contract
+  | Global_admission_not_allowed
+  | Invalid_connect_timeout
+  | Invalid_body_timeout
+  | Unsupported_target_model _ -> Runtime_contract_rejected
+  | Output_contract_unavailable -> Output_requirement_rejected
+  | Cross_feature_not_allowed
+  | Caller_supplied_header_not_allowed
+  | Unsupported_image_input
+  | Unsupported_document_input
+  | Unsupported_audio_input
+  | Unsupported_system_prompt -> Input_contract_rejected
+  | Token_measurement_required constraint_ ->
+    Input_capacity
+      (Token_measurement_required
+         { accepted_through_tokens =
+             constraint_.Serving_constraint.observation.accepted_through
+         ; rejected_from_tokens = constraint_.observation.rejected_from
+         })
+  | Request_body_too_large { actual_bytes; limit_bytes } ->
+    Input_capacity (Serialized_request_body_too_large { actual_bytes; limit_bytes })
+  | Target_request_rejected | Request_serialization_rejected -> Request_preparation_failed
+;;
+
+let admission_error_disposition = function
+  | Provider_schema_unavailable
+  | Json_syntax_unavailable
+  | Unsupported_schema_keyword _
+  | Unsupported_schema_type _
+  | Invalid_schema -> Output_requirement_rejected
+  | Wire_admission_rejected cause -> wire_admission_error_disposition cause
+;;
+
+let candidate_rejection_disposition (receipt : candidate_rejection_receipt) =
+  match receipt.cause with
+  | Target_selection_rejected cause -> target_selection_error_disposition cause
+  | Request_admission_rejected cause -> admission_error_disposition cause
 ;;
 
 let flow_attempt_evidence (flow : flow_attempt) =
   let progress = Flow_state.progress_snapshot flow.progress in
-  { candidate_snapshot = flow.candidate_snapshot
-  ; candidate_attempt_count = Candidate_attempt_count progress.candidate_attempt_count
+  { flow_id = flow.flow_id
+  ; candidate_snapshot = flow.candidate_snapshot
+  ; candidate_visit_count = Candidate_visit_count progress.candidate_visit_count
   ; admissions = progress.admissions
   ; attempts = progress.attempts
   }
@@ -895,61 +995,60 @@ let execution_failure_may_advance (error : execution_error) =
     , _ ) -> false
 ;;
 
-let admitted_flow_candidate identity (plan : ready_plan) =
-  { identity
+let admitted_flow_candidate visit (plan : ready_plan) =
+  { visit
   ; plan_fingerprint = plan.plan_fingerprint
   ; request_body_sha256 = plan.request_body_sha256
   ; provenance = plan.provenance
   }
 ;;
 
-let record_admission_rejection flow identity cause =
-  Flow_state.record_admission flow.progress (fun ~candidate_attempt_count ->
-    let candidate_attempt_count = Candidate_attempt_count candidate_attempt_count in
-    let rejection = { identity; cause; candidate_attempt_count } in
-    Candidate_rejected rejection, rejection)
+let record_candidate_rejection flow visit cause =
+  let rejection = { visit; cause } in
+  Flow_state.record_admission flow.progress (Candidate_rejected rejection);
+  rejection
 ;;
 
 let execute_flow_candidate ~net ?clock ~before_dispatch flow candidate =
-  match admit ~target:candidate.target ~messages:flow.messages flow.requirement with
-  | Error cause ->
-    let rejection = record_admission_rejection flow candidate.identity cause in
-    Error (Flow_step_admission_rejected rejection)
-  | Ok plan ->
-    let admitted = admitted_flow_candidate candidate.identity plan in
-    let candidate_attempt_count =
-      Flow_state.record_admission flow.progress (fun ~candidate_attempt_count ->
-        Candidate_admitted admitted, Candidate_attempt_count candidate_attempt_count)
-    in
-    (match start_attempt plan with
-     | Error cause -> Error (Flow_step_attempt_start_failed (candidate.identity, cause))
-     | Ok attempt ->
-       let candidate_receipt =
-         { identity = candidate.identity; receipt = attempt_receipt attempt }
-       in
-       record_attempt flow candidate_receipt;
-       (match before_dispatch candidate_receipt with
-        | Error cause ->
-          Error (Flow_step_before_dispatch_callback_failed (candidate_receipt, cause))
-        | Ok () ->
-          (match execute_once ~net ?clock attempt with
-           | Ok success -> Ok (candidate_receipt, success)
+  let reject cause =
+    let rejection = record_candidate_rejection flow candidate.visit cause in
+    Error (Flow_step_candidate_rejected rejection)
+  in
+  match resolve_target candidate.admitted_target with
+  | Error cause -> reject (Target_selection_rejected cause)
+  | Ok target ->
+    (match admit ~target ~messages:flow.messages flow.requirement with
+     | Error cause -> reject (Request_admission_rejected cause)
+     | Ok plan ->
+       let admitted = admitted_flow_candidate candidate.visit plan in
+       Flow_state.record_admission flow.progress (Candidate_admitted admitted);
+       (match start_attempt plan with
+        | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
+        | Ok attempt ->
+          let candidate_receipt =
+            { visit = candidate.visit; receipt = attempt_receipt attempt }
+          in
+          record_attempt flow candidate_receipt;
+          (match before_dispatch candidate_receipt with
            | Error cause ->
-             Error
-               (Flow_step_execution_failed
-                  { candidate = candidate_receipt; cause; candidate_attempt_count }))))
+             Error (Flow_step_before_dispatch_callback_failed (candidate_receipt, cause))
+           | Ok () ->
+             (match execute_once ~net ?clock attempt with
+              | Ok success -> Ok (candidate_receipt, success)
+              | Error cause ->
+                Error
+                  (Flow_step_execution_failed
+                     { candidate = candidate_receipt; cause })))))
 ;;
 
 let advanceable_flow_failure = function
-  | Flow_step_admission_rejected receipt ->
-    Some (Flow_candidate_admission_rejected receipt)
+  | Flow_step_candidate_rejected receipt -> Some (Flow_candidate_rejected receipt)
   | Flow_step_execution_failed ({ cause; _ } as failure)
     when execution_failure_may_advance cause ->
     Some
       (Flow_candidate_execution_failed
          { candidate = failure.candidate
          ; cause = failure.cause
-         ; candidate_attempt_count = failure.candidate_attempt_count
          })
   | Flow_step_execution_failed _
   | Flow_step_attempt_start_failed _
@@ -964,7 +1063,7 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
       ~execute:(execute_flow_candidate ~net ?clock ~before_dispatch flow)
       ~advanceable:advanceable_flow_failure
       ~before_advance:(fun ~failed:_ ~failure ~next ->
-        before_advance ~failed:failure ~next:next.identity)
+        before_advance ~failed:failure ~next:next.visit)
   in
   let evidence = flow_attempt_evidence flow in
   match outcome with
@@ -974,11 +1073,11 @@ let execute_flow_once ~net ?clock ~before_dispatch ~before_advance flow =
   | Flow_state.Before_advance_callback_failed { failure; next_candidate; cause; _ } ->
     Error
       (Flow_before_advance_callback_failed
-         { failed = failure; next = next_candidate.identity; cause; evidence })
+         { failed = failure; next = next_candidate.visit; cause; evidence })
   | Flow_state.Execution_failed { cause; _ } ->
     (match cause with
-     | Flow_step_admission_rejected rejection ->
-       Error (Flow_admission_failed { rejection; evidence })
+     | Flow_step_candidate_rejected rejection ->
+       Error (Flow_candidates_exhausted { rejection; evidence })
      | Flow_step_attempt_start_failed (candidate, cause) ->
        Error (Flow_attempt_start_failed { candidate; cause; evidence })
      | Flow_step_before_dispatch_callback_failed (candidate, cause) ->

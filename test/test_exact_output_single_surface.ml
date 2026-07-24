@@ -330,16 +330,22 @@ let test_tier_table_and_provider_schema_rejection () =
        ~messages:[ msg "json" ]
        (requirement EO.Provider_schema)
    with
-   | Error EO.Provider_schema_unavailable -> ()
-   | Ok _ | Error _ -> fail "provider-schema minimum must fail on JSON-only target");
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Output_requirement_rejected -> ()
+      | _ -> fail "provider-schema rejection lost its neutral disposition")
+   | Ok _ -> fail "provider-schema minimum must fail on JSON-only target");
   match
     EO.admit
       ~target:(target snapshot "none")
       ~messages:[ msg "json" ]
       (requirement EO.Json_syntax)
   with
-  | Error EO.Json_syntax_unavailable -> ()
-  | Ok _ | Error _ -> fail "JSON syntax must fail when target declares no JSON tier"
+  | Error error ->
+    (match EO.admission_error_disposition error with
+     | EO.Output_requirement_rejected -> ()
+     | _ -> fail "JSON syntax rejection lost its neutral disposition")
+  | Ok _ -> fail "JSON syntax must fail when target declares no JSON tier"
 ;;
 
 let test_deepseek_catalog_is_json_only_before_dispatch () =
@@ -380,8 +386,11 @@ let test_deepseek_catalog_is_json_only_before_dispatch () =
          ~messages:[ msg "schema" ]
          (requirement EO.Provider_schema)
      with
-     | Error EO.Provider_schema_unavailable -> ()
-     | Ok _ | Error _ -> fail "DeepSeek provider schema must reject before dispatch")
+     | Error error ->
+       (match EO.admission_error_disposition error with
+        | EO.Output_requirement_rejected -> ()
+        | _ -> fail "DeepSeek schema rejection lost its neutral disposition")
+     | Ok _ -> fail "DeepSeek provider schema must reject before dispatch")
 ;;
 
 let test_request_body_limit_is_typed_and_pre_dispatch () =
@@ -407,17 +416,19 @@ let test_request_body_limit_is_typed_and_pre_dispatch () =
       (requirement EO.Json_syntax)
   in
   (match admission with
-   | Error
-       (EO.Wire_admission_rejected
-          (EO.Request_body_too_large { actual_bytes; limit_bytes })) ->
-     check int "resolved exact-target byte limit" 1 limit_bytes;
-     check
-       bool
-       "actual serialized request bytes measured"
-       true
-       (actual_bytes > limit_bytes)
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Input_capacity
+          (EO.Serialized_request_body_too_large { actual_bytes; limit_bytes }) ->
+        check int "resolved exact-target byte limit" 1 limit_bytes;
+        check
+          bool
+          "actual serialized request bytes measured"
+          true
+          (actual_bytes > limit_bytes)
+      | _ -> fail "oversized request lost its neutral byte-cap disposition")
    | Ok _ -> fail "oversized exact-output request unexpectedly admitted"
-   | Error _ -> fail "oversized exact-output request lost its typed admission reason");
+  );
   check int "completion POST count" 0 completion_posts;
   check int "token measurement POST count" 0 token_posts;
   check int "captured request count" 0 (List.length captures)
@@ -459,10 +470,11 @@ let test_supported_models_membership_is_exact_and_pre_dispatch () =
    | Ok _ -> ()
    | Error _ -> fail "exact supported model must admit");
   (match rejected with
-   | Error
-       (EO.Wire_admission_rejected
-          (EO.Unsupported_target_model { model_id = "membership-rejected-model" })) -> ()
-   | Ok _ | Error _ -> fail "case-only non-member must return the typed rejection");
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Runtime_contract_rejected -> ()
+      | _ -> fail "model membership rejection lost its neutral disposition")
+   | Ok _ -> fail "case-only non-member must return the typed rejection");
   check int "membership rejection completion posts" 0 completion_posts;
   check int "membership rejection token posts" 0 token_posts;
   check int "membership rejection captures" 0 (List.length captures)
@@ -514,8 +526,11 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
        ~messages:[ wire_phase_message ]
        (requirement EO.Json_syntax)
    with
-   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
-   | Ok _ | Error _ -> fail "reserved wire metadata must reject before dispatch");
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Input_contract_rejected -> ()
+      | _ -> fail "reserved wire metadata lost its neutral disposition")
+   | Ok _ -> fail "reserved wire metadata must reject before dispatch");
   let tool_role_message = { (msg "tool role") with role = Types.Tool } in
   (match
      EO.admit
@@ -523,8 +538,11 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
        ~messages:[ tool_role_message ]
        (requirement EO.Json_syntax)
    with
-   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
-   | Ok _ | Error _ -> fail "tool role must reject before exact dispatch");
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Input_contract_rejected -> ()
+      | _ -> fail "tool role rejection lost its neutral disposition")
+   | Ok _ -> fail "tool role must reject before exact dispatch");
   let tool_message : Types.message =
     { role = Types.Assistant
     ; content = [ Types.ToolUse { id = "tool-1"; name = "forbidden"; input = `Assoc [] } ]
@@ -539,8 +557,11 @@ let test_wire_envelope_and_cross_feature_injection_rejected () =
       ~messages:[ tool_message ]
       (requirement EO.Json_syntax)
   with
-  | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
-  | Ok _ | Error _ -> fail "tool history must reject before exact dispatch"
+  | Error error ->
+    (match EO.admission_error_disposition error with
+     | EO.Input_contract_rejected -> ()
+     | _ -> fail "tool history rejection lost its neutral disposition")
+  | Ok _ -> fail "tool history must reject before exact dispatch"
 ;;
 
 let test_anthropic_schema_prefill_rejected_before_dispatch () =
@@ -565,8 +586,11 @@ let test_anthropic_schema_prefill_rejected_before_dispatch () =
       (requirement EO.Provider_schema)
   in
   (match admission with
-   | Error (EO.Wire_admission_rejected EO.Cross_feature_not_allowed) -> ()
-   | Ok _ | Error _ -> fail "Anthropic schema prefill must reject during admission");
+   | Error error ->
+     (match EO.admission_error_disposition error with
+      | EO.Input_contract_rejected -> ()
+      | _ -> fail "Anthropic prefill rejection lost its neutral disposition")
+   | Ok _ -> fail "Anthropic schema prefill must reject during admission");
   check int "Anthropic prefill completion posts" 0 completion_posts;
   check int "Anthropic prefill token posts" 0 token_posts;
   check int "Anthropic prefill captures" 0 (List.length captures)
@@ -1726,8 +1750,11 @@ let test_gemini_nested_unsupported_schema_keyword_rejected () =
          ~schema:unsupported_schema
          ~minimum_guarantee:EO.Provider_schema)
   with
-  | Error (EO.Unsupported_schema_keyword "$.properties.name.pattern") -> ()
-  | Ok _ | Error _ -> fail "Gemini unsupported schema keyword must remain typed"
+  | Error error ->
+    (match EO.admission_error_disposition error with
+     | EO.Output_requirement_rejected -> ()
+     | _ -> fail "Gemini schema rejection lost its neutral disposition")
+  | Ok _ -> fail "Gemini unsupported schema keyword must reject"
 ;;
 
 let test_gemini_nonempty_request_path_rejected_before_resolution () =

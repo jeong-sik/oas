@@ -965,6 +965,14 @@ let admit_target_ref snapshot value =
        Ok { target; generation = snapshot.generation; evidence = snapshot.evidence })
 ;;
 
+let admitted_target_identity (admitted : admitted_target) = admitted.target.identity
+
+let admitted_target_catalog_generation (admitted : admitted_target) =
+  admitted.generation
+;;
+
+let admitted_target_catalog_evidence (admitted : admitted_target) = admitted.evidence
+
 let resolve_target (admitted : admitted_target) =
   let target = admitted.target in
   let target_ref = target_ref_id target.identity.target_ref in

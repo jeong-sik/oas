@@ -6,13 +6,13 @@ type state =
 type t = state Atomic.t
 
 type ('admission, 'attempt) progress_snapshot =
-  { candidate_attempt_count : int
+  { candidate_visit_count : int
   ; admissions : 'admission list
   ; attempts : 'attempt list
   }
 
 type ('admission, 'attempt) progress_state =
-  { candidate_attempt_count : int
+  { candidate_visit_count : int
   ; admissions_rev : 'admission list
   ; attempts_rev : 'attempt list
   }
@@ -39,20 +39,18 @@ type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_erro
 let create () = Atomic.make Not_started
 
 let create_progress () =
-  Atomic.make { candidate_attempt_count = 0; admissions_rev = []; attempts_rev = [] }
+  Atomic.make { candidate_visit_count = 0; admissions_rev = []; attempts_rev = [] }
 ;;
 
-let record_admission progress make_admission =
+let record_admission progress admission =
   let current = Atomic.get progress in
-  let candidate_attempt_count = current.candidate_attempt_count + 1 in
-  let admission, result = make_admission ~candidate_attempt_count in
+  let candidate_visit_count = current.candidate_visit_count + 1 in
   Atomic.set
     progress
     { current with
-      candidate_attempt_count
+      candidate_visit_count
     ; admissions_rev = admission :: current.admissions_rev
-    };
-  result
+    }
 ;;
 
 let record_attempt progress attempt =
@@ -62,7 +60,7 @@ let record_attempt progress attempt =
 
 let progress_snapshot progress =
   let current = Atomic.get progress in
-  { candidate_attempt_count = current.candidate_attempt_count
+  { candidate_visit_count = current.candidate_visit_count
   ; admissions = List.rev current.admissions_rev
   ; attempts = List.rev current.attempts_rev
   }

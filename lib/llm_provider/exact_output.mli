@@ -100,53 +100,32 @@ type actual_assurance =
   | Json_syntax_only
   | Provider_schema_requested
 
-type target_selection_error =
-  | Missing_target_credential of
-      { target_ref : string
-      ; environment_variable : string
-      }
-  | Target_credential_invalid of
-      { target_ref : string
-      ; environment_variable : string
-      }
-  | Target_credential_read_failed of
-      { target_ref : string
-      ; environment_variable : string
-      }
+type target_selection_error
 
 type target_catalog_admission_error =
   | Target_ref_rejected of target_ref_error
   | Target_not_in_catalog of string
 
-type wire_admission_error =
-  | Capability_snapshot_missing
-  | Inconsistent_output_contract
-  | Output_contract_unavailable
-  | Cross_feature_not_allowed
-  | Global_admission_not_allowed
-  | Invalid_connect_timeout
-  | Invalid_body_timeout
-  | Caller_supplied_header_not_allowed
-  | Unsupported_image_input
-  | Unsupported_document_input
-  | Unsupported_audio_input
-  | Unsupported_system_prompt
-  | Token_measurement_required of Serving_constraint.t
-  | Unsupported_target_model of { model_id : string }
-  | Target_request_rejected
-  | Request_body_too_large of
+type wire_admission_error
+type admission_error
+
+type input_capacity_disposition =
+  | Token_measurement_required of
+      { accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
       }
-  | Request_serialization_rejected
 
-type admission_error =
-  | Provider_schema_unavailable
-  | Json_syntax_unavailable
-  | Unsupported_schema_keyword of string
-  | Unsupported_schema_type of string
-  | Invalid_schema
-  | Wire_admission_rejected of wire_admission_error
+type candidate_rejection_disposition =
+  | Runtime_slot_unavailable
+  | Runtime_contract_rejected
+  | Input_contract_rejected
+  | Output_requirement_rejected
+  | Input_capacity of input_capacity_disposition
+  | Request_preparation_failed
 
 type plan_provenance =
   { source_schema_fingerprint : schema_fingerprint
@@ -210,11 +189,20 @@ type flow_candidate_identity =
   ; target_identity : target_identity
   }
 
-type candidate_attempt_count
-type admission_rejection_receipt
+type flow_id
+type flow_visit_ordinal
+type candidate_visit_count
+
+type flow_candidate_visit = private
+  { flow_id : flow_id
+  ; ordinal : flow_visit_ordinal
+  ; identity : flow_candidate_identity
+  }
+
+type candidate_rejection_receipt
 
 type admitted_flow_candidate =
-  { identity : flow_candidate_identity
+  { visit : flow_candidate_visit
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; provenance : plan_provenance
@@ -222,7 +210,7 @@ type admitted_flow_candidate =
 
 type candidate_admission =
   | Candidate_admitted of admitted_flow_candidate
-  | Candidate_rejected of admission_rejection_receipt
+  | Candidate_rejected of candidate_rejection_receipt
 
 type flow_candidate_error = Blank_flow_candidate_id
 
@@ -233,19 +221,22 @@ type flow_snapshot_error =
       ; duplicate_position : int
       }
 
-(** Construct one provider-neutral candidate. The trimmed caller identity must
-    be nonempty; it is evidence only and never drives provider policy. *)
+(** Construct one provider-neutral candidate from a catalog-admitted target.
+    Credential selection remains frozen but unresolved until this candidate is
+    reached by {!execute_flow_once}. The trimmed caller identity must be
+    nonempty; it is evidence only and never drives provider policy. *)
 val make_flow_candidate
   :  id:string
-  -> target:selected_target
+  -> admitted_target:admitted_target
   -> (flow_candidate, flow_candidate_error) result
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
 (** Freeze one nonempty ordered candidate snapshot and its immutable domain
-    input. This validates only flow topology. Exact target admission is deferred
-    to the current candidate during {!execute_flow_once}; later candidates are
-    neither prepared nor assigned attempts speculatively. *)
+    input. This validates only flow topology. Credential selection and exact
+    request admission are deferred to the current candidate during
+    {!execute_flow_once}; later candidates are neither selected, prepared, nor
+    assigned attempts speculatively. *)
 val snapshot_flow
   :  first:flow_candidate
   -> rest:flow_candidate list
@@ -316,17 +307,24 @@ val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
 
 type start_attempt_error = Call_id_generation_failed of string
+type flow_start_error = Flow_id_generation_failed of string
 
 (** Allocate a fresh, independent execution attempt for an admitted plan.
     [admit] remains pure and the same immutable plan may start multiple attempts.
     Each attempt owns an opaque call identity and affine execution state. *)
 val start_attempt : ready_plan -> (attempt, start_attempt_error) result
 
-(** Create one affine execution handle over the frozen snapshot. This performs
-    no target admission, identity allocation, or network effect. *)
-val start_flow : flow_snapshot -> flow_attempt
+(** Allocate one fresh outer-flow identity and precompute one immutable visit
+    for each frozen candidate. This performs no credential selection, request
+    admission, call identity allocation, callback, or network effect. A new
+    invocation always creates a new flow; restart resume belongs to the
+    caller's authenticated durable journal. *)
+val start_flow : flow_snapshot -> (flow_attempt, flow_start_error) result
 
 val call_id_to_string : call_id -> string
+val flow_id_to_string : flow_id -> string
+val flow_visit_ordinal_to_int : flow_visit_ordinal -> int
+val flow_attempt_id : flow_attempt -> flow_id
 val attempt_receipt : attempt -> receipt
 val receipt_call_id : receipt -> call_id
 val receipt_phase : receipt -> effect_phase
@@ -341,23 +339,28 @@ val receipt_catalog_evidence : receipt -> catalog_evidence
 val receipt_target_identity : receipt -> target_identity
 
 type flow_attempt_receipt =
-  { identity : flow_candidate_identity
+  { visit : flow_candidate_visit
   ; receipt : receipt
   }
 
-val candidate_attempt_count_to_int : candidate_attempt_count -> int
-val admission_rejection_identity : admission_rejection_receipt -> flow_candidate_identity
-val admission_rejection_cause : admission_rejection_receipt -> admission_error
-val admission_rejection_phase : admission_rejection_receipt -> effect_phase
-val admission_rejection_dispatch_count : admission_rejection_receipt -> int
+val candidate_visit_count_to_int : candidate_visit_count -> int
+val target_selection_error_disposition
+  :  target_selection_error
+  -> candidate_rejection_disposition
 
-val admission_rejection_candidate_attempt_count
-  :  admission_rejection_receipt
-  -> candidate_attempt_count
+val admission_error_disposition : admission_error -> candidate_rejection_disposition
+val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
+val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
+val candidate_rejection_disposition
+  :  candidate_rejection_receipt
+  -> candidate_rejection_disposition
+val candidate_rejection_phase : candidate_rejection_receipt -> effect_phase
+val candidate_rejection_dispatch_count : candidate_rejection_receipt -> int
 
 type flow_evidence =
-  { candidate_snapshot : flow_candidate_identity list
-  ; candidate_attempt_count : candidate_attempt_count
+  { flow_id : flow_id
+  ; candidate_snapshot : flow_candidate_identity list
+  ; candidate_visit_count : candidate_visit_count
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_receipt list
   }
@@ -369,17 +372,16 @@ type flow_success =
   }
 
 type flow_candidate_failure =
-  | Flow_candidate_admission_rejected of admission_rejection_receipt
+  | Flow_candidate_rejected of candidate_rejection_receipt
   | Flow_candidate_execution_failed of
       { candidate : flow_attempt_receipt
       ; cause : execution_error
-      ; candidate_attempt_count : candidate_attempt_count
       }
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
   | Flow_attempt_start_failed of
-      { candidate : flow_candidate_identity
+      { candidate : flow_candidate_visit
       ; cause : start_attempt_error
       ; evidence : flow_evidence
       }
@@ -390,12 +392,12 @@ type 'callback_error flow_execution_error =
       }
   | Flow_before_advance_callback_failed of
       { failed : flow_candidate_failure
-      ; next : flow_candidate_identity
+      ; next : flow_candidate_visit
       ; cause : 'callback_error
       ; evidence : flow_evidence
       }
-  | Flow_admission_failed of
-      { rejection : admission_rejection_receipt
+  | Flow_candidates_exhausted of
+      { rejection : candidate_rejection_receipt
       ; evidence : flow_evidence
       }
   | Flow_exact_execution_failed of
@@ -405,12 +407,12 @@ type 'callback_error flow_execution_error =
       }
 
 (** Point-in-time aggregate evidence. [candidate_snapshot] is the original
-    immutable order. [candidate_attempt_count], [admissions], and [attempts]
+    immutable order. [candidate_visit_count], [admissions], and [attempts]
     contain only candidates reached so far. Attempts are allocated only after
-    current-candidate admission succeeds. This remains queryable after
-    cancellation escapes. The affine executor is the sole writer. A concurrent
-    reader may observe the exact point after an admitted outcome is recorded
-    and before its fresh attempt is allocated. *)
+    current-candidate target selection and request admission succeed. This
+    remains queryable after cancellation escapes. The affine executor is the
+    sole writer. A concurrent reader may observe the exact point after an
+    admitted outcome is recorded and before its fresh attempt is allocated. *)
 val flow_attempt_evidence : flow_attempt -> flow_evidence
 
 (** Execute the frozen request once. The attempt is single-use: duplicate or
@@ -430,33 +432,33 @@ val execute_once
 
 (** Execute one affine outer flow.
 
-    OAS prepares only the current frozen candidate. A successful preparation
-    receives one fresh attempt identity, then [before_dispatch] must durably bind
-    that attempt before its sole {!execute_once} call. A typed admission
-    rejection receives a real [admission_rejection_receipt] whose phase is
+    OAS resolves credentials and prepares the request only for the current
+    frozen candidate. A successful preparation receives one fresh attempt
+    identity, then [before_dispatch] must durably bind that attempt before its
+    sole {!execute_once} call. A typed target-selection or request-admission
+    rejection receives a real [candidate_rejection_receipt] whose phase is
     [Before_dispatch] and dispatch count is zero, but no plan, call ID, or
     execution receipt.
 
     [before_advance] receives the settled typed failure and the predetermined
-    next candidate identity. OAS may call it only for an admission rejection or
-    an execution receipt that is exactly [Before_dispatch] with zero dispatch.
-    The callback can stop but cannot select, replace, skip, or reorder the
-    successor.
+    next candidate visit. OAS may call it only for a candidate rejection or an
+    execution receipt that is exactly [Before_dispatch] with zero dispatch. The
+    callback can stop but cannot select, replace, skip, or reorder the successor.
 
-    A final admission rejection returns [Flow_admission_failed]. Callback errors,
-    replay, identity-allocation failure, missing execution prerequisites,
+    A final candidate rejection returns [Flow_candidates_exhausted]. Callback
+    errors, replay, identity-allocation failure, missing execution prerequisites,
     frozen-request corruption, cancellation, every post-dispatch outcome, and
     success are terminal. Cancellation is re-raised after the flow is
-    terminalized; inspect {!flow_attempt_evidence} for monotonic progress.
-    Domain validation occurs after an OAS success and is therefore outside this
-    API and never failover eligible. *)
+    terminalized; inspect {!flow_attempt_evidence} for monotonic progress. Domain
+    validation occurs after an OAS success and is therefore outside this API and
+    never failover eligible. *)
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> before_dispatch:(flow_attempt_receipt -> (unit, 'callback_error) result)
   -> before_advance:
        (failed:flow_candidate_failure
-        -> next:flow_candidate_identity
+        -> next:flow_candidate_visit
         -> (unit, 'callback_error) result)
   -> flow_attempt
   -> (flow_success, 'callback_error flow_execution_error) result
