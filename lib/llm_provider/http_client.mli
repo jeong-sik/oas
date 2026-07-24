@@ -369,6 +369,12 @@ type one_dispatch_phase =
   | Dispatch_started
   | Response_received
 
+type response_header_evidence
+
+(** Stable fingerprint of canonical, redacted response-header evidence. Header
+    names, values, and provider-specific semantics are deliberately opaque. *)
+val response_header_evidence_fingerprint : response_header_evidence -> string
+
 (** Raw response from {!post_sync_once}. No provider-specific body parsing or
     retry policy has run. *)
 type raw_sync_response =
@@ -413,6 +419,22 @@ val post_sync_once
   -> body:string
   -> unit
   -> (raw_sync_response, post_sync_once_error) result
+
+(** Exact-output transport variant. It performs the same sole POST as
+    {!post_sync_once}, while also returning opaque canonical response-header
+    evidence. The public wrapper calls this function once and discards that
+    evidence; neither path retries. *)
+val post_sync_once_with_evidence
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
+  -> ?connect_timeout_s:float
+  -> ?body_timeout_s:float
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> url:string
+  -> headers:(string * string) list
+  -> body:string
+  -> unit
+  -> (raw_sync_response * response_header_evidence, post_sync_once_error) result
 
 (** POST JSON body for SSE/NDJSON streaming.
     Returns [Ok reader] on HTTP 200 (10 MB buffer).

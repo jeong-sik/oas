@@ -1130,11 +1130,119 @@ type one_dispatch_phase =
   | Dispatch_started
   | Response_received
 
+type response_header_evidence = Response_header_evidence of string
+
+let response_header_evidence_fingerprint (Response_header_evidence fingerprint) =
+  fingerprint
+;;
+
+let normalize_response_headers headers =
+  headers
+  |> List.map (fun (name, value) ->
+    String.lowercase_ascii (String.trim name), String.trim value)
+  |> List.sort (fun (left_name, left_value) (right_name, right_value) ->
+    match String.compare left_name right_name with
+    | 0 -> String.compare left_value right_value
+    | order -> order)
+;;
+
+let response_header_name_is_sensitive = function
+  | "authorization"
+  | "proxy-authorization"
+  | "cookie"
+  | "set-cookie"
+  | "www-authenticate"
+  | "proxy-authenticate"
+  | "authentication-info"
+  | "proxy-authentication-info"
+  | "api-key"
+  | "x-api-key" -> true
+  | _ -> false
+;;
+
+let capture_response_header_evidence headers =
+  let raw_headers = Http.Header.to_list headers in
+  let retry_after_header =
+    match
+      List.filter
+        (fun (name, _) ->
+           String.equal (String.lowercase_ascii (String.trim name)) "retry-after")
+        raw_headers
+    with
+    | [ (_, value) ] ->
+      Http.Header.of_list [ "retry-after", value ]
+      |> retry_after_header_of_response_headers
+    | [] | _ :: _ :: _ -> None
+  in
+  let redacted_headers =
+    raw_headers
+    |> normalize_response_headers
+    |> List.map (fun (name, value) ->
+      if response_header_name_is_sensitive name then name, "[REDACTED]" else name, value)
+  in
+  let fingerprint =
+    `Assoc
+      [ "version", `Int 1
+      ; ( "headers"
+        , `List
+            (List.map
+               (fun (name, value) -> `List [ `String name; `String value ])
+               redacted_headers) )
+      ]
+    |> Yojson.Safe.to_string
+    |> Digestif.SHA256.digest_string
+    |> Digestif.SHA256.to_hex
+  in
+  Response_header_evidence fingerprint, retry_after_header
+;;
+
+let header_evidence_fingerprint_for_test headers =
+  headers
+  |> Http.Header.of_list
+  |> capture_response_header_evidence
+  |> fst
+  |> response_header_evidence_fingerprint
+;;
+
+let%test "response header evidence is canonical, multiplicity-sensitive, and redacted" =
+  let first =
+    header_evidence_fingerprint_for_test [ "X-Trace-B", " beta "; "X-Trace-A", "alpha" ]
+  in
+  let reordered =
+    header_evidence_fingerprint_for_test [ "x-trace-a", "alpha"; "x-trace-b", "beta" ]
+  in
+  let one = header_evidence_fingerprint_for_test [ "x-trace", "same" ] in
+  let duplicate =
+    header_evidence_fingerprint_for_test [ "x-trace", "same"; "X-Trace", "same" ]
+  in
+  let secret_one =
+    header_evidence_fingerprint_for_test [ "set-cookie", "session=secret-one" ]
+  in
+  let secret_two =
+    header_evidence_fingerprint_for_test [ "Set-Cookie", "session=secret-two" ]
+  in
+  String.equal first reordered
+  && (not (String.equal one duplicate))
+  && String.equal secret_one secret_two
+;;
+
 type raw_sync_response =
   { status : int
   ; body : string
   ; retry_after_header : float option
   }
+
+let%test "Retry-After is captured once with explicit duplicate ambiguity" =
+  let capture headers =
+    headers |> Http.Header.of_list |> capture_response_header_evidence |> snd
+  in
+  let retry_after_header = capture [ "Retry-After", "7" ] in
+  let response = { status = 429; body = "rate limited"; retry_after_header } in
+  let duplicate = capture [ "Retry-After", "7"; "retry-after", "8" ] in
+  response.retry_after_header = Some 7.0
+  && response.retry_after_header = retry_after_header
+  && duplicate = None
+;;
 
 type post_sync_once_error =
   | Before_dispatch_error of http_error
@@ -1642,7 +1750,7 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
         Ok (code, body_str))))
 ;;
 
-let post_sync_once
+let post_sync_once_with_evidence
       ?cache
       ?clock
       ?connect_timeout_s
@@ -1802,11 +1910,19 @@ let post_sync_once
                 let response_status =
                   Cohttp.Response.status response |> Cohttp.Code.code_of_status
                 in
+                let response_header_evidence, retry_after_header =
+                  Cohttp.Response.headers response |> capture_response_header_evidence
+                in
                 phase := Response_received;
                 status := Some response_status;
                 Http_client_phase_observer.observe
                   (Http_client_phase_observer.Response_received response_status);
-                Ok (conn, response, response_body))
+                Ok
+                  ( conn
+                  , response
+                  , response_body
+                  , response_header_evidence
+                  , retry_after_header ))
             with
             | Eio.Time.Timeout as exn ->
               release_connection ();
@@ -1817,7 +1933,12 @@ let post_sync_once
            | Error error ->
              release_connection ();
              fail error
-           | Ok (conn, response, response_body) ->
+           | Ok
+               ( conn
+               , response
+               , response_body
+               , response_header_evidence
+               , retry_after_header ) ->
              let body_result =
                try
                  match body_deadline, total_started_at with
@@ -1848,10 +1969,6 @@ let post_sync_once
                 release_connection ();
                 fail error
               | Ok response_body ->
-                let retry_after_header =
-                  Cohttp.Response.headers response
-                  |> retry_after_header_of_response_headers
-                in
                 let release_result =
                   match
                     ( cache
@@ -1876,10 +1993,38 @@ let post_sync_once
                    fail error
                  | Ok () ->
                    Ok
-                     { status = Option.get !status
-                     ; body = response_body
-                     ; retry_after_header
-                     })))))
+                     ( { status = Option.get !status
+                       ; body = response_body
+                       ; retry_after_header
+                       }
+                     , response_header_evidence ))))))
+;;
+
+let post_sync_once
+      ?cache
+      ?clock
+      ?connect_timeout_s
+      ?body_timeout_s
+      ~net
+      ~url
+      ~headers
+      ~body
+      ()
+  =
+  match
+    post_sync_once_with_evidence
+      ?cache
+      ?clock
+      ?connect_timeout_s
+      ?body_timeout_s
+      ~net
+      ~url
+      ~headers
+      ~body
+      ()
+  with
+  | Ok (response, _) -> Ok response
+  | Error error -> Error error
 ;;
 
 let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body () =

@@ -55,6 +55,7 @@ type normalized_outcome =
 type raw_response_evidence =
   { raw_body : string
   ; raw_body_sha256 : string
+  ; response_header_evidence : Http_client.response_header_evidence
   }
 
 type normalized_outcome_with_evidence =
@@ -94,8 +95,11 @@ let receipt_identity = function
 let receipt_fingerprint receipt = (receipt_identity receipt).fingerprint
 let receipt_request_body_sha256 receipt = (receipt_identity receipt).request_body_sha256
 
-let raw_response_evidence raw_body =
-  { raw_body; raw_body_sha256 = Digestif.SHA256.(to_hex (digest_string raw_body)) }
+let raw_response_evidence (raw : Http_client.raw_sync_response) response_header_evidence =
+  { raw_body = raw.body
+  ; raw_body_sha256 = Digestif.SHA256.(to_hex (digest_string raw.body))
+  ; response_header_evidence
+  }
 ;;
 
 let execute_once_with_evidence ~net ?clock ?on_phase plan =
@@ -130,7 +134,7 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
       error (before_dispatch_receipt ()) Clock_required_for_timeout
     | connect_timeout_s, body_timeout_s, _ ->
       let post_once () =
-        Http_client.post_sync_once
+        Http_client.post_sync_once_with_evidence
           ?clock
           ?connect_timeout_s
           ?body_timeout_s
@@ -149,8 +153,8 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
        | Error transport_error ->
          let receipt, provider_error = transport_error_receipt transport_error in
          error receipt (Provider_error provider_error)
-       | Ok raw when raw.status < 200 || raw.status >= 300 ->
-         let raw_response = raw_response_evidence raw.body in
+       | Ok (raw, response_header_evidence) when raw.status < 200 || raw.status >= 300 ->
+         let raw_response = raw_response_evidence raw response_header_evidence in
          error
            ~raw_response
            (response_received_receipt raw.status)
@@ -160,8 +164,8 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
                  ; body = raw.body
                  ; retry_after_header = raw.retry_after_header
                  }))
-       | Ok raw ->
-         let raw_response = raw_response_evidence raw.body in
+       | Ok (raw, response_header_evidence) ->
+         let raw_response = raw_response_evidence raw response_header_evidence in
          (match
             Complete_sync.parse_sync_response
               ~http_codec:(Exact_output_plan.response_codec plan)
