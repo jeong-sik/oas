@@ -30,7 +30,6 @@ type turn_outcome = Pipeline_terminal_tool.turn_outcome =
   | TerminalToolCompleted of Terminal_tool_receipt.t
 
 let persist_turn_checkpoint_for_state = Pipeline_checkpoint.persist_for_state
-;;
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
 let stage_input = Pipeline_stage_prepare.stage_input
