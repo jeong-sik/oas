@@ -33,7 +33,11 @@ type ('scope, 'candidate) preference_store =
   ; mutable last_success_ordinal : int64
   }
 
-type domain_settlement = bool Atomic.t
+type domain_settlement =
+  { mutex : Mutex.t
+  ; mutable settled : bool
+  }
+
 type preference_store_error = Invalid_preference_capacity of int
 type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
 
@@ -91,7 +95,7 @@ let create_preference_store ~capacity =
       }
 ;;
 
-let create_domain_settlement () = Atomic.make false
+let create_domain_settlement () = { mutex = Mutex.create (); settled = false }
 
 let with_preference_lock (store : (_, _) preference_store) f =
   Mutex.lock store.mutex;
@@ -150,11 +154,17 @@ let record_preference store ~scope ~reservation ~candidate ~ordinal =
       Ok Preference_installed)
 ;;
 
-let claim_domain_settlement settlement =
-  if Atomic.compare_and_set settlement false true then Ok () else Error Already_settled
+let settle_domain_rejected_once settlement =
+  Mutex.lock settlement.mutex;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock settlement.mutex)
+    (fun () ->
+       if settlement.settled
+       then Error Already_settled
+       else (
+         settlement.settled <- true;
+         Ok ()))
 ;;
-
-let settle_domain_rejected_once = claim_domain_settlement
 
 let settle_domain_valid_once
       settlement
@@ -164,12 +174,21 @@ let settle_domain_valid_once
       ~candidate
       ~ordinal
   =
-  match claim_domain_settlement settlement with
-  | Error Already_settled -> Error Already_settled
-  | Ok () ->
-    (match record_preference preferences ~scope ~reservation ~candidate ~ordinal with
-     | Ok installation -> Ok installation
-     | Error Preference_scope_not_reserved_for_record -> Error Preference_scope_released)
+  Mutex.lock settlement.mutex;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock settlement.mutex)
+    (fun () ->
+       if settlement.settled
+       then Error Already_settled
+       else (
+         let installation =
+           record_preference preferences ~scope ~reservation ~candidate ~ordinal
+         in
+         settlement.settled <- true;
+         match installation with
+         | Ok installation -> Ok installation
+         | Error Preference_scope_not_reserved_for_record ->
+           Error Preference_scope_released))
 ;;
 
 let record_admission progress admission =

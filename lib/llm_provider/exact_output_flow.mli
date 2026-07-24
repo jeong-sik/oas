@@ -88,6 +88,10 @@ val settle_domain_rejected_once
   :  domain_settlement
   -> (unit, domain_settlement_error) result
 
+(** The per-success settlement gate remains held through preference
+    publication. A losing duplicate therefore returns only after the winning
+    domain-valid record is visible. Lock acquisition is strictly settlement
+    gate then preference store; no operation acquires them in reverse order. *)
 val settle_domain_valid_once
   :  domain_settlement
   -> ('scope, 'candidate) preference_store

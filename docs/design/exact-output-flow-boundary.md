@@ -128,6 +128,12 @@ timestamp, string, or target-specific tie-break. An older observation leaves
 the installed preference unchanged and returns a typed superseded receipt
 containing the retained candidate identity and ordinal.
 
+The per-success settlement gate remains held until domain-valid preference
+publication completes. A losing duplicate therefore cannot return
+`Domain_already_settled` and immediately observe a pre-publication snapshot.
+The only nested lock order is settlement gate then preference store; no path
+acquires those locks in reverse.
+
 No network or filesystem I/O occurs while the preference mutex is held.
 
 ## Evidence

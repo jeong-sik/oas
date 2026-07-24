@@ -1042,24 +1042,11 @@ require_code_sequence \
   "scope-local preference stopped failing closed on ordinal exhaustion" \
   'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
   "$exact_output_flow_source"
-require_code_sequence \
-  "domain settlement lost its affine atomic gate" \
-  'type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*bool[[:space:]]+Atomic[.]t.*let[[:space:]]+claim_domain_settlement.*Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+false[[:space:]]+true' \
-  "$exact_output_flow_source"
 require_named_function_pattern \
-  "domain-valid settlement stopped consuming its affine gate before recording preference" \
-  'claim_domain_settlement[[:space:]]+settlement.*record_preference' \
+  "domain settlement lost its synchronized commit-before-publication gate" \
+  'Mutex[.]lock[[:space:]]+settlement[.]mutex.*Fun[.]protect.*Mutex[.]unlock[[:space:]]+settlement[.]mutex.*record_preference.*settled[[:space:]]*<-[[:space:]]*true' \
   "$exact_output_flow_source" \
   "settle_domain_valid_once"
-scan_named_functions \
-  "domain settlement regained a blocking mutex" \
-  'Mutex[.]' \
-  "$exact_output_flow_source" \
-  "claim_domain_settlement settle_domain_rejected_once settle_domain_valid_once"
-scan_code \
-  "domain settlement regained a per-success blocking mutex" \
-  'settlement[.]mutex|type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
-  "$exact_output_flow_source"
 require_named_function_pattern \
   "preference capacity check and reservation add are no longer atomic" \
   'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \
