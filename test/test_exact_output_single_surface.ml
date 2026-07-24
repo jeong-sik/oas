@@ -584,7 +584,7 @@ let test_no_measure_one_post_and_wire_authority () =
       ; "fallbacks"
       ; "internal_model_rotation_count"
       ];
-     check
+    check
       bool
       (id ^ " server-side fallback header absent")
       false
