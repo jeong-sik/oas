@@ -276,7 +276,7 @@ let%test "domain-valid publication blocks a rejected loser and its immediate sna
             | ( Ok Preference_installed
               , Error Already_settled
               , Ok (_, Some (candidate, installed_ordinal)) ) ->
-              String.equal candidate "winner"
+              candidate = "winner"
               && Int64.equal
                    (success_ordinal_to_int64 ordinal)
                    (success_ordinal_to_int64 installed_ordinal)
