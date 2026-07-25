@@ -136,7 +136,7 @@ let test_to_string_each_variant () =
     ; `Provider_timeout (None, "3s elapsed")
     ; `Streaming_timeout (Http_client.Stream_body, "stream body elapsed")
     ; `Overloaded
-    ; `Invalid_request "bad body"
+    ; `Invalid_request (Llm_provider.Retry.Unknown_invalid_request, "bad body")
     ; `Tool_exec_failed ("search", "crash")
     ; `Tool_timeout ("calc", 30.0)
     ; `Guardrail_violation ("typed-input", "rejected")
@@ -174,7 +174,7 @@ let test_all_variants_convert () =
     ; `Provider_timeout (None, "x")
     ; `Streaming_timeout (Http_client.Stream_idle Http_client.Streaming_thinking, "idle")
     ; `Overloaded
-    ; `Invalid_request "x"
+    ; `Invalid_request (Llm_provider.Retry.Unknown_invalid_request, "x")
     ; `Tool_exec_failed ("t", "d")
     ; `Tool_timeout ("t", 1.0)
     ; `Guardrail_violation ("typed-input", "rejected")
@@ -350,7 +350,7 @@ let test_roundtrip_api_invalid_request () =
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Invalid_request "bad" -> ()
+   | `Invalid_request (_, "bad") -> ()
    | _ -> Alcotest.fail "expected Invalid_request");
   let back = Error_domain.to_sdk_error poly in
   match back with
@@ -365,7 +365,8 @@ let test_roundtrip_api_invalid_request_does_not_infer_malformed_json () =
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Invalid_request msg -> Alcotest.(check string) "message preserved" message msg
+   | `Invalid_request (_, msg) ->
+     Alcotest.(check string) "message preserved" message msg
    | _ -> Alcotest.fail "expected Invalid_request");
   match Error_domain.to_sdk_error poly with
   | Error.Api (Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ } as err)
@@ -638,7 +639,8 @@ let test_retryable_invalid_request () =
   Alcotest.(check bool)
     "invalid_request not retryable"
     false
-    (Error_domain.is_retryable (`Invalid_request "bad"))
+    (Error_domain.is_retryable
+       (`Invalid_request (Llm_provider.Retry.Unknown_invalid_request, "bad")))
 ;;
 
 let test_retryable_tool_exec_failed () =
@@ -768,7 +770,7 @@ let test_provider_roundtrip_all_via_to_sdk () =
     ; `Provider_timeout (None, "x")
     ; `Streaming_timeout (Http_client.Stream_body, "x")
     ; `Overloaded
-    ; `Invalid_request "x"
+    ; `Invalid_request (Llm_provider.Retry.Unknown_invalid_request, "x")
     ]
   in
   List.iter

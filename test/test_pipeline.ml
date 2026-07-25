@@ -1225,7 +1225,7 @@ let test_error_domain_provider_errors () =
     ; `Server_error (500, "internal")
     ; `Overloaded
     ; `Provider_timeout (None, "slow")
-    ; `Invalid_request "bad"
+    ; `Invalid_request (Llm_provider.Retry.Unknown_invalid_request, "bad")
     ]
   in
   List.iter
