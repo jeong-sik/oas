@@ -284,6 +284,13 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.223.1](https://github.com/jeong-sik/oas/compare/v0.223.0...v0.223.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **llm-provider:** restore Eio 1.3 compatibility ([#2805](https://github.com/jeong-sik/oas/issues/2805)) ([e2db255](https://github.com/jeong-sik/oas/commit/e2db255ff6e9f88b809f3a15494108a7013483cc))
+
 ## [0.223.0](https://github.com/jeong-sik/oas/compare/v0.222.2...v0.223.0) (2026-07-24)
 
 
