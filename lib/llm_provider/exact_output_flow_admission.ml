@@ -31,6 +31,7 @@ type measurement_operation_id = Measurement_operation_id of string
 
 type measurement_receipt_state =
   | Fence_committed
+  | No_dispatch_confirmed
   | Wire_started
   | Terminal of measurement_evidence
 
@@ -44,6 +45,14 @@ type measurement_receipt_phase =
   | Measurement_fence_committed
   | Measurement_wire_started
   | Measurement_terminal
+
+type receipt_snapshot =
+  { operation_id : measurement_operation_id
+  ; request_body_sha256 : string
+  ; phase : measurement_receipt_phase
+  ; dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome option
+  }
 
 type rejection =
   | Serving_evidence_rejected of Serving_constraint.admission_error
@@ -77,45 +86,61 @@ let rejection_outcome dispatch = function
   | Measurement_rejected (Transport_failure (Http_client.AcceptRejected _)) ->
     Measurement_local_invalid
   | Measurement_rejected (Transport_failure _) -> Measurement_transport_failed
-  | Measurement_rejected
-      (Output_token_resolution_failure _ | Invalid_request_failure _)
-  | Serving_evidence_rejected _
-  | Plan_finalization_rejected _ -> Measurement_local_invalid
+  | Measurement_rejected (Output_token_resolution_failure _ | Invalid_request_failure _)
+  | Serving_evidence_rejected _ | Plan_finalization_rejected _ ->
+    Measurement_local_invalid
   | Context_admission_rejected _ ->
     (match dispatch with
      | No_measurement_dispatch -> Measurement_local_invalid
-     | Measurement_dispatch_unknown
-     | Measurement_dispatch_started -> Measurement_succeeded)
+     | Measurement_dispatch_unknown | Measurement_dispatch_started ->
+       Measurement_succeeded)
 ;;
 
 let operation_id_to_string (Measurement_operation_id value) = value
 let receipt_operation_id receipt = receipt.operation_id
 let receipt_request_body_sha256 receipt = receipt.request_body_sha256
 
-let receipt_phase receipt =
-  match Atomic.get receipt.state with
-  | Fence_committed -> Measurement_fence_committed
-  | Wire_started -> Measurement_wire_started
-  | Terminal _ -> Measurement_terminal
+let snapshot_of_state receipt = function
+  | Fence_committed ->
+    { operation_id = receipt.operation_id
+    ; request_body_sha256 = receipt.request_body_sha256
+    ; phase = Measurement_fence_committed
+    ; dispatch = Measurement_dispatch_unknown
+    ; outcome = None
+    }
+  | No_dispatch_confirmed ->
+    { operation_id = receipt.operation_id
+    ; request_body_sha256 = receipt.request_body_sha256
+    ; phase = Measurement_fence_committed
+    ; dispatch = No_measurement_dispatch
+    ; outcome = None
+    }
+  | Wire_started ->
+    { operation_id = receipt.operation_id
+    ; request_body_sha256 = receipt.request_body_sha256
+    ; phase = Measurement_wire_started
+    ; dispatch = Measurement_dispatch_started
+    ; outcome = None
+    }
+  | Terminal evidence ->
+    { operation_id = receipt.operation_id
+    ; request_body_sha256 = receipt.request_body_sha256
+    ; phase = Measurement_terminal
+    ; dispatch = evidence.dispatch
+    ; outcome = Some evidence.outcome
+    }
 ;;
 
-let receipt_dispatch_fact receipt =
-  match Atomic.get receipt.state with
-  | Fence_committed -> Measurement_dispatch_unknown
-  | Wire_started -> Measurement_dispatch_started
-  | Terminal evidence -> evidence.dispatch
-;;
-
-let receipt_outcome receipt =
-  match Atomic.get receipt.state with
-  | Terminal evidence -> Some evidence.outcome
-  | Fence_committed | Wire_started -> None
-;;
+let receipt_snapshot receipt = snapshot_of_state receipt (Atomic.get receipt.state)
+let receipt_phase receipt = (receipt_snapshot receipt).phase
+let receipt_dispatch_fact receipt = (receipt_snapshot receipt).dispatch
+let receipt_outcome receipt = (receipt_snapshot receipt).outcome
 
 let state_rank = function
   | Fence_committed -> 0
-  | Wire_started -> 1
-  | Terminal _ -> 2
+  | No_dispatch_confirmed -> 1
+  | Wire_started -> 2
+  | Terminal _ -> 3
 ;;
 
 let rec advance_receipt receipt desired =
@@ -126,29 +151,51 @@ let rec advance_receipt receipt desired =
     then advance_receipt receipt desired
 ;;
 
-let finish_receipt receipt evidence =
-  advance_receipt receipt (Terminal evidence)
+let confirm_no_dispatch receipt = advance_receipt receipt No_dispatch_confirmed
+
+let rec finish_receipt receipt outcome_of_dispatch =
+  let current = Atomic.get receipt.state in
+  match current with
+  | Terminal evidence -> evidence
+  | Fence_committed ->
+    finish_receipt_from
+      receipt
+      current
+      Measurement_dispatch_unknown
+      outcome_of_dispatch
+  | No_dispatch_confirmed ->
+    finish_receipt_from receipt current No_measurement_dispatch outcome_of_dispatch
+  | Wire_started ->
+    finish_receipt_from receipt current Measurement_dispatch_started outcome_of_dispatch
+
+and finish_receipt_from receipt current dispatch outcome_of_dispatch =
+  let evidence = { dispatch; outcome = outcome_of_dispatch dispatch } in
+  if Atomic.compare_and_set receipt.state current (Terminal evidence)
+  then evidence
+  else finish_receipt receipt outcome_of_dispatch
 ;;
 
 let reject ?(dispatch = No_measurement_dispatch) cause =
   let measurement = { dispatch; outcome = rejection_outcome dispatch cause } in
-  Rejected
-    { cause; measurement }
+  Rejected { cause; measurement }
 ;;
 
 let measurement_failure = function
-  | Count_tokens_sync.Input_count_failed
-      ((Input_token_count.Unsupported _) as error) ->
+  | Count_tokens_sync.Input_count_failed (Input_token_count.Unsupported _ as error) ->
     Unsupported_failure error
   | Count_tokens_sync.Input_count_failed (Input_token_count.Transport error) ->
     Transport_failure error
-  | Count_tokens_sync.Input_count_failed
-      ((Input_token_count.Invalid_response _) as error) ->
-    Invalid_response_failure error
+  | Count_tokens_sync.Input_count_failed (Input_token_count.Invalid_response _ as error)
+    -> Invalid_response_failure error
   | Count_tokens_sync.Output_token_resolution_failed error ->
     Output_token_resolution_failure error
-  | Count_tokens_sync.Invalid_completion_request detail ->
-    Invalid_request_failure detail
+  | Count_tokens_sync.Invalid_completion_request detail -> Invalid_request_failure detail
+;;
+
+let record_transport_stage receipt = function
+  | Count_tokens_sync.Measurement_before_dispatch -> confirm_no_dispatch receipt
+  | Count_tokens_sync.Measurement_dispatch_started
+  | Count_tokens_sync.Measurement_response_received _ -> advance_receipt receipt Wire_started
 ;;
 
 let admit
@@ -167,9 +214,7 @@ let admit
        Admitted
          { plan
          ; measurement =
-             { dispatch = No_measurement_dispatch
-             ; outcome = Measurement_not_required
-             }
+             { dispatch = No_measurement_dispatch; outcome = Measurement_not_required }
          }
      | Error error -> reject (Plan_finalization_rejected error))
   | Some constraint_ ->
@@ -188,133 +233,117 @@ let admit
              in
              if measurement_requires_clock && Option.is_none clock
              then Measurement_clock_required_for_timeout
-             else
-                let measurement_dispatch = ref No_measurement_dispatch in
-                let measurement_receipt = ref None in
-                let observe = function
-                  | Http_client_phase_observer.Dispatch_started ->
-                    measurement_dispatch := Measurement_dispatch_started;
-                    Option.iter
-                      (fun receipt -> advance_receipt receipt Wire_started)
-                      !measurement_receipt
-                  | Http_client_phase_observer.Response_received _ -> ()
-                in
-                let terminal_callback receipt measurement =
-                  finish_receipt receipt measurement;
-                  match on_measurement_terminal receipt with
-                  | Ok () -> Ok ()
-                  | Error cause -> Error cause
-                in
-                let before_dispatch () =
-                  match Exact_output_call_id.create () with
-                  | Error detail -> Error (`Operation_start_failed detail)
-                  | Ok raw_operation_id ->
-                    let receipt =
-                      { operation_id = Measurement_operation_id raw_operation_id
-                      ; request_body_sha256 =
-                          Plan.preflight_request_body_sha256 preflight
-                      ; state = Atomic.make Fence_committed
-                      }
-                    in
-                    measurement_dispatch := Measurement_dispatch_unknown;
-                    measurement_receipt := Some receipt;
-                    on_measurement_receipt receipt;
-                    (match before_measurement_dispatch receipt with
-                     | Ok () -> Ok ()
-                     | Error cause ->
-                       let measurement =
-                         { dispatch = Measurement_dispatch_unknown
-                         ; outcome = Measurement_fence_rejected
-                         }
-                       in
-                       (match terminal_callback receipt measurement with
-                        | Ok () ->
-                          Error (`Before_dispatch_failed (receipt, cause))
-                        | Error terminal_cause ->
-                          Error (`Terminal_callback_failed (receipt, terminal_cause))))
-                in
-                let measured =
-                  Http_client_phase_observer.with_observer observe (fun () ->
-                    Count_tokens_sync.measure_exact_completion_request_with_before_dispatch
-                      ~net
-                      ?clock
-                      ~before_dispatch
-                      measurement_request)
-                in
-                let terminalize receipt measurement outcome =
-                  match terminal_callback receipt measurement with
-                  | Ok () -> outcome
-                  | Error cause ->
-                    Measurement_terminal_callback_failed { receipt; cause }
-                in
-                let reject_measured receipt cause =
-                  let measurement =
-                    { dispatch = !measurement_dispatch
-                    ; outcome = rejection_outcome !measurement_dispatch cause
-                    }
-                  in
-                  terminalize
-                    receipt
-                    measurement
-                    (Rejected { cause; measurement })
-                in
-                (match measured with
-                 | Error
-                     (Count_tokens_sync.Before_dispatch_failed
-                        (`Operation_start_failed detail)) ->
-                   Measurement_operation_start_failed detail
-                 | Error
-                     (Count_tokens_sync.Before_dispatch_failed
-                        (`Before_dispatch_failed (receipt, cause))) ->
-                   Before_measurement_dispatch_failed { receipt; cause }
-                 | Error
-                     (Count_tokens_sync.Before_dispatch_failed
-                        (`Terminal_callback_failed (receipt, cause))) ->
-                   Measurement_terminal_callback_failed { receipt; cause }
-                 | Error (Count_tokens_sync.Completion_request_failed error) ->
-                   (match !measurement_receipt with
-                    | None -> reject (Measurement_rejected (measurement_failure error))
-                    | Some receipt ->
-                      reject_measured
-                        receipt
-                        (Measurement_rejected (measurement_failure error)))
-                 | Ok measurement ->
-                   let measured =
-                     Prepared.attach_measurement
-                       (Plan.prepared_request preflight)
-                       measurement
+             else (
+               let measurement_receipt = ref None in
+               let observe = function
+                 | Http_client_phase_observer.Dispatch_started ->
+                   Option.iter
+                     (fun receipt -> advance_receipt receipt Wire_started)
+                     !measurement_receipt
+                 | Http_client_phase_observer.Response_received _ -> ()
+               in
+               let terminal_callback receipt outcome_of_dispatch =
+                 let measurement = finish_receipt receipt outcome_of_dispatch in
+                 match on_measurement_terminal receipt with
+                 | Ok () -> Ok measurement
+                 | Error cause -> Error cause
+               in
+               let before_dispatch () =
+                 match Exact_output_call_id.create () with
+                 | Error detail -> Error (`Operation_start_failed detail)
+                 | Ok raw_operation_id ->
+                   let receipt =
+                     { operation_id = Measurement_operation_id raw_operation_id
+                     ; request_body_sha256 = Plan.preflight_request_body_sha256 preflight
+                     ; state = Atomic.make Fence_committed
+                     }
                    in
-                   (match
-                      Prepared.admit
-                        ~now_unix_s:(now_unix_s ())
-                        ~max_context_tokens
-                        measured
-                    with
-                    | Error error ->
-                      (match !measurement_receipt with
-                       | None -> assert false
-                       | Some receipt ->
-                         reject_measured receipt (Context_admission_rejected error))
-                    | Ok admitted ->
-                      (match Plan.finalize_measured preflight admitted with
-                       | Error error ->
-                         (match !measurement_receipt with
-                          | None -> assert false
-                          | Some receipt ->
-                            reject_measured
-                              receipt
-                              (Plan_finalization_rejected error))
-                       | Ok plan ->
-                         let measurement =
-                           { dispatch = !measurement_dispatch
-                           ; outcome = Measurement_succeeded
-                           }
-                         in
-                         (match !measurement_receipt with
-                          | None -> assert false
-                          | Some receipt ->
-                            terminalize
-                              receipt
-                              measurement
-                              (Admitted { plan; measurement }))))))))
+                   measurement_receipt := Some receipt;
+                   on_measurement_receipt receipt;
+                   (match before_measurement_dispatch receipt with
+                    | Ok () -> Ok ()
+                    | Error cause ->
+                      confirm_no_dispatch receipt;
+                      (match
+                         terminal_callback receipt (fun _ -> Measurement_fence_rejected)
+                       with
+                       | Ok _ -> Error (`Before_dispatch_failed (receipt, cause))
+                       | Error terminal_cause ->
+                         Error (`Terminal_callback_failed (receipt, terminal_cause))))
+               in
+               let measured =
+                 Http_client_phase_observer.with_observer observe (fun () ->
+                   Count_tokens_sync.measure_exact_completion_request_with_before_dispatch
+                     ~net
+                     ?clock
+                     ~before_dispatch
+                     measurement_request)
+               in
+               let terminalize receipt outcome_of_dispatch make_outcome =
+                 match terminal_callback receipt outcome_of_dispatch with
+                 | Ok measurement -> make_outcome measurement
+                 | Error cause -> Measurement_terminal_callback_failed { receipt; cause }
+               in
+               let reject_measured receipt cause =
+                 terminalize
+                   receipt
+                   (fun dispatch -> rejection_outcome dispatch cause)
+                   (fun measurement -> Rejected { cause; measurement })
+               in
+               match measured with
+               | Error
+                   (Count_tokens_sync.Before_dispatch_failed
+                      (`Operation_start_failed detail)) ->
+                 Measurement_operation_start_failed detail
+               | Error
+                   (Count_tokens_sync.Before_dispatch_failed
+                      (`Before_dispatch_failed (receipt, cause))) ->
+                 Before_measurement_dispatch_failed { receipt; cause }
+               | Error
+                   (Count_tokens_sync.Before_dispatch_failed
+                      (`Terminal_callback_failed (receipt, cause))) ->
+                 Measurement_terminal_callback_failed { receipt; cause }
+               | Error (Count_tokens_sync.Completion_request_failed (error, stage)) ->
+                 (match !measurement_receipt with
+                  | None -> reject (Measurement_rejected (measurement_failure error))
+                  | Some receipt ->
+                    record_transport_stage receipt stage;
+                    reject_measured
+                      receipt
+                      (Measurement_rejected (measurement_failure error)))
+               | Ok measurement ->
+                 Option.iter
+                   (fun receipt -> advance_receipt receipt Wire_started)
+                   !measurement_receipt;
+                 let measured =
+                   Prepared.attach_measurement
+                     (Plan.prepared_request preflight)
+                     measurement
+                 in
+                 (match
+                    Prepared.admit
+                      ~now_unix_s:(now_unix_s ())
+                      ~max_context_tokens
+                      measured
+                  with
+                  | Error error ->
+                    (match !measurement_receipt with
+                     | None -> assert false
+                     | Some receipt ->
+                       reject_measured receipt (Context_admission_rejected error))
+                  | Ok admitted ->
+                    (match Plan.finalize_measured preflight admitted with
+                     | Error error ->
+                       (match !measurement_receipt with
+                        | None -> assert false
+                        | Some receipt ->
+                          reject_measured receipt (Plan_finalization_rejected error))
+                     | Ok plan ->
+                       (match !measurement_receipt with
+                        | None -> assert false
+                        | Some receipt ->
+                          terminalize
+                            receipt
+                            (fun _ -> Measurement_succeeded)
+                            (fun measurement -> Admitted { plan; measurement }))))))))
 ;;

@@ -37,6 +37,14 @@ type measurement_receipt_phase =
   | Measurement_wire_started
   | Measurement_terminal
 
+type receipt_snapshot = private
+  { operation_id : measurement_operation_id
+  ; request_body_sha256 : string
+  ; phase : measurement_receipt_phase
+  ; dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome option
+  }
+
 type rejection =
   | Serving_evidence_rejected of Serving_constraint.admission_error
   | Context_admission_rejected of Prepared_completion_request.fit_error
@@ -69,15 +77,14 @@ val receipt_request_body_sha256 : measurement_receipt -> string
 val receipt_phase : measurement_receipt -> measurement_receipt_phase
 val receipt_dispatch_fact : measurement_receipt -> measurement_dispatch_fact
 val receipt_outcome : measurement_receipt -> measurement_outcome option
+val receipt_snapshot : measurement_receipt -> receipt_snapshot
 
 val admit
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> now_unix_s:(unit -> int)
   -> on_measurement_receipt:(measurement_receipt -> unit)
-  -> before_measurement_dispatch:
-       (measurement_receipt -> (unit, 'callback_error) result)
-  -> on_measurement_terminal:
-       (measurement_receipt -> (unit, 'callback_error) result)
+  -> before_measurement_dispatch:(measurement_receipt -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:(measurement_receipt -> (unit, 'callback_error) result)
   -> Exact_output_plan.preflight
   -> 'callback_error outcome

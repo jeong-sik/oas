@@ -104,8 +104,7 @@ type admission_error =
   | Wire_admission_rejected of wire_admission_error
 
 type 'callback_error flow_request_error =
-  | Flow_request_admission_failed of
-      admission_error * Flow_admission.measurement_evidence
+  | Flow_request_admission_failed of admission_error * Flow_admission.measurement_evidence
   | Flow_request_measurement_start_failed of string
   | Flow_request_measurement_clock_required_for_timeout
   | Flow_request_before_measurement_dispatch_failed of
@@ -164,7 +163,9 @@ let schema_for_wire (target : Resolver.selected_target) (Domain_schema domain_sc
 ;;
 
 let response_format (target : Resolver.selected_target) requirement =
-  match Caps.structured_output_support target.capabilities, requirement.minimum_guarantee with
+  match
+    Caps.structured_output_support target.capabilities, requirement.minimum_guarantee
+  with
   | Caps.Native_json_schema, (Json_syntax | Provider_schema) ->
     let* () =
       match target.config.kind, requirement.schema with
@@ -236,20 +237,18 @@ let token_capacity_observation (constraint_ : Serving_constraint.t) =
 ;;
 
 let token_capacity_rejection = function
-  | Serving_constraint.Evidence_not_yet_valid
-      { now_unix_s; checked_at_unix_s } ->
+  | Serving_constraint.Evidence_not_yet_valid { now_unix_s; checked_at_unix_s } ->
     Capacity_evidence_not_yet_valid { now_unix_s; checked_at_unix_s }
   | Serving_constraint.Evidence_expired { now_unix_s; expires_at_unix_s } ->
     Capacity_evidence_expired { now_unix_s; expires_at_unix_s }
-  | Serving_constraint.Boundary_unknown
-      { input_tokens; accepted_through; rejected_from } ->
+  | Serving_constraint.Boundary_unknown { input_tokens; accepted_through; rejected_from }
+    ->
     Capacity_boundary_unknown
       { input_tokens
       ; accepted_through_tokens = accepted_through
       ; rejected_from_tokens = rejected_from
       }
-  | Serving_constraint.Input_rejected
-      { input_tokens; accepted_through; rejected_from } ->
+  | Serving_constraint.Input_rejected { input_tokens; accepted_through; rejected_from } ->
     Capacity_input_rejected
       { input_tokens
       ; accepted_through_tokens = accepted_through
@@ -362,8 +361,7 @@ let admit_flow_request
         ( error
         , { dispatch = Flow_admission.No_measurement_dispatch
           ; outcome = Flow_admission.Measurement_local_invalid
-          }
-        ))
+          } ))
   in
   let* preflight =
     Plan.preflight
@@ -376,8 +374,7 @@ let admit_flow_request
         ( Wire_admission_rejected (wire_admission_error error)
         , { dispatch = Flow_admission.No_measurement_dispatch
           ; outcome = Flow_admission.Measurement_local_invalid
-          }
-        ))
+          } ))
   in
   match
     Flow_admission.admit
@@ -406,11 +403,15 @@ let admit_flow_request
         Measured_serving_constraint_rejected (token_capacity_rejection reason)
       | Flow_admission.Context_admission_rejected error ->
         (match error with
-         | Complete.Context_limit_unknown _ -> Context_limit_unavailable
-         | Complete.Invalid_context_limit _ -> Invalid_context_limit
-         | Complete.Output_reservation_unknown _ -> Output_reservation_unavailable
-         | Complete.Context_window_exceeded fit -> Measured_context_window_exceeded fit
-         | Complete.Serving_constraint_rejected { reason; _ } ->
+         | Prepared_completion_request.Context_limit_unknown _ ->
+           Context_limit_unavailable
+         | Prepared_completion_request.Invalid_context_limit _ ->
+           Invalid_context_limit
+         | Prepared_completion_request.Output_reservation_unknown _ ->
+           Output_reservation_unavailable
+         | Prepared_completion_request.Context_window_exceeded fit ->
+           Measured_context_window_exceeded fit
+         | Prepared_completion_request.Serving_constraint_rejected { reason; _ } ->
            Measured_serving_constraint_rejected (token_capacity_rejection reason))
       | Flow_admission.Measurement_rejected (Flow_admission.Unsupported_failure _) ->
         (match constraint_ with
@@ -428,9 +429,7 @@ let admit_flow_request
            Token_measurement_required (token_capacity_observation constraint_)
          | Plan.Measured_request_mismatch -> Request_serialization_rejected)
     in
-    Error
-      (Flow_request_admission_failed
-         (Wire_admission_rejected error, measurement))
+    Error (Flow_request_admission_failed (Wire_admission_rejected error, measurement))
   | Flow_admission.Measurement_operation_start_failed detail ->
     Error (Flow_request_measurement_start_failed detail)
   | Flow_admission.Measurement_clock_required_for_timeout ->

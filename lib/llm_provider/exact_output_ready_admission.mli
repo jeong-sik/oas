@@ -128,14 +128,11 @@ val admit
 val admit_flow_request
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
-  -> on_measurement_receipt:
-       (Exact_output_flow_admission.measurement_receipt -> unit)
+  -> on_measurement_receipt:(Exact_output_flow_admission.measurement_receipt -> unit)
   -> before_measurement_dispatch:
-       (Exact_output_flow_admission.measurement_receipt
-        -> (unit, 'callback_error) result)
+       (Exact_output_flow_admission.measurement_receipt -> (unit, 'callback_error) result)
   -> on_measurement_terminal:
-       (Exact_output_flow_admission.measurement_receipt
-        -> (unit, 'callback_error) result)
+       (Exact_output_flow_admission.measurement_receipt -> (unit, 'callback_error) result)
   -> target:Exact_output_resolver.selected_target
   -> messages:Types.message list
   -> output_requirement

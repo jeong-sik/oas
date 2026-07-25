@@ -892,6 +892,7 @@ require_type_constructor_set \
   "$exact_output_interface" \
   input_capacity_disposition \
   Token_measurement_required \
+  Context_window_exceeded \
   Token_capacity_rejected \
   Serialized_request_body_too_large
 require_type_constructor_set \
@@ -908,6 +909,9 @@ require_type_field_set \
   input_capacity_disposition \
   accepted_through_tokens \
   rejected_from_tokens \
+  input_tokens \
+  reserved_output_tokens \
+  max_context_tokens \
   actual_bytes \
   limit_bytes
 require_type_block_pattern \
@@ -920,6 +924,11 @@ require_type_block_pattern \
   "$exact_output_interface" \
   input_capacity_disposition \
   'Token_measurement_required[[:space:]]+of[[:space:]]*\{[^}]*rejected_from_tokens[[:space:]]*:'
+require_type_block_pattern \
+  "context-window disposition lost its closed token fields" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Context_window_exceeded[[:space:]]+of[[:space:]]*\{[^}]*input_tokens[[:space:]]*:[^}]*reserved_output_tokens[[:space:]]*:[^}]*max_context_tokens[[:space:]]*:'
 require_type_block_pattern \
   "serialized request disposition lost actual-byte evidence" \
   "$exact_output_interface" \
@@ -950,6 +959,16 @@ require_type_block_pattern \
   "$exact_output_interface" \
   input_capacity_disposition \
   'limit_bytes[[:space:]]*:[[:space:]]*int([^[:alnum:]_]|$)'
+require_named_function_pattern \
+  "exact CountTokens path rebuilt the generation request instead of freezing one artifact" \
+  'Backend_anthropic[.]build_request_artifact_with_thinking_control' \
+  "$(dirname "$exact_output_source")/count_tokens_sync.ml" \
+  'freeze_exact_completion_artifact'
+scan_named_functions \
+  "exact CountTokens artifact returned to legacy generation or count-token reconstruction" \
+  'build_request_artifact([^_]|$)|build_count_tokens_request|nonexact_anthropic_thinking_control|serialized_request_body' \
+  "$(dirname "$exact_output_source")/count_tokens_sync.ml" \
+  "freeze_exact_completion_artifact count_tokens_body_of_generation_artifact"
 require_opaque_type \
   "target-selection errors stopped being opaque" \
   "$exact_output_interface" \

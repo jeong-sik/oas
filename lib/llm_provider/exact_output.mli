@@ -183,7 +183,7 @@ type candidate_rejection_disposition =
   | Input_capacity of input_capacity_disposition
   | Request_preparation_failed
 
-type plan_provenance =
+type plan_provenance = Exact_output_ready_admission.plan_provenance = private
   { source_schema_fingerprint : schema_fingerprint
   ; effective_schema_fingerprint : schema_fingerprint option
   ; actual_assurance : actual_assurance
@@ -273,7 +273,7 @@ type flow_candidate_visit = private
 
 type flow_measurement_receipt
 
-type measurement_receipt_snapshot =
+type measurement_receipt_snapshot = private
   { operation_id : measurement_operation_id
   ; visit : flow_candidate_visit
   ; request_body_sha256 : string
@@ -437,9 +437,11 @@ val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
 
 type start_attempt_error = Call_id_generation_failed of string
+
 type measurement_start_error =
   | Measurement_operation_id_generation_failed of string
   | Measurement_clock_required_for_timeout
+
 type flow_start_error = Flow_id_generation_failed of string
 
 (** Allocate a fresh, independent execution attempt for an admitted plan.
@@ -495,6 +497,7 @@ val admission_error_disposition : admission_error -> candidate_rejection_disposi
 val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
 val candidate_rejection_scope : candidate_rejection_receipt -> flow_scope
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
+
 val candidate_rejection_measurement_dispatch_fact
   :  candidate_rejection_receipt
   -> measurement_dispatch_fact
@@ -514,7 +517,7 @@ type flow_evidence = private
   ; candidate_snapshot : flow_candidate_identity list
   ; preference_observation : flow_preference_observation
   ; candidate_visit_count : candidate_visit_count
-  ; measurements : flow_measurement_receipt list
+  ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_receipt list
   }
@@ -702,8 +705,7 @@ val execute_flow_once
   -> ?clock:_ Eio.Time.clock
   -> before_measurement_dispatch:
        (flow_measurement_receipt -> (unit, 'callback_error) result)
-  -> on_measurement_terminal:
-       (flow_measurement_receipt -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:(flow_measurement_receipt -> (unit, 'callback_error) result)
   -> before_dispatch:(flow_attempt_receipt -> (unit, 'callback_error) result)
   -> before_advance:
        (failed:flow_candidate_failure

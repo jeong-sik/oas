@@ -64,10 +64,7 @@ type t =
 
 type preflight =
   { prepared : Prepared_completion_request.t
-  ; measurement_request :
-      ( Count_tokens_sync.exact_completion_measurement_request
-      , Count_tokens_sync.completion_request_error )
-        result
+  ; exact_completion_artifact : Count_tokens_sync.exact_completion_artifact option
   ; config : Provider_config.t
   ; capabilities : Capabilities.capabilities
   ; response_format : Types.response_format
@@ -326,6 +323,73 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
+type frozen_serialization =
+  { response_codec : Provider_http_codec.t
+  ; body : string
+  ; exact_completion_artifact : Count_tokens_sync.exact_completion_artifact option
+  }
+
+let exact_artifact_error (config : Provider_config.t) = function
+  | Count_tokens_sync.Output_token_resolution_failed error ->
+    Provider_request_rejected
+      (Http_client.AcceptRejected
+         { reason =
+             Backend_anthropic.required_output_token_error_message config error
+         })
+  | Count_tokens_sync.Invalid_completion_request reason ->
+    Request_serialization_rejected (Http_client.AcceptRejected { reason })
+  | Count_tokens_sync.Input_count_failed _ ->
+    Request_serialization_rejected
+      (Http_client.AcceptRejected
+         { reason = "exact completion artifact rejected a supported measurement wire" })
+;;
+
+let freeze_serialization
+      ~anthropic_thinking_control
+      ~(config : Provider_config.t)
+      (request : Llm_transport.completion_request)
+  =
+  if Count_tokens_sync.supports_completion_request_measurement config
+  then (
+    match
+      Count_tokens_sync.freeze_exact_completion_artifact
+        ~anthropic_thinking_control
+        request
+    with
+    | Error error -> Error (exact_artifact_error config error)
+    | Ok exact_completion_artifact ->
+      let body =
+        Count_tokens_sync.exact_completion_generation_body exact_completion_artifact
+      in
+      let actual_bytes = String.length body in
+      (match config.max_request_body_bytes with
+       | Some limit_bytes when actual_bytes > limit_bytes ->
+         Error (Request_body_too_large { actual_bytes; limit_bytes })
+       | None | Some _ ->
+         Ok
+           { response_codec = Provider_http_codec.of_config config
+           ; body
+           ; exact_completion_artifact = Some exact_completion_artifact
+           }))
+  else
+    match
+      Complete_common.serialize_http_request_with_thinking_control
+        ~stream:false
+        ~anthropic_thinking_control
+        ~config
+        ~messages:request.messages
+        ~tools:request.tools
+    with
+    | Error
+        (Http_client.ProviderFailure
+           { kind = Http_client.Request_body_too_large { actual_bytes; limit_bytes }
+           ; _
+           }) -> Error (Request_body_too_large { actual_bytes; limit_bytes })
+    | Error error -> Error (Request_serialization_rejected error)
+    | Ok (response_codec, body) ->
+      Ok { response_codec; body; exact_completion_artifact = None }
+;;
+
 let preflight
       ~config:(original_config : Provider_config.t)
       ~messages
@@ -372,21 +436,13 @@ let preflight
             | Error error -> Error (Provider_request_rejected error)
             | Ok () ->
               (match
-                 Complete_common.serialize_http_request_with_thinking_control
-                   ~stream:false
+                 freeze_serialization
                    ~anthropic_thinking_control
                    ~config
-                   ~messages:request.messages
-                   ~tools:request.tools
+                   request
                with
-               | Error
-                   (Http_client.ProviderFailure
-                      { kind =
-                          Http_client.Request_body_too_large { actual_bytes; limit_bytes }
-                      ; _
-                      }) -> Error (Request_body_too_large { actual_bytes; limit_bytes })
-               | Error error -> Error (Request_serialization_rejected error)
-               | Ok (response_codec, body) ->
+               | Error error -> Error error
+               | Ok { response_codec; body; exact_completion_artifact } ->
                  let body_sha256 = sha256 body in
                  let headers =
                    auth_headers
@@ -406,15 +462,9 @@ let preflight
                    ; body_timeout_s = request.body_timeout_s
                    }
                  in
-                 let measurement_request =
-                   Count_tokens_sync.freeze_exact_completion_measurement_request
-                     ~anthropic_thinking_control
-                     ~serialized_request_body:body
-                     request
-                 in
                  Ok
                    { prepared
-                   ; measurement_request
+                   ; exact_completion_artifact
                    ; config
                    ; capabilities
                    ; response_format
@@ -423,13 +473,25 @@ let preflight
 ;;
 
 let prepared_request (preflight : preflight) = preflight.prepared
-let measurement_request (preflight : preflight) = preflight.measurement_request
+
+let measurement_request (preflight : preflight) =
+  match preflight.exact_completion_artifact with
+  | Some artifact ->
+    Ok (Count_tokens_sync.exact_completion_measurement_request artifact)
+  | None ->
+    Error
+      (Count_tokens_sync.Input_count_failed
+         (Input_token_count.Unsupported
+            { protocol = Input_token_count.Anthropic_messages_count_tokens
+            ; model_id = preflight.config.model_id
+            }))
+;;
+
 let serving_constraint (preflight : preflight) =
   Prepared_completion_request.serving_constraint preflight.prepared
 ;;
-let preflight_connect_timeout_s (preflight : preflight) =
-  preflight.wire.connect_timeout_s
-;;
+
+let preflight_connect_timeout_s (preflight : preflight) = preflight.wire.connect_timeout_s
 let preflight_body_timeout_s (preflight : preflight) = preflight.wire.body_timeout_s
 let preflight_request_body_sha256 (preflight : preflight) = preflight.wire.body_sha256
 
@@ -543,7 +605,7 @@ let normalize_response response_format (response : Types.api_response) =
   | Types.Unknown _ -> Error (Incomplete_structured_response response.stop_reason)
 ;;
 
-let normalize plan response = normalize_response plan.response_format response
+let normalize (plan : t) response = normalize_response plan.response_format response
 
 let%test "JsonMode records syntax-only validation provenance" =
   let response : Types.api_response =

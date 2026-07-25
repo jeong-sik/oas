@@ -81,11 +81,13 @@ let measure_with_before_dispatch
   | Error (Http_client.AcceptRejected { reason }) ->
     Error
       (Count_tokens_sync.Completion_request_failed
-         (Count_tokens_sync.Invalid_completion_request reason))
+         ( Count_tokens_sync.Invalid_completion_request reason
+         , Count_tokens_sync.Measurement_before_dispatch ))
   | Error error ->
     Error
       (Count_tokens_sync.Completion_request_failed
-         (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error)))
+         ( Count_tokens_sync.Input_count_failed (Input_token_count.Transport error)
+         , Count_tokens_sync.Measurement_before_dispatch ))
   | Ok () -> Provider_admission.with_admission ~config measured
 ;;
 
@@ -101,7 +103,7 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
       prepared
   with
   | Ok measured -> Ok measured
-  | Error (Count_tokens_sync.Completion_request_failed error) -> Error error
+  | Error (Count_tokens_sync.Completion_request_failed (error, _)) -> Error error
   | Error (Count_tokens_sync.Before_dispatch_failed ()) -> assert false
 ;;
 

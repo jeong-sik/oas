@@ -58,28 +58,38 @@ type completion_request_error =
   | Output_token_resolution_failed of Types.required_output_token_error
   | Invalid_completion_request of string
 
+type measurement_transport_stage =
+  | Measurement_before_dispatch
+  | Measurement_dispatch_started
+  | Measurement_response_received of int
+
 type 'callback_error completion_request_dispatch_error =
-  | Completion_request_failed of completion_request_error
+  | Completion_request_failed of
+      completion_request_error * measurement_transport_stage
   | Before_dispatch_failed of 'callback_error
 
 type exact_completion_measurement_request
+type exact_completion_artifact
 
 (** Whether OAS has an exact provider-native measurement adapter for this
     request configuration. This is the support SSOT used by both measurement
     dispatch and Agent admission routing. *)
 val supports_completion_request_measurement : Provider_config.t -> bool
 
-(** Freeze the exact provider-native measurement input while the generation
-    preflight still owns the explicit thinking-control snapshot and serialized
-    generation body. The returned artifact contains the count-token payload,
-    output-token receipt, URL, headers, and deadline. Measurement performs no
-    provider/model lookup or request reconstruction. *)
-val freeze_exact_completion_measurement_request
-  :  anthropic_thinking_control:
-       Capabilities.anthropic_thinking_control option
-  -> serialized_request_body:string
+(** Freeze one immutable Anthropic generation artifact and derive its
+    count-token projection from that same value. Generation serialization,
+    thinking control, and the output-token receipt are resolved exactly once;
+    the measurement projection performs no model lookup or request rebuild. *)
+val freeze_exact_completion_artifact
+  :  anthropic_thinking_control:Capabilities.anthropic_thinking_control option
   -> Llm_transport.completion_request
-  -> (exact_completion_measurement_request, completion_request_error) result
+  -> (exact_completion_artifact, completion_request_error) result
+
+val exact_completion_generation_body : exact_completion_artifact -> string
+
+val exact_completion_measurement_request
+  :  exact_completion_artifact
+  -> exact_completion_measurement_request
 
 (** Dispatch one frozen exact measurement through the one-POST evidence
     transport. The callback runs after all local transport validation and
@@ -91,8 +101,12 @@ val measure_exact_completion_request_with_before_dispatch
   -> before_dispatch:(unit -> (unit, 'callback_error) result)
   -> exact_completion_measurement_request
   -> ( completion_request_measurement
-     , 'callback_error completion_request_dispatch_error )
+       , 'callback_error completion_request_dispatch_error )
        result
+
+module For_testing : sig
+  val exact_generation_artifact_serialization_count : unit -> int
+end
 
 val measure_completion_request
   :  ?connection_cache:Http_client.cache
@@ -115,5 +129,5 @@ val measure_completion_request_with_before_dispatch
   -> before_dispatch:(unit -> (unit, 'callback_error) result)
   -> Llm_transport.completion_request
   -> ( completion_request_measurement
-     , 'callback_error completion_request_dispatch_error )
+       , 'callback_error completion_request_dispatch_error )
        result

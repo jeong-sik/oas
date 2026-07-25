@@ -822,25 +822,14 @@ let network_error_kind_is_non_retryable = function
 
 let classify_eio_backend_error = function
   | Eio_unix.Unix_error (code, _, _) -> Some (classify_unix_error code)
-  | _ ->
-    (* Keep control flow on public typed backend constructors only. tls-eio's
-       socket-closed backend is private in its .ml, so OAS cannot match it
-       soundly; the surrounding [Connection_reset] fallback classifies that
-       path as [End_of_file]. *)
-    None
-;;
-
-let classify_eio_net_error = function
-  | Eio.Net.Connection_reset backend ->
-    Option.value (classify_eio_backend_error backend) ~default:End_of_file
-  | Eio.Net.Connection_failure (Eio.Net.Refused backend) ->
-    Option.value (classify_eio_backend_error backend) ~default:Connection_refused
-  | Eio.Net.Connection_failure Eio.Net.Timeout -> Timeout
-  | _ -> Unknown
+  | _ -> None
 ;;
 
 let rec classify_eio_error = function
-  | Eio.Net.E net_error -> classify_eio_net_error net_error
+  | Eio.Net.E _ ->
+    (* Eio 1.3 exposes the typed network envelope but not the finer constructors
+       introduced later. Preserve typed control flow without guessing from text. *)
+    Unknown
   | Eio.Exn.X backend ->
     Option.value (classify_eio_backend_error backend) ~default:Unknown
   | Eio.Exn.Multiple_io errors ->
@@ -2046,7 +2035,7 @@ let post_sync_once_with_evidence
                   ~uri
                   ~header
                   ~body
-                  ())))
+                  ()))))
 ;;
 
 let post_sync_once
@@ -2811,10 +2800,7 @@ let eio_exn err = Eio.Exn.create err
 let%test "classify_network_exn: typed Eio refused" =
   match
     classify_network_exn
-      (eio_exn
-         (Eio.Net.E
-            (Eio.Net.Connection_failure
-               (Eio.Net.Refused (Eio_unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))))))
+      (eio_exn (Eio.Exn.X (Eio_unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))))
   with
   | Some (NetworkError { kind = Connection_refused; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
@@ -2825,7 +2811,7 @@ let%test "classify_network_exn: typed Eio refused" =
 let%test "classify_network_exn: typed Eio timeout" =
   match
     classify_network_exn
-      (eio_exn (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)))
+      (eio_exn (Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))))
   with
   | Some (NetworkError { kind = Timeout; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
@@ -2885,7 +2871,7 @@ let%test "classify_network_exn: plain Tls_failure is Tls_error" =
   | None -> false
 ;;
 
-let%test "classify_network_exn: backend printer text does not classify" =
+let%test "classify_network_exn: unknown backend printer text does not classify" =
   let module Test_backend = struct
     type Eio.Exn.Backend.t += Tls_socket_closed_test
 
@@ -2900,9 +2886,9 @@ let%test "classify_network_exn: backend printer text does not classify" =
   in
   match
     classify_network_exn
-      (eio_exn (Eio.Net.E (Eio.Net.Connection_reset Test_backend.Tls_socket_closed_test)))
+      (eio_exn (Eio.Exn.X Test_backend.Tls_socket_closed_test))
   with
-  | Some (NetworkError { kind = End_of_file; _ }) -> true
+  | Some (NetworkError { kind = Unknown; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
   | Some (ProviderTerminal _ | ProviderFailure _)
   | None -> false
@@ -2924,7 +2910,7 @@ let%test "classify_network_exn: Multiple_io prefers non-retryable kind" =
   match
     classify_network_exn
       (multiple_io_exn
-         [ Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         [ Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))
          ; Eio.Exn.X (Eio_unix.Unix_error (Unix.EMFILE, "socket", ""))
          ])
   with
@@ -2939,7 +2925,7 @@ let%test "classify_network_exn: Multiple_io falls back to first known kind" =
     classify_network_exn
       (multiple_io_exn
          [ Eio.Exn.X (Eio_unix.Unix_error (Unix.EPIPE, "write", ""))
-         ; Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         ; Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))
          ])
   with
   | Some (NetworkError { kind = End_of_file; _ }) -> true

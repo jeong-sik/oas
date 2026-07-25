@@ -26,6 +26,7 @@ type measurement_receipt_phase = Flow_admission.measurement_receipt_phase =
   | Measurement_fence_committed
   | Measurement_wire_started
   | Measurement_terminal
+
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
@@ -224,9 +225,11 @@ type flow_snapshot_error =
   | Flow_preference_capacity_exhausted of { capacity : int }
 
 type start_attempt_error = Call_id_generation_failed of string
+
 type measurement_start_error =
   | Measurement_operation_id_generation_failed of string
   | Measurement_clock_required_for_timeout
+
 type flow_start_error = Flow_id_generation_failed of string
 
 type flow_evidence =
@@ -236,7 +239,7 @@ type flow_evidence =
   ; candidate_snapshot : flow_candidate_identity list
   ; preference_observation : flow_preference_observation
   ; candidate_visit_count : candidate_visit_count
-  ; measurements : flow_measurement_receipt list
+  ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_receipt list
   }
@@ -453,13 +456,13 @@ let receipt_call_id (receipt : receipt) = receipt.call_id
 let measurement_operation_id_to_string = Flow_admission.operation_id_to_string
 
 let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
-  { operation_id = Flow_admission.receipt_operation_id measurement.receipt
+  let snapshot = Flow_admission.receipt_snapshot measurement.receipt in
+  { operation_id = snapshot.operation_id
   ; visit = measurement.visit
-  ; request_body_sha256 =
-      Flow_admission.receipt_request_body_sha256 measurement.receipt
-  ; phase = Flow_admission.receipt_phase measurement.receipt
-  ; dispatch = Flow_admission.receipt_dispatch_fact measurement.receipt
-  ; outcome = Flow_admission.receipt_outcome measurement.receipt
+  ; request_body_sha256 = snapshot.request_body_sha256
+  ; phase = snapshot.phase
+  ; dispatch = snapshot.dispatch
+  ; outcome = snapshot.outcome
   }
 ;;
 
@@ -521,14 +524,12 @@ let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
 
 let candidate_rejection_scope (receipt : candidate_rejection_receipt) = receipt.scope
 let candidate_rejection_visit (receipt : candidate_rejection_receipt) = receipt.visit
-let candidate_rejection_measurement_dispatch_fact
-      (receipt : candidate_rejection_receipt)
-  =
+
+let candidate_rejection_measurement_dispatch_fact (receipt : candidate_rejection_receipt) =
   receipt.measurement.dispatch
 ;;
-let candidate_rejection_measurement_outcome
-      (receipt : candidate_rejection_receipt)
-  =
+
+let candidate_rejection_measurement_outcome (receipt : candidate_rejection_receipt) =
   receipt.measurement.outcome
 ;;
 
@@ -598,7 +599,9 @@ let flow_attempt_evidence (flow : flow_attempt) =
   ; candidate_snapshot = flow.candidate_snapshot
   ; preference_observation = flow.preference_observation
   ; candidate_visit_count = Candidate_visit_count progress.candidate_visit_count
-  ; measurements = List.rev (Atomic.get flow.measurements)
+  ; measurements =
+      List.rev (Atomic.get flow.measurements)
+      |> List.map flow_measurement_receipt_snapshot
   ; admissions = progress.admissions
   ; attempts = progress.attempts
   }
@@ -768,9 +771,7 @@ let execute_flow_candidate
           { dispatch = No_measurement_dispatch; outcome = Measurement_not_required })
         cause
     =
-    let rejection =
-      record_candidate_rejection flow candidate.visit cause measurement
-    in
+    let rejection = record_candidate_rejection flow candidate.visit cause measurement in
     Error (Flow_step_candidate_rejected rejection)
   in
   match resolve_target candidate.admitted_target with
@@ -782,9 +783,7 @@ let execute_flow_candidate
          ?clock
          ~on_measurement_receipt:(fun receipt ->
            let measurement = { visit = candidate.visit; receipt } in
-           Atomic.set
-             flow.measurements
-             (measurement :: Atomic.get flow.measurements))
+           Atomic.set flow.measurements (measurement :: Atomic.get flow.measurements))
          ~before_measurement_dispatch:(fun receipt ->
            before_measurement_dispatch { visit = candidate.visit; receipt })
          ~on_measurement_terminal:(fun receipt ->
@@ -798,8 +797,7 @@ let execute_flow_candidate
      | Error (Flow_request_measurement_start_failed detail) ->
        Error
          (Flow_step_measurement_start_failed
-            ( candidate.visit
-            , Measurement_operation_id_generation_failed detail ))
+            (candidate.visit, Measurement_operation_id_generation_failed detail))
      | Error Flow_request_measurement_clock_required_for_timeout ->
        Error
          (Flow_step_measurement_start_failed
@@ -911,9 +909,7 @@ let execute_flow_once
          (Flow_before_measurement_dispatch_callback_failed
             { measurement; cause; evidence })
      | Flow_step_measurement_terminal_callback_failed (measurement, cause) ->
-       Error
-         (Flow_measurement_terminal_callback_failed
-            { measurement; cause; evidence })
+       Error (Flow_measurement_terminal_callback_failed { measurement; cause; evidence })
      | Flow_step_before_dispatch_callback_failed (candidate, cause) ->
        Error (Flow_before_dispatch_callback_failed { candidate; cause; evidence })
      | Flow_step_execution_failed { candidate; cause; _ } ->

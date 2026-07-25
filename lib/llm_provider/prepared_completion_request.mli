@@ -59,7 +59,7 @@ val measure_with_before_dispatch
   -> before_dispatch:(unit -> (unit, 'callback_error) result)
   -> t
   -> ( measured
-     , 'callback_error Count_tokens_sync.completion_request_dispatch_error )
+       , 'callback_error Count_tokens_sync.completion_request_dispatch_error )
        result
 
 val measurement : measured -> Count_tokens_sync.completion_request_measurement
