@@ -600,7 +600,14 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
           fail "fresh scoped success could not settle"
       in
       Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
-      let call_id candidate =
+      (* Annotated because [flow_attempt_snapshot] now also carries a [receipt]
+         field, and it is defined after [flow_attempt_receipt]
+         (exact_output.mli:517-528). Without a type here OCaml disambiguates the
+         field to the later definition, whose [receipt] is already a
+         [generation_receipt_snapshot], and the snapshot call below then receives
+         the wrong type. The annotation states which join this helper reads instead
+         of depending on declaration order. *)
+      let call_id (candidate : EO.flow_attempt_receipt) =
         EO.generation_receipt_snapshot candidate.EO.receipt
         |> EO.generation_receipt_snapshot_call_id
         |> EO.call_id_to_string
@@ -3040,7 +3047,12 @@ let test_exception_after_durable_advance_stops_before_successor () =
        check
          string
          "committed failed candidate joins retained evidence"
-         (candidate_id failed)
+         (* [failed] is a flow_attempt_snapshot from [attempt_for], not the
+            flow_attempt_receipt [candidate_id] reads. The path is inlined here the
+            same way attempt_for itself reads it (:390-391): the two records are
+            distinct nominal types, so one accessor cannot serve both without a
+            functor, and a near-duplicate helper would say less than the path does. *)
+         failed.visit.identity.candidate_id
          (committed_string "failed_candidate_id");
        check
          string
@@ -3050,12 +3062,12 @@ let test_exception_after_durable_advance_stops_before_successor () =
        check
          string
          "committed failed call joins retained evidence"
-         (EO.receipt_call_id failed.receipt |> EO.call_id_to_string)
+         (EO.generation_receipt_snapshot_call_id failed.receipt |> EO.call_id_to_string)
          (committed_string "failed_call_id");
        check
          string
          "committed failed plan joins retained evidence"
-         (EO.receipt_plan_fingerprint failed.receipt)
+         (EO.generation_receipt_snapshot_plan_fingerprint failed.receipt)
          (committed_string "failed_plan_fingerprint");
        check
          string
