@@ -549,15 +549,6 @@
     --allow-callback-in
     http_client.mli
     "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
-    --allow-callback-in
-    count_tokens_sync.mli
-    "with_post_stream|~f|arrow(_,constr(Eio.Buf_read.t),var(a))"
-    --allow-callback-in
-    count_tokens_sync.mli
-    "read_sse|~on_data|arrow(~event_type,constr(option,constr(string)),arrow(_,constr(string),constr(unit)))"
-    --allow-callback-in
-    count_tokens_sync.mli
-    "read_ndjson|~on_line|arrow(_,constr(string),constr(unit))"
     %{dep:../lib/llm_provider/count_tokens_sync.mli}
     %{dep:../lib/llm_provider/http_client.mli})
    (run
