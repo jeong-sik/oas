@@ -275,9 +275,9 @@ let post_sync_once_after_commit
        | Ok result -> result
        | Error `Timeout ->
          Error
-            (match owner with
-             | `Connect ->
-               TimeoutError
+           (match owner with
+            | `Connect ->
+              TimeoutError
                 { message =
                     Printf.sprintf
                       "exact-output measurement connect_timeout_s exceeded after %.17g \

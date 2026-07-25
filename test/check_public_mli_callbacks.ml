@@ -51,14 +51,12 @@ type alias_index =
   { manifests : core_type String_map.t
   ; ambiguous : String_set.t
   ; local_modules : String_set.t
-  ; module_types : String_set.t
   }
 
 let alias_index signature =
   let manifests = ref String_map.empty in
   let ambiguous = ref String_set.empty in
   let local_modules = ref String_set.empty in
-  let module_types = ref String_set.empty in
   let add_manifest name manifest =
     if String_set.mem name !ambiguous
     then ()
@@ -87,8 +85,6 @@ let alias_index signature =
                declarations
            | Psig_module declaration -> add_module declaration
            | Psig_recmodule declarations -> List.iter add_module declarations
-           | Psig_modtype declaration ->
-             module_types := String_set.add declaration.pmtd_name.txt !module_types
            | _ -> ());
           Ast_iterator.default_iterator.signature_item self item)
     }
@@ -97,8 +93,24 @@ let alias_index signature =
   { manifests = !manifests
   ; ambiguous = !ambiguous
   ; local_modules = !local_modules
-  ; module_types = !module_types
   }
+;;
+
+let trusted_qualified_argument_types =
+  List.fold_left
+    (fun trusted name -> String_set.add name trusted)
+    String_set.empty
+    [ "Eio.Buf_read.t"
+    ; "Eio.Net.ty"
+    ; "Eio.Resource.t"
+    ; "Eio.Switch.t"
+    ; "Eio.Time.clock"
+    ; "Llm_transport.completion_request"
+    ; "Provider_config.t"
+    ; "Types.message"
+    ; "Types.stop_reason"
+    ; "Yojson.Safe.t"
+    ]
 ;;
 
 let type_facts core_type =
@@ -140,58 +152,137 @@ let type_contains_callback index core_type =
               | Some manifest -> inspect (String_set.add name visiting) manifest
               | None ->
                 (match parts with
+                 | [ _ ] -> false
                  | local_module :: _ :: _ ->
                    String_set.mem local_module index.local_modules
-                 | _ -> false))
+                   || not
+                        (String_set.mem
+                           (String.concat "." parts)
+                           trusted_qualified_argument_types)
+                 | _ ->
+                   not
+                     (String_set.mem
+                        (String.concat "." parts)
+                        trusted_qualified_argument_types)))
          references
   in
   inspect String_set.empty core_type
 ;;
 
+let label_fingerprint = function
+  | Nolabel -> "_"
+  | Labelled label -> "~" ^ label
+  | Optional label -> "?" ^ label
+;;
+
+let rec type_fingerprint index visiting core_type =
+  match core_type.ptyp_desc with
+  | Ptyp_any -> "any"
+  | Ptyp_var name -> "var(" ^ name ^ ")"
+  | Ptyp_arrow (label, argument, result) ->
+    Printf.sprintf
+      "arrow(%s,%s,%s)"
+      (label_fingerprint label)
+      (type_fingerprint index visiting argument)
+      (type_fingerprint index visiting result)
+  | Ptyp_constr ({ txt = identifier; _ }, arguments) ->
+    (match longident_parts identifier with
+     | Ok [ name ]
+       when arguments = []
+            && not (String_set.mem name index.ambiguous)
+            && not (String_set.mem name visiting) ->
+       (match String_map.find_opt name index.manifests with
+        | Some manifest ->
+          type_fingerprint index (String_set.add name visiting) manifest
+        | None -> "constr(" ^ name ^ ")")
+     | Ok parts ->
+       let suffix =
+         match arguments with
+         | [] -> ""
+         | _ ->
+           ","
+           ^ String.concat
+               ","
+               (List.map (type_fingerprint index visiting) arguments)
+       in
+       "constr(" ^ String.concat "." parts ^ suffix ^ ")"
+     | Error () -> "unresolved-longident")
+  | _ ->
+    "syntax("
+    ^ String.escaped (Format.asprintf "%a" Pprintast.core_type core_type)
+    ^ ")"
+;;
+
 let rec argument_types reversed = function
-  | { ptyp_desc = Ptyp_arrow (_, argument, result); _ } ->
-    argument_types (argument :: reversed) result
+  | { ptyp_desc = Ptyp_arrow (label, argument, result); _ } ->
+    argument_types ((label, argument) :: reversed) result
   | _ -> List.rev reversed
 ;;
+
+type violation_kind =
+  | Callback_argument
+  | Unresolved_public_surface of string
+
+type violation =
+  { path : string
+  ; value_name : string
+  ; argument_label : string
+  ; type_fingerprint : string
+  ; kind : violation_kind
+  }
 
 let callback_values path signature =
   let index = alias_index signature in
   let violations = ref [] in
-  let unresolved_module_type module_type_ =
-    match module_type_.pmty_desc with
-    | Pmty_ident identifier ->
-      (match longident_parts identifier.txt with
-       | Error () -> true
-       | Ok parts ->
-         let name = List.hd (List.rev parts) in
-         not (String_set.mem name index.module_types))
-    | _ -> false
+  let add_callback value_name label core_type =
+    violations :=
+      { path
+      ; value_name
+      ; argument_label = label_fingerprint label
+      ; type_fingerprint = type_fingerprint index String_set.empty core_type
+      ; kind = Callback_argument
+      }
+      :: !violations
   in
-  let add name = violations := (path, name) :: !violations in
+  let add_surface value_name detail =
+    violations :=
+      { path
+      ; value_name
+      ; argument_label = "<surface>"
+      ; type_fingerprint = "<unresolved>"
+      ; kind = Unresolved_public_surface detail
+      }
+      :: !violations
+  in
   let observe_module declaration =
-    if unresolved_module_type declaration.pmd_type
-    then
-      add
+    match declaration.pmd_type.pmty_desc with
+    | Pmty_signature _ -> ()
+    | _ ->
+      add_surface
         (match declaration.pmd_name.txt with
          | Some name -> name
          | None -> "<anonymous-module>")
+        "non-inline module type, alias, typeof, or with-constraint"
   in
   let iterator =
     { Ast_iterator.default_iterator with
       signature_item =
         (fun self item ->
           (match item.psig_desc with
-           | Psig_value description
-             when List.exists
-                    (type_contains_callback index)
-                    (argument_types [] description.pval_type) ->
-             add description.pval_name.txt
+           | Psig_value description ->
+             List.iter
+               (fun (label, argument) ->
+                  if type_contains_callback index argument
+                  then add_callback description.pval_name.txt label argument)
+               (argument_types [] description.pval_type)
            | Psig_module declaration -> observe_module declaration
            | Psig_recmodule declarations -> List.iter observe_module declarations
-           | Psig_include description
-             when unresolved_module_type description.pincl_mod ->
-             add "<unresolved-include>"
-           | Psig_open _ -> add "<signature-open>"
+           | Psig_include _ ->
+             add_surface
+               "<include>"
+               "public include or include module type of is not expanded"
+           | Psig_open _ ->
+             add_surface "<signature-open>" "public signature open is not expanded"
            | _ -> ());
           Ast_iterator.default_iterator.signature_item self item)
     }
@@ -200,12 +291,29 @@ let callback_values path signature =
   List.rev !violations
 ;;
 
-let report (path, name) =
-  prerr_endline
-    (Printf.sprintf
-       "%s: public value %s accepts a callback-bearing argument type"
-       path
-       name)
+let violation_key violation =
+  String.concat
+    "|"
+    [ violation.value_name; violation.argument_label; violation.type_fingerprint ]
+;;
+
+let report violation =
+  match violation.kind with
+  | Callback_argument ->
+    prerr_endline
+      (Printf.sprintf
+         "%s: public value %s argument %s accepts callback-bearing or unresolved type %s"
+         violation.path
+         violation.value_name
+         violation.argument_label
+         violation.type_fingerprint)
+  | Unresolved_public_surface detail ->
+    prerr_endline
+      (Printf.sprintf
+         "%s: public surface %s is unresolved (%s)"
+         violation.path
+         violation.value_name
+         detail)
 ;;
 
 let identifier_is expected identifier =
@@ -455,7 +563,12 @@ let () =
   | _ :: arguments ->
     let rec parse allow expect paths = function
       | [] -> allow, expect, List.rev paths
-      | "--allow" :: name :: rest -> parse (String_set.add name allow) expect paths rest
+      | "--allow-callback" :: fingerprint :: rest ->
+        parse (String_set.add fingerprint allow) expect paths rest
+      | "--allow" :: _ ->
+        prerr_endline
+          "--allow is forbidden: allow an exact value|label|resolved-type fingerprint";
+        exit 2
       | "--expect-callback" :: rest -> parse allow true paths rest
       | path :: rest -> parse allow expect (path :: paths) rest
     in
@@ -477,7 +590,13 @@ let () =
         paths
     in
     let violations =
-      List.filter (fun (_, name) -> not (String_set.mem name allow)) callbacks
+      List.filter
+        (fun violation ->
+           match violation.kind with
+           | Callback_argument ->
+             not (String_set.mem (violation_key violation) allow)
+           | Unresolved_public_surface _ -> true)
+        callbacks
     in
     if expect_callback
     then (

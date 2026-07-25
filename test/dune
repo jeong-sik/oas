@@ -484,11 +484,19 @@
   fixtures/exact_output_single_surface/public_count_tokens_callback.mli.fixture
   fixtures/exact_output_single_surface/public_callback_alias.mli.fixture
   fixtures/exact_output_single_surface/public_callback_qualified_alias.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_external_qualified_alias.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_module_alias.mli.fixture
   fixtures/exact_output_single_surface/public_callback_nested_module.mli.fixture
   fixtures/exact_output_single_surface/public_callback_include.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_include_typeof.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_nested_include.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_module_with.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture
   fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture
   fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_local_open.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_module_alias.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_first_class_module.ml.fixture
   fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
   fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
@@ -524,18 +532,18 @@
     %{dep:../lib/llm_provider/exact_output_measurement_transport.ml})
    (run
     %{exe:check_public_mli_callbacks.exe}
-    --expect-exact-transport-violation
-    %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
+   --expect-exact-transport-violation
+   %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
-    --allow
-    with_explicit_deadline
-    --allow
-    with_post_stream
-    --allow
-    read_sse
-    --allow
-    read_ndjson
+    --allow-callback
+    "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
+    --allow-callback
+    "with_post_stream|~f|arrow(_,constr(Eio.Buf_read.t),var(a))"
+    --allow-callback
+    "read_sse|~on_data|arrow(~event_type,constr(option,constr(string)),arrow(_,constr(string),constr(unit)))"
+    --allow-callback
+    "read_ndjson|~on_line|arrow(_,constr(string),constr(unit))"
     %{dep:../lib/llm_provider/count_tokens_sync.mli}
     %{dep:../lib/llm_provider/http_client.mli})
    (run
@@ -553,6 +561,14 @@
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_external_qualified_alias.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_module_alias.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_callback_nested_module.mli.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
@@ -561,11 +577,35 @@
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_include_typeof.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_nested_include.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_module_with.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_local_open.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_module_alias.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_first_class_module.ml.fixture})
    (run
     %{exe:check_exact_output_publication_lock.exe}
     %{dep:../lib/llm_provider/exact_output_flow.ml})
