@@ -836,6 +836,7 @@ for private_module in \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
+  exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \
   exact_output_catalog_binding

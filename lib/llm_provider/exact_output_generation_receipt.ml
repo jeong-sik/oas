@@ -1,0 +1,203 @@
+module Exec = Exact_output_execution
+module Trace = Exact_output_provider_trace
+
+type call_id = Call_id of string
+type provider_trace = Trace.t
+
+type terminal_state =
+  { status : int
+  ; provider_trace : provider_trace option
+  }
+
+type state =
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state of int option
+  | Terminal_state of terminal_state
+
+type effect_phase =
+  | Not_started
+  | Before_dispatch
+  | Dispatch_started
+  | Response_received
+  | Terminal
+
+type t =
+  { state : state Atomic.t
+  ; call_id : call_id
+  ; plan_fingerprint : string
+  ; request_body_sha256 : string
+  ; catalog_generation : Exact_output_resolver.catalog_generation
+  ; catalog_evidence : Exact_output_resolver.catalog_evidence
+  ; target_identity : Exact_output_resolver.target_identity
+  }
+
+type snapshot =
+  { phase : effect_phase
+  ; dispatch_count : int
+  ; http_status : int option
+  ; provider_trace : provider_trace option
+  ; call_id : call_id
+  ; plan_fingerprint : string
+  ; request_body_sha256 : string
+  ; catalog_generation : Exact_output_resolver.catalog_generation
+  ; catalog_evidence : Exact_output_resolver.catalog_evidence
+  ; target_identity : Exact_output_resolver.target_identity
+  }
+
+let create
+      ~call_id
+      ~plan_fingerprint
+      ~request_body_sha256
+      ~catalog_generation
+      ~catalog_evidence
+      ~target_identity
+  =
+  { state = Atomic.make Not_started_state
+  ; call_id
+  ; plan_fingerprint
+  ; request_body_sha256
+  ; catalog_generation
+  ; catalog_evidence
+  ; target_identity
+  }
+;;
+
+let try_start receipt =
+  Atomic.compare_and_set receipt.state Not_started_state Before_dispatch_state
+;;
+
+let call_id receipt = receipt.call_id
+
+let phase receipt =
+  match Atomic.get receipt.state with
+  | Not_started_state -> Not_started
+  | Before_dispatch_state -> Before_dispatch
+  | Dispatch_started_state -> Dispatch_started
+  | Response_received_state _ -> Response_received
+  | Terminal_state _ -> Terminal
+;;
+
+let dispatch_count receipt =
+  match Atomic.get receipt.state with
+  | Not_started_state | Before_dispatch_state -> 0
+  | Dispatch_started_state | Response_received_state _ | Terminal_state _ -> 1
+;;
+
+let generation_dispatched receipt = dispatch_count receipt = 1
+
+let http_status receipt =
+  match Atomic.get receipt.state with
+  | Response_received_state status -> status
+  | Terminal_state terminal -> Some terminal.status
+  | Not_started_state | Before_dispatch_state | Dispatch_started_state -> None
+;;
+
+let provider_trace receipt =
+  match Atomic.get receipt.state with
+  | Terminal_state terminal -> terminal.provider_trace
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state _ -> None
+;;
+
+let plan_fingerprint receipt = receipt.plan_fingerprint
+let request_body_sha256 receipt = receipt.request_body_sha256
+let catalog_generation receipt = receipt.catalog_generation
+let catalog_evidence receipt = receipt.catalog_evidence
+let target_identity receipt = receipt.target_identity
+
+let state_rank = function
+  | Not_started_state -> 0
+  | Before_dispatch_state -> 1
+  | Dispatch_started_state -> 2
+  | Response_received_state _ -> 3
+  | Terminal_state _ -> 4
+;;
+
+let rec advance receipt desired =
+  let current = Atomic.get receipt.state in
+  let adds_information =
+    state_rank desired > state_rank current
+    ||
+    match current, desired with
+    | Response_received_state None, Response_received_state (Some _) -> true
+    | _ -> false
+  in
+  if adds_information
+  then
+    if not (Atomic.compare_and_set receipt.state current desired)
+    then advance receipt desired
+;;
+
+let observe_phase receipt = function
+  | Http_client_phase_observer.Dispatch_started -> advance receipt Dispatch_started_state
+  | Http_client_phase_observer.Response_received status ->
+    advance receipt (Response_received_state (Some status))
+;;
+
+let synchronize receipt complete_receipt =
+  match Exec.receipt_phase complete_receipt with
+  | Exec.Before_dispatch -> advance receipt Before_dispatch_state
+  | Exec.Dispatch_started -> advance receipt Dispatch_started_state
+  | Exec.Response_received ->
+    advance receipt (Response_received_state (Exec.receipt_http_status complete_receipt))
+  | Exec.Terminal ->
+    (match Exec.receipt_http_status complete_receipt with
+     | Some status -> advance receipt (Terminal_state { status; provider_trace = None })
+     | None -> invalid_arg "Exact_output: terminal receipt without HTTP status")
+;;
+
+let rec record_provider_trace receipt provider_trace =
+  let current = Atomic.get receipt.state in
+  match current with
+  | Terminal_state ({ provider_trace = None; _ } as terminal) ->
+    let desired = Terminal_state { terminal with provider_trace = Some provider_trace } in
+    if not (Atomic.compare_and_set receipt.state current desired)
+    then record_provider_trace receipt provider_trace
+  | Terminal_state { provider_trace = Some recorded; _ } ->
+    if not (Trace.equal recorded provider_trace)
+    then invalid_arg "Exact_output: conflicting provider trace"
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state _ ->
+    invalid_arg "Exact_output: provider trace before terminal receipt"
+;;
+
+let snapshot receipt =
+  let state = Atomic.get receipt.state in
+  let phase, dispatch_count, http_status, provider_trace =
+    match state with
+    | Not_started_state -> Not_started, 0, None, None
+    | Before_dispatch_state -> Before_dispatch, 0, None, None
+    | Dispatch_started_state -> Dispatch_started, 1, None, None
+    | Response_received_state status -> Response_received, 1, status, None
+    | Terminal_state terminal ->
+      Terminal, 1, Some terminal.status, terminal.provider_trace
+  in
+  { phase
+  ; dispatch_count
+  ; http_status
+  ; provider_trace
+  ; call_id = receipt.call_id
+  ; plan_fingerprint = receipt.plan_fingerprint
+  ; request_body_sha256 = receipt.request_body_sha256
+  ; catalog_generation = receipt.catalog_generation
+  ; catalog_evidence = receipt.catalog_evidence
+  ; target_identity = receipt.target_identity
+  }
+;;
+
+let snapshot_phase snapshot = snapshot.phase
+let snapshot_dispatch_count snapshot = snapshot.dispatch_count
+let snapshot_http_status snapshot = snapshot.http_status
+let snapshot_provider_trace snapshot = snapshot.provider_trace
+let snapshot_call_id snapshot = snapshot.call_id
+let snapshot_plan_fingerprint snapshot = snapshot.plan_fingerprint
+let snapshot_request_body_sha256 snapshot = snapshot.request_body_sha256
+let snapshot_catalog_generation snapshot = snapshot.catalog_generation
+let snapshot_catalog_evidence snapshot = snapshot.catalog_evidence
+let snapshot_target_identity snapshot = snapshot.target_identity

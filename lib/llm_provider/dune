@@ -21,6 +21,7 @@
   exact_output_flow
   exact_output_flow_admission
   exact_output_flow_contract
+  exact_output_generation_receipt
   exact_output_provider_trace
   exact_output_ready_admission
   exact_output_plan)
