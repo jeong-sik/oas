@@ -139,28 +139,27 @@ let type_contains_callback index core_type =
     || unresolved
     || List.exists
          (fun parts ->
-            let name = List.hd (List.rev parts) in
-            if String_set.mem name index.ambiguous
-            then true
-            else if String_set.mem name visiting
-            then false
-            else (
-              match String_map.find_opt name index.manifests with
-              | Some manifest -> inspect (String_set.add name visiting) manifest
-              | None ->
-                (match parts with
-                 | [ _ ] -> false
-                 | local_module :: _ :: _ ->
-                   String_set.mem local_module index.local_modules
-                   || not
-                        (String_set.mem
-                           (String.concat "." parts)
-                           trusted_qualified_argument_types)
-                 | _ ->
-                   not
-                     (String_set.mem
-                        (String.concat "." parts)
-                        trusted_qualified_argument_types))))
+            match parts with
+            | [ name ] ->
+              if String_set.mem name index.ambiguous
+              then true
+              else if String_set.mem name visiting
+              then false
+              else (
+                match String_map.find_opt name index.manifests with
+                | Some manifest -> inspect (String_set.add name visiting) manifest
+                | None -> false)
+            | local_module :: _ :: _ ->
+              String_set.mem local_module index.local_modules
+              || not
+                   (String_set.mem
+                      (String.concat "." parts)
+                      trusted_qualified_argument_types)
+            | _ ->
+              not
+                (String_set.mem
+                   (String.concat "." parts)
+                   trusted_qualified_argument_types))
          references
   in
   inspect String_set.empty core_type
@@ -370,8 +369,10 @@ let exact_post_path = [ "Cohttp_eio"; "Client"; "post" ]
 
 let transport_reference_facts structure =
   let exact_references = ref 0 in
+  let post_calls = ref 0 in
   let unresolved_identifiers = ref 0 in
   let forbidden_module_alias = ref false in
+  let external_proxy_or_reexport = ref false in
   let forbidden_module_path identifier =
     match longident_parts identifier with
     | Error () -> true
@@ -383,6 +384,15 @@ let transport_reference_facts structure =
       expr =
         (fun self expression ->
           (match expression.pexp_desc with
+           | Pexp_apply ({ pexp_desc = Pexp_ident identifier; _ }, _) ->
+             (match longident_parts identifier.txt with
+              | Ok parts
+                when String.equal (List.hd (List.rev parts)) "post" ->
+                incr post_calls
+              | Ok _ | Error () -> ())
+           | Pexp_apply
+               ({ pexp_desc = Pexp_field (_, { txt = Longident.Lident "post"; _ }); _ }, _)
+             -> incr post_calls
            | Pexp_ident identifier ->
              (match longident_parts identifier.txt with
               | Ok actual when List.equal String.equal actual exact_post_path ->
@@ -398,10 +408,29 @@ let transport_reference_facts structure =
              forbidden_module_alias := true
            | _ -> ());
           Ast_iterator.default_iterator.module_expr self module_expression)
+    ; structure_item =
+        (fun self item ->
+          (match item.pstr_desc with
+           | Pstr_module
+               { pmb_expr = { pmod_desc = Pmod_ident _; _ }; _ }
+           | Pstr_include _ -> external_proxy_or_reexport := true
+           | Pstr_recmodule declarations
+             when List.exists
+                    (fun declaration ->
+                       match declaration.pmb_expr.pmod_desc with
+                       | Pmod_ident _ -> true
+                       | _ -> false)
+                    declarations -> external_proxy_or_reexport := true
+           | _ -> ());
+          Ast_iterator.default_iterator.structure_item self item)
     }
   in
   iterator.structure iterator structure;
-  !exact_references, !unresolved_identifiers, !forbidden_module_alias
+  ( !exact_references
+  , !post_calls
+  , !unresolved_identifiers
+  , !forbidden_module_alias
+  , !external_proxy_or_reexport )
 ;;
 
 let stage2_chain_is_direct expression =
@@ -434,7 +463,12 @@ let stage2_chain_is_direct expression =
 ;;
 
 let exact_transport_error path structure =
-  let exact_references, unresolved_identifiers, forbidden_module_alias =
+  let ( exact_references
+      , post_calls
+      , unresolved_identifiers
+      , forbidden_module_alias
+      , external_proxy_or_reexport )
+    =
     transport_reference_facts structure
   in
   let direct_post_calls = count_qualified_calls "Cohttp_eio.Client.post" structure in
@@ -442,6 +476,10 @@ let exact_transport_error path structure =
   then Some (Printf.sprintf "%s: unresolved applied identifier in private transport" path)
   else if forbidden_module_alias
   then Some (Printf.sprintf "%s: Cohttp_eio module alias/open/include is forbidden" path)
+  else if external_proxy_or_reexport
+  then Some (Printf.sprintf "%s: external transport proxy/reexport is forbidden" path)
+  else if post_calls <> 1
+  then Some (Printf.sprintf "%s: expected one post call, found %d" path post_calls)
   else if exact_references <> 1 || direct_post_calls <> 1
   then
     Some

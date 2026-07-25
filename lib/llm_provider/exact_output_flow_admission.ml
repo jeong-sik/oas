@@ -15,6 +15,7 @@ type measurement_outcome =
   | Measurement_transport_failed
   | Measurement_invalid_response
   | Measurement_fence_rejected
+  | Measurement_cancelled
 
 type measurement_evidence =
   { dispatch : measurement_dispatch_fact
@@ -245,80 +246,99 @@ let admit
                    ; state = Atomic.make Fence_committed
                    }
                  in
-                 on_measurement_receipt receipt;
+                 let terminal_callback_started = Atomic.make false in
                  let terminal_callback outcome_of_dispatch =
                    let measurement = finish_receipt receipt outcome_of_dispatch in
                    on_measurement_receipt receipt;
-                   match on_measurement_terminal receipt with
-                   | Ok () -> Ok measurement
-                   | Error cause -> Error cause
+                   if Atomic.compare_and_set terminal_callback_started false true
+                   then
+                     match on_measurement_terminal receipt with
+                     | Ok () -> Ok measurement
+                     | Error cause -> Error cause
+                   else Ok measurement
                  in
-                 let commit_fence () =
-                   match before_measurement_dispatch receipt with
-                   | Ok () -> Ok ()
-                   | Error cause ->
-                     confirm_no_dispatch receipt;
-                     on_measurement_receipt receipt;
-                     (match terminal_callback (fun _ -> Measurement_fence_rejected) with
-                      | Ok _ -> Error (`Before_dispatch_failed cause)
-                      | Error terminal_cause ->
-                        Error (`Terminal_callback_failed terminal_cause))
-                 in
-                 let dispatch_intent =
-                   Count_tokens.create_measurement_dispatch_intent
-                     ~commit_fence
-                     ~mark_dispatch_started:(fun () ->
-                       advance_receipt receipt Wire_started;
-                       on_measurement_receipt receipt)
-                 in
-                 let measured =
-                   Count_tokens.measure_exact_completion_request
-                     ~net
-                     ?clock
-                     ~dispatch_intent
-                     measurement_request
-                 in
-                 let terminalize outcome_of_dispatch make_outcome =
-                   match terminal_callback outcome_of_dispatch with
-                   | Ok measurement -> make_outcome measurement
-                   | Error cause ->
+                 let run () =
+                   on_measurement_receipt receipt;
+                   let commit_fence () =
+                     match before_measurement_dispatch receipt with
+                     | Ok () -> Ok ()
+                     | Error cause ->
+                       confirm_no_dispatch receipt;
+                       on_measurement_receipt receipt;
+                       (match
+                          terminal_callback (fun _ -> Measurement_fence_rejected)
+                        with
+                        | Ok _ -> Error (`Before_dispatch_failed cause)
+                        | Error terminal_cause ->
+                          Error (`Terminal_callback_failed terminal_cause))
+                   in
+                   let dispatch_intent =
+                     Count_tokens.create_measurement_dispatch_intent
+                       ~commit_fence
+                       ~mark_dispatch_started:(fun () ->
+                         advance_receipt receipt Wire_started;
+                         on_measurement_receipt receipt)
+                   in
+                   let measured =
+                     Count_tokens.measure_exact_completion_request
+                       ~net
+                       ?clock
+                       ~dispatch_intent
+                       measurement_request
+                   in
+                   let terminalize outcome_of_dispatch make_outcome =
+                     match terminal_callback outcome_of_dispatch with
+                     | Ok measurement -> make_outcome measurement
+                     | Error cause ->
+                       Measurement_terminal_callback_failed { receipt; cause }
+                   in
+                   let reject_measured cause =
+                     terminalize
+                       (fun dispatch -> rejection_outcome dispatch cause)
+                       (fun measurement -> Rejected { cause; measurement })
+                   in
+                   match measured with
+                   | Error
+                       (Count_tokens.Before_dispatch_failed
+                          (`Before_dispatch_failed cause)) ->
+                     Before_measurement_dispatch_failed { receipt; cause }
+                   | Error
+                       (Count_tokens.Before_dispatch_failed
+                          (`Terminal_callback_failed cause)) ->
                      Measurement_terminal_callback_failed { receipt; cause }
+                   | Error (Count_tokens.Completion_request_failed (error, stage)) ->
+                     record_transport_stage receipt on_measurement_receipt stage;
+                     reject_measured (Measurement_rejected (measurement_failure error))
+                   | Ok measurement ->
+                     let measured =
+                       Prepared.attach_measurement
+                         (Plan.prepared_request preflight)
+                         measurement
+                     in
+                     (match
+                        Prepared.admit
+                          ~now_unix_s:(now_unix_s ())
+                          ~max_context_tokens
+                          measured
+                      with
+                      | Error error ->
+                        reject_measured (Context_admission_rejected error)
+                      | Ok admitted ->
+                        (match Plan.finalize_measured preflight admitted with
+                         | Error error ->
+                           reject_measured (Plan_finalization_rejected error)
+                         | Ok plan ->
+                           terminalize
+                             (fun _ -> Measurement_succeeded)
+                             (fun measurement -> Admitted { plan; measurement })))
                  in
-                 let reject_measured cause =
-                   terminalize
-                     (fun dispatch -> rejection_outcome dispatch cause)
-                     (fun measurement -> Rejected { cause; measurement })
-                 in
-                 (match measured with
-                  | Error
-                      (Count_tokens.Before_dispatch_failed (`Before_dispatch_failed cause))
-                    -> Before_measurement_dispatch_failed { receipt; cause }
-                  | Error
-                      (Count_tokens.Before_dispatch_failed
-                         (`Terminal_callback_failed cause)) ->
-                    Measurement_terminal_callback_failed { receipt; cause }
-                  | Error (Count_tokens.Completion_request_failed (error, stage)) ->
-                    record_transport_stage receipt on_measurement_receipt stage;
-                    reject_measured (Measurement_rejected (measurement_failure error))
-                  | Ok measurement ->
-                    let measured =
-                      Prepared.attach_measurement
-                        (Plan.prepared_request preflight)
-                        measurement
-                    in
-                    (match
-                       Prepared.admit
-                         ~now_unix_s:(now_unix_s ())
-                         ~max_context_tokens
-                         measured
-                     with
-                     | Error error -> reject_measured (Context_admission_rejected error)
-                     | Ok admitted ->
-                       (match Plan.finalize_measured preflight admitted with
-                        | Error error ->
-                          reject_measured (Plan_finalization_rejected error)
-                        | Ok plan ->
-                          terminalize
-                            (fun _ -> Measurement_succeeded)
-                            (fun measurement -> Admitted { plan; measurement }))))))))
+                 try run () with
+                 | (Eio.Cancel.Cancelled _ as exn) ->
+                   let backtrace = Printexc.get_raw_backtrace () in
+                   ignore (terminal_callback (fun _ -> Measurement_cancelled));
+                   Printexc.raise_with_backtrace exn backtrace
+                 | exn ->
+                   let backtrace = Printexc.get_raw_backtrace () in
+                   Reserved_exn.reraise_if_reserved exn;
+                   Printexc.raise_with_backtrace exn backtrace))))
 ;;

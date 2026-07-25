@@ -14,6 +14,7 @@ type measurement_outcome = Flow_admission.measurement_outcome =
   | Measurement_transport_failed
   | Measurement_invalid_response
   | Measurement_fence_rejected
+  | Measurement_cancelled
 
 type measurement_evidence = Flow_admission.measurement_evidence =
   { dispatch : measurement_dispatch_fact

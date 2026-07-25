@@ -105,6 +105,21 @@ let catalog_fixture_toml entry =
     | None -> ""
     | Some control -> Printf.sprintf "anthropic_thinking_control = %S\n" control
   in
+  let serving_options =
+    if entry.serving_constraint
+    then
+      Printf.sprintf
+        "serving_constraint_source_kind = \"probe\"\n\
+         serving_constraint_source = \"probe://incident/2793\"\n\
+         serving_constraint_checked_at_unix_s = 0\n\
+         serving_constraint_confidence = \"high\"\n\
+         serving_constraint_expires_at_unix_s = 2000000000\n\
+         serving_constraint_accepted_through_tokens = %d\n\
+         serving_constraint_rejected_from_tokens = %d\n"
+        entry.serving_accepted_through_tokens
+        entry.serving_rejected_from_tokens
+    else ""
+  in
   Printf.sprintf
     "[[providers]]\n\
      id = %S\n\
@@ -131,19 +146,7 @@ let catalog_fixture_toml entry =
     entry.api_key_env
     entry.model_id
     entry.id
-    (if entry.serving_constraint
-     then
-       Printf.sprintf
-         "serving_constraint_source_kind = \"probe\"\n\
-          serving_constraint_source = \"probe://incident/2793\"\n\
-          serving_constraint_checked_at_unix_s = 0\n\
-          serving_constraint_confidence = \"high\"\n\
-          serving_constraint_expires_at_unix_s = 2000000000\n\
-          serving_constraint_accepted_through_tokens = %d\n\
-          serving_constraint_rejected_from_tokens = %d\n"
-         entry.serving_accepted_through_tokens
-         entry.serving_rejected_from_tokens
-     else "" ^ model_options)
+    (serving_options ^ model_options)
     entry.json
     entry.native
     entry.id
@@ -1267,6 +1270,14 @@ let test_later_missing_credential_does_not_block_current_success () =
           ~native:true
           ~json:true
           ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~id:(label ^ "-successor")
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
       ]
     @@ fun snapshot ->
     let advances = ref 0 in
@@ -2301,7 +2312,7 @@ let test_measurement_predispatch_failure_records_zero_dispatch () =
   | Ok _ | Error _ -> fail "predispatch measurement failure lost typed exhaustion"
 ;;
 
-let test_measurement_cancellation_preserves_dispatch_ambiguity () =
+let test_measurement_cancellation_terminalizes_receipt () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
   in
@@ -2323,18 +2334,32 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
           ()
       ]
     @@ fun snapshot ->
-    let flow = start_flow (frozen_flow snapshot [ label ]) in
+    let successor = label ^ "-successor" in
+    let flow = start_flow (frozen_flow snapshot [ label; successor ]) in
+    let terminal_callbacks = ref 0 in
+    let advances = ref 0 in
     let timed_out =
       try
         ignore
           (Eio.Time.with_timeout_exn clock 0.01 (fun () ->
              EO.execute_flow_once
                ~net
-               ~on_measurement_terminal:(fun _ -> Ok ())
+               ~on_measurement_terminal:(fun measurement ->
+                 incr terminal_callbacks;
+                 let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+                 check
+                   bool
+                   "cancellation callback observes terminal receipt"
+                   true
+                   (snapshot.phase = EO.Measurement_terminal
+                    && snapshot.outcome = Some EO.Measurement_cancelled);
+                 Ok ())
                ~before_measurement_dispatch:(before_measurement_dispatch ~clock)
                ~before_dispatch:(fun _ ->
                  fail "measurement cancellation reached generation dispatch")
-               ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+               ~before_advance:(fun ~failed:_ ~next:_ ->
+                 incr advances;
+                 Ok ())
                flow)
            : (EO.flow_success, _ EO.flow_execution_error) result);
         false
@@ -2342,14 +2367,26 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
       | Eio.Time.Timeout -> true
     in
     let replay = execute_ok ~net flow in
-    timed_out, replay, EO.flow_attempt_evidence flow
+    ( timed_out
+    , replay
+    , EO.flow_attempt_evidence flow
+    , !terminal_callbacks
+    , !advances )
   in
-  let (before_timed_out, before_replay, before_evidence), before_posts =
+  let ( before_timed_out
+      , before_replay
+      , before_evidence
+      , before_terminal_callbacks
+      , before_advances )
+    , before_posts
+    =
     run ~label:"measurement-cancel-before-fence" (fun ~clock _ ->
       Eio.Time.sleep clock 0.1;
       Ok ())
   in
   check bool "cancellation inside fence callback escapes" true before_timed_out;
+  check int "pre-fence terminal callback runs once" 1 before_terminal_callbacks;
+  check int "pre-fence cancellation does not advance" 0 before_advances;
   check
     int
     "pre-fence cancellation starts no measurement POST"
@@ -2367,9 +2404,9 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
   in
   check
     bool
-    "intent-callback cancellation remains committed"
+    "intent-callback cancellation terminalizes"
     true
-    (before_snapshot.phase = EO.Measurement_fence_committed);
+    (before_snapshot.phase = EO.Measurement_terminal);
   check
     bool
     "intent-callback cancellation remains ambiguous"
@@ -2377,19 +2414,27 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
     (before_snapshot.dispatch = EO.Measurement_dispatch_unknown);
   check
     (option bool)
-    "pre-fence cancellation has no false terminal outcome"
-    None
-    (Option.map (fun _ -> true) before_snapshot.outcome);
+    "pre-fence cancellation records terminal outcome"
+    (Some true)
+    (Option.map (fun outcome -> outcome = EO.Measurement_cancelled) before_snapshot.outcome);
   (match before_replay with
    | Error (EO.Flow_attempt_already_started _) -> ()
    | Ok _ | Error _ -> fail "pre-fence cancelled flow replayed");
-  let (after_timed_out, after_replay, after_evidence), after_posts =
+  let ( after_timed_out
+      , after_replay
+      , after_evidence
+      , after_terminal_callbacks
+      , after_advances )
+    , after_posts
+    =
     run
       ~label:"measurement-cancel-after-fence"
       ~measurement_delay_s:0.1
       (fun ~clock:_ _ -> Ok ())
   in
   check bool "cancellation after fence escapes" true after_timed_out;
+  check int "post-fence terminal callback runs once" 1 after_terminal_callbacks;
+  check int "post-dispatch cancellation forbids successor" 0 after_advances;
   check
     int
     "post-fence cancellation reaches one measurement POST"
@@ -2412,9 +2457,9 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
   in
   check
     bool
-    "post-fence cancellation records wire start"
+    "post-fence cancellation terminalizes"
     true
-    (after_snapshot.phase = EO.Measurement_wire_started);
+    (after_snapshot.phase = EO.Measurement_terminal);
   check
     bool
     "post-fence cancellation never claims zero dispatch"
@@ -2422,9 +2467,9 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
     (after_snapshot.dispatch = EO.Measurement_dispatch_started);
   check
     (option bool)
-    "post-fence cancellation remains unclosed"
-    None
-    (Option.map (fun _ -> true) after_snapshot.outcome);
+    "post-fence cancellation records terminal outcome"
+    (Some true)
+    (Option.map (fun outcome -> outcome = EO.Measurement_cancelled) after_snapshot.outcome);
   match after_replay with
   | Error (EO.Flow_attempt_already_started _) -> ()
   | Ok _ | Error _ -> fail "post-fence cancelled flow replayed"
@@ -3528,9 +3573,9 @@ let () =
             `Quick
             test_measurement_predispatch_failure_records_zero_dispatch
         ; test_case
-            "measurement cancellation preserves dispatch ambiguity"
+            "measurement cancellation terminalizes receipt"
             `Quick
-            test_measurement_cancellation_preserves_dispatch_ambiguity
+            test_measurement_cancellation_terminalizes_receipt
         ; test_case
             "typed measurement failures advance without generation attempt"
             `Quick

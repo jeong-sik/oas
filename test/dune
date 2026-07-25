@@ -485,6 +485,7 @@
   fixtures/exact_output_single_surface/public_callback_alias.mli.fixture
   fixtures/exact_output_single_surface/public_callback_qualified_alias.mli.fixture
   fixtures/exact_output_single_surface/public_callback_external_qualified_alias.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_external_qualified_collision.mli.fixture
   fixtures/exact_output_single_surface/public_callback_module_alias.mli.fixture
   fixtures/exact_output_single_surface/public_callback_nested_module.mli.fixture
   fixtures/exact_output_single_surface/public_callback_include.mli.fixture
@@ -492,12 +493,14 @@
   fixtures/exact_output_single_surface/public_callback_nested_include.mli.fixture
   fixtures/exact_output_single_surface/public_callback_module_with.mli.fixture
   fixtures/exact_output_single_surface/public_callback_duplicate_allowed.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_unused_allowance.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture
   fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture
   fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture
   fixtures/exact_output_single_surface/exact_transport_local_open.ml.fixture
   fixtures/exact_output_single_surface/exact_transport_module_alias.ml.fixture
   fixtures/exact_output_single_surface/exact_transport_first_class_module.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_external_proxy_reexport.ml.fixture
   fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
   fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
@@ -572,6 +575,10 @@
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_external_qualified_collision.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_callback_module_alias.mli.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
@@ -601,6 +608,13 @@
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture})
+   (with-accepted-exit-codes
+    1
+    (run
+     %{exe:check_public_mli_callbacks.exe}
+     --allow-callback
+     "unused|_|arrow(_,constr(unit),constr(unit))"
+     %{dep:fixtures/exact_output_single_surface/public_callback_unused_allowance.mli.fixture}))
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-exact-transport-violation
@@ -613,6 +627,10 @@
     %{exe:check_public_mli_callbacks.exe}
     --expect-exact-transport-violation
     %{dep:fixtures/exact_output_single_surface/exact_transport_first_class_module.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_external_proxy_reexport.ml.fixture})
    (run
     %{exe:check_exact_output_publication_lock.exe}
     %{dep:../lib/llm_provider/exact_output_flow.ml})

@@ -126,33 +126,128 @@ let state_rank = function
   | Terminal_state _ -> 4
 ;;
 
-(* Advancing must never drop what the receipt already knows. Within one rank the
-   desired value is merged into the current one rather than replacing it: a status
-   observed after a trace was recorded, or a trace recorded before the status
-   arrived, both have to survive. Replacing outright is how the earlier
-   [Response_received_state None -> Some _] special case worked, and it silently
-   lost the trace once this state gained a second field. *)
-let rec advance receipt desired =
-  let current = Atomic.get receipt.state in
-  if state_rank desired > state_rank current
-  then
-    if not (Atomic.compare_and_set receipt.state current desired)
-    then advance receipt desired
-    else if state_rank desired = state_rank current
-    then (
-      (* The one same-rank gain, kept from the original [Response_received_state None
-       -> Some _] rule but written as a merge. Replacing the whole value would drop a
-       provider trace recorded before the status arrived, which became possible when
-       this state gained a second field. Comparison stays structural on the status
-       option only: the trace has its own [Trace.equal] because polymorphic compare
-       is not safe on it. *)
-      match current, desired with
-      | Response_received_state received, Response_received_state incoming
-        when Option.is_none received.status && Option.is_some incoming.status ->
-        let merged = Response_received_state { received with status = incoming.status } in
-        if not (Atomic.compare_and_set receipt.state current merged)
-        then advance receipt desired
-      | _ -> ())
+let first_some current incoming =
+  match current with
+  | Some _ -> current
+  | None -> incoming
+;;
+
+let merge_response_fields
+      (current_status, current_trace)
+      (incoming_status, incoming_trace)
+  =
+  first_some current_status incoming_status, first_some current_trace incoming_trace
+;;
+
+let state_equal left right =
+  match left, right with
+  | Not_started_state, Not_started_state
+  | Before_dispatch_state, Before_dispatch_state
+  | Dispatch_started_state, Dispatch_started_state -> true
+  | Response_received_state left, Response_received_state right ->
+    Option.equal Int.equal left.status right.status
+    && Option.equal Trace.equal left.provider_trace right.provider_trace
+  | Terminal_state left, Terminal_state right ->
+    Int.equal left.status right.status
+    && Option.equal Trace.equal left.provider_trace right.provider_trace
+  | _ -> false
+;;
+
+(* The state shape comes from the higher rank, while response knowledge is an
+   immutable join. This keeps a trace observed before status, a status observed
+   before trace, and both fields when Response_received is promoted to Terminal. *)
+let merge_state current desired =
+  match current, desired with
+  | Response_received_state current, Response_received_state desired ->
+    let status, provider_trace =
+      merge_response_fields
+        (current.status, current.provider_trace)
+        (desired.status, desired.provider_trace)
+    in
+    Response_received_state { status; provider_trace }
+  | Response_received_state current, Terminal_state desired ->
+    let status, provider_trace =
+      merge_response_fields
+        (current.status, current.provider_trace)
+        (Some desired.status, desired.provider_trace)
+    in
+    Terminal_state { status = Option.get status; provider_trace }
+  | Terminal_state current, Terminal_state desired ->
+    let _, provider_trace =
+      merge_response_fields
+        (Some current.status, current.provider_trace)
+        (Some desired.status, desired.provider_trace)
+    in
+    Terminal_state { current with provider_trace }
+  | _ -> desired
+;;
+
+let rec advance_atomic ~rank ~merge ~equal state desired =
+  let current = Atomic.get state in
+  if rank desired >= rank current
+  then (
+    let merged = merge current desired in
+    if (not (equal current merged))
+       && not (Atomic.compare_and_set state current merged)
+    then advance_atomic ~rank ~merge ~equal state desired)
+;;
+
+let advance receipt desired =
+  advance_atomic
+    ~rank:state_rank
+    ~merge:merge_state
+    ~equal:state_equal
+    receipt.state
+    desired
+;;
+
+let%test "same-rank status and trace converge monotonically under CAS" =
+  let rank (rank, _, _) = rank in
+  let merge (current_rank, current_status, current_trace) (desired_rank, status, trace)
+    =
+    let status, trace =
+      merge_response_fields (current_status, current_trace) (status, trace)
+    in
+    Int.max current_rank desired_rank, status, trace
+  in
+  let converge desired =
+    let state = Atomic.make (3, None, None) in
+    List.iter
+      (advance_atomic ~rank ~merge ~equal:( = ) state)
+      desired;
+    Atomic.get state
+  in
+  let race left right =
+    let state = Atomic.make (3, None, None) in
+    let ready = Atomic.make 0 in
+    let start = Atomic.make false in
+    let apply desired =
+      ignore (Atomic.fetch_and_add ready 1);
+      while not (Atomic.get start) do
+        Domain.cpu_relax ()
+      done;
+      advance_atomic ~rank ~merge ~equal:( = ) state desired
+    in
+    let left_domain = Domain.spawn (fun () -> apply left) in
+    let right_domain = Domain.spawn (fun () -> apply right) in
+    while Atomic.get ready <> 2 do
+      Domain.cpu_relax ()
+    done;
+    Atomic.set start true;
+    Domain.join left_domain;
+    Domain.join right_domain;
+    Atomic.get state
+  in
+  let status = 3, Some 200, None in
+  let trace = 3, None, Some "trace" in
+  let terminal = 4, Some 200, None in
+  let expected_response = 3, Some 200, Some "trace" in
+  let expected_terminal = 4, Some 200, Some "trace" in
+  converge [ status; trace ] = expected_response
+  && converge [ trace; status ] = expected_response
+  && converge [ trace; terminal ] = expected_terminal
+  && race status trace = expected_response
+  && race trace status = expected_response
 ;;
 
 let observe_phase receipt = function
