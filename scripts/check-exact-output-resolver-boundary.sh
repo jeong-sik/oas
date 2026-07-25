@@ -10,6 +10,7 @@ required_basenames=(
   exact_output_resolver.ml
     exact_output_catalog_binding.ml
     exact_output_flow_admission.ml
+    exact_output_ready_admission.ml
     exact_output_plan.ml
   complete_common.ml
   backend_anthropic.ml
@@ -571,6 +572,7 @@ exact_output_source=""
 exact_output_flow_source=""
 exact_output_flow_contract_source=""
 exact_output_flow_admission_source=""
+exact_output_ready_admission_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -589,6 +591,10 @@ for source_file in "${source_files[@]}"; do
       ;;
     exact_output_flow_admission.ml)
       exact_output_flow_admission_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_ready_admission.ml)
+      exact_output_ready_admission_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;
@@ -1142,14 +1148,6 @@ scan_code \
   "$exact_output_source" \
   "$exact_output_flow_source" \
   "$exact_output_flow_contract_source"
-require_code_pattern \
-  "candidate rejection is no longer fixed at Before_dispatch" \
-  'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \
-  "$exact_output_source"
-require_code_pattern \
-  "candidate rejection is no longer fixed at zero dispatch" \
-  'let[[:space:]]+candidate_rejection_dispatch_count[[:space:]]+_[[:space:]]*=[[:space:]]*0' \
-  "$exact_output_source"
 require_code_sequence \
   "outer flow candidate no longer accepts a catalog-admitted target" \
   'val[[:space:]]+make_flow_candidate[[:space:]]*:[[:space:]]*id:string[[:space:]]*->[[:space:]]*admitted_target:admitted_target' \

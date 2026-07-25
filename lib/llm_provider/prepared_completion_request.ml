@@ -56,24 +56,53 @@ let prepare
 
 let request prepared = prepared.request
 
-let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
-  let config = prepared.request.Llm_transport.config in
-  let measured () =
-    Count_tokens_sync.measure_completion_request
+let measure_with_before_dispatch
       ?connection_cache
       ?clock
       ?timeout_s
       ~sw
       ~net
+      ~before_dispatch
+      prepared
+  =
+  let config = prepared.request.Llm_transport.config in
+  let measured () =
+    Count_tokens_sync.measure_completion_request_with_before_dispatch
+      ?connection_cache
+      ?clock
+      ?timeout_s
+      ~sw
+      ~net
+      ~before_dispatch
       prepared.request
     |> Result.map (fun measurement -> { prepared; measurement })
   in
   match Complete_common.validate_all config with
   | Error (Http_client.AcceptRejected { reason }) ->
-    Error (Count_tokens_sync.Invalid_completion_request reason)
+    Error
+      (Count_tokens_sync.Completion_request_failed
+         (Count_tokens_sync.Invalid_completion_request reason))
   | Error error ->
-    Error (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error))
+    Error
+      (Count_tokens_sync.Completion_request_failed
+         (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error)))
   | Ok () -> Provider_admission.with_admission ~config measured
+;;
+
+let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
+  match
+    measure_with_before_dispatch
+      ?connection_cache
+      ?clock
+      ?timeout_s
+      ~sw
+      ~net
+      ~before_dispatch:(fun () -> Ok ())
+      prepared
+  with
+  | Ok measured -> Ok measured
+  | Error (Count_tokens_sync.Completion_request_failed error) -> Error error
+  | Error (Count_tokens_sync.Before_dispatch_failed ()) -> assert false
 ;;
 
 let measurement measured = measured.measurement

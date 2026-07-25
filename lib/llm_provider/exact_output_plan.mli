@@ -68,6 +68,7 @@ val preflight
 val prepared_request : preflight -> Prepared_completion_request.t
 val serving_constraint : preflight -> Serving_constraint.t option
 val preflight_body_timeout_s : preflight -> float option
+val preflight_request_body_sha256 : preflight -> string
 
 val resolve_context_limit
   :  preflight

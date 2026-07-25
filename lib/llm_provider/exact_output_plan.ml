@@ -322,7 +322,12 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
-let preflight ~config:original_config ~messages ~body_timeout_s ~anthropic_thinking_control =
+let preflight
+      ~config:(original_config : Provider_config.t)
+      ~messages
+      ~body_timeout_s
+      ~anthropic_thinking_control
+  =
   match original_config.model_capabilities_override with
   | None -> Error Explicit_capability_snapshot_required
   | Some capabilities ->
@@ -405,6 +410,7 @@ let serving_constraint preflight =
   Prepared_completion_request.serving_constraint preflight.prepared
 ;;
 let preflight_body_timeout_s preflight = preflight.wire.body_timeout_s
+let preflight_request_body_sha256 preflight = preflight.wire.body_sha256
 
 let resolve_context_limit preflight =
   Prepared_completion_request.resolve_context_limit preflight.prepared

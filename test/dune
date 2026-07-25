@@ -453,6 +453,8 @@
   ../lib/llm_provider/exact_output_catalog_binding.mli
   ../lib/llm_provider/exact_output_flow_admission.ml
   ../lib/llm_provider/exact_output_flow_admission.mli
+  ../lib/llm_provider/exact_output_ready_admission.ml
+  ../lib/llm_provider/exact_output_ready_admission.mli
   ../lib/llm_provider/exact_output_plan.ml
   ../lib/llm_provider/complete_common.ml
   ../lib/llm_provider/backend_anthropic.ml
@@ -483,6 +485,7 @@
     %{dep:../lib/llm_provider/exact_output_resolver.ml}
     %{dep:../lib/llm_provider/exact_output_catalog_binding.ml}
     %{dep:../lib/llm_provider/exact_output_flow_admission.ml}
+    %{dep:../lib/llm_provider/exact_output_ready_admission.ml}
     %{dep:../lib/llm_provider/exact_output_plan.ml}
     %{dep:../lib/llm_provider/complete_common.ml}
     %{dep:../lib/llm_provider/backend_anthropic.ml}
