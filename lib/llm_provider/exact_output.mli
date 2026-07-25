@@ -1,3 +1,30 @@
+type measurement_dispatch_fact =
+  | No_measurement_dispatch
+  | Measurement_dispatch_unknown
+  | Measurement_dispatch_started
+
+type measurement_outcome =
+  | Measurement_not_required
+  | Measurement_succeeded
+  | Measurement_unsupported
+  | Measurement_local_invalid
+  | Measurement_transport_failed
+  | Measurement_invalid_response
+  | Measurement_fence_rejected
+  | Measurement_cancelled
+
+type measurement_evidence =
+  { dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome
+  }
+
+type measurement_operation_id
+
+type measurement_receipt_phase =
+  | Measurement_fence_committed
+  | Measurement_wire_started
+  | Measurement_terminal
+
 (** Provider-neutral, exact structured-output Single Surface.
 
     The canonical downstream path is [Agent_sdk.Exact_output]. The
@@ -113,11 +140,37 @@ type target_catalog_admission_error =
 type wire_admission_error
 type admission_error
 
+type token_capacity_rejection =
+  | Capacity_evidence_not_yet_valid of
+      { now_unix_s : int
+      ; checked_at_unix_s : int
+      }
+  | Capacity_evidence_expired of
+      { now_unix_s : int
+      ; expires_at_unix_s : int
+      }
+  | Capacity_boundary_unknown of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Capacity_input_rejected of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int
+      }
+
 type input_capacity_disposition =
   | Token_measurement_required of
       { accepted_through_tokens : int
       ; rejected_from_tokens : int option
       }
+  | Context_window_exceeded of
+      { input_tokens : int
+      ; reserved_output_tokens : int
+      ; max_context_tokens : int
+      }
+  | Token_capacity_rejected of token_capacity_rejection
   | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -131,14 +184,7 @@ type candidate_rejection_disposition =
   | Input_capacity of input_capacity_disposition
   | Request_preparation_failed
 
-type plan_provenance =
-  { source_schema_fingerprint : schema_fingerprint
-  ; effective_schema_fingerprint : schema_fingerprint option
-  ; actual_assurance : actual_assurance
-  ; catalog_generation : catalog_generation
-  ; catalog_evidence : catalog_evidence
-  ; target_identity : target_identity
-  }
+type plan_provenance
 
 type effect_phase =
   | Not_started
@@ -219,6 +265,17 @@ type flow_candidate_visit = private
   ; identity : flow_candidate_identity
   }
 
+type flow_measurement_receipt
+
+type measurement_receipt_snapshot = private
+  { operation_id : measurement_operation_id
+  ; visit : flow_candidate_visit
+  ; request_body_sha256 : string
+  ; phase : measurement_receipt_phase
+  ; dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome option
+  }
+
 type candidate_rejection_receipt
 
 type admitted_flow_candidate =
@@ -226,6 +283,7 @@ type admitted_flow_candidate =
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; provenance : plan_provenance
+  ; measurement : measurement_evidence
   }
 
 type candidate_admission =
@@ -369,10 +427,25 @@ val admit
   -> (ready_plan, admission_error) result
 
 val plan_provenance : ready_plan -> plan_provenance
+val plan_provenance_source_schema_fingerprint : plan_provenance -> schema_fingerprint
+
+val plan_provenance_effective_schema_fingerprint
+  :  plan_provenance
+  -> schema_fingerprint option
+
+val plan_provenance_actual_assurance : plan_provenance -> actual_assurance
+val plan_provenance_catalog_generation : plan_provenance -> catalog_generation
+val plan_provenance_catalog_evidence : plan_provenance -> catalog_evidence
+val plan_provenance_target_identity : plan_provenance -> target_identity
 val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
 
 type start_attempt_error = Call_id_generation_failed of string
+
+type measurement_start_error =
+  | Measurement_operation_id_generation_failed of string
+  | Measurement_clock_required_for_timeout
+
 type flow_start_error = Flow_id_generation_failed of string
 
 (** Allocate a fresh, independent execution attempt for an admitted plan.
@@ -404,6 +477,37 @@ val receipt_catalog_generation : receipt -> catalog_generation
 val receipt_catalog_evidence : receipt -> catalog_evidence
 val receipt_target_identity : receipt -> target_identity
 
+(** Immutable generation-receipt fact captured from one atomic state read. *)
+type generation_receipt_snapshot
+
+val generation_receipt_snapshot : receipt -> generation_receipt_snapshot
+val generation_receipt_snapshot_phase : generation_receipt_snapshot -> effect_phase
+val generation_receipt_snapshot_dispatch_count : generation_receipt_snapshot -> int
+val generation_receipt_snapshot_http_status : generation_receipt_snapshot -> int option
+
+val generation_receipt_snapshot_provider_trace
+  :  generation_receipt_snapshot
+  -> provider_trace option
+
+val generation_receipt_snapshot_call_id : generation_receipt_snapshot -> call_id
+val generation_receipt_snapshot_plan_fingerprint : generation_receipt_snapshot -> string
+
+val generation_receipt_snapshot_request_body_sha256
+  :  generation_receipt_snapshot
+  -> string
+
+val generation_receipt_snapshot_catalog_generation
+  :  generation_receipt_snapshot
+  -> catalog_generation
+
+val generation_receipt_snapshot_catalog_evidence
+  :  generation_receipt_snapshot
+  -> catalog_evidence
+
+val generation_receipt_snapshot_target_identity
+  :  generation_receipt_snapshot
+  -> target_identity
+
 (** One immutable outer-flow binding. [scope], opaque candidate identity, and
     the one-shot execution receipt travel together; consumers do not rebuild
     that join from coordinator or target strings. *)
@@ -413,7 +517,19 @@ type flow_attempt_receipt = private
   ; receipt : receipt
   }
 
+(** Immutable evidence copy of one generation attempt. *)
+type flow_attempt_snapshot = private
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
+  ; receipt : generation_receipt_snapshot
+  }
+
 val candidate_visit_count_to_int : candidate_visit_count -> int
+val measurement_operation_id_to_string : measurement_operation_id -> string
+
+val flow_measurement_receipt_snapshot
+  :  flow_measurement_receipt
+  -> measurement_receipt_snapshot
 
 val target_selection_error_disposition
   :  target_selection_error
@@ -424,12 +540,17 @@ val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate
 val candidate_rejection_scope : candidate_rejection_receipt -> flow_scope
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
 
+val candidate_rejection_measurement_dispatch_fact
+  :  candidate_rejection_receipt
+  -> measurement_dispatch_fact
+
+val candidate_rejection_measurement_outcome
+  :  candidate_rejection_receipt
+  -> measurement_outcome
+
 val candidate_rejection_disposition
   :  candidate_rejection_receipt
   -> candidate_rejection_disposition
-
-val candidate_rejection_phase : candidate_rejection_receipt -> effect_phase
-val candidate_rejection_dispatch_count : candidate_rejection_receipt -> int
 
 type flow_evidence = private
   { flow_id : flow_id
@@ -438,8 +559,9 @@ type flow_evidence = private
   ; candidate_snapshot : flow_candidate_identity list
   ; preference_observation : flow_preference_observation
   ; candidate_visit_count : candidate_visit_count
+  ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
-  ; attempts : flow_attempt_receipt list
+  ; attempts : flow_attempt_snapshot list
   }
 
 val flow_success_candidate : flow_success -> flow_attempt_receipt
@@ -491,9 +613,9 @@ type flow_candidate_failure =
       ; cause : execution_error
       }
 
-type outward_dispatch_fact =
-  | No_outward_dispatch
-  | Outward_dispatch_started
+type generation_dispatch_fact =
+  | No_generation_dispatch
+  | Generation_dispatch_started
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
@@ -501,6 +623,21 @@ type 'callback_error flow_execution_error =
   | Flow_attempt_start_failed of
       { candidate : flow_candidate_visit
       ; cause : start_attempt_error
+      ; evidence : flow_evidence
+      }
+  | Flow_measurement_start_failed of
+      { candidate : flow_candidate_visit
+      ; cause : measurement_start_error
+      ; evidence : flow_evidence
+      }
+  | Flow_before_measurement_dispatch_callback_failed of
+      { measurement : flow_measurement_receipt
+      ; cause : 'callback_error
+      ; evidence : flow_evidence
+      }
+  | Flow_measurement_terminal_callback_failed of
+      { measurement : flow_measurement_receipt
+      ; cause : 'callback_error
       ; evidence : flow_evidence
       }
   | Flow_before_dispatch_callback_failed of
@@ -528,9 +665,9 @@ type 'callback_error flow_execution_error =
     completion dispatch began. This does not claim provider acceptance, response
     receipt, billing, retryability, failover eligibility, or any Pricing
     decision. *)
-val flow_execution_error_outward_dispatch
+val flow_execution_error_generation_dispatch
   :  'callback_error flow_execution_error
-  -> outward_dispatch_fact
+  -> generation_dispatch_fact
 
 (** Point-in-time aggregate evidence. [scope] is the exact opaque flow scope,
     [declared_candidate_snapshot] is the caller-declared order, and
@@ -538,12 +675,14 @@ val flow_execution_error_outward_dispatch
     [preference_observation] is the single scope lookup frozen when the snapshot
     was created; it distinguishes no record, an applied binding, an absent
     recorded slot, and a changed target binding.
-    [candidate_visit_count], [admissions], and [attempts] contain only
+    [candidate_visit_count], [measurements], [admissions], and [attempts]
+    contain only
     candidates reached so far. Attempts are allocated only after
     current-candidate target selection and request admission succeed. This
     remains queryable after cancellation escapes. The affine executor is the
-    sole writer. A concurrent reader may observe the exact point after an
-    admitted outcome is recorded and before its fresh attempt is allocated. *)
+    sole writer, and every call reads one Atomic immutable progress publication,
+    so measurement receipt snapshots, admissions, and attempt receipt snapshots
+    always describe the same publication epoch. *)
 val flow_attempt_evidence : flow_attempt -> flow_evidence
 
 (** Execute the frozen request once. The attempt is single-use: duplicate or
@@ -553,7 +692,7 @@ val flow_attempt_evidence : flow_attempt -> flow_evidence
     sole invocation performs at most one outward completion HTTP POST. It calls
     the direct one-dispatch transport rather than a provider SDK or the generic
     retry layer; internal model rotation and requested server-side fallback are
-    disabled. This is an outward-dispatch guarantee, not a claim about opaque
+    disabled. This is a generation-dispatch guarantee, not a claim about opaque
     physical execution inside a provider service. *)
 val execute_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -566,10 +705,33 @@ val execute_once
     OAS resolves credentials and prepares the request only for the current
     frozen candidate. A successful preparation receives one fresh attempt
     identity, then [before_dispatch] must durably bind that attempt before its
-    sole {!execute_once} call. A typed target-selection or request-admission
-    rejection receives a real [candidate_rejection_receipt] whose phase is
-    [Before_dispatch] and dispatch count is zero, but no plan, call ID, or
-    execution receipt.
+    sole {!execute_once} call. When provider-native measurement is required,
+    [before_measurement_dispatch] first receives an opaque operation receipt
+    and must durably journal it as a may-dispatch intent. Only after the callback
+    returns [Ok] can the count-token POST start. The receipt is already visible
+    in [flow_attempt_evidence.measurements] while the callback runs.
+
+    The callback receives a committed receipt whose dispatch fact is already
+    [Measurement_dispatch_unknown], never [No_measurement_dispatch]. A committed
+    receipt without a terminal outcome is dispatch-ambiguous and reports
+    [Measurement_dispatch_unknown]. OAS then establishes the connection and a
+    private one-shot capability atomically advances the receipt to
+    [Measurement_dispatch_started] immediately before the sole count-token POST;
+    no user callback runs between that transition and submission. Token
+    measurement is a read-only operation and may be replayed only after the
+    caller reconciles and records the prior unclosed intent. OAS neither retries
+    it automatically nor claims that an unclosed committed receipt did not
+    dispatch.
+
+    [on_measurement_terminal] receives the same opaque receipt after its terminal
+    measurement outcome is installed. OAS allocates no generation attempt,
+    dispatches no generation request, and advances to no successor until this
+    terminal record is durably accepted. Callback rejection returns a typed
+    terminal flow error.
+
+    A typed target-selection or request-admission rejection receives a real
+    [candidate_rejection_receipt] with explicit measurement evidence, but no
+    generation plan, generation call ID, or generation execution receipt.
 
     [before_advance] receives the settled typed failure and the predetermined
     next candidate visit. OAS may call it only for a candidate rejection or an
@@ -588,6 +750,9 @@ val execute_once
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
+  -> before_measurement_dispatch:
+       (flow_measurement_receipt -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:(flow_measurement_receipt -> (unit, 'callback_error) result)
   -> before_dispatch:(flow_attempt_receipt -> (unit, 'callback_error) result)
   -> before_advance:
        (failed:flow_candidate_failure

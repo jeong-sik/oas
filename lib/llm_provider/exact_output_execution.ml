@@ -144,10 +144,34 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
           ~body:(Exact_output_plan.request_body plan)
           ()
       in
+      (* Transport exceptions are handled upstream: post_sync_once's [fail_exn]
+         returns a typed [Unknown_provider_failure] instead of re-raising, which is
+         where that belongs because two unrelated call paths hit it. What remains here
+         is the observer: [with_observer] runs a caller-supplied [on_phase] callback,
+         and a raise from that callback is not a transport error and never reaches
+         [fail_exn]. This function returns a result, so that raise must not leave it
+         either. Reserved exceptions (cancellation) are re-raised first, the same
+         idiom as complete_common.ml:172 and five other edges.
+
+         Dispatch_started is a floor, not a claim: the public receipt is advanced
+         separately by the phase observer and Generation_receipt.advance only moves
+         forward, so an already-observed Response_received is not lowered by it. *)
       let post_result =
-        match on_phase with
-        | None -> post_once ()
-        | Some observe -> Http_client_phase_observer.with_observer observe post_once
+        try
+          match on_phase with
+          | None -> post_once ()
+          | Some observe -> Http_client_phase_observer.with_observer observe post_once
+        with
+        | exn ->
+          Reserved_exn.reraise_if_reserved exn;
+          Error
+            (Http_client.Dispatch_started_error
+               (Http_client.ProviderFailure
+                  { kind =
+                      Http_client.Unknown_provider_failure
+                        { reason = Some (Printexc.to_string exn) }
+                  ; message = "unclassified transport exception"
+                  }))
       in
       (match post_result with
        | Error transport_error ->

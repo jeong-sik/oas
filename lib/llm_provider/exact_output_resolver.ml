@@ -88,6 +88,7 @@ type target_declaration =
   { target_ref : target_ref
   ; provider_ref : string
   ; model_id : string
+  ; enable_thinking : bool option
   ; max_request_body_bytes : int option
   ; connect_timeout_s : float option
   ; body_timeout_s : float option
@@ -214,6 +215,7 @@ let parse_target_declaration ~source toml =
     [ "id"
     ; "provider_ref"
     ; "model_id"
+    ; "enable_thinking"
     ; "max_request_body_bytes"
     ; "connect_timeout_s"
     ; "body_timeout_s"
@@ -234,6 +236,10 @@ let parse_target_declaration ~source toml =
   in
   let* model_id =
     Binding.target_string_field ~target_label:id ~field:"model_id" toml
+    |> target_result source
+  in
+  let* enable_thinking =
+    Binding.target_bool_field ~target_label:id ~field:"enable_thinking" toml
     |> target_result source
   in
   let* max_request_body_bytes =
@@ -263,6 +269,7 @@ let parse_target_declaration ~source toml =
     { target_ref
     ; provider_ref
     ; model_id
+    ; enable_thinking
     ; max_request_body_bytes
     ; connect_timeout_s
     ; body_timeout_s
@@ -622,12 +629,13 @@ let canonical_catalog_evidence catalog model_entries target_declarations =
       ; target_ref_id target.target_ref
       ; target.provider_ref
       ; target.model_id
+      ; option_bool target.enable_thinking
       ; Binding.option_int target.max_request_body_bytes
       ; option_float target.connect_timeout_s
       ; option_float target.body_timeout_s
       ])
   in
-  ("oas-exact-output-catalog-evidence-v3" :: providers) @ models @ targets
+  ("oas-exact-output-catalog-evidence-v4" :: providers) @ models @ targets
 ;;
 
 let frozen_environment ~io names =
@@ -800,6 +808,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
              ~request_path:provider.request_path
              ?max_tokens:capabilities.max_output_tokens
              ?max_context:capabilities.max_context_tokens
+             ?enable_thinking:target.enable_thinking
              ?max_request_body_bytes:target.max_request_body_bytes
              ~supports_structured_output_override:capabilities.supports_structured_output
              ~model_capabilities_override:capabilities
@@ -812,7 +821,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
          in
          let identity_fingerprint =
            hash_parts
-             ([ "oas-exact-output-target-v3"
+             ([ "oas-exact-output-target-v4"
               ; target_ref_id target.target_ref
               ; provider.id
               ; PC.string_of_provider_kind provider.kind
@@ -820,6 +829,7 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
               ; base_url
               ; provider.request_path
               ; provider.api_key_env
+              ; option_bool target.enable_thinking
               ; Binding.option_int target.max_request_body_bytes
               ; option_float target.connect_timeout_s
               ; option_float target.body_timeout_s

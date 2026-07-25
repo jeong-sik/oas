@@ -1,8 +1,12 @@
 type t = { request : Llm_transport.completion_request }
 
+type measurement =
+  | Legacy_measurement of Count_tokens_sync.completion_request_measurement
+  | Exact_measurement of Exact_output_count_tokens.completion_request_measurement
+
 type measured =
   { prepared : t
-  ; measurement : Count_tokens_sync.completion_request_measurement
+  ; measurement : measurement
   }
 
 type context_fit =
@@ -66,7 +70,8 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
       ~sw
       ~net
       prepared.request
-    |> Result.map (fun measurement -> { prepared; measurement })
+    |> Result.map (fun measurement ->
+      { prepared; measurement = Legacy_measurement measurement })
   in
   match Complete_common.validate_all config with
   | Error (Http_client.AcceptRejected { reason }) ->
@@ -76,7 +81,9 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   | Ok () -> Provider_admission.with_admission ~config measured
 ;;
 
-let measurement measured = measured.measurement
+let attach_measurement prepared measurement =
+  { prepared; measurement = Exact_measurement measurement }
+;;
 
 (* Pure single source for the context-token limit. Uses only the caller-owned
    config and the exact model capability -- no network -- so a pre-knowable
@@ -108,9 +115,16 @@ let requires_token_measurement prepared = Option.is_some (serving_constraint pre
 
 let admit ~now_unix_s ~max_context_tokens measured =
   let request = measured.prepared.request in
-  let input_tokens = measured.measurement.input_count.input_tokens in
+  let input_count, output_token_receipt =
+    match measured.measurement with
+    | Legacy_measurement measurement ->
+      measurement.input_count, measurement.output_token_receipt
+    | Exact_measurement measurement ->
+      measurement.input_count, measurement.output_token_receipt
+  in
+  let input_tokens = input_count.input_tokens in
   let reserved_output_tokens =
-    Types.output_token_receipt_effective measured.measurement.output_token_receipt
+    Types.output_token_receipt_effective output_token_receipt
   in
   match reserved_output_tokens with
   | None ->

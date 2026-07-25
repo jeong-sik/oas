@@ -929,10 +929,19 @@ let test_agent_count_preflight_uses_completion_timeout () =
     result, !dispatched
   in
   match result, dispatched with
+  (* The phase this pins is Wall_clock, not Http_operation. What the test is about is
+     unchanged — the preflight is bounded by the completion timeout and no completion
+     dispatch happens — but the label for a body_timeout_s breach moved, and the
+     codebase's own definitions say the new one is the accurate label:
+     http_client.mli:64-65 documents Wall_clock as the "whole operation wall-clock
+     deadline", http_client.ml:895-897 documents Http_operation as the connect/headers
+     phase and contrasts it explicitly with the body phase, and the breach reports
+     "body_timeout_s total deadline exceeded". Http_operation for a body deadline was
+     the older, contradictory labelling. *)
   | ( Error
         (Agent_sdk.Error.Provider
            (Llm_provider.Error.Timeout
-              { timeout_phase = Some Llm_provider.Http_client.Http_operation; _ }))
+              { timeout_phase = Some Llm_provider.Http_client.Wall_clock; _ }))
     , false ) -> ()
   | Error error, _ -> fail (Agent_sdk.Error.to_string error)
   | Ok _, _ -> fail "stalled count preflight must time out before completion dispatch"

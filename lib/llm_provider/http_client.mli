@@ -431,7 +431,7 @@ val post_sync_once
   -> unit
   -> (raw_sync_response, post_sync_once_error) result
 
-(** Exact-output transport variant. It performs the same sole POST as
+(** Evidence-bearing transport variant. It performs the same sole POST as
     {!post_sync_once}, while also returning opaque canonical response-header
     evidence. The public wrapper calls this function once and discards that
     evidence; neither path retries. *)

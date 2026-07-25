@@ -37,8 +37,7 @@ val count_anthropic
     The caller supplies the immutable {!Llm_transport.completion_request} that
     reached its transport boundary, after Agent turn hooks, tool projection,
     and caller-owned message projection. The input count uses the provider's
-    native count endpoint. The output receipt comes from the opaque completion
-    request artifact built from the same config, messages, and tools.
+    native count endpoint. The output receipt is resolved from the same config.
 
     This is a lower-level transport-adapter primitive. Application callers
     must not reconstruct a completion request to call it: final Agent-level

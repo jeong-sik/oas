@@ -10,6 +10,8 @@
   tool_call_input
   output_token_wire_internal
   request_artifact_internal
+  exact_output_count_tokens
+  exact_output_measurement_transport
   prepared_completion_request
   http_client_phase_observer
   exact_output_catalog_binding
@@ -18,8 +20,11 @@
   exact_output_execution
   exact_output_gemini_schema
   exact_output_flow
+  exact_output_flow_admission
   exact_output_flow_contract
+  exact_output_generation_receipt
   exact_output_provider_trace
+  exact_output_ready_admission
   exact_output_plan)
  (libraries
   yojson

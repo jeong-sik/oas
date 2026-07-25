@@ -9,6 +9,8 @@ required_basenames=(
   exact_output_flow_contract.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
+  exact_output_flow_admission.ml
+  exact_output_ready_admission.ml
   exact_output_plan.ml
   complete_common.ml
   backend_anthropic.ml
@@ -569,6 +571,8 @@ scan_public_error_accessors() {
 exact_output_source=""
 exact_output_flow_source=""
 exact_output_flow_contract_source=""
+exact_output_flow_admission_source=""
+exact_output_ready_admission_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -583,6 +587,14 @@ for source_file in "${source_files[@]}"; do
       ;;
     exact_output_flow_contract.ml)
       exact_output_flow_contract_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_flow_admission.ml)
+      exact_output_flow_admission_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_ready_admission.ml)
+      exact_output_ready_admission_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;
@@ -820,9 +832,11 @@ scan_code \
   "$module_dir/model_catalog.mli"
 
 for private_module in \
+  exact_output_count_tokens \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
+  exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \
   exact_output_catalog_binding
@@ -833,6 +847,11 @@ do
     exit 1
   fi
 done
+
+scan_code \
+  "public CountTokens surface exposed exact-output measurement primitives" \
+  'exact_completion_(artifact|measurement_request)|freeze_exact_completion_artifact|count_exact_completion_request_with_evidence|exact_generation_artifact_serialization_count' \
+  "$module_dir/count_tokens_sync.mli"
 
 # The generic outer executor is private, affine, and policy-free. The facade is
 # the only place allowed to interpret exact receipt/cause types.
@@ -880,13 +899,26 @@ require_type_constructor_set \
   "$exact_output_interface" \
   input_capacity_disposition \
   Token_measurement_required \
+  Context_window_exceeded \
+  Token_capacity_rejected \
   Serialized_request_body_too_large
+require_type_constructor_set \
+  "outer exact flow lost the closed provider-neutral capacity rejection projection" \
+  "$exact_output_interface" \
+  token_capacity_rejection \
+  Capacity_evidence_not_yet_valid \
+  Capacity_evidence_expired \
+  Capacity_boundary_unknown \
+  Capacity_input_rejected
 require_type_field_set \
   "outer exact flow changed the closed token/byte capacity fields" \
   "$exact_output_interface" \
   input_capacity_disposition \
   accepted_through_tokens \
   rejected_from_tokens \
+  input_tokens \
+  reserved_output_tokens \
+  max_context_tokens \
   actual_bytes \
   limit_bytes
 require_type_block_pattern \
@@ -899,6 +931,11 @@ require_type_block_pattern \
   "$exact_output_interface" \
   input_capacity_disposition \
   'Token_measurement_required[[:space:]]+of[[:space:]]*\{[^}]*rejected_from_tokens[[:space:]]*:'
+require_type_block_pattern \
+  "context-window disposition lost its closed token fields" \
+  "$exact_output_interface" \
+  input_capacity_disposition \
+  'Context_window_exceeded[[:space:]]+of[[:space:]]*\{[^}]*input_tokens[[:space:]]*:[^}]*reserved_output_tokens[[:space:]]*:[^}]*max_context_tokens[[:space:]]*:'
 require_type_block_pattern \
   "serialized request disposition lost actual-byte evidence" \
   "$exact_output_interface" \
@@ -929,6 +966,16 @@ require_type_block_pattern \
   "$exact_output_interface" \
   input_capacity_disposition \
   'limit_bytes[[:space:]]*:[[:space:]]*int([^[:alnum:]_]|$)'
+require_named_function_pattern \
+  "exact CountTokens path rebuilt the generation request instead of freezing one artifact" \
+  'Backend_anthropic[.]build_request_artifact_with_thinking_control' \
+  "$(dirname "$exact_output_source")/exact_output_count_tokens.ml" \
+  'freeze_exact_completion_artifact'
+scan_named_functions \
+  "exact CountTokens artifact returned to legacy generation or count-token reconstruction" \
+  'build_request_artifact([^_]|$)|build_count_tokens_request|nonexact_anthropic_thinking_control|serialized_request_body' \
+  "$(dirname "$exact_output_source")/exact_output_count_tokens.ml" \
+  "freeze_exact_completion_artifact count_tokens_body_of_generation_artifact"
 require_opaque_type \
   "target-selection errors stopped being opaque" \
   "$exact_output_interface" \
@@ -1136,14 +1183,6 @@ scan_code \
   "$exact_output_source" \
   "$exact_output_flow_source" \
   "$exact_output_flow_contract_source"
-require_code_pattern \
-  "candidate rejection is no longer fixed at Before_dispatch" \
-  'let[[:space:]]+candidate_rejection_phase[[:space:]]+_[[:space:]]*=[[:space:]]*Before_dispatch' \
-  "$exact_output_source"
-require_code_pattern \
-  "candidate rejection is no longer fixed at zero dispatch" \
-  'let[[:space:]]+candidate_rejection_dispatch_count[[:space:]]+_[[:space:]]*=[[:space:]]*0' \
-  "$exact_output_source"
 require_code_sequence \
   "outer flow candidate no longer accepts a catalog-admitted target" \
   'val[[:space:]]+make_flow_candidate[[:space:]]*:[[:space:]]*id:string[[:space:]]*->[[:space:]]*admitted_target:admitted_target' \

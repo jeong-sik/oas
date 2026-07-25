@@ -70,10 +70,6 @@ val measure_request
   -> prepared_request
   -> (measured_request, Count_tokens_sync.completion_request_error) result
 
-val request_measurement
-  :  measured_request
-  -> Count_tokens_sync.completion_request_measurement
-
 (** Resolve the validated positive context-token limit from the explicit
     [max_context] config value, or the exact model capability when none was
     supplied. Pure: performs no measurement I/O. [Context_limit_unknown] when no

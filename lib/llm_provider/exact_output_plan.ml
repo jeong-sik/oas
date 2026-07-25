@@ -19,7 +19,6 @@ type output_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
-  | Token_measurement_required of Serving_constraint.t
   | Provider_request_rejected of Http_client.http_error
   | Request_body_too_large of
       { actual_bytes : int
@@ -63,18 +62,22 @@ type t =
   ; fingerprint : fingerprint
   }
 
-type admission =
-  | Measured of Prepared_completion_request.admitted
-  | Unmeasured of
-      { config : Provider_config.t
-      ; messages : Types.message list
-      ; body_timeout_s : float option
-      ; anthropic_thinking_control : Capabilities.anthropic_thinking_control option
-      }
+type preflight =
+  { prepared : Prepared_completion_request.t
+  ; exact_completion_artifact : Exact_output_count_tokens.exact_completion_artifact option
+  ; config : Provider_config.t
+  ; capabilities : Capabilities.capabilities
+  ; response_format : Types.response_format
+  ; wire : frozen_wire_request
+  }
 
 type admission_basis =
   | Measured_context_fit of Prepared_completion_request.context_fit
   | Token_measurement_not_required
+
+type finalization_error =
+  | Token_measurement_required of Serving_constraint.t
+  | Measured_request_mismatch
 
 let fingerprint_to_string (Fingerprint value) = value
 let sha256 value = Sha256.(to_hex (digest_string value))
@@ -163,7 +166,6 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
   || (match config.tool_choice with
       | None | Some Types.None_ -> false
       | Some _ -> true)
-  || Option.is_some config.enable_thinking
   || Option.is_some config.preserve_thinking
   || Option.is_some config.thinking_budget
   || Option.is_some config.reasoning_effort
@@ -320,14 +322,86 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
-let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
-  let request = Prepared_completion_request.request prepared in
-  let original_config = request.config in
+type frozen_serialization =
+  { response_codec : Provider_http_codec.t
+  ; body : string
+  ; exact_completion_artifact : Exact_output_count_tokens.exact_completion_artifact option
+  }
+
+let exact_artifact_error (config : Provider_config.t) = function
+  | Exact_output_count_tokens.Output_token_resolution_failed error ->
+    Provider_request_rejected
+      (Http_client.AcceptRejected
+         { reason = Backend_anthropic.required_output_token_error_message config error })
+  | Exact_output_count_tokens.Invalid_completion_request reason ->
+    Request_serialization_rejected (Http_client.AcceptRejected { reason })
+  | Exact_output_count_tokens.Input_count_failed _ ->
+    Request_serialization_rejected
+      (Http_client.AcceptRejected
+         { reason = "exact completion artifact rejected a supported measurement wire" })
+;;
+
+let freeze_serialization
+      ~anthropic_thinking_control
+      ~(config : Provider_config.t)
+      (request : Llm_transport.completion_request)
+  =
+  if Exact_output_count_tokens.supports_completion_request_measurement config
+  then (
+    match
+      Exact_output_count_tokens.freeze_exact_completion_artifact
+        ~anthropic_thinking_control
+        request
+    with
+    | Error error -> Error (exact_artifact_error config error)
+    | Ok exact_completion_artifact ->
+      let body =
+        Exact_output_count_tokens.exact_completion_generation_body
+          exact_completion_artifact
+      in
+      let actual_bytes = String.length body in
+      (match config.max_request_body_bytes with
+       | Some limit_bytes when actual_bytes > limit_bytes ->
+         Error (Request_body_too_large { actual_bytes; limit_bytes })
+       | None | Some _ ->
+         Ok
+           { response_codec = Provider_http_codec.of_config config
+           ; body
+           ; exact_completion_artifact = Some exact_completion_artifact
+           }))
+  else (
+    match
+      Complete_common.serialize_http_request_with_thinking_control
+        ~stream:false
+        ~anthropic_thinking_control
+        ~config
+        ~messages:request.messages
+        ~tools:request.tools
+    with
+    | Error
+        (Http_client.ProviderFailure
+           { kind = Http_client.Request_body_too_large { actual_bytes; limit_bytes }; _ })
+      -> Error (Request_body_too_large { actual_bytes; limit_bytes })
+    | Error error -> Error (Request_serialization_rejected error)
+    | Ok (response_codec, body) ->
+      Ok { response_codec; body; exact_completion_artifact = None })
+;;
+
+let preflight
+      ~config:(original_config : Provider_config.t)
+      ~messages
+      ~body_timeout_s
+      ~anthropic_thinking_control
+  =
   match original_config.model_capabilities_override with
   | None -> Error Explicit_capability_snapshot_required
   | Some capabilities ->
     let response_format = canonical_response_format original_config.response_format in
     let config = freeze_config_response_format original_config response_format in
+    let prepared =
+      Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
+    in
+    let request = Prepared_completion_request.request prepared in
     let auth_headers = Provider_config.auth_headers_for_config config in
     if not (response_format_state_is_consistent original_config response_format)
     then Error Contradictory_output_state
@@ -358,22 +432,9 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
             with
             | Error error -> Error (Provider_request_rejected error)
             | Ok () ->
-              (match
-                 Complete_common.serialize_http_request_with_thinking_control
-                   ~stream:false
-                   ~anthropic_thinking_control
-                   ~config
-                   ~messages:request.messages
-                   ~tools:request.tools
-               with
-               | Error
-                   (Http_client.ProviderFailure
-                      { kind =
-                          Http_client.Request_body_too_large { actual_bytes; limit_bytes }
-                      ; _
-                      }) -> Error (Request_body_too_large { actual_bytes; limit_bytes })
-               | Error error -> Error (Request_serialization_rejected error)
-               | Ok (response_codec, body) ->
+              (match freeze_serialization ~anthropic_thinking_control ~config request with
+               | Error error -> Error error
+               | Ok { response_codec; body; exact_completion_artifact } ->
                  let body_sha256 = sha256 body in
                  let headers =
                    auth_headers
@@ -393,44 +454,83 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
                    ; body_timeout_s = request.body_timeout_s
                    }
                  in
-                 let fingerprint =
-                   plan_fingerprint ~config ~capabilities ~wire ~admission_basis
-                 in
-                 Ok { response_format; wire; fingerprint }))))
+                 Ok
+                   { prepared
+                   ; exact_completion_artifact
+                   ; config
+                   ; capabilities
+                   ; response_format
+                   ; wire
+                   }))))
 ;;
 
-let admit = function
-  | Measured admitted ->
-    admit_prepared
-      ~admission_basis:
-        (Measured_context_fit (Prepared_completion_request.admitted_fit admitted))
-      ~anthropic_thinking_control:None
-      (Prepared_completion_request.admitted_request admitted)
-  | Unmeasured { config; messages; body_timeout_s; anthropic_thinking_control } ->
-    let prepared =
-      Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
-    in
-    (match Prepared_completion_request.serving_constraint prepared with
-     | Some constraint_ -> Error (Token_measurement_required constraint_)
-     | None ->
-       admit_prepared
-         ~admission_basis:Token_measurement_not_required
-         ~anthropic_thinking_control
-         prepared)
+let prepared_request (preflight : preflight) = preflight.prepared
+
+let measurement_request (preflight : preflight) =
+  match preflight.exact_completion_artifact with
+  | Some artifact ->
+    Ok (Exact_output_count_tokens.exact_completion_measurement_request artifact)
+  | None ->
+    Error
+      (Exact_output_count_tokens.Input_count_failed
+         (Input_token_count.Unsupported
+            { protocol = Input_token_count.Anthropic_messages_count_tokens
+            ; model_id = preflight.config.model_id
+            }))
 ;;
 
-let fingerprint plan = plan.fingerprint
-let response_format plan = plan.response_format
-let request_body_sha256 plan = plan.wire.body_sha256
-let request_url plan = plan.wire.url
-let request_headers plan = plan.wire.headers
-let request_body plan = plan.wire.body
-let response_codec plan = plan.wire.response_codec
-let provider_kind plan = plan.wire.provider_kind
-let connect_timeout_s plan = plan.wire.connect_timeout_s
-let body_timeout_s plan = plan.wire.body_timeout_s
+let serving_constraint (preflight : preflight) =
+  Prepared_completion_request.serving_constraint preflight.prepared
+;;
 
-let verify_frozen_request plan =
+let preflight_connect_timeout_s (preflight : preflight) = preflight.wire.connect_timeout_s
+let preflight_body_timeout_s (preflight : preflight) = preflight.wire.body_timeout_s
+let preflight_request_body_sha256 (preflight : preflight) = preflight.wire.body_sha256
+
+let resolve_context_limit (preflight : preflight) =
+  Prepared_completion_request.resolve_context_limit preflight.prepared
+;;
+
+let finalize preflight admission_basis =
+  let fingerprint =
+    plan_fingerprint
+      ~config:preflight.config
+      ~capabilities:preflight.capabilities
+      ~wire:preflight.wire
+      ~admission_basis
+  in
+  { response_format = preflight.response_format; wire = preflight.wire; fingerprint }
+;;
+
+let finalize_unmeasured preflight =
+  match serving_constraint preflight with
+  | Some constraint_ -> Error (Token_measurement_required constraint_)
+  | None -> Ok (finalize preflight Token_measurement_not_required)
+;;
+
+let finalize_measured preflight admitted =
+  let admitted_request = Prepared_completion_request.admitted_request admitted in
+  if admitted_request != preflight.prepared
+  then Error Measured_request_mismatch
+  else
+    Ok
+      (finalize
+         preflight
+         (Measured_context_fit (Prepared_completion_request.admitted_fit admitted)))
+;;
+
+let fingerprint (plan : t) = plan.fingerprint
+let response_format (plan : t) = plan.response_format
+let request_body_sha256 (plan : t) = plan.wire.body_sha256
+let request_url (plan : t) = plan.wire.url
+let request_headers (plan : t) = plan.wire.headers
+let request_body (plan : t) = plan.wire.body
+let response_codec (plan : t) = plan.wire.response_codec
+let provider_kind (plan : t) = plan.wire.provider_kind
+let connect_timeout_s (plan : t) = plan.wire.connect_timeout_s
+let body_timeout_s (plan : t) = plan.wire.body_timeout_s
+
+let verify_frozen_request (plan : t) =
   String.equal plan.wire.body_sha256 (sha256 plan.wire.body)
 ;;
 
@@ -454,21 +554,20 @@ let structured_text content =
   loop [] content
 ;;
 
+let normalize_json validation text =
+  try
+    let value = Yojson.Safe.from_string text in
+    Ok (Json_output { value; validation })
+  with
+  | Yojson.Json_error detail -> Error (Invalid_json detail)
+;;
+
 let normalize_text response_format text =
   match response_format with
   | Types.Off -> Ok (Text_output text)
-  | (Types.JsonMode | Types.JsonSchema _) as response_format ->
-    (try
-       let value = Yojson.Safe.from_string text in
-       let validation =
-         match response_format with
-         | Types.JsonMode -> Json_syntax_validated
-         | Types.JsonSchema _ -> Provider_schema_requested_client_validation_required
-         | Types.Off -> assert false
-       in
-       Ok (Json_output { value; validation })
-     with
-     | Yojson.Json_error detail -> Error (Invalid_json detail))
+  | Types.JsonMode -> normalize_json Json_syntax_validated text
+  | Types.JsonSchema _ ->
+    normalize_json Provider_schema_requested_client_validation_required text
 ;;
 
 let normalize_response response_format (response : Types.api_response) =
@@ -497,7 +596,7 @@ let normalize_response response_format (response : Types.api_response) =
   | Types.Unknown _ -> Error (Incomplete_structured_response response.stop_reason)
 ;;
 
-let normalize plan response = normalize_response plan.response_format response
+let normalize (plan : t) response = normalize_response plan.response_format response
 
 let%test "JsonMode records syntax-only validation provenance" =
   let response : Types.api_response =

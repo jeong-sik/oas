@@ -237,8 +237,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install ripgrep
-        run: sudo apt-get install -y ripgrep
+      - name: Install boundary tools
+        run: sudo apt-get install -y ocaml-nox ripgrep
+
+      - name: Enforce exact-output single surface
+        run: bash scripts/check-exact-output-single-surface.sh
 
       - name: Forbid legacy pipeline stage modules
         run: bash scripts/lint-legacy-pipeline-stages.sh

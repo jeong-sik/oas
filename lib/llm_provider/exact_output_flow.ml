@@ -5,19 +5,23 @@ type state =
 
 type t = state Atomic.t
 
-type ('admission, 'attempt) progress_snapshot =
+type ('admission, 'attempt, 'measurement) progress_snapshot =
   { candidate_visit_count : int
   ; admissions : 'admission list
   ; attempts : 'attempt list
+  ; measurements : 'measurement list
   }
 
-type ('admission, 'attempt) progress_state =
+type ('admission, 'attempt, 'measurement) progress_state =
   { candidate_visit_count : int
   ; admissions_rev : 'admission list
   ; attempts_rev : 'attempt list
+  ; measurements_rev : 'measurement list
   }
 
-type ('admission, 'attempt) progress = ('admission, 'attempt) progress_state Atomic.t
+type ('admission, 'attempt, 'measurement) progress =
+  ('admission, 'attempt, 'measurement) progress_state Atomic.t
+
 type preference_reservation = unit ref
 type success_ordinal = Success_ordinal of int64
 
@@ -81,7 +85,12 @@ type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_erro
 let create () = Atomic.make Not_started
 
 let create_progress () =
-  Atomic.make { candidate_visit_count = 0; admissions_rev = []; attempts_rev = [] }
+  Atomic.make
+    { candidate_visit_count = 0
+    ; admissions_rev = []
+    ; attempts_rev = []
+    ; measurements_rev = []
+    }
 ;;
 
 let create_preference_store ~capacity =
@@ -409,11 +418,34 @@ let record_attempt progress attempt =
   Atomic.set progress { current with attempts_rev = attempt :: current.attempts_rev }
 ;;
 
+let rec replace_or_prepend ~same value = function
+  | [] -> [ value ]
+  | head :: tail when same head value -> value :: tail
+  | head :: tail -> head :: replace_or_prepend ~same value tail
+;;
+
+let publish_attempt progress ~same attempt =
+  let current = Atomic.get progress in
+  Atomic.set
+    progress
+    { current with attempts_rev = replace_or_prepend ~same attempt current.attempts_rev }
+;;
+
+let publish_measurement progress ~same measurement =
+  let current = Atomic.get progress in
+  Atomic.set
+    progress
+    { current with
+      measurements_rev = replace_or_prepend ~same measurement current.measurements_rev
+    }
+;;
+
 let progress_snapshot progress =
   let current = Atomic.get progress in
   { candidate_visit_count = current.candidate_visit_count
   ; admissions = List.rev current.admissions_rev
   ; attempts = List.rev current.attempts_rev
+  ; measurements = List.rev current.measurements_rev
   }
 ;;
 

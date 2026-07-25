@@ -303,27 +303,27 @@ let test_tier_table_and_provider_schema_rejection () =
     bool
     "native preferred for syntax minimum"
     true
-    (native_json.actual_assurance = EO.Provider_schema_requested);
+    (EO.plan_provenance_actual_assurance native_json = EO.Provider_schema_requested);
   check
     bool
     "native satisfies provider schema"
     true
-    (native_schema.actual_assurance = EO.Provider_schema_requested);
+    (EO.plan_provenance_actual_assurance native_schema = EO.Provider_schema_requested);
   check
     bool
     "native has effective schema fingerprint"
     true
-    (Option.is_some native_schema.effective_schema_fingerprint);
+    (Option.is_some (EO.plan_provenance_effective_schema_fingerprint native_schema));
   check
     bool
     "json-only records syntax assurance"
     true
-    (json_only.actual_assurance = EO.Json_syntax_only);
+    (EO.plan_provenance_actual_assurance json_only = EO.Json_syntax_only);
   check
     bool
     "json-only has no effective schema"
     true
-    (Option.is_none json_only.effective_schema_fingerprint);
+    (Option.is_none (EO.plan_provenance_effective_schema_fingerprint json_only));
   (match
      EO.admit
        ~target:(target snapshot "json-only")
@@ -378,7 +378,8 @@ let test_deepseek_catalog_is_json_only_before_dispatch () =
          bool
          "DeepSeek JSON mode remains syntax-only"
          true
-         ((EO.plan_provenance ready).actual_assurance = EO.Json_syntax_only)
+         (EO.plan_provenance_actual_assurance (EO.plan_provenance ready)
+          = EO.Json_syntax_only)
      | Error _ -> fail "DeepSeek JSON syntax requirement should admit");
     (match
        EO.admit
@@ -720,7 +721,7 @@ let test_no_measure_one_post_and_wire_authority () =
          "caller strict remains nested domain data"
          false
          Yojson.Safe.Util.(nested |> member "strict" |> to_bool);
-       match provenance.EO.effective_schema_fingerprint with
+       match EO.plan_provenance_effective_schema_fingerprint provenance with
        | Some effective ->
          check
            bool
@@ -728,7 +729,8 @@ let test_no_measure_one_post_and_wire_authority () =
            true
            (not
               (String.equal
-                 (EO.schema_fingerprint_to_string provenance.source_schema_fingerprint)
+                 (EO.plan_provenance_source_schema_fingerprint provenance
+                  |> EO.schema_fingerprint_to_string)
                  (EO.schema_fingerprint_to_string effective)))
        | None -> fail "OpenAI native schema must expose its wire fingerprint");
   run
@@ -1421,17 +1423,17 @@ let check_receipt_provenance label (provenance : EO.plan_provenance) receipt =
   check
     string
     (label ^ " target identity")
-    (EO.target_identity_fingerprint provenance.target_identity)
+    (EO.plan_provenance_target_identity provenance |> EO.target_identity_fingerprint)
     (EO.receipt_target_identity receipt |> EO.target_identity_fingerprint);
   check
     string
     (label ^ " catalog generation")
-    (EO.catalog_generation_fingerprint provenance.catalog_generation)
+    (EO.plan_provenance_catalog_generation provenance |> EO.catalog_generation_fingerprint)
     (EO.receipt_catalog_generation receipt |> EO.catalog_generation_fingerprint);
   check
     string
     (label ^ " catalog evidence")
-    (EO.catalog_evidence_sha256 provenance.catalog_evidence)
+    (EO.plan_provenance_catalog_evidence provenance |> EO.catalog_evidence_sha256)
     (EO.receipt_catalog_evidence receipt |> EO.catalog_evidence_sha256)
 ;;
 
@@ -1646,8 +1648,10 @@ let test_identity_survives_success_error_and_cancellation () =
      check
        string
        "success result provenance identity"
-       (EO.target_identity_fingerprint success_provenance.target_identity)
-       (EO.target_identity_fingerprint success.provenance.target_identity)
+       (EO.plan_provenance_target_identity success_provenance
+        |> EO.target_identity_fingerprint)
+       (EO.plan_provenance_target_identity success.provenance
+        |> EO.target_identity_fingerprint)
    | Error _ -> fail "identity success fixture should succeed");
   let error_provenance, error = run ~status:`Too_many_requests "rate limited" in
   (match error with

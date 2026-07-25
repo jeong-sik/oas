@@ -50,7 +50,10 @@ val measure
   -> t
   -> (measured, Count_tokens_sync.completion_request_error) result
 
-val measurement : measured -> Count_tokens_sync.completion_request_measurement
+val attach_measurement
+  :  t
+  -> Exact_output_count_tokens.completion_request_measurement
+  -> measured
 
 (** Resolve the validated positive context-token limit from the explicit
     [max_context] config value, or the exact model capability when none was

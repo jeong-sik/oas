@@ -822,25 +822,14 @@ let network_error_kind_is_non_retryable = function
 
 let classify_eio_backend_error = function
   | Eio_unix.Unix_error (code, _, _) -> Some (classify_unix_error code)
-  | _ ->
-    (* Keep control flow on public typed backend constructors only. tls-eio's
-       socket-closed backend is private in its .ml, so OAS cannot match it
-       soundly; the surrounding [Connection_reset] fallback classifies that
-       path as [End_of_file]. *)
-    None
-;;
-
-let classify_eio_net_error = function
-  | Eio.Net.Connection_reset backend ->
-    Option.value (classify_eio_backend_error backend) ~default:End_of_file
-  | Eio.Net.Connection_failure (Eio.Net.Refused backend) ->
-    Option.value (classify_eio_backend_error backend) ~default:Connection_refused
-  | Eio.Net.Connection_failure Eio.Net.Timeout -> Timeout
-  | _ -> Unknown
+  | _ -> None
 ;;
 
 let rec classify_eio_error = function
-  | Eio.Net.E net_error -> classify_eio_net_error net_error
+  | Eio.Net.E _ ->
+    (* Eio 1.3 exposes the typed network envelope but not the finer constructors
+       introduced later. Preserve typed control flow without guessing from text. *)
+    Unknown
   | Eio.Exn.X backend ->
     Option.value (classify_eio_backend_error backend) ~default:Unknown
   | Eio.Exn.Multiple_io errors ->
@@ -888,8 +877,7 @@ let classify_network_exn (e : exn) =
   | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
   | (Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _) as exn ->
     Some (NetworkError { message = Printexc.to_string exn; kind = Tls_error })
-  | Sys_error msg -> Some (NetworkError { message = msg; kind = Unknown })
-  | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
+  | Sys_error _ | Failure _ -> None
   | _ -> None
 ;;
 
@@ -1767,6 +1755,221 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
         Ok (code, body_str))))
 ;;
 
+let post_sync_once_after_validation
+      ?cache
+      ~connect_deadline
+      ~body_deadline
+      ~net
+      ~uri
+      ~header
+      ~body
+      ()
+  =
+  Eio.Switch.run
+  @@ fun sw ->
+  let request_sw =
+    match cache with
+    | Some cache -> cache.sw
+    | None -> sw
+  in
+  let phase = ref Before_dispatch in
+  let status = ref None in
+  let connection = ref None in
+  let close_connection conn =
+    try Eio.Cancel.protect (fun () -> Eio.Resource.close conn) with
+    | Eio.Cancel.Cancelled _ as exn -> raise exn
+    | exn ->
+      Diag.warn "http_client" "post_sync_once cleanup failed: %s" (Printexc.to_string exn)
+  in
+  let fail error =
+    match !phase, !status with
+    | Before_dispatch, None -> Error (Before_dispatch_error error)
+    | Dispatch_started, None -> Error (Dispatch_started_error error)
+    | Response_received, Some status -> Error (Response_received_error { status; error })
+    | Before_dispatch, Some _ | Dispatch_started, Some _ | Response_received, None ->
+      invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
+  in
+  let release_connection () =
+    match !connection with
+    | None -> ()
+    | Some conn ->
+      connection := None;
+      close_connection conn
+  in
+  (* An unclassified exception is still a transport failure, and this function
+     returns a result. Re-raising it made the return type a half-truth: cohttp-eio
+     signals a peer close with [failwith "connection closed by peer"]
+     (cohttp-eio/client.ml:60), classify_network_exn rightly answers [None] for prose
+     rather than inventing a network kind, and the exception then escaped every
+     caller. Two suites caught it — exact-output single-surface's receipt phase
+     matrix and one-dispatch framing's stale-cache case — through different call
+     paths, which is the signal that the fix belongs at this single choke point
+     rather than at each boundary.
+
+     Reserved exceptions (cancellation) are re-raised first, unchanged.
+     [Unknown_provider_failure] states that the failure was not classified instead
+     of guessing a kind; the message is diagnostics only, per the note on
+     [provider_failure_to_string] telling consumers to branch on the kind and never
+     parse the string. *)
+  let fail_exn exn =
+    match classify_network_exn exn with
+    | Some error -> Error error
+    | None ->
+      release_connection ();
+      Reserved_exn.reraise_if_reserved exn;
+      Error
+        (ProviderFailure
+           { kind = Unknown_provider_failure { reason = Some (Printexc.to_string exn) }
+           ; message = "unclassified transport exception"
+           })
+  in
+  let total_started_at =
+    match body_deadline with
+    | Unbounded -> None
+    | Bounded (clock, _) -> Some (clock, Eio.Time.now clock)
+  in
+  let total_deadline_error timeout_s =
+    TimeoutError
+      { message =
+          Printf.sprintf
+            "post_sync_once body_timeout_s total deadline exceeded after %.17g seconds"
+            timeout_s
+      ; phase = Wall_clock
+      }
+  in
+  let headers_deadline =
+    match connect_deadline, body_deadline with
+    | Unbounded, Unbounded -> None
+    | Bounded (clock, timeout_s), Unbounded -> Some (clock, timeout_s, `Connect)
+    | Unbounded, Bounded (clock, timeout_s) -> Some (clock, timeout_s, `Total)
+    | Bounded (connect_clock, connect_timeout_s), Bounded (body_clock, body_timeout_s) ->
+      if connect_timeout_s <= body_timeout_s
+      then Some (connect_clock, connect_timeout_s, `Connect)
+      else Some (body_clock, body_timeout_s, `Total)
+  in
+  let with_headers_deadline f =
+    match headers_deadline with
+    | None -> f ()
+    | Some (clock, timeout_s, owner) ->
+      (match Eio.Time.with_timeout clock timeout_s (fun () -> Ok (f ())) with
+       | Ok result -> result
+       | Error `Timeout ->
+         Error
+           (match owner with
+            | `Connect ->
+              TimeoutError
+                { message =
+                    Printf.sprintf
+                      "post_sync_once connect_timeout_s exceeded after %.17g seconds"
+                      timeout_s
+                ; phase = Http_operation
+                }
+            | `Total -> total_deadline_error timeout_s))
+  in
+  let post_result =
+    try
+      with_headers_deadline (fun () ->
+        let* conn =
+          match cache with
+          | None -> make_connection ~sw:request_sw ~net ~uri
+          | Some cache ->
+            (match cache_take cache uri with
+             | Some entry -> Ok entry.connection
+             | None ->
+               let+ conn = make_connection ~sw:cache.sw ~net ~uri in
+               Atomic.incr cache.create_count_total;
+               conn)
+        in
+        connection := Some conn;
+        let client =
+          Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
+        in
+        phase := Dispatch_started;
+        Http_client_phase_observer.observe Http_client_phase_observer.Dispatch_started;
+        let response, response_body =
+          Cohttp_eio.Client.post
+            ~sw:request_sw
+            client
+            ~headers:header
+            ~body:(Cohttp_eio.Body.of_string body)
+            uri
+        in
+        let response_status =
+          Cohttp.Response.status response |> Cohttp.Code.code_of_status
+        in
+        let response_header_evidence, retry_after_header =
+          Cohttp.Response.headers response |> capture_response_header_evidence
+        in
+        phase := Response_received;
+        status := Some response_status;
+        Http_client_phase_observer.observe
+          (Http_client_phase_observer.Response_received response_status);
+        Ok (conn, response, response_body, response_header_evidence, retry_after_header))
+    with
+    | Eio.Time.Timeout as exn ->
+      release_connection ();
+      raise exn
+    | exn -> fail_exn exn
+  in
+  match post_result with
+  | Error error ->
+    release_connection ();
+    fail error
+  | Ok (conn, response, response_body, response_header_evidence, retry_after_header) ->
+    let body_result =
+      try
+        match body_deadline, total_started_at with
+        | Unbounded, None -> read_response_body response_body
+        | Bounded (clock, timeout_s), Some (_, started_at) ->
+          let elapsed = Eio.Time.now clock -. started_at in
+          let remaining = timeout_s -. elapsed in
+          if remaining <= 0.0
+          then Error (total_deadline_error timeout_s)
+          else (
+            match
+              Eio.Time.with_timeout clock remaining (fun () ->
+                Ok (read_response_body response_body))
+            with
+            | Ok result -> result
+            | Error `Timeout -> Error (total_deadline_error timeout_s))
+        | Unbounded, Some _ | Bounded _, None ->
+          invalid_arg "Http_client.post_sync_once: inconsistent total deadline state"
+      with
+      | Eio.Time.Timeout as exn ->
+        release_connection ();
+        raise exn
+      | exn -> fail_exn exn
+    in
+    (match body_result with
+     | Error error ->
+       release_connection ();
+       fail error
+     | Ok response_body ->
+       let release_result =
+         match
+           cache, sync_response_connection_is_reusable ~request_headers:header response
+         with
+         | Some cache, true ->
+           (try
+              cache_return cache uri { connection = conn; last_used_at = 0.0 };
+              connection := None;
+              Ok ()
+            with
+            | exn -> fail_exn exn)
+         | Some _, false | None, _ ->
+           release_connection ();
+           Ok ()
+       in
+       (match release_result with
+        | Error error ->
+          release_connection ();
+          fail error
+        | Ok () ->
+          Ok
+            ( { status = Option.get !status; body = response_body; retry_after_header }
+            , response_header_evidence )))
+;;
+
 let post_sync_once_with_evidence
       ?cache
       ?clock
@@ -1800,221 +2003,22 @@ let post_sync_once_with_evidence
        (match parse_uri url with
         | Error error -> before_dispatch error
         | Ok uri ->
-          Eio.Switch.run
-          @@ fun sw ->
-          let request_sw =
-            match cache with
-            | Some cache -> cache.sw
-            | None -> sw
+          let header =
+            try Ok (Http.Header.of_list headers) with
+            | Invalid_argument reason -> Error (AcceptRejected { reason })
           in
-          let phase = ref Before_dispatch in
-          let status = ref None in
-          let connection = ref None in
-          let close_connection conn =
-            try Eio.Cancel.protect (fun () -> Eio.Resource.close conn) with
-            | Eio.Cancel.Cancelled _ as exn -> raise exn
-            | exn ->
-              Diag.warn
-                "http_client"
-                "post_sync_once cleanup failed: %s"
-                (Printexc.to_string exn)
-          in
-          let fail error =
-            match !phase, !status with
-            | Before_dispatch, None -> Error (Before_dispatch_error error)
-            | Dispatch_started, None -> Error (Dispatch_started_error error)
-            | Response_received, Some status ->
-              Error (Response_received_error { status; error })
-            | Before_dispatch, Some _ | Dispatch_started, Some _ | Response_received, None
-              -> invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
-          in
-          let release_connection () =
-            match !connection with
-            | None -> ()
-            | Some conn ->
-              connection := None;
-              close_connection conn
-          in
-          let fail_exn exn =
-            match classify_network_exn exn with
-            | Some error -> Error error
-            | None ->
-              (try
-                 Reserved_exn.reraise_if_reserved exn;
-                 Error (NetworkError { message = Printexc.to_string exn; kind = Unknown })
-               with
-               | reserved_exn ->
-                 release_connection ();
-                 raise reserved_exn)
-          in
-          let total_started_at =
-            match body_deadline with
-            | Unbounded -> None
-            | Bounded (clock, _) -> Some (clock, Eio.Time.now clock)
-          in
-          let total_deadline_error timeout_s =
-            TimeoutError
-              { message =
-                  Printf.sprintf
-                    "post_sync_once body_timeout_s total deadline exceeded after %.17g \
-                     seconds"
-                    timeout_s
-              ; phase = Wall_clock
-              }
-          in
-          let headers_deadline =
-            match connect_deadline, body_deadline with
-            | Unbounded, Unbounded -> None
-            | Bounded (clock, timeout_s), Unbounded -> Some (clock, timeout_s, `Connect)
-            | Unbounded, Bounded (clock, timeout_s) -> Some (clock, timeout_s, `Total)
-            | ( Bounded (connect_clock, connect_timeout_s)
-              , Bounded (body_clock, body_timeout_s) ) ->
-              if connect_timeout_s <= body_timeout_s
-              then Some (connect_clock, connect_timeout_s, `Connect)
-              else Some (body_clock, body_timeout_s, `Total)
-          in
-          let with_headers_deadline f =
-            match headers_deadline with
-            | None -> f ()
-            | Some (clock, timeout_s, owner) ->
-              (match Eio.Time.with_timeout clock timeout_s (fun () -> Ok (f ())) with
-               | Ok result -> result
-               | Error `Timeout ->
-                 Error
-                   (match owner with
-                    | `Connect ->
-                      TimeoutError
-                        { message =
-                            Printf.sprintf
-                              "post_sync_once connect_timeout_s exceeded after %.17g \
-                               seconds"
-                              timeout_s
-                        ; phase = Http_operation
-                        }
-                    | `Total -> total_deadline_error timeout_s))
-          in
-          let post_result =
-            try
-              with_headers_deadline (fun () ->
-                let* conn =
-                  match cache with
-                  | None -> make_connection ~sw:request_sw ~net ~uri
-                  | Some cache ->
-                    (match cache_take cache uri with
-                     | Some entry -> Ok entry.connection
-                     | None ->
-                       let+ conn = make_connection ~sw:cache.sw ~net ~uri in
-                       Atomic.incr cache.create_count_total;
-                       conn)
-                in
-                connection := Some conn;
-                let client =
-                  Cohttp_eio.Client.make_generic (fun ~sw:_ _uri ->
-                    (conn :> _ Eio.Flow.two_way))
-                in
-                let header = Http.Header.of_list headers in
-                phase := Dispatch_started;
-                Http_client_phase_observer.observe
-                  Http_client_phase_observer.Dispatch_started;
-                let response, response_body =
-                  Cohttp_eio.Client.post
-                    ~sw:request_sw
-                    client
-                    ~headers:header
-                    ~body:(Cohttp_eio.Body.of_string body)
-                    uri
-                in
-                let response_status =
-                  Cohttp.Response.status response |> Cohttp.Code.code_of_status
-                in
-                let response_header_evidence, retry_after_header =
-                  Cohttp.Response.headers response |> capture_response_header_evidence
-                in
-                phase := Response_received;
-                status := Some response_status;
-                Http_client_phase_observer.observe
-                  (Http_client_phase_observer.Response_received response_status);
-                Ok
-                  ( conn
-                  , response
-                  , response_body
-                  , response_header_evidence
-                  , retry_after_header ))
-            with
-            | Eio.Time.Timeout as exn ->
-              release_connection ();
-              raise exn
-            | exn -> fail_exn exn
-          in
-          (match post_result with
-           | Error error ->
-             release_connection ();
-             fail error
-           | Ok
-               ( conn
-               , response
-               , response_body
-               , response_header_evidence
-               , retry_after_header ) ->
-             let body_result =
-               try
-                 match body_deadline, total_started_at with
-                 | Unbounded, None -> read_response_body response_body
-                 | Bounded (clock, timeout_s), Some (_, started_at) ->
-                   let elapsed = Eio.Time.now clock -. started_at in
-                   let remaining = timeout_s -. elapsed in
-                   if remaining <= 0.0
-                   then Error (total_deadline_error timeout_s)
-                   else (
-                     match
-                       Eio.Time.with_timeout clock remaining (fun () ->
-                         Ok (read_response_body response_body))
-                     with
-                     | Ok result -> result
-                     | Error `Timeout -> Error (total_deadline_error timeout_s))
-                 | Unbounded, Some _ | Bounded _, None ->
-                   invalid_arg
-                     "Http_client.post_sync_once: inconsistent total deadline state"
-               with
-               | Eio.Time.Timeout as exn ->
-                 release_connection ();
-                 raise exn
-               | exn -> fail_exn exn
-             in
-             (match body_result with
-              | Error error ->
-                release_connection ();
-                fail error
-              | Ok response_body ->
-                let release_result =
-                  match
-                    ( cache
-                    , sync_response_connection_is_reusable
-                        ~request_headers:(Http.Header.of_list headers)
-                        response )
-                  with
-                  | Some cache, true ->
-                    (try
-                       cache_return cache uri { connection = conn; last_used_at = 0.0 };
-                       connection := None;
-                       Ok ()
-                     with
-                     | exn -> fail_exn exn)
-                  | Some _, false | None, _ ->
-                    release_connection ();
-                    Ok ()
-                in
-                (match release_result with
-                 | Error error ->
-                   release_connection ();
-                   fail error
-                 | Ok () ->
-                   Ok
-                     ( { status = Option.get !status
-                       ; body = response_body
-                       ; retry_after_header
-                       }
-                     , response_header_evidence ))))))
+          (match header with
+           | Error error -> before_dispatch error
+           | Ok header ->
+             post_sync_once_after_validation
+               ?cache
+               ~connect_deadline
+               ~body_deadline
+               ~net
+               ~uri
+               ~header
+               ~body
+               ())))
 ;;
 
 let post_sync_once
@@ -2594,43 +2598,31 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network maps text-only Sys_error to unknown NetworkError" =
-  match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message = "broken pipe"; kind = Unknown }) -> true
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+let%test "catch_network re-raises text-only Sys_error" =
+  let expected = Sys_error "broken pipe" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
-let%test "catch_network keeps text-only Sys_error resource exhaustion unknown" =
-  match catch_network (fun () -> raise (Sys_error "Too many open files")) with
-  | Error (NetworkError { kind = Unknown; _ }) -> true
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+let%test "catch_network re-raises text-only resource exhaustion" =
+  let expected = Sys_error "Too many open files" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
-let%test "catch_network keeps text-only Failure resource exhaustion unknown" =
-  match catch_network (fun () -> raise (Failure "EMFILE")) with
-  | Error (NetworkError { kind = Unknown; _ }) -> true
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+let%test "catch_network re-raises text-only Failure resource exhaustion" =
+  let expected = Failure "EMFILE" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
 let%test "catch_network classifies Unix ECONNREFUSED" =
@@ -2779,10 +2771,7 @@ let eio_exn err = Eio.Exn.create err
 let%test "classify_network_exn: typed Eio refused" =
   match
     classify_network_exn
-      (eio_exn
-         (Eio.Net.E
-            (Eio.Net.Connection_failure
-               (Eio.Net.Refused (Eio_unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))))))
+      (eio_exn (Eio.Exn.X (Eio_unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))))
   with
   | Some (NetworkError { kind = Connection_refused; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
@@ -2793,7 +2782,7 @@ let%test "classify_network_exn: typed Eio refused" =
 let%test "classify_network_exn: typed Eio timeout" =
   match
     classify_network_exn
-      (eio_exn (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)))
+      (eio_exn (Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))))
   with
   | Some (NetworkError { kind = Timeout; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
@@ -2812,18 +2801,12 @@ let%test "classify_network_exn: typed Eio Unix backend resource exhaustion" =
   | None -> false
 ;;
 
-let%test "classify_network_exn: text-only Sys_error is Unknown" =
-  match classify_network_exn (Sys_error "Connection refused") with
-  | Some (NetworkError { kind = Unknown; _ }) -> true
-  | _ -> false
+let%test "classify_network_exn: text-only Sys_error is not transport evidence" =
+  classify_network_exn (Sys_error "Connection refused") = None
 ;;
 
-let%test "classify_network_exn: message-only Failure stays Unknown" =
-  match classify_network_exn (Failure "Connection refused") with
-  | Some (NetworkError { kind = Unknown; _ }) -> true
-  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
-  | Some (ProviderTerminal _ | ProviderFailure _)
-  | None -> false
+let%test "classify_network_exn: message-only Failure is not transport evidence" =
+  classify_network_exn (Failure "Connection refused") = None
 ;;
 
 let%test "https_init_error_network_kind: empty trust anchors are TLS" =
@@ -2853,7 +2836,7 @@ let%test "classify_network_exn: plain Tls_failure is Tls_error" =
   | None -> false
 ;;
 
-let%test "classify_network_exn: backend printer text does not classify" =
+let%test "classify_network_exn: unknown backend printer text does not classify" =
   let module Test_backend = struct
     type Eio.Exn.Backend.t += Tls_socket_closed_test
 
@@ -2867,10 +2850,9 @@ let%test "classify_network_exn: backend printer text does not classify" =
   end
   in
   match
-    classify_network_exn
-      (eio_exn (Eio.Net.E (Eio.Net.Connection_reset Test_backend.Tls_socket_closed_test)))
+    classify_network_exn (eio_exn (Eio.Exn.X Test_backend.Tls_socket_closed_test))
   with
-  | Some (NetworkError { kind = End_of_file; _ }) -> true
+  | Some (NetworkError { kind = Unknown; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
   | Some (ProviderTerminal _ | ProviderFailure _)
   | None -> false
@@ -2892,7 +2874,7 @@ let%test "classify_network_exn: Multiple_io prefers non-retryable kind" =
   match
     classify_network_exn
       (multiple_io_exn
-         [ Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         [ Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))
          ; Eio.Exn.X (Eio_unix.Unix_error (Unix.EMFILE, "socket", ""))
          ])
   with
@@ -2907,7 +2889,7 @@ let%test "classify_network_exn: Multiple_io falls back to first known kind" =
     classify_network_exn
       (multiple_io_exn
          [ Eio.Exn.X (Eio_unix.Unix_error (Unix.EPIPE, "write", ""))
-         ; Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         ; Eio.Exn.X (Eio_unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))
          ])
   with
   | Some (NetworkError { kind = End_of_file; _ }) -> true

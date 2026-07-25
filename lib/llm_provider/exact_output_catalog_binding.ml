@@ -115,6 +115,14 @@ let target_float_field ~target_label ~field toml =
     Error (Printf.sprintf "target %s has non-float %s" target_label field)
 ;;
 
+let target_bool_field ~target_label ~field toml =
+  match Otoml.find_opt toml Otoml.get_boolean [ field ] with
+  | None -> Ok None
+  | Some value -> Ok (Some value)
+  | exception Otoml.Type_error _ ->
+    Error (Printf.sprintf "target %s has non-boolean %s" target_label field)
+;;
+
 let target_positive_int_field ~target_label ~field toml =
   match Otoml.find_opt toml Otoml.get_integer [ field ] with
   | None -> Ok None
