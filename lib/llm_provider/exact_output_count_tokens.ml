@@ -161,31 +161,31 @@ let measure_exact_completion_request
   | Error (Exact_output_measurement_transport.Commit_failed cause) ->
     Error (Before_dispatch_failed cause)
   | Error (Exact_output_measurement_transport.Transport_failed transport_error) ->
-       let stage, error = transport_error_stage transport_error in
-       Error
-         (Completion_request_failed
-            (Input_count_failed (Input_token_count.Transport error), stage))
+    let stage, error = transport_error_stage transport_error in
+    Error
+      (Completion_request_failed
+         (Input_count_failed (Input_token_count.Transport error), stage))
   | Ok response ->
-       let response_body =
-         if response.status >= 200 && response.status < 300
-         then Ok response.body
-         else
-           Error
-             (Http_client.HttpError
-                { code = response.status
-                ; body = response.body
-                ; retry_after_header = response.retry_after_header
-                })
-       in
-       Input_token_count.decode_transport_result
-         ~protocol:request.protocol
-         ~model_id:request.model_id
-         response_body
-       |> Result.map_error (fun error ->
-         Completion_request_failed
-           (Input_count_failed error, Measurement_response_received response.status))
-       |> Result.map (fun input_count ->
-         { input_count; output_token_receipt = request.output_token_receipt }))
+    let response_body =
+      if response.status >= 200 && response.status < 300
+      then Ok response.body
+      else
+        Error
+          (Http_client.HttpError
+             { code = response.status
+             ; body = response.body
+             ; retry_after_header = response.retry_after_header
+             })
+    in
+    Input_token_count.decode_transport_result
+      ~protocol:request.protocol
+      ~model_id:request.model_id
+      response_body
+    |> Result.map_error (fun error ->
+      Completion_request_failed
+        (Input_count_failed error, Measurement_response_received response.status))
+    |> Result.map (fun input_count ->
+      { input_count; output_token_receipt = request.output_token_receipt })
 ;;
 
 module For_testing = struct

@@ -17,13 +17,8 @@ type measurement_transport_stage =
   | Measurement_dispatch_started
   | Measurement_response_received of int
 
-type 'callback_error count_dispatch_error =
+type count_dispatch_error =
   | Count_failed of Input_token_count.error * measurement_transport_stage
-  | Count_before_dispatch_failed of 'callback_error
-
-type no_callback_error = |
-
-let no_before_dispatch () : (unit, no_callback_error) result = Ok ()
 
 let transport_error_stage = function
   | Http_client.Before_dispatch_error error -> Measurement_before_dispatch, error
@@ -32,7 +27,7 @@ let transport_error_stage = function
     Measurement_response_received status, error
 ;;
 
-let count_anthropic_with_before_dispatch
+let count_anthropic_staged
       ?connection_cache
       ?clock
       ?timeout_s
@@ -41,7 +36,6 @@ let count_anthropic_with_before_dispatch
       ~(config : Provider_config.t)
       ~messages
       ?(tools = [])
-      ~before_dispatch
       ()
   =
   let protocol = Input_token_count.Anthropic_messages_count_tokens in
@@ -59,22 +53,11 @@ let count_anthropic_with_before_dispatch
         Error
           (Count_failed (Input_token_count.Transport error, Measurement_before_dispatch))
       | Ok body ->
-        let callback_failure = ref None in
-        let before_http_dispatch () =
-          match before_dispatch () with
-          | Ok () -> Ok ()
-          | Error cause ->
-            callback_failure := Some cause;
-            Error
-              (Http_client.AcceptRejected
-                 { reason = "count-token durable dispatch fence rejected" })
-        in
         let transport =
           Http_client.post_sync_once_with_evidence
             ?cache:connection_cache
             ?clock
             ?body_timeout_s:timeout_s
-            ~before_dispatch:before_http_dispatch
             ~net
             ~url:(count_tokens_url config)
             ~headers:
@@ -86,12 +69,11 @@ let count_anthropic_with_before_dispatch
             ~body
             ()
         in
-        (match !callback_failure, transport with
-         | Some cause, _ -> Error (Count_before_dispatch_failed cause)
-         | None, Error transport_error ->
+        (match transport with
+         | Error transport_error ->
            let stage, error = transport_error_stage transport_error in
            Error (Count_failed (Input_token_count.Transport error, stage))
-         | None, Ok (response, _) ->
+         | Ok (response, _) ->
            let response_body =
              if response.status >= 200 && response.status < 300
              then Ok response.body
@@ -134,7 +116,7 @@ let count_anthropic
       ()
   =
   match
-    count_anthropic_with_before_dispatch
+    count_anthropic_staged
       ?connection_cache
       ?clock
       ?timeout_s
@@ -143,12 +125,10 @@ let count_anthropic
       ~config
       ~messages
       ?tools
-      ~before_dispatch:no_before_dispatch
       ()
   with
   | Ok count -> Ok count
   | Error (Count_failed (error, _)) -> Error error
-  | Error (Count_before_dispatch_failed _) -> .
 ;;
 
 type completion_request_measurement =
@@ -161,9 +141,8 @@ type completion_request_error =
   | Output_token_resolution_failed of Types.required_output_token_error
   | Invalid_completion_request of string
 
-type 'callback_error completion_request_dispatch_error =
+type completion_request_dispatch_error =
   | Completion_request_failed of completion_request_error * measurement_transport_stage
-  | Before_dispatch_failed of 'callback_error
 
 let supports_completion_request_measurement (config : Provider_config.t) =
   match config.kind with
@@ -175,13 +154,12 @@ let supports_completion_request_measurement (config : Provider_config.t) =
   | Provider_config.DashScope -> false
 ;;
 
-let measure_completion_request_with_before_dispatch
+let measure_completion_request_staged
       ?connection_cache
       ?clock
       ?timeout_s
       ~sw
       ~net
-      ~before_dispatch
       (request : Llm_transport.completion_request)
   =
   let config = request.config in
@@ -197,7 +175,7 @@ let measure_completion_request_with_before_dispatch
     | Error _ as error -> error
     | Ok output_token_receipt ->
       (match
-         count_anthropic_with_before_dispatch
+         count_anthropic_staged
            ?connection_cache
            ?clock
            ?timeout_s
@@ -206,13 +184,10 @@ let measure_completion_request_with_before_dispatch
            ~config
            ~messages:request.messages
            ~tools:request.tools
-           ~before_dispatch
            ()
        with
        | Error (Count_failed (error, stage)) ->
          Error (Completion_request_failed (Input_count_failed error, stage))
-       | Error (Count_before_dispatch_failed error) ->
-         Error (Before_dispatch_failed error)
        | Ok input_count -> Ok { input_count; output_token_receipt }))
   else
     Error
@@ -227,16 +202,14 @@ let measure_completion_request_with_before_dispatch
 
 let measure_completion_request ?connection_cache ?clock ?timeout_s ~sw ~net request =
   match
-    measure_completion_request_with_before_dispatch
+    measure_completion_request_staged
       ?connection_cache
       ?clock
       ?timeout_s
       ~sw
       ~net
-      ~before_dispatch:no_before_dispatch
       request
   with
   | Ok measurement -> Ok measurement
   | Error (Completion_request_failed (error, _)) -> Error error
-  | Error (Before_dispatch_failed _) -> .
 ;;

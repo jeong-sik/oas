@@ -6,6 +6,7 @@ public_count_tokens="$root/lib/llm_provider/count_tokens_sync.mli"
 public_http_client="$root/lib/llm_provider/http_client.mli"
 private_count_tokens="$root/lib/llm_provider/exact_output_count_tokens.mli"
 private_measurement_transport="$root/lib/llm_provider/exact_output_measurement_transport.ml"
+callback_checker_source="$root/test/check_public_mli_callbacks.ml"
 flow_admission="$root/lib/llm_provider/exact_output_flow_admission.ml"
 provider_dune="$root/lib/llm_provider/dune"
 
@@ -64,11 +65,18 @@ rg -q "type 'callback_error measurement_dispatch_intent" "$private_count_tokens"
 rg -q "dispatch_intent:'callback_error measurement_dispatch_intent" "$private_count_tokens"
 rg -q 'create_measurement_dispatch_intent' "$flow_admission"
 
-if [[ "$(rg -c 'Cohttp_eio\\.Client\\.post' "$private_measurement_transport")" != 1 ]]
-then
-  echo "private measurement transport must own exactly one POST site" >&2
-  exit 1
-fi
+callback_checker="$(mktemp)"
+trap 'rm -f "$callback_checker"' EXIT
+ocamlc \
+  -I +compiler-libs \
+  ocamlcommon.cma \
+  "$callback_checker_source" \
+  -o "$callback_checker"
+"$callback_checker" \
+  --expect-call-count \
+  Cohttp_eio.Client.post \
+  1 \
+  "$private_measurement_transport"
 
 if ! perl -0ne '
   $ok = 1 if

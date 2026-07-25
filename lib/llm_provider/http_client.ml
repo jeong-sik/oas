@@ -1906,11 +1906,11 @@ let post_sync_once_after_validation
           let remaining = timeout_s -. elapsed in
           if remaining <= 0.0
           then Error (total_deadline_error timeout_s)
-           else (
-             match
-               Eio.Time.with_timeout clock remaining (fun () ->
-                 Ok (read_response_body response_body))
-             with
+          else (
+            match
+              Eio.Time.with_timeout clock remaining (fun () ->
+                Ok (read_response_body response_body))
+            with
             | Ok result -> result
             | Error `Timeout -> Error (total_deadline_error timeout_s))
         | Unbounded, Some _ | Bounded _, None ->

@@ -516,6 +516,12 @@
     %{dep:../lib/llm_provider/backend_glm.ml})
    (run
     %{exe:check_public_mli_callbacks.exe}
+    --expect-call-count
+    Cohttp_eio.Client.post
+    1
+    %{dep:../lib/llm_provider/exact_output_measurement_transport.ml})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
     --allow
     with_explicit_deadline
     --allow

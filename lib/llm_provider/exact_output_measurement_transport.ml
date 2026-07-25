@@ -35,7 +35,8 @@ let classify_unix_error = function
     Unknown
 ;;
 
-let classify_network_exn = function
+let classify_network_exn (exception_ : exn) =
+  match exception_ with
   | End_of_file -> Some (NetworkError { message = "End_of_file"; kind = End_of_file })
   | Eio.Time.Timeout ->
     Some
@@ -90,7 +91,9 @@ let validate_headers_and_body headers body =
        | None ->
          Error
            (AcceptRejected
-              { reason = "exact-output measurement Content-Length is not a decimal integer" }))
+              { reason =
+                  "exact-output measurement Content-Length is not a decimal integer"
+              }))
     | _ ->
       Error
         (AcceptRejected
@@ -126,7 +129,8 @@ let resolve_origin net uri =
       Error (NetworkError { message = Printexc.to_string exn; kind = Unknown })
     | Unix.Unix_error (code, _, _) as exn ->
       Error
-        (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
+        (NetworkError
+           { message = Printexc.to_string exn; kind = classify_unix_error code })
   in
   let* tls_wrap =
     match Uri.scheme uri with
@@ -185,8 +189,7 @@ let read_response_body response_body =
 
 let retry_after_header response =
   match Http.Header.get_multi (Cohttp.Response.headers response) "retry-after" with
-  | [ raw ] ->
-    Http_client.parse_retry_after_seconds ~now:(Unix.gettimeofday ()) raw
+  | [ raw ] -> Http_client.parse_retry_after_seconds ~now:(Unix.gettimeofday ()) raw
   | [] | _ :: _ :: _ -> None
 ;;
 
@@ -275,9 +278,10 @@ let post_sync_once_after_commit
            (match owner with
             | `Connect ->
               TimeoutError
-                { message =
-                    Printf.sprintf
-                      "exact-output measurement connect_timeout_s exceeded after %.17g seconds"
+                  { message =
+                      Printf.sprintf
+                      "exact-output measurement connect_timeout_s exceeded after %.17g \
+                       seconds"
                       timeout_s
                 ; phase = Http_operation
                 }
@@ -289,8 +293,8 @@ let post_sync_once_after_commit
         let* current = make_connection ~sw ~net ~uri in
         connection := Some current;
         let client =
-          Cohttp_eio.Client.make_generic
-            (fun ~sw:_ _uri -> (current :> _ Eio.Flow.two_way))
+          Cohttp_eio.Client.make_generic (fun ~sw:_ _uri ->
+            (current :> _ Eio.Flow.two_way))
         in
         let request_body = Cohttp_eio.Body.of_string body in
         phase := Dispatch_started;
@@ -298,12 +302,7 @@ let post_sync_once_after_commit
         then invalid_arg "exact-output measurement dispatch was already started";
         dispatch_intent.mark_dispatch_started ();
         let response, response_body =
-          Cohttp_eio.Client.post
-            ~sw
-            client
-            ~headers:header
-            ~body:request_body
-            uri
+          Cohttp_eio.Client.post ~sw client ~headers:header ~body:request_body uri
         in
         let response_status =
           Cohttp.Response.status response |> Cohttp.Code.code_of_status
@@ -369,9 +368,7 @@ let post_sync_once
       ~dispatch_intent
       ()
   =
-  let before_dispatch error =
-    Error (Transport_failed (Before_dispatch_error error))
-  in
+  let before_dispatch error = Error (Transport_failed (Before_dispatch_error error)) in
   match
     Http_client.resolve_explicit_deadline
       ~operation:"exact_output_measurement"
@@ -397,7 +394,8 @@ let post_sync_once
            | Error error -> before_dispatch error
            | Ok header ->
              if not (Atomic.compare_and_set dispatch_intent.committed false true)
-             then invalid_arg "exact-output measurement dispatch intent was already consumed";
+             then
+               invalid_arg "exact-output measurement dispatch intent was already consumed";
              (match dispatch_intent.commit_fence () with
               | Error cause -> Error (Commit_failed cause)
               | Ok () ->
