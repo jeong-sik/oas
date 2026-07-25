@@ -380,9 +380,8 @@ type transport_scope =
 
 let rec transparent_expression expression =
   match expression.pexp_desc with
-  | Pexp_constraint (inner, _)
-  | Pexp_coerce (inner, _, _)
-  | Pexp_poly (inner, _) -> transparent_expression inner
+  | Pexp_constraint (inner, _) | Pexp_coerce (inner, _, _) | Pexp_poly (inner, _) ->
+    transparent_expression inner
   | _ -> expression
 ;;
 
@@ -411,10 +410,7 @@ let transport_scope structure =
            | Error () -> scope.module_aliases)
         | _ -> scope.module_aliases
       in
-      { scope with
-        modules = String_set.add name scope.modules
-      ; module_aliases
-      }
+      { scope with modules = String_set.add name scope.modules; module_aliases }
   in
   let add_value scope binding =
     match (transparent_pattern binding.pvb_pat).ppat_desc with
@@ -427,20 +423,15 @@ let transport_scope structure =
            | Error () -> scope.value_aliases)
         | _ -> scope.value_aliases
       in
-      { scope with
-        values = String_set.add name.txt scope.values
-      ; value_aliases
-      }
+      { scope with values = String_set.add name.txt scope.values; value_aliases }
     | _ -> scope
   in
   List.fold_left
     (fun scope item ->
        match item.pstr_desc with
        | Pstr_module declaration -> add_module scope declaration
-       | Pstr_recmodule declarations ->
-         List.fold_left add_module scope declarations
-       | Pstr_value (_, bindings) ->
-         List.fold_left add_value scope bindings
+       | Pstr_recmodule declarations -> List.fold_left add_module scope declarations
+       | Pstr_value (_, bindings) -> List.fold_left add_value scope bindings
        | _ -> scope)
     { modules = String_set.empty
     ; module_aliases = String_map.empty
@@ -486,8 +477,7 @@ let transport_reference_facts structure =
       then Unresolved_transport_reference
       else (
         match visible_alias (fun scope -> scope.module_aliases) root !scopes with
-        | Some target ->
-          resolve_module (String_set.add root seen) (target @ suffix)
+        | Some target -> resolve_module (String_set.add root seen) (target @ suffix)
         | None ->
           if visible_name (fun scope -> scope.modules) root
           then Local_transport_reference
@@ -533,9 +523,7 @@ let transport_reference_facts structure =
     | _ -> false
   in
   let inspect_value_bindings bindings =
-    if List.exists
-         (fun binding -> external_post_reference binding.pvb_expr)
-         bindings
+    if List.exists (fun binding -> external_post_reference binding.pvb_expr) bindings
     then external_value_alias := true
   in
   let iterator =
@@ -554,8 +542,7 @@ let transport_reference_facts structure =
                              (visible_alias
                                 (fun scope -> scope.module_aliases)
                                 root
-                                !scopes) ->
-                      external_proxy_or_reexport := true
+                                !scopes) -> external_proxy_or_reexport := true
                     | Ok _ | Error () -> ());
                    incr post_calls
                  | Unresolved_transport_reference -> incr unresolved_identifiers
@@ -592,8 +579,7 @@ let transport_reference_facts structure =
                  | Local_transport_reference -> ()
                  | reference when cohttp_eio_reference reference ->
                    forbidden_module_alias := true
-                 | External_transport_reference _ ->
-                   external_proxy_or_reexport := true
+                 | External_transport_reference _ -> external_proxy_or_reexport := true
                  | Unresolved_transport_reference -> incr unresolved_identifiers)
               | _ -> ())
            | Pstr_value (_, bindings) -> inspect_value_bindings bindings
@@ -896,7 +882,9 @@ let () =
            if String_set.mem basename basenames
            then (
              prerr_endline
-               (Printf.sprintf "duplicate interface basename in one invocation: %s" basename);
+               (Printf.sprintf
+                  "duplicate interface basename in one invocation: %s"
+                  basename);
              exit 2)
            else String_set.add basename basenames)
         String_set.empty

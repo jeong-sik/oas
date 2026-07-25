@@ -2440,11 +2440,10 @@ let test_measurement_cancellation_terminalizes_receipt () =
     =
     run
       ~label:"measurement-cancel-callback-error"
-      ~after_measurement_terminal:(fun _ ->
-        failwith "terminal callback ordinary failure")
+      ~after_measurement_terminal:(fun _ -> failwith "terminal callback ordinary failure")
       (fun ~clock _ ->
-        Eio.Time.sleep clock 0.1;
-        Ok ())
+         Eio.Time.sleep clock 0.1;
+         Ok ())
   in
   check
     bool
@@ -2462,8 +2461,8 @@ let test_measurement_cancellation_terminalizes_receipt () =
     0
     callback_error_posts.measurement_posts;
   (match callback_error_evidence.measurements with
-   | [ { phase = EO.Measurement_terminal; outcome = Some EO.Measurement_cancelled; _ } ] ->
-     ()
+   | [ { phase = EO.Measurement_terminal; outcome = Some EO.Measurement_cancelled; _ } ]
+     -> ()
    | _ -> fail "callback-error cancellation lost terminal receipt evidence");
   let ( ( after_timed_out
         , after_replay
@@ -2696,10 +2695,9 @@ let test_postdispatch_measurement_failures_do_not_advance () =
             true
             (EO.candidate_rejection_measurement_outcome rejection = expected_outcome)
         | Ok _ | Error _ -> fail (label ^ " did not stop at dispatched measurement"));
-       (match replay with
-        | Error (EO.Flow_attempt_already_started _) -> ()
-        | Ok _ | Error _ ->
-          fail (label ^ " replayed after terminal measurement failure")))
+       match replay with
+       | Error (EO.Flow_attempt_already_started _) -> ()
+       | Ok _ | Error _ -> fail (label ^ " replayed after terminal measurement failure"))
     cases
 ;;
 

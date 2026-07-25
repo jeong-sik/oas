@@ -144,11 +144,7 @@ let merge_optional ~field ~equal current incoming =
 
 let merge_response_fields (current_status, current_trace) (incoming_status, incoming_trace)
   =
-  ( merge_optional
-      ~field:Http_status_field
-      ~equal:Int.equal
-      current_status
-      incoming_status
+  ( merge_optional ~field:Http_status_field ~equal:Int.equal current_status incoming_status
   , merge_optional
       ~field:Provider_trace_field
       ~equal:Trace.equal
@@ -200,12 +196,12 @@ let merge_state current desired =
 ;;
 
 let rec advance_atomic
-      ?(before_compare_and_set = fun () -> ())
-      ~rank
-      ~merge
-      ~equal
-      state
-      desired
+          ?(before_compare_and_set = fun () -> ())
+          ~rank
+          ~merge
+          ~equal
+          state
+          desired
   =
   let current = Atomic.get state in
   if rank desired >= rank current
@@ -215,14 +211,7 @@ let rec advance_atomic
     then (
       before_compare_and_set ();
       if not (Atomic.compare_and_set state current merged)
-      then
-        advance_atomic
-          ~before_compare_and_set
-          ~rank
-          ~merge
-          ~equal
-          state
-          desired))
+      then advance_atomic ~before_compare_and_set ~rank ~merge ~equal state desired))
 ;;
 
 let advance receipt desired =
@@ -236,11 +225,11 @@ let advance receipt desired =
 
 let%test "conflicting same-attempt response evidence fails closed" =
   match
-    (try
-       ignore (merge_response_fields (Some 200, None) (Some 503, None));
-       None
-     with
-     | Conflicting_response_evidence field -> Some field)
+    try
+      ignore (merge_response_fields (Some 200, None) (Some 503, None));
+      None
+    with
+    | Conflicting_response_evidence field -> Some field
   with
   | Some Http_status_field -> true
   | Some Provider_trace_field | None -> false
@@ -248,9 +237,7 @@ let%test "conflicting same-attempt response evidence fails closed" =
 
 let%test "same-rank receipt evidence joins in either order" =
   let empty = Response_received_state { status = None; provider_trace = None } in
-  let status =
-    Response_received_state { status = Some 200; provider_trace = None }
-  in
+  let status = Response_received_state { status = Some 200; provider_trace = None } in
   let converge desired =
     let state = Atomic.make empty in
     List.iter

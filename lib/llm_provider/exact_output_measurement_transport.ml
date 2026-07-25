@@ -77,8 +77,8 @@ let transport_exception_disposition exn =
 let%test "ordinary unclassified transport exceptions remain typed" =
   let is_unknown exn =
     match transport_exception_disposition exn with
-    | Typed_transport_error
-        (ProviderFailure { kind = Unknown_provider_failure _; _ }) -> true
+    | Typed_transport_error (ProviderFailure { kind = Unknown_provider_failure _; _ }) ->
+      true
     | Reserved_transport_exception | Typed_transport_error _ -> false
   in
   is_unknown (Failure "opaque failure") && is_unknown (Sys_error "opaque sys error")

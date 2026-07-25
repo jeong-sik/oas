@@ -329,35 +329,48 @@ let admit
                              (fun _ -> Measurement_succeeded)
                              (fun measurement -> Admitted { plan; measurement })))
                  in
-(try run () with
- | Eio.Cancel.Cancelled _ as exn ->
-   let backtrace = Printexc.get_raw_backtrace () in
-   Fun.protect
-     ~finally:(fun () -> Printexc.raise_with_backtrace exn backtrace)
-     (fun () ->
-       ignore (finish_receipt receipt (fun _ -> Measurement_cancelled));
-       (try Eio.Cancel.protect (fun () -> on_measurement_receipt receipt) with
-        | callback_exn ->
-          Diag.warn
-            "exact_output_flow_admission"
-            "measurement cancellation receipt publication failed: %s"
-            (Printexc.to_string callback_exn));
-       if Atomic.compare_and_set terminal_callback_started false true
-       then
-         try
-           match Eio.Cancel.protect (fun () -> on_measurement_terminal receipt) with
-           | Ok () -> ()
-           | Error _ ->
-             Diag.warn
-               "exact_output_flow_admission"
-               "measurement cancellation terminal callback rejected"
-         with
-         | callback_exn ->
-           Diag.warn
-             "exact_output_flow_admission"
-             "measurement cancellation terminal callback raised: %s"
-             (Printexc.to_string callback_exn))
- | exn ->
+                 (try run () with
+                  | Eio.Cancel.Cancelled _ as exn ->
+                    let backtrace = Printexc.get_raw_backtrace () in
+                    let cleanup () =
+                      let _terminal_measurement =
+                        finish_receipt receipt (fun _ -> Measurement_cancelled)
+                      in
+                      (try
+                         Eio.Cancel.protect (fun () -> on_measurement_receipt receipt)
+                       with
+                       | callback_exn ->
+                         Diag.warn
+                           "exact_output_flow_admission"
+                           "measurement cancellation receipt publication failed: %s"
+                           (Printexc.to_string callback_exn));
+                      if Atomic.compare_and_set terminal_callback_started false true
+                      then (
+                        try
+                          match
+                            Eio.Cancel.protect (fun () ->
+                              on_measurement_terminal receipt)
+                          with
+                          | Ok () -> ()
+                          | Error _ ->
+                            Diag.warn
+                              "exact_output_flow_admission"
+                              "measurement cancellation terminal callback rejected"
+                        with
+                        | callback_exn ->
+                          Diag.warn
+                            "exact_output_flow_admission"
+                            "measurement cancellation terminal callback raised: %s"
+                            (Printexc.to_string callback_exn))
+                    in
+                    (try Eio.Cancel.protect cleanup with
+                     | cleanup_exn ->
+                       Diag.warn
+                         "exact_output_flow_admission"
+                         "measurement cancellation cleanup raised: %s"
+                         (Printexc.to_string cleanup_exn));
+                    Printexc.raise_with_backtrace exn backtrace
+                  | exn ->
                     let backtrace = Printexc.get_raw_backtrace () in
                     Reserved_exn.reraise_if_reserved exn;
                     Printexc.raise_with_backtrace exn backtrace)))))
