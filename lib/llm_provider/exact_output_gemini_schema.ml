@@ -99,9 +99,7 @@ let rec validate ~path = function
 
 and validate_any_of ~path ~fields branches =
   match
-    List.find_opt
-      (fun (keyword, _) -> not (List.mem keyword any_of_keywords))
-      fields
+    List.find_opt (fun (keyword, _) -> not (List.mem keyword any_of_keywords)) fields
   with
   | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
   | None ->
@@ -122,14 +120,12 @@ and validate_any_of ~path ~fields branches =
        let rec validate_branches index = function
          | [] -> Ok ()
          | schema :: rest ->
-           let* () =
-             validate ~path:(Printf.sprintf "%s.anyOf[%d]" path index) schema
-           in
+           let* () = validate ~path:(Printf.sprintf "%s.anyOf[%d]" path index) schema in
            validate_branches (index + 1) rest
        in
        validate_branches 0 schemas
-     | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _
-     | `List [] -> Error Invalid_schema)
+     | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List []
+       -> Error Invalid_schema)
 
 and validate_fields ~path ~type_name fields =
   let rec validate_all = function

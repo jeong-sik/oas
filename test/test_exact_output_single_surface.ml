@@ -1805,25 +1805,19 @@ let test_gemini_any_of_rejections_are_pre_dispatch () =
   in
   let null_branch = `Assoc [ "type", `String "null" ] in
   let rejected_schemas =
-    [ ( "oneOf semantic loss"
-      , `Assoc [ "oneOf", `List [ string_branch; null_branch ] ] )
+    [ "oneOf semantic loss", `Assoc [ "oneOf", `List [ string_branch; null_branch ] ]
     ; "empty anyOf", `Assoc [ "anyOf", `List [] ]
     ; "scalar anyOf", `Assoc [ "anyOf", `String "not-a-schema-list" ]
-    ; ( "malformed nested branch"
-      , `Assoc [ "anyOf", `List [ string_branch; `Bool true ] ] )
+    ; "malformed nested branch", `Assoc [ "anyOf", `List [ string_branch; `Bool true ] ]
     ; ( "structural sibling"
-      , `Assoc
-          [ "anyOf", `List [ string_branch; null_branch ]
-          ; "type", `String "string"
-          ] )
+      , `Assoc [ "anyOf", `List [ string_branch; null_branch ]; "type", `String "string" ]
+      )
     ; ( "mixed-null scalar enum"
       , `Assoc
           [ ( "anyOf"
             , `List
                 [ `Assoc
-                    [ "type", `String "string"
-                    ; "enum", `List [ `String "ready"; `Null ]
-                    ]
+                    [ "type", `String "string"; "enum", `List [ `String "ready"; `Null ] ]
                 ; null_branch
                 ] )
           ] )
