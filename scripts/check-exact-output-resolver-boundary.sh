@@ -8,8 +8,9 @@ required_basenames=(
   exact_output_flow.ml
   exact_output_flow_contract.ml
   exact_output_resolver.ml
-  exact_output_catalog_binding.ml
-  exact_output_plan.ml
+    exact_output_catalog_binding.ml
+    exact_output_flow_admission.ml
+    exact_output_plan.ml
   complete_common.ml
   backend_anthropic.ml
   backend_ollama.ml
@@ -569,6 +570,7 @@ scan_public_error_accessors() {
 exact_output_source=""
 exact_output_flow_source=""
 exact_output_flow_contract_source=""
+exact_output_flow_admission_source=""
 resolver_source=""
 catalog_binding_source=""
 exact_output_plan_source=""
@@ -583,6 +585,10 @@ for source_file in "${source_files[@]}"; do
       ;;
     exact_output_flow_contract.ml)
       exact_output_flow_contract_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_flow_admission.ml)
+      exact_output_flow_admission_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_resolver.ml) resolver_source="$source_file" ;;

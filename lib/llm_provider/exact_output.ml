@@ -1,4 +1,22 @@
 module Plan = Exact_output_plan
+module Flow_admission = Exact_output_flow_admission
+
+type measurement_dispatch_fact = Flow_admission.measurement_dispatch_fact =
+  | No_measurement_dispatch
+  | Measurement_dispatch_started
+
+type measurement_outcome = Flow_admission.measurement_outcome =
+  | Measurement_not_required
+  | Measurement_succeeded
+  | Measurement_unsupported
+  | Measurement_local_invalid
+  | Measurement_transport_failed
+  | Measurement_invalid_response
+
+type measurement_evidence = Flow_admission.measurement_evidence =
+  { dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome
+  }
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
@@ -64,6 +82,7 @@ type ready_plan =
   ; catalog_generation : catalog_generation
   ; catalog_evidence : catalog_evidence
   ; target_identity : target_identity
+  ; measurement : measurement_evidence
   }
 
 type attempt =
@@ -198,6 +217,7 @@ type candidate_rejection_receipt =
   { scope : flow_scope
   ; visit : flow_candidate_visit
   ; cause : candidate_rejection_cause
+  ; measurement : measurement_evidence
   }
 
 type admitted_flow_candidate =
@@ -205,6 +225,7 @@ type admitted_flow_candidate =
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; provenance : plan_provenance
+  ; measurement : measurement_evidence
   }
 
 type candidate_admission =
@@ -285,9 +306,9 @@ type flow_candidate_failure =
       ; cause : execution_error
       }
 
-type outward_dispatch_fact =
-  | No_outward_dispatch
-  | Outward_dispatch_started
+type generation_dispatch_fact =
+  | No_generation_dispatch
+  | Generation_dispatch_started
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
@@ -439,7 +460,6 @@ let wire_admission_error = function
   | Plan.Unsupported_document_input -> Unsupported_document_input
   | Plan.Unsupported_audio_input -> Unsupported_audio_input
   | Plan.Unsupported_system_prompt -> Unsupported_system_prompt
-  | Plan.Token_measurement_required constraint_ -> Token_measurement_required constraint_
   | Plan.Provider_request_rejected _ -> Target_request_rejected
   | Plan.Request_body_too_large { actual_bytes; limit_bytes } ->
     Request_body_too_large { actual_bytes; limit_bytes }
@@ -466,6 +486,7 @@ let ready_plan
       ~requirement
       ~actual_assurance
       ~effective_schema_fingerprint
+      ~measurement
       plan
   =
   let request_body_sha256 = Plan.request_body_sha256 plan in
@@ -494,6 +515,7 @@ let ready_plan
   ; catalog_generation = target.generation
   ; catalog_evidence = target.evidence
   ; target_identity = target.identity
+  ; measurement
   }
 ;;
 
@@ -501,111 +523,96 @@ let admit ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     admission_contract ~target requirement
   in
-  Plan.admit
-    (Plan.Unmeasured
-       { config = exact_config target response_format
-       ; messages
-       ; body_timeout_s = target.body_timeout_s
-       ; anthropic_thinking_control = target.anthropic_thinking_control
-       })
+  Plan.preflight
+    ~config:(exact_config target response_format)
+    ~messages
+    ~body_timeout_s:target.body_timeout_s
+    ~anthropic_thinking_control:target.anthropic_thinking_control
   |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
+  |> Result.bind (fun preflight ->
+    Plan.finalize_unmeasured preflight
+    |> Result.map_error (function
+      | Plan.Token_measurement_required constraint_ ->
+        Wire_admission_rejected (Token_measurement_required constraint_)
+      | Plan.Measured_request_mismatch ->
+        Wire_admission_rejected Request_serialization_rejected))
   |> Result.map (fun plan ->
     ready_plan
       ~target
       ~requirement
       ~actual_assurance
       ~effective_schema_fingerprint
+      ~measurement:
+        { dispatch = No_measurement_dispatch; outcome = Measurement_not_required }
       plan)
-;;
-
-let fit_wire_admission_error = function
-  | Complete.Context_limit_unknown _ -> Context_limit_unavailable
-  | Complete.Invalid_context_limit _ -> Invalid_context_limit
-  | Complete.Output_reservation_unknown _ -> Output_reservation_unavailable
-  | Complete.Context_window_exceeded fit -> Measured_context_window_exceeded fit
-  | Complete.Serving_constraint_rejected { reason; _ } ->
-    Measured_serving_constraint_rejected reason
-;;
-
-let measurement_wire_admission_error ~constraint_ = function
-  | Count_tokens_sync.Input_count_failed (Input_token_count.Unsupported _) ->
-    Token_measurement_required constraint_
-  | Count_tokens_sync.Input_count_failed
-      (Input_token_count.Transport _ | Input_token_count.Invalid_response _)
-  | Count_tokens_sync.Output_token_resolution_failed _
-  | Count_tokens_sync.Invalid_completion_request _ -> Token_measurement_failed
 ;;
 
 let admit_flow_request ~net ?clock ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     admission_contract ~target requirement
+    |> Result.map_error (fun error ->
+      ( error
+      , { dispatch = No_measurement_dispatch; outcome = Measurement_local_invalid }
+      ))
   in
-  let config = exact_config target response_format in
-  let prepared =
-    Complete.prepare_request
-      ~config
+  let* preflight =
+    Plan.preflight
+      ~config:(exact_config target response_format)
       ~messages
-      ?body_timeout_s:target.body_timeout_s
-      ()
+      ~body_timeout_s:target.body_timeout_s
+      ~anthropic_thinking_control:target.anthropic_thinking_control
+    |> Result.map_error (fun error ->
+      ( Wire_admission_rejected (wire_admission_error error)
+      , { dispatch = No_measurement_dispatch; outcome = Measurement_local_invalid }
+      ))
   in
-  match Complete.serving_constraint prepared with
-  | None ->
-    Plan.admit
-      (Plan.Unmeasured
-         { config
-         ; messages
-         ; body_timeout_s = target.body_timeout_s
-         ; anthropic_thinking_control = target.anthropic_thinking_control
-         })
-    |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
-    |> Result.map (fun plan ->
-      ready_plan
-        ~target
-        ~requirement
-        ~actual_assurance
-        ~effective_schema_fingerprint
-        plan)
-  | Some constraint_ ->
-    let now_unix_s = int_of_float (Unix.gettimeofday ()) in
-    let* () =
-      Serving_constraint.check_evidence ~now_unix_s constraint_
-      |> Result.map_error (fun reason ->
-        Wire_admission_rejected (Measured_serving_constraint_rejected reason))
+  match
+    Flow_admission.admit
+      ~net
+      ?clock
+      ~now_unix_s:(fun () -> int_of_float (Unix.gettimeofday ()))
+      preflight
+  with
+  | Flow_admission.Admitted { plan; measurement } ->
+    Ok
+      (ready_plan
+         ~target
+         ~requirement
+         ~actual_assurance
+         ~effective_schema_fingerprint
+         ~measurement
+         plan)
+  | Flow_admission.Rejected { cause; measurement } ->
+    let constraint_ = Plan.serving_constraint preflight in
+    let error =
+      match cause with
+      | Flow_admission.Serving_evidence_rejected reason ->
+        Measured_serving_constraint_rejected reason
+      | Flow_admission.Context_admission_rejected error ->
+        (match error with
+         | Complete.Context_limit_unknown _ -> Context_limit_unavailable
+         | Complete.Invalid_context_limit _ -> Invalid_context_limit
+         | Complete.Output_reservation_unknown _ -> Output_reservation_unavailable
+         | Complete.Context_window_exceeded fit -> Measured_context_window_exceeded fit
+         | Complete.Serving_constraint_rejected { reason; _ } ->
+           Measured_serving_constraint_rejected reason)
+      | Flow_admission.Measurement_rejected
+          (Flow_admission.Measurement_unsupported _) ->
+        (match constraint_ with
+         | Some constraint_ -> Token_measurement_required constraint_
+         | None -> Token_measurement_failed)
+      | Flow_admission.Measurement_rejected
+          ( Flow_admission.Measurement_transport_failed _
+          | Flow_admission.Measurement_response_invalid _
+          | Flow_admission.Measurement_output_token_resolution_failed _
+          | Flow_admission.Measurement_request_invalid _ ) -> Token_measurement_failed
+      | Flow_admission.Plan_finalization_rejected error ->
+        (match error with
+         | Plan.Token_measurement_required constraint_ ->
+           Token_measurement_required constraint_
+         | Plan.Measured_request_mismatch -> Request_serialization_rejected)
     in
-    let* max_context_tokens =
-      Complete.resolve_context_limit prepared
-      |> Result.map_error (fun error ->
-        Wire_admission_rejected (fit_wire_admission_error error))
-    in
-    let measured =
-      Eio.Switch.run
-      @@ fun sw ->
-      Complete.measure_request
-        ~sw
-        ~net
-        ?clock
-        ?timeout_s:target.body_timeout_s
-        prepared
-    in
-    let* measured =
-      measured
-      |> Result.map_error (fun error ->
-        Wire_admission_rejected (measurement_wire_admission_error ~constraint_ error))
-    in
-    let* admitted =
-      Complete.admit_request ~now_unix_s ~max_context_tokens measured
-      |> Result.map_error (fun error ->
-        Wire_admission_rejected (fit_wire_admission_error error))
-    in
-    Plan.admit (Plan.Measured admitted)
-    |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
-    |> Result.map (fun plan ->
-      ready_plan
-        ~target
-        ~requirement
-        ~actual_assurance
-        ~effective_schema_fingerprint
-        plan)
+    Error (Wire_admission_rejected error, measurement)
 ;;
 
 let plan_provenance (ready : ready_plan) = ready.provenance
@@ -753,11 +760,11 @@ let receipt_dispatch_count receipt =
   | Dispatch_started_state | Response_received_state _ | Terminal_state _ -> 1
 ;;
 
-let outward_dispatch_fact_of_receipt receipt =
+let generation_dispatch_fact_of_receipt receipt =
   match Atomic.get receipt.state with
-  | Not_started_state | Before_dispatch_state -> No_outward_dispatch
+  | Not_started_state | Before_dispatch_state -> No_generation_dispatch
   | Dispatch_started_state | Response_received_state _ | Terminal_state _ ->
-    Outward_dispatch_started
+    Generation_dispatch_started
 ;;
 
 let flow_execution_error_outward_dispatch = function
@@ -765,10 +772,10 @@ let flow_execution_error_outward_dispatch = function
   | Flow_attempt_start_failed _
   | Flow_before_dispatch_callback_failed _
   | Flow_before_advance_callback_failed _
-  | Flow_candidates_exhausted _ -> No_outward_dispatch
-  | Flow_success_ordinal_exhausted _ -> Outward_dispatch_started
+  | Flow_candidates_exhausted _ -> No_generation_dispatch
+  | Flow_success_ordinal_exhausted _ -> Generation_dispatch_started
   | Flow_exact_execution_failed { cause; _ } ->
-    outward_dispatch_fact_of_receipt cause.receipt
+    generation_dispatch_fact_of_receipt cause.receipt
 ;;
 
 let receipt_http_status receipt =
@@ -793,8 +800,18 @@ let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
 
 let candidate_rejection_scope (receipt : candidate_rejection_receipt) = receipt.scope
 let candidate_rejection_visit (receipt : candidate_rejection_receipt) = receipt.visit
+let candidate_rejection_measurement_dispatch_fact
+      (receipt : candidate_rejection_receipt)
+  =
+  receipt.measurement.dispatch
+;;
+let candidate_rejection_measurement_outcome
+      (receipt : candidate_rejection_receipt)
+  =
+  receipt.measurement.outcome
+;;
 let candidate_rejection_phase _ = Before_dispatch
-let candidate_rejection_dispatch_count _ = 0
+let candidate_rejection_generation_dispatch_count _ = 0
 
 let target_selection_error_disposition = function
   | Missing_target_credential _
@@ -1008,11 +1025,12 @@ let admitted_flow_candidate visit (plan : ready_plan) =
   ; plan_fingerprint = plan.plan_fingerprint
   ; request_body_sha256 = plan.request_body_sha256
   ; provenance = plan.provenance
+  ; measurement = plan.measurement
   }
 ;;
 
-let record_candidate_rejection (flow : flow_attempt) visit cause =
-  let rejection = { scope = flow.scope; visit; cause } in
+let record_candidate_rejection (flow : flow_attempt) visit cause measurement =
+  let rejection = { scope = flow.scope; visit; cause; measurement } in
   Flow_state.record_admission flow.progress (Candidate_rejected rejection);
   rejection
 ;;
@@ -1024,8 +1042,14 @@ let execute_flow_candidate
       flow
       (candidate : flow_candidate_step)
   =
-  let reject cause =
-    let rejection = record_candidate_rejection flow candidate.visit cause in
+  let reject
+        ?(measurement =
+          { dispatch = No_measurement_dispatch; outcome = Measurement_not_required })
+        cause
+    =
+    let rejection =
+      record_candidate_rejection flow candidate.visit cause measurement
+    in
     Error (Flow_step_candidate_rejected rejection)
   in
   match resolve_target candidate.admitted_target with
@@ -1039,7 +1063,8 @@ let execute_flow_candidate
          ~messages:flow.messages
          flow.requirement
      with
-     | Error cause -> reject (Request_admission_rejected cause)
+     | Error (cause, measurement) ->
+       reject ~measurement (Request_admission_rejected cause)
      | Ok plan ->
        let admitted = admitted_flow_candidate candidate.visit plan in
        Flow_state.record_admission flow.progress (Candidate_admitted admitted);

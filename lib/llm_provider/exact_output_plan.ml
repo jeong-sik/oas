@@ -19,7 +19,6 @@ type output_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
-  | Token_measurement_required of Serving_constraint.t
   | Provider_request_rejected of Http_client.http_error
   | Request_body_too_large of
       { actual_bytes : int
@@ -63,18 +62,21 @@ type t =
   ; fingerprint : fingerprint
   }
 
-type admission =
-  | Measured of Prepared_completion_request.admitted
-  | Unmeasured of
-      { config : Provider_config.t
-      ; messages : Types.message list
-      ; body_timeout_s : float option
-      ; anthropic_thinking_control : Capabilities.anthropic_thinking_control option
-      }
+type preflight =
+  { prepared : Prepared_completion_request.t
+  ; config : Provider_config.t
+  ; capabilities : Capabilities.capabilities
+  ; response_format : Types.response_format
+  ; wire : frozen_wire_request
+  }
 
 type admission_basis =
   | Measured_context_fit of Prepared_completion_request.context_fit
   | Token_measurement_not_required
+
+type finalization_error =
+  | Token_measurement_required of Serving_constraint.t
+  | Measured_request_mismatch
 
 let fingerprint_to_string (Fingerprint value) = value
 let sha256 value = Sha256.(to_hex (digest_string value))
@@ -320,14 +322,16 @@ let request_url (config : Provider_config.t) =
   | Provider_config.DashScope -> config.base_url ^ config.request_path
 ;;
 
-let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
-  let request = Prepared_completion_request.request prepared in
-  let original_config = request.config in
+let preflight ~config:original_config ~messages ~body_timeout_s ~anthropic_thinking_control =
   match original_config.model_capabilities_override with
   | None -> Error Explicit_capability_snapshot_required
   | Some capabilities ->
     let response_format = canonical_response_format original_config.response_format in
     let config = freeze_config_response_format original_config response_format in
+    let prepared =
+      Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
+    in
+    let request = Prepared_completion_request.request prepared in
     let auth_headers = Provider_config.auth_headers_for_config config in
     if not (response_format_state_is_consistent original_config response_format)
     then Error Contradictory_output_state
@@ -393,30 +397,45 @@ let admit_prepared ~admission_basis ~anthropic_thinking_control prepared =
                    ; body_timeout_s = request.body_timeout_s
                    }
                  in
-                 let fingerprint =
-                   plan_fingerprint ~config ~capabilities ~wire ~admission_basis
-                 in
-                 Ok { response_format; wire; fingerprint }))))
+                 Ok { prepared; config; capabilities; response_format; wire }))))
 ;;
 
-let admit = function
-  | Measured admitted ->
-    admit_prepared
-      ~admission_basis:
-        (Measured_context_fit (Prepared_completion_request.admitted_fit admitted))
-      ~anthropic_thinking_control:None
-      (Prepared_completion_request.admitted_request admitted)
-  | Unmeasured { config; messages; body_timeout_s; anthropic_thinking_control } ->
-    let prepared =
-      Prepared_completion_request.prepare ~config ~messages ?body_timeout_s ()
-    in
-    (match Prepared_completion_request.serving_constraint prepared with
-     | Some constraint_ -> Error (Token_measurement_required constraint_)
-     | None ->
-       admit_prepared
-         ~admission_basis:Token_measurement_not_required
-         ~anthropic_thinking_control
-         prepared)
+let prepared_request preflight = preflight.prepared
+let serving_constraint preflight =
+  Prepared_completion_request.serving_constraint preflight.prepared
+;;
+let preflight_body_timeout_s preflight = preflight.wire.body_timeout_s
+
+let resolve_context_limit preflight =
+  Prepared_completion_request.resolve_context_limit preflight.prepared
+;;
+
+let finalize preflight admission_basis =
+  let fingerprint =
+    plan_fingerprint
+      ~config:preflight.config
+      ~capabilities:preflight.capabilities
+      ~wire:preflight.wire
+      ~admission_basis
+  in
+  { response_format = preflight.response_format; wire = preflight.wire; fingerprint }
+;;
+
+let finalize_unmeasured preflight =
+  match serving_constraint preflight with
+  | Some constraint_ -> Error (Token_measurement_required constraint_)
+  | None -> Ok (finalize preflight Token_measurement_not_required)
+;;
+
+let finalize_measured preflight admitted =
+  let admitted_request = Prepared_completion_request.admitted_request admitted in
+  if admitted_request != preflight.prepared
+  then Error Measured_request_mismatch
+  else
+    Ok
+      (finalize
+         preflight
+         (Measured_context_fit (Prepared_completion_request.admitted_fit admitted)))
 ;;
 
 let fingerprint plan = plan.fingerprint

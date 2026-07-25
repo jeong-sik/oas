@@ -35,6 +35,8 @@ type catalog_fixture =
   ; serving_accepted_through_tokens : int
   ; serving_rejected_from_tokens : int
   ; max_request_body_bytes : int option
+  ; model_id : string
+  ; anthropic_thinking_control : string option
   }
 
 let catalog_entry
@@ -46,6 +48,8 @@ let catalog_entry
       ?(kind = "openai_compat")
       ?(request_path = "/v1/chat/completions")
       ?(api_key_env = "")
+      ?model_id
+      ?anthropic_thinking_control
       ~id
       ~base_url
       ~native
@@ -64,6 +68,8 @@ let catalog_entry
   ; serving_accepted_through_tokens
   ; serving_rejected_from_tokens
   ; max_request_body_bytes
+  ; model_id = Option.value model_id ~default:(id ^ "-model")
+  ; anthropic_thinking_control
   }
 ;;
 
@@ -73,9 +79,13 @@ let catalog_fixture_toml entry =
      | None -> ""
      | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
     ^
-    match entry.max_request_body_bytes with
+    (match entry.max_request_body_bytes with
+     | None -> ""
+     | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
+    ^
+    match entry.anthropic_thinking_control with
     | None -> ""
-    | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes
+    | Some control -> Printf.sprintf "anthropic_thinking_control = %S\n" control
   in
   Printf.sprintf
     "[[providers]]\n\
@@ -101,7 +111,7 @@ let catalog_fixture_toml entry =
     entry.base_url
     entry.request_path
     entry.api_key_env
-    (entry.id ^ "-model")
+    entry.model_id
     entry.id
     (if entry.serving_constraint
      then
@@ -120,7 +130,7 @@ let catalog_fixture_toml entry =
     entry.native
     entry.id
     entry.id
-    (entry.id ^ "-model")
+    entry.model_id
     target_options
 ;;
 
@@ -232,14 +242,12 @@ let tool_response =
 
 let with_server
       ?response_delay_s
-      ?count_tokens
       ?(status = `OK)
       ?(abort_completion = false)
       ~response
       f
   =
   let completion_posts = Atomic.make 0 in
-  let measurement_pending = Atomic.make (Option.is_some count_tokens) in
   let result =
     Eio_main.run
     @@ fun env ->
@@ -250,17 +258,10 @@ let with_server
     let port = fresh_port () in
     let handler _conn _request body =
       ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
-      if Atomic.compare_and_set measurement_pending true false
-      then
-        Cohttp_eio.Server.respond_string
-          ~status:`OK
-          ~body:(Printf.sprintf {|{"input_tokens":%d}|} (Option.get count_tokens))
-          ()
-      else (
-        Atomic.incr completion_posts;
-        if abort_completion then raise Exit;
-        Option.iter (Eio.Time.sleep clock) response_delay_s;
-        Cohttp_eio.Server.respond_string ~status ~body:response ())
+      Atomic.incr completion_posts;
+      if abort_completion then raise Exit;
+      Option.iter (Eio.Time.sleep clock) response_delay_s;
+      Cohttp_eio.Server.respond_string ~status ~body:response ()
     in
     let socket =
       Eio.Net.listen
@@ -276,6 +277,68 @@ let with_server
     f ~sw ~net ~clock ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
   in
   result, Atomic.get completion_posts
+;;
+
+type measurement_reply =
+  | Measurement_tokens of int
+  | Measurement_invalid_response
+  | Measurement_transport_failure
+
+type post_counts =
+  { measurement_posts : int
+  ; generation_posts : int
+  }
+
+let with_counted_server ~measurement_reply ~response f =
+  let measurement_posts = Atomic.make 0 in
+  let generation_posts = Atomic.make 0 in
+  let result =
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let net = Eio.Stdenv.net env in
+    let clock = Eio.Stdenv.clock env in
+    let port = fresh_port () in
+    let handler _conn request body =
+      ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
+      match Uri.path (Cohttp.Request.uri request) with
+      | "/v1/messages/count_tokens" ->
+        Atomic.incr measurement_posts;
+        (match measurement_reply with
+         | Measurement_tokens input_tokens ->
+           Cohttp_eio.Server.respond_string
+             ~status:`OK
+             ~body:(Printf.sprintf {|{"input_tokens":%d}|} input_tokens)
+             ()
+         | Measurement_invalid_response ->
+           Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"wrong":true}|} ()
+         | Measurement_transport_failure ->
+           Cohttp_eio.Server.respond_string
+             ~status:`Internal_server_error
+             ~body:{|{"error":"measurement failed"}|}
+             ())
+      | _ ->
+        Atomic.incr generation_posts;
+        Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()
+    in
+    let socket =
+      Eio.Net.listen
+        net
+        ~sw
+        ~backlog:8
+        ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    in
+    let server = Cohttp_eio.Server.make ~callback:handler () in
+    Eio.Fiber.fork_daemon ~sw (fun () ->
+      Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+    f ~sw ~net ~clock ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
+  in
+  result,
+  { measurement_posts = Atomic.get measurement_posts
+  ; generation_posts = Atomic.get generation_posts
+  }
 ;;
 
 let candidate_id (candidate : EO.flow_attempt_receipt) =
@@ -1237,7 +1300,7 @@ let test_missing_current_credential_advances_after_durable_settlement () =
               int
               "selection rejection is zero-dispatch"
               0
-              (EO.candidate_rejection_dispatch_count rejection);
+              (EO.candidate_rejection_generation_dispatch_count rejection);
             check
               int
               "selection rejection is first visit"
@@ -1346,7 +1409,7 @@ let test_read_failed_current_credential_advances_to_good_successor () =
               int
               "read-failed credential is zero-dispatch"
               0
-              (EO.candidate_rejection_dispatch_count rejection);
+              (EO.candidate_rejection_generation_dispatch_count rejection);
             advances
             := ( (EO.candidate_rejection_identity rejection).candidate_id
                , next.identity.candidate_id )
@@ -1453,7 +1516,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
       int
       "credential rejection remains zero-dispatch"
       0
-      (EO.candidate_rejection_dispatch_count rejection);
+      (EO.candidate_rejection_generation_dispatch_count rejection);
     check
       int
       "credential rejection visit is exact"
@@ -1480,7 +1543,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
       bool
       "candidate exhaustion starts no outward dispatch"
       true
-      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
+      (EO.flow_execution_error_outward_dispatch error = EO.No_generation_dispatch);
     check
       string
       "last rejected candidate is terminal"
@@ -1559,7 +1622,19 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
               int
               "admission receipt is zero-dispatch"
               0
-              (EO.candidate_rejection_dispatch_count rejection);
+              (EO.candidate_rejection_generation_dispatch_count rejection);
+            check
+              bool
+              "unsupported measurement starts no measurement wire"
+              true
+              (EO.candidate_rejection_measurement_dispatch_fact rejection
+               = EO.No_measurement_dispatch);
+            check
+              bool
+              "unsupported measurement remains typed"
+              true
+              (EO.candidate_rejection_measurement_outcome rejection
+               = EO.Measurement_unsupported);
             transitions
             := (identity.candidate_id, next.identity.candidate_id) :: !transitions;
             Ok ()
@@ -1598,7 +1673,9 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
 
 let test_request_body_capacity_advances_only_after_durable_settlement () =
   let (result, transition), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    with_counted_server
+      ~measurement_reply:(Measurement_tokens 1)
+      ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
       [ catalog_entry
@@ -1632,7 +1709,19 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
               int
               "admission receipt is zero-dispatch"
               0
-              (EO.candidate_rejection_dispatch_count rejection);
+              (EO.candidate_rejection_generation_dispatch_count rejection);
+            check
+              bool
+              "body cap starts no measurement wire"
+              true
+              (EO.candidate_rejection_measurement_dispatch_fact rejection
+               = EO.No_measurement_dispatch);
+            check
+              bool
+              "body cap remains a typed local rejection"
+              true
+              (EO.candidate_rejection_measurement_outcome rejection
+               = EO.Measurement_local_invalid);
             transition
             := Some
                  ( (EO.candidate_rejection_identity rejection).candidate_id
@@ -1643,7 +1732,8 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
     in
     result, !transition
   in
-  check int "only body-cap successor posts" 1 posts;
+  check int "body cap starts no measurement wire" 0 posts.measurement_posts;
+  check int "only body-cap successor generates" 1 posts.generation_posts;
   check
     (option (pair string string))
     "request-body transition is explicit"
@@ -1672,8 +1762,10 @@ let test_measured_token_and_body_capacity_are_independent () =
   in
   List.iter
     (fun (label, measured_tokens, max_request_body_bytes, expected) ->
-       let (result, evidence), completion_posts =
-         with_server ~count_tokens:measured_tokens ~response
+       let (result, evidence), posts =
+         with_counted_server
+           ~measurement_reply:(Measurement_tokens measured_tokens)
+           ~response
          @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
          with_catalog
            [ catalog_entry
@@ -1709,8 +1801,22 @@ let test_measured_token_and_body_capacity_are_independent () =
        in
        match expected, result with
        | `Success, Ok _ ->
-         check int (label ^ " completion dispatches") 1 completion_posts;
-         check int (label ^ " owns one attempt") 1 (List.length evidence.attempts)
+         check int (label ^ " measurement dispatches") 1 posts.measurement_posts;
+         check int (label ^ " generation dispatches") 1 posts.generation_posts;
+         check int (label ^ " owns one attempt") 1 (List.length evidence.attempts);
+         (match evidence.admissions with
+          | [ EO.Candidate_admitted candidate ] ->
+            check
+              bool
+              (label ^ " records measurement dispatch")
+              true
+              (candidate.measurement.dispatch = EO.Measurement_dispatch_started);
+            check
+              bool
+              (label ^ " records successful measurement")
+              true
+              (candidate.measurement.outcome = EO.Measurement_succeeded)
+          | _ -> fail (label ^ " lost admitted measurement evidence"))
        | `Token_rejected, Error (EO.Flow_candidates_exhausted { rejection; _ }) ->
          (match EO.candidate_rejection_disposition rejection with
           | EO.Input_capacity
@@ -1721,7 +1827,20 @@ let test_measured_token_and_body_capacity_are_independent () =
                     ; rejected_from = 3
                     })) -> ()
           | _ -> fail (label ^ " lost its typed token-capacity rejection"));
-         check int (label ^ " completion dispatches") 0 completion_posts;
+         check int (label ^ " measurement dispatches") 1 posts.measurement_posts;
+         check int (label ^ " generation dispatches") 0 posts.generation_posts;
+         check
+           bool
+           (label ^ " records measurement dispatch")
+           true
+           (EO.candidate_rejection_measurement_dispatch_fact rejection
+            = EO.Measurement_dispatch_started);
+         check
+           bool
+           (label ^ " records successful measurement")
+           true
+           (EO.candidate_rejection_measurement_outcome rejection
+            = EO.Measurement_succeeded);
          check int (label ^ " fabricates no attempt") 0 (List.length evidence.attempts)
        | `Body_rejected, Error (EO.Flow_candidates_exhausted { rejection; _ }) ->
          (match EO.candidate_rejection_disposition rejection with
@@ -1730,13 +1849,158 @@ let test_measured_token_and_body_capacity_are_independent () =
             ->
             check bool (label ^ " measures final bytes") true (actual_bytes > 1)
           | _ -> fail (label ^ " lost its typed byte-capacity rejection"));
-         check int (label ^ " completion dispatches") 0 completion_posts;
+         check int (label ^ " measurement dispatches") 0 posts.measurement_posts;
+         check int (label ^ " generation dispatches") 0 posts.generation_posts;
+         check
+           bool
+           (label ^ " records local preflight rejection")
+           true
+           (EO.candidate_rejection_measurement_outcome rejection
+            = EO.Measurement_local_invalid);
          check int (label ^ " fabricates no attempt") 0 (List.length evidence.attempts)
        | `Success, Error _ -> fail (label ^ " did not admit")
        | (`Token_rejected | `Body_rejected), Ok _ -> fail (label ^ " dispatched")
        | (`Token_rejected | `Body_rejected), Error _ ->
          fail (label ^ " returned the wrong terminal error"))
     cases
+;;
+
+let test_typed_measurement_failures_advance_without_generation_attempt () =
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}|}
+  in
+  let cases =
+    [ ( "measurement transport failure"
+      , Measurement_transport_failure
+      , EO.Measurement_transport_failed )
+    ; ( "measurement invalid response"
+      , Measurement_invalid_response
+      , EO.Measurement_invalid_response )
+    ]
+  in
+  List.iter
+    (fun (label, measurement_reply, expected_outcome) ->
+       let (result, evidence), posts =
+         with_counted_server ~measurement_reply ~response
+         @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+         with_catalog
+           [ catalog_entry
+               ~kind:"anthropic"
+               ~request_path:"/v1/messages"
+               ~serving_constraint:true
+               ~id:"measured-failure"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ; catalog_entry
+               ~kind:"anthropic"
+               ~request_path:"/v1/messages"
+               ~id:"measured-successor"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ]
+         @@ fun snapshot ->
+         let flow =
+           start_flow
+             (frozen_flow snapshot [ "measured-failure"; "measured-successor" ])
+         in
+         let result =
+           EO.execute_flow_once
+             ~net
+             ~before_dispatch:(fun candidate ->
+               if String.equal (candidate_id candidate) "measured-failure"
+               then fail (label ^ " reached generation before_dispatch")
+               else Ok ())
+             ~before_advance:(fun ~failed ~next:_ ->
+               match failed with
+               | EO.Flow_candidate_rejected rejection ->
+                 check
+                   bool
+                   (label ^ " records measurement wire")
+                   true
+                   (EO.candidate_rejection_measurement_dispatch_fact rejection
+                    = EO.Measurement_dispatch_started);
+                 check
+                   bool
+                   (label ^ " preserves typed outcome")
+                   true
+                   (EO.candidate_rejection_measurement_outcome rejection
+                    = expected_outcome);
+                 Ok ()
+               | EO.Flow_candidate_execution_failed _ ->
+                 fail (label ^ " became a generation failure"))
+             flow
+         in
+         result, EO.flow_attempt_evidence flow
+       in
+       check int (label ^ " measurement posts") 1 posts.measurement_posts;
+       check int (label ^ " successor generation posts") 1 posts.generation_posts;
+       check int (label ^ " owns only successor attempt") 1 (List.length evidence.attempts);
+       match result with
+       | Ok success ->
+         check
+           string
+           (label ^ " advances to successor")
+           "measured-successor"
+           (candidate_id (EO.flow_success_candidate success))
+       | Error _ -> fail (label ^ " did not advance to successor"))
+    cases
+;;
+
+let test_measured_and_unmeasured_thinking_control_freeze_identical_body () =
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"thinking-parity-model","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+  in
+  let (unmeasured_hash, measured_hash), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-parity-model"
+          ~anthropic_thinking_control:"adaptive_preferred"
+          ~id:"thinking-unmeasured"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-parity-model"
+          ~anthropic_thinking_control:"adaptive_preferred"
+          ~serving_constraint:true
+          ~serving_accepted_through_tokens:10
+          ~serving_rejected_from_tokens:11
+          ~id:"thinking-measured"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let execute id =
+      let flow = start_flow (frozen_flow snapshot [ id ]) in
+      match execute_ok ~net flow with
+      | Error _ -> failf "%s did not execute" id
+      | Ok success ->
+        (match (EO.flow_success_evidence success).admissions with
+         | [ EO.Candidate_admitted candidate ] -> candidate.request_body_sha256
+         | _ -> failf "%s lost admitted evidence" id)
+    in
+    execute "thinking-unmeasured", execute "thinking-measured"
+  in
+  check int "thinking parity measures only constrained request" 1 posts.measurement_posts;
+  check int "thinking parity generates both requests" 2 posts.generation_posts;
+  check
+    string
+    "thinking control freezes the same generation body on both paths"
+    unmeasured_hash
+    measured_hash
 ;;
 
 let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
@@ -1816,7 +2080,7 @@ let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
             int
             "retained rejection remains zero-dispatch"
             0
-            (EO.candidate_rejection_dispatch_count rejection))
+            (EO.candidate_rejection_generation_dispatch_count rejection))
        [ first; second ]
    | _ -> fail "flow evidence did not retain typed admission receipts");
   match result with
@@ -2217,7 +2481,7 @@ let test_callback_failures_are_terminal () =
        bool
        "before-dispatch callback failure starts no outward dispatch"
        true
-       (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
+       (EO.flow_execution_error_outward_dispatch error = EO.No_generation_dispatch);
      check string "failed bind candidate" "bind-a" (candidate_id candidate);
      check
        bool
@@ -2236,7 +2500,7 @@ let test_callback_failures_are_terminal () =
        bool
        "attempt-start failure starts no outward dispatch"
        true
-       (EO.flow_execution_error_outward_dispatch start_failed = EO.No_outward_dispatch)
+       (EO.flow_execution_error_outward_dispatch start_failed = EO.No_generation_dispatch)
    | Ok _ | Error _ -> fail "failed bind did not return typed terminal evidence");
   let before_advance_result, before_advance_posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
@@ -2262,7 +2526,7 @@ let test_callback_failures_are_terminal () =
       bool
       "before-advance callback failure starts no outward dispatch"
       true
-      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
+      (EO.flow_execution_error_outward_dispatch error = EO.No_generation_dispatch);
     check string "failed attempt identity" "advance-a" (flow_failure_id failed);
     check string "withheld successor identity" "advance-b" next.identity.candidate_id;
     check int "withheld successor remains unprepared" 1 (List.length evidence.attempts)
@@ -2299,7 +2563,7 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
         bool
         (label ^ " records outward dispatch started")
         true
-        (EO.flow_execution_error_outward_dispatch error = EO.Outward_dispatch_started);
+        (EO.flow_execution_error_outward_dispatch error = EO.Generation_dispatch_started);
       check string (label ^ " terminal candidate") (label ^ "-a") (candidate_id candidate);
       check
         int
@@ -2350,13 +2614,13 @@ let test_success_and_later_domain_rejection_are_terminal () =
       true
       (EO.flow_execution_error_outward_dispatch
          (EO.Flow_success_ordinal_exhausted evidence)
-       = EO.Outward_dispatch_started);
+       = EO.Generation_dispatch_started);
     check
       bool
       "replayed invocation starts no new outward dispatch"
       true
       (EO.flow_execution_error_outward_dispatch (EO.Flow_attempt_already_started evidence)
-       = EO.No_outward_dispatch)
+       = EO.No_generation_dispatch)
   | Error _ -> fail "terminal success fixture failed"
 ;;
 
@@ -2398,7 +2662,7 @@ let test_structural_predispatch_failure_does_not_advance () =
       bool
       "predispatch structural failure starts no outward dispatch"
       true
-      (EO.flow_execution_error_outward_dispatch error = EO.No_outward_dispatch);
+      (EO.flow_execution_error_outward_dispatch error = EO.No_generation_dispatch);
     check
       int
       "structural failure remains zero dispatch"
@@ -2551,6 +2815,14 @@ let () =
             "measured token and serialized body capacities are independent"
             `Quick
             test_measured_token_and_body_capacity_are_independent
+        ; test_case
+            "typed measurement failures advance without generation attempt"
+            `Quick
+            test_typed_measurement_failures_advance_without_generation_attempt
+        ; test_case
+            "measured and unmeasured thinking control freeze identical body"
+            `Quick
+            test_measured_and_unmeasured_thinking_control_freeze_identical_body
         ; test_case
             "all candidate rejections return zero-dispatch terminal"
             `Quick

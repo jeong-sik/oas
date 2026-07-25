@@ -1,3 +1,20 @@
+type measurement_dispatch_fact =
+  | No_measurement_dispatch
+  | Measurement_dispatch_started
+
+type measurement_outcome =
+  | Measurement_not_required
+  | Measurement_succeeded
+  | Measurement_unsupported
+  | Measurement_local_invalid
+  | Measurement_transport_failed
+  | Measurement_invalid_response
+
+type measurement_evidence =
+  { dispatch : measurement_dispatch_fact
+  ; outcome : measurement_outcome
+  }
+
 (** Provider-neutral, exact structured-output Single Surface.
 
     The canonical downstream path is [Agent_sdk.Exact_output]. The
@@ -232,6 +249,7 @@ type admitted_flow_candidate =
   ; plan_fingerprint : string
   ; request_body_sha256 : string
   ; provenance : plan_provenance
+  ; measurement : measurement_evidence
   }
 
 type candidate_admission =
@@ -429,13 +447,20 @@ val admission_error_disposition : admission_error -> candidate_rejection_disposi
 val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
 val candidate_rejection_scope : candidate_rejection_receipt -> flow_scope
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
+val candidate_rejection_measurement_dispatch_fact
+  :  candidate_rejection_receipt
+  -> measurement_dispatch_fact
+
+val candidate_rejection_measurement_outcome
+  :  candidate_rejection_receipt
+  -> measurement_outcome
 
 val candidate_rejection_disposition
   :  candidate_rejection_receipt
   -> candidate_rejection_disposition
 
 val candidate_rejection_phase : candidate_rejection_receipt -> effect_phase
-val candidate_rejection_dispatch_count : candidate_rejection_receipt -> int
+val candidate_rejection_generation_dispatch_count : candidate_rejection_receipt -> int
 
 type flow_evidence = private
   { flow_id : flow_id
@@ -497,9 +522,9 @@ type flow_candidate_failure =
       ; cause : execution_error
       }
 
-type outward_dispatch_fact =
-  | No_outward_dispatch
-  | Outward_dispatch_started
+type generation_dispatch_fact =
+  | No_generation_dispatch
+  | Generation_dispatch_started
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
@@ -536,7 +561,7 @@ type 'callback_error flow_execution_error =
     decision. *)
 val flow_execution_error_outward_dispatch
   :  'callback_error flow_execution_error
-  -> outward_dispatch_fact
+  -> generation_dispatch_fact
 
 (** Point-in-time aggregate evidence. [scope] is the exact opaque flow scope,
     [declared_candidate_snapshot] is the caller-declared order, and

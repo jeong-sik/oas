@@ -18,6 +18,7 @@
   exact_output_execution
   exact_output_gemini_schema
   exact_output_flow
+  exact_output_flow_admission
   exact_output_flow_contract
   exact_output_provider_trace
   exact_output_plan)
