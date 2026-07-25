@@ -2531,27 +2531,6 @@ let test_predispatch_measurement_failure_advances_without_wire () =
           ~native:true
           ~json:true
           ()
-      ; catalog_entry
-          ~kind:"anthropic"
-          ~request_path:"/v1/messages"
-          ~model_id:"thinking-default-implicit-model"
-          ~anthropic_thinking_control:"adaptive_default"
-          ~id:"thinking-default-implicit"
-          ~base_url
-          ~native:true
-          ~json:true
-          ()
-      ; catalog_entry
-          ~kind:"anthropic"
-          ~request_path:"/v1/messages"
-          ~model_id:"thinking-default-disabled-model"
-          ~anthropic_thinking_control:"adaptive_default"
-          ~enable_thinking:false
-          ~id:"thinking-default-disabled"
-          ~base_url
-          ~native:true
-          ~json:true
-          ()
       ]
     @@ fun snapshot ->
     let flow =
@@ -2735,6 +2714,27 @@ let test_exact_anthropic_frozen_artifact_parity () =
           ~serving_accepted_through_tokens:10
           ~serving_rejected_from_tokens:11
           ~id:"thinking-measured"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-implicit-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~id:"thinking-default-implicit"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-disabled-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~enable_thinking:false
+          ~id:"thinking-default-disabled"
           ~base_url
           ~native:true
           ~json:true
