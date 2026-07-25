@@ -2329,27 +2329,6 @@ let test_measurement_cancellation_terminalizes_receipt () =
           ~native:true
           ~json:true
           ()
-      ; catalog_entry
-          ~kind:"anthropic"
-          ~request_path:"/v1/messages"
-          ~model_id:"thinking-default-implicit-model"
-          ~anthropic_thinking_control:"adaptive_default"
-          ~id:"thinking-default-implicit"
-          ~base_url
-          ~native:true
-          ~json:true
-          ()
-      ; catalog_entry
-          ~kind:"anthropic"
-          ~request_path:"/v1/messages"
-          ~model_id:"thinking-default-disabled-model"
-          ~anthropic_thinking_control:"adaptive_default"
-          ~enable_thinking:false
-          ~id:"thinking-default-disabled"
-          ~base_url
-          ~native:true
-          ~json:true
-          ()
       ]
     @@ fun snapshot ->
     let successor = label ^ "-successor" in
@@ -2548,6 +2527,27 @@ let test_predispatch_measurement_failure_advances_without_wire () =
           ~kind:"anthropic"
           ~request_path:"/v1/messages"
           ~id:"predispatch-measurement-successor"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-implicit-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~id:"thinking-default-implicit"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-disabled-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~enable_thinking:false
+          ~id:"thinking-default-disabled"
           ~base_url
           ~native:true
           ~json:true
@@ -2754,7 +2754,7 @@ let test_exact_anthropic_frozen_artifact_parity () =
     ]
   in
   check int "exact artifact measures only constrained request" 1 posts.measurement_posts;
-  check int "exact artifact generates both requests" 4 posts.generation_posts;
+  check int "exact artifact generates all four requests" 4 posts.generation_posts;
   List.iter
     (fun (success : EO.success) ->
        match

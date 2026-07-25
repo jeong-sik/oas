@@ -821,16 +821,16 @@ let load_resolver_snapshot ~io ?(catalog = Embedded_default) () =
          in
          let identity_fingerprint =
            hash_parts
-            ([ "oas-exact-output-target-v4"
-             ; target_ref_id target.target_ref
+             ([ "oas-exact-output-target-v4"
+              ; target_ref_id target.target_ref
               ; provider.id
               ; PC.string_of_provider_kind provider.kind
               ; target.model_id
               ; base_url
-             ; provider.request_path
-             ; provider.api_key_env
-             ; option_bool target.enable_thinking
-             ; Binding.option_int target.max_request_body_bytes
+              ; provider.request_path
+              ; provider.api_key_env
+              ; option_bool target.enable_thinking
+              ; Binding.option_int target.max_request_body_bytes
               ; option_float target.connect_timeout_s
               ; option_float target.body_timeout_s
               ; codec
