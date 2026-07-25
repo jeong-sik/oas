@@ -440,10 +440,6 @@ val plan_provenance_target_identity : plan_provenance -> target_identity
 val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
 
-module For_testing : sig
-  val exact_generation_artifact_serialization_count : unit -> int
-end
-
 type start_attempt_error = Call_id_generation_failed of string
 
 type measurement_start_error =

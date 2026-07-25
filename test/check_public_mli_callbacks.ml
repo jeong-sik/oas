@@ -284,7 +284,11 @@ let callback_values path signature =
 let violation_key violation =
   String.concat
     "|"
-    [ violation.value_name; violation.argument_label; violation.type_fingerprint ]
+    [ Filename.basename violation.path
+    ; violation.value_name
+    ; violation.argument_label
+    ; violation.type_fingerprint
+    ]
 ;;
 
 let add_allowed_fingerprint fingerprint allowed =
@@ -367,62 +371,240 @@ let top_level_binding name structure =
 
 let exact_post_path = [ "Cohttp_eio"; "Client"; "post" ]
 
+type transport_scope =
+  { modules : String_set.t
+  ; module_aliases : string list String_map.t
+  ; values : String_set.t
+  ; value_aliases : string list String_map.t
+  }
+
+let rec transparent_expression expression =
+  match expression.pexp_desc with
+  | Pexp_constraint (inner, _)
+  | Pexp_coerce (inner, _, _)
+  | Pexp_poly (inner, _) -> transparent_expression inner
+  | _ -> expression
+;;
+
+let rec transparent_module_expression module_expression =
+  match module_expression.pmod_desc with
+  | Pmod_constraint (inner, _) -> transparent_module_expression inner
+  | _ -> module_expression
+;;
+
+let rec transparent_pattern pattern =
+  match pattern.ppat_desc with
+  | Ppat_constraint (inner, _) -> transparent_pattern inner
+  | _ -> pattern
+;;
+
+let transport_scope structure =
+  let add_module scope declaration =
+    match declaration.pmb_name.txt with
+    | None -> scope
+    | Some name ->
+      let module_aliases =
+        match (transparent_module_expression declaration.pmb_expr).pmod_desc with
+        | Pmod_ident identifier ->
+          (match longident_parts identifier.txt with
+           | Ok parts -> String_map.add name parts scope.module_aliases
+           | Error () -> scope.module_aliases)
+        | _ -> scope.module_aliases
+      in
+      { scope with
+        modules = String_set.add name scope.modules
+      ; module_aliases
+      }
+  in
+  let add_value scope binding =
+    match (transparent_pattern binding.pvb_pat).ppat_desc with
+    | Ppat_var name ->
+      let value_aliases =
+        match (transparent_expression binding.pvb_expr).pexp_desc with
+        | Pexp_ident identifier ->
+          (match longident_parts identifier.txt with
+           | Ok parts -> String_map.add name.txt parts scope.value_aliases
+           | Error () -> scope.value_aliases)
+        | _ -> scope.value_aliases
+      in
+      { scope with
+        values = String_set.add name.txt scope.values
+      ; value_aliases
+      }
+    | _ -> scope
+  in
+  List.fold_left
+    (fun scope item ->
+       match item.pstr_desc with
+       | Pstr_module declaration -> add_module scope declaration
+       | Pstr_recmodule declarations ->
+         List.fold_left add_module scope declarations
+       | Pstr_value (_, bindings) ->
+         List.fold_left add_value scope bindings
+       | _ -> scope)
+    { modules = String_set.empty
+    ; module_aliases = String_map.empty
+    ; values = String_set.empty
+    ; value_aliases = String_map.empty
+    }
+    structure
+;;
+
+type transport_reference =
+  | Local_transport_reference
+  | External_transport_reference of string list
+  | Unresolved_transport_reference
+
 let transport_reference_facts structure =
   let exact_references = ref 0 in
   let post_calls = ref 0 in
   let unresolved_identifiers = ref 0 in
   let forbidden_module_alias = ref false in
   let external_proxy_or_reexport = ref false in
-  let forbidden_module_path identifier =
+  let external_value_alias = ref false in
+  let scopes = ref [] in
+  let visible_name select name =
+    List.exists (fun scope -> String_set.mem name (select scope)) !scopes
+  in
+  let rec visible_alias select name = function
+    | [] -> None
+    | scope :: rest ->
+      (match String_map.find_opt name (select scope) with
+       | Some target -> Some target
+       | None -> visible_alias select name rest)
+  in
+  let ends_in_post = function
+    | parts ->
+      (match List.rev parts with
+       | "post" :: _ -> true
+       | _ -> false)
+  in
+  let rec resolve_module seen = function
+    | [] -> Unresolved_transport_reference
+    | root :: suffix as parts ->
+      if String_set.mem root seen
+      then Unresolved_transport_reference
+      else (
+        match visible_alias (fun scope -> scope.module_aliases) root !scopes with
+        | Some target ->
+          resolve_module (String_set.add root seen) (target @ suffix)
+        | None ->
+          if visible_name (fun scope -> scope.modules) root
+          then Local_transport_reference
+          else External_transport_reference parts)
+  in
+  let rec resolve_value seen = function
+    | [] -> Unresolved_transport_reference
+    | [ name ] as parts ->
+      if String_set.mem name seen
+      then Unresolved_transport_reference
+      else (
+        match visible_alias (fun scope -> scope.value_aliases) name !scopes with
+        | Some target -> resolve_value (String_set.add name seen) target
+        | None ->
+          if visible_name (fun scope -> scope.values) name
+          then Local_transport_reference
+          else External_transport_reference parts)
+    | parts -> resolve_module String_set.empty parts
+  in
+  let resolve_identifier identifier =
     match longident_parts identifier with
-    | Error () -> true
-    | Ok ("Cohttp_eio" :: _) -> true
-    | Ok _ -> false
+    | Ok parts -> resolve_value String_set.empty parts
+    | Error () -> Unresolved_transport_reference
+  in
+  let cohttp_eio_reference = function
+    | External_transport_reference ("Cohttp_eio" :: _) -> true
+    | Local_transport_reference
+    | External_transport_reference _
+    | Unresolved_transport_reference -> false
+  in
+  let external_module_reference identifier =
+    match longident_parts identifier with
+    | Ok parts -> resolve_module String_set.empty parts
+    | Error () -> Unresolved_transport_reference
+  in
+  let external_post_reference expression =
+    match (transparent_expression expression).pexp_desc with
+    | Pexp_ident identifier ->
+      (match resolve_identifier identifier.txt with
+       | External_transport_reference parts -> ends_in_post parts
+       | Unresolved_transport_reference -> true
+       | Local_transport_reference -> false)
+    | _ -> false
+  in
+  let inspect_value_bindings bindings =
+    if List.exists
+         (fun binding -> external_post_reference binding.pvb_expr)
+         bindings
+    then external_value_alias := true
   in
   let iterator =
     { Ast_iterator.default_iterator with
       expr =
         (fun self expression ->
           (match expression.pexp_desc with
-           | Pexp_apply ({ pexp_desc = Pexp_ident identifier; _ }, _) ->
-             (match longident_parts identifier.txt with
-              | Ok parts
-                when String.equal (List.hd (List.rev parts)) "post" ->
-                incr post_calls
-              | Ok _ | Error () -> ())
-           | Pexp_apply
-               ({ pexp_desc = Pexp_field (_, { txt = Longident.Lident "post"; _ }); _ }, _)
-             -> incr post_calls
+           | Pexp_apply (callee, _) ->
+             (match (transparent_expression callee).pexp_desc with
+              | Pexp_ident identifier ->
+                (match resolve_identifier identifier.txt with
+                 | External_transport_reference parts when ends_in_post parts ->
+                   (match longident_parts identifier.txt with
+                    | Ok (root :: _)
+                      when Option.is_some
+                             (visible_alias
+                                (fun scope -> scope.module_aliases)
+                                root
+                                !scopes) ->
+                      external_proxy_or_reexport := true
+                    | Ok _ | Error () -> ());
+                   incr post_calls
+                 | Unresolved_transport_reference -> incr unresolved_identifiers
+                 | Local_transport_reference | External_transport_reference _ -> ())
+              | _ -> ())
+           | Pexp_let (_, bindings, _) -> inspect_value_bindings bindings
            | Pexp_ident identifier ->
-             (match longident_parts identifier.txt with
-              | Ok actual when List.equal String.equal actual exact_post_path ->
+             (match resolve_identifier identifier.txt with
+              | External_transport_reference actual
+                when List.equal String.equal actual exact_post_path ->
                 incr exact_references
-              | Ok _ -> ()
-              | Error () -> incr unresolved_identifiers)
+              | Unresolved_transport_reference -> incr unresolved_identifiers
+              | Local_transport_reference | External_transport_reference _ -> ())
            | _ -> ());
           Ast_iterator.default_iterator.expr self expression)
     ; module_expr =
         (fun self module_expression ->
-          (match module_expression.pmod_desc with
-           | Pmod_ident identifier when forbidden_module_path identifier.txt ->
-             forbidden_module_alias := true
+          (match (transparent_module_expression module_expression).pmod_desc with
+           | Pmod_ident identifier ->
+             (match external_module_reference identifier.txt with
+              | reference when cohttp_eio_reference reference ->
+                forbidden_module_alias := true
+              | Unresolved_transport_reference -> incr unresolved_identifiers
+              | Local_transport_reference | External_transport_reference _ -> ())
            | _ -> ());
           Ast_iterator.default_iterator.module_expr self module_expression)
     ; structure_item =
         (fun self item ->
           (match item.pstr_desc with
-           | Pstr_module
-               { pmb_expr = { pmod_desc = Pmod_ident _; _ }; _ }
-           | Pstr_include _ -> external_proxy_or_reexport := true
-           | Pstr_recmodule declarations
-             when List.exists
-                    (fun declaration ->
-                       match declaration.pmb_expr.pmod_desc with
-                       | Pmod_ident _ -> true
-                       | _ -> false)
-                    declarations -> external_proxy_or_reexport := true
+           | Pstr_include declaration ->
+             (match (transparent_module_expression declaration.pincl_mod).pmod_desc with
+              | Pmod_ident identifier ->
+                (match external_module_reference identifier.txt with
+                 | Local_transport_reference -> ()
+                 | reference when cohttp_eio_reference reference ->
+                   forbidden_module_alias := true
+                 | External_transport_reference _ ->
+                   external_proxy_or_reexport := true
+                 | Unresolved_transport_reference -> incr unresolved_identifiers)
+              | _ -> ())
+           | Pstr_value (_, bindings) -> inspect_value_bindings bindings
            | _ -> ());
           Ast_iterator.default_iterator.structure_item self item)
+    ; structure =
+        (fun self items ->
+          scopes := transport_scope items :: !scopes;
+          Fun.protect
+            ~finally:(fun () -> scopes := List.tl !scopes)
+            (fun () -> Ast_iterator.default_iterator.structure self items))
     }
   in
   iterator.structure iterator structure;
@@ -430,7 +612,8 @@ let transport_reference_facts structure =
   , !post_calls
   , !unresolved_identifiers
   , !forbidden_module_alias
-  , !external_proxy_or_reexport )
+  , !external_proxy_or_reexport
+  , !external_value_alias )
 ;;
 
 let stage2_chain_is_direct expression =
@@ -462,27 +645,88 @@ let stage2_chain_is_direct expression =
   !found
 ;;
 
+type exact_transport_violation_category =
+  | Unresolved_applied_identifier
+  | Forbidden_cohttp_alias
+  | External_transport_reexport
+  | External_post_value_alias
+  | Unexpected_post_call_count
+  | Noncanonical_post_reference
+  | Noncanonical_transport_order
+  | Missing_transport_entrypoints
+
+type exact_transport_violation =
+  { category : exact_transport_violation_category
+  ; detail : string
+  }
+
+let exact_transport_violation category detail = Some { category; detail }
+
+let exact_transport_violation_category_name = function
+  | Unresolved_applied_identifier -> "unresolved-applied-identifier"
+  | Forbidden_cohttp_alias -> "forbidden-cohttp-alias"
+  | External_transport_reexport -> "external-transport-reexport"
+  | External_post_value_alias -> "external-post-value-alias"
+  | Unexpected_post_call_count -> "unexpected-post-call-count"
+  | Noncanonical_post_reference -> "noncanonical-post-reference"
+  | Noncanonical_transport_order -> "noncanonical-transport-order"
+  | Missing_transport_entrypoints -> "missing-transport-entrypoints"
+;;
+
+let exact_transport_violation_category_of_name name =
+  List.find_opt
+    (fun category -> String.equal name (exact_transport_violation_category_name category))
+    [ Unresolved_applied_identifier
+    ; Forbidden_cohttp_alias
+    ; External_transport_reexport
+    ; External_post_value_alias
+    ; Unexpected_post_call_count
+    ; Noncanonical_post_reference
+    ; Noncanonical_transport_order
+    ; Missing_transport_entrypoints
+    ]
+;;
+
 let exact_transport_error path structure =
   let ( exact_references
       , post_calls
       , unresolved_identifiers
       , forbidden_module_alias
-      , external_proxy_or_reexport )
+      , external_proxy_or_reexport
+      , external_value_alias )
     =
     transport_reference_facts structure
   in
   let direct_post_calls = count_qualified_calls "Cohttp_eio.Client.post" structure in
   if unresolved_identifiers <> 0
-  then Some (Printf.sprintf "%s: unresolved applied identifier in private transport" path)
+  then
+    exact_transport_violation
+      Unresolved_applied_identifier
+      (Printf.sprintf "%s: unresolved applied identifier in private transport" path)
   else if forbidden_module_alias
-  then Some (Printf.sprintf "%s: Cohttp_eio module alias/open/include is forbidden" path)
+  then
+    exact_transport_violation
+      Forbidden_cohttp_alias
+      (Printf.sprintf "%s: Cohttp_eio module alias/open/include is forbidden" path)
   else if external_proxy_or_reexport
-  then Some (Printf.sprintf "%s: external transport proxy/reexport is forbidden" path)
+  then
+    exact_transport_violation
+      External_transport_reexport
+      (Printf.sprintf "%s: external transport proxy/reexport is forbidden" path)
+  else if external_value_alias
+  then
+    exact_transport_violation
+      External_post_value_alias
+      (Printf.sprintf "%s: external post value alias is forbidden" path)
   else if post_calls <> 1
-  then Some (Printf.sprintf "%s: expected one post call, found %d" path post_calls)
+  then
+    exact_transport_violation
+      Unexpected_post_call_count
+      (Printf.sprintf "%s: expected one post call, found %d" path post_calls)
   else if exact_references <> 1 || direct_post_calls <> 1
   then
-    Some
+    exact_transport_violation
+      Noncanonical_post_reference
       (Printf.sprintf
          "%s: expected one qualified post reference and one direct call, found %d/%d"
          path
@@ -550,13 +794,15 @@ let exact_transport_error path structure =
               && mark < post
               && stage2_chain_is_direct transport -> None
        | _ ->
-         Some
+         exact_transport_violation
+           Noncanonical_transport_order
            (Printf.sprintf
               "%s: validation, durable commit, connect, CAS/mark, and POST order is not \
                canonical"
               path))
     | _ ->
-      Some
+      exact_transport_violation
+        Missing_transport_entrypoints
         (Printf.sprintf
            "%s: exact transport must define post_sync_once and \
             post_sync_once_after_commit"
@@ -579,9 +825,34 @@ let () =
      | Ok structure ->
        (match exact_transport_error path structure with
         | None -> ()
-        | Some detail ->
-          prerr_endline detail;
+        | Some violation ->
+          prerr_endline violation.detail;
           exit 1))
+  | [ _; "--expect-exact-transport-violation"; category_name; path ] ->
+    (match exact_transport_violation_category_of_name category_name with
+     | None ->
+       prerr_endline
+         (Printf.sprintf "unknown exact transport violation category: %s" category_name);
+       exit 2
+     | Some expected_category ->
+       (match parse_transport path with
+        | Error detail ->
+          prerr_endline detail;
+          exit 2
+        | Ok structure ->
+          (match exact_transport_error path structure with
+           | Some { category; _ } when category = expected_category -> ()
+           | Some violation ->
+             prerr_endline
+               (Printf.sprintf
+                  "expected exact transport violation %s, got %s: %s"
+                  category_name
+                  (exact_transport_violation_category_name violation.category)
+                  violation.detail);
+             exit 1
+           | None ->
+             prerr_endline "negative transport fixture no longer violates the boundary";
+             exit 1)))
   | [ _; "--expect-exact-transport-violation"; path ] ->
     (match parse_transport path with
      | Error detail ->
@@ -596,11 +867,19 @@ let () =
   | _ :: arguments ->
     let rec parse allow expect paths = function
       | [] -> allow, expect, List.rev paths
-      | "--allow-callback" :: fingerprint :: rest ->
-        parse (add_allowed_fingerprint fingerprint allow) expect paths rest
+      | "--allow-callback-in" :: interface :: fingerprint :: rest ->
+        let allowance_key =
+          String.concat "|" [ Filename.basename interface; fingerprint ]
+        in
+        parse (add_allowed_fingerprint allowance_key allow) expect paths rest
+      | "--allow-callback" :: _ ->
+        prerr_endline
+          "--allow-callback requires an owning interface; use --allow-callback-in";
+        exit 2
       | "--allow" :: _ ->
         prerr_endline
-          "--allow is forbidden: allow an exact value|label|resolved-type fingerprint";
+          "--allow is forbidden: allow an exact interface|value|label|resolved-type \
+           fingerprint";
         exit 2
       | "--expect-callback" :: rest -> parse allow true paths rest
       | path :: rest -> parse allow expect (path :: paths) rest
@@ -610,6 +889,19 @@ let () =
     then (
       prerr_endline "usage: check_public_mli_callbacks [flags] <interface>...";
       exit 2);
+    let _ =
+      List.fold_left
+        (fun basenames path ->
+           let basename = Filename.basename path in
+           if String_set.mem basename basenames
+           then (
+             prerr_endline
+               (Printf.sprintf "duplicate interface basename in one invocation: %s" basename);
+             exit 2)
+           else String_set.add basename basenames)
+        String_set.empty
+        paths
+    in
     let callbacks =
       List.concat_map
         (fun path ->

@@ -55,6 +55,35 @@ let classify_network_exn (exception_ : exn) =
   | _ -> None
 ;;
 
+type transport_exception_disposition =
+  | Reserved_transport_exception
+  | Typed_transport_error of Http_client.http_error
+
+let transport_exception_disposition exn =
+  match classify_network_exn exn with
+  | Some error -> Typed_transport_error error
+  | None ->
+    (match exn with
+     | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
+       Reserved_transport_exception
+     | _ ->
+       Typed_transport_error
+         (ProviderFailure
+            { kind = Unknown_provider_failure { reason = Some (Printexc.to_string exn) }
+            ; message = "unclassified transport exception"
+            }))
+;;
+
+let%test "ordinary unclassified transport exceptions remain typed" =
+  let is_unknown exn =
+    match transport_exception_disposition exn with
+    | Typed_transport_error
+        (ProviderFailure { kind = Unknown_provider_failure _; _ }) -> true
+    | Reserved_transport_exception | Typed_transport_error _ -> false
+  in
+  is_unknown (Failure "opaque failure") && is_unknown (Sys_error "opaque sys error")
+;;
+
 let validate_uri url =
   try
     let uri = Uri.of_string url in
@@ -234,12 +263,12 @@ let post_sync_once_after_commit
       invalid_arg "exact-output measurement transport has inconsistent receipt state"
   in
   let fail_exn exn =
-    match classify_network_exn exn with
-    | Some error -> Error error
-    | None ->
+    let backtrace = Printexc.get_raw_backtrace () in
+    match transport_exception_disposition exn with
+    | Typed_transport_error error -> Error error
+    | Reserved_transport_exception ->
       release_connection ();
-      Reserved_exn.reraise_if_reserved exn;
-      raise exn
+      Printexc.raise_with_backtrace exn backtrace
   in
   let total_started_at =
     match body_deadline with

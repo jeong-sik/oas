@@ -61,12 +61,6 @@ let plan_provenance_target_identity (provenance : plan_provenance) =
   provenance.target_identity
 ;;
 
-module For_testing = struct
-  let exact_generation_artifact_serialization_count () =
-    Exact_output_count_tokens.For_testing.generation_serializer_invocation_count ()
-  ;;
-end
-
 type call_id = Generation_receipt.call_id = Call_id of string
 type provider_trace = Trace.t
 type receipt = Generation_receipt.t
@@ -885,7 +879,10 @@ let execute_flow_candidate
 ;;
 
 let advanceable_flow_failure = function
-  | Flow_step_candidate_rejected receipt -> Some (Flow_candidate_rejected receipt)
+  | Flow_step_candidate_rejected receipt
+    when receipt.measurement.dispatch = No_measurement_dispatch ->
+    Some (Flow_candidate_rejected receipt)
+  | Flow_step_candidate_rejected _ -> None
   | Flow_step_execution_failed ({ cause; _ } as failure)
     when execution_failure_may_advance cause ->
     Some

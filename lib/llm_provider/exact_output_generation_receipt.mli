@@ -10,6 +10,12 @@ type effect_phase =
   | Response_received
   | Terminal
 
+type response_evidence_field =
+  | Http_status_field
+  | Provider_trace_field
+
+exception Conflicting_response_evidence of response_evidence_field
+
 type t
 type snapshot
 

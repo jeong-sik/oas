@@ -251,10 +251,10 @@ let admit
                    let measurement = finish_receipt receipt outcome_of_dispatch in
                    on_measurement_receipt receipt;
                    if Atomic.compare_and_set terminal_callback_started false true
-                   then
+                   then (
                      match on_measurement_terminal receipt with
                      | Ok () -> Ok measurement
-                     | Error cause -> Error cause
+                     | Error cause -> Error cause)
                    else Ok measurement
                  in
                  let run () =
@@ -265,9 +265,7 @@ let admit
                      | Error cause ->
                        confirm_no_dispatch receipt;
                        on_measurement_receipt receipt;
-                       (match
-                          terminal_callback (fun _ -> Measurement_fence_rejected)
-                        with
+                       (match terminal_callback (fun _ -> Measurement_fence_rejected) with
                         | Ok _ -> Error (`Before_dispatch_failed cause)
                         | Error terminal_cause ->
                           Error (`Terminal_callback_failed terminal_cause))
@@ -321,8 +319,7 @@ let admit
                           ~max_context_tokens
                           measured
                       with
-                      | Error error ->
-                        reject_measured (Context_admission_rejected error)
+                      | Error error -> reject_measured (Context_admission_rejected error)
                       | Ok admitted ->
                         (match Plan.finalize_measured preflight admitted with
                          | Error error ->
@@ -332,13 +329,36 @@ let admit
                              (fun _ -> Measurement_succeeded)
                              (fun measurement -> Admitted { plan; measurement })))
                  in
-                 try run () with
-                 | (Eio.Cancel.Cancelled _ as exn) ->
-                   let backtrace = Printexc.get_raw_backtrace () in
-                   ignore (terminal_callback (fun _ -> Measurement_cancelled));
-                   Printexc.raise_with_backtrace exn backtrace
-                 | exn ->
-                   let backtrace = Printexc.get_raw_backtrace () in
-                   Reserved_exn.reraise_if_reserved exn;
-                   Printexc.raise_with_backtrace exn backtrace))))
+(try run () with
+ | Eio.Cancel.Cancelled _ as exn ->
+   let backtrace = Printexc.get_raw_backtrace () in
+   Fun.protect
+     ~finally:(fun () -> Printexc.raise_with_backtrace exn backtrace)
+     (fun () ->
+       ignore (finish_receipt receipt (fun _ -> Measurement_cancelled));
+       (try Eio.Cancel.protect (fun () -> on_measurement_receipt receipt) with
+        | callback_exn ->
+          Diag.warn
+            "exact_output_flow_admission"
+            "measurement cancellation receipt publication failed: %s"
+            (Printexc.to_string callback_exn));
+       if Atomic.compare_and_set terminal_callback_started false true
+       then
+         try
+           match Eio.Cancel.protect (fun () -> on_measurement_terminal receipt) with
+           | Ok () -> ()
+           | Error _ ->
+             Diag.warn
+               "exact_output_flow_admission"
+               "measurement cancellation terminal callback rejected"
+         with
+         | callback_exn ->
+           Diag.warn
+             "exact_output_flow_admission"
+             "measurement cancellation terminal callback raised: %s"
+             (Printexc.to_string callback_exn))
+ | exn ->
+                    let backtrace = Printexc.get_raw_backtrace () in
+                    Reserved_exn.reraise_if_reserved exn;
+                    Printexc.raise_with_backtrace exn backtrace)))))
 ;;

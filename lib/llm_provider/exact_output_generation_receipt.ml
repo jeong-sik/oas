@@ -126,17 +126,34 @@ let state_rank = function
   | Terminal_state _ -> 4
 ;;
 
-let first_some current incoming =
-  match current with
-  | Some _ -> current
-  | None -> incoming
+type response_evidence_field =
+  | Http_status_field
+  | Provider_trace_field
+
+exception Conflicting_response_evidence of response_evidence_field
+
+let merge_optional ~field ~equal current incoming =
+  match current, incoming with
+  | None, None -> None
+  | Some value, None | None, Some value -> Some value
+  | Some current, Some incoming ->
+    if equal current incoming
+    then Some current
+    else raise (Conflicting_response_evidence field)
 ;;
 
-let merge_response_fields
-      (current_status, current_trace)
-      (incoming_status, incoming_trace)
+let merge_response_fields (current_status, current_trace) (incoming_status, incoming_trace)
   =
-  first_some current_status incoming_status, first_some current_trace incoming_trace
+  ( merge_optional
+      ~field:Http_status_field
+      ~equal:Int.equal
+      current_status
+      incoming_status
+  , merge_optional
+      ~field:Provider_trace_field
+      ~equal:Trace.equal
+      current_trace
+      incoming_trace )
 ;;
 
 let state_equal left right =
@@ -173,23 +190,39 @@ let merge_state current desired =
     in
     Terminal_state { status = Option.get status; provider_trace }
   | Terminal_state current, Terminal_state desired ->
-    let _, provider_trace =
+    let status, provider_trace =
       merge_response_fields
         (Some current.status, current.provider_trace)
         (Some desired.status, desired.provider_trace)
     in
-    Terminal_state { current with provider_trace }
+    Terminal_state { status = Option.get status; provider_trace }
   | _ -> desired
 ;;
 
-let rec advance_atomic ~rank ~merge ~equal state desired =
+let rec advance_atomic
+      ?(before_compare_and_set = fun () -> ())
+      ~rank
+      ~merge
+      ~equal
+      state
+      desired
+  =
   let current = Atomic.get state in
   if rank desired >= rank current
   then (
     let merged = merge current desired in
-    if (not (equal current merged))
-       && not (Atomic.compare_and_set state current merged)
-    then advance_atomic ~rank ~merge ~equal state desired)
+    if not (equal current merged)
+    then (
+      before_compare_and_set ();
+      if not (Atomic.compare_and_set state current merged)
+      then
+        advance_atomic
+          ~before_compare_and_set
+          ~rank
+          ~merge
+          ~equal
+          state
+          desired))
 ;;
 
 let advance receipt desired =
@@ -201,53 +234,64 @@ let advance receipt desired =
     desired
 ;;
 
-let%test "same-rank status and trace converge monotonically under CAS" =
-  let rank (rank, _, _) = rank in
-  let merge (current_rank, current_status, current_trace) (desired_rank, status, trace)
-    =
-    let status, trace =
-      merge_response_fields (current_status, current_trace) (status, trace)
-    in
-    Int.max current_rank desired_rank, status, trace
+let%test "conflicting same-attempt response evidence fails closed" =
+  match
+    (try
+       ignore (merge_response_fields (Some 200, None) (Some 503, None));
+       None
+     with
+     | Conflicting_response_evidence field -> Some field)
+  with
+  | Some Http_status_field -> true
+  | Some Provider_trace_field | None -> false
+;;
+
+let%test "same-rank receipt evidence joins in either order" =
+  let empty = Response_received_state { status = None; provider_trace = None } in
+  let status =
+    Response_received_state { status = Some 200; provider_trace = None }
   in
   let converge desired =
-    let state = Atomic.make (3, None, None) in
+    let state = Atomic.make empty in
     List.iter
-      (advance_atomic ~rank ~merge ~equal:( = ) state)
+      (advance_atomic ~rank:state_rank ~merge:merge_state ~equal:state_equal state)
       desired;
     Atomic.get state
   in
-  let race left right =
-    let state = Atomic.make (3, None, None) in
-    let ready = Atomic.make 0 in
-    let start = Atomic.make false in
-    let apply desired =
-      ignore (Atomic.fetch_and_add ready 1);
-      while not (Atomic.get start) do
-        Domain.cpu_relax ()
-      done;
-      advance_atomic ~rank ~merge ~equal:( = ) state desired
-    in
-    let left_domain = Domain.spawn (fun () -> apply left) in
-    let right_domain = Domain.spawn (fun () -> apply right) in
-    while Atomic.get ready <> 2 do
-      Domain.cpu_relax ()
-    done;
-    Atomic.set start true;
-    Domain.join left_domain;
-    Domain.join right_domain;
-    Atomic.get state
+  state_equal (converge [ empty; status ]) status
+  && state_equal (converge [ status; empty ]) status
+;;
+
+let%test "receipt CAS retry converges after competing rank promotion" =
+  let state = Atomic.make Dispatch_started_state in
+  let competed = ref false in
+  let before_compare_and_set () =
+    if not !competed
+    then (
+      competed := true;
+      advance_atomic
+        ~rank:state_rank
+        ~merge:merge_state
+        ~equal:state_equal
+        state
+        (Response_received_state { status = Some 200; provider_trace = None }))
   in
-  let status = 3, Some 200, None in
-  let trace = 3, None, Some "trace" in
-  let terminal = 4, Some 200, None in
-  let expected_response = 3, Some 200, Some "trace" in
-  let expected_terminal = 4, Some 200, Some "trace" in
-  converge [ status; trace ] = expected_response
-  && converge [ trace; status ] = expected_response
-  && converge [ trace; terminal ] = expected_terminal
-  && race status trace = expected_response
-  && race trace status = expected_response
+  advance_atomic
+    ~before_compare_and_set
+    ~rank:state_rank
+    ~merge:merge_state
+    ~equal:state_equal
+    state
+    (Terminal_state { status = 200; provider_trace = None });
+  !competed
+  &&
+  match Atomic.get state with
+  | Terminal_state { status = 200; provider_trace = None } -> true
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state _
+  | Terminal_state _ -> false
 ;;
 
 let observe_phase receipt = function
@@ -282,7 +326,7 @@ let rec record_provider_trace receipt provider_trace =
     then record_provider_trace receipt provider_trace
   | Terminal_state { provider_trace = Some recorded; _ } ->
     if not (Trace.equal recorded provider_trace)
-    then invalid_arg "Exact_output: conflicting provider trace"
+    then raise (Conflicting_response_evidence Provider_trace_field)
   | Response_received_state ({ provider_trace = None; _ } as received) ->
     let desired =
       Response_received_state { received with provider_trace = Some provider_trace }
@@ -291,7 +335,7 @@ let rec record_provider_trace receipt provider_trace =
     then record_provider_trace receipt provider_trace
   | Response_received_state { provider_trace = Some recorded; _ } ->
     if not (Trace.equal recorded provider_trace)
-    then invalid_arg "Exact_output: conflicting provider trace"
+    then raise (Conflicting_response_evidence Provider_trace_field)
   | Not_started_state | Before_dispatch_state | Dispatch_started_state ->
     invalid_arg "Exact_output: provider trace before response is received"
 ;;

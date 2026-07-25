@@ -494,6 +494,8 @@
   fixtures/exact_output_single_surface/public_callback_module_with.mli.fixture
   fixtures/exact_output_single_surface/public_callback_duplicate_allowed.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unused_allowance.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_allowance_origin.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_allowance_moved.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture
   fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture
   fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture
@@ -501,6 +503,10 @@
   fixtures/exact_output_single_surface/exact_transport_module_alias.ml.fixture
   fixtures/exact_output_single_surface/exact_transport_first_class_module.ml.fixture
   fixtures/exact_output_single_surface/exact_transport_external_proxy_reexport.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_external_value_alias.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_constrained_value_alias.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_constrained_module_alias.ml.fixture
+  fixtures/exact_output_single_surface/exact_transport_legitimate_local_alias.ml.fixture
   fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
   fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
@@ -540,19 +546,24 @@
     %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
-    --allow-callback
+    --allow-callback-in
+    http_client.mli
     "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
-    --allow-callback
+    --allow-callback-in
+    count_tokens_sync.mli
     "with_post_stream|~f|arrow(_,constr(Eio.Buf_read.t),var(a))"
-    --allow-callback
+    --allow-callback-in
+    count_tokens_sync.mli
     "read_sse|~on_data|arrow(~event_type,constr(option,constr(string)),arrow(_,constr(string),constr(unit)))"
-    --allow-callback
+    --allow-callback-in
+    count_tokens_sync.mli
     "read_ndjson|~on_line|arrow(_,constr(string),constr(unit))"
     %{dep:../lib/llm_provider/count_tokens_sync.mli}
     %{dep:../lib/llm_provider/http_client.mli})
    (run
     %{exe:check_public_mli_callbacks.exe}
-    --allow-callback
+    --allow-callback-in
+    public_callback_duplicate_allowed.mli.fixture
     "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
     --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_callback_duplicate_allowed.mli.fixture})
@@ -612,9 +623,19 @@
     1
     (run
      %{exe:check_public_mli_callbacks.exe}
-     --allow-callback
+     --allow-callback-in
+     public_callback_unused_allowance.mli.fixture
      "unused|_|arrow(_,constr(unit),constr(unit))"
      %{dep:fixtures/exact_output_single_surface/public_callback_unused_allowance.mli.fixture}))
+   (with-accepted-exit-codes
+    1
+    (run
+     %{exe:check_public_mli_callbacks.exe}
+     --allow-callback-in
+     public_callback_allowance_origin.mli.fixture
+     "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
+     %{dep:fixtures/exact_output_single_surface/public_callback_allowance_origin.mli.fixture}
+     %{dep:fixtures/exact_output_single_surface/public_callback_allowance_moved.mli.fixture}))
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-exact-transport-violation
@@ -631,6 +652,25 @@
     %{exe:check_public_mli_callbacks.exe}
     --expect-exact-transport-violation
     %{dep:fixtures/exact_output_single_surface/exact_transport_external_proxy_reexport.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    external-post-value-alias
+    %{dep:fixtures/exact_output_single_surface/exact_transport_external_value_alias.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    external-post-value-alias
+    %{dep:fixtures/exact_output_single_surface/exact_transport_constrained_value_alias.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    external-transport-reexport
+    %{dep:fixtures/exact_output_single_surface/exact_transport_constrained_module_alias.ml.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --check-exact-transport
+    %{dep:fixtures/exact_output_single_surface/exact_transport_legitimate_local_alias.ml.fixture})
    (run
     %{exe:check_exact_output_publication_lock.exe}
     %{dep:../lib/llm_provider/exact_output_flow.ml})
