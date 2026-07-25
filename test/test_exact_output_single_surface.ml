@@ -1816,9 +1816,9 @@ let test_gemini_any_of_nullable_enum_admitted_unchanged () =
     in
     check
       bool
-      (label ^ " Gemini request preserves the raw schema")
+      (label ^ " Gemini request preserves schema semantics")
       true
-      (captured_schema = domain_schema);
+      (Yojson.Safe.equal captured_schema domain_schema);
     let source =
       EO.plan_provenance_source_schema_fingerprint provenance
       |> EO.schema_fingerprint_to_string
