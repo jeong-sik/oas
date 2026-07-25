@@ -10,7 +10,24 @@ callback_checker_source="$root/test/check_public_mli_callbacks.ml"
 flow_admission="$root/lib/llm_provider/exact_output_flow_admission.ml"
 provider_dune="$root/lib/llm_provider/dune"
 
-if rg -n \
+if command -v rg >/dev/null 2>&1
+then
+  search_n() {
+    rg -n -- "$@"
+  }
+  search_q() {
+    rg -q -- "$@"
+  }
+else
+  search_n() {
+    grep -En -- "$@"
+  }
+  search_q() {
+    grep -Eq -- "$@"
+  }
+fi
+
+if search_n \
   'measure_completion_request_with_before_dispatch|completion_request_dispatch_error|measurement_transport_stage|before_dispatch:' \
   "$public_count_tokens"
 then
@@ -18,7 +35,7 @@ then
   exit 1
 fi
 
-if rg -n 'before_dispatch:' "$public_http_client"
+if search_n 'before_dispatch:' "$public_http_client"
 then
   echo "public Http_client must not expose a pre-dispatch callback" >&2
   exit 1
@@ -27,7 +44,7 @@ fi
 private_surface_leaked=false
 while IFS= read -r interface
 do
-  if rg -n \
+  if search_n \
     'measurement_dispatch_intent|create_measurement_dispatch_intent|commit_fence|mark_dispatch_started' \
     "$interface"
   then
@@ -52,18 +69,18 @@ for private_module in \
   exact_output_flow_admission \
   exact_output_ready_admission
 do
-  rg -q "^[[:space:]]*${private_module}$" "$provider_dune"
+  search_q "^[[:space:]]*${private_module}$" "$provider_dune"
 done
 
-if rg -n 'Http_client_phase_observer' "$flow_admission" "$private_measurement_transport"
+if search_n 'Http_client_phase_observer' "$flow_admission" "$private_measurement_transport"
 then
   echo "exact-output measurement must not infer dispatch from a scoped observer" >&2
   exit 1
 fi
 
-rg -q "type 'callback_error measurement_dispatch_intent" "$private_count_tokens"
-rg -q "dispatch_intent:'callback_error measurement_dispatch_intent" "$private_count_tokens"
-rg -q 'create_measurement_dispatch_intent' "$flow_admission"
+search_q "type 'callback_error measurement_dispatch_intent" "$private_count_tokens"
+search_q "dispatch_intent:'callback_error measurement_dispatch_intent" "$private_count_tokens"
+search_q 'create_measurement_dispatch_intent' "$flow_admission"
 
 callback_checker="$(mktemp)"
 trap 'rm -f "$callback_checker"' EXIT

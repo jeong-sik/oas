@@ -77,29 +77,21 @@ let catalog_entry
 ;;
 
 let catalog_fixture_toml entry =
-  (* A [[targets]] table accepts id, provider_ref, model_id,
-     max_request_body_bytes, connect_timeout_s and body_timeout_s
-     (exact_output_resolver.ml:213-220) and rejects anything else, so the thinking
-     keys belong to [[models]] — which is where the resolver reads them
-     (:770-771). Emitting all four into the target table made the resolver refuse
-     the whole catalog with "has unknown fields". *)
+  (* The model row owns the Anthropic wire dialect. The target row owns the
+     explicit request policy, so capability never implies enablement. *)
   let target_options =
     (match entry.body_timeout_s with
      | None -> ""
      | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
     ^
-    match entry.max_request_body_bytes with
+    (match entry.max_request_body_bytes with
+     | None -> ""
+     | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
+    ^
+    match entry.enable_thinking with
     | None -> ""
-    | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes
+    | Some enabled -> Printf.sprintf "enable_thinking = %b\n" enabled
   in
-  (* [enable_thinking] is not emitted: it is not in model_catalog's
-     known_entry_keys (:309-) nor in the target keys, and no catalog reader consumes
-     it — the only occurrences outside this fixture are reasoning_dialect's request
-     serialization and capability_vocab's name. The catalog expresses this axis as
-     [anthropic_thinking_control], which the resolver actually reads
-     (exact_output_resolver.ml:770-771), so emitting the inert key only made the
-     tightened schema refuse the fixture. The record field is left in place for the
-     author to decide on; nothing reads it. *)
   let model_options =
     match entry.anthropic_thinking_control with
     | None -> ""
@@ -2337,6 +2329,27 @@ let test_measurement_cancellation_terminalizes_receipt () =
           ~native:true
           ~json:true
           ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-implicit-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~id:"thinking-default-implicit"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~model_id:"thinking-default-disabled-model"
+          ~anthropic_thinking_control:"adaptive_default"
+          ~enable_thinking:false
+          ~id:"thinking-default-disabled"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
       ]
     @@ fun snapshot ->
     let successor = label ^ "-successor" in
@@ -2734,10 +2747,14 @@ let test_exact_anthropic_frozen_artifact_parity () =
       | Error _ -> failf "%s did not execute" id
       | Ok success -> EO.flow_success_output success
     in
-    [ execute "thinking-unmeasured"; execute "thinking-measured" ]
+    [ execute "thinking-unmeasured"
+    ; execute "thinking-measured"
+    ; execute "thinking-default-implicit"
+    ; execute "thinking-default-disabled"
+    ]
   in
   check int "exact artifact measures only constrained request" 1 posts.measurement_posts;
-  check int "exact artifact generates both requests" 2 posts.generation_posts;
+  check int "exact artifact generates both requests" 4 posts.generation_posts;
   List.iter
     (fun (success : EO.success) ->
        match
@@ -2746,9 +2763,10 @@ let test_exact_anthropic_frozen_artifact_parity () =
        | EO.Terminal, Some _ -> ()
        | _ -> fail "terminal generation receipt lost its late provider trace")
     successes;
-  let unmeasured_body, measured_body =
+  let unmeasured_body, measured_body, implicit_body, disabled_body =
     match posts.generation_bodies with
-    | [ unmeasured; measured ] -> unmeasured, measured
+    | [ unmeasured; measured; implicit; disabled ] ->
+      unmeasured, measured, implicit, disabled
     | _ -> fail "frozen artifact fixture lost generation request bodies"
   in
   let measurement_body =
@@ -2758,7 +2776,7 @@ let test_exact_anthropic_frozen_artifact_parity () =
   in
   let measured_success : EO.success =
     match successes with
-    | [ _; measured ] -> measured
+    | [ _; measured; _; _ ] -> measured
     | _ -> fail "frozen artifact fixture lost measured success"
   in
   check
@@ -2768,6 +2786,8 @@ let test_exact_anthropic_frozen_artifact_parity () =
     (EO.receipt_request_body_sha256 measured_success.receipt);
   let unmeasured_json = Yojson.Safe.from_string unmeasured_body in
   let measured_json = Yojson.Safe.from_string measured_body in
+  let implicit_json = Yojson.Safe.from_string implicit_body in
+  let disabled_json = Yojson.Safe.from_string disabled_body in
   let measurement_json = Yojson.Safe.from_string measurement_body in
   let thinking json = Yojson.Safe.Util.member "thinking" json in
   check
@@ -2785,6 +2805,16 @@ let test_exact_anthropic_frozen_artifact_parity () =
     "count request derives thinking from the frozen generation artifact"
     true
     (thinking measurement_json = thinking measured_json);
+  check
+    bool
+    "unset target thinking policy emits no thinking control"
+    true
+    (thinking implicit_json = `Null);
+  check
+    bool
+    "explicit false target thinking policy emits disabled control"
+    true
+    (thinking disabled_json = `Assoc [ "type", `String "disabled" ]);
   check
     int
     "frozen output-token receipt reaches actual generation bytes"

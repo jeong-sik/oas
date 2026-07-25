@@ -166,7 +166,6 @@ let request_uses_exact_cross_feature (request : Llm_transport.completion_request
   || (match config.tool_choice with
       | None | Some Types.None_ -> false
       | Some _ -> true)
-  || Option.is_some config.enable_thinking
   || Option.is_some config.preserve_thinking
   || Option.is_some config.thinking_budget
   || Option.is_some config.reasoning_effort

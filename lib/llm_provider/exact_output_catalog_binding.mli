@@ -36,6 +36,12 @@ val target_float_field
   -> Otoml.t
   -> (float option, string) result
 
+val target_bool_field
+  :  target_label:string
+  -> field:string
+  -> Otoml.t
+  -> (bool option, string) result
+
 val target_positive_int_field
   :  target_label:string
   -> field:string

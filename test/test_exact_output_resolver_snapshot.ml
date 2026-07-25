@@ -70,6 +70,7 @@ let target_catalog
       ?default_model
       ?(model = "snapshot-model")
       ?(target = "snapshot-target")
+      ?enable_thinking
       ?max_request_body_bytes
       ?connect_timeout_s
       ?body_timeout_s
@@ -100,7 +101,7 @@ let target_catalog
      id = %S\n\
      provider_ref = %S\n\
      model_id = %S\n\
-     %s%s%s"
+     %s%s%s%s"
     provider
     (aliases_line aliases)
     kind
@@ -118,6 +119,7 @@ let target_catalog
     target
     provider
     model
+    (option_line "enable_thinking" string_of_bool enable_thinking)
     (option_line "max_request_body_bytes" string_of_int max_request_body_bytes)
     (option_line "connect_timeout_s" toml_float connect_timeout_s)
     (option_line "body_timeout_s" toml_float body_timeout_s)
@@ -277,6 +279,71 @@ let string_contains ~haystack ~needle =
     && (String.sub haystack offset needle_length = needle || loop (offset + 1))
   in
   needle_length = 0 || loop 0
+;;
+
+let test_target_enable_thinking_is_typed_frozen_functional_identity () =
+  let absent = snapshot (target_catalog ()) in
+  let disabled = snapshot (target_catalog ~enable_thinking:false ()) in
+  let enabled = snapshot (target_catalog ~enable_thinking:true ()) in
+  let observations =
+    [ "absent", absent, resolve absent "snapshot-target"
+    ; "disabled", disabled, resolve disabled "snapshot-target"
+    ; "enabled", enabled, resolve enabled "snapshot-target"
+    ]
+  in
+  let pairs =
+    [ List.nth observations 0, List.nth observations 1
+    ; List.nth observations 0, List.nth observations 2
+    ; List.nth observations 1, List.nth observations 2
+    ]
+  in
+  List.iter
+    (fun ((left_label, left_snapshot, left_target), (right_label, right_snapshot, right_target))
+       ->
+       let label = left_label ^ "/" ^ right_label in
+       check
+         bool
+         (label ^ " changes catalog evidence")
+         true
+         (evidence left_snapshot <> evidence right_snapshot);
+       check
+         bool
+         (label ^ " changes target identity")
+         true
+         (identity left_target <> identity right_target);
+       check
+         bool
+         (label ^ " changes catalog generation")
+         true
+         (generation left_snapshot <> generation right_snapshot))
+    pairs;
+  let absent_before =
+    generation absent, evidence absent, identity (resolve absent "snapshot-target")
+  in
+  ignore (resolve disabled "snapshot-target" : EO.selected_target);
+  ignore (resolve enabled "snapshot-target" : EO.selected_target);
+  let absent_after =
+    generation absent, evidence absent, identity (resolve absent "snapshot-target")
+  in
+  check
+    bool
+    "later target-policy snapshots do not mutate the old snapshot"
+    true
+    (absent_before = absent_after);
+  let io : EO.resolver_io = { getenv = (fun _ -> Ok None) } in
+  let overlay : EO.catalog_document =
+    { source = "non-boolean target enable_thinking"
+    ; contents = target_catalog () ^ "enable_thinking = \"true\"\n"
+    }
+  in
+  match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
+  | Error (EO.Target_catalog_invalid { detail; _ }) ->
+    check
+      bool
+      "non-boolean target enable_thinking is rejected exactly"
+      true
+      (string_contains ~haystack:detail ~needle:"non-boolean enable_thinking")
+  | Ok _ | Error _ -> fail "non-boolean target enable_thinking must fail closed"
 ;;
 
 let test_exact_target_id_has_no_alias_or_default () =
@@ -1011,6 +1078,10 @@ let () =
             "functional projection sensitivity"
             `Quick
             test_every_functional_projection_field_changes_generation
+        ; test_case
+            "target thinking policy is typed and frozen"
+            `Quick
+            test_target_enable_thinking_is_typed_frozen_functional_identity
         ; test_case
             "one fresh handle is immutable across Domains"
             `Quick
