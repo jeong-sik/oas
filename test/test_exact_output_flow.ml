@@ -2746,11 +2746,11 @@ let test_exact_anthropic_frozen_artifact_parity () =
       | Error _ -> failf "%s did not execute" id
       | Ok success -> EO.flow_success_output success
     in
-    [ execute "thinking-unmeasured"
-    ; execute "thinking-measured"
-    ; execute "thinking-default-implicit"
-    ; execute "thinking-default-disabled"
-    ]
+    let unmeasured = execute "thinking-unmeasured" in
+    let measured = execute "thinking-measured" in
+    let implicit = execute "thinking-default-implicit" in
+    let disabled = execute "thinking-default-disabled" in
+    [ unmeasured; measured; implicit; disabled ]
   in
   check int "exact artifact measures only constrained request" 1 posts.measurement_posts;
   check int "exact artifact generates all four requests" 4 posts.generation_posts;

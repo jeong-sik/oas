@@ -54,6 +54,7 @@ done < <(
   find "$root/lib/llm_provider" \
     -maxdepth 1 \
     -name '*.mli' \
+    ! -name '*.pp.mli' \
     ! -name 'exact_output_count_tokens.mli' \
     -print
 )
