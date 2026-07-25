@@ -491,6 +491,7 @@
   fixtures/exact_output_single_surface/public_callback_include_typeof.mli.fixture
   fixtures/exact_output_single_surface/public_callback_nested_include.mli.fixture
   fixtures/exact_output_single_surface/public_callback_module_with.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_duplicate_allowed.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture
   fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture
   fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture
@@ -546,6 +547,12 @@
     "read_ndjson|~on_line|arrow(_,constr(string),constr(unit))"
     %{dep:../lib/llm_provider/count_tokens_sync.mli}
     %{dep:../lib/llm_provider/http_client.mli})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --allow-callback
+    "with_explicit_deadline|_|arrow(_,constr(unit),var(a))"
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_duplicate_allowed.mli.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback

@@ -170,9 +170,9 @@ let type_contains_callback index core_type =
 ;;
 
 let label_fingerprint = function
-  | Nolabel -> "_"
-  | Labelled label -> "~" ^ label
-  | Optional label -> "?" ^ label
+  | Asttypes.Nolabel -> "_"
+  | Asttypes.Labelled label -> "~" ^ label
+  | Asttypes.Optional label -> "?" ^ label
 ;;
 
 let rec type_fingerprint index visiting core_type =
@@ -295,6 +295,15 @@ let violation_key violation =
   String.concat
     "|"
     [ violation.value_name; violation.argument_label; violation.type_fingerprint ]
+;;
+
+let add_allowed_fingerprint fingerprint allowed =
+  String_map.update
+    fingerprint
+    (function
+      | None -> Some 1
+      | Some count -> Some (count + 1))
+    allowed
 ;;
 
 let report violation =
@@ -564,7 +573,7 @@ let () =
     let rec parse allow expect paths = function
       | [] -> allow, expect, List.rev paths
       | "--allow-callback" :: fingerprint :: rest ->
-        parse (String_set.add fingerprint allow) expect paths rest
+        parse (add_allowed_fingerprint fingerprint allow) expect paths rest
       | "--allow" :: _ ->
         prerr_endline
           "--allow is forbidden: allow an exact value|label|resolved-type fingerprint";
@@ -572,7 +581,7 @@ let () =
       | "--expect-callback" :: rest -> parse allow true paths rest
       | path :: rest -> parse allow expect (path :: paths) rest
     in
-    let allow, expect_callback, paths = parse String_set.empty false [] arguments in
+    let allow, expect_callback, paths = parse String_map.empty false [] arguments in
     if paths = []
     then (
       prerr_endline "usage: check_public_mli_callbacks [flags] <interface>...";
@@ -589,16 +598,39 @@ let () =
              exit 2)
         paths
     in
+    let remaining_allow = ref allow in
+    let consume_allow fingerprint =
+      match String_map.find_opt fingerprint !remaining_allow with
+      | None -> false
+      | Some 1 ->
+        remaining_allow := String_map.remove fingerprint !remaining_allow;
+        true
+      | Some count ->
+        remaining_allow :=
+          String_map.add fingerprint (count - 1) !remaining_allow;
+        true
+    in
     let violations =
       List.filter
         (fun violation ->
            match violation.kind with
            | Callback_argument ->
-             not (String_set.mem (violation_key violation) allow)
+             not (consume_allow (violation_key violation))
            | Unresolved_public_surface _ -> true)
         callbacks
     in
-    if expect_callback
+    if not (String_map.is_empty !remaining_allow)
+    then (
+      String_map.iter
+        (fun fingerprint count ->
+           prerr_endline
+             (Printf.sprintf
+                "unused callback allowance (%d): %s"
+                count
+                fingerprint))
+        !remaining_allow;
+      exit 1)
+    else if expect_callback
     then (
       if violations = []
       then (
