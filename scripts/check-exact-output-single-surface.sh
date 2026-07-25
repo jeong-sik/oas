@@ -73,23 +73,7 @@ ocamlc \
   "$callback_checker_source" \
   -o "$callback_checker"
 "$callback_checker" \
-  --expect-call-count \
-  Cohttp_eio.Client.post \
-  1 \
+  --check-exact-transport \
   "$private_measurement_transport"
-
-if ! perl -0ne '
-  $ok = 1 if
-    /Atomic\.compare_and_set\s+dispatch_intent\.dispatch_started\s+false\s+true\)\n
-     \s*then invalid_arg [^;]+;\n
-     \s*dispatch_intent\.mark_dispatch_started \(\);\n
-     \s*let response, response_body =\n
-     \s*Cohttp_eio\.Client\.post/xs;
-  END { exit($ok ? 0 : 1) }
-' "$private_measurement_transport"
-then
-  echo "private dispatch mark must lead directly to the sole POST" >&2
-  exit 1
-fi
 
 echo "exact-output single-surface boundary: ok"

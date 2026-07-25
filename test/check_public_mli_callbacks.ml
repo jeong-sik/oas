@@ -22,11 +22,9 @@ let parse_implementation path =
        Parse.implementation lexbuf)
 ;;
 
-let rec longident_parts = function
-  | Longident.Lident name -> Some [ name ]
-  | Longident.Ldot (prefix, name) ->
-    Option.map (fun parts -> parts @ [ name ]) (longident_parts prefix)
-  | Longident.Lapply _ -> None
+let longident_parts identifier =
+  try Ok (Longident.flatten identifier) with
+  | Invalid_argument _ -> Error ()
 ;;
 
 let count_qualified_calls qualified structure =
@@ -37,12 +35,10 @@ let count_qualified_calls qualified structure =
       expr =
         (fun self expression ->
           (match expression.pexp_desc with
-           | Pexp_apply ({ pexp_desc = Pexp_ident identifier; _ }, _)
-             when Option.equal
-                    (List.equal String.equal)
-                    (longident_parts identifier.txt)
-                    (Some expected) ->
-             incr count
+           | Pexp_apply ({ pexp_desc = Pexp_ident identifier; _ }, _) ->
+             (match longident_parts identifier.txt with
+              | Ok actual when List.equal String.equal actual expected -> incr count
+              | Ok _ | Error () -> ())
            | _ -> ());
           Ast_iterator.default_iterator.expr self expression)
     }
@@ -51,55 +47,102 @@ let count_qualified_calls qualified structure =
   !count
 ;;
 
-let aliases signature =
-  List.fold_left
-    (fun aliases item ->
-       match item.psig_desc with
-       | Psig_type (_, declarations) ->
-         List.fold_left
-           (fun aliases declaration ->
-              match declaration.ptype_manifest with
-              | None -> aliases
-              | Some manifest ->
-                String_map.add declaration.ptype_name.txt manifest aliases)
-           aliases
-           declarations
-       | _ -> aliases)
-    String_map.empty
-    signature
+type alias_index =
+  { manifests : core_type String_map.t
+  ; ambiguous : String_set.t
+  ; local_modules : String_set.t
+  ; module_types : String_set.t
+  }
+
+let alias_index signature =
+  let manifests = ref String_map.empty in
+  let ambiguous = ref String_set.empty in
+  let local_modules = ref String_set.empty in
+  let module_types = ref String_set.empty in
+  let add_manifest name manifest =
+    if String_set.mem name !ambiguous
+    then ()
+    else if String_map.mem name !manifests
+    then (
+      manifests := String_map.remove name !manifests;
+      ambiguous := String_set.add name !ambiguous)
+    else manifests := String_map.add name manifest !manifests
+  in
+  let add_module declaration =
+    match declaration.pmd_name.txt with
+    | Some name -> local_modules := String_set.add name !local_modules
+    | None -> ()
+  in
+  let iterator =
+    { Ast_iterator.default_iterator with
+      signature_item =
+        (fun self item ->
+          (match item.psig_desc with
+           | Psig_type (_, declarations) ->
+             List.iter
+               (fun declaration ->
+                  Option.iter
+                    (add_manifest declaration.ptype_name.txt)
+                    declaration.ptype_manifest)
+               declarations
+           | Psig_module declaration -> add_module declaration
+           | Psig_recmodule declarations -> List.iter add_module declarations
+           | Psig_modtype declaration ->
+             module_types := String_set.add declaration.pmtd_name.txt !module_types
+           | _ -> ());
+          Ast_iterator.default_iterator.signature_item self item)
+    }
+  in
+  iterator.signature iterator signature;
+  { manifests = !manifests
+  ; ambiguous = !ambiguous
+  ; local_modules = !local_modules
+  ; module_types = !module_types
+  }
 ;;
 
 let type_facts core_type =
   let contains_arrow = ref false in
-  let references = ref String_set.empty in
+  let references = ref [] in
+  let unresolved = ref false in
   let iterator =
     { Ast_iterator.default_iterator with
       typ =
         (fun self current ->
           (match current.ptyp_desc with
            | Ptyp_arrow _ -> contains_arrow := true
-           | Ptyp_constr ({ txt = Longident.Lident name; _ }, _) ->
-             references := String_set.add name !references
+           | Ptyp_constr ({ txt = identifier; _ }, _) ->
+             (match longident_parts identifier with
+              | Ok parts -> references := parts :: !references
+              | Error () -> unresolved := true)
            | _ -> ());
           Ast_iterator.default_iterator.typ self current)
     }
   in
   iterator.typ iterator core_type;
-  !contains_arrow, !references
+  !contains_arrow, !references, !unresolved
 ;;
 
-let type_contains_callback aliases core_type =
+let type_contains_callback index core_type =
   let rec inspect visiting current =
-    let contains_arrow, references = type_facts current in
+    let contains_arrow, references, unresolved = type_facts current in
     contains_arrow
-    || String_set.exists
-         (fun name ->
-            if String_set.mem name visiting
+    || unresolved
+    || List.exists
+         (fun parts ->
+            let name = List.hd (List.rev parts) in
+            if String_set.mem name index.ambiguous
+            then true
+            else if String_set.mem name visiting
             then false
-            else (
-              match String_map.find_opt name aliases with
-              | None -> false
-              | Some manifest -> inspect (String_set.add name visiting) manifest))
+            else
+              match String_map.find_opt name index.manifests with
+              | Some manifest -> inspect (String_set.add name visiting) manifest
+              | None ->
+                (match parts with
+                 | local_module :: _ :: _ ->
+                   String_set.mem local_module index.local_modules
+                 | _ -> false))
          references
   in
   inspect String_set.empty core_type
@@ -112,17 +155,49 @@ let rec argument_types reversed = function
 ;;
 
 let callback_values path signature =
-  let aliases = aliases signature in
-  List.filter_map
-    (fun item ->
-       match item.psig_desc with
-       | Psig_value description
-         when List.exists
-                (type_contains_callback aliases)
-                (argument_types [] description.pval_type) ->
-         Some (path, description.pval_name.txt)
-       | _ -> None)
-    signature
+  let index = alias_index signature in
+  let violations = ref [] in
+  let unresolved_module_type module_type_ =
+    match module_type_.pmty_desc with
+    | Pmty_ident identifier ->
+      (match longident_parts identifier.txt with
+       | Error () -> true
+       | Ok parts ->
+         let name = List.hd (List.rev parts) in
+         not (String_set.mem name index.module_types))
+    | _ -> false
+  in
+  let add name = violations := (path, name) :: !violations in
+  let observe_module declaration =
+    if unresolved_module_type declaration.pmd_type
+    then
+      add
+        (match declaration.pmd_name.txt with
+         | Some name -> name
+         | None -> "<anonymous-module>")
+  in
+  let iterator =
+    { Ast_iterator.default_iterator with
+      signature_item =
+        (fun self item ->
+          (match item.psig_desc with
+           | Psig_value description
+             when List.exists
+                    (type_contains_callback index)
+                    (argument_types [] description.pval_type) ->
+             add description.pval_name.txt
+           | Psig_module declaration -> observe_module declaration
+           | Psig_recmodule declarations -> List.iter observe_module declarations
+           | Psig_include description
+             when unresolved_module_type description.pincl_mod ->
+             add "<unresolved-include>"
+           | Psig_open _ -> add "<signature-open>"
+           | _ -> ());
+          Ast_iterator.default_iterator.signature_item self item)
+    }
+  in
+  iterator.signature iterator signature;
+  List.rev !violations
 ;;
 
 let report (path, name) =
@@ -133,35 +208,250 @@ let report (path, name) =
        name)
 ;;
 
+let identifier_is expected identifier =
+  match longident_parts identifier with
+  | Ok actual -> List.equal String.equal actual expected
+  | Error () -> false
+;;
+
+let direct_call_to expected expression =
+  match expression.pexp_desc with
+  | Pexp_apply ({ pexp_desc = Pexp_ident identifier; _ }, _) ->
+    identifier_is expected identifier.txt
+  | _ -> false
+;;
+
+let field_call_to expected expression =
+  match expression.pexp_desc with
+  | Pexp_apply
+      ({ pexp_desc = Pexp_field (_, { txt = Longident.Lident field; _ }); _ }, _) ->
+    String.equal field expected
+  | _ -> false
+;;
+
+let call_positions predicate expression =
+  let positions = ref [] in
+  let iterator =
+    { Ast_iterator.default_iterator with
+      expr =
+        (fun self current ->
+          if predicate current
+          then positions := current.pexp_loc.loc_start.pos_cnum :: !positions;
+          Ast_iterator.default_iterator.expr self current)
+    }
+  in
+  iterator.expr iterator expression;
+  List.sort Int.compare !positions
+;;
+
+let top_level_binding name structure =
+  List.find_map
+    (fun item ->
+       match item.pstr_desc with
+       | Pstr_value (_, bindings) ->
+         List.find_map
+           (fun binding ->
+              match binding.pvb_pat.ppat_desc with
+              | Ppat_var bound when String.equal bound.txt name -> Some binding.pvb_expr
+              | _ -> None)
+           bindings
+       | _ -> None)
+    structure
+;;
+
+let exact_post_path = [ "Cohttp_eio"; "Client"; "post" ]
+
+let transport_reference_facts structure =
+  let exact_references = ref 0 in
+  let unresolved_identifiers = ref 0 in
+  let forbidden_module_alias = ref false in
+  let forbidden_module_path identifier =
+    match longident_parts identifier with
+    | Error () -> true
+    | Ok ("Cohttp_eio" :: _) -> true
+    | Ok _ -> false
+  in
+  let iterator =
+    { Ast_iterator.default_iterator with
+      expr =
+        (fun self expression ->
+          (match expression.pexp_desc with
+           | Pexp_ident identifier ->
+             (match longident_parts identifier.txt with
+              | Ok actual when List.equal String.equal actual exact_post_path ->
+                incr exact_references
+              | Ok _ -> ()
+              | Error () -> incr unresolved_identifiers)
+           | _ -> ());
+          Ast_iterator.default_iterator.expr self expression)
+    ; module_expr =
+        (fun self module_expression ->
+          (match module_expression.pmod_desc with
+           | Pmod_ident identifier when forbidden_module_path identifier.txt ->
+             forbidden_module_alias := true
+           | _ -> ());
+          Ast_iterator.default_iterator.module_expr self module_expression)
+    }
+  in
+  iterator.structure iterator structure;
+  !exact_references, !unresolved_identifiers, !forbidden_module_alias
+;;
+
+let stage2_chain_is_direct expression =
+  let found = ref false in
+  let contains_dispatch_cas guard =
+    call_positions
+      (direct_call_to [ "Atomic"; "compare_and_set" ])
+      guard
+    <> []
+  in
+  let tail_starts_with_post = function
+    | { pexp_desc = Pexp_let (_, bindings, _); _ } ->
+      List.exists (fun binding -> direct_call_to exact_post_path binding.pvb_expr) bindings
+    | _ -> false
+  in
+  let iterator =
+    { Ast_iterator.default_iterator with
+      expr =
+        (fun self current ->
+          (match current.pexp_desc with
+           | Pexp_sequence
+               ( guard
+               , { pexp_desc = Pexp_sequence (mark, tail); _ } )
+             when contains_dispatch_cas guard
+                  && field_call_to "mark_dispatch_started" mark
+                  && tail_starts_with_post tail ->
+             found := true
+           | _ -> ());
+          Ast_iterator.default_iterator.expr self current)
+    }
+  in
+  iterator.expr iterator expression;
+  !found
+;;
+
+let exact_transport_error path structure =
+  let exact_references, unresolved_identifiers, forbidden_module_alias =
+    transport_reference_facts structure
+  in
+  let direct_post_calls = count_qualified_calls "Cohttp_eio.Client.post" structure in
+  if unresolved_identifiers <> 0
+  then Some (Printf.sprintf "%s: unresolved applied identifier in private transport" path)
+  else if forbidden_module_alias
+  then Some (Printf.sprintf "%s: Cohttp_eio module alias/open/include is forbidden" path)
+  else if exact_references <> 1 || direct_post_calls <> 1
+  then
+    Some
+      (Printf.sprintf
+         "%s: expected one qualified post reference and one direct call, found %d/%d"
+         path
+         exact_references
+         direct_post_calls)
+  else (
+    match
+      top_level_binding "post_sync_once" structure,
+      top_level_binding "post_sync_once_after_commit" structure
+    with
+    | Some admission, Some transport ->
+      let positions target expression = call_positions target expression in
+      let resolve =
+        positions
+          (direct_call_to [ "Http_client"; "resolve_explicit_deadline" ])
+          admission
+      in
+      let validate_uri = positions (direct_call_to [ "validate_uri" ]) admission in
+      let validate_body =
+        positions (direct_call_to [ "validate_headers_and_body" ]) admission
+      in
+      let commit_cas =
+        positions (direct_call_to [ "Atomic"; "compare_and_set" ]) admission
+      in
+      let commit = positions (field_call_to "commit_fence") admission in
+      let delegate =
+        positions (direct_call_to [ "post_sync_once_after_commit" ]) admission
+      in
+      let connect = positions (direct_call_to [ "make_connection" ]) transport in
+      let dispatch_cas =
+        positions (direct_call_to [ "Atomic"; "compare_and_set" ]) transport
+      in
+      let mark = positions (field_call_to "mark_dispatch_started") transport in
+      let post = positions (direct_call_to exact_post_path) transport in
+      (match
+         resolve,
+         validate_uri,
+         validate_body,
+         commit_cas,
+         commit,
+         delegate,
+         connect,
+         dispatch_cas,
+         mark,
+         post
+       with
+       | [ resolve_connect; resolve_body ],
+         [ validate_uri ],
+         [ validate_body ],
+         [ commit_cas ],
+         [ commit ],
+         [ delegate ],
+         [ connect ],
+         [ dispatch_cas ],
+         [ mark ],
+         [ post ]
+         when resolve_connect < resolve_body
+              && resolve_body < validate_uri
+              && validate_uri < validate_body
+              && validate_body < commit_cas
+              && commit_cas < commit
+              && commit < delegate
+              && connect < dispatch_cas
+              && dispatch_cas < mark
+              && mark < post
+              && stage2_chain_is_direct transport ->
+         None
+       | _ ->
+         Some
+           (Printf.sprintf
+              "%s: validation, durable commit, connect, CAS/mark, and POST order is not \
+               canonical"
+              path))
+    | _ ->
+      Some
+        (Printf.sprintf
+           "%s: exact transport must define post_sync_once and post_sync_once_after_commit"
+           path))
+;;
+
+let parse_transport path =
+  try Ok (parse_implementation path) with
+  | Sys_error detail -> Error detail
+  | Syntaxerr.Error _ -> Error ("syntax error while parsing " ^ path)
+;;
+
 let () =
   match Array.to_list Sys.argv with
-  | [ _; "--expect-call-count"; qualified; expected_raw; path ] ->
-    let expected =
-      match int_of_string_opt expected_raw with
-      | Some expected -> expected
-      | None ->
-        prerr_endline ("invalid expected call count: " ^ expected_raw);
-        exit 2
-    in
-    let actual =
-      try count_qualified_calls qualified (parse_implementation path) with
-      | Sys_error detail ->
-        prerr_endline detail;
-        exit 2
-      | Syntaxerr.Error _ ->
-        prerr_endline ("syntax error while parsing " ^ path);
-        exit 2
-    in
-    if actual <> expected
-    then (
-      prerr_endline
-        (Printf.sprintf
-           "%s: expected %d production calls to %s, found %d"
-           path
-           expected
-           qualified
-           actual);
-      exit 1)
+  | [ _; "--check-exact-transport"; path ] ->
+    (match parse_transport path with
+     | Error detail ->
+       prerr_endline detail;
+       exit 2
+     | Ok structure ->
+       (match exact_transport_error path structure with
+        | None -> ()
+        | Some detail ->
+          prerr_endline detail;
+          exit 1))
+  | [ _; "--expect-exact-transport-violation"; path ] ->
+    (match parse_transport path with
+     | Error detail ->
+       prerr_endline detail;
+       exit 2
+     | Ok structure ->
+       (match exact_transport_error path structure with
+        | Some _ -> ()
+        | None ->
+          prerr_endline "negative transport fixture no longer violates the boundary";
+          exit 1))
   | _ :: arguments ->
     let rec parse allow expect paths = function
       | [] -> allow, expect, List.rev paths
@@ -169,9 +459,7 @@ let () =
       | "--expect-callback" :: rest -> parse allow true paths rest
       | path :: rest -> parse allow expect (path :: paths) rest
     in
-    let allow, expect_callback, paths =
-      parse String_set.empty false [] arguments
-    in
+    let allow, expect_callback, paths = parse String_set.empty false [] arguments in
     if paths = []
     then (
       prerr_endline "usage: check_public_mli_callbacks [flags] <interface>...";

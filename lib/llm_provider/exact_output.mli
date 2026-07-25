@@ -483,6 +483,7 @@ val receipt_target_identity : receipt -> target_identity
 (** Immutable generation-receipt fact captured from one atomic state read. *)
 type generation_receipt_snapshot
 
+val generation_receipt_snapshot : receipt -> generation_receipt_snapshot
 val generation_receipt_snapshot_phase : generation_receipt_snapshot -> effect_phase
 val generation_receipt_snapshot_dispatch_count : generation_receipt_snapshot -> int
 val generation_receipt_snapshot_http_status : generation_receipt_snapshot -> int option

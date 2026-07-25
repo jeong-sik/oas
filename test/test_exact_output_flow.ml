@@ -601,7 +601,8 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
       in
       Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
       let call_id candidate =
-        EO.generation_receipt_snapshot_call_id candidate.EO.receipt
+        EO.generation_receipt_snapshot candidate.EO.receipt
+        |> EO.generation_receipt_snapshot_call_id
         |> EO.call_id_to_string
       in
       ( not (String.equal (call_id candidate_a) (call_id candidate_b))

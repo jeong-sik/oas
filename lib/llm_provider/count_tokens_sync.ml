@@ -202,13 +202,7 @@ let measure_completion_request_staged
 
 let measure_completion_request ?connection_cache ?clock ?timeout_s ~sw ~net request =
   match
-    measure_completion_request_staged
-      ?connection_cache
-      ?clock
-      ?timeout_s
-      ~sw
-      ~net
-      request
+    measure_completion_request_staged ?connection_cache ?clock ?timeout_s ~sw ~net request
   with
   | Ok measurement -> Ok measurement
   | Error (Completion_request_failed (error, _)) -> Error error

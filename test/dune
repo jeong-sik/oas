@@ -483,8 +483,12 @@
   ../lib/llm_provider/dune
   fixtures/exact_output_single_surface/public_count_tokens_callback.mli.fixture
   fixtures/exact_output_single_surface/public_callback_alias.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_qualified_alias.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_nested_module.mli.fixture
+  fixtures/exact_output_single_surface/public_callback_include.mli.fixture
   fixtures/exact_output_single_surface/public_callback_unlabelled.mli.fixture
   fixtures/exact_output_single_surface/public_http_client_callback.mli.fixture
+  fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture
   fixtures/exact_output_publication_lock/alias_shadowed_store.ml.fixture
   fixtures/exact_output_publication_lock/class_local_open_import.ml.fixture
   fixtures/exact_output_publication_lock/first_class_recorder.ml.fixture
@@ -516,10 +520,12 @@
     %{dep:../lib/llm_provider/backend_glm.ml})
    (run
     %{exe:check_public_mli_callbacks.exe}
-    --expect-call-count
-    Cohttp_eio.Client.post
-    1
+    --check-exact-transport
     %{dep:../lib/llm_provider/exact_output_measurement_transport.ml})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
     --allow
@@ -540,6 +546,18 @@
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
     %{dep:fixtures/exact_output_single_surface/public_callback_alias.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_qualified_alias.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_nested_module.mli.fixture})
+   (run
+    %{exe:check_public_mli_callbacks.exe}
+    --expect-callback
+    %{dep:fixtures/exact_output_single_surface/public_callback_include.mli.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
     --expect-callback
