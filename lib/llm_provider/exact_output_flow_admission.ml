@@ -348,8 +348,7 @@ let admit
                       then (
                         try
                           match
-                            Eio.Cancel.protect (fun () ->
-                              on_measurement_terminal receipt)
+                            Eio.Cancel.protect (fun () -> on_measurement_terminal receipt)
                           with
                           | Ok () -> ()
                           | Error _ ->
