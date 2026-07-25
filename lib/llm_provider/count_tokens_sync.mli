@@ -58,15 +58,6 @@ type completion_request_error =
   | Output_token_resolution_failed of Types.required_output_token_error
   | Invalid_completion_request of string
 
-type measurement_transport_stage =
-  | Measurement_before_dispatch
-  | Measurement_dispatch_started
-  | Measurement_response_received of int
-
-type 'callback_error completion_request_dispatch_error =
-  | Completion_request_failed of completion_request_error * measurement_transport_stage
-  | Before_dispatch_failed of 'callback_error
-
 (** Whether OAS has an exact provider-native measurement adapter for this
     request configuration. This is the support SSOT used by both measurement
     dispatch and Agent admission routing. *)
@@ -80,18 +71,3 @@ val measure_completion_request
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> Llm_transport.completion_request
   -> (completion_request_measurement, completion_request_error) result
-
-(** The same exact measurement, with one caller fence immediately before the
-    native count-token POST. Unsupported protocols, invalid local requests, and
-    output-token resolution failures return without invoking the callback. *)
-val measure_completion_request_with_before_dispatch
-  :  ?connection_cache:Http_client.cache
-  -> ?clock:_ Eio.Time.clock
-  -> ?timeout_s:float
-  -> sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> before_dispatch:(unit -> (unit, 'callback_error) result)
-  -> Llm_transport.completion_request
-  -> ( completion_request_measurement
-       , 'callback_error completion_request_dispatch_error )
-       result

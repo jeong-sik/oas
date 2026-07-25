@@ -50,18 +50,6 @@ val measure
   -> t
   -> (measured, Count_tokens_sync.completion_request_error) result
 
-val measure_with_before_dispatch
-  :  ?connection_cache:Http_client.cache
-  -> ?clock:_ Eio.Time.clock
-  -> ?timeout_s:float
-  -> sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> before_dispatch:(unit -> (unit, 'callback_error) result)
-  -> t
-  -> ( measured
-       , 'callback_error Count_tokens_sync.completion_request_dispatch_error )
-       result
-
 val attach_measurement
   :  t
   -> Exact_output_count_tokens.completion_request_measurement

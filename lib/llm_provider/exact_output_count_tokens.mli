@@ -19,9 +19,15 @@ type measurement_transport_stage =
   | Measurement_response_received of int
 
 type 'callback_error completion_request_dispatch_error =
-  | Completion_request_failed of
-      completion_request_error * measurement_transport_stage
+  | Completion_request_failed of completion_request_error * measurement_transport_stage
   | Before_dispatch_failed of 'callback_error
+
+type 'callback_error measurement_dispatch_intent
+
+val create_measurement_dispatch_intent
+  :  commit_fence:(unit -> (unit, 'callback_error) result)
+  -> on_dispatch_started:(unit -> unit)
+  -> 'callback_error measurement_dispatch_intent
 
 type exact_completion_measurement_request
 type exact_completion_artifact
@@ -39,11 +45,11 @@ val exact_completion_measurement_request
   :  exact_completion_artifact
   -> exact_completion_measurement_request
 
-val measure_exact_completion_request_with_before_dispatch
+val measure_exact_completion_request
   :  ?connection_cache:Http_client.cache
   -> ?clock:_ Eio.Time.clock
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> before_dispatch:(unit -> (unit, 'callback_error) result)
+  -> dispatch_intent:'callback_error measurement_dispatch_intent
   -> exact_completion_measurement_request
   -> ( completion_request_measurement
        , 'callback_error completion_request_dispatch_error )

@@ -192,11 +192,12 @@ let measurement_failure = function
   | Count_tokens.Invalid_completion_request detail -> Invalid_request_failure detail
 ;;
 
-let record_transport_stage receipt = function
-  | Count_tokens.Measurement_before_dispatch -> confirm_no_dispatch receipt
+let record_transport_stage receipt publish = function
+  | Count_tokens.Measurement_before_dispatch ->
+    confirm_no_dispatch receipt;
+    publish receipt
   | Count_tokens.Measurement_dispatch_started
-  | Count_tokens.Measurement_response_received _ ->
-    advance_receipt receipt Wire_started
+  | Count_tokens.Measurement_response_received _ -> publish receipt
 ;;
 
 let admit
@@ -245,34 +246,37 @@ let admit
                    }
                  in
                  on_measurement_receipt receipt;
-                 let observe = function
-                   | Http_client_phase_observer.Dispatch_started ->
-                     advance_receipt receipt Wire_started
-                   | Http_client_phase_observer.Response_received _ -> ()
-                 in
                  let terminal_callback outcome_of_dispatch =
                    let measurement = finish_receipt receipt outcome_of_dispatch in
+                   on_measurement_receipt receipt;
                    match on_measurement_terminal receipt with
                    | Ok () -> Ok measurement
                    | Error cause -> Error cause
                  in
-                 let before_dispatch () =
+                 let commit_fence () =
                    match before_measurement_dispatch receipt with
                    | Ok () -> Ok ()
                    | Error cause ->
                      confirm_no_dispatch receipt;
+                     on_measurement_receipt receipt;
                      (match terminal_callback (fun _ -> Measurement_fence_rejected) with
                       | Ok _ -> Error (`Before_dispatch_failed cause)
                       | Error terminal_cause ->
                         Error (`Terminal_callback_failed terminal_cause))
                  in
+                 let dispatch_intent =
+                   Count_tokens.create_measurement_dispatch_intent
+                     ~commit_fence
+                     ~on_dispatch_started:(fun () ->
+                       advance_receipt receipt Wire_started;
+                       on_measurement_receipt receipt)
+                 in
                  let measured =
-                   Http_client_phase_observer.with_observer observe (fun () ->
-                     Count_tokens.measure_exact_completion_request_with_before_dispatch
-                       ~net
-                       ?clock
-                       ~before_dispatch
-                       measurement_request)
+                   Count_tokens.measure_exact_completion_request
+                     ~net
+                     ?clock
+                     ~dispatch_intent
+                     measurement_request
                  in
                  let terminalize outcome_of_dispatch make_outcome =
                    match terminal_callback outcome_of_dispatch with
@@ -295,10 +299,9 @@ let admit
                         (`Terminal_callback_failed cause)) ->
                    Measurement_terminal_callback_failed { receipt; cause }
                  | Error (Count_tokens.Completion_request_failed (error, stage)) ->
-                   record_transport_stage receipt stage;
+                   record_transport_stage receipt on_measurement_receipt stage;
                    reject_measured (Measurement_rejected (measurement_failure error))
                  | Ok measurement ->
-                   advance_receipt receipt Wire_started;
                    let measured =
                      Prepared.attach_measurement
                        (Plan.prepared_request preflight)
@@ -319,5 +322,5 @@ let admit
                        | Ok plan ->
                          terminalize
                            (fun _ -> Measurement_succeeded)
-                           (fun measurement -> Admitted { plan; measurement }))))))))
+                           (fun measurement -> Admitted { plan; measurement })))))))
 ;;

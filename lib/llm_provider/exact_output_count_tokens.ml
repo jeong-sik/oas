@@ -14,9 +14,28 @@ type measurement_transport_stage =
   | Measurement_response_received of int
 
 type 'callback_error completion_request_dispatch_error =
-  | Completion_request_failed of
-      completion_request_error * measurement_transport_stage
+  | Completion_request_failed of completion_request_error * measurement_transport_stage
   | Before_dispatch_failed of 'callback_error
+
+type 'callback_error measurement_dispatch_intent =
+  { consumed : bool Atomic.t
+  ; commit_fence : unit -> (unit, 'callback_error) result
+  ; on_dispatch_started : unit -> unit
+  }
+
+let create_measurement_dispatch_intent ~commit_fence ~on_dispatch_started =
+  { consumed = Atomic.make false; commit_fence; on_dispatch_started }
+;;
+
+let commit_measurement_dispatch_intent intent =
+  if not (Atomic.compare_and_set intent.consumed false true)
+  then invalid_arg "exact-output measurement dispatch intent was already consumed";
+  match intent.commit_fence () with
+  | Error _ as error -> error
+  | Ok () ->
+    intent.on_dispatch_started ();
+    Ok ()
+;;
 
 type exact_completion_measurement_request =
   { protocol : Input_token_count.protocol
@@ -132,16 +151,16 @@ let exact_completion_generation_body artifact =
 
 let exact_completion_measurement_request artifact = artifact.measurement_request
 
-let measure_exact_completion_request_with_before_dispatch
+let measure_exact_completion_request
       ?connection_cache
       ?clock
       ~net
-      ~before_dispatch
+      ~dispatch_intent
       (request : exact_completion_measurement_request)
   =
   let callback_failure = ref None in
   let before_http_dispatch () =
-    match before_dispatch () with
+    match commit_measurement_dispatch_intent dispatch_intent with
     | Ok () -> Ok ()
     | Error cause ->
       callback_failure := Some cause;

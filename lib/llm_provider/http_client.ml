@@ -1757,6 +1757,7 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
 
 let post_sync_once_after_validation
       ?cache
+      ?before_dispatch
       ~connect_deadline
       ~body_deadline
       ~net
@@ -1865,6 +1866,11 @@ let post_sync_once_after_validation
         let client =
           Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
         in
+        let* () =
+          match before_dispatch with
+          | None -> Ok ()
+          | Some callback -> callback ()
+        in
         phase := Dispatch_started;
         Http_client_phase_observer.observe Http_client_phase_observer.Dispatch_started;
         let response, response_body =
@@ -1908,8 +1914,8 @@ let post_sync_once_after_validation
           then Error (total_deadline_error timeout_s)
           else (
             match
-              Eio.Time.with_timeout clock remaining (fun () ->
-                read_response_body response_body)
+          Eio.Time.with_timeout clock remaining (fun () ->
+            Ok (read_response_body response_body))
             with
             | Ok result -> result
             | Error `Timeout -> Error (total_deadline_error timeout_s))
@@ -1992,30 +1998,16 @@ let post_sync_once_with_evidence
           (match header with
            | Error error -> before_dispatch error
            | Ok header ->
-             (match before_dispatch_callback with
-              | Some callback ->
-                (match callback () with
-                 | Error error -> before_dispatch error
-                 | Ok () ->
-                   post_sync_once_after_validation
-                     ?cache
-                     ~connect_deadline
-                     ~body_deadline
-                     ~net
-                     ~uri
-                     ~header
-                     ~body
-                     ())
-              | None ->
-                post_sync_once_after_validation
-                  ?cache
-                  ~connect_deadline
-                  ~body_deadline
-                  ~net
-                  ~uri
-                  ~header
-                  ~body
-                  ()))))
+             post_sync_once_after_validation
+               ?cache
+               ?before_dispatch:before_dispatch_callback
+               ~connect_deadline
+               ~body_deadline
+               ~net
+               ~uri
+               ~header
+               ~body
+               ())))
 ;;
 
 let post_sync_once

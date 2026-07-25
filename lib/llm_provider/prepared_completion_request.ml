@@ -60,60 +60,26 @@ let prepare
 
 let request prepared = prepared.request
 
-let measure_with_before_dispatch
-      ?connection_cache
-      ?clock
-      ?timeout_s
-      ~sw
-      ~net
-      ~before_dispatch
-      prepared
-  =
+let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   let config = prepared.request.Llm_transport.config in
   let measured () =
-    Count_tokens_sync.measure_completion_request_with_before_dispatch
+    Count_tokens_sync.measure_completion_request
       ?connection_cache
       ?clock
       ?timeout_s
       ~sw
       ~net
-      ~before_dispatch
       prepared.request
     |> Result.map (fun measurement ->
       { prepared; measurement = Legacy_measurement measurement })
   in
   match Complete_common.validate_all config with
   | Error (Http_client.AcceptRejected { reason }) ->
-    Error
-      (Count_tokens_sync.Completion_request_failed
-         ( Count_tokens_sync.Invalid_completion_request reason
-         , Count_tokens_sync.Measurement_before_dispatch ))
+    Error (Count_tokens_sync.Invalid_completion_request reason)
   | Error error ->
     Error
-      (Count_tokens_sync.Completion_request_failed
-         ( Count_tokens_sync.Input_count_failed (Input_token_count.Transport error)
-         , Count_tokens_sync.Measurement_before_dispatch ))
+      (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error))
   | Ok () -> Provider_admission.with_admission ~config measured
-;;
-
-type no_callback_error = |
-
-let no_before_dispatch () : (unit, no_callback_error) result = Ok ()
-
-let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
-  match
-    measure_with_before_dispatch
-      ?connection_cache
-      ?clock
-      ?timeout_s
-      ~sw
-      ~net
-      ~before_dispatch:no_before_dispatch
-      prepared
-  with
-  | Ok measured -> Ok measured
-  | Error (Count_tokens_sync.Completion_request_failed (error, _)) -> Error error
-  | Error (Count_tokens_sync.Before_dispatch_failed _) -> .
 ;;
 
 let attach_measurement prepared measurement =

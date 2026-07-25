@@ -220,6 +220,11 @@ type flow_attempt_snapshot =
   ; receipt : generation_receipt_snapshot
   }
 
+type flow_attempt_publication =
+  { live : flow_attempt_receipt
+  ; snapshot : flow_attempt_snapshot
+  }
+
 type flow_attempt =
   { execution : Flow_state.t
   ; flow_id : flow_id
@@ -232,8 +237,11 @@ type flow_attempt =
   ; candidates : flow_candidate_step list
   ; messages : Types.message list
   ; requirement : output_requirement
-  ; progress : (candidate_admission, flow_attempt_receipt) Flow_state.progress
-  ; measurements : flow_measurement_receipt list Atomic.t
+  ; progress :
+      ( candidate_admission
+      , flow_attempt_publication
+      , measurement_receipt_snapshot )
+        Flow_state.progress
   }
 
 type flow_candidate_error = Blank_flow_candidate_id
@@ -447,7 +455,6 @@ let start_flow (ready : flow_snapshot) =
       ; messages = ready.messages
       ; requirement = ready.requirement
       ; progress = Flow_state.create_progress ()
-      ; measurements = Atomic.make []
       }
 ;;
 
@@ -486,6 +493,44 @@ let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
   }
 ;;
 
+let same_measurement
+      (left : measurement_receipt_snapshot)
+      (right : measurement_receipt_snapshot)
+  =
+  String.equal
+    (measurement_operation_id_to_string left.operation_id)
+    (measurement_operation_id_to_string right.operation_id)
+;;
+
+let publish_measurement
+      (flow : flow_attempt)
+      (measurement : flow_measurement_receipt)
+  =
+  Flow_state.publish_measurement
+    flow.progress
+    ~same:same_measurement
+    (flow_measurement_receipt_snapshot measurement)
+;;
+
+let same_attempt (left : flow_attempt_publication) (right : flow_attempt_publication) =
+  String.equal
+    (call_id_to_string (receipt_call_id left.live.receipt))
+    (call_id_to_string (receipt_call_id right.live.receipt))
+;;
+
+let publish_attempt_snapshot (flow : flow_attempt) (live : flow_attempt_receipt) =
+  let publication =
+    { live
+    ; snapshot =
+        { scope = live.scope
+        ; visit = live.visit
+        ; receipt = Generation_receipt.snapshot live.receipt
+        }
+    }
+  in
+  Flow_state.publish_attempt flow.progress ~same:same_attempt publication
+;;
+
 let receipt_phase = Generation_receipt.phase
 let receipt_dispatch_count = Generation_receipt.dispatch_count
 
@@ -521,10 +566,21 @@ let candidate_visit_count_to_int (Candidate_visit_count count) = count
 
 let generation_receipt_snapshot = Generation_receipt.snapshot
 let generation_receipt_snapshot_phase = Generation_receipt.snapshot_phase
-let generation_receipt_snapshot_dispatch_count = Generation_receipt.snapshot_dispatch_count
-let generation_receipt_snapshot_http_status = Generation_receipt.snapshot_http_status
-let generation_receipt_snapshot_provider_trace = Generation_receipt.snapshot_provider_trace
+
+let generation_receipt_snapshot_dispatch_count =
+  Generation_receipt.snapshot_dispatch_count
+;;
+
+let generation_receipt_snapshot_http_status =
+  Generation_receipt.snapshot_http_status
+;;
+
+let generation_receipt_snapshot_provider_trace =
+  Generation_receipt.snapshot_provider_trace
+;;
+
 let generation_receipt_snapshot_call_id = Generation_receipt.snapshot_call_id
+
 let generation_receipt_snapshot_plan_fingerprint =
   Generation_receipt.snapshot_plan_fingerprint
 ;;
@@ -626,22 +682,11 @@ let flow_attempt_evidence (flow : flow_attempt) =
   ; candidate_snapshot = flow.candidate_snapshot
   ; preference_observation = flow.preference_observation
   ; candidate_visit_count = Candidate_visit_count progress.candidate_visit_count
-  ; measurements =
-      List.rev (Atomic.get flow.measurements)
-      |> List.map flow_measurement_receipt_snapshot
+  ; measurements = progress.measurements
   ; admissions = progress.admissions
-  ; attempts =
-      List.map
-        (fun (attempt : flow_attempt_receipt) ->
-           { scope = attempt.scope
-           ; visit = attempt.visit
-           ; receipt = generation_receipt_snapshot attempt.receipt
-           })
-        progress.attempts
+  ; attempts = List.map (fun publication -> publication.snapshot) progress.attempts
   }
 ;;
-
-let record_attempt flow = Flow_state.record_attempt flow.progress
 
 let observe_phase = Generation_receipt.observe_phase
 let synchronize_receipt = Generation_receipt.synchronize
@@ -662,7 +707,7 @@ let execution_error_cause = function
   | Exec.Output_normalization_failed (Exec.Invalid_json _) -> Invalid_json_output
 ;;
 
-let execute_once ~net ?clock (attempt : attempt) =
+let execute_once_with_publication ~publish ~net ?clock (attempt : attempt) =
   let ready = attempt.ready in
   let receipt = attempt.receipt in
   if not (Generation_receipt.try_start receipt)
@@ -674,23 +719,28 @@ let execute_once ~net ?clock (attempt : attempt) =
       ; raw_response = None
       }
   else (
+    publish ();
     match
       Exec.execute_once_with_evidence
         ~net
         ?clock
-        ~on_phase:(observe_phase receipt)
+        ~on_phase:(fun phase ->
+          observe_phase receipt phase;
+          publish ())
         ready.plan
     with
     | Error
         ({ receipt = complete_receipt; cause; raw_response = evidence } :
           Exec.execute_once_error_with_evidence) ->
       synchronize_receipt receipt complete_receipt;
+      publish ();
       Option.iter
         (fun response_evidence ->
            response_evidence
            |> Trace.of_evidence complete_receipt
            |> record_provider_trace receipt)
         evidence;
+      publish ();
       Error
         { call_id = receipt_call_id receipt
         ; receipt
@@ -699,10 +749,12 @@ let execute_once ~net ?clock (attempt : attempt) =
         }
     | Ok { outcome; raw_response = evidence } ->
       synchronize_receipt receipt outcome.receipt;
+      publish ();
       let provider_trace =
         Trace.of_evidence ~response:outcome.response outcome.receipt evidence
       in
       record_provider_trace receipt provider_trace;
+      publish ();
       (match outcome.output with
        | Exec.Json_output { value; _ } ->
          Ok
@@ -714,11 +766,15 @@ let execute_once ~net ?clock (attempt : attempt) =
            }
        | Exec.Text_output _ ->
          Error
-           { call_id = receipt.call_id
+           { call_id = receipt_call_id receipt
            ; receipt
            ; cause = Internal_non_json_output
            ; raw_response = Some (raw_response evidence)
            }))
+;;
+
+let execute_once ~net ?clock attempt =
+  execute_once_with_publication ~publish:ignore ~net ?clock attempt
 ;;
 
 let execution_failure_may_advance (error : execution_error) =
@@ -778,7 +834,7 @@ let execute_flow_candidate
          ?clock
          ~on_measurement_receipt:(fun receipt ->
            let measurement = { visit = candidate.visit; receipt } in
-           Atomic.set flow.measurements (measurement :: Atomic.get flow.measurements))
+           publish_measurement flow measurement)
          ~before_measurement_dispatch:(fun receipt ->
            before_measurement_dispatch { visit = candidate.visit; receipt })
          ~on_measurement_terminal:(fun receipt ->
@@ -817,12 +873,18 @@ let execute_flow_candidate
             ; receipt = attempt_receipt attempt
             }
           in
-          record_attempt flow candidate_receipt;
+          publish_attempt_snapshot flow candidate_receipt;
           (match before_dispatch candidate_receipt with
            | Error cause ->
              Error (Flow_step_before_dispatch_callback_failed (candidate_receipt, cause))
            | Ok () ->
-             (match execute_once ~net ?clock attempt with
+             (match
+                execute_once_with_publication
+                  ~publish:(fun () -> publish_attempt_snapshot flow candidate_receipt)
+                  ~net
+                  ?clock
+                  attempt
+              with
               | Ok success -> Ok (candidate_receipt, success)
               | Error cause ->
                 Error

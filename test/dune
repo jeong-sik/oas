@@ -440,7 +440,11 @@
 (rule
  (alias runtest)
  (deps
+  ../scripts/check-exact-output-single-surface.sh
   ../scripts/check-exact-output-resolver-boundary.sh
+  ../lib/llm_provider/count_tokens_sync.mli
+  ../lib/llm_provider/exact_output_count_tokens.mli
+  ../lib/llm_provider/http_client.ml
   ../lib/llm_provider/exact_output.ml
   ../lib/llm_provider/exact_output.mli
   ../lib/llm_provider/exact_output_flow.ml
@@ -476,6 +480,7 @@
   fixtures/exact_output_publication_lock/unlocked_after_callback.ml.fixture)
  (action
   (progn
+   (run bash %{dep:../scripts/check-exact-output-single-surface.sh})
    (run
     bash
     %{dep:../scripts/check-exact-output-resolver-boundary.sh}

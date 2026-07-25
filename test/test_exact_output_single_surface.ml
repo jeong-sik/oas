@@ -1428,8 +1428,7 @@ let check_receipt_provenance label (provenance : EO.plan_provenance) receipt =
   check
     string
     (label ^ " catalog generation")
-    (EO.plan_provenance_catalog_generation provenance
-     |> EO.catalog_generation_fingerprint)
+    (EO.plan_provenance_catalog_generation provenance |> EO.catalog_generation_fingerprint)
     (EO.receipt_catalog_generation receipt |> EO.catalog_generation_fingerprint);
   check
     string

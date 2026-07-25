@@ -484,13 +484,9 @@ val receipt_target_identity : receipt -> target_identity
 type generation_receipt_snapshot
 
 val generation_receipt_snapshot_phase : generation_receipt_snapshot -> effect_phase
-val generation_receipt_snapshot_dispatch_count
-  :  generation_receipt_snapshot
-  -> int
+val generation_receipt_snapshot_dispatch_count : generation_receipt_snapshot -> int
 
-val generation_receipt_snapshot_http_status
-  :  generation_receipt_snapshot
-  -> int option
+val generation_receipt_snapshot_http_status : generation_receipt_snapshot -> int option
 
 val generation_receipt_snapshot_provider_trace
   :  generation_receipt_snapshot
@@ -498,9 +494,7 @@ val generation_receipt_snapshot_provider_trace
 
 val generation_receipt_snapshot_call_id : generation_receipt_snapshot -> call_id
 
-val generation_receipt_snapshot_plan_fingerprint
-  :  generation_receipt_snapshot
-  -> string
+val generation_receipt_snapshot_plan_fingerprint : generation_receipt_snapshot -> string
 
 val generation_receipt_snapshot_request_body_sha256
   :  generation_receipt_snapshot
@@ -685,12 +679,14 @@ val flow_execution_error_generation_dispatch
     [preference_observation] is the single scope lookup frozen when the snapshot
     was created; it distinguishes no record, an applied binding, an absent
     recorded slot, and a changed target binding.
-    [candidate_visit_count], [admissions], and [attempts] contain only
+    [candidate_visit_count], [measurements], [admissions], and [attempts]
+    contain only
     candidates reached so far. Attempts are allocated only after
     current-candidate target selection and request admission succeed. This
     remains queryable after cancellation escapes. The affine executor is the
-    sole writer. A concurrent reader may observe the exact point after an
-    admitted outcome is recorded and before its fresh attempt is allocated. *)
+    sole writer, and every call reads one Atomic immutable progress publication,
+    so measurement receipt snapshots, admissions, and attempt receipt snapshots
+    always describe the same publication epoch. *)
 val flow_attempt_evidence : flow_attempt -> flow_evidence
 
 (** Execute the frozen request once. The attempt is single-use: duplicate or

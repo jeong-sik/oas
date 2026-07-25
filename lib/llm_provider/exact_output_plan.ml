@@ -555,21 +555,20 @@ let structured_text content =
   loop [] content
 ;;
 
+let normalize_json validation text =
+  try
+    let value = Yojson.Safe.from_string text in
+    Ok (Json_output { value; validation })
+  with
+  | Yojson.Json_error detail -> Error (Invalid_json detail)
+;;
+
 let normalize_text response_format text =
   match response_format with
   | Types.Off -> Ok (Text_output text)
-  | (Types.JsonMode | Types.JsonSchema _) as response_format ->
-    (try
-       let value = Yojson.Safe.from_string text in
-       let validation =
-         match response_format with
-         | Types.JsonMode -> Json_syntax_validated
-         | Types.JsonSchema _ -> Provider_schema_requested_client_validation_required
-         | Types.Off -> assert false
-       in
-       Ok (Json_output { value; validation })
-     with
-     | Yojson.Json_error detail -> Error (Invalid_json detail))
+  | Types.JsonMode -> normalize_json Json_syntax_validated text
+  | Types.JsonSchema _ ->
+    normalize_json Provider_schema_requested_client_validation_required text
 ;;
 
 let normalize_response response_format (response : Types.api_response) =

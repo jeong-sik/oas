@@ -68,7 +68,7 @@ let try_start receipt =
   Atomic.compare_and_set receipt.state Not_started_state Before_dispatch_state
 ;;
 
-let call_id receipt = receipt.call_id
+let call_id (receipt : t) = receipt.call_id
 
 let phase receipt =
   match Atomic.get receipt.state with
@@ -103,11 +103,11 @@ let provider_trace receipt =
   | Response_received_state _ -> None
 ;;
 
-let plan_fingerprint receipt = receipt.plan_fingerprint
-let request_body_sha256 receipt = receipt.request_body_sha256
-let catalog_generation receipt = receipt.catalog_generation
-let catalog_evidence receipt = receipt.catalog_evidence
-let target_identity receipt = receipt.target_identity
+let plan_fingerprint (receipt : t) = receipt.plan_fingerprint
+let request_body_sha256 (receipt : t) = receipt.request_body_sha256
+let catalog_generation (receipt : t) = receipt.catalog_generation
+let catalog_evidence (receipt : t) = receipt.catalog_evidence
+let target_identity (receipt : t) = receipt.target_identity
 
 let state_rank = function
   | Not_started_state -> 0
@@ -191,13 +191,13 @@ let snapshot receipt =
   }
 ;;
 
-let snapshot_phase snapshot = snapshot.phase
-let snapshot_dispatch_count snapshot = snapshot.dispatch_count
-let snapshot_http_status snapshot = snapshot.http_status
-let snapshot_provider_trace snapshot = snapshot.provider_trace
-let snapshot_call_id snapshot = snapshot.call_id
-let snapshot_plan_fingerprint snapshot = snapshot.plan_fingerprint
-let snapshot_request_body_sha256 snapshot = snapshot.request_body_sha256
-let snapshot_catalog_generation snapshot = snapshot.catalog_generation
-let snapshot_catalog_evidence snapshot = snapshot.catalog_evidence
-let snapshot_target_identity snapshot = snapshot.target_identity
+let snapshot_phase (snapshot : snapshot) = snapshot.phase
+let snapshot_dispatch_count (snapshot : snapshot) = snapshot.dispatch_count
+let snapshot_http_status (snapshot : snapshot) = snapshot.http_status
+let snapshot_provider_trace (snapshot : snapshot) = snapshot.provider_trace
+let snapshot_call_id (snapshot : snapshot) = snapshot.call_id
+let snapshot_plan_fingerprint (snapshot : snapshot) = snapshot.plan_fingerprint
+let snapshot_request_body_sha256 (snapshot : snapshot) = snapshot.request_body_sha256
+let snapshot_catalog_generation (snapshot : snapshot) = snapshot.catalog_generation
+let snapshot_catalog_evidence (snapshot : snapshot) = snapshot.catalog_evidence
+let snapshot_target_identity (snapshot : snapshot) = snapshot.target_identity
