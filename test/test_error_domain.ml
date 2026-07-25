@@ -365,17 +365,42 @@ let test_roundtrip_api_invalid_request_does_not_infer_malformed_json () =
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Invalid_request (_, msg) ->
-     Alcotest.(check string) "message preserved" message msg
+   | `Invalid_request (_, msg) -> Alcotest.(check string) "message preserved" message msg
    | _ -> Alcotest.fail "expected Invalid_request");
+  (* The reason a caller supplied now survives the roundtrip. That is not inference
+     from prose — it is carrying a typed value that was already present. The
+     no-inference property is asserted separately below, starting from
+     Unknown_invalid_request with the same malformed-JSON message. *)
   match Error_domain.to_sdk_error poly with
+  | Error.Api (Retry.InvalidRequest { reason = Retry.Json_parse_error; _ } as err) ->
+    (* retry.ml:118-120 makes a supplied Json_parse_error retryable — malformed
+       model output may come back valid. The roundtrip used to erase the reason and
+       with it that judgement, so this asserted false; preserving the reason
+       restores the retryability the caller's classification implies. *)
+    Alcotest.(check bool)
+      "a preserved Json_parse_error stays retryable"
+      true
+      (Retry.is_retryable err)
+  | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest"
+;;
+
+(* The original property this file pinned: malformed-JSON prose must not be promoted
+   to Json_parse_error. Before the reason was carried, every roundtrip returned
+   Unknown_invalid_request and satisfied this trivially; now it needs a case that
+   starts there. *)
+let test_roundtrip_api_invalid_request_keeps_unknown_reason_unknown () =
+  let message = "Unexpected token } in JSON at position 12" in
+  let orig =
+    Error.Api (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request })
+  in
+  match Error_domain.to_sdk_error (Error_domain.of_sdk_error orig) with
   | Error.Api (Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ } as err)
     ->
     Alcotest.(check bool)
       "prose is not inferred after roundtrip"
       false
       (Retry.is_retryable err)
-  | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest"
+  | _ -> Alcotest.fail "an unknown reason must stay unknown"
 ;;
 
 let test_roundtrip_api_context_overflow () =
@@ -827,6 +852,10 @@ let () =
             "api invalid_request malformed JSON retryability"
             `Quick
             test_roundtrip_api_invalid_request_does_not_infer_malformed_json
+        ; Alcotest.test_case
+            "api invalid_request keeps an unknown reason unknown"
+            `Quick
+            test_roundtrip_api_invalid_request_keeps_unknown_reason_unknown
         ; Alcotest.test_case
             "api context_overflow"
             `Quick
