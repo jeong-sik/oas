@@ -1784,8 +1784,7 @@ let test_gemini_any_of_nullable_enum_admitted_unchanged () =
       with_server ~response:(gemini_response content)
       @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
       let entry =
-        gemini_exact_entry
-          ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:"" ()
+        gemini_exact_entry ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:"" ()
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
