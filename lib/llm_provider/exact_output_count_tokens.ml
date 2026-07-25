@@ -76,23 +76,6 @@ let count_tokens_body_of_generation_artifact generation_artifact =
   | Yojson.Json_error detail -> Error (Invalid_completion_request detail)
 ;;
 
-let invoke_generation_serializer
-      ~anthropic_thinking_control
-      (request : Llm_transport.completion_request)
-  =
-  let result =
-    Backend_anthropic.build_request_artifact_with_thinking_control
-      ~stream:false
-      ~anthropic_thinking_control
-      ~config:request.config
-      ~messages:request.messages
-      ~tools:request.tools
-      ()
-  in
-  Atomic.incr generation_serializer_invocations;
-  result
-;;
-
 let freeze_exact_completion_artifact
       ~anthropic_thinking_control
       (request : Llm_transport.completion_request)
@@ -102,7 +85,17 @@ let freeze_exact_completion_artifact
   if supports_completion_request_measurement config
   then (
     try
-      match invoke_generation_serializer ~anthropic_thinking_control request with
+      let generation_artifact_result =
+        Backend_anthropic.build_request_artifact_with_thinking_control
+          ~stream:false
+          ~anthropic_thinking_control
+          ~config:request.config
+          ~messages:request.messages
+          ~tools:request.tools
+          ()
+      in
+      Atomic.incr generation_serializer_invocations;
+      match generation_artifact_result with
       | Error error -> Error (Output_token_resolution_failed error)
       | Ok generation_artifact ->
         (match count_tokens_body_of_generation_artifact generation_artifact with
