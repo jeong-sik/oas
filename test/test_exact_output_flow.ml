@@ -77,17 +77,30 @@ let catalog_entry
 ;;
 
 let catalog_fixture_toml entry =
+  (* A [[targets]] table accepts id, provider_ref, model_id,
+     max_request_body_bytes, connect_timeout_s and body_timeout_s
+     (exact_output_resolver.ml:213-220) and rejects anything else, so the thinking
+     keys belong to [[models]] — which is where the resolver reads them
+     (:770-771). Emitting all four into the target table made the resolver refuse
+     the whole catalog with "has unknown fields". *)
   let target_options =
     (match entry.body_timeout_s with
      | None -> ""
      | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
-    ^ (match entry.max_request_body_bytes with
-       | None -> ""
-       | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
-    ^ (match entry.enable_thinking with
-       | None -> ""
-       | Some enabled -> Printf.sprintf "enable_thinking = %b\n" enabled)
     ^
+    match entry.max_request_body_bytes with
+    | None -> ""
+    | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes
+  in
+  (* [enable_thinking] is not emitted: it is not in model_catalog's
+     known_entry_keys (:309-) nor in the target keys, and no catalog reader consumes
+     it — the only occurrences outside this fixture are reasoning_dialect's request
+     serialization and capability_vocab's name. The catalog expresses this axis as
+     [anthropic_thinking_control], which the resolver actually reads
+     (exact_output_resolver.ml:770-771), so emitting the inert key only made the
+     tightened schema refuse the fixture. The record field is left in place for the
+     author to decide on; nothing reads it. *)
+  let model_options =
     match entry.anthropic_thinking_control with
     | None -> ""
     | Some control -> Printf.sprintf "anthropic_thinking_control = %S\n" control
@@ -130,7 +143,7 @@ let catalog_fixture_toml entry =
           serving_constraint_rejected_from_tokens = %d\n"
          entry.serving_accepted_through_tokens
          entry.serving_rejected_from_tokens
-     else "")
+     else "" ^ model_options)
     entry.json
     entry.native
     entry.id
@@ -147,6 +160,15 @@ let with_catalog ?(getenv = fun _ -> Ok None) entries f =
   in
   let io : EO.resolver_io = { getenv } in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay document) () with
+  (* Naming the rejected field beats "should load". Discarding the error made a
+     catalog that the resolver refuses indistinguishable from any other load
+     failure, so a fixture drift showed up only as an assertion label. *)
+  | Error (EO.Target_catalog_invalid { detail; _ }) ->
+    failf "outer-flow catalog rejected by the resolver: %s" detail
+  | Error (EO.Catalog_parse_failed { detail; _ }) ->
+    failf "outer-flow catalog did not parse: %s" detail
+  | Error (EO.Target_binding_missing { target_ref; _ }) ->
+    failf "outer-flow catalog target %s has an unbound component" target_ref
   | Error _ -> fail "outer-flow resolver snapshot should load"
   | Ok snapshot -> f snapshot
 ;;
