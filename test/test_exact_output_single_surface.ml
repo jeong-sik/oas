@@ -1708,6 +1708,7 @@ let gemini_exact_entry
       ?(base_url = "https://surface.invalid/v1beta/models")
       ~id
       ~request_path
+      ()
   =
   catalog_entry
     ~id
@@ -1730,7 +1731,7 @@ let test_gemini_nullable_schema_admitted () =
       ; "required", `List [ `String "nickname" ]
       ]
   in
-  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" () ]
   @@ fun snapshot ->
   match
     EO.admit
@@ -1783,7 +1784,8 @@ let test_gemini_any_of_nullable_enum_admitted_unchanged () =
       with_server ~response:(gemini_response content)
       @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
       let entry =
-        gemini_exact_entry ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:""
+        gemini_exact_entry
+          ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:"" ()
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
@@ -1939,7 +1941,7 @@ let test_gemini_any_of_rejections_are_direct_admission () =
           ] )
     ]
   in
-  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" () ]
   @@ fun snapshot ->
   let selected = target snapshot id in
   List.iter
@@ -1966,7 +1968,7 @@ let test_gemini_nonempty_request_path_rejected_before_resolution () =
   let overlay : EO.catalog_document =
     { source = "Gemini endpoint surface fixture"
     ; contents =
-        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions")
+        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions" ())
     }
   in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
