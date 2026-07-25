@@ -2739,7 +2739,7 @@ let test_exact_anthropic_frozen_artifact_parity () =
   check int "exact artifact measures only constrained request" 1 posts.measurement_posts;
   check int "exact artifact generates both requests" 2 posts.generation_posts;
   List.iter
-    (fun success ->
+    (fun (success : EO.success) ->
        match
          EO.receipt_phase success.receipt, EO.receipt_provider_trace success.receipt
        with
