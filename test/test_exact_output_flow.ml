@@ -25,18 +25,26 @@ let schema =
 type catalog_fixture =
   { id : string
   ; base_url : string
+  ; kind : string
+  ; request_path : string
   ; api_key_env : string
   ; native : bool
   ; json : bool
   ; body_timeout_s : float option
   ; serving_constraint : bool
+  ; serving_accepted_through_tokens : int
+  ; serving_rejected_from_tokens : int
   ; max_request_body_bytes : int option
   }
 
 let catalog_entry
       ?body_timeout_s
       ?(serving_constraint = false)
+      ?(serving_accepted_through_tokens = 524298)
+      ?(serving_rejected_from_tokens = 524299)
       ?max_request_body_bytes
+      ?(kind = "openai_compat")
+      ?(request_path = "/v1/chat/completions")
       ?(api_key_env = "")
       ~id
       ~base_url
@@ -46,11 +54,15 @@ let catalog_entry
   =
   { id
   ; base_url
+  ; kind
+  ; request_path
   ; api_key_env
   ; native
   ; json
   ; body_timeout_s
   ; serving_constraint
+  ; serving_accepted_through_tokens
+  ; serving_rejected_from_tokens
   ; max_request_body_bytes
   }
 ;;
@@ -68,9 +80,9 @@ let catalog_fixture_toml entry =
   Printf.sprintf
     "[[providers]]\n\
      id = %S\n\
-     kind = \"openai_compat\"\n\
+     kind = %S\n\
      base_url = %S\n\
-     request_path = \"/v1/chat/completions\"\n\
+     request_path = %S\n\
      api_key_env = %S\n\n\
      [[models]]\n\
      id_prefix = %S\n\
@@ -85,19 +97,24 @@ let catalog_fixture_toml entry =
      model_id = %S\n\
      %s"
     entry.id
+    entry.kind
     entry.base_url
+    entry.request_path
     entry.api_key_env
     (entry.id ^ "-model")
     entry.id
     (if entry.serving_constraint
      then
-       "serving_constraint_source_kind = \"probe\"\n\
-        serving_constraint_source = \"probe://incident/2793\"\n\
-        serving_constraint_checked_at_unix_s = 0\n\
-        serving_constraint_confidence = \"high\"\n\
-        serving_constraint_expires_at_unix_s = 2000000000\n\
-        serving_constraint_accepted_through_tokens = 524298\n\
-        serving_constraint_rejected_from_tokens = 524299\n"
+       Printf.sprintf
+         "serving_constraint_source_kind = \"probe\"\n\
+          serving_constraint_source = \"probe://incident/2793\"\n\
+          serving_constraint_checked_at_unix_s = 0\n\
+          serving_constraint_confidence = \"high\"\n\
+          serving_constraint_expires_at_unix_s = 2000000000\n\
+          serving_constraint_accepted_through_tokens = %d\n\
+          serving_constraint_rejected_from_tokens = %d\n"
+         entry.serving_accepted_through_tokens
+         entry.serving_rejected_from_tokens
      else "")
     entry.json
     entry.native
@@ -213,8 +230,16 @@ let tool_response =
   {|{"id":"resp-tool","model":"flow","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"forbidden","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
 ;;
 
-let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~response f =
+let with_server
+      ?response_delay_s
+      ?count_tokens
+      ?(status = `OK)
+      ?(abort_completion = false)
+      ~response
+      f
+  =
   let completion_posts = Atomic.make 0 in
+  let measurement_pending = Atomic.make (Option.is_some count_tokens) in
   let result =
     Eio_main.run
     @@ fun env ->
@@ -225,10 +250,17 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
     let port = fresh_port () in
     let handler _conn _request body =
       ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
-      Atomic.incr completion_posts;
-      if abort_completion then raise Exit;
-      Option.iter (Eio.Time.sleep clock) response_delay_s;
-      Cohttp_eio.Server.respond_string ~status ~body:response ()
+      if Atomic.compare_and_set measurement_pending true false
+      then
+        Cohttp_eio.Server.respond_string
+          ~status:`OK
+          ~body:(Printf.sprintf {|{"input_tokens":%d}|} (Option.get count_tokens))
+          ()
+      else (
+        Atomic.incr completion_posts;
+        if abort_completion then raise Exit;
+        Option.iter (Eio.Time.sleep clock) response_delay_s;
+        Cohttp_eio.Server.respond_string ~status ~body:response ())
     in
     let socket =
       Eio.Net.listen
@@ -1627,6 +1659,86 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
   | Error _ -> fail "durably settled body-cap rejection did not reach its successor"
 ;;
 
+let test_measured_token_and_body_capacity_are_independent () =
+  let large_input = String.make 65536 'x' in
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}|}
+  in
+  let cases =
+    [ "low-token large-byte success", 2, 100000, `Success
+    ; "token boundary rejection", 3, 100000, `Token_rejected
+    ; "serialized byte rejection", 2, 1, `Body_rejected
+    ]
+  in
+  List.iter
+    (fun (label, measured_tokens, max_request_body_bytes, expected) ->
+       let (result, evidence), completion_posts =
+         with_server ~count_tokens:measured_tokens ~response
+         @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+         with_catalog
+           [ catalog_entry
+               ~kind:"anthropic"
+               ~request_path:"/v1/messages"
+               ~serving_constraint:true
+               ~serving_accepted_through_tokens:2
+               ~serving_rejected_from_tokens:3
+               ~max_request_body_bytes
+               ~id:"measured-capacity"
+               ~base_url
+               ~native:true
+               ~json:true
+               ()
+           ]
+         @@ fun snapshot ->
+         let flow =
+           start_flow
+             (snapshot_flow
+                ~preferences:(preference_store ())
+                ~scope:(flow_scope ("measured-capacity-" ^ label))
+                [ flow_candidate snapshot "measured-capacity" ]
+              |> Result.get_ok)
+         in
+         let result =
+           EO.execute_flow_once
+             ~net
+             ~before_dispatch:(fun _ -> Ok ())
+             ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+             flow
+         in
+         result, EO.flow_attempt_evidence flow
+       in
+       match expected, result with
+       | `Success, Ok _ ->
+         check int (label ^ " completion dispatches") 1 completion_posts;
+         check int (label ^ " owns one attempt") 1 (List.length evidence.attempts)
+       | `Token_rejected, Error (EO.Flow_candidates_exhausted { rejection; _ }) ->
+         (match EO.candidate_rejection_disposition rejection with
+          | EO.Input_capacity
+              (EO.Token_serving_constraint_rejected
+                 (Serving_constraint.Input_rejected
+                    { input_tokens = 3
+                    ; accepted_through = 2
+                    ; rejected_from = 3
+                    })) -> ()
+          | _ -> fail (label ^ " lost its typed token-capacity rejection"));
+         check int (label ^ " completion dispatches") 0 completion_posts;
+         check int (label ^ " fabricates no attempt") 0 (List.length evidence.attempts)
+       | `Body_rejected, Error (EO.Flow_candidates_exhausted { rejection; _ }) ->
+         (match EO.candidate_rejection_disposition rejection with
+          | EO.Input_capacity
+              (EO.Serialized_request_body_too_large { actual_bytes; limit_bytes = 1 })
+            ->
+            check bool (label ^ " measures final bytes") true (actual_bytes > 1)
+          | _ -> fail (label ^ " lost its typed byte-capacity rejection"));
+         check int (label ^ " completion dispatches") 0 completion_posts;
+         check int (label ^ " fabricates no attempt") 0 (List.length evidence.attempts)
+       | `Success, Error _ -> fail (label ^ " did not admit")
+       | (`Token_rejected | `Body_rejected), Ok _ -> fail (label ^ " dispatched")
+       | (`Token_rejected | `Body_rejected), Error _ ->
+         fail (label ^ " returned the wrong terminal error"))
+    cases
+;;
+
 let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
   let (result, transitions, evidence), posts =
     with_server ~response:(openai_response {|{"name":"unused"}|})
@@ -2435,6 +2547,10 @@ let () =
             "request body cap advances after durable settlement"
             `Quick
             test_request_body_capacity_advances_only_after_durable_settlement
+        ; test_case
+            "measured token and serialized body capacities are independent"
+            `Quick
+            test_measured_token_and_body_capacity_are_independent
         ; test_case
             "all candidate rejections return zero-dispatch terminal"
             `Quick

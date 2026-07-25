@@ -85,6 +85,12 @@ type wire_admission_error =
   | Unsupported_audio_input
   | Unsupported_system_prompt
   | Token_measurement_required of Serving_constraint.t
+  | Context_limit_unavailable
+  | Invalid_context_limit
+  | Output_reservation_unavailable
+  | Measured_context_window_exceeded of Complete.context_fit
+  | Measured_serving_constraint_rejected of Serving_constraint.admission_error
+  | Token_measurement_failed
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
   | Request_body_too_large of
@@ -106,6 +112,12 @@ type input_capacity_disposition =
       { accepted_through_tokens : int
       ; rejected_from_tokens : int option
       }
+  | Context_window_exceeded of
+      { input_tokens : int
+      ; reserved_output_tokens : int
+      ; max_context_tokens : int
+      }
+  | Token_serving_constraint_rejected of Serving_constraint.admission_error
   | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -434,7 +446,7 @@ let wire_admission_error = function
   | Plan.Request_serialization_rejected _ -> Request_serialization_rejected
 ;;
 
-let admit ~target ~messages requirement =
+let admission_contract ~target requirement =
   let* () =
     if Exact_output_resolver.selected_target_model_admitted target
     then Ok ()
@@ -446,6 +458,49 @@ let admit ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     response_format target requirement
   in
+  Ok (response_format, actual_assurance, effective_schema_fingerprint)
+;;
+
+let ready_plan
+      ~target
+      ~requirement
+      ~actual_assurance
+      ~effective_schema_fingerprint
+      plan
+  =
+  let request_body_sha256 = Plan.request_body_sha256 plan in
+  let plan_fingerprint =
+    hash_parts
+      [ "oas-exact-output-ready-plan-v2"
+      ; request_body_sha256
+      ; catalog_generation_fingerprint target.generation
+      ; target_identity_fingerprint target.identity
+      ; Provider_http_codec.fingerprint_tag (Plan.response_codec plan)
+      ; option_float (Plan.connect_timeout_s plan)
+      ; option_float (Plan.body_timeout_s plan)
+      ]
+  in
+  { plan
+  ; provenance =
+      { source_schema_fingerprint = requirement.source_schema_fingerprint
+      ; effective_schema_fingerprint
+      ; actual_assurance
+      ; catalog_generation = target.generation
+      ; catalog_evidence = target.evidence
+      ; target_identity = target.identity
+      }
+  ; plan_fingerprint
+  ; request_body_sha256
+  ; catalog_generation = target.generation
+  ; catalog_evidence = target.evidence
+  ; target_identity = target.identity
+  }
+;;
+
+let admit ~target ~messages requirement =
+  let* response_format, actual_assurance, effective_schema_fingerprint =
+    admission_contract ~target requirement
+  in
   Plan.admit
     (Plan.Unmeasured
        { config = exact_config target response_format
@@ -455,33 +510,102 @@ let admit ~target ~messages requirement =
        })
   |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
   |> Result.map (fun plan ->
-    let request_body_sha256 = Plan.request_body_sha256 plan in
-    let plan_fingerprint =
-      hash_parts
-        [ "oas-exact-output-ready-plan-v2"
-        ; request_body_sha256
-        ; catalog_generation_fingerprint target.generation
-        ; target_identity_fingerprint target.identity
-        ; Provider_http_codec.fingerprint_tag (Plan.response_codec plan)
-        ; option_float (Plan.connect_timeout_s plan)
-        ; option_float (Plan.body_timeout_s plan)
-        ]
+    ready_plan
+      ~target
+      ~requirement
+      ~actual_assurance
+      ~effective_schema_fingerprint
+      plan)
+;;
+
+let fit_wire_admission_error = function
+  | Complete.Context_limit_unknown _ -> Context_limit_unavailable
+  | Complete.Invalid_context_limit _ -> Invalid_context_limit
+  | Complete.Output_reservation_unknown _ -> Output_reservation_unavailable
+  | Complete.Context_window_exceeded fit -> Measured_context_window_exceeded fit
+  | Complete.Serving_constraint_rejected { reason; _ } ->
+    Measured_serving_constraint_rejected reason
+;;
+
+let measurement_wire_admission_error ~constraint_ = function
+  | Count_tokens_sync.Input_count_failed (Input_token_count.Unsupported _) ->
+    Token_measurement_required constraint_
+  | Count_tokens_sync.Input_count_failed
+      (Input_token_count.Transport _ | Input_token_count.Invalid_response _)
+  | Count_tokens_sync.Output_token_resolution_failed _
+  | Count_tokens_sync.Invalid_completion_request _ -> Token_measurement_failed
+;;
+
+let admit_flow_request ~net ?clock ~target ~messages requirement =
+  let* response_format, actual_assurance, effective_schema_fingerprint =
+    admission_contract ~target requirement
+  in
+  let config = exact_config target response_format in
+  let prepared =
+    Complete.prepare_request
+      ~config
+      ~messages
+      ?body_timeout_s:target.body_timeout_s
+      ()
+  in
+  match Complete.serving_constraint prepared with
+  | None ->
+    Plan.admit
+      (Plan.Unmeasured
+         { config
+         ; messages
+         ; body_timeout_s = target.body_timeout_s
+         ; anthropic_thinking_control = target.anthropic_thinking_control
+         })
+    |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
+    |> Result.map (fun plan ->
+      ready_plan
+        ~target
+        ~requirement
+        ~actual_assurance
+        ~effective_schema_fingerprint
+        plan)
+  | Some constraint_ ->
+    let now_unix_s = int_of_float (Unix.gettimeofday ()) in
+    let* () =
+      Serving_constraint.check_evidence ~now_unix_s constraint_
+      |> Result.map_error (fun reason ->
+        Wire_admission_rejected (Measured_serving_constraint_rejected reason))
     in
-    { plan
-    ; provenance =
-        { source_schema_fingerprint = requirement.source_schema_fingerprint
-        ; effective_schema_fingerprint
-        ; actual_assurance
-        ; catalog_generation = target.generation
-        ; catalog_evidence = target.evidence
-        ; target_identity = target.identity
-        }
-    ; plan_fingerprint
-    ; request_body_sha256
-    ; catalog_generation = target.generation
-    ; catalog_evidence = target.evidence
-    ; target_identity = target.identity
-    })
+    let* max_context_tokens =
+      Complete.resolve_context_limit prepared
+      |> Result.map_error (fun error ->
+        Wire_admission_rejected (fit_wire_admission_error error))
+    in
+    let measured =
+      Eio.Switch.run
+      @@ fun sw ->
+      Complete.measure_request
+        ~sw
+        ~net
+        ?clock
+        ?timeout_s:target.body_timeout_s
+        prepared
+    in
+    let* measured =
+      measured
+      |> Result.map_error (fun error ->
+        Wire_admission_rejected (measurement_wire_admission_error ~constraint_ error))
+    in
+    let* admitted =
+      Complete.admit_request ~now_unix_s ~max_context_tokens measured
+      |> Result.map_error (fun error ->
+        Wire_admission_rejected (fit_wire_admission_error error))
+    in
+    Plan.admit (Plan.Measured admitted)
+    |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
+    |> Result.map (fun plan ->
+      ready_plan
+        ~target
+        ~requirement
+        ~actual_assurance
+        ~effective_schema_fingerprint
+        plan)
 ;;
 
 let plan_provenance (ready : ready_plan) = ready.provenance
@@ -684,6 +808,8 @@ let wire_admission_error_disposition = function
   | Global_admission_not_allowed
   | Invalid_connect_timeout
   | Invalid_body_timeout
+  | Context_limit_unavailable
+  | Invalid_context_limit
   | Unsupported_target_model _ -> Runtime_contract_rejected
   | Output_contract_unavailable -> Output_requirement_rejected
   | Cross_feature_not_allowed
@@ -699,9 +825,19 @@ let wire_admission_error_disposition = function
              constraint_.Serving_constraint.observation.accepted_through
          ; rejected_from_tokens = constraint_.observation.rejected_from
          })
+  | Measured_context_window_exceeded
+      { input_tokens; reserved_output_tokens; max_context_tokens } ->
+    Input_capacity
+      (Context_window_exceeded
+         { input_tokens; reserved_output_tokens; max_context_tokens })
+  | Measured_serving_constraint_rejected reason ->
+    Input_capacity (Token_serving_constraint_rejected reason)
   | Request_body_too_large { actual_bytes; limit_bytes } ->
     Input_capacity (Serialized_request_body_too_large { actual_bytes; limit_bytes })
-  | Target_request_rejected | Request_serialization_rejected -> Request_preparation_failed
+  | Output_reservation_unavailable
+  | Token_measurement_failed
+  | Target_request_rejected
+  | Request_serialization_rejected -> Request_preparation_failed
 ;;
 
 let admission_error_disposition = function
@@ -895,7 +1031,14 @@ let execute_flow_candidate
   match resolve_target candidate.admitted_target with
   | Error cause -> reject (Target_selection_rejected cause)
   | Ok target ->
-    (match admit ~target ~messages:flow.messages flow.requirement with
+    (match
+       admit_flow_request
+         ~net
+         ?clock
+         ~target
+         ~messages:flow.messages
+         flow.requirement
+     with
      | Error cause -> reject (Request_admission_rejected cause)
      | Ok plan ->
        let admitted = admitted_flow_candidate candidate.visit plan in

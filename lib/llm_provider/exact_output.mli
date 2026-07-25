@@ -118,6 +118,12 @@ type input_capacity_disposition =
       { accepted_through_tokens : int
       ; rejected_from_tokens : int option
       }
+  | Context_window_exceeded of
+      { input_tokens : int
+      ; reserved_output_tokens : int
+      ; max_context_tokens : int
+      }
+  | Token_serving_constraint_rejected of Serving_constraint.admission_error
   | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
