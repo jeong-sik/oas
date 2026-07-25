@@ -346,7 +346,7 @@ let admit ~target ~messages requirement =
        plan)
 ;;
 
-let admit_flow_request
+let admit_candidate_request
       ~net
       ?clock
       ~on_measurement_receipt

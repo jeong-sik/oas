@@ -816,7 +816,7 @@ let execute_flow_candidate
   | Error cause -> reject (Target_selection_rejected cause)
   | Ok target ->
     (match
-       admit_flow_request
+       admit_candidate_request
          ~net
          ?clock
          ~on_measurement_receipt:(fun receipt ->

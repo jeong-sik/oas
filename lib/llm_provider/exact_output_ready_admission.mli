@@ -127,7 +127,7 @@ val admit
   -> output_requirement
   -> (ready_plan, admission_error) result
 
-val admit_flow_request
+val admit_candidate_request
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> on_measurement_receipt:(Exact_output_flow_admission.measurement_receipt -> unit)
