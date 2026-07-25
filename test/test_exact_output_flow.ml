@@ -182,7 +182,12 @@ let preference_store ?(capacity = 16) () =
     failf "fixture preference capacity was invalid: %d" invalid
 ;;
 
-let snapshot_candidates ~preferences ~scope candidates =
+let snapshot_candidates
+      ?(messages = [ msg "return one exact object" ])
+      ~preferences
+      ~scope
+      candidates
+  =
   match candidates with
   | [] -> fail "flow fixture must be nonempty"
   | first :: rest ->
@@ -191,22 +196,24 @@ let snapshot_candidates ~preferences ~scope candidates =
       ~scope
       ~first
       ~rest
-      ~messages:[ msg "return one exact object" ]
+      ~messages
       (EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
 ;;
 
 let frozen_candidates
       ?(preferences = preference_store ())
       ?(scope = flow_scope "test-default")
+      ?messages
       candidates
   =
-  match snapshot_candidates ~preferences ~scope candidates with
+  match snapshot_candidates ?messages ~preferences ~scope candidates with
   | Ok ready -> ready
   | Error _ -> fail "flow fixture did not admit"
 ;;
 
-let frozen_flow ?preferences ?scope snapshot ids =
-  List.map (flow_candidate snapshot) ids |> frozen_candidates ?preferences ?scope
+let frozen_flow ?preferences ?scope ?messages snapshot ids =
+  List.map (flow_candidate snapshot) ids
+  |> frozen_candidates ?preferences ?scope ?messages
 ;;
 
 let start_flow ready =
@@ -372,6 +379,7 @@ let attempt_for evidence id =
 let execute_ok ~net flow =
   EO.execute_flow_once
     ~net
+    ~on_measurement_terminal:(fun _ -> Ok ())
     ~before_measurement_dispatch:(fun _ -> Ok ())
     ~before_dispatch:(fun _ -> Ok ())
     ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
@@ -1215,6 +1223,7 @@ let test_later_missing_credential_does_not_block_current_success () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun _ -> Ok ())
         ~before_advance:(fun ~failed:_ ~next:_ ->
@@ -1279,6 +1288,7 @@ let test_missing_current_credential_advances_after_durable_settlement () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun candidate ->
           bound := candidate_id candidate :: !bound;
@@ -1392,6 +1402,7 @@ let test_read_failed_current_credential_advances_to_good_successor () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun _ -> Ok ())
         ~before_advance:(fun ~failed ~next ->
@@ -1467,6 +1478,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun candidate ->
           failf "credential rejection %s reached before_dispatch" (candidate_id candidate))
@@ -1563,6 +1575,7 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun candidate ->
           bound := candidate_id candidate :: !bound;
@@ -1664,6 +1677,7 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun _ -> Ok ())
         ~before_advance:(fun ~failed ~next ->
@@ -1755,12 +1769,14 @@ let test_measured_token_and_body_capacity_are_independent () =
              (frozen_flow
                 ~preferences:(preference_store ())
                 ~scope:(flow_scope ("measured-capacity-" ^ label))
+                ~messages:[ msg large_input ]
                 snapshot
                 [ "measured-capacity" ])
          in
          let result =
            EO.execute_flow_once
              ~net
+             ~on_measurement_terminal:(fun _ -> Ok ())
              ~before_measurement_dispatch:(fun _ -> Ok ())
              ~before_dispatch:(fun _ -> Ok ())
              ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
@@ -1789,11 +1805,11 @@ let test_measured_token_and_body_capacity_are_independent () =
        | `Token_rejected, Error (EO.Flow_candidates_exhausted { rejection; _ }) ->
          (match EO.candidate_rejection_disposition rejection with
           | EO.Input_capacity
-              (EO.Token_serving_constraint_rejected
-                 (Serving_constraint.Input_rejected
+              (EO.Token_capacity_rejected
+                 (EO.Capacity_input_rejected
                     { input_tokens = 3
-                    ; accepted_through = 2
-                    ; rejected_from = 3
+                    ; accepted_through_tokens = 2
+                    ; rejected_from_tokens = 3
                     })) -> ()
           | _ -> fail (label ^ " lost its typed token-capacity rejection"));
          check int (label ^ " measurement dispatches") 1 posts.measurement_posts;
@@ -1834,11 +1850,11 @@ let test_measured_token_and_body_capacity_are_independent () =
     cases
 ;;
 
-let test_measurement_fence_rejection_is_durable_zero_wire () =
+let test_measurement_fence_rejection_is_terminal_without_wire () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
   in
-  let (result, evidence), posts =
+  let (result, replay, evidence, intent_callbacks, terminal_callbacks, advances), posts =
     with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
@@ -1851,33 +1867,72 @@ let test_measurement_fence_rejection_is_durable_zero_wire () =
           ~native:true
           ~json:true
           ()
+      ; catalog_entry
+          ~id:"measurement-fence-withheld"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
       ]
     @@ fun snapshot ->
-    let flow = start_flow (frozen_flow snapshot [ "measurement-fence-rejected" ]) in
+    let flow =
+      start_flow
+        (frozen_flow
+           snapshot
+           [ "measurement-fence-rejected"; "measurement-fence-withheld" ])
+    in
+    let intent_callbacks = ref 0 in
+    let terminal_callbacks = ref 0 in
+    let advances = ref 0 in
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun measurement ->
+          incr terminal_callbacks;
+          let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+          check
+            bool
+            "terminal callback observes terminal receipt"
+            true
+            (snapshot.phase = EO.Measurement_terminal);
+          Ok ())
         ~before_measurement_dispatch:(fun measurement ->
+          incr intent_callbacks;
           let live = EO.flow_attempt_evidence flow in
           check int "measurement receipt is registered before fence" 1
             (List.length live.measurements);
           let snapshot = EO.flow_measurement_receipt_snapshot measurement in
           check
             bool
-            "callback observes pending fence"
+            "callback observes committed intent"
             true
-            (snapshot.phase = EO.Measurement_fence_pending);
+            (snapshot.phase = EO.Measurement_fence_committed);
+          check
+            bool
+            "callback never receives a no-dispatch claim"
+            true
+            (snapshot.dispatch = EO.Measurement_dispatch_unknown);
           Error "measurement-fence-not-durable")
         ~before_dispatch:(fun _ -> fail "fence rejection reached generation dispatch")
-        ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
         flow
     in
-    result, EO.flow_attempt_evidence flow
+    ( result
+    , execute_ok ~net flow
+    , EO.flow_attempt_evidence flow
+    , !intent_callbacks
+    , !terminal_callbacks
+    , !advances )
   in
   check int "fence rejection starts no measurement POST" 0 posts.measurement_posts;
   check int "fence rejection starts no generation POST" 0 posts.generation_posts;
   check int "fence rejection creates no generation attempt" 0
     (List.length evidence.attempts);
+  check int "intent callback runs once" 1 intent_callbacks;
+  check int "terminal callback runs once" 1 terminal_callbacks;
+  check int "fence callback failure cannot advance" 0 advances;
   let measurement =
     match evidence.measurements with
     | [ measurement ] -> measurement
@@ -1886,8 +1941,8 @@ let test_measurement_fence_rejection_is_durable_zero_wire () =
   let snapshot = EO.flow_measurement_receipt_snapshot measurement in
   check bool "fence rejection terminalizes receipt" true
     (snapshot.phase = EO.Measurement_terminal);
-  check bool "fence rejection proves zero measurement dispatch" true
-    (snapshot.dispatch = EO.No_measurement_dispatch);
+  check bool "fence rejection retains committed ambiguity" true
+    (snapshot.dispatch = EO.Measurement_dispatch_unknown);
   check (option bool) "fence rejection preserves typed outcome" (Some true)
     (Option.map
        (fun outcome -> outcome = EO.Measurement_fence_rejected)
@@ -1897,6 +1952,9 @@ let test_measurement_fence_rejection_is_durable_zero_wire () =
        (String.equal
           ""
           (EO.measurement_operation_id_to_string snapshot.operation_id)));
+  (match replay with
+   | Error (EO.Flow_attempt_already_started _) -> ()
+   | Ok _ | Error _ -> fail "fence-rejected flow replayed");
   match result with
   | Error
       (EO.Flow_before_measurement_dispatch_callback_failed
@@ -1913,6 +1971,163 @@ let test_measurement_fence_rejection_is_durable_zero_wire () =
       (EO.flow_execution_error_generation_dispatch error
        = EO.No_generation_dispatch)
   | Ok _ | Error _ -> fail "fence rejection lost its typed terminal error"
+;;
+
+let test_measurement_terminal_callback_failure_blocks_generation () =
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+  in
+  let (result, replay, evidence, terminal_callbacks, advances), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~serving_constraint:true
+          ~id:"measurement-terminal-rejected"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry
+          ~id:"measurement-terminal-withheld"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let flow =
+      start_flow
+        (frozen_flow
+           snapshot
+           [ "measurement-terminal-rejected"; "measurement-terminal-withheld" ])
+    in
+    let terminal_callbacks = ref 0 in
+    let advances = ref 0 in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_measurement_dispatch:(fun measurement ->
+          let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+          check
+            bool
+            "intent callback receives committed ambiguity"
+            true
+            (snapshot.dispatch = EO.Measurement_dispatch_unknown);
+          Ok ())
+        ~on_measurement_terminal:(fun measurement ->
+          incr terminal_callbacks;
+          let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+          check
+            bool
+            "terminal callback receives successful terminal outcome"
+            true
+            (snapshot.phase = EO.Measurement_terminal
+             && snapshot.dispatch = EO.Measurement_dispatch_started
+             && snapshot.outcome = Some EO.Measurement_succeeded);
+          Error "measurement-terminal-not-durable")
+        ~before_dispatch:(fun _ ->
+          fail "terminal measurement callback failure allocated generation")
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        flow
+    in
+    result, execute_ok ~net flow, EO.flow_attempt_evidence flow, !terminal_callbacks, !advances
+  in
+  check int "terminal callback failure still measures once" 1 posts.measurement_posts;
+  check int "terminal callback failure generates nothing" 0 posts.generation_posts;
+  check int "terminal callback runs once" 1 terminal_callbacks;
+  check int "terminal callback failure cannot advance" 0 advances;
+  check int "terminal callback failure creates no generation attempt" 0
+    (List.length evidence.attempts);
+  (match replay with
+   | Error (EO.Flow_attempt_already_started _) -> ()
+   | Ok _ | Error _ -> fail "terminal callback failure left flow replayable");
+  match result with
+  | Error
+      (EO.Flow_measurement_terminal_callback_failed
+         { measurement; cause = "measurement-terminal-not-durable"; _ } as error) ->
+    let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+    check bool "terminal callback error is generation-zero" true
+      (EO.flow_execution_error_generation_dispatch error
+       = EO.No_generation_dispatch);
+    check bool "terminal callback error retains terminal receipt" true
+      (snapshot.phase = EO.Measurement_terminal)
+  | Ok _ | Error _ -> fail "terminal callback failure lost its typed terminal error"
+;;
+
+let test_measurement_predispatch_failure_retains_unknown_intent () =
+  let result, replay, evidence, intent_callbacks, terminal_callbacks =
+    Eio_main.run
+    @@ fun env ->
+    let net = Eio.Stdenv.net env in
+    let dead_url = Printf.sprintf "http://127.0.0.1:%d" (fresh_port ()) in
+    with_catalog
+      [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~serving_constraint:true
+          ~id:"measurement-predispatch-failure"
+          ~base_url:dead_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let flow =
+      start_flow (frozen_flow snapshot [ "measurement-predispatch-failure" ])
+    in
+    let intent_callbacks = ref 0 in
+    let terminal_callbacks = ref 0 in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_measurement_dispatch:(fun measurement ->
+          incr intent_callbacks;
+          let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+          check bool "predispatch intent is committed" true
+            (snapshot.phase = EO.Measurement_fence_committed);
+          check bool "predispatch intent is ambiguous" true
+            (snapshot.dispatch = EO.Measurement_dispatch_unknown);
+          Ok ())
+        ~on_measurement_terminal:(fun measurement ->
+          incr terminal_callbacks;
+          let snapshot = EO.flow_measurement_receipt_snapshot measurement in
+          check bool "predispatch failure terminalizes unknown intent" true
+            (snapshot.phase = EO.Measurement_terminal
+             && snapshot.dispatch = EO.Measurement_dispatch_unknown);
+          Ok ())
+        ~before_dispatch:(fun _ ->
+          fail "predispatch measurement failure allocated generation")
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          fail "final predispatch measurement failure requested successor advance")
+        flow
+    in
+    result, execute_ok ~net flow, EO.flow_attempt_evidence flow, !intent_callbacks,
+    !terminal_callbacks
+  in
+  check int "predispatch intent callback runs once" 1 intent_callbacks;
+  check int "predispatch terminal callback runs once" 1 terminal_callbacks;
+  check int "predispatch failure creates no generation attempt" 0
+    (List.length evidence.attempts);
+  let snapshot =
+    match evidence.measurements with
+    | [ measurement ] -> EO.flow_measurement_receipt_snapshot measurement
+    | _ -> fail "predispatch failure lost its sole measurement receipt"
+  in
+  check bool "predispatch failure never claims no dispatch" true
+    (snapshot.dispatch = EO.Measurement_dispatch_unknown);
+  check bool "predispatch failure retains transport outcome" true
+    (snapshot.outcome = Some EO.Measurement_transport_failed);
+  (match replay with
+   | Error (EO.Flow_attempt_already_started _) -> ()
+   | Ok _ | Error _ -> fail "predispatch measurement failure replayed");
+  match result with
+  | Error (EO.Flow_candidates_exhausted _) -> ()
+  | Ok _ | Error _ -> fail "predispatch measurement failure lost typed exhaustion"
 ;;
 
 let test_measurement_cancellation_preserves_dispatch_ambiguity () =
@@ -1944,6 +2159,7 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
           (Eio.Time.with_timeout_exn clock 0.01 (fun () ->
              EO.execute_flow_once
                ~net
+               ~on_measurement_terminal:(fun _ -> Ok ())
                ~before_measurement_dispatch:
                  (before_measurement_dispatch ~clock)
                ~before_dispatch:(fun _ ->
@@ -1975,10 +2191,10 @@ let test_measurement_cancellation_preserves_dispatch_ambiguity () =
     | [ measurement ] -> EO.flow_measurement_receipt_snapshot measurement
     | _ -> fail "pre-fence cancellation lost its measurement receipt"
   in
-  check bool "pre-fence cancellation remains pending" true
-    (before_snapshot.phase = EO.Measurement_fence_pending);
-  check bool "pre-fence cancellation is provably zero-wire" true
-    (before_snapshot.dispatch = EO.No_measurement_dispatch);
+  check bool "intent-callback cancellation remains committed" true
+    (before_snapshot.phase = EO.Measurement_fence_committed);
+  check bool "intent-callback cancellation remains ambiguous" true
+    (before_snapshot.dispatch = EO.Measurement_dispatch_unknown);
   check (option bool) "pre-fence cancellation has no false terminal outcome" None
     (Option.map (fun _ -> true) before_snapshot.outcome);
   (match before_replay with
@@ -2058,6 +2274,7 @@ let test_typed_measurement_failures_advance_without_generation_attempt () =
          let result =
            EO.execute_flow_once
              ~net
+             ~on_measurement_terminal:(fun _ -> Ok ())
              ~before_measurement_dispatch:(fun _ -> Ok ())
              ~before_dispatch:(fun candidate ->
                if String.equal (candidate_id candidate) "measured-failure"
@@ -2178,6 +2395,7 @@ let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun candidate ->
           failf "rejected candidate %s reached before_dispatch" (candidate_id candidate))
@@ -2289,6 +2507,7 @@ let test_exception_after_durable_rejection_stops_before_successor () =
              ignore
                (EO.execute_flow_once
                   ~net
+                  ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
                   ~before_dispatch:(fun candidate ->
                     failf
@@ -2376,6 +2595,7 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     let result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun candidate ->
           events := ("bind:" ^ candidate_id candidate) :: !events;
@@ -2484,6 +2704,7 @@ let test_exception_after_durable_advance_stops_before_successor () =
              ignore
                (EO.execute_flow_once
                   ~net
+                  ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
                   ~before_dispatch:(fun candidate ->
                     bound := candidate_id candidate :: !bound;
@@ -2617,6 +2838,7 @@ let test_callback_failures_are_terminal () =
     @@ fun snapshot ->
     EO.execute_flow_once
       ~net
+      ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
       ~before_dispatch:(fun _ -> Error "bind-not-durable")
       ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
@@ -2663,6 +2885,7 @@ let test_callback_failures_are_terminal () =
     @@ fun snapshot ->
     EO.execute_flow_once
       ~net
+      ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
       ~before_dispatch:(fun _ -> Ok ())
       ~before_advance:(fun ~failed:_ ~next:_ -> Error "release-not-durable")
@@ -2698,6 +2921,7 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
       let result =
         EO.execute_flow_once
           ~net
+          ~on_measurement_terminal:(fun _ -> Ok ())
           ~before_measurement_dispatch:(fun _ -> Ok ())
           ~before_dispatch:(fun _ -> Ok ())
           ~before_advance:(fun ~failed:_ ~next:_ ->
@@ -2777,11 +3001,17 @@ let test_success_and_later_domain_rejection_are_terminal () =
 ;;
 
 let test_structural_predispatch_failure_does_not_advance () =
-  let (result, advances), posts =
-    with_server ~response:(openai_response {|{"name":"unused"}|})
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+  in
+  let (result, replay, evidence, intents, terminals, advances), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
       [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~serving_constraint:true
           ~body_timeout_s:1.0
           ~id:"clock-a"
           ~base_url
@@ -2791,37 +3021,52 @@ let test_structural_predispatch_failure_does_not_advance () =
       ; catalog_entry ~id:"clock-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
+    let flow = start_flow (frozen_flow snapshot [ "clock-a"; "clock-b" ]) in
+    let intents = ref 0 in
+    let terminals = ref 0 in
     let advances = ref 0 in
     let result =
       EO.execute_flow_once
         ~net
-        ~before_measurement_dispatch:(fun _ -> Ok ())
-        ~before_dispatch:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ ->
+          incr intents;
+          Ok ())
+        ~on_measurement_terminal:(fun _ ->
+          incr terminals;
+          Ok ())
+        ~before_dispatch:(fun _ ->
+          fail "missing measurement clock allocated generation")
         ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
           Ok ())
-        (start_flow (frozen_flow snapshot [ "clock-a"; "clock-b" ]))
+        flow
     in
-    result, !advances
+    result, execute_ok ~net flow, EO.flow_attempt_evidence flow, !intents, !terminals,
+    !advances
   in
-  check int "missing clock dispatches nothing" 0 posts;
+  check int "missing clock dispatches no measurement" 0 posts.measurement_posts;
+  check int "missing clock dispatches no generation" 0 posts.generation_posts;
+  check int "missing clock invokes no intent callback" 0 intents;
+  check int "missing clock invokes no terminal callback" 0 terminals;
   check int "missing clock cannot advance" 0 advances;
+  check int "missing clock records no measurement receipt" 0
+    (List.length evidence.measurements);
+  check int "missing clock allocates no generation attempt" 0
+    (List.length evidence.attempts);
+  (match replay with
+   | Error (EO.Flow_attempt_already_started _) -> ()
+   | Ok _ | Error _ -> fail "missing-clock flow replayed");
   match result with
   | Error
-      (EO.Flow_exact_execution_failed
-         { cause = { cause = EO.Clock_required_for_timeout; receipt; _ }; evidence; _ } as
-       error) ->
+      (EO.Flow_measurement_start_failed
+         { cause = EO.Measurement_clock_required_for_timeout; evidence; _ } as error) ->
     check
       bool
       "predispatch structural failure starts no outward dispatch"
       true
       (EO.flow_execution_error_generation_dispatch error = EO.No_generation_dispatch);
-    check
-      int
-      "structural failure remains zero dispatch"
-      0
-      (EO.receipt_dispatch_count receipt);
-    check int "structural successor remains unprepared" 1 (List.length evidence.attempts)
+    check int "structural successor remains unprepared" 0
+      (List.length evidence.attempts)
   | Ok _ | Error _ -> fail "missing clock was not terminal"
 ;;
 
@@ -2836,6 +3081,7 @@ let test_concurrent_duplicate_flow_does_not_double_dispatch () =
     let execute () : (EO.flow_success, string EO.flow_execution_error) result =
       EO.execute_flow_once
         ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun _ -> Ok ())
         ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
@@ -2970,9 +3216,17 @@ let () =
             `Quick
             test_measured_token_and_body_capacity_are_independent
         ; test_case
-            "measurement fence rejection is durable zero-wire"
+            "measurement fence rejection is terminal without wire"
             `Quick
-            test_measurement_fence_rejection_is_durable_zero_wire
+            test_measurement_fence_rejection_is_terminal_without_wire
+        ; test_case
+            "measurement terminal callback blocks generation"
+            `Quick
+            test_measurement_terminal_callback_failure_blocks_generation
+        ; test_case
+            "measurement predispatch failure retains unknown intent"
+            `Quick
+            test_measurement_predispatch_failure_retains_unknown_intent
         ; test_case
             "measurement cancellation preserves dispatch ambiguity"
             `Quick

@@ -33,7 +33,6 @@ type measurement_operation_id
 type measurement_receipt
 
 type measurement_receipt_phase =
-  | Measurement_fence_pending
   | Measurement_fence_committed
   | Measurement_wire_started
   | Measurement_terminal
@@ -54,7 +53,12 @@ type 'callback_error outcome =
       ; measurement : measurement_evidence
       }
   | Measurement_operation_start_failed of string
+  | Measurement_clock_required_for_timeout
   | Before_measurement_dispatch_failed of
+      { receipt : measurement_receipt
+      ; cause : 'callback_error
+      }
+  | Measurement_terminal_callback_failed of
       { receipt : measurement_receipt
       ; cause : 'callback_error
       }
@@ -72,6 +76,8 @@ val admit
   -> now_unix_s:(unit -> int)
   -> on_measurement_receipt:(measurement_receipt -> unit)
   -> before_measurement_dispatch:
+       (measurement_receipt -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:
        (measurement_receipt -> (unit, 'callback_error) result)
   -> Exact_output_plan.preflight
   -> 'callback_error outcome

@@ -37,8 +37,7 @@ val count_anthropic
     The caller supplies the immutable {!Llm_transport.completion_request} that
     reached its transport boundary, after Agent turn hooks, tool projection,
     and caller-owned message projection. The input count uses the provider's
-    native count endpoint. The output receipt comes from the opaque completion
-    request artifact built from the same config, messages, and tools.
+    native count endpoint. The output receipt is resolved from the same config.
 
     This is a lower-level transport-adapter primitive. Application callers
     must not reconstruct a completion request to call it: final Agent-level
@@ -63,10 +62,37 @@ type 'callback_error completion_request_dispatch_error =
   | Completion_request_failed of completion_request_error
   | Before_dispatch_failed of 'callback_error
 
+type exact_completion_measurement_request
+
 (** Whether OAS has an exact provider-native measurement adapter for this
     request configuration. This is the support SSOT used by both measurement
     dispatch and Agent admission routing. *)
 val supports_completion_request_measurement : Provider_config.t -> bool
+
+(** Freeze the exact provider-native measurement input while the generation
+    preflight still owns the explicit thinking-control snapshot and serialized
+    generation body. The returned artifact contains the count-token payload,
+    output-token receipt, URL, headers, and deadline. Measurement performs no
+    provider/model lookup or request reconstruction. *)
+val freeze_exact_completion_measurement_request
+  :  anthropic_thinking_control:
+       Capabilities.anthropic_thinking_control option
+  -> serialized_request_body:string
+  -> Llm_transport.completion_request
+  -> (exact_completion_measurement_request, completion_request_error) result
+
+(** Dispatch one frozen exact measurement through the one-POST evidence
+    transport. The callback runs after all local transport validation and
+    before connection establishment. *)
+val measure_exact_completion_request_with_before_dispatch
+  :  ?connection_cache:Http_client.cache
+  -> ?clock:_ Eio.Time.clock
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> before_dispatch:(unit -> (unit, 'callback_error) result)
+  -> exact_completion_measurement_request
+  -> ( completion_request_measurement
+     , 'callback_error completion_request_dispatch_error )
+       result
 
 val measure_completion_request
   :  ?connection_cache:Http_client.cache

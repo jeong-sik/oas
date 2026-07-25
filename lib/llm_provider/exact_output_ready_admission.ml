@@ -42,6 +42,31 @@ type ready_plan =
   ; measurement : Flow_admission.measurement_evidence
   }
 
+type token_capacity_observation =
+  { accepted_through_tokens : int
+  ; rejected_from_tokens : int option
+  }
+
+type token_capacity_rejection =
+  | Capacity_evidence_not_yet_valid of
+      { now_unix_s : int
+      ; checked_at_unix_s : int
+      }
+  | Capacity_evidence_expired of
+      { now_unix_s : int
+      ; expires_at_unix_s : int
+      }
+  | Capacity_boundary_unknown of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Capacity_input_rejected of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int
+      }
+
 type wire_admission_error =
   | Capability_snapshot_missing
   | Inconsistent_output_contract
@@ -55,12 +80,12 @@ type wire_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
-  | Token_measurement_required of Serving_constraint.t
+  | Token_measurement_required of token_capacity_observation
   | Context_limit_unavailable
   | Invalid_context_limit
   | Output_reservation_unavailable
   | Measured_context_window_exceeded of Complete.context_fit
-  | Measured_serving_constraint_rejected of Serving_constraint.admission_error
+  | Measured_serving_constraint_rejected of token_capacity_rejection
   | Token_measurement_failed
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
@@ -82,7 +107,10 @@ type 'callback_error flow_request_error =
   | Flow_request_admission_failed of
       admission_error * Flow_admission.measurement_evidence
   | Flow_request_measurement_start_failed of string
+  | Flow_request_measurement_clock_required_for_timeout
   | Flow_request_before_measurement_dispatch_failed of
+      Flow_admission.measurement_receipt * 'callback_error
+  | Flow_request_measurement_terminal_callback_failed of
       Flow_admission.measurement_receipt * 'callback_error
 
 let ( let* ) = Result.bind
@@ -201,6 +229,34 @@ let wire_admission_error = function
   | Plan.Request_serialization_rejected _ -> Request_serialization_rejected
 ;;
 
+let token_capacity_observation (constraint_ : Serving_constraint.t) =
+  { accepted_through_tokens = constraint_.observation.accepted_through
+  ; rejected_from_tokens = constraint_.observation.rejected_from
+  }
+;;
+
+let token_capacity_rejection = function
+  | Serving_constraint.Evidence_not_yet_valid
+      { now_unix_s; checked_at_unix_s } ->
+    Capacity_evidence_not_yet_valid { now_unix_s; checked_at_unix_s }
+  | Serving_constraint.Evidence_expired { now_unix_s; expires_at_unix_s } ->
+    Capacity_evidence_expired { now_unix_s; expires_at_unix_s }
+  | Serving_constraint.Boundary_unknown
+      { input_tokens; accepted_through; rejected_from } ->
+    Capacity_boundary_unknown
+      { input_tokens
+      ; accepted_through_tokens = accepted_through
+      ; rejected_from_tokens = rejected_from
+      }
+  | Serving_constraint.Input_rejected
+      { input_tokens; accepted_through; rejected_from } ->
+    Capacity_input_rejected
+      { input_tokens
+      ; accepted_through_tokens = accepted_through
+      ; rejected_from_tokens = rejected_from
+      }
+;;
+
 let admission_contract ~(target : Resolver.selected_target) requirement =
   let* () =
     if Resolver.selected_target_model_admitted target
@@ -258,30 +314,35 @@ let admit ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     admission_contract ~target requirement
   in
-  Plan.preflight
-    ~config:(exact_config target response_format)
-    ~messages
-    ~body_timeout_s:target.body_timeout_s
-    ~anthropic_thinking_control:target.anthropic_thinking_control
-  |> Result.map_error (fun error -> Wire_admission_rejected (wire_admission_error error))
-  |> Result.bind (fun preflight ->
+  let* preflight =
+    Plan.preflight
+      ~config:(exact_config target response_format)
+      ~messages
+      ~body_timeout_s:target.body_timeout_s
+      ~anthropic_thinking_control:target.anthropic_thinking_control
+    |> Result.map_error (fun error ->
+      Wire_admission_rejected (wire_admission_error error))
+  in
+  let* plan =
     Plan.finalize_unmeasured preflight
     |> Result.map_error (function
       | Plan.Token_measurement_required constraint_ ->
-        Wire_admission_rejected (Token_measurement_required constraint_)
+        Wire_admission_rejected
+          (Token_measurement_required (token_capacity_observation constraint_))
       | Plan.Measured_request_mismatch ->
-        Wire_admission_rejected Request_serialization_rejected))
-  |> Result.map (fun plan ->
-    ready_plan
-      ~target
-      ~requirement
-      ~actual_assurance
-      ~effective_schema_fingerprint
-      ~measurement:
-        { dispatch = Flow_admission.No_measurement_dispatch
-        ; outcome = Flow_admission.Measurement_not_required
-        }
-      plan)
+        Wire_admission_rejected Request_serialization_rejected)
+  in
+  Ok
+    (ready_plan
+       ~target
+       ~requirement
+       ~actual_assurance
+       ~effective_schema_fingerprint
+       ~measurement:
+         { dispatch = Flow_admission.No_measurement_dispatch
+         ; outcome = Flow_admission.Measurement_not_required
+         }
+       plan)
 ;;
 
 let admit_flow_request
@@ -289,6 +350,7 @@ let admit_flow_request
       ?clock
       ~on_measurement_receipt
       ~before_measurement_dispatch
+      ~on_measurement_terminal
       ~target
       ~messages
       requirement
@@ -324,6 +386,7 @@ let admit_flow_request
       ~now_unix_s:(fun () -> int_of_float (Unix.gettimeofday ()))
       ~on_measurement_receipt
       ~before_measurement_dispatch
+      ~on_measurement_terminal
       preflight
   with
   | Flow_admission.Admitted { plan; measurement } ->
@@ -340,7 +403,7 @@ let admit_flow_request
     let error =
       match cause with
       | Flow_admission.Serving_evidence_rejected reason ->
-        Measured_serving_constraint_rejected reason
+        Measured_serving_constraint_rejected (token_capacity_rejection reason)
       | Flow_admission.Context_admission_rejected error ->
         (match error with
          | Complete.Context_limit_unknown _ -> Context_limit_unavailable
@@ -348,10 +411,11 @@ let admit_flow_request
          | Complete.Output_reservation_unknown _ -> Output_reservation_unavailable
          | Complete.Context_window_exceeded fit -> Measured_context_window_exceeded fit
          | Complete.Serving_constraint_rejected { reason; _ } ->
-           Measured_serving_constraint_rejected reason)
+           Measured_serving_constraint_rejected (token_capacity_rejection reason))
       | Flow_admission.Measurement_rejected (Flow_admission.Unsupported_failure _) ->
         (match constraint_ with
-         | Some constraint_ -> Token_measurement_required constraint_
+         | Some constraint_ ->
+           Token_measurement_required (token_capacity_observation constraint_)
          | None -> Token_measurement_failed)
       | Flow_admission.Measurement_rejected
           ( Flow_admission.Transport_failure _
@@ -361,7 +425,7 @@ let admit_flow_request
       | Flow_admission.Plan_finalization_rejected error ->
         (match error with
          | Plan.Token_measurement_required constraint_ ->
-           Token_measurement_required constraint_
+           Token_measurement_required (token_capacity_observation constraint_)
          | Plan.Measured_request_mismatch -> Request_serialization_rejected)
     in
     Error
@@ -369,8 +433,12 @@ let admit_flow_request
          (Wire_admission_rejected error, measurement))
   | Flow_admission.Measurement_operation_start_failed detail ->
     Error (Flow_request_measurement_start_failed detail)
+  | Flow_admission.Measurement_clock_required_for_timeout ->
+    Error Flow_request_measurement_clock_required_for_timeout
   | Flow_admission.Before_measurement_dispatch_failed { receipt; cause } ->
     Error (Flow_request_before_measurement_dispatch_failed (receipt, cause))
+  | Flow_admission.Measurement_terminal_callback_failed { receipt; cause } ->
+    Error (Flow_request_measurement_terminal_callback_failed (receipt, cause))
 ;;
 
 let plan_provenance (ready : ready_plan) = ready.provenance

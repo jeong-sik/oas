@@ -41,6 +41,31 @@ type ready_plan = private
   ; measurement : Exact_output_flow_admission.measurement_evidence
   }
 
+type token_capacity_observation =
+  { accepted_through_tokens : int
+  ; rejected_from_tokens : int option
+  }
+
+type token_capacity_rejection =
+  | Capacity_evidence_not_yet_valid of
+      { now_unix_s : int
+      ; checked_at_unix_s : int
+      }
+  | Capacity_evidence_expired of
+      { now_unix_s : int
+      ; expires_at_unix_s : int
+      }
+  | Capacity_boundary_unknown of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Capacity_input_rejected of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int
+      }
+
 type wire_admission_error =
   | Capability_snapshot_missing
   | Inconsistent_output_contract
@@ -54,12 +79,12 @@ type wire_admission_error =
   | Unsupported_document_input
   | Unsupported_audio_input
   | Unsupported_system_prompt
-  | Token_measurement_required of Serving_constraint.t
+  | Token_measurement_required of token_capacity_observation
   | Context_limit_unavailable
   | Invalid_context_limit
   | Output_reservation_unavailable
   | Measured_context_window_exceeded of Complete.context_fit
-  | Measured_serving_constraint_rejected of Serving_constraint.admission_error
+  | Measured_serving_constraint_rejected of token_capacity_rejection
   | Token_measurement_failed
   | Unsupported_target_model of { model_id : string }
   | Target_request_rejected
@@ -81,7 +106,10 @@ type 'callback_error flow_request_error =
   | Flow_request_admission_failed of
       admission_error * Exact_output_flow_admission.measurement_evidence
   | Flow_request_measurement_start_failed of string
+  | Flow_request_measurement_clock_required_for_timeout
   | Flow_request_before_measurement_dispatch_failed of
+      Exact_output_flow_admission.measurement_receipt * 'callback_error
+  | Flow_request_measurement_terminal_callback_failed of
       Exact_output_flow_admission.measurement_receipt * 'callback_error
 
 val schema_fingerprint_to_string : schema_fingerprint -> string
@@ -103,6 +131,9 @@ val admit_flow_request
   -> on_measurement_receipt:
        (Exact_output_flow_admission.measurement_receipt -> unit)
   -> before_measurement_dispatch:
+       (Exact_output_flow_admission.measurement_receipt
+        -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:
        (Exact_output_flow_admission.measurement_receipt
         -> (unit, 'callback_error) result)
   -> target:Exact_output_resolver.selected_target

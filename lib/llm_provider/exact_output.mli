@@ -20,7 +20,6 @@ type measurement_evidence =
 type measurement_operation_id
 
 type measurement_receipt_phase =
-  | Measurement_fence_pending
   | Measurement_fence_committed
   | Measurement_wire_started
   | Measurement_terminal
@@ -140,6 +139,26 @@ type target_catalog_admission_error =
 type wire_admission_error
 type admission_error
 
+type token_capacity_rejection =
+  | Capacity_evidence_not_yet_valid of
+      { now_unix_s : int
+      ; checked_at_unix_s : int
+      }
+  | Capacity_evidence_expired of
+      { now_unix_s : int
+      ; expires_at_unix_s : int
+      }
+  | Capacity_boundary_unknown of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int option
+      }
+  | Capacity_input_rejected of
+      { input_tokens : int
+      ; accepted_through_tokens : int
+      ; rejected_from_tokens : int
+      }
+
 type input_capacity_disposition =
   | Token_measurement_required of
       { accepted_through_tokens : int
@@ -150,7 +169,7 @@ type input_capacity_disposition =
       ; reserved_output_tokens : int
       ; max_context_tokens : int
       }
-  | Token_serving_constraint_rejected of Serving_constraint.admission_error
+  | Token_capacity_rejected of token_capacity_rejection
   | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -418,7 +437,9 @@ val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
 
 type start_attempt_error = Call_id_generation_failed of string
-type measurement_start_error = Measurement_operation_id_generation_failed of string
+type measurement_start_error =
+  | Measurement_operation_id_generation_failed of string
+  | Measurement_clock_required_for_timeout
 type flow_start_error = Flow_id_generation_failed of string
 
 (** Allocate a fresh, independent execution attempt for an admitted plan.
@@ -569,6 +590,11 @@ type 'callback_error flow_execution_error =
       ; cause : 'callback_error
       ; evidence : flow_evidence
       }
+  | Flow_measurement_terminal_callback_failed of
+      { measurement : flow_measurement_receipt
+      ; cause : 'callback_error
+      ; evidence : flow_evidence
+      }
   | Flow_before_dispatch_callback_failed of
       { candidate : flow_attempt_receipt
       ; cause : 'callback_error
@@ -638,13 +664,20 @@ val execute_once
     returns [Ok] can the count-token POST start. The receipt is already visible
     in [flow_attempt_evidence.measurements] while the callback runs.
 
-    A fence-pending receipt is provably zero-wire. A fence-committed receipt
-    without a terminal outcome is dispatch-ambiguous and reports
+    The callback receives a committed receipt whose dispatch fact is already
+    [Measurement_dispatch_unknown], never [No_measurement_dispatch]. A committed
+    receipt without a terminal outcome is dispatch-ambiguous and reports
     [Measurement_dispatch_unknown]; a wire observer advances it to
     [Measurement_dispatch_started]. Token measurement is a read-only operation
     and may be replayed only after the caller reconciles and records the prior
     unclosed intent. OAS neither retries it automatically nor claims that an
     unclosed committed receipt did not dispatch.
+
+    [on_measurement_terminal] receives the same opaque receipt after its terminal
+    measurement outcome is installed. OAS allocates no generation attempt,
+    dispatches no generation request, and advances to no successor until this
+    terminal record is durably accepted. Callback rejection returns a typed
+    terminal flow error.
 
     A typed target-selection or request-admission rejection receives a real
     [candidate_rejection_receipt] with explicit measurement evidence, but no
@@ -668,6 +701,8 @@ val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> before_measurement_dispatch:
+       (flow_measurement_receipt -> (unit, 'callback_error) result)
+  -> on_measurement_terminal:
        (flow_measurement_receipt -> (unit, 'callback_error) result)
   -> before_dispatch:(flow_attempt_receipt -> (unit, 'callback_error) result)
   -> before_advance:

@@ -63,6 +63,7 @@ val measure_with_before_dispatch
        result
 
 val measurement : measured -> Count_tokens_sync.completion_request_measurement
+val attach_measurement : t -> Count_tokens_sync.completion_request_measurement -> measured
 
 (** Resolve the validated positive context-token limit from the explicit
     [max_context] config value, or the exact model capability when none was

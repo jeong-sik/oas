@@ -892,7 +892,16 @@ require_type_constructor_set \
   "$exact_output_interface" \
   input_capacity_disposition \
   Token_measurement_required \
+  Token_capacity_rejected \
   Serialized_request_body_too_large
+require_type_constructor_set \
+  "outer exact flow lost the closed provider-neutral capacity rejection projection" \
+  "$exact_output_interface" \
+  token_capacity_rejection \
+  Capacity_evidence_not_yet_valid \
+  Capacity_evidence_expired \
+  Capacity_boundary_unknown \
+  Capacity_input_rejected
 require_type_field_set \
   "outer exact flow changed the closed token/byte capacity fields" \
   "$exact_output_interface" \

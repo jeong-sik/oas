@@ -23,7 +23,6 @@ type measurement_evidence = Flow_admission.measurement_evidence =
 type measurement_operation_id = Flow_admission.measurement_operation_id
 
 type measurement_receipt_phase = Flow_admission.measurement_receipt_phase =
-  | Measurement_fence_pending
   | Measurement_fence_committed
   | Measurement_wire_started
   | Measurement_terminal
@@ -71,7 +70,7 @@ type input_capacity_disposition =
       ; reserved_output_tokens : int
       ; max_context_tokens : int
       }
-  | Token_serving_constraint_rejected of Serving_constraint.admission_error
+  | Token_capacity_rejected of token_capacity_rejection
   | Serialized_request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -225,7 +224,9 @@ type flow_snapshot_error =
   | Flow_preference_capacity_exhausted of { capacity : int }
 
 type start_attempt_error = Call_id_generation_failed of string
-type measurement_start_error = Measurement_operation_id_generation_failed of string
+type measurement_start_error =
+  | Measurement_operation_id_generation_failed of string
+  | Measurement_clock_required_for_timeout
 type flow_start_error = Flow_id_generation_failed of string
 
 type flow_evidence =
@@ -280,6 +281,11 @@ type 'callback_error flow_execution_error =
       ; cause : 'callback_error
       ; evidence : flow_evidence
       }
+  | Flow_measurement_terminal_callback_failed of
+      { measurement : flow_measurement_receipt
+      ; cause : 'callback_error
+      ; evidence : flow_evidence
+      }
   | Flow_before_dispatch_callback_failed of
       { candidate : flow_attempt_receipt
       ; cause : 'callback_error
@@ -306,6 +312,8 @@ type 'callback_error flow_step_failure =
   | Flow_step_attempt_start_failed of flow_candidate_visit * start_attempt_error
   | Flow_step_measurement_start_failed of flow_candidate_visit * measurement_start_error
   | Flow_step_before_measurement_dispatch_callback_failed of
+      flow_measurement_receipt * 'callback_error
+  | Flow_step_measurement_terminal_callback_failed of
       flow_measurement_receipt * 'callback_error
   | Flow_step_before_dispatch_callback_failed of flow_attempt_receipt * 'callback_error
   | Flow_step_execution_failed of
@@ -444,7 +452,7 @@ let attempt_receipt (attempt : attempt) = attempt.receipt
 let receipt_call_id (receipt : receipt) = receipt.call_id
 let measurement_operation_id_to_string = Flow_admission.operation_id_to_string
 
-let flow_measurement_receipt_snapshot measurement =
+let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
   { operation_id = Flow_admission.receipt_operation_id measurement.receipt
   ; visit = measurement.visit
   ; request_body_sha256 =
@@ -482,6 +490,7 @@ let flow_execution_error_generation_dispatch = function
   | Flow_attempt_start_failed _
   | Flow_measurement_start_failed _
   | Flow_before_measurement_dispatch_callback_failed _
+  | Flow_measurement_terminal_callback_failed _
   | Flow_before_dispatch_callback_failed _
   | Flow_before_advance_callback_failed _
   | Flow_candidates_exhausted _ -> No_generation_dispatch
@@ -548,9 +557,8 @@ let wire_admission_error_disposition = function
   | Token_measurement_required constraint_ ->
     Input_capacity
       (Token_measurement_required
-         { accepted_through_tokens =
-             constraint_.Serving_constraint.observation.accepted_through
-         ; rejected_from_tokens = constraint_.observation.rejected_from
+         { accepted_through_tokens = constraint_.accepted_through_tokens
+         ; rejected_from_tokens = constraint_.rejected_from_tokens
          })
   | Measured_context_window_exceeded
       { input_tokens; reserved_output_tokens; max_context_tokens } ->
@@ -558,7 +566,7 @@ let wire_admission_error_disposition = function
       (Context_window_exceeded
          { input_tokens; reserved_output_tokens; max_context_tokens })
   | Measured_serving_constraint_rejected reason ->
-    Input_capacity (Token_serving_constraint_rejected reason)
+    Input_capacity (Token_capacity_rejected reason)
   | Request_body_too_large { actual_bytes; limit_bytes } ->
     Input_capacity (Serialized_request_body_too_large { actual_bytes; limit_bytes })
   | Output_reservation_unavailable
@@ -750,6 +758,7 @@ let execute_flow_candidate
       ~net
       ?clock
       ~before_measurement_dispatch
+      ~on_measurement_terminal
       ~before_dispatch
       flow
       (candidate : flow_candidate_step)
@@ -778,6 +787,8 @@ let execute_flow_candidate
              (measurement :: Atomic.get flow.measurements))
          ~before_measurement_dispatch:(fun receipt ->
            before_measurement_dispatch { visit = candidate.visit; receipt })
+         ~on_measurement_terminal:(fun receipt ->
+           on_measurement_terminal { visit = candidate.visit; receipt })
          ~target
          ~messages:flow.messages
          flow.requirement
@@ -789,9 +800,17 @@ let execute_flow_candidate
          (Flow_step_measurement_start_failed
             ( candidate.visit
             , Measurement_operation_id_generation_failed detail ))
+     | Error Flow_request_measurement_clock_required_for_timeout ->
+       Error
+         (Flow_step_measurement_start_failed
+            (candidate.visit, Measurement_clock_required_for_timeout))
      | Error (Flow_request_before_measurement_dispatch_failed (receipt, cause)) ->
        Error
          (Flow_step_before_measurement_dispatch_callback_failed
+            ({ visit = candidate.visit; receipt }, cause))
+     | Error (Flow_request_measurement_terminal_callback_failed (receipt, cause)) ->
+       Error
+         (Flow_step_measurement_terminal_callback_failed
             ({ visit = candidate.visit; receipt }, cause))
      | Ok plan ->
        let admitted = admitted_flow_candidate candidate.visit plan in
@@ -828,6 +847,7 @@ let advanceable_flow_failure = function
   | Flow_step_attempt_start_failed _
   | Flow_step_measurement_start_failed _
   | Flow_step_before_measurement_dispatch_callback_failed _
+  | Flow_step_measurement_terminal_callback_failed _
   | Flow_step_before_dispatch_callback_failed _ -> None
 ;;
 
@@ -835,6 +855,7 @@ let execute_flow_once
       ~net
       ?clock
       ~before_measurement_dispatch
+      ~on_measurement_terminal
       ~before_dispatch
       ~before_advance
       flow
@@ -848,6 +869,7 @@ let execute_flow_once
            ~net
            ?clock
            ~before_measurement_dispatch
+           ~on_measurement_terminal
            ~before_dispatch
            flow)
       ~advanceable:advanceable_flow_failure
@@ -887,6 +909,10 @@ let execute_flow_once
      | Flow_step_before_measurement_dispatch_callback_failed (measurement, cause) ->
        Error
          (Flow_before_measurement_dispatch_callback_failed
+            { measurement; cause; evidence })
+     | Flow_step_measurement_terminal_callback_failed (measurement, cause) ->
+       Error
+         (Flow_measurement_terminal_callback_failed
             { measurement; cause; evidence })
      | Flow_step_before_dispatch_callback_failed (candidate, cause) ->
        Error (Flow_before_dispatch_callback_failed { candidate; cause; evidence })

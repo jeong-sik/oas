@@ -106,6 +106,7 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
 ;;
 
 let measurement measured = measured.measurement
+let attach_measurement prepared measurement = { prepared; measurement }
 
 (* Pure single source for the context-token limit. Uses only the caller-owned
    config and the exact model capability -- no network -- so a pre-knowable

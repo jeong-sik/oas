@@ -64,6 +64,10 @@ type t =
 
 type preflight =
   { prepared : Prepared_completion_request.t
+  ; measurement_request :
+      ( Count_tokens_sync.exact_completion_measurement_request
+      , Count_tokens_sync.completion_request_error )
+        result
   ; config : Provider_config.t
   ; capabilities : Capabilities.capabilities
   ; response_format : Types.response_format
@@ -402,17 +406,34 @@ let preflight
                    ; body_timeout_s = request.body_timeout_s
                    }
                  in
-                 Ok { prepared; config; capabilities; response_format; wire }))))
+                 let measurement_request =
+                   Count_tokens_sync.freeze_exact_completion_measurement_request
+                     ~anthropic_thinking_control
+                     ~serialized_request_body:body
+                     request
+                 in
+                 Ok
+                   { prepared
+                   ; measurement_request
+                   ; config
+                   ; capabilities
+                   ; response_format
+                   ; wire
+                   }))))
 ;;
 
-let prepared_request preflight = preflight.prepared
-let serving_constraint preflight =
+let prepared_request (preflight : preflight) = preflight.prepared
+let measurement_request (preflight : preflight) = preflight.measurement_request
+let serving_constraint (preflight : preflight) =
   Prepared_completion_request.serving_constraint preflight.prepared
 ;;
-let preflight_body_timeout_s preflight = preflight.wire.body_timeout_s
-let preflight_request_body_sha256 preflight = preflight.wire.body_sha256
+let preflight_connect_timeout_s (preflight : preflight) =
+  preflight.wire.connect_timeout_s
+;;
+let preflight_body_timeout_s (preflight : preflight) = preflight.wire.body_timeout_s
+let preflight_request_body_sha256 (preflight : preflight) = preflight.wire.body_sha256
 
-let resolve_context_limit preflight =
+let resolve_context_limit (preflight : preflight) =
   Prepared_completion_request.resolve_context_limit preflight.prepared
 ;;
 
@@ -444,18 +465,18 @@ let finalize_measured preflight admitted =
          (Measured_context_fit (Prepared_completion_request.admitted_fit admitted)))
 ;;
 
-let fingerprint plan = plan.fingerprint
-let response_format plan = plan.response_format
-let request_body_sha256 plan = plan.wire.body_sha256
-let request_url plan = plan.wire.url
-let request_headers plan = plan.wire.headers
-let request_body plan = plan.wire.body
-let response_codec plan = plan.wire.response_codec
-let provider_kind plan = plan.wire.provider_kind
-let connect_timeout_s plan = plan.wire.connect_timeout_s
-let body_timeout_s plan = plan.wire.body_timeout_s
+let fingerprint (plan : t) = plan.fingerprint
+let response_format (plan : t) = plan.response_format
+let request_body_sha256 (plan : t) = plan.wire.body_sha256
+let request_url (plan : t) = plan.wire.url
+let request_headers (plan : t) = plan.wire.headers
+let request_body (plan : t) = plan.wire.body
+let response_codec (plan : t) = plan.wire.response_codec
+let provider_kind (plan : t) = plan.wire.provider_kind
+let connect_timeout_s (plan : t) = plan.wire.connect_timeout_s
+let body_timeout_s (plan : t) = plan.wire.body_timeout_s
 
-let verify_frozen_request plan =
+let verify_frozen_request (plan : t) =
   String.equal plan.wire.body_sha256 (sha256 plan.wire.body)
 ;;
 

@@ -66,7 +66,13 @@ val preflight
 (** The exact opaque request frozen into [preflight]. Measurement must consume
     this value rather than reconstructing a request. *)
 val prepared_request : preflight -> Prepared_completion_request.t
+val measurement_request
+  :  preflight
+  -> ( Count_tokens_sync.exact_completion_measurement_request
+     , Count_tokens_sync.completion_request_error )
+       result
 val serving_constraint : preflight -> Serving_constraint.t option
+val preflight_connect_timeout_s : preflight -> float option
 val preflight_body_timeout_s : preflight -> float option
 val preflight_request_body_sha256 : preflight -> string
 
