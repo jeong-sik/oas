@@ -86,6 +86,7 @@ search_q 'create_measurement_dispatch_intent' "$flow_admission"
 callback_checker="$(mktemp)"
 trap 'rm -f "$callback_checker"' EXIT
 ocamlc \
+  -intf-suffix .no-interface \
   -I +compiler-libs \
   ocamlcommon.cma \
   "$callback_checker_source" \
