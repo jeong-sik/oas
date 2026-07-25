@@ -221,6 +221,13 @@ let anthropic_response ?(stop_reason = "end_turn") content =
     stop_reason
 ;;
 
+let gemini_response content =
+  let encoded_content = Yojson.Safe.to_string (`String content) in
+  Printf.sprintf
+    {|{"candidates":[{"content":{"role":"model","parts":[{"text":%s}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}|}
+    encoded_content
+;;
+
 let with_server
       ?response_delay_s
       ?(status = `OK)
@@ -1697,11 +1704,16 @@ let test_identity_survives_success_error_and_cancellation () =
   check_receipt_provenance "cancellation" cancel_provenance cancel_receipt
 ;;
 
-let gemini_exact_entry ~id ~request_path =
+let gemini_exact_entry
+      ?(base_url = "https://surface.invalid/v1beta/models")
+      ~id
+      ~request_path
+      ()
+  =
   catalog_entry
     ~id
     ~kind:Provider_config.Gemini
-    ~base_url:"https://surface.invalid/v1beta/models"
+    ~base_url
     ~request_path
     ~capabilities:(capabilities ~native:true ~json:true)
     ()
@@ -1719,7 +1731,7 @@ let test_gemini_nullable_schema_admitted () =
       ; "required", `List [ `String "nickname" ]
       ]
   in
-  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" () ]
   @@ fun snapshot ->
   match
     EO.admit
@@ -1733,31 +1745,220 @@ let test_gemini_nullable_schema_admitted () =
   | Error _ -> fail "Gemini generateContent must admit nullable type arrays"
 ;;
 
-let test_gemini_nested_unsupported_schema_keyword_rejected () =
-  let id = "gemini-unsupported-keyword-surface" in
-  let unsupported_schema =
+let test_gemini_any_of_nullable_enum_admitted_unchanged () =
+  let nullable_enum =
     `Assoc
-      [ "type", `String "object"
-      ; ( "properties"
-        , `Assoc [ "name", `Assoc [ "type", `String "string"; "pattern", `String ".+" ] ]
-        )
+      [ ( "anyOf"
+        , `List
+            [ `Assoc
+                [ "type", `String "string"
+                ; ( "enum"
+                  , `List
+                      [ `String "self_observation"
+                      ; `String "external_state"
+                      ; `String "durable_knowledge"
+                      ] )
+                ]
+            ; `Assoc [ "type", `String "null" ]
+            ] )
       ]
   in
-  with_catalog [ gemini_exact_entry ~id ~request_path:"" ]
+  let top_level =
+    `Assoc
+      [ "title", `String "nullable observation kind"
+      ; "description", `String "provider-neutral nullable enum"
+      ; "anyOf", Yojson.Safe.Util.member "anyOf" nullable_enum
+      ]
+  in
+  let nested =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "kind", nullable_enum ]
+      ; "required", `List [ `String "kind" ]
+      ; "additionalProperties", `Bool false
+      ]
+  in
+  let run ~label ~domain_schema ~content =
+    let id = "gemini-any-of-" ^ label in
+    let (provenance, result), completion_posts, token_posts, captures =
+      with_server ~response:(gemini_response content)
+      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      let entry =
+        gemini_exact_entry ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:"" ()
+      in
+      with_catalog [ entry ]
+      @@ fun snapshot ->
+      let ready =
+        match
+          EO.admit
+            ~target:(target snapshot id)
+            ~messages:[ msg label ]
+            (EO.make_output_requirement
+               ~schema:domain_schema
+               ~minimum_guarantee:EO.Provider_schema)
+        with
+        | Error _ -> failf "%s Gemini anyOf schema must admit" label
+        | Ok ready -> ready
+      in
+      EO.plan_provenance ready, EO.execute_once ~net (attempt ready)
+    in
+    check int (label ^ " Gemini generation POST") 1 completion_posts;
+    check int (label ^ " Gemini token POST") 0 token_posts;
+    let capture =
+      match captures with
+      | [ capture ] -> capture
+      | _ -> failf "%s Gemini schema must produce one captured request" label
+    in
+    let captured_schema =
+      Yojson.Safe.from_string capture.body
+      |> Yojson.Safe.Util.member "generationConfig"
+      |> Yojson.Safe.Util.member "responseJsonSchema"
+    in
+    check
+      bool
+      (label ^ " Gemini request preserves schema semantics")
+      true
+      (Yojson.Safe.equal captured_schema domain_schema);
+    let source =
+      EO.plan_provenance_source_schema_fingerprint provenance
+      |> EO.schema_fingerprint_to_string
+    in
+    (match EO.plan_provenance_effective_schema_fingerprint provenance with
+     | None -> failf "%s Gemini schema must expose its wire fingerprint" label
+     | Some effective ->
+       check
+         string
+         (label ^ " Gemini source and effective fingerprints match")
+         source
+         (EO.schema_fingerprint_to_string effective));
+    match result with
+    | Error _ -> failf "%s Gemini exact execution must succeed" label
+    | Ok success ->
+      check
+        bool
+        (label ^ " Gemini output")
+        true
+        (success.output = Yojson.Safe.from_string content)
+  in
+  run
+    ~label:"top-level-nullable-enum"
+    ~domain_schema:top_level
+    ~content:{|"self_observation"|};
+  run
+    ~label:"nested-nullable-enum"
+    ~domain_schema:nested
+    ~content:{|{"kind":"self_observation"}|}
+;;
+
+let test_gemini_any_of_rejections_are_direct_admission () =
+  let id = "gemini-any-of-rejection-surface" in
+  let string_branch =
+    `Assoc [ "type", `String "string"; "enum", `List [ `String "ready" ] ]
+  in
+  let null_branch = `Assoc [ "type", `String "null" ] in
+  let rejected_schemas =
+    [ "oneOf semantic loss", `Assoc [ "oneOf", `List [ string_branch; null_branch ] ]
+    ; "empty anyOf", `Assoc [ "anyOf", `List [] ]
+    ; "scalar anyOf", `Assoc [ "anyOf", `String "not-a-schema-list" ]
+    ; ( "non-string title"
+      , `Assoc [ "title", `Int 1; "anyOf", `List [ string_branch; null_branch ] ] )
+    ; ( "non-string description"
+      , `Assoc
+          [ "description", `Bool false; "anyOf", `List [ string_branch; null_branch ] ] )
+    ; ( "empty enum"
+      , `Assoc
+          [ ( "anyOf"
+            , `List [ `Assoc [ "type", `String "string"; "enum", `List [] ]; null_branch ]
+            )
+          ] )
+    ; ( "anyOf with oneOf"
+      , `Assoc
+          [ "anyOf", `List [ string_branch; null_branch ]
+          ; "oneOf", `List [ string_branch; null_branch ]
+          ] )
+    ; ( "duplicate anyOf"
+      , `Assoc
+          [ "anyOf", `List [ string_branch; null_branch ]
+          ; "anyOf", `List [ string_branch; null_branch ]
+          ] )
+    ; "malformed nested branch", `Assoc [ "anyOf", `List [ string_branch; `Bool true ] ]
+    ; ( "nested unsupported keyword"
+      , `Assoc
+          [ ( "anyOf"
+            , `List
+                [ `Assoc [ "type", `String "string"; "pattern", `String ".+" ]
+                ; null_branch
+                ] )
+          ] )
+    ; ( "structural sibling"
+      , `Assoc [ "anyOf", `List [ string_branch; null_branch ]; "type", `String "string" ]
+      )
+    ; ( "mixed-null scalar enum"
+      , `Assoc
+          [ ( "anyOf"
+            , `List
+                [ `Assoc
+                    [ "type", `String "string"; "enum", `List [ `String "ready"; `Null ] ]
+                ; null_branch
+                ] )
+          ] )
+    ; ( "recursive required"
+      , `Assoc
+          [ ( "anyOf"
+            , `List
+                [ `Assoc
+                    [ "type", `String "object"
+                    ; "properties", `Assoc [ "name", string_branch ]
+                    ; "required", `List [ `Int 1 ]
+                    ]
+                ; null_branch
+                ] )
+          ] )
+    ; ( "recursive additionalProperties"
+      , `Assoc
+          [ ( "anyOf"
+            , `List
+                [ `Assoc
+                    [ "type", `String "object"
+                    ; "properties", `Assoc []
+                    ; "additionalProperties", `String "closed"
+                    ]
+                ; null_branch
+                ] )
+          ] )
+    ; ( "recursive bounds"
+      , `Assoc
+          [ ( "anyOf"
+            , `List
+                [ `Assoc
+                    [ "type", `String "array"
+                    ; "items", string_branch
+                    ; "minItems", `Int (-1)
+                    ]
+                ; null_branch
+                ] )
+          ] )
+    ]
+  in
+  with_catalog [ gemini_exact_entry ~id ~request_path:"" () ]
   @@ fun snapshot ->
-  match
-    EO.admit
-      ~target:(target snapshot id)
-      ~messages:[ msg "unsupported keyword" ]
-      (EO.make_output_requirement
-         ~schema:unsupported_schema
-         ~minimum_guarantee:EO.Provider_schema)
-  with
-  | Error error ->
-    (match EO.admission_error_disposition error with
-     | EO.Output_requirement_rejected -> ()
-     | _ -> fail "Gemini schema rejection lost its neutral disposition")
-  | Ok _ -> fail "Gemini unsupported schema keyword must reject"
+  let selected = target snapshot id in
+  List.iter
+    (fun (label, domain_schema) ->
+       match
+         EO.admit
+           ~target:selected
+           ~messages:[ msg label ]
+           (EO.make_output_requirement
+              ~schema:domain_schema
+              ~minimum_guarantee:EO.Provider_schema)
+       with
+       | Error error ->
+         (match EO.admission_error_disposition error with
+          | EO.Output_requirement_rejected -> ()
+          | _ -> failf "%s lost its neutral rejection disposition" label)
+       | Ok _ -> failf "%s must reject during Gemini admission" label)
+    rejected_schemas
 ;;
 
 let test_gemini_nonempty_request_path_rejected_before_resolution () =
@@ -1766,7 +1967,7 @@ let test_gemini_nonempty_request_path_rejected_before_resolution () =
   let overlay : EO.catalog_document =
     { source = "Gemini endpoint surface fixture"
     ; contents =
-        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions")
+        catalog_fixture_toml (gemini_exact_entry ~id ~request_path:"/interactions" ())
     }
   in
   match EO.load_resolver_snapshot ~io ~catalog:(EO.Embedded_with_overlay overlay) () with
@@ -1810,9 +2011,13 @@ let () =
             `Quick
             test_gemini_nullable_schema_admitted
         ; test_case
-            "Gemini nested unsupported schema keyword rejected"
+            "Gemini anyOf nullable enum is preserved"
             `Quick
-            test_gemini_nested_unsupported_schema_keyword_rejected
+            test_gemini_any_of_nullable_enum_admitted_unchanged
+        ; test_case
+            "Gemini anyOf rejections are direct admission"
+            `Quick
+            test_gemini_any_of_rejections_are_direct_admission
         ; test_case
             "Gemini nonempty request path rejected before resolution"
             `Quick
