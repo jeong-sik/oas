@@ -205,6 +205,8 @@ let preference_store ?(capacity = 16) () =
 
 let snapshot_candidates
       ?(messages = [ msg "return one exact object" ])
+      ?(requirement =
+        EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
       ~preferences
       ~scope
       candidates
@@ -218,16 +220,17 @@ let snapshot_candidates
       ~first
       ~rest
       ~messages
-      (EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
+      requirement
 ;;
 
 let frozen_candidates
       ?(preferences = preference_store ())
       ?(scope = flow_scope "test-default")
       ?messages
+      ?requirement
       candidates
   =
-  match snapshot_candidates ?messages ~preferences ~scope candidates with
+  match snapshot_candidates ?messages ?requirement ~preferences ~scope candidates with
   | Ok ready -> ready
   | Error _ -> fail "flow fixture did not admit"
 ;;
@@ -336,16 +339,24 @@ let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
     let port = fresh_port () in
     let handler _conn request body =
       let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
-      match Uri.path (Cohttp.Request.uri request) with
-      | "/v1/messages/count_tokens" ->
+      let path = Uri.path (Cohttp.Request.uri request) in
+      match path with
+      | path
+        when String.equal path "/v1/messages/count_tokens"
+             || String.ends_with ~suffix:":countTokens" path ->
         Atomic.incr measurement_posts;
         atomic_prepend measurement_bodies request_body;
         Option.iter (Eio.Time.sleep clock) measurement_delay_s;
         (match measurement_reply with
          | Measurement_tokens input_tokens ->
+           let body =
+             if String.ends_with ~suffix:":countTokens" path
+             then Printf.sprintf {|{"totalTokens":%d}|} input_tokens
+             else Printf.sprintf {|{"input_tokens":%d}|} input_tokens
+           in
            Cohttp_eio.Server.respond_string
              ~status:`OK
-             ~body:(Printf.sprintf {|{"input_tokens":%d}|} input_tokens)
+             ~body
              ()
          | Measurement_invalid_response ->
            Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"wrong":true}|} ()
@@ -3483,6 +3494,90 @@ let test_success_and_later_domain_rejection_are_terminal () =
   | Error _ -> fail "terminal success fixture failed"
 ;;
 
+let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
+  let id = "gemini-structural-sibling-flow" in
+  let string_branch =
+    `Assoc [ "type", `String "string"; "enum", `List [ `String "ready" ] ]
+  in
+  let invalid_schema =
+    `Assoc
+      [ ( "anyOf"
+        , `List [ string_branch; `Assoc [ "type", `String "null" ] ] )
+      ; "type", `String "string"
+      ]
+  in
+  let requirement =
+    EO.make_output_requirement
+      ~schema:invalid_schema
+      ~minimum_guarantee:EO.Provider_schema
+  in
+  let (result, evidence), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response:"unused"
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~kind:"gemini"
+          ~request_path:""
+          ~id
+          ~base_url:(base_url ^ "/v1beta/models")
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let flow =
+      start_flow
+        (frozen_candidates ~requirement [ flow_candidate snapshot id ])
+    in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_measurement_dispatch:(fun _ ->
+          fail "schema rejection reached measurement intent")
+        ~on_measurement_terminal:(fun _ ->
+          fail "schema rejection reached measurement terminal")
+        ~before_dispatch:(fun _ -> fail "schema rejection allocated generation")
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          fail "single rejected schema requested successor advance")
+        flow
+    in
+    result, EO.flow_attempt_evidence flow
+  in
+  check int "invalid Gemini schema performs no measurement POST" 0 posts.measurement_posts;
+  check int "invalid Gemini schema performs no generation POST" 0 posts.generation_posts;
+  check int "invalid Gemini schema allocates no attempt" 0 (List.length evidence.attempts);
+  match result with
+  | Error
+      (EO.Flow_candidates_exhausted
+         { rejection; evidence = terminal_evidence } as error) ->
+    check
+      bool
+      "invalid Gemini schema starts no generation dispatch"
+      true
+      (EO.flow_execution_error_generation_dispatch error = EO.No_generation_dispatch);
+    (match EO.candidate_rejection_disposition rejection with
+     | EO.Output_requirement_rejected -> ()
+     | _ -> fail "invalid Gemini schema lost its output-requirement disposition");
+    check
+      bool
+      "invalid Gemini schema records no measurement dispatch"
+      true
+      (EO.candidate_rejection_measurement_dispatch_fact rejection
+       = EO.No_measurement_dispatch);
+    check
+      bool
+      "invalid Gemini schema records local invalid measurement outcome"
+      true
+      (EO.candidate_rejection_measurement_outcome rejection
+       = EO.Measurement_local_invalid);
+    check
+      int
+      "terminal invalid Gemini schema retains no attempt"
+      0
+      (List.length terminal_evidence.attempts)
+  | Ok _ | Error _ -> fail "invalid Gemini schema lost typed candidate exhaustion"
+;;
+
 let test_structural_predispatch_failure_does_not_advance () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
@@ -3770,6 +3865,10 @@ let () =
             "success and domain rejection stop"
             `Quick
             test_success_and_later_domain_rejection_are_terminal
+        ; test_case
+            "Gemini structural sibling rejects before outer dispatch"
+            `Quick
+            test_gemini_structural_sibling_rejects_before_outer_dispatch
         ; test_case
             "predispatch structural failure stops"
             `Quick
