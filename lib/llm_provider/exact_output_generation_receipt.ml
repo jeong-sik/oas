@@ -138,27 +138,29 @@ let rec advance receipt desired =
   then
     if not (Atomic.compare_and_set receipt.state current desired)
     then advance receipt desired
-  else if state_rank desired = state_rank current
-  then (
-    (* The one same-rank gain, kept from the original [Response_received_state None
+    else if state_rank desired = state_rank current
+    then (
+      (* The one same-rank gain, kept from the original [Response_received_state None
        -> Some _] rule but written as a merge. Replacing the whole value would drop a
        provider trace recorded before the status arrived, which became possible when
        this state gained a second field. Comparison stays structural on the status
        option only: the trace has its own [Trace.equal] because polymorphic compare
        is not safe on it. *)
-    match current, desired with
-    | Response_received_state received, Response_received_state incoming
-      when Option.is_none received.status && Option.is_some incoming.status ->
-      let merged = Response_received_state { received with status = incoming.status } in
-      if not (Atomic.compare_and_set receipt.state current merged)
-      then advance receipt desired
-    | _ -> ())
+      match current, desired with
+      | Response_received_state received, Response_received_state incoming
+        when Option.is_none received.status && Option.is_some incoming.status ->
+        let merged = Response_received_state { received with status = incoming.status } in
+        if not (Atomic.compare_and_set receipt.state current merged)
+        then advance receipt desired
+      | _ -> ())
 ;;
 
 let observe_phase receipt = function
   | Http_client_phase_observer.Dispatch_started -> advance receipt Dispatch_started_state
   | Http_client_phase_observer.Response_received status ->
-    advance receipt (Response_received_state { status = Some status; provider_trace = None })
+    advance
+      receipt
+      (Response_received_state { status = Some status; provider_trace = None })
 ;;
 
 let synchronize receipt complete_receipt =

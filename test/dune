@@ -533,8 +533,8 @@
     %{dep:../lib/llm_provider/exact_output_measurement_transport.ml})
    (run
     %{exe:check_public_mli_callbacks.exe}
-   --expect-exact-transport-violation
-   %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
+    --expect-exact-transport-violation
+    %{dep:fixtures/exact_output_single_surface/exact_transport_post_alias.ml.fixture})
    (run
     %{exe:check_public_mli_callbacks.exe}
     --allow-callback

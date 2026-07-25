@@ -90,10 +90,7 @@ let alias_index signature =
     }
   in
   iterator.signature iterator signature;
-  { manifests = !manifests
-  ; ambiguous = !ambiguous
-  ; local_modules = !local_modules
-  }
+  { manifests = !manifests; ambiguous = !ambiguous; local_modules = !local_modules }
 ;;
 
 let trusted_qualified_argument_types =
@@ -147,7 +144,7 @@ let type_contains_callback index core_type =
             then true
             else if String_set.mem name visiting
             then false
-            else
+            else (
               match String_map.find_opt name index.manifests with
               | Some manifest -> inspect (String_set.add name visiting) manifest
               | None ->
@@ -163,7 +160,7 @@ let type_contains_callback index core_type =
                    not
                      (String_set.mem
                         (String.concat "." parts)
-                        trusted_qualified_argument_types)))
+                        trusted_qualified_argument_types))))
          references
   in
   inspect String_set.empty core_type
@@ -189,28 +186,22 @@ let rec type_fingerprint index visiting core_type =
     (match longident_parts identifier with
      | Ok [ name ]
        when arguments = []
-            && not (String_set.mem name index.ambiguous)
+            && (not (String_set.mem name index.ambiguous))
             && not (String_set.mem name visiting) ->
        (match String_map.find_opt name index.manifests with
-        | Some manifest ->
-          type_fingerprint index (String_set.add name visiting) manifest
+        | Some manifest -> type_fingerprint index (String_set.add name visiting) manifest
         | None -> "constr(" ^ name ^ ")")
      | Ok parts ->
        let suffix =
          match arguments with
          | [] -> ""
          | _ ->
-           ","
-           ^ String.concat
-               ","
-               (List.map (type_fingerprint index visiting) arguments)
+           "," ^ String.concat "," (List.map (type_fingerprint index visiting) arguments)
        in
        "constr(" ^ String.concat "." parts ^ suffix ^ ")"
      | Error () -> "unresolved-longident")
   | _ ->
-    "syntax("
-    ^ String.escaped (Format.asprintf "%a" Pprintast.core_type core_type)
-    ^ ")"
+    "syntax(" ^ String.escaped (Format.asprintf "%a" Pprintast.core_type core_type) ^ ")"
 ;;
 
 let rec argument_types reversed = function
@@ -235,24 +226,24 @@ let callback_values path signature =
   let index = alias_index signature in
   let violations = ref [] in
   let add_callback value_name label core_type =
-    violations :=
-      { path
-      ; value_name
-      ; argument_label = label_fingerprint label
-      ; type_fingerprint = type_fingerprint index String_set.empty core_type
-      ; kind = Callback_argument
-      }
-      :: !violations
+    violations
+    := { path
+       ; value_name
+       ; argument_label = label_fingerprint label
+       ; type_fingerprint = type_fingerprint index String_set.empty core_type
+       ; kind = Callback_argument
+       }
+       :: !violations
   in
   let add_surface value_name detail =
-    violations :=
-      { path
-      ; value_name
-      ; argument_label = "<surface>"
-      ; type_fingerprint = "<unresolved>"
-      ; kind = Unresolved_public_surface detail
-      }
-      :: !violations
+    violations
+    := { path
+       ; value_name
+       ; argument_label = "<surface>"
+       ; type_fingerprint = "<unresolved>"
+       ; kind = Unresolved_public_surface detail
+       }
+       :: !violations
   in
   let observe_module declaration =
     match declaration.pmd_type.pmty_desc with
@@ -340,9 +331,8 @@ let direct_call_to expected expression =
 
 let field_call_to expected expression =
   match expression.pexp_desc with
-  | Pexp_apply
-      ({ pexp_desc = Pexp_field (_, { txt = Longident.Lident field; _ }); _ }, _) ->
-    String.equal field expected
+  | Pexp_apply ({ pexp_desc = Pexp_field (_, { txt = Longident.Lident field; _ }); _ }, _)
+    -> String.equal field expected
   | _ -> false
 ;;
 
@@ -417,14 +407,13 @@ let transport_reference_facts structure =
 let stage2_chain_is_direct expression =
   let found = ref false in
   let contains_dispatch_cas guard =
-    call_positions
-      (direct_call_to [ "Atomic"; "compare_and_set" ])
-      guard
-    <> []
+    call_positions (direct_call_to [ "Atomic"; "compare_and_set" ]) guard <> []
   in
   let tail_starts_with_post = function
     | { pexp_desc = Pexp_let (_, bindings, _); _ } ->
-      List.exists (fun binding -> direct_call_to exact_post_path binding.pvb_expr) bindings
+      List.exists
+        (fun binding -> direct_call_to exact_post_path binding.pvb_expr)
+        bindings
     | _ -> false
   in
   let iterator =
@@ -432,13 +421,10 @@ let stage2_chain_is_direct expression =
       expr =
         (fun self current ->
           (match current.pexp_desc with
-           | Pexp_sequence
-               ( guard
-               , { pexp_desc = Pexp_sequence (mark, tail); _ } )
+           | Pexp_sequence (guard, { pexp_desc = Pexp_sequence (mark, tail); _ })
              when contains_dispatch_cas guard
                   && field_call_to "mark_dispatch_started" mark
-                  && tail_starts_with_post tail ->
-             found := true
+                  && tail_starts_with_post tail -> found := true
            | _ -> ());
           Ast_iterator.default_iterator.expr self current)
     }
@@ -466,8 +452,8 @@ let exact_transport_error path structure =
          direct_post_calls)
   else (
     match
-      top_level_binding "post_sync_once" structure,
-      top_level_binding "post_sync_once_after_commit" structure
+      ( top_level_binding "post_sync_once" structure
+      , top_level_binding "post_sync_once_after_commit" structure )
     with
     | Some admission, Some transport ->
       let positions target expression = call_positions target expression in
@@ -494,27 +480,27 @@ let exact_transport_error path structure =
       let mark = positions (field_call_to "mark_dispatch_started") transport in
       let post = positions (direct_call_to exact_post_path) transport in
       (match
-         resolve,
-         validate_uri,
-         validate_body,
-         commit_cas,
-         commit,
-         delegate,
-         connect,
-         dispatch_cas,
-         mark,
-         post
+         ( resolve
+         , validate_uri
+         , validate_body
+         , commit_cas
+         , commit
+         , delegate
+         , connect
+         , dispatch_cas
+         , mark
+         , post )
        with
-       | [ resolve_connect; resolve_body ],
-         [ validate_uri ],
-         [ validate_body ],
-         [ commit_cas ],
-         [ commit ],
-         [ delegate ],
-         [ connect ],
-         [ dispatch_cas ],
-         [ mark ],
-         [ post ]
+       | ( [ resolve_connect; resolve_body ]
+         , [ validate_uri ]
+         , [ validate_body ]
+         , [ commit_cas ]
+         , [ commit ]
+         , [ delegate ]
+         , [ connect ]
+         , [ dispatch_cas ]
+         , [ mark ]
+         , [ post ] )
          when resolve_connect < resolve_body
               && resolve_body < validate_uri
               && validate_uri < validate_body
@@ -524,8 +510,7 @@ let exact_transport_error path structure =
               && connect < dispatch_cas
               && dispatch_cas < mark
               && mark < post
-              && stage2_chain_is_direct transport ->
-         None
+              && stage2_chain_is_direct transport -> None
        | _ ->
          Some
            (Printf.sprintf
@@ -535,7 +520,8 @@ let exact_transport_error path structure =
     | _ ->
       Some
         (Printf.sprintf
-           "%s: exact transport must define post_sync_once and post_sync_once_after_commit"
+           "%s: exact transport must define post_sync_once and \
+            post_sync_once_after_commit"
            path))
 ;;
 
@@ -606,16 +592,14 @@ let () =
         remaining_allow := String_map.remove fingerprint !remaining_allow;
         true
       | Some count ->
-        remaining_allow :=
-          String_map.add fingerprint (count - 1) !remaining_allow;
+        remaining_allow := String_map.add fingerprint (count - 1) !remaining_allow;
         true
     in
     let violations =
       List.filter
         (fun violation ->
            match violation.kind with
-           | Callback_argument ->
-             not (consume_allow (violation_key violation))
+           | Callback_argument -> not (consume_allow (violation_key violation))
            | Unresolved_public_surface _ -> true)
         callbacks
     in
@@ -624,10 +608,7 @@ let () =
       String_map.iter
         (fun fingerprint count ->
            prerr_endline
-             (Printf.sprintf
-                "unused callback allowance (%d): %s"
-                count
-                fingerprint))
+             (Printf.sprintf "unused callback allowance (%d): %s" count fingerprint))
         !remaining_allow;
       exit 1)
     else if expect_callback
