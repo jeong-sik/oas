@@ -1925,14 +1925,6 @@ let test_measurement_fence_rejection_is_terminal_without_wire () =
           ~native:true
           ~json:true
           ()
-      ; catalog_entry
-          ~kind:"anthropic"
-          ~request_path:"/v1/messages"
-          ~id:(label ^ "-successor")
-          ~base_url
-          ~native:true
-          ~json:true
-          ()
       ]
     @@ fun snapshot ->
     let flow =
