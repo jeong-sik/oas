@@ -284,6 +284,15 @@ original tag dates. `0.100.4` was never tagged or released.
   advertised raw trace cannot be read instead of silently grading without the
   trajectory. Turn counts remain observation-only metrics.
 
+## [0.223.2](https://github.com/jeong-sik/oas/compare/v0.223.1...v0.223.2) (2026-07-25)
+
+
+### Bug Fixes
+
+* **error-domain:** `Invalid_request 가 전달받은 typed reason 을 버리고 있었다 ([#2808](https://github.com/jeong-sik/oas/issues/2808)) ([71d5332](https://github.com/jeong-sik/oas/commit/71d5332790a012d8ad7203d91f800f6471893c41))
+* **exact-output:** admit Gemini anyOf nullable enums ([#2812](https://github.com/jeong-sik/oas/issues/2812)) ([acca09a](https://github.com/jeong-sik/oas/commit/acca09a43ca6d38c54622e770356b572261f7555))
+* **exact-output:** measure constrained flow admission ([#2807](https://github.com/jeong-sik/oas/issues/2807)) ([48bda5a](https://github.com/jeong-sik/oas/commit/48bda5a06fa4f37d01c5ab744d9be532a411f86d))
+
 ## [0.223.1](https://github.com/jeong-sik/oas/compare/v0.223.0...v0.223.1) (2026-07-25)
 
 
