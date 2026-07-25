@@ -1783,10 +1783,7 @@ let test_gemini_any_of_nullable_enum_admitted_unchanged () =
       with_server ~response:(gemini_response content)
       @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
       let entry =
-        gemini_exact_entry
-          ~base_url:(base_url ^ "/v1beta/models")
-          ~id
-          ~request_path:""
+        gemini_exact_entry ~base_url:(base_url ^ "/v1beta/models") ~id ~request_path:""
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
@@ -1863,20 +1860,15 @@ let test_gemini_any_of_rejections_are_direct_admission () =
     ; "empty anyOf", `Assoc [ "anyOf", `List [] ]
     ; "scalar anyOf", `Assoc [ "anyOf", `String "not-a-schema-list" ]
     ; ( "non-string title"
-      , `Assoc
-          [ "title", `Int 1; "anyOf", `List [ string_branch; null_branch ] ] )
+      , `Assoc [ "title", `Int 1; "anyOf", `List [ string_branch; null_branch ] ] )
     ; ( "non-string description"
       , `Assoc
-          [ "description", `Bool false
-          ; "anyOf", `List [ string_branch; null_branch ]
-          ] )
+          [ "description", `Bool false; "anyOf", `List [ string_branch; null_branch ] ] )
     ; ( "empty enum"
       , `Assoc
           [ ( "anyOf"
-            , `List
-                [ `Assoc [ "type", `String "string"; "enum", `List [] ]
-                ; null_branch
-                ] )
+            , `List [ `Assoc [ "type", `String "string"; "enum", `List [] ]; null_branch ]
+            )
           ] )
     ; ( "anyOf with oneOf"
       , `Assoc
@@ -1893,8 +1885,7 @@ let test_gemini_any_of_rejections_are_direct_admission () =
       , `Assoc
           [ ( "anyOf"
             , `List
-                [ `Assoc
-                    [ "type", `String "string"; "pattern", `String ".+" ]
+                [ `Assoc [ "type", `String "string"; "pattern", `String ".+" ]
                 ; null_branch
                 ] )
           ] )

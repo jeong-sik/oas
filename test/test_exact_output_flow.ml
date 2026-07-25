@@ -214,13 +214,7 @@ let snapshot_candidates
   match candidates with
   | [] -> fail "flow fixture must be nonempty"
   | first :: rest ->
-    EO.snapshot_flow
-      ~preferences
-      ~scope
-      ~first
-      ~rest
-      ~messages
-      requirement
+    EO.snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement
 ;;
 
 let frozen_candidates
@@ -354,10 +348,7 @@ let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
              then Printf.sprintf {|{"totalTokens":%d}|} input_tokens
              else Printf.sprintf {|{"input_tokens":%d}|} input_tokens
            in
-           Cohttp_eio.Server.respond_string
-             ~status:`OK
-             ~body
-             ()
+           Cohttp_eio.Server.respond_string ~status:`OK ~body ()
          | Measurement_invalid_response ->
            Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"wrong":true}|} ()
          | Measurement_transport_failure ->
@@ -3501,8 +3492,7 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
   in
   let invalid_schema =
     `Assoc
-      [ ( "anyOf"
-        , `List [ string_branch; `Assoc [ "type", `String "null" ] ] )
+      [ "anyOf", `List [ string_branch; `Assoc [ "type", `String "null" ] ]
       ; "type", `String "string"
       ]
   in
@@ -3526,8 +3516,7 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
       ]
     @@ fun snapshot ->
     let flow =
-      start_flow
-        (frozen_candidates ~requirement [ flow_candidate snapshot id ])
+      start_flow (frozen_candidates ~requirement [ flow_candidate snapshot id ])
     in
     let result =
       EO.execute_flow_once
@@ -3548,8 +3537,8 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
   check int "invalid Gemini schema allocates no attempt" 0 (List.length evidence.attempts);
   match result with
   | Error
-      (EO.Flow_candidates_exhausted
-         { rejection; evidence = terminal_evidence } as error) ->
+      (EO.Flow_candidates_exhausted { rejection; evidence = terminal_evidence } as error)
+    ->
     check
       bool
       "invalid Gemini schema starts no generation dispatch"
@@ -3568,8 +3557,7 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
       bool
       "invalid Gemini schema records local invalid measurement outcome"
       true
-      (EO.candidate_rejection_measurement_outcome rejection
-       = EO.Measurement_local_invalid);
+      (EO.candidate_rejection_measurement_outcome rejection = EO.Measurement_local_invalid);
     check
       int
       "terminal invalid Gemini schema retains no attempt"
